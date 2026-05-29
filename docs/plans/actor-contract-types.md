@@ -4,21 +4,21 @@
 
 - Pipeline context: `ticket_1780014863_508751`, `run_1780026163_694058`, current step `botster_plan`, gate `botster_plan_gate`.
 - Review context: `review_1780026518_776572` returned changes required because the first plan lacked a durable artifact, surface inventory, mandatory behavior classification, and named acceptance assertions.
-- Worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1780014863_508751`.
+- Worktree: `<pipeline-worktree>`.
 - Target: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Required playbooks loaded:
-  - `/Users/jasonconigliari/knowledge/notes/planner-playbook.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster-planner-playbook.md`
+  - `<vault>/notes/planner-playbook.md`
+  - `<vault>/notes/botster-planner-playbook.md`
 - Additional vault constraints loaded:
-  - `/Users/jasonconigliari/knowledge/notes/botster-architecture.md`
-  - `/Users/jasonconigliari/knowledge/notes/cli-patterns.md`
-  - `/Users/jasonconigliari/knowledge/notes/spa-patterns.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipeline orchestration belongs in a device-level botster plugin.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipelines needs an operator workbench not more primitives.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipelines ui contract belongs in the plugin readme.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster orchestration should spawn agents with explicit target ids.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster orchestration prompts must bind agents to explicit worktrees.md`
-  - `/Users/jasonconigliari/knowledge/notes/plan steps need reviewable plan artifacts.md`
+  - `<vault>/notes/botster-architecture.md`
+  - `<vault>/notes/cli-patterns.md`
+  - `<vault>/notes/spa-patterns.md`
+  - `<vault>/notes/project pipeline orchestration belongs in a device-level botster plugin.md`
+  - `<vault>/notes/project pipelines needs an operator workbench not more primitives.md`
+  - `<vault>/notes/project pipelines ui contract belongs in the plugin readme.md`
+  - `<vault>/notes/botster orchestration should spawn agents with explicit target ids.md`
+  - `<vault>/notes/botster orchestration prompts must bind agents to explicit worktrees.md`
+  - `<vault>/notes/plan steps need reviewable plan artifacts.md`
 - Repo context loaded:
   - `README.md`: core owns reusable mechanisms and transport-neutral contracts; hub owns policy, orchestration, lifecycle, and extension supervision.
   - `src/lib.rs`: exports current contract modules.
@@ -28,14 +28,14 @@
   - `src/boundary.rs`: currently `Layer` and `LayerResponsibility`; no `BoundaryJson`.
   - `tests/boundary_test.rs`: current crate boundary tests.
 - Old trybotster evidence loaded:
-  - `/Users/jasonconigliari/Rails/trybotster/docs/worker-actor-contracts.md`
-  - `/Users/jasonconigliari/Rails/trybotster/docs/architecture-drift-orchestration.md`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/mod.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/hub_control.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/client.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/session_io.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/transport.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/plugin.rs`
+  - `<trybotster-reference>/docs/worker-actor-contracts.md`
+  - `<trybotster-reference>/docs/architecture-drift-orchestration.md`
+  - `<trybotster-reference>/cli/src/worker/mod.rs`
+  - `<trybotster-reference>/cli/src/worker/hub_control.rs`
+  - `<trybotster-reference>/cli/src/worker/client.rs`
+  - `<trybotster-reference>/cli/src/worker/session_io.rs`
+  - `<trybotster-reference>/cli/src/worker/transport.rs`
+  - `<trybotster-reference>/cli/src/worker/plugin.rs`
 
 ## Scope
 
@@ -58,7 +58,7 @@ Non-scope:
 
 - Tokio worker loops, mailbox senders, runtime handles, or thread/task orchestration.
 - WebRTC registry internals, socket frame adapters, ActionCable/Rails relay logic, TUI IPC adapters, or concrete transport implementations.
-- Session process protocol implementation, paste temp path resolution, snapshot gzip preparation, coalescing windows, or terminal parser details.
+- Session process protocol implementation, send-file temp path resolution, snapshot gzip preparation, coalescing windows, or terminal parser details.
 - Hub policy, plugin loading policy, marketplace policy, CLI argument parsing, or executable startup flow.
 - Compatibility shims, dual code paths, broad refactors, or copied old trybotster implementation.
 
@@ -70,7 +70,7 @@ Non-scope:
 | Typed backpressure summaries | New `src/actor.rs` or `src/actor/backpressure.rs` | `BackpressureSummary`, `BackpressureRoute`, maybe `QueueSource` | New core types; reuse `ClientId`, `SessionId`, `SubscriptionId`; route context must be typed, not a free-form string only |
 | Hub-control requests | New `src/actor.rs` or `src/actor/hub_control.rs` | `HubControlMessage`, `HubControlOrigin`, `SessionLifecycleState`, `TransportPeerState`, `TransportConnectionMode`, `TransportDisconnectReason`, `TransportSignal` | New message shapes; reuse `ClientId`, `SessionId`, `SubscriptionId`, `RequestId`, `BoundaryJson` only for relay envelopes |
 | Client-worker messages | New `src/actor.rs` or `src/actor/client_worker.rs`; may extend `src/client.rs` only for client-owned enums | `ClientWorkerMessage`, `ClientControlFrame`, `ClientConnectionHealth`, `TerminalAttachState` | New contract shapes; reuse `ClientId`, `SessionId`, `SubscriptionId`, `RequestId`; do not import or mention concrete transport types |
-| Session-I/O requests/events | New `src/actor.rs` or `src/actor/session_io.rs`; may add terminal summary structs to `src/session.rs` if they are pure session concepts | `SessionIoRequest`, `SessionIoEvent`, `PasteFileErrorReason`, `PreparedSnapshot` fields | New core summaries translated from old worker contract; keep terminal bytes/snapshots opaque but type routing/control fields. Human clarification for PR #4: terminal mode is Session/Ghostty state-sync/probe-owned, not a server-pushed `ModeChanged` contract. |
+| Session-I/O requests/events | New `src/actor.rs` or `src/actor/session_io.rs`; may add terminal summary structs to `src/session.rs` if they are pure session concepts | `SessionIoRequest`, `SessionIoEvent`, `SendFileErrorReason`, `PreparedSnapshot` fields | New core summaries translated from old worker contract; keep terminal bytes/snapshots opaque but type routing/control fields. Human clarification for PR #4: terminal mode is Session/Ghostty state-sync/probe-owned, not a server-pushed `ModeChanged` contract. |
 | Transport ingress/egress | Existing `src/transport.rs` | Extend `TransportIngress` and `TransportEgress` to cover subscribe, unsubscribe, input, resize, snapshot, focus, heartbeat, terminal bytes, scrollback, process exit, attach state, focus changes, binary, and `BoundaryJson` | Extend existing scaffold; transport may depend inward on session/client/boundary types |
 | Plugin-worker messages/events | New `src/actor.rs` or `src/actor/plugin_worker.rs`; possibly `src/plugin.rs` if the implementer prefers a public plugin module | `PluginKey`, `PluginHandlerKind`, `PluginHandlerRef`, `PluginLoadSpec`, `PluginWorkerMessage`, `PluginWorkerEvent` | New contract shapes; preserve handler-ref model, translate paths/runtime execution data into pure metadata, drop Lua closure/function handles |
 | Boundary JSON reservation | Existing `src/boundary.rs` | `BoundaryJson(serde_json::Value)` newtype with docs limiting use to Lua/plugin/relay payloads | New type; transport/plugin/relay contracts may use it, session/client core controls must not use raw `serde_json::Value` for stable controls |
@@ -86,7 +86,7 @@ For old trybotster behavior used as evidence, there is no defer category.
 | `worker/mod.rs` queue metadata | Preserve bounded mailboxes with finite named capacities. | Translate `usize` capacity and `is_bounded` into a core metadata type and constants that do not require Tokio. | Drop tests that `include_str!` old runtime files and any sender/runtime handle behavior. |
 | `worker/hub_control.rs` | Preserve hub-owned mutation boundary: attach, detach, snapshot, lifecycle, reconnect, shutdown, transport peer state/signal, transport backpressure. | Translate old `SessionUuid = String` aliases to `SessionId`; old browser identity strings become generic relay/peer routing strings only where needed. | Drop actual hub mutation handling and WebRTC-specific implementation details. |
 | `worker/client.rs` | Preserve client worker as transport-neutral stream state and typed terminal/control delivery. Preserve attach states and connection health. | Translate session I/O sender registration into contract-level routing intent only, not a Tokio sender. Translate old control frames into serializable core summaries. | Drop `ClientWorkerHandle`, runtime config structs, HashMaps, `tokio::sync::mpsc`, and message-processing behavior. |
-| `worker/session_io.rs` | Preserve PTY input, resize, snapshot, initial snapshot intent, terminal subscription intent, paste file, prepared snapshot, mode/screen/color/shutdown, terminal output/event vocabulary. | Translate terminal protocol structs into minimal core-owned summaries or opaque bytes where parser detail is not stable. Use `RequestId` and `SessionId` for correlation/routing. | Drop paste path resolution, gzip preparation, OSC filtering, timers, coalescing, actual socket read/write behavior, and worker delivery handles. |
+| `worker/session_io.rs` | Preserve PTY input, resize, snapshot, initial snapshot intent, terminal subscription intent, send-file payload, prepared snapshot, mode/screen/color/shutdown, terminal output/event vocabulary. | Translate terminal protocol structs into minimal core-owned summaries or opaque bytes where parser detail is not stable. Use `RequestId` and `SessionId` for correlation/routing. | Drop send-file path resolution, gzip preparation, OSC filtering, timers, coalescing, actual socket read/write behavior, and worker delivery handles. |
 | `worker/transport.rs` | Preserve transport adapter as the only concrete framing boundary and stable typed ingress before JSON fallback. | Translate existing `src/transport.rs` variants into the fuller actor contract while keeping it transport-neutral. Use `BoundaryJson` for Lua/plugin/relay-owned payloads. | Drop socket/TUI frame adapters, concrete `Frame`, `TuiRequest`, `TuiOutput`, and WebRTC adapter commands. |
 | `worker/plugin.rs` | Preserve per-plugin worker boundary, stable plugin keys, stable handler refs, load/invoke/shutdown, loaded/failed/completed/backpressure/stopped events. | Translate `PathBuf` and loader source data into pure serializable metadata if included; keep handler refs typed by capability family. | Drop Lua VM execution, `mlua::Function`, supervisor behavior, timers/watchers/runtime callback plumbing. |
 | Architecture guardrail tests | Preserve intent: no transport leak into session/client, BoundaryJson limited, stable controls typed. | Translate into `botster-core` tests over public types, serde JSON, and source-level dependency direction where useful. | Drop static old-repo include checks tied to trybotster paths. |
