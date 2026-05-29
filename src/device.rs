@@ -23,6 +23,10 @@ impl fmt::Display for DeviceFingerprint {
 }
 
 /// Public device metadata safe to serialize and send across process boundaries.
+///
+/// Deserialized metadata is not automatically trusted. Call
+/// [`DevicePublicMetadata::fingerprint_matches_key`] before using its
+/// fingerprint as an identity anchor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePublicMetadata {
     /// Operator-facing device name or label.
@@ -43,6 +47,11 @@ impl DevicePublicMetadata {
             verifying_key,
             fingerprint,
         }
+    }
+
+    /// Return whether the stored fingerprint matches the stored public key.
+    pub fn fingerprint_matches_key(&self) -> bool {
+        verify_device_fingerprint(&self.verifying_key.0, &self.fingerprint)
     }
 }
 
