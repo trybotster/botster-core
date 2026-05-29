@@ -98,6 +98,8 @@ For old trybotster behavior used as evidence, there is no defer category.
 - Session/client contracts must not contain concrete transport names or types such as WebRTC, browser, socket, TUI, ActionCable, Rails, or DataChannel.
 - `BoundaryJson` must be introduced in `src/boundary.rs` as a documented wrapper around `serde_json::Value`.
 - `BoundaryJson` is allowed only for Lua/plugin/relay-owned payload exceptions. It must not be used to represent stable hub/client/session controls that this ticket is supposed to type.
+- Human clarification implemented in commit `0217733`: terminal mode/color state is owned by Session/Ghostty synced state and client probing, not by a server-pushed `ModeChanged` actor or transport event.
+- `FocusChanged` remains a pushed event because focus reporting is an interactive PTY-emitted stream event, while terminal mode/color is durable terminal state that clients probe from the synced Session/Ghostty model.
 
 ## Assumptions and Unknowns
 
@@ -111,7 +113,6 @@ Assumptions:
 Unknowns for implementation:
 
 - Whether the cleanest shape is `src/actor.rs` or `src/actor/*.rs`. The implementer should choose the smallest readable layout that fits this inventory.
-- Human clarification for PR #4: terminal color/mode shapes are not part of this contract slice. Session is not renamed to actor; `src/actor.rs` is only the mailbox/actor contract grouping. Terminal mode belongs to Session/Ghostty state-sync and probing until a named downstream consumer requires a public pushed event.
 - Whether relay `TransportSignal` should carry `BoundaryJson` or a narrower envelope type. Prefer the narrowest type that still represents the old relay exception without leaking Rails/WebRTC policy.
 
 ## Affected Files
