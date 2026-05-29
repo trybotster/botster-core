@@ -8,6 +8,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
 /// Host-implemented session runtime boundary.
@@ -185,3 +186,18 @@ impl fmt::Display for SessionRuntimeError {
 }
 
 impl Error for SessionRuntimeError {}
+
+/// Host-provided executable runtime for one or more plugin workers.
+///
+/// `PluginWorkerEngine` invokes this trait across a `std::thread` boundary so
+/// core can enforce invocation deadlines without taking a dependency on Tokio.
+/// Implementors must therefore be `Send + Sync + 'static`. Runtimes that wrap a
+/// `!Send` interpreter need to hide it behind their own worker thread or
+/// mailbox before implementing this trait.
+pub trait PluginRuntime: Send + Sync + 'static {
+    /// Invoke a stable plugin handler request.
+    fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationResult;
+
+    /// Stop runtime-owned resources for one plugin.
+    fn stop(&self, _plugin_key: &PluginKey) {}
+}

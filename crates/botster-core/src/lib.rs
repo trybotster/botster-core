@@ -14,11 +14,11 @@ pub use contract::{
     actor, boundary, client, client_stream, entity, notification, session, session_protocol,
     transport, ui,
 };
-pub use engine::session_activity;
+pub use engine::{plugin_worker, session_activity};
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
-    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
 };
@@ -54,7 +54,10 @@ pub use device::{
     device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
     PublicSigningKeyBytes,
 };
-pub use engine::{apply_session_activity_event, classify_session_activity};
+pub use engine::{
+    apply_session_activity_event, classify_session_activity, PluginHandlerRegistration,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
+};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
