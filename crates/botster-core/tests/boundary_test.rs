@@ -244,3 +244,46 @@ fn source_does_not_reintroduce_legacy_public_api_names() {
         }
     }
 }
+
+#[test]
+fn source_boundary_json_uses_are_limited_to_classified_escape_hatches() {
+    // Keep these source markers in sync with the owner/reason inventory in
+    // actor_contract_test.rs so new BoundaryJson fields are not only detected.
+    let allowed_markers = [
+        "pub struct BoundaryJson(pub serde_json::Value);",
+        "payload: BoundaryJson,",
+        "pub payload: BoundaryJson,",
+        "pub body: BoundaryJson,",
+        "pub metadata: Option<BoundaryJson>,",
+        "pub payload: Option<BoundaryJson>,",
+        "pub extension: Option<BoundaryJson>,",
+    ];
+
+    let mut boundary_uses = Vec::new();
+    for path in rust_source_files(Path::new("src")) {
+        let contents = fs::read_to_string(&path).expect("source file must be readable");
+        for line in contents.lines() {
+            let trimmed = line.trim_start();
+            if !trimmed.contains("BoundaryJson")
+                || trimmed.starts_with("use ")
+                || trimmed.starts_with("pub use ")
+                || trimmed.starts_with("//")
+            {
+                continue;
+            }
+
+            assert!(
+                allowed_markers.contains(&trimmed),
+                "{path:?} has an unclassified BoundaryJson use: {trimmed}"
+            );
+            boundary_uses.push(format!("{path:?}:{trimmed}"));
+        }
+    }
+
+    assert!(
+        boundary_uses
+            .iter()
+            .any(|line| line.contains("NotificationAction") || line.contains("extension")),
+        "notification extension BoundaryJson uses must remain visible to the source inventory"
+    );
+}
