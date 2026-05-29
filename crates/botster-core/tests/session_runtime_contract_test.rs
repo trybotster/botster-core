@@ -1,6 +1,7 @@
 //! Session runtime contract acceptance tests.
 
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use botster_core::{
     ProcessExitedPayload, RequestId, ResizePayload, SessionId, SessionRuntime, SessionRuntimeError,
@@ -45,6 +46,27 @@ where
 {
     let json = serde_json::to_string(value).expect("serialize runtime contract value");
     serde_json::from_str(&json).expect("deserialize runtime contract value")
+}
+
+fn runtime_source_files(root: impl AsRef<Path>) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut pending = vec![root.as_ref().to_path_buf()];
+
+    while let Some(path) = pending.pop() {
+        for entry in fs::read_dir(path).expect("read runtime source directory") {
+            let entry = entry.expect("read runtime source entry");
+            let path = entry.path();
+
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                files.push(path);
+            }
+        }
+    }
+
+    files.sort();
+    files
 }
 
 #[test]
@@ -93,6 +115,24 @@ fn session_runtime_spawn_failure_returns_typed_error() {
     assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
     assert_eq!(error.message, "binary not available");
     assert_eq!(error, round_trip(&error));
+}
+
+#[test]
+fn session_runtime_error_kinds_pin_all_serialized_variants() {
+    let variants = [
+        (SessionRuntimeErrorKind::SpawnFailed, "\"SpawnFailed\""),
+        (
+            SessionRuntimeErrorKind::SessionNotFound,
+            "\"SessionNotFound\"",
+        ),
+        (SessionRuntimeErrorKind::InputFailed, "\"InputFailed\""),
+        (SessionRuntimeErrorKind::OutputFailed, "\"OutputFailed\""),
+    ];
+
+    for (kind, json) in variants {
+        assert_eq!(serde_json::to_string(&kind).expect("serialize kind"), json);
+        assert_eq!(round_trip(&kind), kind);
+    }
 }
 
 #[test]
@@ -160,6 +200,24 @@ fn session_runtime_io_wires_input_and_output() {
 }
 
 #[test]
+fn fake_runtime_reports_session_not_found_for_unknown_session_io() {
+    let mut runtime = FakeSessionRuntime::new();
+
+    let input_error = runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session_id(),
+            data: b"ls\n".to_vec(),
+        })
+        .expect_err("unknown session input should fail");
+    let output_error = runtime
+        .drain_output(&session_id())
+        .expect_err("unknown session output drain should fail");
+
+    assert_eq!(input_error.kind, SessionRuntimeErrorKind::SessionNotFound);
+    assert_eq!(output_error.kind, SessionRuntimeErrorKind::SessionNotFound);
+}
+
+#[test]
 fn session_runtime_pty_size_is_rows_and_columns_only() {
     let request = spawn_request();
 
@@ -174,7 +232,6 @@ fn session_runtime_pty_size_is_rows_and_columns_only() {
 
 #[test]
 fn session_runtime_contract_excludes_product_and_transport_policy() {
-    let source = fs::read_to_string("src/runtime/mod.rs").expect("read runtime source");
     let banned_terms = [
         "Rails",
         "WebRtc",
@@ -185,11 +242,22 @@ fn session_runtime_contract_excludes_product_and_transport_policy() {
         "/Users/",
     ];
 
-    for term in banned_terms {
-        assert!(
-            !source.contains(term),
-            "runtime contract must not contain banned term {term}"
-        );
+    let source_files = runtime_source_files("src/runtime");
+    assert!(
+        !source_files.is_empty(),
+        "runtime source guard found no files"
+    );
+
+    for source_file in source_files {
+        let source = fs::read_to_string(&source_file).expect("read runtime source");
+
+        for term in banned_terms {
+            assert!(
+                !source.contains(term),
+                "runtime contract file {} must not contain banned term {term}",
+                source_file.display()
+            );
+        }
     }
 }
 
