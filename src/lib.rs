@@ -22,10 +22,15 @@ pub mod ui;
 pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
     ClientControlFrame, ClientWorkerMessage, HubControlMessage, HubControlOrigin,
-    PasteFileErrorReason, PluginHandlerKind, PluginHandlerRef, PluginKey, PluginLoadSpec,
-    PluginWorkerEvent, PluginWorkerMessage, PreparedSnapshot, QueueSource, SessionIoEvent,
-    SessionIoRequest, SessionLifecycleState, TerminalAttachState, TransportConnectionMode,
-    TransportDisconnectReason, TransportPeerState, TransportSignal, PUBLIC_QUEUE_SOURCES,
+    InitialSnapshotBarrier, InitialSnapshotPhase, InitialSnapshotReady, InitialSnapshotRequest,
+    MailboxSendFailure, MailboxSendFailureReason, ModeFlagsReady, PasteFileErrorReason,
+    PasteFileFailed, PasteFileRequest, PasteFileWritten, PluginHandlerKind, PluginHandlerRef,
+    PluginKey, PluginLoadSpec, PluginWorkerEvent, PluginWorkerMessage, PreparedSnapshotReady,
+    PreparedSnapshotRequest, QueueSource, ScreenReady, SessionIoCoalescingPolicy, SessionIoEvent,
+    SessionIoOrderedEvent, SessionIoRequest, SessionLifecycleState, SnapshotReady,
+    TerminalAttachState, TransportConnectionMode, TransportDisconnectReason, TransportPeerState,
+    TransportSignal, PUBLIC_QUEUE_SOURCES, SESSION_IO_MAX_COALESCED_BYTES,
+    SESSION_IO_MAX_COALESCED_FRAMES, SESSION_IO_MAX_COALESCED_WINDOW,
 };
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
