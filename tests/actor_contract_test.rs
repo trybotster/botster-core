@@ -112,6 +112,7 @@ fn stable_hub_and_client_controls_are_typed() {
     };
     let output = TransportEgress::TerminalOutput {
         session_id: session_id(),
+        subscription_id: subscription_id(),
         data: b"ok".to_vec(),
     };
 
