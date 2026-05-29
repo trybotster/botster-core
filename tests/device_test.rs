@@ -58,4 +58,12 @@ fn public_metadata_can_preserve_existing_fingerprint() {
     };
 
     assert_eq!(metadata.fingerprint.to_string(), "aa:bb:cc:dd:ee:ff:00:11");
+    assert!(!metadata.fingerprint_matches_key());
+}
+
+#[test]
+fn public_metadata_can_verify_its_fingerprint_trust_boundary() {
+    let metadata = DevicePublicMetadata::new(None, PublicSigningKeyBytes(vec![9, 8, 7]));
+
+    assert!(metadata.fingerprint_matches_key());
 }

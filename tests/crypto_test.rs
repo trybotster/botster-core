@@ -8,6 +8,27 @@ fn key(byte: u8) -> AesGcmKey {
 }
 
 #[test]
+fn aes_gcm_key_constructs_from_exact_length_slice() -> Result<(), CryptoError> {
+    let key = AesGcmKey::from_slice(&[7; 32])?;
+    let envelope = encrypt_aes_gcm(&key, b"slice key payload", 1)?;
+
+    assert_eq!(decrypt_aes_gcm(&key, &envelope)?, b"slice key payload");
+
+    Ok(())
+}
+
+#[test]
+fn aes_gcm_key_rejects_wrong_length_slice() {
+    assert_eq!(
+        AesGcmKey::from_slice(&[7; 31]).err(),
+        Some(CryptoError::InvalidKeyLength {
+            expected: 32,
+            actual: 31
+        })
+    );
+}
+
+#[test]
 fn aes_gcm_encrypts_and_decrypts_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let plaintext = b"botster core envelope";
     let envelope = encrypt_aes_gcm(&key(7), plaintext, 1)?;
@@ -93,6 +114,22 @@ fn aes_gcm_rejects_malformed_base64_and_nonce_lengths() {
         Err(CryptoError::InvalidNonceLength {
             expected: 12,
             actual: 1
+        })
+    );
+}
+
+#[test]
+fn aes_gcm_rejects_malformed_ciphertext_base64_after_valid_nonce() {
+    let invalid_ciphertext = AesGcmEnvelope {
+        nonce: "AAAAAAAAAAAAAAAA".to_string(),
+        ciphertext: "not base64".to_string(),
+        version: 1,
+    };
+
+    assert_eq!(
+        decrypt_aes_gcm(&key(7), &invalid_ciphertext),
+        Err(CryptoError::DecodeFailed {
+            field: "ciphertext"
         })
     );
 }
