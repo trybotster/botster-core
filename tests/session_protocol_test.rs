@@ -33,12 +33,17 @@ fn metadata() -> SessionMetadata {
 #[test]
 fn handshake_round_trips_magic_version_and_metadata() {
     let encoded_hello = encode_hello(PROTOCOL_VERSION);
-    let encoded_welcome = encode_welcome(PROTOCOL_VERSION, &metadata()).unwrap();
+    let encoded_welcome = encode_welcome(PROTOCOL_VERSION, &metadata())
+        .expect("expected protocol operation to succeed");
 
     assert_eq!(&encoded_hello[..4], HELLO_MAGIC);
-    assert_eq!(decode_hello(&encoded_hello).unwrap(), PROTOCOL_VERSION);
+    assert_eq!(
+        decode_hello(&encoded_hello).expect("expected protocol operation to succeed"),
+        PROTOCOL_VERSION
+    );
 
-    let (version, decoded) = decode_welcome(&encoded_welcome).unwrap();
+    let (version, decoded) =
+        decode_welcome(&encoded_welcome).expect("expected protocol operation to succeed");
     assert_eq!(version, PROTOCOL_VERSION);
     assert_eq!(decoded, metadata());
 }
@@ -81,9 +86,17 @@ fn frame_constants_match_session_process_wire_spec() {
 #[test]
 fn frame_round_trips_binary_string_empty_and_json_payloads() {
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"\x00\xffraw").unwrap());
-    bytes.extend_from_slice(&encode_string(FRAME_TITLE_CHANGED, "terminal").unwrap());
-    bytes.extend_from_slice(&encode_empty(FRAME_BELL).unwrap());
+    bytes.extend_from_slice(
+        &encode_frame(FRAME_PTY_OUTPUT, b"\x00\xffraw")
+            .expect("expected protocol operation to succeed"),
+    );
+    bytes.extend_from_slice(
+        &encode_string(FRAME_TITLE_CHANGED, "terminal")
+            .expect("expected protocol operation to succeed"),
+    );
+    bytes.extend_from_slice(
+        &encode_empty(FRAME_BELL).expect("expected protocol operation to succeed"),
+    );
     bytes.extend_from_slice(
         &encode_json(
             FRAME_RESIZE,
@@ -92,18 +105,25 @@ fn frame_round_trips_binary_string_empty_and_json_payloads() {
                 cols: 100,
             },
         )
-        .unwrap(),
+        .expect("expected protocol operation to succeed"),
     );
 
     let mut decoder = FrameDecoder::new();
-    let frames = decoder.feed(&bytes).unwrap();
+    let frames = decoder
+        .feed(&bytes)
+        .expect("expected protocol operation to succeed");
 
     assert_eq!(frames.len(), 4);
     assert_eq!(frames[0].payload, b"\x00\xffraw");
-    assert_eq!(std::str::from_utf8(&frames[1].payload).unwrap(), "terminal");
+    assert_eq!(
+        std::str::from_utf8(&frames[1].payload).expect("expected protocol operation to succeed"),
+        "terminal"
+    );
     assert!(frames[2].payload.is_empty());
     assert_eq!(
-        frames[3].json::<ResizePayload>().unwrap(),
+        frames[3]
+            .json::<ResizePayload>()
+            .expect("expected protocol operation to succeed"),
         ResizePayload {
             rows: 30,
             cols: 100
@@ -113,13 +133,22 @@ fn frame_round_trips_binary_string_empty_and_json_payloads() {
 
 #[test]
 fn decoder_buffers_split_header_and_payload_until_complete() {
-    let encoded = encode_frame(FRAME_PTY_INPUT, b"hello").unwrap();
+    let encoded =
+        encode_frame(FRAME_PTY_INPUT, b"hello").expect("expected protocol operation to succeed");
     let mut decoder = FrameDecoder::new();
 
-    assert!(decoder.feed(&encoded[..3]).unwrap().is_empty());
-    assert!(decoder.feed(&encoded[3..6]).unwrap().is_empty());
+    assert!(decoder
+        .feed(&encoded[..3])
+        .expect("expected protocol operation to succeed")
+        .is_empty());
+    assert!(decoder
+        .feed(&encoded[3..6])
+        .expect("expected protocol operation to succeed")
+        .is_empty());
 
-    let frames = decoder.feed(&encoded[6..]).unwrap();
+    let frames = decoder
+        .feed(&encoded[6..])
+        .expect("expected protocol operation to succeed");
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].frame_type, FRAME_PTY_INPUT);
     assert_eq!(frames[0].payload, b"hello");
@@ -128,12 +157,20 @@ fn decoder_buffers_split_header_and_payload_until_complete() {
 #[test]
 fn decoder_drains_multiple_frames_from_one_feed() {
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"one").unwrap());
-    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"two").unwrap());
-    bytes.extend_from_slice(&encode_empty(FRAME_PONG).unwrap());
+    bytes.extend_from_slice(
+        &encode_frame(FRAME_PTY_OUTPUT, b"one").expect("expected protocol operation to succeed"),
+    );
+    bytes.extend_from_slice(
+        &encode_frame(FRAME_PTY_OUTPUT, b"two").expect("expected protocol operation to succeed"),
+    );
+    bytes.extend_from_slice(
+        &encode_empty(FRAME_PONG).expect("expected protocol operation to succeed"),
+    );
 
     let mut decoder = FrameDecoder::new();
-    let frames = decoder.feed(&bytes).unwrap();
+    let frames = decoder
+        .feed(&bytes)
+        .expect("expected protocol operation to succeed");
 
     assert_eq!(frames.len(), 3);
     assert_eq!(frames[0].payload, b"one");
@@ -144,7 +181,9 @@ fn decoder_drains_multiple_frames_from_one_feed() {
 #[test]
 fn decoder_rejects_zero_length_header() {
     let mut decoder = FrameDecoder::new();
-    let err = decoder.feed(&0u32.to_le_bytes()).unwrap_err();
+    let err = decoder
+        .feed(&0u32.to_le_bytes())
+        .expect_err("expected protocol operation to fail");
 
     assert!(matches!(err, ProtocolError::FrameLengthZero));
 }
@@ -153,7 +192,9 @@ fn decoder_rejects_zero_length_header() {
 fn decoder_rejects_oversized_header() {
     let mut decoder = FrameDecoder::new();
     let oversized = ((MAX_FRAME_LEN as u32) + 1).to_le_bytes();
-    let err = decoder.feed(&oversized).unwrap_err();
+    let err = decoder
+        .feed(&oversized)
+        .expect_err("expected protocol operation to fail");
 
     assert!(matches!(
         err,
@@ -167,11 +208,15 @@ fn decoder_reports_desync_after_repeated_bad_headers() {
     let mut decoder = FrameDecoder::new();
 
     for _ in 1..DESYNC_THRESHOLD {
-        decoder.record_discarded_header().unwrap();
+        decoder
+            .record_discarded_header()
+            .expect("expected protocol operation to succeed");
         assert!(!decoder.is_desynced());
     }
 
-    let err = decoder.record_discarded_header().unwrap_err();
+    let err = decoder
+        .record_discarded_header()
+        .expect_err("expected protocol operation to fail");
     assert!(matches!(
         err,
         ProtocolError::Desynchronized {
@@ -189,7 +234,7 @@ fn handshake_rejects_metadata_over_64k() {
     bytes.push(PROTOCOL_VERSION);
     bytes.extend_from_slice(&((MAX_METADATA_LEN as u32) + 1).to_le_bytes());
 
-    let err = decode_welcome(&bytes).unwrap_err();
+    let err = decode_welcome(&bytes).expect_err("expected protocol operation to fail");
 
     assert!(matches!(
         err,
@@ -200,12 +245,15 @@ fn handshake_rejects_metadata_over_64k() {
 
 #[test]
 fn session_metadata_round_trips_optional_recovery_identity_and_mode_flags() {
-    let json = serde_json::to_vec(&metadata()).unwrap();
-    let decoded: SessionMetadata = serde_json::from_slice(&json).unwrap();
+    let json = serde_json::to_vec(&metadata()).expect("expected protocol operation to succeed");
+    let decoded: SessionMetadata =
+        serde_json::from_slice(&json).expect("expected protocol operation to succeed");
 
     assert_eq!(decoded, metadata());
     assert_eq!(
-        decoded.recovery_identity.unwrap()["session_type"],
+        decoded
+            .recovery_identity
+            .expect("expected protocol operation to succeed")["session_type"],
         serde_json::json!("agent")
     );
 }
@@ -213,8 +261,9 @@ fn session_metadata_round_trips_optional_recovery_identity_and_mode_flags() {
 #[test]
 fn mode_flags_round_trip_all_fields() {
     let flags = metadata().mode_flags;
-    let json = serde_json::to_vec(&flags).unwrap();
-    let decoded: ModeFlags = serde_json::from_slice(&json).unwrap();
+    let json = serde_json::to_vec(&flags).expect("expected protocol operation to succeed");
+    let decoded: ModeFlags =
+        serde_json::from_slice(&json).expect("expected protocol operation to succeed");
 
     assert_eq!(decoded, flags);
 }
@@ -227,7 +276,7 @@ fn sparse_mode_changed_omits_unchanged_fields() {
         ..Default::default()
     };
 
-    let value = serde_json::to_value(&changed).unwrap();
+    let value = serde_json::to_value(&changed).expect("expected protocol operation to succeed");
 
     assert_eq!(value["kitty_enabled"], true);
     assert_eq!(value["alt_screen"], false);
@@ -263,8 +312,9 @@ fn terminal_color_profile_serializes_core_rgb_map() {
     );
     let profile = TerminalColorProfile { colors };
 
-    let json = serde_json::to_vec(&profile).unwrap();
-    let decoded: TerminalColorProfile = serde_json::from_slice(&json).unwrap();
+    let json = serde_json::to_vec(&profile).expect("expected protocol operation to succeed");
+    let decoded: TerminalColorProfile =
+        serde_json::from_slice(&json).expect("expected protocol operation to succeed");
 
     assert_eq!(decoded, profile);
 }
@@ -281,13 +331,17 @@ fn process_exit_payload_supports_code_and_signal_absence() {
     };
 
     assert_eq!(
-        serde_json::from_slice::<ProcessExitedPayload>(&serde_json::to_vec(&exited).unwrap())
-            .unwrap(),
+        serde_json::from_slice::<ProcessExitedPayload>(
+            &serde_json::to_vec(&exited).expect("expected protocol operation to succeed")
+        )
+        .expect("expected protocol operation to succeed"),
         exited
     );
     assert_eq!(
-        serde_json::from_slice::<ProcessExitedPayload>(&serde_json::to_vec(&unknown).unwrap())
-            .unwrap(),
+        serde_json::from_slice::<ProcessExitedPayload>(
+            &serde_json::to_vec(&unknown).expect("expected protocol operation to succeed")
+        )
+        .expect("expected protocol operation to succeed"),
         unknown
     );
 }
@@ -296,18 +350,30 @@ fn process_exit_payload_supports_code_and_signal_absence() {
 fn handshake_exposes_peer_protocol_version_without_policy_negotiation() {
     let peer_version = PROTOCOL_VERSION - 1;
     let encoded_hello = encode_hello(peer_version);
-    let encoded_welcome = encode_welcome(peer_version, &metadata()).unwrap();
+    let encoded_welcome =
+        encode_welcome(peer_version, &metadata()).expect("expected protocol operation to succeed");
 
-    assert_eq!(decode_hello(&encoded_hello).unwrap(), peer_version);
-    assert_eq!(decode_welcome(&encoded_welcome).unwrap().0, peer_version);
+    assert_eq!(
+        decode_hello(&encoded_hello).expect("expected protocol operation to succeed"),
+        peer_version
+    );
+    assert_eq!(
+        decode_welcome(&encoded_welcome)
+            .expect("expected protocol operation to succeed")
+            .0,
+        peer_version
+    );
 }
 
 #[test]
 fn snapshot_frame_round_trips_opaque_bytes_without_parsing() {
     let snapshot = vec![0, 1, 2, 3, 255, 128, 64, 32];
-    let encoded = encode_frame(FRAME_SNAPSHOT, &snapshot).unwrap();
+    let encoded =
+        encode_frame(FRAME_SNAPSHOT, &snapshot).expect("expected protocol operation to succeed");
     let mut decoder = FrameDecoder::new();
-    let frames = decoder.feed(&encoded).unwrap();
+    let frames = decoder
+        .feed(&encoded)
+        .expect("expected protocol operation to succeed");
 
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].frame_type, FRAME_SNAPSHOT);
