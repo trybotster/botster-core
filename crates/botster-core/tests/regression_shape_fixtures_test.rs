@@ -7,9 +7,9 @@ use botster_core::actor::{
 use botster_core::client::ClientId;
 use botster_core::entity::{EntityFrame, EntityKind};
 use botster_core::session::{SessionId, SubscriptionId};
-use botster_core::session_protocol::{encode_frame, FrameDecoder, FRAME_PTY_OUTPUT};
 use botster_core::transport::TransportEgress;
 use botster_core::{SessionActivityStatus, SessionLifecycleState};
+use botster_core_test_support::assertions::assert_terminal_output_round_trips;
 use botster_core_test_support::fixtures::regression::regression_shapes;
 
 fn session_id() -> SessionId {
@@ -40,28 +40,8 @@ fn regression_shape_noisy_pty_replay_is_ordered_opaque_output() {
         b"\r\nbuild finished\r\n",
     ]);
 
-    let mut encoded = Vec::new();
-    for chunk in &chunks {
-        encoded.extend_from_slice(
-            &encode_frame(FRAME_PTY_OUTPUT, chunk).expect("encode output frame"),
-        );
-    }
-    let mut decoder = FrameDecoder::new();
-    let frames = decoder.feed(&encoded).expect("decode output frames");
-
-    assert_eq!(frames.len(), chunks.len());
-    assert_eq!(frames[0].payload, chunks[0]);
-    assert_eq!(frames[1].payload, chunks[1]);
-    assert_eq!(frames[2].payload, chunks[2]);
-
-    let egress: Vec<TransportEgress> = chunks
-        .iter()
-        .map(|chunk| TransportEgress::TerminalOutput {
-            session_id: session_id(),
-            subscription_id: subscription_id(),
-            data: chunk.clone(),
-        })
-        .collect();
+    let egress =
+        assert_terminal_output_round_trips(session_id(), subscription_id(), chunks.clone());
     assert_eq!(egress, round_trip(&egress));
 }
 

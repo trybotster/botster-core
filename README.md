@@ -13,6 +13,20 @@ host, client, provider, and plugin runtime must agree on.
   conformance helpers for consumers pinned to the same core version.
 - `crates/botster-core-dev`: dev-only smoke harness, not the product CLI.
 
+## Consumer Test Support
+
+`botster-core-test-support` is the version-coupled test surface for downstream
+crates that depend on `botster-core`. Add it only under `dev-dependencies`, at
+the same release version as `botster-core`, when consumer tests need shared
+fixtures, in-memory fakes, or conformance assertions for the public core
+contracts.
+
+The support crate is intentionally publishable so downstream crates can depend
+on the matching released version. It must not be required by production builds,
+and it must not carry hub policy, CLI startup behavior, renderer assumptions,
+auth, provider marketplace behavior, Project Pipelines product behavior, or
+other product-specific flows.
+
 ## Ownership Boundary
 
 This crate documents contracts the current code proves. It is not a parking
