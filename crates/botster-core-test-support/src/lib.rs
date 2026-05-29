@@ -1,7 +1,8 @@
-//! Reusable test support for consumers of a specific `botster-core` version.
+//! Reusable, version-coupled test support for a specific `botster-core` release.
 //!
 //! Downstream crates should use this crate as a dev-dependency when they need
-//! fixtures or conformance helpers tied to the matching core contract release.
+//! fixtures, fakes, or conformance helpers tied to the matching core contract
+//! release.
 
 pub mod assertions;
 pub mod fake;
