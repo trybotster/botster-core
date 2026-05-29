@@ -32,6 +32,25 @@ The following behavior does not belong in `botster-core`:
 - legacy compatibility paths
 - device config files, OS keychain or file-fallback persistence, operator prompts, or signing-key storage policy
 
+## BoundaryJson Escape Hatches
+
+`BoundaryJson` is reserved for payloads whose schema is owned outside
+`botster-core`. Current public actor and transport contracts allow it only for
+relay-owned signaling/envelope data and plugin-owned handler request/response
+payloads.
+
+Stable Botster-owned controls must stay typed: terminal attach state, ping/pong,
+focus, terminal input, resize, snapshot requests, scrollback, process exit,
+client health/state, session lifecycle, and backpressure use typed variants or
+fields. Terminal mode and kitty keyboard state are represented by
+`ModeFlags`/session-protocol probing; the legacy pushed mode-change frame is not
+a raw actor-control payload in this crate.
+
+Every public actor/transport `BoundaryJson` use is classified with owner and
+reason metadata in `tests/actor_contract_test.rs`. That test suite also asserts
+the exact allowed inventory so a new stable Botster control cannot silently
+adopt raw JSON.
+
 ## Crypto And Identity Surface
 
 Core owns the reusable AES-GCM envelope utility surface: encryption,
