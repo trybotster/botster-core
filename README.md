@@ -17,6 +17,7 @@ cli  = executable entrypoint and operator commands
 Core owns stable primitives such as:
 
 - session, client, subscription, and request identifiers
+- session-process protocol constants, handshake bytes, and frame payload contracts
 - transport-neutral ingress and egress frames
 - terminal attach and liveness state
 - entity and UI contract shapes
@@ -40,7 +41,7 @@ package boundary toward that shape.
 The first migration slices should move already-proven contracts here before
 moving behavior:
 
-1. transport-neutral identifiers and frames
+1. transport-neutral identifiers, session-process protocol contracts, and frames
 2. entity/UI contract types
 3. package manifest and capability declarations
 4. narrow crypto/identity operation contracts
