@@ -18,6 +18,7 @@
   - `project pipelines ui contract belongs in the plugin readme`
   - `botster orchestration should spawn agents with explicit target ids`
   - `botster orchestration prompts must bind agents to explicit worktrees`
+  - `botster client subscriptions should not hydrate global state`
   - `plan steps need reviewable plan artifacts`
 - Repo context loaded:
   - `README.md`: core owns reusable mechanisms and transport-neutral contracts; hub owns runtime policy, lifecycle, orchestration, adapters, product workflows, and concrete transport policy.
@@ -29,6 +30,8 @@
   - `crates/botster-core/tests/client_stream_contract_test.rs`: proves the current single-client harness but not fanout across multiple clients.
   - `crates/botster-core/tests/session_worker_engine_test.rs`: proves session worker behavior but not client multiplexer routing.
   - `docs/plans/client-stream-contract.md` and `docs/plans/core-session-worker-engine.md`: prior dependency plans and acceptance mapping.
+- Plan Review context loaded on return to Plan: `review_1780092536_755130` and findings `finding_1780092536_619625`, `finding_1780092536_571596`, and `finding_1780092536_540100`.
+- Review resolution: snapshot, initial-snapshot, and scrollback responses are per-client pull responses under the pull-based hydration convention and are moved out of scope for this ticket. Scope and acceptance now align to terminal bytes, process exits, duplicate/replacement subscriptions, dropped input, ping/pong, typed backpressure, and attach state only if explicitly verified.
 - Project Pipelines checklist: run-level vault checklist `checklist_1780092124_748593` created after an initial plugin-worker timeout; items should record notes read, convention conflict review, verification evidence, and capture decision.
 
 ## Scope
@@ -40,12 +43,13 @@ In scope:
 - Add a pure, synchronous multiplexer engine under `crates/botster-core/src/engine/`.
 - Track multiple `ClientId` values and their per-session `SubscriptionId` routes without concrete transport types.
 - Translate client ingress into session I/O requests only when the sending client has an active route for the target session.
-- Fan out `SessionIoEvent` values such as terminal bytes, snapshots, process exits, attach state, scrollback, and focus changes to the current subscribers for that session.
+- Fan out session-pushed events that are session-wide by contract: terminal bytes, process exits, and attach-state updates.
 - Preserve duplicate subscription idempotency and replacement subscription semantics per client and per session.
 - Preserve ping/pong request ids through the client route.
 - Surface dropped/observed input from unsubscribed clients without emitting `SessionIoRequest`.
 - Surface typed backpressure summaries with `ClientId`, `SessionId`, and `SubscriptionId` in `BackpressureRoute`.
 - Reuse `ClientStreamHarness`, `TransportIngress`, `TransportEgress`, `SessionIoRequest`, `SessionIoEvent`, and backpressure contracts wherever possible instead of inventing a parallel vocabulary.
+- Compose only the non-generation `ClientStreamHarness` methods. Generation/reconnect dedup stays in hub/client reconnect policy and must not enter this core multiplexer.
 - Add tests that drive the exported multiplexer engine, not just enum construction.
 
 Non-scope:
@@ -53,6 +57,8 @@ Non-scope:
 - No WebRTC, TUI, Unix socket, ActionCable, Rails, browser, or concrete adapter code.
 - No Tokio tasks, channels, process spawning, or runtime supervision.
 - No hub lifecycle, permissions, reconnect policy, persistence, UI, plugin workflow, Project Pipelines, or product policy.
+- No fanout of snapshot, initial-snapshot, or scrollback responses in this ticket. Those are per-client pull responses, and current core contracts carry no requesting-client identity for safe multiplexer targeting.
+- No focus-change fanout unless implementation finds an existing session-wide contract and adds an explicit test. Focus ingress may still be dropped/observed for unsubscribed clients.
 - No broad refactor of existing client-stream or session-worker contracts unless a compiler-proven gap blocks the multiplexer.
 - No old trybotster path dependency; old paths remain reference evidence only.
 - No new dependencies expected.
@@ -74,13 +80,15 @@ Assumptions:
 - Duplicate subscription means same client, same session, same subscription id. Replacement means same client and session with a different subscription id.
 - Unsubscribing an old replaced subscription id must not detach the newer active route.
 - Fanout should use the current subscriber set at event-handling time. Former subscribers must not receive later terminal output or process exits.
+- Snapshot, initial-snapshot, and scrollback responses are not safe to broadcast because the current contract carries only `SessionId` and data, not requesting-client identity. Implementers must not route these as session-wide fanout in this ticket.
+- The multiplexer deliberately uses the non-generation harness APIs. `ClientStreamHarness` generation-aware methods exist for reconnect paths, but reconnect dedup remains hub/client policy.
 - Backpressure is an observable typed route condition, not retry/coalescing policy.
 
 Unknowns for implementation:
 
 - Exact public naming is open. Prefer direct names such as `SubscriptionMultiplexer`, `SubscriptionMultiplexerOutcome`, and `SubscriptionRouteObservation`.
 - Whether the multiplexer outcome should reuse `ClientStreamOutcome` per client or define a wrapper such as `client_egress: Vec<(ClientId, TransportEgress)>` plus `session_requests` and observations. Prefer the wrapper if it makes multi-client fanout explicit.
-- Whether attach state and scrollback should be multiplexer methods, as they are currently `ClientStreamHarness` methods, or represented through existing `SessionIoEvent` variants if the existing contract is extended minimally.
+- Whether attach state should be a multiplexer method or represented through an existing event.
 - Whether disconnected-client cleanup needs a `remove_client` method in this ticket. Include it only if required to prove current subscribers only; avoid reconnect policy.
 
 No human question is needed before implementation. The ticket intent is clear and all acceptance items can be satisfied within core without waiving scope.
@@ -92,7 +100,7 @@ Expected:
 - `crates/botster-core/src/engine/subscription_multiplexer.rs`
   - New pure multi-client routing engine.
   - Registry of client stream harnesses and current session subscriber indexes.
-  - Methods for client ingress, session events, attach state, scrollback, backpressure, and optional client removal.
+  - Methods for client ingress, session events, attach state, typed backpressure, and optional client removal.
 - `crates/botster-core/src/engine/mod.rs`
   - Export the new engine module and public types.
 - `crates/botster-core/src/lib.rs`
@@ -122,7 +130,6 @@ Suggested minimal API:
 - `handle_ingress(TransportIngress) -> SubscriptionMultiplexerOutcome`.
 - `handle_session_event(SessionIoEvent) -> SubscriptionMultiplexerOutcome`.
 - `handle_attach_state(session_id, state) -> SubscriptionMultiplexerOutcome`.
-- `handle_scrollback(session_id, data) -> SubscriptionMultiplexerOutcome`.
 - `report_backpressure(client_id, summary) -> SubscriptionMultiplexerOutcome`.
 - Optional `remove_client(client_id) -> SubscriptionMultiplexerOutcome` for detach cleanup if tests need it.
 
@@ -139,9 +146,10 @@ Suggested behavior:
 - On duplicate subscribe, preserve idempotency and do not emit duplicate session subscription churn.
 - On replacement subscribe, remove the old client/session route from the subscriber index and activate only the new subscription id.
 - On `UnsubscribeSession`, detach only when the id matches the current active route.
-- On terminal input, resize, snapshot request, send-file, and focus ingress, route only if the client has an active subscription for that session.
+- On terminal input, resize, snapshot request, send-file, and focus ingress, route only if the client has an active subscription for that session; otherwise emit dropped observations and no `SessionIoRequest`.
 - On ping/heartbeat, return pong for the requesting client with the same `RequestId`.
-- On session event fanout, send one egress frame to each current subscriber of that session, each carrying that subscriber's active `SubscriptionId`.
+- On session event fanout, send terminal output, process-exit, and attach-state frames to each current subscriber of that session, each carrying that subscriber's active `SubscriptionId`.
+- Do not fan out `SnapshotReady`, initial snapshots, or scrollback. Current contracts do not identify the requesting client, so broadcasting them would violate pull-based hydration.
 - On backpressure, preserve the typed route context and keep policy decisions out of core.
 
 ## Risks
@@ -149,8 +157,10 @@ Suggested behavior:
 - Duplicating `ClientStreamHarness` logic in a new engine would create two subtly different subscription semantics. Compose the existing harness unless there is a concrete reason not to.
 - A multiplexer that only stores route data but does not drive `TransportIngress` and `SessionIoEvent` through behavior tests would fail the runtime-path proof requirement.
 - Fanout can accidentally include stale subscribers after replacement or unsubscribe. Tests must assert old subscription ids stop receiving output.
+- Snapshot, initial-snapshot, and scrollback responses can be accidentally treated as broadcast events even though they are per-client pull responses without requester identity in the current contract. This ticket must leave them out of multiplexer fanout.
 - Backpressure can become vague if represented as strings or raw JSON. Use `BackpressureSummary` and `BackpressureRoute`.
 - It is easy to smuggle reconnect, permissions, or concrete transport policy into the engine. Those remain hub/client responsibilities.
+- `ClientStreamHarness` has generation-aware reconnect methods; using them here would import reconnect dedup policy into core. The multiplexer should compose the non-generation methods only.
 - Adding concrete transport names would violate the core boundary and README ban list.
 - Broadly reshaping existing transport egress variants could churn existing tests without adding required behavior.
 
@@ -192,7 +202,16 @@ Add targeted tests in `crates/botster-core/tests/subscription_multiplexer_engine
    - Report backpressure for a subscribed route.
    - Assert `BackpressureSummary.route` includes `client_id`, `session_id`, and `subscription_id`.
 
-8. `engine_contract_excludes_concrete_transport_types`
+8. `attach_state_fans_out_to_current_subscribers`
+   - Subscribe two clients, emit attach state, and assert both current subscribers receive it with their own subscription ids.
+   - Unsubscribe one client and assert later attach state reaches only the current subscriber.
+
+9. `snapshot_initial_snapshot_and_scrollback_are_not_broadcast`
+   - Feed `SessionIoEvent::SnapshotReady` and any exposed scrollback/initial-snapshot path through the multiplexer with multiple subscribed clients.
+   - Assert no broadcast egress is emitted and a typed unsupported/non-scope observation is produced if the implementation exposes such observation.
+   - This test guards the pull-based hydration convention and the lack of requesting-client identity in current contracts.
+
+10. `engine_contract_excludes_concrete_transport_types`
    - Source/type guard that the new engine module does not mention WebRTC, browser, TUI, Unix socket, ActionCable, Rails, permissions, reconnect policy, or persistence.
 
 Existing tests expected to remain green:
