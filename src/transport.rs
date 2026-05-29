@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::actor::{TerminalAttachState, TerminalModeSummary};
+use crate::boundary::BoundaryJson;
 use crate::client::{ClientId, ClientState};
 use crate::session::{RequestId, SessionId, SubscriptionId};
 
@@ -34,6 +36,41 @@ pub enum TransportIngress {
         /// Input bytes.
         data: Vec<u8>,
     },
+    /// Resize a terminal session.
+    Resize {
+        /// Target session.
+        session_id: SessionId,
+        /// New row count.
+        rows: u16,
+        /// New column count.
+        cols: u16,
+    },
+    /// Request a terminal snapshot.
+    RequestSnapshot {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Target session.
+        session_id: SessionId,
+    },
+    /// Update terminal focus state.
+    Focus {
+        /// Target session.
+        session_id: SessionId,
+        /// Whether the client is focused.
+        focused: bool,
+    },
+    /// Transport heartbeat.
+    Heartbeat {
+        /// Request correlation id.
+        request_id: RequestId,
+    },
+    /// Relay or plugin-owned ingress payload.
+    BoundaryPayload {
+        /// Peer-local route id.
+        route_id: String,
+        /// Opaque payload.
+        payload: BoundaryJson,
+    },
     /// Client liveness update.
     ClientState {
         /// Reporting client.
@@ -65,6 +102,53 @@ pub enum TransportEgress {
         session_id: SessionId,
         /// Opaque snapshot payload.
         data: Vec<u8>,
+    },
+    /// Scrollback payload.
+    Scrollback {
+        /// Source session.
+        session_id: SessionId,
+        /// Opaque scrollback bytes.
+        data: Vec<u8>,
+    },
+    /// Session process exit.
+    ProcessExit {
+        /// Source session.
+        session_id: SessionId,
+        /// Process exit code.
+        code: Option<i32>,
+    },
+    /// Terminal attach state changed.
+    AttachState {
+        /// Source session.
+        session_id: SessionId,
+        /// Transport-neutral attach state.
+        state: TerminalAttachState,
+    },
+    /// Terminal mode changed.
+    ModeChanged {
+        /// Source session.
+        session_id: SessionId,
+        /// Transport-neutral mode summary.
+        mode: TerminalModeSummary,
+    },
+    /// Terminal focus changed.
+    FocusChanged {
+        /// Source session.
+        session_id: SessionId,
+        /// Whether focus is active.
+        focused: bool,
+    },
+    /// Binary payload owned by the concrete adapter.
+    Binary {
+        /// Payload bytes.
+        data: Vec<u8>,
+    },
+    /// Relay or plugin-owned egress payload.
+    BoundaryPayload {
+        /// Peer-local route id.
+        route_id: String,
+        /// Opaque payload.
+        payload: BoundaryJson,
     },
     /// Request/response pong.
     Pong {

@@ -1,5 +1,7 @@
 //! Layer names and ownership descriptions.
 
+use serde::{Deserialize, Serialize};
+
 /// A named Botster architecture layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
@@ -57,3 +59,11 @@ pub const fn responsibility(layer: Layer) -> LayerResponsibility {
         },
     }
 }
+
+/// Opaque JSON allowed only at Lua, plugin, or relay-owned payload boundaries.
+///
+/// Stable core controls should use typed Rust fields instead. This wrapper is a
+/// deliberate escape hatch for payloads whose schema is owned outside
+/// `botster-core`, such as Lua plugin data or encrypted relay envelopes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundaryJson(pub serde_json::Value);
