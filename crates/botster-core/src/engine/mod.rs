@@ -7,6 +7,7 @@
 pub mod plugin_worker;
 pub mod session_activity;
 pub mod session_worker;
+pub mod subscription_multiplexer;
 
 pub use plugin_worker::{
     PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
@@ -15,4 +16,7 @@ pub use plugin_worker::{
 pub use session_activity::{apply_session_activity_event, classify_session_activity};
 pub use session_worker::{
     SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
+};
+pub use subscription_multiplexer::{
+    SubscriptionMultiplexer, SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
 };

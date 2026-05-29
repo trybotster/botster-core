@@ -1,0 +1,499 @@
+//! Subscription multiplexer engine acceptance tests.
+
+use botster_core::actor::{
+    BackpressureRoute, InitialSnapshotReady, QueueSource, SessionIoEvent, SnapshotReady,
+    TerminalAttachState,
+};
+use botster_core::client::ClientId;
+use botster_core::client_stream::ClientStreamObservation;
+use botster_core::engine::{SubscriptionMultiplexer, SubscriptionMultiplexerObservation};
+use botster_core::session::{RequestId, SessionId, SubscriptionId};
+use botster_core::transport::{TransportEgress, TransportIngress};
+use botster_core::{ProcessExitedPayload, SessionIoRequest};
+
+fn client_id(id: &str) -> ClientId {
+    ClientId(id.to_string())
+}
+
+fn session_id() -> SessionId {
+    SessionId("session-1".to_string())
+}
+
+fn request_id(id: &str) -> RequestId {
+    RequestId(id.to_string())
+}
+
+fn subscription_id(id: &str) -> SubscriptionId {
+    SubscriptionId(id.to_string())
+}
+
+fn subscribe(multiplexer: &mut SubscriptionMultiplexer, client: &str, subscription: &str) {
+    multiplexer.handle_client_ingress(
+        client_id(client),
+        TransportIngress::SubscribeSession {
+            client_id: client_id(client),
+            session_id: session_id(),
+            subscription_id: subscription_id(subscription),
+        },
+    );
+}
+
+fn unsubscribe(multiplexer: &mut SubscriptionMultiplexer, client: &str, subscription: &str) {
+    multiplexer.handle_client_ingress(
+        client_id(client),
+        TransportIngress::UnsubscribeSession {
+            client_id: client_id(client),
+            session_id: session_id(),
+            subscription_id: subscription_id(subscription),
+        },
+    );
+}
+
+#[test]
+fn multiple_clients_can_subscribe_to_one_session() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    let outcome = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"hello".to_vec(),
+    });
+
+    assert_eq!(
+        outcome.client_egress,
+        vec![
+            (
+                client_id("client-1"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-1"),
+                    data: b"hello".to_vec(),
+                },
+            ),
+            (
+                client_id("client-2"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-2"),
+                    data: b"hello".to_vec(),
+                },
+            ),
+        ]
+    );
+}
+
+#[test]
+fn one_client_can_switch_subscriptions() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-old");
+
+    let replacement = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::SubscribeSession {
+            client_id: client_id("client-1"),
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-new"),
+        },
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"new".to_vec(),
+    });
+    let exit = multiplexer.handle_session_event(SessionIoEvent::ProcessExited {
+        session_id: session_id(),
+        payload: ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    });
+
+    assert_eq!(
+        replacement.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::ReplacedSubscription {
+                session_id: session_id(),
+                old_subscription_id: subscription_id("sub-old"),
+                new_subscription_id: subscription_id("sub-new"),
+            },
+        }]
+    );
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-new"),
+                data: b"new".to_vec(),
+            },
+        )]
+    );
+    assert_eq!(
+        exit.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::ProcessExit {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-new"),
+                code: Some(0),
+            },
+        )]
+    );
+}
+
+#[test]
+fn duplicate_subscriptions_are_idempotent() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let duplicate = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::SubscribeSession {
+            client_id: client_id("client-1"),
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-1"),
+        },
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"one".to_vec(),
+    });
+
+    assert_eq!(
+        duplicate.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DuplicateSubscription {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+            },
+        }]
+    );
+    assert_eq!(output.client_egress.len(), 1);
+}
+
+#[test]
+fn unsubscribed_inputs_do_not_reach_session_worker() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+
+    let input = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::TerminalInput {
+            session_id: session_id(),
+            data: b"ls\n".to_vec(),
+        },
+    );
+    let resize = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::Resize {
+            session_id: session_id(),
+            rows: 24,
+            cols: 80,
+        },
+    );
+    let snapshot = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::RequestSnapshot {
+            request_id: request_id("snapshot"),
+            session_id: session_id(),
+        },
+    );
+    let send_file = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::SendFile {
+            request_id: request_id("send"),
+            session_id: session_id(),
+            data: b"payload".to_vec(),
+        },
+    );
+    let focus = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::Focus {
+            session_id: session_id(),
+            focused: true,
+        },
+    );
+
+    assert!(input.session_requests.is_empty());
+    assert!(resize.session_requests.is_empty());
+    assert!(snapshot.session_requests.is_empty());
+    assert!(send_file.session_requests.is_empty());
+    assert!(focus.session_requests.is_empty());
+    assert_eq!(
+        input.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedInput {
+                session_id: session_id(),
+            },
+        }]
+    );
+    assert_eq!(
+        resize.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedResize {
+                session_id: session_id(),
+            },
+        }]
+    );
+    assert_eq!(
+        snapshot.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedSnapshot {
+                session_id: session_id(),
+            },
+        }]
+    );
+    assert_eq!(
+        send_file.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedSendFile {
+                session_id: session_id(),
+            },
+        }]
+    );
+    assert_eq!(
+        focus.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedFocus {
+                session_id: session_id(),
+            },
+        }]
+    );
+}
+
+#[test]
+fn subscribed_input_routes_to_session_worker() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let input = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::TerminalInput {
+            session_id: session_id(),
+            data: b"ls\n".to_vec(),
+        },
+    );
+
+    assert_eq!(
+        input.session_requests,
+        vec![(
+            session_id(),
+            SessionIoRequest::PtyInput {
+                session_id: session_id(),
+                data: b"ls\n".to_vec(),
+            },
+        )]
+    );
+}
+
+#[test]
+fn current_subscribers_only_receive_terminal_output_and_process_exits() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+    unsubscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"after".to_vec(),
+    });
+    let exit = multiplexer.handle_session_event(SessionIoEvent::ProcessExited {
+        session_id: session_id(),
+        payload: ProcessExitedPayload {
+            exit_code: Some(42),
+            signal: None,
+        },
+    });
+
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                data: b"after".to_vec(),
+            },
+        )]
+    );
+    assert_eq!(
+        exit.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::ProcessExit {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                code: Some(42),
+            },
+        )]
+    );
+}
+
+#[test]
+fn pong_preserves_request_id_for_requesting_client() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+
+    let outcome = multiplexer.handle_client_ingress(
+        client_id("client-1"),
+        TransportIngress::Ping {
+            request_id: request_id("ping-1"),
+        },
+    );
+
+    assert_eq!(
+        outcome.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::Pong {
+                request_id: request_id("ping-1"),
+            },
+        )]
+    );
+}
+
+#[test]
+fn backpressure_includes_typed_route_context() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let outcome = multiplexer.report_backpressure(
+        client_id("client-1"),
+        session_id(),
+        QueueSource::ClientWorker,
+        512,
+        500,
+    );
+
+    assert_eq!(outcome.client_control_frames.len(), 1);
+    assert_eq!(
+        outcome.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::Backpressure(botster_core::BackpressureSummary {
+                source: QueueSource::ClientWorker,
+                capacity: 512,
+                depth: 500,
+                route: BackpressureRoute {
+                    session_id: Some(session_id()),
+                    client_id: Some(client_id("client-1")),
+                    subscription_id: Some(subscription_id("sub-1")),
+                    plugin_key: None,
+                },
+            },),
+        }]
+    );
+}
+
+#[test]
+fn attach_state_fans_out_to_current_subscribers() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    let attached = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Attached);
+    unsubscribe(&mut multiplexer, "client-1", "sub-1");
+    let detached = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Detached);
+
+    assert_eq!(
+        attached.client_egress,
+        vec![
+            (
+                client_id("client-1"),
+                TransportEgress::AttachState {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-1"),
+                    state: TerminalAttachState::Attached,
+                },
+            ),
+            (
+                client_id("client-2"),
+                TransportEgress::AttachState {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-2"),
+                    state: TerminalAttachState::Attached,
+                },
+            ),
+        ]
+    );
+    assert_eq!(
+        detached.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                state: TerminalAttachState::Detached,
+            },
+        )]
+    );
+}
+
+#[test]
+fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    let snapshot = multiplexer.handle_session_event(SessionIoEvent::SnapshotReady(SnapshotReady {
+        request_id: request_id("snapshot"),
+        session_id: session_id(),
+        data: b"snap".to_vec(),
+        rows: 24,
+        cols: 80,
+    }));
+    let initial = multiplexer.handle_session_event(SessionIoEvent::InitialSnapshotReady(
+        InitialSnapshotReady {
+            request_id: request_id("initial"),
+            session_id: session_id(),
+            client_id: client_id("client-1"),
+            subscription_id: subscription_id("sub-1"),
+            snapshot: b"initial".to_vec(),
+            rows: 24,
+            cols: 80,
+        },
+    ));
+
+    assert!(snapshot.client_egress.is_empty());
+    assert!(initial.client_egress.is_empty());
+    assert_eq!(
+        snapshot.observations,
+        vec![
+            SubscriptionMultiplexerObservation::SessionEventNotBroadcast {
+                session_id: session_id(),
+                event_kind: "snapshot_ready".to_string(),
+            }
+        ]
+    );
+
+    let source = include_str!("../src/engine/subscription_multiplexer.rs");
+    assert!(!source.contains("Scrollback"));
+}
+
+#[test]
+fn engine_contract_excludes_concrete_transport_types() {
+    let source = include_str!("../src/engine/subscription_multiplexer.rs");
+    for forbidden in [
+        "WebRTC",
+        "webrtc",
+        "browser",
+        "TUI",
+        "Unix",
+        "ActionCable",
+        "Rails",
+        "permission",
+        "reconnect",
+        "persistence",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "engine mentions forbidden boundary term: {forbidden}"
+        );
+    }
+}
