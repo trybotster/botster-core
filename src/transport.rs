@@ -52,6 +52,15 @@ pub enum TransportIngress {
         /// Target session.
         session_id: SessionId,
     },
+    /// Prepare and write a paste payload.
+    Paste {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Target session.
+        session_id: SessionId,
+        /// Paste bytes.
+        data: Vec<u8>,
+    },
     /// Update terminal focus state.
     Focus {
         /// Target session.
@@ -93,6 +102,8 @@ pub enum TransportEgress {
     TerminalOutput {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the output.
+        subscription_id: SubscriptionId,
         /// Output bytes.
         data: Vec<u8>,
     },
@@ -100,6 +111,8 @@ pub enum TransportEgress {
     Snapshot {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the snapshot.
+        subscription_id: SubscriptionId,
         /// Opaque snapshot payload.
         data: Vec<u8>,
     },
@@ -107,6 +120,8 @@ pub enum TransportEgress {
     Scrollback {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the scrollback.
+        subscription_id: SubscriptionId,
         /// Opaque scrollback bytes.
         data: Vec<u8>,
     },
@@ -114,6 +129,8 @@ pub enum TransportEgress {
     ProcessExit {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the exit notification.
+        subscription_id: SubscriptionId,
         /// Process exit code.
         code: Option<i32>,
     },
@@ -121,6 +138,8 @@ pub enum TransportEgress {
     AttachState {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the attach state.
+        subscription_id: SubscriptionId,
         /// Transport-neutral attach state.
         state: TerminalAttachState,
     },
@@ -128,6 +147,8 @@ pub enum TransportEgress {
     FocusChanged {
         /// Source session.
         session_id: SessionId,
+        /// Subscription route receiving the focus change.
+        subscription_id: SubscriptionId,
         /// Whether focus is active.
         focused: bool,
     },

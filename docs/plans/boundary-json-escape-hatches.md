@@ -107,7 +107,7 @@ Required implementation checks:
 
 Expected assertion shape:
 
-- The allowed `BoundaryJson` inventory names every current actor/transport escape hatch:
+- The allowed `BoundaryJson` inventory names every current actor/transport escape hatch on the base inspected during planning:
   - `TransportSignal.payload`: owner `relay`, reason encrypted or relay-owned signaling envelope.
   - `TransportIngress::BoundaryPayload.payload`: owner `relay/plugin`, reason adapter-owned ingress payload.
   - `TransportEgress::BoundaryPayload.payload`: owner `relay/plugin`, reason adapter-owned egress payload.

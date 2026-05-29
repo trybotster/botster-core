@@ -1,10 +1,15 @@
 //! Actor mailbox contract types shared by Botster runtime crates.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::boundary::BoundaryJson;
 use crate::client::{ClientId, ClientState};
 use crate::session::{RequestId, SessionId, SubscriptionId};
+use crate::session_protocol::{
+    ModeFlags, NotificationPayload, ProcessExitedPayload, PromptMarkPayload, TerminalColorProfile,
+};
 
 /// Bounded actor mailbox metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +132,27 @@ pub struct BackpressureSummary {
     pub depth: usize,
     /// Typed path affected by the pressure.
     pub route: BackpressureRoute,
+}
+
+/// Actor mailbox send failure reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MailboxSendFailureReason {
+    /// The bounded queue had no remaining capacity.
+    QueueFull,
+    /// The receiver side was closed.
+    QueueClosed,
+}
+
+/// Explicit actor mailbox send failure with typed routing context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MailboxSendFailure {
+    /// Queue that rejected the message.
+    pub source: QueueSource,
+    /// Typed path affected by the failure.
+    pub route: BackpressureRoute,
+    /// Stable failure reason.
+    pub reason: MailboxSendFailureReason,
 }
 
 /// Origin of a hub-control request.
@@ -308,6 +334,16 @@ pub enum TerminalAttachState {
     Attached,
 }
 
+/// Initial terminal snapshot delivery phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InitialSnapshotPhase {
+    /// Waiting for the authoritative snapshot.
+    WaitingForSnapshot,
+    /// Snapshot has been delivered and live output may flow.
+    LiveOutputActive,
+}
+
 /// Typed control frame delivered to a client worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -382,9 +418,45 @@ pub enum PasteFileErrorReason {
     InvalidPayload,
 }
 
-/// Prepared terminal snapshot metadata.
+/// Request to deliver the authoritative initial snapshot before live output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PreparedSnapshot {
+pub struct InitialSnapshotRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to snapshot.
+    pub session_id: SessionId,
+    /// Client receiving the initial snapshot.
+    pub client_id: ClientId,
+    /// Subscription identity for the terminal stream.
+    pub subscription_id: SubscriptionId,
+    /// Desired terminal rows.
+    pub rows: u16,
+    /// Desired terminal columns.
+    pub cols: u16,
+}
+
+/// Delivered authoritative initial snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InitialSnapshotReady {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session that produced the snapshot.
+    pub session_id: SessionId,
+    /// Client receiving the snapshot.
+    pub client_id: ClientId,
+    /// Subscription identity for the terminal stream.
+    pub subscription_id: SubscriptionId,
+    /// Opaque snapshot bytes.
+    pub snapshot: Vec<u8>,
+    /// Terminal rows represented by this snapshot.
+    pub rows: u16,
+    /// Terminal columns represented by this snapshot.
+    pub cols: u16,
+}
+
+/// Ordinary terminal snapshot metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotReady {
     /// Correlation id for the snapshot request.
     pub request_id: RequestId,
     /// Session that produced the snapshot.
@@ -397,14 +469,107 @@ pub struct PreparedSnapshot {
     pub cols: u16,
 }
 
+/// Request to persist a paste payload for a session runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasteFileRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session receiving the paste.
+    pub session_id: SessionId,
+    /// Caller-visible filename.
+    pub filename: String,
+    /// Paste bytes.
+    pub data: Vec<u8>,
+}
+
+/// Paste payload was written by the runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasteFileWritten {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session receiving the paste.
+    pub session_id: SessionId,
+    /// Number of bytes written.
+    pub bytes: usize,
+    /// Opaque runtime-owned cleanup handle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_ref: Option<String>,
+}
+
+/// Paste payload could not be written by the runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasteFileFailed {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session receiving the paste.
+    pub session_id: SessionId,
+    /// Stable failure reason.
+    pub reason: PasteFileErrorReason,
+    /// Optional runtime-owned detail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Request to prepare an opaque terminal snapshot payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedSnapshotRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to snapshot.
+    pub session_id: SessionId,
+    /// Raw snapshot bytes.
+    pub snapshot: Vec<u8>,
+    /// Whether this snapshot is intended for recovery.
+    pub recovery: bool,
+}
+
+/// Prepared opaque terminal snapshot payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedSnapshotReady {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session that produced the snapshot.
+    pub session_id: SessionId,
+    /// Uncompressed source length.
+    pub uncompressed_len: usize,
+    /// Opaque prepared payload bytes.
+    pub payload: Vec<u8>,
+    /// Whether this snapshot is intended for recovery.
+    pub recovery: bool,
+}
+
+/// Terminal mode flags response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeFlagsReady {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session that produced the mode flags.
+    pub session_id: SessionId,
+    /// Current terminal mode flags.
+    pub mode_flags: ModeFlags,
+}
+
+/// Plain terminal screen response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenReady {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session that produced the screen.
+    pub session_id: SessionId,
+    /// Plain screen contents.
+    pub text: String,
+}
+
 /// Requests accepted by a session I/O worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionIoRequest {
     /// Subscribe a client worker to terminal output.
-    Subscribe {
+    SubscribeTerminal {
         /// Request correlation id.
         request_id: RequestId,
+        /// Session being subscribed.
+        session_id: SessionId,
         /// Client subscribing.
         client_id: ClientId,
         /// Subscription identity.
@@ -415,41 +580,66 @@ pub enum SessionIoRequest {
         cols: u16,
     },
     /// Unsubscribe a client worker.
-    Unsubscribe {
+    UnsubscribeTerminal {
+        /// Session being unsubscribed.
+        session_id: SessionId,
         /// Subscription identity.
         subscription_id: SubscriptionId,
     },
     /// Write terminal input bytes.
-    Input {
+    PtyInput {
+        /// Session receiving the input.
+        session_id: SessionId,
         /// Input bytes.
         data: Vec<u8>,
     },
     /// Resize the terminal.
     Resize {
+        /// Session being resized.
+        session_id: SessionId,
         /// New row count.
         rows: u16,
         /// New column count.
         cols: u16,
     },
     /// Request a snapshot.
-    Snapshot {
+    GetSnapshot {
         /// Request correlation id.
         request_id: RequestId,
+        /// Session to snapshot.
+        session_id: SessionId,
     },
+    /// Request initial snapshot delivery for an attaching client.
+    GetInitialSnapshot(InitialSnapshotRequest),
     /// Prepare a paste payload.
-    Paste {
+    PasteFile(PasteFileRequest),
+    /// Prepare an opaque snapshot payload.
+    PrepareSnapshot(PreparedSnapshotRequest),
+    /// Request terminal mode flags.
+    GetModeFlags {
         /// Request correlation id.
         request_id: RequestId,
-        /// Paste bytes.
-        data: Vec<u8>,
+        /// Session to inspect.
+        session_id: SessionId,
     },
-    /// Set focus state.
-    Focus {
-        /// Whether the client is focused.
-        focused: bool,
+    /// Request the plain terminal screen.
+    GetScreen {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Session to inspect.
+        session_id: SessionId,
+    },
+    /// Replace the terminal color profile.
+    SetColorProfile {
+        /// Session receiving the color profile.
+        session_id: SessionId,
+        /// Color profile to install.
+        color_profile: TerminalColorProfile,
     },
     /// Stop the session I/O worker.
     Shutdown {
+        /// Session being shut down.
+        session_id: SessionId,
         /// Human-readable reason.
         reason: String,
     },
@@ -466,29 +656,208 @@ pub enum SessionIoEvent {
         /// Output bytes.
         data: Vec<u8>,
     },
-    /// Initial or requested snapshot.
-    Snapshot(PreparedSnapshot),
-    /// Focus state changed.
-    FocusChanged {
-        /// Session whose focus changed.
-        session_id: SessionId,
-        /// Whether focus is active.
-        focused: bool,
-    },
+    /// Initial snapshot delivered before live output activation.
+    InitialSnapshotReady(InitialSnapshotReady),
+    /// Requested snapshot delivered.
+    SnapshotReady(SnapshotReady),
+    /// Paste payload was written.
+    PasteFileWritten(PasteFileWritten),
     /// Paste preparation failed.
-    PasteFailed {
-        /// Request correlation id.
-        request_id: RequestId,
-        /// Failure reason.
-        reason: PasteFileErrorReason,
+    PasteFileFailed(PasteFileFailed),
+    /// Prepared snapshot payload is ready.
+    PreparedSnapshotReady(PreparedSnapshotReady),
+    /// Terminal mode flags response.
+    ModeFlagsReady(ModeFlagsReady),
+    /// Plain terminal screen response.
+    ScreenReady(ScreenReady),
+    /// Semantic prompt action detected.
+    PromptMark {
+        /// Session that emitted the prompt mark.
+        session_id: SessionId,
+        /// Prompt payload.
+        payload: PromptMarkPayload,
+    },
+    /// Bell character received.
+    Bell {
+        /// Session that emitted the bell.
+        session_id: SessionId,
+    },
+    /// OSC notification detected.
+    Notification {
+        /// Session that emitted the notification.
+        session_id: SessionId,
+        /// Notification payload.
+        payload: NotificationPayload,
     },
     /// Session process exited.
     ProcessExited {
         /// Session that exited.
         session_id: SessionId,
-        /// Process exit code.
-        code: Option<i32>,
+        /// Process exit summary.
+        payload: ProcessExitedPayload,
     },
+    /// Session I/O worker shut down.
+    Shutdown {
+        /// Session that shut down.
+        session_id: SessionId,
+        /// Human-readable reason.
+        reason: String,
+    },
+}
+
+/// Maximum terminal output bytes to coalesce before flushing.
+pub const SESSION_IO_MAX_COALESCED_BYTES: usize = 32 * 1024;
+/// Maximum terminal output frames to coalesce before flushing.
+pub const SESSION_IO_MAX_COALESCED_FRAMES: usize = 16;
+/// Maximum terminal output or metadata age to coalesce before flushing.
+pub const SESSION_IO_MAX_COALESCED_WINDOW: Duration = Duration::from_millis(4);
+
+/// Public pure coalescing policy for session I/O output and metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionIoCoalescingPolicy {
+    /// Maximum bytes before output must flush.
+    pub max_output_bytes: usize,
+    /// Maximum frames before output must flush.
+    pub max_output_frames: usize,
+    /// Maximum elapsed window before output or metadata must flush.
+    pub max_window: Duration,
+}
+
+impl Default for SessionIoCoalescingPolicy {
+    fn default() -> Self {
+        Self {
+            max_output_bytes: SESSION_IO_MAX_COALESCED_BYTES,
+            max_output_frames: SESSION_IO_MAX_COALESCED_FRAMES,
+            max_window: SESSION_IO_MAX_COALESCED_WINDOW,
+        }
+    }
+}
+
+impl SessionIoCoalescingPolicy {
+    /// Build a coalescing policy.
+    #[must_use]
+    pub const fn new(
+        max_output_bytes: usize,
+        max_output_frames: usize,
+        max_window: Duration,
+    ) -> Self {
+        Self {
+            max_output_bytes,
+            max_output_frames,
+            max_window,
+        }
+    }
+
+    /// Whether pending PTY output must flush.
+    #[must_use]
+    pub fn should_flush_output(self, bytes: usize, frames: usize, elapsed: Duration) -> bool {
+        bytes >= self.max_output_bytes
+            || frames >= self.max_output_frames
+            || elapsed >= self.max_window
+    }
+
+    /// Whether pending metadata must flush because the coalescing window expired.
+    #[must_use]
+    pub fn metadata_age_expired(self, elapsed: Duration) -> bool {
+        elapsed >= self.max_window
+    }
+}
+
+/// Ordered session I/O events that require pending output to flush first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionIoOrderedEvent {
+    /// Semantic prompt action detected.
+    PromptMark,
+    /// Bell character received.
+    Bell,
+    /// OSC notification detected.
+    Notification,
+    /// Child process exited.
+    ProcessExited,
+    /// Session output reached EOF.
+    Eof,
+    /// Session protocol stream desynchronized.
+    Desynchronized,
+    /// Session I/O is shutting down.
+    Shutdown,
+}
+
+impl SessionIoOrderedEvent {
+    /// Whether pending output must flush before this event is delivered.
+    #[must_use]
+    pub const fn requires_output_flush(self) -> bool {
+        matches!(
+            self,
+            Self::PromptMark
+                | Self::Bell
+                | Self::Notification
+                | Self::ProcessExited
+                | Self::Eof
+                | Self::Desynchronized
+                | Self::Shutdown
+        )
+    }
+}
+
+/// Snapshot-before-live-output barrier for an attaching terminal stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitialSnapshotBarrier {
+    phase: InitialSnapshotPhase,
+    pending_live_output: Vec<Vec<u8>>,
+}
+
+impl Default for InitialSnapshotBarrier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InitialSnapshotBarrier {
+    /// Build a barrier waiting for the initial snapshot.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            phase: InitialSnapshotPhase::WaitingForSnapshot,
+            pending_live_output: Vec::new(),
+        }
+    }
+
+    /// Current delivery phase.
+    #[must_use]
+    pub const fn phase(&self) -> InitialSnapshotPhase {
+        self.phase
+    }
+
+    /// Record live output. Output is held until the initial snapshot arrives.
+    #[must_use]
+    pub fn push_live_output(&mut self, data: Vec<u8>) -> Option<Vec<u8>> {
+        if self.phase == InitialSnapshotPhase::LiveOutputActive {
+            Some(data)
+        } else {
+            self.pending_live_output.push(data);
+            None
+        }
+    }
+
+    /// Deliver the initial snapshot, followed by any held live output in order.
+    #[must_use]
+    pub fn deliver_initial_snapshot(
+        &mut self,
+        snapshot: InitialSnapshotReady,
+    ) -> Vec<SessionIoEvent> {
+        self.phase = InitialSnapshotPhase::LiveOutputActive;
+        let session_id = snapshot.session_id.clone();
+        let mut events = Vec::with_capacity(self.pending_live_output.len() + 1);
+        events.push(SessionIoEvent::InitialSnapshotReady(snapshot));
+        events.extend(self.pending_live_output.drain(..).map(|data| {
+            SessionIoEvent::TerminalBytes {
+                session_id: session_id.clone(),
+                data,
+            }
+        }));
+        events
+    }
 }
 
 /// Stable plugin identity.
@@ -513,12 +882,26 @@ pub enum PluginHandlerKind {
     AssetMessage,
     /// Timer callback handler.
     Timer,
-    /// MCP handler.
-    Mcp,
+    /// MCP tool handler.
+    McpTool,
+    /// MCP prompt handler.
+    McpPrompt,
+    /// MCP resource handler.
+    McpResource,
+    /// MCP proxy auth-error recovery handler.
+    McpProxyAuthError,
     /// Event handler.
     Event,
     /// HTTP callback handler.
     Http,
+    /// File watch callback handler.
+    Watch,
+    /// ActionCable subscription callback handler.
+    ActionCable,
+    /// Entity provider handler.
+    EntityProvider,
+    /// Notification decision handler.
+    Notification,
 }
 
 /// Stable plugin-owned handler reference.
@@ -532,6 +915,97 @@ pub struct PluginHandlerRef {
     pub handler_id: String,
 }
 
+/// Plugin-owned descriptor family registered in a parent hub.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginDescriptorKind {
+    /// UI action descriptor.
+    UiAction,
+    /// Session action descriptor.
+    SessionAction,
+    /// Command descriptor.
+    Command,
+    /// Hook descriptor.
+    Hook,
+    /// Surface route descriptor.
+    SurfaceRoute,
+    /// Asset descriptor.
+    Asset,
+    /// Timer descriptor.
+    Timer,
+    /// MCP tool descriptor.
+    McpTool,
+    /// MCP prompt descriptor.
+    McpPrompt,
+    /// MCP resource descriptor.
+    McpResource,
+    /// Event subscription descriptor.
+    Event,
+    /// HTTP callback descriptor.
+    Http,
+    /// File watch descriptor.
+    Watch,
+    /// ActionCable subscription descriptor.
+    ActionCable,
+    /// Entity provider descriptor.
+    EntityProvider,
+    /// Notification descriptor.
+    Notification,
+}
+
+/// Stable reference to a plugin-owned descriptor held by the parent hub.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginDescriptorRef {
+    /// Owning plugin.
+    pub plugin_key: PluginKey,
+    /// Descriptor family.
+    pub kind: PluginDescriptorKind,
+    /// Stable descriptor id within the plugin.
+    pub descriptor_id: String,
+}
+
+/// Plugin-owned descriptor body plus optional executable handler address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginOwnedDescriptor {
+    /// Descriptor identity and owner.
+    pub descriptor: PluginDescriptorRef,
+    /// Executable handler address, when this descriptor invokes plugin code.
+    pub handler: Option<PluginHandlerRef>,
+    /// Plugin-owned descriptor body.
+    pub body: BoundaryJson,
+}
+
+/// Plugin-owned runtime resource family tracked for cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginResourceKind {
+    /// Timer resource.
+    Timer,
+    /// File watch resource.
+    Watch,
+    /// ActionCable subscription resource.
+    ActionCableSubscription,
+    /// Local webhook listener resource.
+    LocalWebhook,
+    /// In-flight HTTP request resource.
+    HttpRequest,
+    /// MCP registration resource.
+    McpRegistration,
+    /// Entity provider resource.
+    EntityProvider,
+}
+
+/// Stable reference to a plugin-owned runtime resource.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginResourceRef {
+    /// Owning plugin.
+    pub plugin_key: PluginKey,
+    /// Resource family.
+    pub kind: PluginResourceKind,
+    /// Stable resource id within the plugin.
+    pub resource_id: String,
+}
+
 /// Metadata needed to load a plugin worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginLoadSpec {
@@ -541,6 +1015,143 @@ pub struct PluginLoadSpec {
     pub package: String,
     /// Entrypoint path or logical id.
     pub entrypoint: String,
+    /// Plugin-owned descriptors exposed to the parent hub.
+    pub descriptors: Vec<PluginOwnedDescriptor>,
+    /// Plugin-owned load metadata.
+    pub metadata: Option<BoundaryJson>,
+}
+
+/// Serializable context supplied to a plugin handler invocation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationContext {
+    /// Client involved in the invocation, when client-scoped.
+    pub client_id: Option<ClientId>,
+    /// Session involved in the invocation, when session-scoped.
+    pub session_id: Option<SessionId>,
+    /// Subscription involved in the invocation, when stream-scoped.
+    pub subscription_id: Option<SubscriptionId>,
+    /// Surface route or node involved in the invocation, when UI-scoped.
+    pub surface_id: Option<String>,
+    /// Human-readable source of the invocation.
+    pub origin: Option<String>,
+    /// Plugin-owned contextual metadata.
+    pub metadata: Option<BoundaryJson>,
+}
+
+/// Request to invoke a stable plugin-owned handler.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler to invoke.
+    pub handler: PluginHandlerRef,
+    /// Runtime timeout in milliseconds.
+    pub timeout_ms: u64,
+    /// Serializable invocation context.
+    pub context: PluginInvocationContext,
+    /// Plugin-owned invocation payload.
+    pub payload: BoundaryJson,
+}
+
+/// Handler invocation failure category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginInvocationFailureKind {
+    /// Handler returned a failure.
+    HandlerFailed,
+    /// Handler exceeded the configured timeout.
+    TimedOut,
+    /// Invocation was cancelled by the runtime.
+    Cancelled,
+    /// Invocation was rejected because the worker queue was pressured.
+    Backpressured,
+    /// Worker stopped before the invocation completed.
+    WorkerStopped,
+}
+
+/// Successful plugin handler invocation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationSuccess {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler that completed.
+    pub handler: PluginHandlerRef,
+    /// Plugin-owned response payload.
+    pub payload: Option<BoundaryJson>,
+}
+
+/// Failed plugin handler invocation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationFailure {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler that failed.
+    pub handler: PluginHandlerRef,
+    /// Failure category.
+    pub kind: PluginInvocationFailureKind,
+    /// Timeout in milliseconds that applied to this invocation.
+    pub timeout_ms: Option<u64>,
+    /// Human-readable failure.
+    pub reason: String,
+}
+
+/// Plugin handler invocation outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum PluginInvocationResult {
+    /// Invocation completed successfully.
+    Completed(PluginInvocationSuccess),
+    /// Invocation failed.
+    Failed(PluginInvocationFailure),
+}
+
+/// Cleanup scope for plugin reload or unload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCleanupScope {
+    /// Remove descriptor registrations only.
+    Descriptors,
+    /// Remove runtime resources only.
+    Resources,
+    /// Remove descriptor registrations and runtime resources.
+    DescriptorsAndResources,
+}
+
+/// Request to reload one plugin worker and replace its owned registrations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginReloadSpec {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin being replaced.
+    pub plugin_key: PluginKey,
+    /// New load metadata for the replacement worker.
+    pub load: PluginLoadSpec,
+    /// Cleanup scope for the old worker's owned state.
+    pub cleanup: PluginCleanupScope,
+}
+
+/// Request to unload one plugin worker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginUnloadSpec {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin being unloaded.
+    pub plugin_key: PluginKey,
+    /// Cleanup scope for the worker's owned state.
+    pub cleanup: PluginCleanupScope,
+}
+
+/// Cleanup result for plugin reload or unload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCleanupResult {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin whose owned state was cleaned.
+    pub plugin_key: PluginKey,
+    /// Descriptors removed by cleanup.
+    pub removed_descriptors: Vec<PluginDescriptorRef>,
+    /// Runtime resources removed by cleanup.
+    pub removed_resources: Vec<PluginResourceRef>,
 }
 
 /// Messages accepted by a plugin worker.
@@ -555,14 +1166,11 @@ pub enum PluginWorkerMessage {
         spec: PluginLoadSpec,
     },
     /// Invoke a stable plugin handler ref.
-    Invoke {
-        /// Request correlation id.
-        request_id: RequestId,
-        /// Handler to invoke.
-        handler: PluginHandlerRef,
-        /// Plugin-owned payload.
-        payload: BoundaryJson,
-    },
+    Invoke(PluginInvocationRequest),
+    /// Reload this plugin worker with replacement metadata.
+    Reload(PluginReloadSpec),
+    /// Unload this plugin worker and cleanup owned state.
+    Unload(PluginUnloadSpec),
     /// Notify plugin worker of queue pressure.
     Backpressure(BackpressureSummary),
     /// Stop plugin worker.
@@ -586,6 +1194,28 @@ pub enum PluginWorkerEvent {
         plugin_key: PluginKey,
         /// Registered handlers.
         handlers: Vec<PluginHandlerRef>,
+        /// Registered descriptors exposed to the parent hub.
+        descriptors: Vec<PluginDescriptorRef>,
+    },
+    /// Plugin reloaded successfully.
+    Reloaded {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Reloaded plugin.
+        plugin_key: PluginKey,
+        /// Cleanup performed before replacement.
+        cleanup: PluginCleanupResult,
+        /// Replacement descriptors exposed to the parent hub.
+        descriptors: Vec<PluginDescriptorRef>,
+    },
+    /// Plugin unloaded successfully.
+    Unloaded {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Unloaded plugin.
+        plugin_key: PluginKey,
+        /// Cleanup performed during unload.
+        cleanup: PluginCleanupResult,
     },
     /// Plugin failed to load or execute.
     Failed {
@@ -597,16 +1227,16 @@ pub enum PluginWorkerEvent {
         reason: String,
     },
     /// Handler invocation completed.
-    Completed {
-        /// Request correlation id.
-        request_id: RequestId,
-        /// Handler that completed.
-        handler: PluginHandlerRef,
-        /// Plugin-owned response payload.
-        payload: Option<BoundaryJson>,
-    },
+    InvocationCompleted(PluginInvocationSuccess),
+    /// Handler invocation failed. Timeout failures are reported exclusively by
+    /// `InvocationTimedOut`, so this event must not carry `TimedOut`.
+    InvocationFailed(PluginInvocationFailure),
+    /// Handler invocation timed out.
+    InvocationTimedOut(PluginInvocationFailure),
     /// Plugin worker observed queue pressure.
     Backpressure(BackpressureSummary),
+    /// Plugin cleanup completed outside reload or unload.
+    CleanupCompleted(PluginCleanupResult),
     /// Plugin worker stopped.
     Stopped {
         /// Plugin that stopped.
