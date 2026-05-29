@@ -19,7 +19,7 @@
   - `botster hub registration must reconcile stable device fingerprints when local identifiers change`
   - `identity`
   - `goals`
-- Reference evidence inspected from `/Users/jasonconigliari/Rails/trybotster`:
+- Reference evidence inspected from the existing TryBotster application checkout:
   - `cli/src/crypto.rs`: AES-256-GCM envelope with JSON fields `nonce`, `ciphertext`, and `version`; nonce/ciphertext are base64 strings.
   - `cli/src/device.rs`: public stored metadata is verifying key, fingerprint, and name; signing key stays in credentials; fingerprint is first 8 bytes of SHA-256 over public verifying key bytes, formatted as colon-separated hex.
   - `cli/src/keyring.rs`: concrete keyring/file fallback behavior is CLI policy; core should expose only boundary contracts.
@@ -119,10 +119,8 @@ Expected changes:
 
 Reference-only files outside this worktree:
 
-- `/Users/jasonconigliari/Rails/trybotster/cli/src/crypto.rs`
-- `/Users/jasonconigliari/Rails/trybotster/cli/src/device.rs`
-- `/Users/jasonconigliari/Rails/trybotster/cli/src/keyring.rs`
-- `/Users/jasonconigliari/Rails/trybotster/docs/worker-actor-contracts.md`
+- TryBotster CLI crypto, device, and keyring modules
+- TryBotster worker actor contract docs
 - old Rails channel/request tests around opaque signaling envelopes
 
 ## Acceptance Mapping
@@ -153,8 +151,8 @@ Implementation should run:
 - `cargo fmt --check`
 - `cargo test`
 - `cargo clippy --all-targets --all-features -- -D warnings`
-- A PII/source scan, for example:
-  - `rg -n "jason|conigliari|trybotster/Rails|/Users/|btstr_|btmcp_|sk-|private_key|signing_key" README.md docs src tests`
+- A PII/source scan for personal names, personal host paths, real token
+  prefixes, and private-key field names across README, docs, source, and tests.
 
 The PII scan must be interpreted carefully: test assertions may intentionally mention forbidden field names such as `private_key` or `signing_key` to prove absence. Those are acceptable when they are assertion strings, not serialized data, example secrets, or copied real identifiers.
 
