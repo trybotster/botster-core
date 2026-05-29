@@ -73,7 +73,7 @@ Out of scope:
 
 ## Worktree And Target Assumptions
 
-- Worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1780075248_215152`.
+- Worktree: pipeline-provided ticket worktree.
 - Spawn target: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Branch/PR base: `main`, not a stacked dependency branch, per orchestrator correction.
 
