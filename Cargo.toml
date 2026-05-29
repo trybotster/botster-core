@@ -11,10 +11,14 @@ keywords = ["terminal", "pty", "multiplexer", "agents", "runtime"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+aes-gcm = "0.10.3"
+base64 = "0.22.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.11.0"
 thiserror = "2.0"
 uuid = { version = "1.10", features = ["serde", "v4"] }
+zeroize = { version = "1.8.2", features = ["derive"] }
 
 [dev-dependencies]
 serde_json = "1.0"
