@@ -14,7 +14,9 @@ pub use contract::{
     actor, boundary, client, client_stream, entity, notification, session, session_protocol,
     transport, ui,
 };
-pub use engine::{plugin_worker, session_activity, session_worker, subscription_multiplexer};
+pub use engine::{
+    multiplexer, plugin_worker, session_activity, session_worker, subscription_multiplexer,
+};
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
@@ -56,9 +58,11 @@ pub use device::{
     PublicSigningKeyBytes,
 };
 pub use engine::{
-    apply_session_activity_event, classify_session_activity, PluginHandlerRegistration,
-    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine,
-    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    apply_session_activity_event, classify_session_activity, MultiplexerEngine,
+    MultiplexerEngineError, MultiplexerEngineObservation, MultiplexerEngineOutcome,
+    MultiplexerSpawnOutcome, PluginHandlerRegistration, PluginWorkerEngine,
+    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
+    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
     SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
 };
 pub use entity::{
