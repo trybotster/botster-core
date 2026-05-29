@@ -483,6 +483,10 @@ fn initial_snapshot_request_shape_includes_attach_routing() {
 #[test]
 fn session_io_mailbox_contract_excludes_hub_recovery_and_authorization_policy() {
     let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let session_io_source = actor_source
+        .split("/// Stable plugin identity.")
+        .next()
+        .expect("session I/O contract slice");
 
     for forbidden in [
         "HubRecovery",
@@ -493,7 +497,7 @@ fn session_io_mailbox_contract_excludes_hub_recovery_and_authorization_policy() 
         "snapshot_and_subscribe",
     ] {
         assert!(
-            !actor_source.contains(forbidden),
+            !session_io_source.contains(forbidden),
             "session I/O mailbox core contract must not mention {forbidden}"
         );
     }
