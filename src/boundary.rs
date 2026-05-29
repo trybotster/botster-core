@@ -64,6 +64,9 @@ pub const fn responsibility(layer: Layer) -> LayerResponsibility {
 ///
 /// Stable core controls should use typed Rust fields instead. This wrapper is a
 /// deliberate escape hatch for payloads whose schema is owned outside
-/// `botster-core`, such as Lua plugin data or encrypted relay envelopes.
+/// `botster-core`, such as Lua plugin data or encrypted relay envelopes. Public
+/// actor and transport uses must stay classified with an owner and reason in the
+/// contract tests so new stable Botster-owned controls cannot silently adopt raw
+/// JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundaryJson(pub serde_json::Value);
