@@ -19,7 +19,10 @@ pub use boundary::{Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
 pub use client::{ClientId, ClientScope, ClientState};
 pub use crypto::{CryptoOperation, IdentityOperation};
-pub use entity::{EntityFrame, EntityId, EntityKind};
+pub use entity::{
+    EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
+    EntityStores,
+};
 pub use extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 pub use package::{PackageManifest, PackageSource};
 pub use session::{RequestId, SessionId, SubscriptionId};
