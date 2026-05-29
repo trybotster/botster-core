@@ -406,15 +406,15 @@ pub enum ClientWorkerMessage {
     },
 }
 
-/// Error reasons for paste-file preparation.
+/// Error reasons for send-file preparation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PasteFileErrorReason {
+pub enum SendFileErrorReason {
     /// Payload exceeded the runtime limit.
     TooLarge,
     /// Runtime could not prepare storage.
     StorageUnavailable,
-    /// Payload was not valid for paste handling.
+    /// Payload was not valid for send-file handling.
     InvalidPayload,
 }
 
@@ -469,25 +469,25 @@ pub struct SnapshotReady {
     pub cols: u16,
 }
 
-/// Request to persist a paste payload for a session runtime.
+/// Request to persist a send-file payload for a session runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PasteFileRequest {
+pub struct SendFileRequest {
     /// Request correlation id.
     pub request_id: RequestId,
-    /// Session receiving the paste.
+    /// Session receiving the send-file payload.
     pub session_id: SessionId,
     /// Caller-visible filename.
     pub filename: String,
-    /// Paste bytes.
+    /// Send-file bytes.
     pub data: Vec<u8>,
 }
 
-/// Paste payload was written by the runtime.
+/// Send-file payload was written by the runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PasteFileWritten {
+pub struct SendFileWritten {
     /// Request correlation id.
     pub request_id: RequestId,
-    /// Session receiving the paste.
+    /// Session receiving the send-file payload.
     pub session_id: SessionId,
     /// Number of bytes written.
     pub bytes: usize,
@@ -496,15 +496,15 @@ pub struct PasteFileWritten {
     pub storage_ref: Option<String>,
 }
 
-/// Paste payload could not be written by the runtime.
+/// Send-file payload could not be written by the runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PasteFileFailed {
+pub struct SendFileFailed {
     /// Request correlation id.
     pub request_id: RequestId,
-    /// Session receiving the paste.
+    /// Session receiving the send-file payload.
     pub session_id: SessionId,
     /// Stable failure reason.
-    pub reason: PasteFileErrorReason,
+    pub reason: SendFileErrorReason,
     /// Optional runtime-owned detail.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -611,8 +611,8 @@ pub enum SessionIoRequest {
     },
     /// Request initial snapshot delivery for an attaching client.
     GetInitialSnapshot(InitialSnapshotRequest),
-    /// Prepare a paste payload.
-    PasteFile(PasteFileRequest),
+    /// Prepare a send-file payload.
+    SendFile(SendFileRequest),
     /// Prepare an opaque snapshot payload.
     PrepareSnapshot(PreparedSnapshotRequest),
     /// Request terminal mode flags.
@@ -660,10 +660,10 @@ pub enum SessionIoEvent {
     InitialSnapshotReady(InitialSnapshotReady),
     /// Requested snapshot delivered.
     SnapshotReady(SnapshotReady),
-    /// Paste payload was written.
-    PasteFileWritten(PasteFileWritten),
-    /// Paste preparation failed.
-    PasteFileFailed(PasteFileFailed),
+    /// Send-file payload was written.
+    SendFileWritten(SendFileWritten),
+    /// Send-file preparation failed.
+    SendFileFailed(SendFileFailed),
     /// Prepared snapshot payload is ready.
     PreparedSnapshotReady(PreparedSnapshotReady),
     /// Terminal mode flags response.

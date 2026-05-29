@@ -81,7 +81,7 @@ Unknowns for implementation:
 - Exact naming is open. Prefer direct names such as `SessionWorkerEngine`, `SessionWorkerRuntime`, `SessionWorkerOutcome`, and `SessionActivity`.
 - Whether fake runtime belongs in `botster-core-test-support/src/fake/session_worker.rs` or in the core test module. Prefer test-support if downstream consumers will reuse conformance helpers.
 - Whether `GetInitialSnapshot` should become a first-class engine method or remain a `SessionIoRequest` branch that produces `InitialSnapshotReady` plus buffered output.
-- Whether paste and prepared snapshot helper behavior should remain helper-level in this ticket or be routed through the same engine result type. Keep it only if needed to avoid regressing existing mailbox tests.
+- Whether send-file and prepared snapshot helper behavior should remain helper-level in this ticket or be routed through the same engine result type. Keep it only if needed to avoid regressing existing mailbox tests.
 
 No human question is needed before implementation. The ticket intent is clear: move from contract shapes to deterministic reusable session worker behavior while keeping concrete host policy outside core.
 

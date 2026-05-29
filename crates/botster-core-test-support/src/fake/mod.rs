@@ -1,5 +1,7 @@
 //! Fake runtime adapters for downstream conformance tests.
 
+pub mod session_worker;
+
 use botster_core::client::ClientId;
 use botster_core::session::SubscriptionId;
 use botster_core::transport::{TransportEgress, TransportIngress};
@@ -220,3 +222,5 @@ impl FakeSessionTransport {
         &self.egress
     }
 }
+
+pub use session_worker::{FakeSessionIoMailbox, FakeSessionWorkerRuntime, RuntimeCommand};

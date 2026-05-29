@@ -4,23 +4,23 @@
 
 - Pipeline context: `ticket_1780014864_624778`, `run_1780030155_616228`, current step `botster_plan`, gate `botster_plan_gate`.
 - Dependency context: depends on closed `ticket_1780014863_508751` / "Define botster-core actor contract types"; current repo already contains `src/actor.rs`, `src/client.rs`, `src/session.rs`, `src/transport.rs`, and `tests/actor_contract_test.rs`.
-- Worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1780014864_624778`.
+- Worktree: `<pipeline-worktree>`.
 - Target: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Required playbooks loaded:
-  - `/Users/jasonconigliari/knowledge/notes/planner-playbook.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster-planner-playbook.md`
+  - `<vault>/notes/planner-playbook.md`
+  - `<vault>/notes/botster-planner-playbook.md`
 - Additional vault constraints loaded:
-  - `/Users/jasonconigliari/knowledge/self/identity.md`
-  - `/Users/jasonconigliari/knowledge/self/goals.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster-architecture.md`
-  - `/Users/jasonconigliari/knowledge/notes/cli-patterns.md`
-  - `/Users/jasonconigliari/knowledge/notes/spa-patterns.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipeline orchestration belongs in a device-level botster plugin.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipelines needs an operator workbench not more primitives.md`
-  - `/Users/jasonconigliari/knowledge/notes/project pipelines ui contract belongs in the plugin readme.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster orchestration should spawn agents with explicit target ids.md`
-  - `/Users/jasonconigliari/knowledge/notes/botster orchestration prompts must bind agents to explicit worktrees.md`
-  - `/Users/jasonconigliari/knowledge/notes/plan steps need reviewable plan artifacts.md`
+  - `<vault>/self/identity.md`
+  - `<vault>/self/goals.md`
+  - `<vault>/notes/botster-architecture.md`
+  - `<vault>/notes/cli-patterns.md`
+  - `<vault>/notes/spa-patterns.md`
+  - `<vault>/notes/project pipeline orchestration belongs in a device-level botster plugin.md`
+  - `<vault>/notes/project pipelines needs an operator workbench not more primitives.md`
+  - `<vault>/notes/project pipelines ui contract belongs in the plugin readme.md`
+  - `<vault>/notes/botster orchestration should spawn agents with explicit target ids.md`
+  - `<vault>/notes/botster orchestration prompts must bind agents to explicit worktrees.md`
+  - `<vault>/notes/plan steps need reviewable plan artifacts.md`
 - Repo context loaded:
   - `Cargo.toml`: contract crate with serde/serde_json/thiserror only; no async runtime dependency.
   - `src/lib.rs`: exports public contract modules and actor/transport types.
@@ -31,10 +31,10 @@
   - `tests/actor_contract_test.rs`: current serde and boundary tests for actor contracts.
   - `docs/plans/actor-contract-types.md`: prior plan for the dependency ticket.
 - Old trybotster evidence loaded as reference only:
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/client.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/worker/transport.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/cli/src/socket/framing.rs`
-  - `/Users/jasonconigliari/Rails/trybotster/docs/webrtc-protocol.md`
+  - `<trybotster-reference>/cli/src/worker/client.rs`
+  - `<trybotster-reference>/cli/src/worker/transport.rs`
+  - `<trybotster-reference>/cli/src/socket/framing.rs`
+  - `<trybotster-reference>/docs/webrtc-protocol.md`
 
 ## Scope
 
@@ -45,10 +45,10 @@ In scope:
 - Add a public transport-neutral client stream module, likely `src/client_stream.rs`.
 - Track per-client session subscriptions by `SessionId` and `SubscriptionId`.
 - Accept existing `TransportIngress` and `SessionIoEvent` contract values where they already express the behavior.
-- Extend contract types only where the ticket requires missing semantics, especially paste and generation-gated delivery.
+- Extend contract types only where the ticket requires missing semantics, especially send-file and generation-gated delivery.
 - Produce deterministic outcomes from in-memory handling: transport egress frames, session I/O requests, hub/control observations, and dropped-input/backpressure observations.
 - Route terminal bytes, snapshots, scrollback, attach state, focus changes, process exits, and pong frames through active subscriptions.
-- Route PTY input, paste, resize, snapshot request, health, ping/pong, unsubscribe, shutdown, and backpressure without concrete transport policy.
+- Route PTY input, send-file, resize, snapshot request, health, ping/pong, unsubscribe, shutdown, and backpressure without concrete transport policy.
 - Add tests that exercise the actual harness path, not only type existence.
 - Export the new public types from `src/lib.rs`.
 
@@ -77,9 +77,9 @@ Assumptions:
 - `TransportIngress` is per-client context in the harness, so existing variants without `client_id` can be interpreted as coming from the harness owner.
 - Duplicate subscriptions mean same `SessionId` and same `SubscriptionId`; they should be idempotent and should not produce detach/re-attach churn.
 - Changed subscription IDs mean same `SessionId` with a different `SubscriptionId`; replace the route so later egress uses the new subscription identity and old subscription routes are inactive. To make this verifiable, add `subscription_id` to terminal stream `TransportEgress` variants that are routed through a subscription: terminal output, snapshot, scrollback, process exit, attach state, and focus changed.
-- "Unsubscribed input is dropped/observed" means PTY input, paste, resize, and snapshot requests for a session without an active subscription should not produce `SessionIoRequest`; they should produce an observation suitable for tests and downstream diagnostics.
+- "Unsubscribed input is dropped/observed" means PTY input, send-file, resize, and snapshot requests for a session without an active subscription should not produce `SessionIoRequest`; they should produce an observation suitable for tests and downstream diagnostics.
 - Backpressure is contract-visible on the client side via `ClientControlFrame::Backpressure(BackpressureSummary)` or a stream observation wrapping `BackpressureRoute`; it should not emit `HubControlMessage` or implement retry/slow-client policy in core.
-- Paste is already modeled past ingress by `SessionIoRequest::Paste { request_id, data }`, `SessionIoEvent::PasteFailed { request_id, reason }`, and `PasteFileErrorReason`. The only planned contract gap is `TransportIngress::Paste { request_id, session_id, data }`; filename and temp-file path policy stay downstream.
+- Send-file is already modeled past ingress by `SessionIoRequest::SendFile { request_id, data }`, `SessionIoEvent::SendFileFailed { request_id, reason }`, and `SendFileErrorReason`. The only planned contract gap is `TransportIngress::SendFile { request_id, session_id, data }`; filename and temp-file path policy stay downstream.
 
 Unknowns for implementation:
 
@@ -98,11 +98,11 @@ Expected:
   - Subscription registry keyed by `SessionId`, with current `SubscriptionId` route.
   - Methods for client ingress, session events, health/generation state, backpressure, and shutdown.
 - `src/transport.rs`
-  - Add `TransportIngress::Paste { request_id, session_id, data }`.
+  - Add `TransportIngress::SendFile { request_id, session_id, data }`.
   - Add `subscription_id` to terminal stream `TransportEgress` variants that represent subscription-routed delivery: terminal output, snapshot, scrollback, process exit, attach state, and focus changed.
   - Keep names transport-neutral. Do not introduce browser/TUI/socket/WebRTC terms.
 - `src/actor.rs`
-  - No paste changes expected; reuse existing `SessionIoRequest::Paste`, `SessionIoEvent::PasteFailed`, and `PasteFileErrorReason`.
+  - No send-file changes expected; reuse existing `SessionIoRequest::SendFile`, `SessionIoEvent::SendFileFailed`, and `SendFileErrorReason`.
   - Minimal changes only if the stream harness needs a reusable typed client-side backpressure observation beyond existing `BackpressureSummary`/`BackpressureRoute`.
 - `src/lib.rs`
   - Export the new stream harness and any new public contract types.
@@ -141,7 +141,7 @@ Suggested outcome shape:
 Suggested observation variants:
 
 - `Subscribed`, `DuplicateSubscription`, `ReplacedSubscription`, `Unsubscribed`
-- `DroppedUnsubscribedInput`, `DroppedUnsubscribedPaste`, `DroppedUnsubscribedResize`, `DroppedUnsubscribedSnapshot`
+- `DroppedUnsubscribedInput`, `DroppedUnsubscribedSendFile`, `DroppedUnsubscribedResize`, `DroppedUnsubscribedSnapshot`
 - `GenerationStale`
 - `Backpressure(BackpressureSummary)` or an equivalent typed observation preserving `BackpressureRoute`
 - `Shutdown`
@@ -156,7 +156,7 @@ The implementer may choose narrower names, but every public type should remain t
 - Forgetting `SubscriptionId` in terminal egress would make changed subscription route tests impossible and would weaken socket/browser parity; the plan commits to adding it to subscription-routed egress variants.
 - Backpressure can become vague if represented only as strings. Preserve typed queue/session/client/subscription context where possible.
 - Generation gating can be overbuilt. The ticket only needs stale delivery rejection semantics; no reconnect policy belongs in core.
-- Paste semantics can accidentally become file-system policy. Core should carry request id plus bytes only; filename, storage, and temp-file path resolution remain downstream.
+- Send-file semantics can accidentally become file-system policy. Core should carry request id plus bytes only; filename, storage, and temp-file path resolution remain downstream.
 
 ## Acceptance Checks / Tests
 
@@ -173,8 +173,8 @@ Add targeted tests in `tests/client_stream_contract_test.rs`:
    - Feed `SessionIoEvent::TerminalBytes` and `SessionIoEvent::ProcessExited`.
    - Assert `TransportEgress` includes terminal bytes and process exit with the active `subscription_id`.
 
-2. `unsubscribed_input_paste_resize_and_snapshot_are_dropped_with_observations`
-   - Send input, paste, resize, and snapshot request for an unsubscribed session.
+2. `unsubscribed_input_send_file_resize_and_snapshot_are_dropped_with_observations`
+   - Send input, send-file, resize, and snapshot request for an unsubscribed session.
    - Assert no `SessionIoRequest` is emitted.
    - Assert one observation per dropped operation.
 
@@ -228,4 +228,4 @@ No durable vault gap must be captured before implementation. Existing notes alre
 - transport adapters staying concrete while core contracts remain neutral
 - Project Pipelines plan artifact discipline
 
-Capture later only if implementation discovers a stable new rule for subscription replacement semantics, generation gating vocabulary, or paste payload representation that should guide future Botster contract work.
+Capture later only if implementation discovers a stable new rule for subscription replacement semantics, generation gating vocabulary, or send-file payload representation that should guide future Botster contract work.

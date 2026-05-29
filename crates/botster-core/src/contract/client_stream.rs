@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{
-    BackpressureSummary, ClientControlFrame, PasteFileRequest, SessionIoEvent, SessionIoRequest,
+    BackpressureSummary, ClientControlFrame, SendFileRequest, SessionIoEvent, SessionIoRequest,
     SnapshotReady, TerminalAttachState,
 };
 use crate::client::ClientId;
@@ -62,8 +62,8 @@ pub enum ClientStreamObservation {
         /// Target session.
         session_id: SessionId,
     },
-    /// Paste input was dropped because the session has no active route.
-    DroppedUnsubscribedPaste {
+    /// Send-file input was dropped because the session has no active route.
+    DroppedUnsubscribedSendFile {
         /// Target session.
         session_id: SessionId,
     },
@@ -237,19 +237,19 @@ impl ClientStreamHarness {
                 },
                 |session_id| ClientStreamObservation::DroppedUnsubscribedSnapshot { session_id },
             ),
-            TransportIngress::Paste {
+            TransportIngress::SendFile {
                 request_id,
                 session_id,
                 data,
             } => self.route_session_request(
                 session_id.clone(),
-                SessionIoRequest::PasteFile(PasteFileRequest {
+                SessionIoRequest::SendFile(SendFileRequest {
                     request_id,
                     session_id,
-                    filename: "paste".to_string(),
+                    filename: "send-file".to_string(),
                     data,
                 }),
-                |session_id| ClientStreamObservation::DroppedUnsubscribedPaste { session_id },
+                |session_id| ClientStreamObservation::DroppedUnsubscribedSendFile { session_id },
             ),
             TransportIngress::Focus {
                 session_id,
@@ -313,7 +313,7 @@ impl ClientStreamHarness {
                 })
             }
             SessionIoEvent::SnapshotReady(snapshot) => self.route_snapshot(snapshot),
-            SessionIoEvent::PasteFileFailed(_) => ClientStreamOutcome::empty(),
+            SessionIoEvent::SendFileFailed(_) => ClientStreamOutcome::empty(),
             SessionIoEvent::ProcessExited {
                 session_id,
                 payload,
@@ -325,7 +325,7 @@ impl ClientStreamHarness {
                 }
             }),
             SessionIoEvent::InitialSnapshotReady(_)
-            | SessionIoEvent::PasteFileWritten(_)
+            | SessionIoEvent::SendFileWritten(_)
             | SessionIoEvent::PreparedSnapshotReady(_)
             | SessionIoEvent::ModeFlagsReady(_)
             | SessionIoEvent::ScreenReady(_)
