@@ -1,9 +1,8 @@
 //! Client stream contract acceptance tests.
 
 use botster_core::actor::{
-    BackpressureRoute, BackpressureSummary, ClientControlFrame, PasteFileErrorReason,
-    PasteFileFailed, PasteFileRequest, QueueSource, SessionIoEvent, SessionIoRequest,
-    SnapshotReady,
+    BackpressureRoute, BackpressureSummary, ClientControlFrame, QueueSource, SendFileErrorReason,
+    SendFileFailed, SendFileRequest, SessionIoEvent, SessionIoRequest, SnapshotReady,
 };
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
@@ -75,17 +74,17 @@ fn subscribed_clients_receive_terminal_bytes_and_process_exits() {
 }
 
 #[test]
-fn unsubscribed_input_paste_resize_and_snapshot_are_dropped_with_observations() {
+fn unsubscribed_input_send_file_resize_and_snapshot_are_dropped_with_observations() {
     let mut harness = ClientStreamHarness::new(client_id());
 
     let input = harness.handle_ingress(TransportIngress::TerminalInput {
         session_id: session_id(),
         data: b"ls\n".to_vec(),
     });
-    let paste = harness.handle_ingress(TransportIngress::Paste {
+    let send_file = harness.handle_ingress(TransportIngress::SendFile {
         request_id: request_id(),
         session_id: session_id(),
-        data: b"paste".to_vec(),
+        data: b"send-file".to_vec(),
     });
     let resize = harness.handle_ingress(TransportIngress::Resize {
         session_id: session_id(),
@@ -98,7 +97,7 @@ fn unsubscribed_input_paste_resize_and_snapshot_are_dropped_with_observations() 
     });
 
     assert!(input.session_requests.is_empty());
-    assert!(paste.session_requests.is_empty());
+    assert!(send_file.session_requests.is_empty());
     assert!(resize.session_requests.is_empty());
     assert!(snapshot.session_requests.is_empty());
     assert_eq!(
@@ -108,8 +107,8 @@ fn unsubscribed_input_paste_resize_and_snapshot_are_dropped_with_observations() 
         }]
     );
     assert_eq!(
-        paste.observations,
-        vec![ClientStreamObservation::DroppedUnsubscribedPaste {
+        send_file.observations,
+        vec![ClientStreamObservation::DroppedUnsubscribedSendFile {
             session_id: session_id()
         }]
     );
@@ -128,7 +127,7 @@ fn unsubscribed_input_paste_resize_and_snapshot_are_dropped_with_observations() 
 }
 
 #[test]
-fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
+fn subscribed_input_send_file_resize_and_snapshot_emit_session_requests() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
@@ -136,10 +135,10 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         session_id: session_id(),
         data: b"ls\n".to_vec(),
     });
-    let paste = harness.handle_ingress(TransportIngress::Paste {
+    let send_file = harness.handle_ingress(TransportIngress::SendFile {
         request_id: request_id(),
         session_id: session_id(),
-        data: b"paste".to_vec(),
+        data: b"send-file".to_vec(),
     });
     let resize = harness.handle_ingress(TransportIngress::Resize {
         session_id: session_id(),
@@ -162,14 +161,14 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         )]
     );
     assert_eq!(
-        paste.session_requests,
+        send_file.session_requests,
         vec![(
             session_id(),
-            SessionIoRequest::PasteFile(PasteFileRequest {
+            SessionIoRequest::SendFile(SendFileRequest {
                 request_id: request_id(),
                 session_id: session_id(),
-                filename: "paste".to_string(),
-                data: b"paste".to_vec(),
+                filename: "send-file".to_string(),
+                data: b"send-file".to_vec(),
             })
         )]
     );
@@ -518,14 +517,14 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
 }
 
 #[test]
-fn paste_failure_event_does_not_create_new_core_storage_policy() {
+fn send_file_failure_event_does_not_create_new_core_storage_policy() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
-    let outcome = harness.handle_session_event(SessionIoEvent::PasteFileFailed(PasteFileFailed {
+    let outcome = harness.handle_session_event(SessionIoEvent::SendFileFailed(SendFileFailed {
         request_id: request_id(),
         session_id: session_id(),
-        reason: PasteFileErrorReason::TooLarge,
+        reason: SendFileErrorReason::TooLarge,
         detail: None,
     }));
 

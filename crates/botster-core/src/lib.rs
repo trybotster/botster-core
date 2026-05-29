@@ -14,7 +14,7 @@ pub use contract::{
     actor, boundary, client, client_stream, entity, notification, session, session_protocol,
     transport, ui,
 };
-pub use engine::{plugin_worker, session_activity};
+pub use engine::{plugin_worker, session_activity, session_worker};
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
@@ -27,18 +27,19 @@ pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
     ClientControlFrame, ClientWorkerMessage, HubControlMessage, HubControlOrigin,
     InitialSnapshotBarrier, InitialSnapshotPhase, InitialSnapshotReady, InitialSnapshotRequest,
-    MailboxSendFailure, MailboxSendFailureReason, ModeFlagsReady, PasteFileErrorReason,
-    PasteFileFailed, PasteFileRequest, PasteFileWritten, PluginCleanupResult, PluginCleanupScope,
-    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginInvocationContext, PluginInvocationFailure, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginKey,
-    PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
-    PluginUnloadSpec, PluginWorkerEvent, PluginWorkerMessage, PreparedSnapshotReady,
-    PreparedSnapshotRequest, QueueSource, ScreenReady, SessionIoCoalescingPolicy, SessionIoEvent,
-    SessionIoOrderedEvent, SessionIoRequest, SessionLifecycleState, SnapshotReady,
-    TerminalAttachState, TransportConnectionMode, TransportDisconnectReason, TransportPeerState,
-    TransportSignal, PUBLIC_QUEUE_SOURCES, SESSION_IO_MAX_COALESCED_BYTES,
-    SESSION_IO_MAX_COALESCED_FRAMES, SESSION_IO_MAX_COALESCED_WINDOW,
+    MailboxSendFailure, MailboxSendFailureReason, ModeFlagsReady, PluginCleanupResult,
+    PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
+    PluginHandlerRef, PluginInvocationContext, PluginInvocationFailure,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult,
+    PluginInvocationSuccess, PluginKey, PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec,
+    PluginResourceKind, PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent,
+    PluginWorkerMessage, PreparedSnapshotReady, PreparedSnapshotRequest, QueueSource, ScreenReady,
+    SendFileErrorReason, SendFileFailed, SendFileRequest, SendFileWritten,
+    SessionIoCoalescingPolicy, SessionIoEvent, SessionIoOrderedEvent, SessionIoRequest,
+    SessionLifecycleState, SnapshotReady, TerminalAttachState, TransportConnectionMode,
+    TransportDisconnectReason, TransportPeerState, TransportSignal, PUBLIC_QUEUE_SOURCES,
+    SESSION_IO_MAX_COALESCED_BYTES, SESSION_IO_MAX_COALESCED_FRAMES,
+    SESSION_IO_MAX_COALESCED_WINDOW,
 };
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
@@ -56,7 +57,8 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, PluginHandlerRegistration,
-    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine,
+    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,

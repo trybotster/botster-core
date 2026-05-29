@@ -52,13 +52,13 @@ pub enum TransportIngress {
         /// Target session.
         session_id: SessionId,
     },
-    /// Prepare and write a paste payload.
-    Paste {
+    /// Prepare and write a send-file payload.
+    SendFile {
         /// Request correlation id.
         request_id: RequestId,
         /// Target session.
         session_id: SessionId,
-        /// Paste bytes.
+        /// Send-file bytes.
         data: Vec<u8>,
     },
     /// Update terminal focus state.
