@@ -1,23 +1,887 @@
-//! Minimal shared UI contract scaffolding.
+//! Renderer-neutral UI node, binding, viewport, and action contracts.
 
-use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::{Map, Value};
+use thiserror::Error;
+
+use crate::session::RequestId;
 
 /// Stable UI node identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UiNodeId(pub String);
 
-/// Shared UI node kind.
+/// Stable UI action identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UiActionId(pub String);
+
+/// UI action request identity reuses the core request correlation type.
+pub type UiActionRequestId = RequestId;
+
+/// Shared semantic UI node kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UiNodeKind {
+    /// Vertical or horizontal stack layout.
+    Stack,
+    /// Inline layout.
+    Inline,
+    /// Form container.
+    Form,
+    /// Panel region.
+    Panel,
+    /// Scrollable region.
+    ScrollArea,
     /// Text node.
     Text,
+    /// Icon node.
+    Icon,
+    /// Badge node.
+    Badge,
+    /// Status dot node.
+    StatusDot,
+    /// Empty state node.
+    EmptyState,
+    /// List container.
+    List,
+    /// List item.
+    ListItem,
+    /// Tree container.
+    Tree,
+    /// Tree item.
+    TreeItem,
+    /// Table container.
+    Table,
     /// Button/action node.
     Button,
-    /// Form node.
-    Form,
-    /// List node.
-    List,
-    /// Custom primitive rendered by a client adapter.
-    Primitive(String),
+    /// Icon-only button/action node.
+    IconButton,
+    /// Menu container.
+    Menu,
+    /// Menu item.
+    MenuItem,
+    /// Dialog node.
+    Dialog,
+    /// Text input node.
+    TextInput,
+    /// Textarea node.
+    Textarea,
+    /// Checkbox node.
+    Checkbox,
+    /// Select node.
+    Select,
+    /// Select option node.
+    SelectOption,
+    /// Terminal view placeholder.
+    TerminalView,
+    /// Connection-code view placeholder.
+    ConnectionCodeView,
+}
+
+/// Semantic width class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiWidthClass {
+    /// Single-column or narrow content area.
+    Compact,
+    /// Standard content area.
+    Regular,
+    /// Wide split-pane content area.
+    Expanded,
+}
+
+/// Semantic height class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiHeightClass {
+    /// Short cross-axis space.
+    Short,
+    /// Standard cross-axis space.
+    Regular,
+    /// Tall cross-axis space.
+    Tall,
+}
+
+/// Semantic pointer precision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiPointer {
+    /// No pointer input.
+    None,
+    /// Coarse pointer input.
+    Coarse,
+    /// Fine pointer input.
+    Fine,
+}
+
+/// Semantic screen orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiOrientation {
+    /// Portrait orientation.
+    Portrait,
+    /// Landscape orientation.
+    Landscape,
+}
+
+/// Renderer-neutral viewport context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiViewport {
+    /// Content-area width class.
+    pub width_class: UiWidthClass,
+    /// Content-area height class.
+    pub height_class: UiHeightClass,
+    /// Pointer precision.
+    pub pointer: UiPointer,
+    /// Optional orientation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<UiOrientation>,
+    /// Whether the software keyboard occludes the viewport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_occluded: Option<bool>,
+}
+
+/// Semantic spacing token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiSpaceToken {
+    /// No spacing.
+    None,
+    /// Extra-small spacing.
+    Xs,
+    /// Small spacing.
+    Sm,
+    /// Medium spacing.
+    Md,
+    /// Large spacing.
+    Lg,
+    /// Extra-large spacing.
+    Xl,
+}
+
+/// Semantic color token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiColorToken {
+    /// Default foreground/background color.
+    Default,
+    /// Muted content color.
+    Muted,
+    /// Accent color.
+    Accent,
+    /// Success color.
+    Success,
+    /// Warning color.
+    Warning,
+    /// Danger color.
+    Danger,
+}
+
+/// Binding path sentinel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiBind {
+    /// Absolute entity path or item-relative path.
+    pub path: String,
+}
+
+impl Serialize for UiBind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = BTreeMap::new();
+        map.insert("$bind", self.path.as_str());
+        map.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for UiBind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map = BTreeMap::<String, String>::deserialize(deserializer)?;
+        match map.get("$bind") {
+            Some(path) if map.len() == 1 => Ok(Self { path: path.clone() }),
+            _ => Err(serde::de::Error::custom(
+                "expected exactly one $bind string field",
+            )),
+        }
+    }
+}
+
+/// Responsive value keyed by semantic width and height classes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "$kind", rename_all = "lowercase")]
+pub enum UiResponsiveValue {
+    /// Viewport-dependent values.
+    Responsive {
+        /// Width values by semantic width class.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<UiResponsiveWidth>,
+        /// Height values by semantic height class.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<UiResponsiveHeight>,
+    },
+}
+
+/// Width responsive map.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UiResponsiveWidth {
+    /// Compact width value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<Value>,
+    /// Regular width value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regular: Option<Value>,
+    /// Expanded width value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded: Option<Value>,
+}
+
+/// Height responsive map.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UiResponsiveHeight {
+    /// Short height value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short: Option<Value>,
+    /// Regular height value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regular: Option<Value>,
+    /// Tall height value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tall: Option<Value>,
+}
+
+/// Viewport predicate used by conditional wrappers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiCondition {
+    /// Width-class predicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<UiWidthClass>,
+    /// Height-class predicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<UiHeightClass>,
+    /// Pointer predicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<UiPointer>,
+    /// Orientation predicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<UiOrientation>,
+    /// Keyboard occlusion predicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_occluded: Option<bool>,
+}
+
+/// Conditional child wrapper.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "$kind", rename_all = "lowercase")]
+pub enum UiConditional {
+    /// Render the node only when the condition matches.
+    When {
+        /// Viewport predicate.
+        condition: UiCondition,
+        /// Wrapped node.
+        node: Box<UiNode>,
+    },
+    /// Render the node only when the condition does not match.
+    Hidden {
+        /// Viewport predicate.
+        condition: UiCondition,
+        /// Wrapped node.
+        node: Box<UiNode>,
+    },
+}
+
+/// Entity-backed list binding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "$kind", rename_all = "snake_case")]
+pub enum UiBindList {
+    /// Render a node template once per matching entity.
+    BindList {
+        /// Entity family path.
+        source: String,
+        /// Exact top-level field filters.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        #[serde(rename = "where")]
+        r#where: BTreeMap<String, Value>,
+        /// Template for each entity row.
+        item_template: Box<UiNode>,
+        /// Template for an empty result.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        empty_template: Option<Box<UiNode>>,
+    },
+}
+
+/// Conditional node binding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "$kind", rename_all = "snake_case")]
+pub enum UiBindIf {
+    /// Render a node when the binding path is truthy.
+    BindIf {
+        /// Absolute entity path or item-relative path.
+        path: String,
+        /// Node to render.
+        node: Box<UiNode>,
+    },
+}
+
+/// Child node entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UiChild {
+    /// Conditional wrapper child.
+    Conditional(UiConditional),
+    /// Static node child.
+    Node(Box<UiNode>),
+    /// Entity-backed list child.
+    BindList(UiBindList),
+    /// Conditional node child.
+    BindIf(UiBindIf),
+}
+
+/// Shared UI node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiNode {
+    /// Semantic primitive type.
+    #[serde(rename = "type")]
+    pub kind: UiNodeKind,
+    /// Optional stable node id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<UiNodeId>,
+    /// Semantic properties.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub props: Map<String, Value>,
+    /// Positional child entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<UiChild>,
+    /// Named slots for compound primitives.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, Vec<UiChild>>,
+}
+
+impl UiNode {
+    /// Validate the semantic UI contract recursively.
+    pub fn validate(&self) -> Result<(), UiValidationError> {
+        validate_ui_node(self)
+    }
+}
+
+/// Validate one semantic UI node recursively.
+pub fn validate_ui_node(node: &UiNode) -> Result<(), UiValidationError> {
+    validate_node(node).map_err(|error| UiValidationError::Node {
+        id: node.id.clone(),
+        kind: node.kind,
+        source: Box::new(error),
+    })
+}
+
+/// Semantic UI action descriptor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiAction {
+    /// Semantic action id.
+    pub id: UiActionId,
+    /// Optional action payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
+    /// Whether clients should present the action as disabled.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
+}
+
+/// Pending action request identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiActionPending {
+    /// Request correlation id.
+    pub request_id: UiActionRequestId,
+    /// Semantic action id.
+    pub action_id: UiActionId,
+    /// Node that emitted the action.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<UiNodeId>,
+}
+
+/// Action result identity and outcome.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiActionResult {
+    /// Request correlation id.
+    pub request_id: UiActionRequestId,
+    /// Semantic action id.
+    pub action_id: UiActionId,
+    /// Node that emitted the action.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<UiNodeId>,
+    /// Result status.
+    pub status: UiActionStatus,
+    /// Success payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
+    /// Failure error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// UI action result status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiActionStatus {
+    /// Action completed successfully.
+    Success,
+    /// Action failed.
+    Failure,
+}
+
+/// UI contract validation error.
+#[derive(Debug, Error, PartialEq)]
+pub enum UiValidationError {
+    /// Unknown primitive kind.
+    #[error("unknown UI node kind `{kind}`")]
+    UnknownKind {
+        /// Unknown kind name.
+        kind: String,
+    },
+    /// Required prop is missing.
+    #[error("{kind:?} missing required prop `{prop}`")]
+    MissingProp {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Prop name.
+        prop: &'static str,
+    },
+    /// Unknown prop is present.
+    #[error("{kind:?} has unknown prop `{prop}`")]
+    UnknownProp {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Prop name.
+        prop: String,
+    },
+    /// Prop value is invalid.
+    #[error("{kind:?} has invalid prop `{prop}`: {reason}")]
+    InvalidProp {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Prop name.
+        prop: String,
+        /// Validation reason.
+        reason: String,
+    },
+    /// Required slot is missing.
+    #[error("{kind:?} missing required slot `{slot}`")]
+    MissingSlot {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Slot name.
+        slot: &'static str,
+    },
+    /// Unknown slot is present.
+    #[error("{kind:?} has unknown slot `{slot}`")]
+    UnknownSlot {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Slot name.
+        slot: String,
+    },
+    /// Required action is missing.
+    #[error("{kind:?} missing required action")]
+    MissingAction {
+        /// Node kind.
+        kind: UiNodeKind,
+    },
+    /// Required accessible label is missing.
+    #[error("{kind:?} missing required label")]
+    MissingLabel {
+        /// Node kind.
+        kind: UiNodeKind,
+    },
+    /// Binding path is invalid.
+    #[error("invalid bind path `{path}`: {reason}")]
+    InvalidBindPath {
+        /// Invalid path.
+        path: String,
+        /// Validation reason.
+        reason: String,
+    },
+    /// Recursive node context.
+    #[error("invalid node {id:?} ({kind:?}): {source}")]
+    Node {
+        /// Node id.
+        id: Option<UiNodeId>,
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Nested error.
+        source: Box<UiValidationError>,
+    },
+}
+
+fn validate_node(node: &UiNode) -> Result<(), UiValidationError> {
+    let schema = schema_for(node.kind);
+
+    for required in schema.required_props {
+        if !node.props.contains_key(required) {
+            return Err(UiValidationError::MissingProp {
+                kind: node.kind,
+                prop: required,
+            });
+        }
+    }
+
+    for (prop, value) in &node.props {
+        if !schema.allowed_props.contains(prop.as_str()) {
+            return Err(UiValidationError::UnknownProp {
+                kind: node.kind,
+                prop: prop.clone(),
+            });
+        }
+        validate_prop_value(node.kind, prop, value)?;
+    }
+
+    validate_required_action(node)?;
+    validate_required_label(node)?;
+
+    for required in schema.required_slots {
+        if !node.slots.contains_key(required) {
+            return Err(UiValidationError::MissingSlot {
+                kind: node.kind,
+                slot: required,
+            });
+        }
+    }
+
+    for (slot, children) in &node.slots {
+        if !schema.allowed_slots.contains(slot.as_str()) {
+            return Err(UiValidationError::UnknownSlot {
+                kind: node.kind,
+                slot: slot.clone(),
+            });
+        }
+        for child in children {
+            validate_child(child)?;
+        }
+    }
+
+    for child in &node.children {
+        validate_child(child)?;
+    }
+
+    Ok(())
+}
+
+fn validate_child(child: &UiChild) -> Result<(), UiValidationError> {
+    match child {
+        UiChild::Conditional(conditional) => validate_conditional(conditional),
+        UiChild::Node(node) => node.validate(),
+        UiChild::BindList(bind_list) => validate_bind_list(bind_list),
+        UiChild::BindIf(bind_if) => validate_bind_if(bind_if),
+    }
+}
+
+fn validate_conditional(conditional: &UiConditional) -> Result<(), UiValidationError> {
+    match conditional {
+        UiConditional::When { condition: _, node }
+        | UiConditional::Hidden { condition: _, node } => node.validate(),
+    }
+}
+
+fn validate_bind_list(bind_list: &UiBindList) -> Result<(), UiValidationError> {
+    match bind_list {
+        UiBindList::BindList {
+            source,
+            item_template,
+            empty_template,
+            ..
+        } => {
+            validate_bind_path(source)?;
+            item_template.validate()?;
+            if let Some(template) = empty_template {
+                template.validate()?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_bind_if(bind_if: &UiBindIf) -> Result<(), UiValidationError> {
+    match bind_if {
+        UiBindIf::BindIf { path, node } => {
+            validate_bind_path(path)?;
+            node.validate()
+        }
+    }
+}
+
+fn validate_prop_value(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    if let Some(path) = value.get("$bind").and_then(Value::as_str) {
+        validate_bind_path(path)?;
+    }
+
+    if value.get("$bind").is_some() {
+        let object = value
+            .as_object()
+            .ok_or_else(|| UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value must be an object".to_string(),
+            })?;
+        if object.len() != 1 {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value may only contain $bind".to_string(),
+            });
+        }
+        if !object.get("$bind").is_some_and(Value::is_string) {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "$bind value must be a string".to_string(),
+            });
+        }
+    }
+
+    if let Some(dynamic_kind) = value.get("$kind").and_then(Value::as_str) {
+        match dynamic_kind {
+            "responsive" => {
+                serde_json::from_value::<UiResponsiveValue>(value.clone()).map_err(|error| {
+                    UiValidationError::InvalidProp {
+                        kind,
+                        prop: prop.to_string(),
+                        reason: error.to_string(),
+                    }
+                })?;
+                validate_token_value(kind, prop, value)?;
+            }
+            other => {
+                return Err(UiValidationError::InvalidProp {
+                    kind,
+                    prop: prop.to_string(),
+                    reason: format!("unknown dynamic value kind `{other}`"),
+                });
+            }
+        }
+    } else {
+        validate_token_value(kind, prop, value)?;
+    }
+
+    Ok(())
+}
+
+fn validate_token_value(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    match prop {
+        "gap" => validate_token_values::<UiSpaceToken>(kind, prop, value),
+        "tone" => validate_token_values::<UiColorToken>(kind, prop, value),
+        _ => Ok(()),
+    }
+}
+
+fn validate_token_values<T>(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    if value.get("$bind").is_some() {
+        return Ok(());
+    }
+
+    if value.get("$kind").and_then(Value::as_str) == Some("responsive") {
+        if let Some(width) = value.get("width").and_then(Value::as_object) {
+            for token in width.values() {
+                validate_one_token::<T>(kind, prop, token)?;
+            }
+        }
+        if let Some(height) = value.get("height").and_then(Value::as_object) {
+            for token in height.values() {
+                validate_one_token::<T>(kind, prop, token)?;
+            }
+        }
+        return Ok(());
+    }
+
+    validate_one_token::<T>(kind, prop, value)
+}
+
+fn validate_one_token<T>(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_value::<T>(value.clone())
+        .map(|_| ())
+        .map_err(|error| UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: error.to_string(),
+        })
+}
+
+fn validate_required_action(node: &UiNode) -> Result<(), UiValidationError> {
+    if matches!(
+        node.kind,
+        UiNodeKind::Button | UiNodeKind::IconButton | UiNodeKind::MenuItem
+    ) && !node.props.contains_key("action")
+    {
+        return Err(UiValidationError::MissingAction { kind: node.kind });
+    }
+    Ok(())
+}
+
+fn validate_required_label(node: &UiNode) -> Result<(), UiValidationError> {
+    if !matches!(
+        node.kind,
+        UiNodeKind::Button | UiNodeKind::IconButton | UiNodeKind::MenuItem
+    ) {
+        return Ok(());
+    }
+
+    match node.props.get("label").and_then(Value::as_str) {
+        Some(label) if !label.trim().is_empty() => Ok(()),
+        _ => Err(UiValidationError::MissingLabel { kind: node.kind }),
+    }
+}
+
+fn validate_bind_path(path: &str) -> Result<(), UiValidationError> {
+    if path.is_empty() {
+        return Err(UiValidationError::InvalidBindPath {
+            path: path.to_string(),
+            reason: "path cannot be empty".to_string(),
+        });
+    }
+
+    if path.starts_with('/') || path.starts_with("@/") {
+        return Ok(());
+    }
+
+    Err(UiValidationError::InvalidBindPath {
+        path: path.to_string(),
+        reason: "path must start with `/` or `@/`".to_string(),
+    })
+}
+
+fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
+    match kind {
+        UiNodeKind::Stack => schema(
+            &["direction", "gap", "align", "justify"],
+            &["direction"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Inline => schema(&["gap", "align", "justify"], &[], &[], &[]),
+        UiNodeKind::Form => schema(&["action"], &[], &[], &[]),
+        UiNodeKind::Panel => schema(&["title", "tone"], &[], &[], &[]),
+        UiNodeKind::ScrollArea => schema(&["height"], &[], &[], &[]),
+        UiNodeKind::Text => schema(&["text", "tone", "variant"], &["text"], &[], &[]),
+        UiNodeKind::Icon => schema(&["icon", "label", "tone"], &["icon"], &[], &[]),
+        UiNodeKind::Badge => schema(&["label", "tone"], &["label"], &[], &[]),
+        UiNodeKind::StatusDot => schema(&["label", "tone"], &["label"], &[], &[]),
+        UiNodeKind::EmptyState => schema(
+            &["title", "description", "icon", "action"],
+            &["title"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::List => schema(&["aria_label"], &[], &[], &[]),
+        UiNodeKind::ListItem => schema(
+            &["value", "selected"],
+            &[],
+            &["title", "subtitle", "meta", "actions"],
+            &["title"],
+        ),
+        UiNodeKind::Tree => schema(&["aria_label"], &[], &[], &[]),
+        UiNodeKind::TreeItem => schema(
+            &["value", "expanded", "selected"],
+            &[],
+            &["title", "children", "actions"],
+            &["title"],
+        ),
+        UiNodeKind::Table => schema(&["columns"], &["columns"], &[], &[]),
+        UiNodeKind::Button => schema(&["label", "action", "tone", "variant"], &[], &[], &[]),
+        UiNodeKind::IconButton => schema(
+            &["label", "icon", "action", "tone", "variant"],
+            &["icon"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Menu => schema(&["label"], &[], &["items"], &["items"]),
+        UiNodeKind::MenuItem => schema(&["label", "action", "icon"], &[], &[], &[]),
+        UiNodeKind::Dialog => schema(
+            &["title", "presentation"],
+            &["title"],
+            &["body", "actions"],
+            &["body"],
+        ),
+        UiNodeKind::TextInput => schema(
+            &["name", "label", "value", "placeholder", "required"],
+            &["name", "label"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Textarea => schema(
+            &["name", "label", "value", "placeholder", "required"],
+            &["name", "label"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Checkbox => schema(
+            &["name", "label", "checked", "required"],
+            &["name", "label"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Select => schema(
+            &["name", "label", "value", "required"],
+            &["name", "label"],
+            &["options"],
+            &["options"],
+        ),
+        UiNodeKind::SelectOption => schema(
+            &["value", "label", "disabled"],
+            &["value", "label"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::TerminalView => schema(&["session_id", "title"], &["session_id"], &[], &[]),
+        UiNodeKind::ConnectionCodeView => schema(&["code", "label"], &["code"], &[], &[]),
+    }
+}
+
+fn schema(
+    allowed_props: &[&'static str],
+    required_props: &[&'static str],
+    allowed_slots: &[&'static str],
+    required_slots: &[&'static str],
+) -> UiNodeSchema {
+    UiNodeSchema {
+        allowed_props: allowed_props.iter().copied().collect(),
+        required_props: required_props.to_vec(),
+        allowed_slots: allowed_slots.iter().copied().collect(),
+        required_slots: required_slots.to_vec(),
+    }
+}
+
+struct UiNodeSchema {
+    allowed_props: BTreeSet<&'static str>,
+    required_props: Vec<&'static str>,
+    allowed_slots: BTreeSet<&'static str>,
+    required_slots: Vec<&'static str>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
