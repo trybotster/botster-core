@@ -577,6 +577,22 @@ fn session_and_client_contracts_do_not_depend_on_transport() {
 }
 
 #[test]
+fn terminal_mode_is_not_a_pushed_actor_contract() {
+    let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let transport_source =
+        std::fs::read_to_string("src/transport.rs").expect("read transport source");
+
+    assert!(
+        !actor_source.contains("ModeChanged"),
+        "actor contracts must not push terminal mode/color deltas via ModeChanged"
+    );
+    assert!(
+        !transport_source.contains("ModeChanged"),
+        "transport contracts must not push terminal mode/color deltas via ModeChanged"
+    );
+}
+
+#[test]
 fn plugin_handler_refs_never_contain_function_values() {
     let kinds = [
         PluginHandlerKind::UiAction,
