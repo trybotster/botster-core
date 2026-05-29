@@ -37,8 +37,8 @@ pub use entity::{
     EntityStores,
 };
 pub use session::{
-    CoreSession, RequestId, SessionActivity, SessionActivityEvent, SessionActivityStatus,
-    SessionId, SessionKind, SubscriptionId,
+    CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
+    SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
 };
 pub use session_protocol::{
     decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,

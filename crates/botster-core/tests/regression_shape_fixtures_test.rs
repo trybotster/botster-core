@@ -73,7 +73,6 @@ fn last_output_regression_shape_translates_to_core_activity() {
     assert_eq!(session, round_trip(&session));
     assert_eq!(session.lifecycle, SessionLifecycleState::Running);
     assert_eq!(session.activity.last_output_at, Some(1_000));
-    assert_eq!(session.activity.output_bytes, 42);
     assert_eq!(session.activity.last_input_at, None);
     assert_eq!(status, SessionActivityStatus::Active);
 

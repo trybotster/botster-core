@@ -1,8 +1,16 @@
-//! Session identifiers, vocabulary, and portable activity state.
+//! Session identifiers, host metadata, and portable activity state.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::actor::SessionLifecycleState;
+
+/// Maximum encoded JSON size for core session host metadata.
+///
+/// This mirrors the handshake metadata cap posture: hosts can attach small,
+/// durable classification values, not arbitrary runtime state blobs.
+pub const MAX_CORE_SESSION_METADATA_LEN: usize = 64 * 1024;
 
 /// Stable identifier for a Botster session.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -16,27 +24,42 @@ pub struct SubscriptionId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RequestId(pub String);
 
-/// Transport-neutral session kind.
+/// Host-owned session metadata that core serializes but does not interpret.
 ///
-/// Core keeps the vocabulary broad enough for common Botster embeddings while
-/// preserving a custom escape hatch for hosts with their own session taxonomy.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionKind {
-    /// Interactive terminal or shell session.
-    Terminal,
-    /// Generic process session without terminal-specific assumptions.
-    Process,
-    /// Agent CLI session. Botster treats this as one use of the multiplexer,
-    /// not as a product-only core assumption.
-    Agent,
-    /// Session owned by a plugin.
-    Plugin {
-        /// Stable plugin key.
-        plugin_key: String,
-    },
-    /// Embedder-owned kind value.
-    Custom(String),
+/// Values are string-only and should be small classification facts such as a
+/// namespaced `session_type`. Hosts are responsible for excluding PII such as
+/// cwd, title, username, prompt text, or terminal content. Plugin-owned runtime
+/// state belongs in plugin entities or plugin state, not in this core metadata
+/// surface.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CoreSessionMetadata {
+    /// Host-owned classification entries.
+    #[serde(default)]
+    pub entries: BTreeMap<String, String>,
+}
+
+impl CoreSessionMetadata {
+    /// Build empty host metadata.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            entries: BTreeMap::new(),
+        }
+    }
+
+    /// Build host metadata from entries.
+    #[must_use]
+    pub fn from_entries(entries: BTreeMap<String, String>) -> Self {
+        Self { entries }
+    }
+
+    /// Whether the encoded metadata is within core's public cap.
+    #[must_use]
+    pub fn is_within_encoded_len_limit(&self) -> bool {
+        serde_json::to_vec(self)
+            .map(|encoded| encoded.len() <= MAX_CORE_SESSION_METADATA_LEN)
+            .unwrap_or(false)
+    }
 }
 
 /// Deterministic activity classification for a session at an injected time.
@@ -52,19 +75,13 @@ pub enum SessionActivityStatus {
 /// Byte and declared-activity accounting for a session.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SessionActivity {
-    /// Unix timestamp of the last input byte observed by core.
+    /// Unix seconds of the last input byte observed by core.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_input_at: Option<u64>,
-    /// Total input bytes observed by core.
-    #[serde(default)]
-    pub input_bytes: u64,
-    /// Unix timestamp of the last output byte observed by core.
+    /// Unix seconds of the last output byte observed by core.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_output_at: Option<u64>,
-    /// Total output bytes observed by core.
-    #[serde(default)]
-    pub output_bytes: u64,
-    /// Unix timestamp of the last non-byte activity signal declared by a host.
+    /// Unix seconds of the last non-byte activity signal declared by a host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_declared_activity_at: Option<u64>,
 }
@@ -89,8 +106,9 @@ impl SessionActivity {
 pub struct CoreSession {
     /// Stable session identifier.
     pub session_id: SessionId,
-    /// Transport-neutral session kind.
-    pub kind: SessionKind,
+    /// Host-owned metadata serialized by core but not interpreted by core.
+    #[serde(default)]
+    pub metadata: CoreSessionMetadata,
     /// Lifecycle summary shared with actor contracts.
     pub lifecycle: SessionLifecycleState,
     /// Portable activity accounting.
@@ -101,10 +119,20 @@ pub struct CoreSession {
 impl CoreSession {
     /// Build a core session with empty activity accounting.
     #[must_use]
-    pub fn new(session_id: SessionId, kind: SessionKind, lifecycle: SessionLifecycleState) -> Self {
+    pub fn new(session_id: SessionId, lifecycle: SessionLifecycleState) -> Self {
+        Self::with_metadata(session_id, lifecycle, CoreSessionMetadata::default())
+    }
+
+    /// Build a core session with host-owned metadata and empty activity accounting.
+    #[must_use]
+    pub fn with_metadata(
+        session_id: SessionId,
+        lifecycle: SessionLifecycleState,
+        metadata: CoreSessionMetadata,
+    ) -> Self {
         Self {
             session_id,
-            kind,
+            metadata,
             lifecycle,
             activity: SessionActivity::default(),
         }
@@ -117,21 +145,21 @@ impl CoreSession {
 pub enum SessionActivityEvent {
     /// PTY or transport input bytes were observed.
     InputBytes {
-        /// Unix timestamp for the observed bytes.
+        /// Unix seconds for the observed bytes.
         at: u64,
         /// Number of bytes observed. Zero-byte events do not refresh activity.
         bytes: u64,
     },
     /// PTY or transport output bytes were observed.
     OutputBytes {
-        /// Unix timestamp for the observed bytes.
+        /// Unix seconds for the observed bytes.
         at: u64,
         /// Number of bytes observed. Zero-byte events do not refresh activity.
         bytes: u64,
     },
     /// Non-byte activity was declared by a host using its own policy boundary.
     DeclaredActivity {
-        /// Unix timestamp for the declared activity.
+        /// Unix seconds for the declared activity.
         at: u64,
     },
     /// Lifecycle changed without implying byte activity.
