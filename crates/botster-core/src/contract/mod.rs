@@ -5,6 +5,7 @@ pub mod boundary;
 pub mod client;
 pub mod client_stream;
 pub mod entity;
+pub mod notification;
 pub mod session;
 pub mod session_protocol;
 pub mod transport;
@@ -35,6 +36,11 @@ pub use client_stream::{
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
+};
+pub use notification::{
+    NotificationAction, NotificationContent, NotificationDeliveryStatus, NotificationId,
+    NotificationInbox, NotificationItem, NotificationKind, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,

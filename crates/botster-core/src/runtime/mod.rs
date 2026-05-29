@@ -2,3 +2,186 @@
 //!
 //! Runtime traits will let embedders supply clocks, process/session execution,
 //! plugin runtimes, and I/O without coupling core to a specific hub process.
+
+use std::error::Error;
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
+
+/// Host-implemented session runtime boundary.
+///
+/// Core defines this synchronous contract so embedders can adapt it to their
+/// own process, thread, Tokio, PTY, or test runtime without `botster-core`
+/// selecting one.
+pub trait SessionRuntime {
+    /// Spawn a new session from an explicit, policy-free request.
+    fn spawn_session(
+        &mut self,
+        request: SessionSpawnRequest,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError>;
+
+    /// Deliver input or control data to a spawned session.
+    fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError>;
+
+    /// Drain currently available runtime output for one session.
+    fn drain_output(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError>;
+}
+
+/// Explicit request for a host runtime to spawn and connect one session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionSpawnRequest {
+    /// Correlation identifier for the spawn request.
+    pub request_id: RequestId,
+    /// Stable session identifier assigned before host spawning.
+    pub session_id: SessionId,
+    /// Executable path or command name chosen by the host.
+    pub executable: String,
+    /// Argument vector supplied without shell expansion.
+    #[serde(default)]
+    pub arguments: Vec<String>,
+    /// Working directory selected by the host before entering core.
+    pub working_directory: SpawnWorkingDirectory,
+    /// Explicit environment variables to set for the child process.
+    #[serde(default)]
+    pub environment: SpawnEnvironment,
+    /// Initial PTY rows and columns, when a PTY-backed runtime needs them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_pty_size: Option<ResizePayload>,
+}
+
+/// Working directory contract for a session spawn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpawnWorkingDirectory {
+    /// Directory path selected by the host before it builds the spawn request.
+    pub path: String,
+}
+
+/// Deterministic set-vars environment contract for a session spawn.
+///
+/// This collection does not model ambient inheritance or variable removal. A
+/// host that needs those policies resolves them before building the request.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpawnEnvironment {
+    /// Environment variables to set, in deterministic order.
+    #[serde(default)]
+    pub variables: Vec<SpawnEnvironmentVariable>,
+}
+
+/// One explicit environment variable assignment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpawnEnvironmentVariable {
+    /// Environment variable name.
+    pub name: String,
+    /// Environment variable value.
+    pub value: String,
+}
+
+/// Runtime-owned child process identity returned after a successful spawn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessIdentity {
+    /// Operating-system process identifier, when the host exposes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// Stable host-side process identifier for runtimes without OS PIDs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_id: Option<String>,
+}
+
+/// Connected session handle returned by a runtime after spawning succeeds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRuntimeHandle {
+    /// Correlation identifier from the spawn request.
+    pub request_id: RequestId,
+    /// Spawned session identifier.
+    pub session_id: SessionId,
+    /// Runtime-owned child process identity.
+    pub process: ProcessIdentity,
+}
+
+/// Input or control data delivered from a host data plane into a session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionRuntimeInput {
+    /// Raw PTY input bytes.
+    PtyInput {
+        /// Target session identifier.
+        session_id: SessionId,
+        /// Raw input bytes.
+        data: Vec<u8>,
+    },
+    /// Resize the session PTY to rows and columns.
+    Resize {
+        /// Target session identifier.
+        session_id: SessionId,
+        /// Rows and columns for the PTY.
+        size: ResizePayload,
+    },
+    /// Request an orderly session shutdown.
+    Shutdown {
+        /// Target session identifier.
+        session_id: SessionId,
+    },
+}
+
+/// Output or lifecycle data emitted by a session runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionRuntimeOutput {
+    /// Raw PTY output bytes.
+    PtyOutput {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Raw output bytes.
+        data: Vec<u8>,
+    },
+    /// Child process exit status.
+    ProcessExited {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Process exit payload reused from the session protocol.
+        payload: ProcessExitedPayload,
+    },
+}
+
+/// Stable category for a session runtime error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionRuntimeErrorKind {
+    /// Spawn request could not be started by the host runtime.
+    SpawnFailed,
+    /// A requested session is not known to the runtime.
+    SessionNotFound,
+    /// Runtime input could not be delivered.
+    InputFailed,
+    /// Runtime output could not be read.
+    OutputFailed,
+}
+
+/// Typed error returned by a host session runtime implementation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRuntimeError {
+    /// Stable machine-readable error kind.
+    pub kind: SessionRuntimeErrorKind,
+    /// Human-readable error detail.
+    pub message: String,
+}
+
+impl SessionRuntimeError {
+    /// Build a typed runtime error.
+    pub fn new(kind: SessionRuntimeErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for SessionRuntimeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{:?}: {}", self.kind, self.message)
+    }
+}
+
+impl Error for SessionRuntimeError {}

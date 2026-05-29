@@ -11,11 +11,17 @@ pub mod package;
 pub mod runtime;
 
 pub use contract::{
-    actor, boundary, client, client_stream, entity, session, session_protocol, transport, ui,
+    actor, boundary, client, client_stream, entity, notification, session, session_protocol,
+    transport, ui,
 };
 pub use engine::session_activity;
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
+pub use runtime::{
+    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+};
 
 pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
@@ -57,6 +63,11 @@ pub use extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 pub use keyring::{
     CredentialRecord, CredentialStore, CredentialStoreError, NonExportableSigner, SignatureBytes,
     SigningError, SigningKeyHandle,
+};
+pub use notification::{
+    NotificationAction, NotificationContent, NotificationDeliveryStatus, NotificationId,
+    NotificationInbox, NotificationItem, NotificationKind, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use package::{PackageManifest, PackageSource};
 pub use session::{
