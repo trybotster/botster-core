@@ -34,6 +34,10 @@ pub enum SubscriptionMultiplexerObservation {
 }
 
 /// Deterministic result of handling one multiplexer command.
+///
+/// The multiplexer only classifies and batches per-client outputs. It performs
+/// no transport writes; callers enqueue each `client_egress` item into the
+/// receiving client's worker or adapter boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubscriptionMultiplexerOutcome {
     /// Frames emitted to client transports, paired with the receiving client.
@@ -145,6 +149,8 @@ impl SubscriptionMultiplexer {
                     payload: payload.clone(),
                 })
             }
+            // These variants are intentionally matched one by one so adding a
+            // new SessionIoEvent forces an explicit broadcast decision.
             SessionIoEvent::InitialSnapshotReady(snapshot) => {
                 Self::not_broadcast(snapshot.session_id, "initial_snapshot_ready")
             }
@@ -160,6 +166,8 @@ impl SubscriptionMultiplexer {
             SessionIoEvent::PreparedSnapshotReady(snapshot) => {
                 Self::not_broadcast(snapshot.session_id, "prepared_snapshot_ready")
             }
+            // ModeFlagsReady is still a targeted request-response contract; it
+            // is not a session-wide pushed event for this multiplexer.
             SessionIoEvent::ModeFlagsReady(mode_flags) => {
                 Self::not_broadcast(mode_flags.session_id, "mode_flags_ready")
             }
