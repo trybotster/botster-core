@@ -15,6 +15,11 @@ pub use contract::{
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
+pub use runtime::{
+    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+};
 
 pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
