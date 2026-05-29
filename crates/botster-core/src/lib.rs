@@ -13,6 +13,7 @@ pub mod runtime;
 pub use contract::{
     actor, boundary, client, client_stream, entity, session, session_protocol, transport, ui,
 };
+pub use engine::session_activity;
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 
@@ -47,6 +48,7 @@ pub use device::{
     device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
     PublicSigningKeyBytes,
 };
+pub use engine::{apply_session_activity_event, classify_session_activity};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
@@ -57,7 +59,10 @@ pub use keyring::{
     SigningError, SigningKeyHandle,
 };
 pub use package::{PackageManifest, PackageSource};
-pub use session::{RequestId, SessionId, SubscriptionId};
+pub use session::{
+    CoreSession, RequestId, SessionActivity, SessionActivityEvent, SessionActivityStatus,
+    SessionId, SessionKind, SubscriptionId,
+};
 pub use session_protocol::{
     decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,
     encode_string, encode_welcome, read_hello, read_welcome, write_hello, write_welcome, Frame,
