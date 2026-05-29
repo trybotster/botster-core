@@ -1,0 +1,36 @@
+[package]
+name = "botster-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Botster contributors"]
+description = "Reusable Botster runtime contracts and transport-neutral primitives"
+repository = "https://github.com/trybotster/botster-core"
+license-file = "../../LICENSE"
+readme = "../../README.md"
+keywords = ["terminal", "pty", "multiplexer", "agents", "runtime"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+aes-gcm = "0.10.3"
+base64 = "0.22.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11.0"
+thiserror = "2.0"
+uuid = { version = "1.10", features = ["serde", "v4"] }
+zeroize = { version = "1.8.2", features = ["derive"] }
+
+[dev-dependencies]
+botster-core-test-support = { path = "../botster-core-test-support" }
+serde_json = "1.0"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+unwrap_used = "warn"

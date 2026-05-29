@@ -30,56 +30,56 @@ const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 8] = [
         path: "TransportSignal.payload",
         owner: "relay",
         reason: "encrypted or relay-owned signaling envelope is opaque to core",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct TransportSignal",
     },
     BoundaryJsonEscapeHatch {
         path: "PluginOwnedDescriptor.body",
         owner: "plugin",
         reason: "plugin descriptor schema is owned by the plugin",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct PluginOwnedDescriptor",
     },
     BoundaryJsonEscapeHatch {
         path: "PluginLoadSpec.metadata",
         owner: "plugin",
         reason: "plugin load metadata schema is owned by the plugin",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct PluginLoadSpec",
     },
     BoundaryJsonEscapeHatch {
         path: "PluginInvocationContext.metadata",
         owner: "plugin",
         reason: "plugin invocation context metadata schema is owned by the plugin",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct PluginInvocationContext",
     },
     BoundaryJsonEscapeHatch {
         path: "PluginInvocationRequest.payload",
         owner: "plugin",
         reason: "plugin handler input schema is owned by the plugin",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct PluginInvocationRequest",
     },
     BoundaryJsonEscapeHatch {
         path: "PluginInvocationSuccess.payload",
         owner: "plugin",
         reason: "plugin handler response schema is owned by the plugin",
-        file: "src/actor.rs",
+        file: "src/contract/actor.rs",
         source_marker: "pub struct PluginInvocationSuccess",
     },
     BoundaryJsonEscapeHatch {
         path: "TransportIngress::BoundaryPayload.payload",
         owner: "relay/plugin",
         reason: "relay/plugin adapter ingress payload schema is opaque to core",
-        file: "src/transport.rs",
+        file: "src/contract/transport.rs",
         source_marker: "pub enum TransportIngress",
     },
     BoundaryJsonEscapeHatch {
         path: "TransportEgress::BoundaryPayload.payload",
         owner: "relay/plugin",
         reason: "relay/plugin adapter egress payload schema is opaque to core",
-        file: "src/transport.rs",
+        file: "src/contract/transport.rs",
         source_marker: "pub enum TransportEgress",
     },
 ];
@@ -513,10 +513,10 @@ fn stable_botster_controls_do_not_use_boundary_json() {
 
     let mut boundary_fields = Vec::new();
     for file in [
-        "src/actor.rs",
-        "src/transport.rs",
+        "src/contract/actor.rs",
+        "src/contract/transport.rs",
         "src/lib.rs",
-        "src/boundary.rs",
+        "src/contract/boundary.rs",
     ] {
         let source = std::fs::read_to_string(file).expect("read source");
         for line in source.lines() {
@@ -538,22 +538,25 @@ fn stable_botster_controls_do_not_use_boundary_json() {
         BOUNDARY_JSON_ESCAPE_HATCHES.len(),
         "new public contract BoundaryJson uses must be classified with owner and reason: {boundary_fields:?}"
     );
-    assert!(boundary_fields
-        .iter()
-        .all(|field| field.starts_with("src/actor.rs:") || field.starts_with("src/transport.rs:")));
+    assert!(boundary_fields.iter().all(|field| {
+        field.starts_with("src/contract/actor.rs:")
+            || field.starts_with("src/contract/transport.rs:")
+    }));
 
-    let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");
     let transport_source =
-        std::fs::read_to_string("src/transport.rs").expect("read transport source");
+        std::fs::read_to_string("src/contract/transport.rs").expect("read transport source");
     assert!(!actor_source.contains("serde_json::Value"));
     assert!(!transport_source.contains("serde_json::Value"));
 }
 
 #[test]
 fn session_and_client_contracts_do_not_depend_on_transport() {
-    let session_source = std::fs::read_to_string("src/session.rs").expect("read session source");
-    let client_source = std::fs::read_to_string("src/client.rs").expect("read client source");
-    let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let session_source =
+        std::fs::read_to_string("src/contract/session.rs").expect("read session source");
+    let client_source =
+        std::fs::read_to_string("src/contract/client.rs").expect("read client source");
+    let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");
 
     assert!(!session_source.contains("crate::transport"));
     assert!(!client_source.contains("crate::transport"));
@@ -578,9 +581,9 @@ fn session_and_client_contracts_do_not_depend_on_transport() {
 
 #[test]
 fn terminal_mode_is_not_a_pushed_actor_contract() {
-    let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");
     let transport_source =
-        std::fs::read_to_string("src/transport.rs").expect("read transport source");
+        std::fs::read_to_string("src/contract/transport.rs").expect("read transport source");
 
     assert!(
         !actor_source.contains("ModeChanged"),

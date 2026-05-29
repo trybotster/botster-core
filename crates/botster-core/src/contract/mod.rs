@@ -1,20 +1,10 @@
-//! Reusable Botster runtime contracts and transport-neutral primitives.
-//!
-//! `botster-core` is the shared substrate for Botster hosts and clients. It
-//! defines stable data shapes and low-level contracts, while `botster-hub`
-//! owns Botster policy and orchestration.
+//! Stable contracts shared by Botster hosts, clients, providers, and plugins.
 
 pub mod actor;
 pub mod boundary;
-pub mod capability;
 pub mod client;
 pub mod client_stream;
-pub mod crypto;
-pub mod device;
 pub mod entity;
-pub mod extension;
-pub mod keyring;
-pub mod package;
 pub mod session;
 pub mod session_protocol;
 pub mod transport;
@@ -38,29 +28,14 @@ pub use actor::{
     SESSION_IO_MAX_COALESCED_FRAMES, SESSION_IO_MAX_COALESCED_WINDOW,
 };
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
-pub use capability::{Capability, CapabilitySet, CapabilitySurface};
 pub use client::{ClientId, ClientScope, ClientState};
 pub use client_stream::{
     ClientStreamGeneration, ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome,
-};
-pub use crypto::{
-    decrypt_aes_gcm, encrypt_aes_gcm, AesGcmEnvelope, AesGcmKey, CryptoError, CryptoOperation,
-    IdentityOperation,
-};
-pub use device::{
-    device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
-    PublicSigningKeyBytes,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
 };
-pub use extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
-pub use keyring::{
-    CredentialRecord, CredentialStore, CredentialStoreError, NonExportableSigner, SignatureBytes,
-    SigningError, SigningKeyHandle,
-};
-pub use package::{PackageManifest, PackageSource};
 pub use session::{RequestId, SessionId, SubscriptionId};
 pub use session_protocol::{
     decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,

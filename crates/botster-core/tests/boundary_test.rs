@@ -7,7 +7,7 @@ use botster_core::capability::{Capability, CapabilitySurface};
 use botster_core::extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 use botster_core::package::PackageManifest;
 
-const README: &str = include_str!("../README.md");
+const README: &str = include_str!("../../../README.md");
 
 fn policy_section() -> &'static str {
     README
@@ -112,8 +112,8 @@ fn readme_documents_layer_ownership_boundaries() {
         "Layer::Extension",
         "session/client data-plane actors",
         "not a separate `Layer::Provider` variant",
-        "src/session.rs",
-        "src/crypto.rs",
+        "src/contract/session.rs",
+        "src/identity/crypto.rs",
     ] {
         assert!(
             readme.contains(anchor),
@@ -161,7 +161,7 @@ fn readme_requires_preserve_translate_drop_migration_choices() {
 }
 
 fn readme() -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../README.md");
     fs::read_to_string(path).expect("README.md should be readable")
 }
 

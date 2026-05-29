@@ -1,7 +1,5 @@
 //! Contract tests for reusable regression-shape fixtures.
 
-mod fixtures;
-
 use botster_core::actor::{
     BackpressureRoute, ClientConnectionHealth, ClientControlFrame, HubControlMessage, PluginKey,
     PluginWorkerEvent, QueueSource, TerminalAttachState,
@@ -11,7 +9,7 @@ use botster_core::entity::{EntityFrame, EntityKind};
 use botster_core::session::{SessionId, SubscriptionId};
 use botster_core::session_protocol::{encode_frame, FrameDecoder, FRAME_PTY_OUTPUT};
 use botster_core::transport::TransportEgress;
-use fixtures::regression_shapes;
+use botster_core_test_support::fixtures::regression::regression_shapes;
 
 fn session_id() -> SessionId {
     SessionId("session-regression".to_string())
@@ -19,6 +17,10 @@ fn session_id() -> SessionId {
 
 fn client_id() -> ClientId {
     ClientId("client-regression".to_string())
+}
+
+fn subscription_id() -> SubscriptionId {
+    SubscriptionId("sub-regression".to_string())
 }
 
 fn round_trip<T>(value: &T) -> T
@@ -55,6 +57,7 @@ fn regression_shape_noisy_pty_replay_is_ordered_opaque_output() {
         .iter()
         .map(|chunk| TransportEgress::TerminalOutput {
             session_id: session_id(),
+            subscription_id: subscription_id(),
             data: chunk.clone(),
         })
         .collect();
@@ -157,10 +160,11 @@ fn regression_shape_entity_scoped_hydration_uses_existing_entity_frames() {
     assert!(matches!(
         &frames[0],
         EntityFrame::Snapshot {
-            kind,
-            records
-        } if kind == &EntityKind("project-pipelines.ticket".to_string())
-            && records[0]["scope_id"] == "project-1"
+            entity_type,
+            items,
+            ..
+        } if entity_type == &EntityKind("project-pipelines.ticket".to_string())
+            && items[0]["scope_id"] == "project-1"
     ));
     assert!(matches!(&frames[1], EntityFrame::Upsert { .. }));
     assert!(matches!(&frames[2], EntityFrame::Patch { .. }));
@@ -187,7 +191,12 @@ fn regression_shape_plugin_worker_timeout_backpressure_preserves_handler_refs() 
     ));
     assert!(matches!(
         &events[2],
-        PluginWorkerEvent::Completed { handler, payload: Some(_), .. }
-            if handler.plugin_key == PluginKey("project-pipelines".to_string())
+        PluginWorkerEvent::InvocationTimedOut(failure)
+            if failure.handler.plugin_key == PluginKey("project-pipelines".to_string())
+    ));
+    assert!(matches!(
+        &events[3],
+        PluginWorkerEvent::InvocationCompleted(success)
+            if success.handler.plugin_key == PluginKey("project-pipelines".to_string())
     ));
 }

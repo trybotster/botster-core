@@ -1,10 +1,17 @@
 # botster-core
 
-`botster-core` is the reusable Botster runtime contract crate.
+`botster-core` is the reusable Botster runtime workspace.
 
 It is intentionally not the Botster application, not the hub, and not the CLI.
 It contains the transport-neutral mechanisms and data shapes that every Botster
 host, client, provider, and plugin runtime must agree on.
+
+## Workspace Layout
+
+- `crates/botster-core`: production contract and engine crate.
+- `crates/botster-core-test-support`: dev-dependency fixtures, fakes, and
+  conformance helpers for consumers pinned to the same core version.
+- `crates/botster-core-dev`: dev-only smoke harness, not the product CLI.
 
 ## Ownership Boundary
 
@@ -13,11 +20,11 @@ lot for future hub, client, cloud, or plugin behavior.
 
 | Layer | Owns | Does not own | Current proof |
 | --- | --- | --- | --- |
-| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; plugin worker handler refs, descriptors, invocation, lifecycle, cleanup, and pressure events; entity frames; UI node shapes; package, capability, extension, crypto, and identity contracts. | Runtime policy, executable startup, product workflows, concrete adapters, device persistence policy, executable plugin callbacks, or raw private key material. | `src/boundary.rs`, `src/actor.rs`, `src/session.rs`, `src/session_protocol.rs`, `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs`, `src/package.rs`, `src/capability.rs`, `src/extension.rs`, `src/crypto.rs`, `src/device.rs`, `src/keyring.rs` |
-| Hub | Runtime policy, lifecycle, routing, recovery, and extension supervision. | Raw terminal byte delivery, CLI argument parsing, React/TUI rendering, Rails/cloud/Auth policy, Project Pipelines/GitHub/Cloudflare product logic, or legacy compatibility paths. Terminal bytes are represented by core frames and should flow through session/client data-plane actors, not hub policy loops. | `Layer::Hub` responsibility text in `src/boundary.rs`; terminal byte exclusions are reinforced by `TransportIngress::TerminalInput` and `TransportEgress::TerminalOutput` in `src/transport.rs` |
-| CLI | Operator commands and process startup. `src/boundary.rs` also names CLI argument parsing as something the hub does not own. | Reusable protocol contracts, hub runtime policy, provider policy, or UI/product behavior. | `Layer::Cli` and `Layer::Hub` responsibility text in `src/boundary.rs` |
-| Client | Presentation, local input, concrete transport adaptation, liveness reporting, and rendering of core UI/entity contracts. | Session lifecycle policy, hub supervision, provider authority, concrete WebRTC negotiation policy in core, or product-specific workflow state. | `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs` |
-| Provider/plugin | `Layer::Extension` behavior described by package manifests, `ExtensionKind::Plugin` or `ExtensionKind::Provider`, entrypoints, and granted capabilities such as client admission, signaling relay, hub presence, or browser shell. | Implicit hub internals, private key material, marketplace/update policy, Rails/cloud/Auth implementation in core, or bypassing capability declarations. Providers are privileged extension packages, not a separate `Layer::Provider` variant. | `Layer::Extension` responsibility text in `src/boundary.rs`, plus `src/package.rs`, `src/extension.rs`, `src/capability.rs`, and `tests/boundary_test.rs` |
+| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; plugin worker handler refs, descriptors, invocation, lifecycle, cleanup, and pressure events; entity frames; UI node shapes; package, capability, extension, crypto, and identity contracts. | Runtime policy, executable startup, product workflows, concrete adapters, device persistence policy, executable plugin callbacks, or raw private key material. | `crates/botster-core/src/contract/boundary.rs`, `crates/botster-core/src/contract/actor.rs`, `crates/botster-core/src/contract/session.rs`, `crates/botster-core/src/contract/session_protocol.rs`, `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs`, `crates/botster-core/src/package/manifest.rs`, `crates/botster-core/src/package/capability.rs`, `crates/botster-core/src/package/extension.rs`, `crates/botster-core/src/identity/crypto.rs`, `crates/botster-core/src/identity/device.rs`, `crates/botster-core/src/identity/keyring.rs` |
+| Hub | Runtime policy, lifecycle, routing, recovery, and extension supervision. | Raw terminal byte delivery, CLI argument parsing, React/TUI rendering, Rails/cloud/Auth policy, Project Pipelines/GitHub/Cloudflare product logic, or legacy compatibility paths. Terminal bytes are represented by core frames and should flow through session/client data-plane actors, not hub policy loops. | `Layer::Hub` responsibility text in `crates/botster-core/src/contract/boundary.rs`; terminal byte exclusions are reinforced by `TransportIngress::TerminalInput` and `TransportEgress::TerminalOutput` in `crates/botster-core/src/contract/transport.rs` |
+| CLI | Operator commands and process startup. `crates/botster-core/src/contract/boundary.rs` also names CLI argument parsing as something the hub does not own. | Reusable protocol contracts, hub runtime policy, provider policy, or UI/product behavior. | `Layer::Cli` and `Layer::Hub` responsibility text in `crates/botster-core/src/contract/boundary.rs` |
+| Client | Presentation, local input, concrete transport adaptation, liveness reporting, and rendering of core UI/entity contracts. | Session lifecycle policy, hub supervision, provider authority, concrete WebRTC negotiation policy in core, or product-specific workflow state. | `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs` |
+| Provider/plugin | `Layer::Extension` behavior described by package manifests, `ExtensionKind::Plugin` or `ExtensionKind::Provider`, entrypoints, and granted capabilities such as client admission, signaling relay, hub presence, or browser shell. | Implicit hub internals, private key material, marketplace/update policy, Rails/cloud/Auth implementation in core, or bypassing capability declarations. Providers are privileged extension packages, not a separate `Layer::Provider` variant. | `Layer::Extension` responsibility text in `crates/botster-core/src/contract/boundary.rs`, plus `crates/botster-core/src/package/manifest.rs`, `crates/botster-core/src/package/extension.rs`, `crates/botster-core/src/package/capability.rs`, and `crates/botster-core/tests/boundary_test.rs` |
 
 ## Explicit Ban List
 

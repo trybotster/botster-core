@@ -482,7 +482,7 @@ fn initial_snapshot_request_shape_includes_attach_routing() {
 
 #[test]
 fn session_io_mailbox_contract_excludes_hub_recovery_and_authorization_policy() {
-    let actor_source = std::fs::read_to_string("src/actor.rs").expect("read actor source");
+    let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");
     let session_io_source = actor_source
         .split("/// Stable plugin identity.")
         .next()

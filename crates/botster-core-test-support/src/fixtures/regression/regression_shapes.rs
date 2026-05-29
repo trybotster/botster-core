@@ -6,7 +6,8 @@
 
 use botster_core::actor::{
     BackpressureRoute, BackpressureSummary, ClientConnectionHealth, ClientControlFrame,
-    HubControlMessage, HubControlOrigin, PluginHandlerKind, PluginHandlerRef, PluginKey,
+    HubControlMessage, HubControlOrigin, PluginHandlerKind, PluginHandlerRef,
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationSuccess, PluginKey,
     PluginWorkerEvent, QueueSource, TerminalAttachState,
 };
 use botster_core::boundary::BoundaryJson;
@@ -108,21 +109,26 @@ pub fn snapshot_before_live_output(
     snapshot: &[u8],
     live_output: &[u8],
 ) -> Vec<TransportEgress> {
+    let subscription_id = SubscriptionId("sub-regression-snapshot".to_string());
     vec![
         TransportEgress::AttachState {
             session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
             state: TerminalAttachState::Attaching,
         },
         TransportEgress::Snapshot {
             session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
             data: snapshot.to_vec(),
         },
         TransportEgress::AttachState {
             session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
             state: TerminalAttachState::Attached,
         },
         TransportEgress::TerminalOutput {
             session_id,
+            subscription_id,
             data: live_output.to_vec(),
         },
     ]
@@ -138,29 +144,33 @@ pub fn entity_scoped_hydration(plugin_key: &str, scope_id: &str) -> Vec<EntityFr
     let record_id = EntityId(format!("{scope_id}:ticket-1"));
     vec![
         EntityFrame::Snapshot {
-            kind: kind.clone(),
-            records: vec![serde_json::json!({
+            entity_type: kind.clone(),
+            snapshot_seq: 1,
+            items: vec![serde_json::json!({
                 "id": record_id.0,
                 "scope_id": scope_id,
                 "title": "Build contract fixtures"
             })],
         },
         EntityFrame::Upsert {
-            kind: kind.clone(),
+            entity_type: kind.clone(),
+            snapshot_seq: 2,
             id: record_id.clone(),
-            record: serde_json::json!({
+            entity: serde_json::json!({
                 "id": record_id.0,
                 "scope_id": scope_id,
                 "status": "running"
             }),
         },
         EntityFrame::Patch {
-            kind: kind.clone(),
+            entity_type: kind.clone(),
+            snapshot_seq: 3,
             id: record_id.clone(),
             patch: serde_json::json!({ "status": "review" }),
         },
         EntityFrame::Remove {
-            kind,
+            entity_type: kind,
+            snapshot_seq: 4,
             id: record_id,
         },
     ]
@@ -195,16 +205,23 @@ pub fn plugin_worker_timeout_backpressure(
         }),
         PluginWorkerEvent::Failed {
             request_id: RequestId("req-plugin-timeout".to_string()),
-            plugin_key,
+            plugin_key: plugin_key.clone(),
             reason: "handler timed out".to_string(),
         },
-        PluginWorkerEvent::Completed {
+        PluginWorkerEvent::InvocationTimedOut(PluginInvocationFailure {
+            request_id: RequestId("req-plugin-timeout-observed".to_string()),
+            handler: handler.clone(),
+            kind: PluginInvocationFailureKind::TimedOut,
+            timeout_ms: Some(1_000),
+            reason: "handler timed out".to_string(),
+        }),
+        PluginWorkerEvent::InvocationCompleted(PluginInvocationSuccess {
             request_id: RequestId("req-plugin-timeout-observed".to_string()),
             handler,
             payload: Some(BoundaryJson(serde_json::json!({
                 "timeout": true,
                 "dropped_policy": "lua_vm_blocking_timeout_mechanics"
             }))),
-        },
+        }),
     ]
 }
