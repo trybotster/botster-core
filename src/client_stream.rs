@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{
-    BackpressureSummary, ClientControlFrame, PreparedSnapshot, SessionIoEvent, SessionIoRequest,
-    TerminalAttachState,
+    BackpressureSummary, ClientControlFrame, PasteFileRequest, SessionIoEvent, SessionIoRequest,
+    SnapshotReady, TerminalAttachState,
 };
 use crate::client::ClientId;
 use crate::session::{SessionId, SubscriptionId};
@@ -209,8 +209,8 @@ impl ClientStreamHarness {
                 subscription_id,
             } => self.unsubscribe(session_id, subscription_id),
             TransportIngress::TerminalInput { session_id, data } => self.route_session_request(
-                session_id,
-                SessionIoRequest::Input { data },
+                session_id.clone(),
+                SessionIoRequest::PtyInput { session_id, data },
                 |session_id| ClientStreamObservation::DroppedUnsubscribedInput { session_id },
             ),
             TransportIngress::Resize {
@@ -218,16 +218,23 @@ impl ClientStreamHarness {
                 rows,
                 cols,
             } => self.route_session_request(
-                session_id,
-                SessionIoRequest::Resize { rows, cols },
+                session_id.clone(),
+                SessionIoRequest::Resize {
+                    session_id,
+                    rows,
+                    cols,
+                },
                 |session_id| ClientStreamObservation::DroppedUnsubscribedResize { session_id },
             ),
             TransportIngress::RequestSnapshot {
                 request_id,
                 session_id,
             } => self.route_session_request(
-                session_id,
-                SessionIoRequest::Snapshot { request_id },
+                session_id.clone(),
+                SessionIoRequest::GetSnapshot {
+                    request_id,
+                    session_id,
+                },
                 |session_id| ClientStreamObservation::DroppedUnsubscribedSnapshot { session_id },
             ),
             TransportIngress::Paste {
@@ -235,18 +242,29 @@ impl ClientStreamHarness {
                 session_id,
                 data,
             } => self.route_session_request(
-                session_id,
-                SessionIoRequest::Paste { request_id, data },
+                session_id.clone(),
+                SessionIoRequest::PasteFile(PasteFileRequest {
+                    request_id,
+                    session_id,
+                    filename: "paste".to_string(),
+                    data,
+                }),
                 |session_id| ClientStreamObservation::DroppedUnsubscribedPaste { session_id },
             ),
             TransportIngress::Focus {
                 session_id,
-                focused,
-            } => self.route_session_request(
-                session_id,
-                SessionIoRequest::Focus { focused },
-                |session_id| ClientStreamObservation::DroppedUnsubscribedFocus { session_id },
-            ),
+                focused: _,
+            } => {
+                if self.subscriptions.contains_key(&session_id) {
+                    ClientStreamOutcome::empty()
+                } else {
+                    let mut outcome = ClientStreamOutcome::empty();
+                    outcome
+                        .observations
+                        .push(ClientStreamObservation::DroppedUnsubscribedFocus { session_id });
+                    outcome
+                }
+            }
             TransportIngress::Heartbeat { request_id } | TransportIngress::Ping { request_id } => {
                 let mut outcome = ClientStreamOutcome::empty();
                 outcome.egress.push(TransportEgress::Pong { request_id });
@@ -294,27 +312,27 @@ impl ClientStreamHarness {
                     }
                 })
             }
-            SessionIoEvent::Snapshot(snapshot) => self.route_snapshot(snapshot),
-            SessionIoEvent::FocusChanged {
+            SessionIoEvent::SnapshotReady(snapshot) => self.route_snapshot(snapshot),
+            SessionIoEvent::PasteFileFailed(_) => ClientStreamOutcome::empty(),
+            SessionIoEvent::ProcessExited {
                 session_id,
-                focused,
+                payload,
             } => self.route_delivery(session_id, |session_id, subscription_id| {
-                TransportEgress::FocusChanged {
+                TransportEgress::ProcessExit {
                     session_id,
                     subscription_id,
-                    focused,
+                    code: payload.exit_code,
                 }
             }),
-            SessionIoEvent::PasteFailed { .. } => ClientStreamOutcome::empty(),
-            SessionIoEvent::ProcessExited { session_id, code } => {
-                self.route_delivery(session_id, |session_id, subscription_id| {
-                    TransportEgress::ProcessExit {
-                        session_id,
-                        subscription_id,
-                        code,
-                    }
-                })
-            }
+            SessionIoEvent::InitialSnapshotReady(_)
+            | SessionIoEvent::PasteFileWritten(_)
+            | SessionIoEvent::PreparedSnapshotReady(_)
+            | SessionIoEvent::ModeFlagsReady(_)
+            | SessionIoEvent::ScreenReady(_)
+            | SessionIoEvent::PromptMark { .. }
+            | SessionIoEvent::Bell { .. }
+            | SessionIoEvent::Notification { .. }
+            | SessionIoEvent::Shutdown { .. } => ClientStreamOutcome::empty(),
         }
     }
 
@@ -435,7 +453,8 @@ impl ClientStreamHarness {
             self.subscriptions.remove(&session_id);
             outcome.session_requests.push((
                 session_id.clone(),
-                SessionIoRequest::Unsubscribe {
+                SessionIoRequest::UnsubscribeTerminal {
+                    session_id: session_id.clone(),
                     subscription_id: subscription_id.clone(),
                 },
             ));
@@ -473,7 +492,7 @@ impl ClientStreamHarness {
         }
     }
 
-    fn route_snapshot(&self, snapshot: PreparedSnapshot) -> ClientStreamOutcome {
+    fn route_snapshot(&self, snapshot: SnapshotReady) -> ClientStreamOutcome {
         self.route_delivery(snapshot.session_id.clone(), |_, subscription_id| {
             TransportEgress::Snapshot {
                 session_id: snapshot.session_id,

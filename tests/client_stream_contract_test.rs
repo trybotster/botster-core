@@ -2,7 +2,8 @@
 
 use botster_core::actor::{
     BackpressureRoute, BackpressureSummary, ClientControlFrame, PasteFileErrorReason,
-    PreparedSnapshot, QueueSource, SessionIoEvent, SessionIoRequest,
+    PasteFileFailed, PasteFileRequest, QueueSource, SessionIoEvent, SessionIoRequest,
+    SnapshotReady,
 };
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
@@ -12,6 +13,7 @@ use botster_core::client_stream::{
 };
 use botster_core::session::{RequestId, SessionId, SubscriptionId};
 use botster_core::transport::{TransportEgress, TransportIngress};
+use botster_core::ProcessExitedPayload;
 
 fn client_id() -> ClientId {
     ClientId("client-1".to_string())
@@ -48,7 +50,10 @@ fn subscribed_clients_receive_terminal_bytes_and_process_exits() {
     });
     let exit = harness.handle_session_event(SessionIoEvent::ProcessExited {
         session_id: session_id(),
-        code: Some(0),
+        payload: ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
     });
 
     assert_eq!(
@@ -150,7 +155,8 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         input.session_requests,
         vec![(
             session_id(),
-            SessionIoRequest::Input {
+            SessionIoRequest::PtyInput {
+                session_id: session_id(),
                 data: b"ls\n".to_vec()
             }
         )]
@@ -159,10 +165,12 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         paste.session_requests,
         vec![(
             session_id(),
-            SessionIoRequest::Paste {
+            SessionIoRequest::PasteFile(PasteFileRequest {
                 request_id: request_id(),
+                session_id: session_id(),
+                filename: "paste".to_string(),
                 data: b"paste".to_vec(),
-            }
+            })
         )]
     );
     assert_eq!(
@@ -170,6 +178,7 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         vec![(
             session_id(),
             SessionIoRequest::Resize {
+                session_id: session_id(),
                 rows: 40,
                 cols: 120
             }
@@ -179,15 +188,16 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
         snapshot.session_requests,
         vec![(
             session_id(),
-            SessionIoRequest::Snapshot {
-                request_id: request_id()
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id(),
+                session_id: session_id(),
             }
         )]
     );
 }
 
 #[test]
-fn subscribed_focus_emits_session_request() {
+fn subscribed_focus_is_a_typed_noop_without_raw_json() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
@@ -196,10 +206,9 @@ fn subscribed_focus_emits_session_request() {
         focused: true,
     });
 
-    assert_eq!(
-        outcome.session_requests,
-        vec![(session_id(), SessionIoRequest::Focus { focused: true })]
-    );
+    assert!(outcome.egress.is_empty());
+    assert!(outcome.session_requests.is_empty());
+    assert!(outcome.observations.is_empty());
 }
 
 #[test]
@@ -469,7 +478,7 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
-    let snapshot = harness.handle_session_event(SessionIoEvent::Snapshot(PreparedSnapshot {
+    let snapshot = harness.handle_session_event(SessionIoEvent::SnapshotReady(SnapshotReady {
         request_id: request_id(),
         session_id: session_id(),
         data: b"snap".to_vec(),
@@ -481,10 +490,6 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
         session_id(),
         botster_core::actor::TerminalAttachState::Attached,
     );
-    let focus = harness.handle_session_event(SessionIoEvent::FocusChanged {
-        session_id: session_id(),
-        focused: true,
-    });
 
     assert_eq!(
         snapshot.egress,
@@ -510,14 +515,6 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
             state: botster_core::actor::TerminalAttachState::Attached,
         }]
     );
-    assert_eq!(
-        focus.egress,
-        vec![TransportEgress::FocusChanged {
-            session_id: session_id(),
-            subscription_id: subscription_id("sub-1"),
-            focused: true,
-        }]
-    );
 }
 
 #[test]
@@ -525,10 +522,12 @@ fn paste_failure_event_does_not_create_new_core_storage_policy() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
-    let outcome = harness.handle_session_event(SessionIoEvent::PasteFailed {
+    let outcome = harness.handle_session_event(SessionIoEvent::PasteFileFailed(PasteFileFailed {
         request_id: request_id(),
+        session_id: session_id(),
         reason: PasteFileErrorReason::TooLarge,
-    });
+        detail: None,
+    }));
 
     assert!(outcome.egress.is_empty());
     assert!(outcome.session_requests.is_empty());
