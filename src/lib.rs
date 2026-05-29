@@ -59,3 +59,9 @@ pub use session_protocol::{
     MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
 };
 pub use transport::{TransportEgress, TransportIngress};
+pub use ui::{
+    UiAction, UiActionId, UiActionPending, UiActionRequestId, UiActionResult, UiActionStatus,
+    UiBind, UiBindIf, UiBindList, UiChild, UiColorToken, UiCondition, UiConditional, UiHeightClass,
+    UiNode, UiNodeId, UiNodeKind, UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue,
+    UiResponsiveWidth, UiSpaceToken, UiValidationError, UiViewport, UiWidthClass,
+};
