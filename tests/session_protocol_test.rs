@@ -76,7 +76,8 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_SCREEN, 0x0f);
     assert_eq!(FRAME_TITLE_CHANGED, 0x10);
     assert_eq!(FRAME_BELL, 0x11);
-    assert_eq!(FRAME_MODE_CHANGED, 0x12);
+    // 0x12 was the legacy pushed terminal mode-change frame and is no longer a
+    // public core wire protocol event.
     assert_eq!(FRAME_CWD_CHANGED, 0x13);
     assert_eq!(FRAME_PROMPT_MARK, 0x14);
     assert_eq!(FRAME_NOTIFICATION, 0x15);
@@ -266,36 +267,6 @@ fn mode_flags_round_trip_all_fields() {
         serde_json::from_slice(&json).expect("expected protocol operation to succeed");
 
     assert_eq!(decoded, flags);
-}
-
-#[test]
-fn sparse_mode_changed_omits_unchanged_fields() {
-    let changed = ModeChanged {
-        kitty_enabled: Some(true),
-        alt_screen: Some(false),
-        ..Default::default()
-    };
-
-    let value = serde_json::to_value(&changed).expect("expected protocol operation to succeed");
-
-    assert_eq!(value["kitty_enabled"], true);
-    assert_eq!(value["alt_screen"], false);
-    assert!(value.get("cursor_visible").is_none());
-    assert!(value.get("bracketed_paste").is_none());
-}
-
-#[test]
-fn mode_changed_from_flags_populates_every_replay_field() {
-    let flags = metadata().mode_flags;
-    let changed = mode_changed_from_flags(flags.clone());
-
-    assert_eq!(changed.kitty_enabled, Some(flags.kitty_enabled));
-    assert_eq!(changed.cursor_visible, Some(flags.cursor_visible));
-    assert_eq!(changed.bracketed_paste, Some(flags.bracketed_paste));
-    assert_eq!(changed.mouse_mode, Some(flags.mouse_mode));
-    assert_eq!(changed.alt_screen, Some(flags.alt_screen));
-    assert_eq!(changed.focus_reporting, Some(flags.focus_reporting));
-    assert_eq!(changed.application_cursor, Some(flags.application_cursor));
 }
 
 #[test]
