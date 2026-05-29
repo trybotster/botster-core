@@ -21,9 +21,8 @@ pub use actor::{
     ClientControlFrame, ClientWorkerMessage, HubControlMessage, HubControlOrigin,
     PasteFileErrorReason, PluginHandlerKind, PluginHandlerRef, PluginKey, PluginLoadSpec,
     PluginWorkerEvent, PluginWorkerMessage, PreparedSnapshot, QueueSource, SessionIoEvent,
-    SessionIoRequest, SessionLifecycleState, TerminalAttachState, TerminalColorProfile,
-    TerminalModeSummary, TransportConnectionMode, TransportDisconnectReason, TransportPeerState,
-    TransportSignal, PUBLIC_QUEUE_SOURCES,
+    SessionIoRequest, SessionLifecycleState, TerminalAttachState, TransportConnectionMode,
+    TransportDisconnectReason, TransportPeerState, TransportSignal, PUBLIC_QUEUE_SOURCES,
 };
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};

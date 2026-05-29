@@ -370,29 +370,6 @@ pub enum ClientWorkerMessage {
     },
 }
 
-/// Terminal color profile summary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TerminalColorProfile {
-    /// Dark terminal colors.
-    Dark,
-    /// Light terminal colors.
-    Light,
-    /// Runtime or client default.
-    Default,
-}
-
-/// Terminal mode summary owned by session I/O.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TerminalModeSummary {
-    /// Whether focus reporting is active.
-    pub focus_reporting: bool,
-    /// Whether an alternate screen is active.
-    pub alternate_screen: bool,
-    /// Terminal color profile.
-    pub color_profile: TerminalColorProfile,
-}
-
 /// Error reasons for paste-file preparation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -491,13 +468,6 @@ pub enum SessionIoEvent {
     },
     /// Initial or requested snapshot.
     Snapshot(PreparedSnapshot),
-    /// Terminal mode changed.
-    ModeChanged {
-        /// Session whose mode changed.
-        session_id: SessionId,
-        /// New mode summary.
-        mode: TerminalModeSummary,
-    },
     /// Focus state changed.
     FocusChanged {
         /// Session whose focus changed.

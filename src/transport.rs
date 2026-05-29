@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::actor::{TerminalAttachState, TerminalModeSummary};
+use crate::actor::TerminalAttachState;
 use crate::boundary::BoundaryJson;
 use crate::client::{ClientId, ClientState};
 use crate::session::{RequestId, SessionId, SubscriptionId};
@@ -123,13 +123,6 @@ pub enum TransportEgress {
         session_id: SessionId,
         /// Transport-neutral attach state.
         state: TerminalAttachState,
-    },
-    /// Terminal mode changed.
-    ModeChanged {
-        /// Source session.
-        session_id: SessionId,
-        /// Transport-neutral mode summary.
-        mode: TerminalModeSummary,
     },
     /// Terminal focus changed.
     FocusChanged {
