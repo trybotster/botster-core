@@ -43,7 +43,10 @@ pub use device::{
     device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
     PublicSigningKeyBytes,
 };
-pub use entity::{EntityFrame, EntityId, EntityKind};
+pub use entity::{
+    EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
+    EntityStores,
+};
 pub use extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 pub use keyring::{
     CredentialRecord, CredentialStore, CredentialStoreError, NonExportableSigner, SignatureBytes,
