@@ -392,6 +392,49 @@ fn backpressure_includes_typed_route_context() {
 }
 
 #[test]
+fn backpressure_is_scoped_to_one_client_and_fanout_continues() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    let pressure = multiplexer.report_backpressure(
+        client_id("client-1"),
+        session_id(),
+        QueueSource::ClientWorker,
+        512,
+        511,
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"after-pressure".to_vec(),
+    });
+
+    assert_eq!(pressure.client_control_frames.len(), 1);
+    assert_eq!(pressure.client_control_frames[0].0, client_id("client-1"));
+    assert_eq!(
+        output.client_egress,
+        vec![
+            (
+                client_id("client-1"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-1"),
+                    data: b"after-pressure".to_vec(),
+                },
+            ),
+            (
+                client_id("client-2"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-2"),
+                    data: b"after-pressure".to_vec(),
+                },
+            ),
+        ]
+    );
+}
+
+#[test]
 fn attach_state_fans_out_to_current_subscribers() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     subscribe(&mut multiplexer, "client-1", "sub-1");
