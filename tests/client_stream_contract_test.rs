@@ -4,7 +4,9 @@ use botster_core::actor::{
     BackpressureRoute, BackpressureSummary, ClientControlFrame, PasteFileErrorReason,
     PreparedSnapshot, QueueSource, SessionIoEvent, SessionIoRequest,
 };
+use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
+use botster_core::client::ClientState;
 use botster_core::client_stream::{
     ClientStreamGeneration, ClientStreamHarness, ClientStreamObservation,
 };
@@ -185,6 +187,40 @@ fn subscribed_input_paste_resize_and_snapshot_emit_session_requests() {
 }
 
 #[test]
+fn subscribed_focus_emits_session_request() {
+    let mut harness = ClientStreamHarness::new(client_id());
+    subscribe(&mut harness, subscription_id("sub-1"));
+
+    let outcome = harness.handle_ingress(TransportIngress::Focus {
+        session_id: session_id(),
+        focused: true,
+    });
+
+    assert_eq!(
+        outcome.session_requests,
+        vec![(session_id(), SessionIoRequest::Focus { focused: true })]
+    );
+}
+
+#[test]
+fn unsubscribed_focus_is_dropped_with_observation() {
+    let mut harness = ClientStreamHarness::new(client_id());
+
+    let outcome = harness.handle_ingress(TransportIngress::Focus {
+        session_id: session_id(),
+        focused: true,
+    });
+
+    assert!(outcome.session_requests.is_empty());
+    assert_eq!(
+        outcome.observations,
+        vec![ClientStreamObservation::DroppedUnsubscribedFocus {
+            session_id: session_id()
+        }]
+    );
+}
+
+#[test]
 fn duplicate_subscriptions_are_idempotent() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
@@ -288,6 +324,58 @@ fn pong_preserves_request_id() {
         outcome.egress,
         vec![TransportEgress::Pong {
             request_id: request_id()
+        }]
+    );
+}
+
+#[test]
+fn heartbeat_pong_preserves_request_id() {
+    let mut harness = ClientStreamHarness::new(client_id());
+
+    let outcome = harness.handle_ingress(TransportIngress::Heartbeat {
+        request_id: request_id(),
+    });
+
+    assert_eq!(
+        outcome.egress,
+        vec![TransportEgress::Pong {
+            request_id: request_id()
+        }]
+    );
+}
+
+#[test]
+fn boundary_payload_echoes_to_transport_egress() {
+    let mut harness = ClientStreamHarness::new(client_id());
+    let payload = BoundaryJson(serde_json::json!({ "owned_by": "adapter" }));
+
+    let outcome = harness.handle_ingress(TransportIngress::BoundaryPayload {
+        route_id: "route-1".to_string(),
+        payload: payload.clone(),
+    });
+
+    assert_eq!(
+        outcome.egress,
+        vec![TransportEgress::BoundaryPayload {
+            route_id: "route-1".to_string(),
+            payload,
+        }]
+    );
+}
+
+#[test]
+fn client_state_emits_control_frame() {
+    let mut harness = ClientStreamHarness::new(client_id());
+
+    let outcome = harness.handle_ingress(TransportIngress::ClientState {
+        client_id: client_id(),
+        state: ClientState::Ready,
+    });
+
+    assert_eq!(
+        outcome.control_frames,
+        vec![ClientControlFrame::State {
+            state: ClientState::Ready,
         }]
     );
 }
