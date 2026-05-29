@@ -60,11 +60,11 @@ In scope:
   - `WELCOME_MAGIC = b"SPA1"`
   - `MAX_METADATA_LEN = 64 * 1024`
   - `MAX_FRAME_LEN = 128 * 1024 * 1024`
-  - frame type bytes `0x01` through `0x16`
+  - frame type bytes preserved from the reference protocol, excluding legacy
+    pushed terminal mode-change frame `0x12`
 - Define serializable contract structs:
   - `SessionMetadata`
   - `ModeFlags`
-  - `ModeChanged`
   - `NotificationPayload`
   - `PromptMarkPayload`
   - `TerminalColorProfile`
@@ -148,8 +148,6 @@ Reference-only sources:
 | Metadata bounds enforced | `handshake_rejects_metadata_over_64k` | `cargo test handshake_rejects_metadata_over_64k` |
 | Metadata | `session_metadata_round_trips_optional_recovery_identity_and_mode_flags` | `cargo test session_metadata_round_trips_optional_recovery_identity_and_mode_flags` |
 | Mode flags | `mode_flags_round_trip_all_fields` | `cargo test mode_flags_round_trip_all_fields` |
-| Mode changes | `sparse_mode_changed_omits_unchanged_fields` | `cargo test sparse_mode_changed_omits_unchanged_fields` |
-| Mode replay representable | `mode_changed_from_flags_populates_every_replay_field` | `cargo test mode_changed_from_flags_populates_every_replay_field` |
 | Color profile | `terminal_color_profile_serializes_core_rgb_map` | `cargo test terminal_color_profile_serializes_core_rgb_map` |
 | Process exit | `process_exit_payload_supports_code_and_signal_absence` | `cargo test process_exit_payload_supports_code_and_signal_absence` |
 | Protocol-version behavior | `handshake_exposes_peer_protocol_version_without_policy_negotiation` | `cargo test handshake_exposes_peer_protocol_version_without_policy_negotiation` |
@@ -175,6 +173,8 @@ Review should additionally confirm:
 
 - No new runtime dependency beyond existing crate dependencies.
 - No Unix socket, Tokio, PTY, hub recovery, client worker, Ghostty/restty, Rails, ActionCable, WebRTC, TUI, or SPA code entered `botster-core`.
+- No pushed terminal mode-change event contract is introduced; terminal modes
+  remain limited to handshake `ModeFlags` metadata in this slice.
 - Bad header handling is explicit and test-covered.
 - Snapshot tests assert opaque byte equality rather than terminal semantics.
 - Metadata-bound tests exercise the parser/handshake boundary, not only struct construction.

@@ -64,8 +64,8 @@ pub const FRAME_SCREEN: u8 = 0x0f;
 pub const FRAME_TITLE_CHANGED: u8 = 0x10;
 /// Session to daemon data plane: bell character received.
 pub const FRAME_BELL: u8 = 0x11;
-/// Session to daemon data plane: terminal mode changed.
-pub const FRAME_MODE_CHANGED: u8 = 0x12;
+// 0x12 was the legacy pushed terminal mode-change frame. Terminal mode changes
+// are no longer public wire events in this core extraction slice.
 /// Session to daemon data plane: working directory changed.
 pub const FRAME_CWD_CHANGED: u8 = 0x13;
 /// Session to daemon data plane: semantic prompt action detected.
@@ -124,45 +124,6 @@ pub struct ModeFlags {
     /// Application cursor keys mode enabled.
     #[serde(default)]
     pub application_cursor: bool,
-}
-
-/// Incremental terminal mode change.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModeChanged {
-    /// Kitty keyboard protocol toggled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kitty_enabled: Option<bool>,
-    /// Cursor visibility changed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor_visible: Option<bool>,
-    /// Bracketed paste mode toggled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bracketed_paste: Option<bool>,
-    /// Mouse tracking mode bitmask changed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mouse_mode: Option<u8>,
-    /// Alternate screen buffer toggled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alt_screen: Option<bool>,
-    /// Focus reporting mode toggled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub focus_reporting: Option<bool>,
-    /// Application cursor keys mode toggled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub application_cursor: Option<bool>,
-}
-
-/// Build a full replay mode-change payload from current mode flags.
-pub fn mode_changed_from_flags(flags: ModeFlags) -> ModeChanged {
-    ModeChanged {
-        kitty_enabled: Some(flags.kitty_enabled),
-        cursor_visible: Some(flags.cursor_visible),
-        bracketed_paste: Some(flags.bracketed_paste),
-        mouse_mode: Some(flags.mouse_mode),
-        alt_screen: Some(flags.alt_screen),
-        focus_reporting: Some(flags.focus_reporting),
-        application_cursor: Some(flags.application_cursor),
-    }
 }
 
 /// OSC notification payload.
