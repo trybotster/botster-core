@@ -24,3 +24,9 @@ pub use extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 pub use package::{PackageManifest, PackageSource};
 pub use session::{RequestId, SessionId, SubscriptionId};
 pub use transport::{TransportEgress, TransportIngress};
+pub use ui::{
+    UiAction, UiActionId, UiActionPending, UiActionRequestId, UiActionResult, UiActionStatus,
+    UiBind, UiBindIf, UiBindList, UiChild, UiColorToken, UiCondition, UiConditional, UiHeightClass,
+    UiNode, UiNodeId, UiNodeKind, UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue,
+    UiResponsiveWidth, UiSpaceToken, UiValidationError, UiViewport, UiWidthClass,
+};
