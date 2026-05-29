@@ -13,7 +13,7 @@ lot for future hub, client, cloud, or plugin behavior.
 
 | Layer | Owns | Does not own | Current proof |
 | --- | --- | --- | --- |
-| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; terminal ingress/egress frames; entity frames; UI node shapes; package, capability, extension, crypto, and identity contracts. | Runtime policy, executable startup, product workflows, concrete adapters, device persistence policy, or raw private key material. | `src/boundary.rs`, `src/session.rs`, `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs`, `src/package.rs`, `src/capability.rs`, `src/extension.rs`, `src/crypto.rs`, `src/device.rs`, `src/keyring.rs` |
+| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; entity frames; UI node shapes; package, capability, extension, crypto, and identity contracts. | Runtime policy, executable startup, product workflows, concrete adapters, device persistence policy, or raw private key material. | `src/boundary.rs`, `src/session.rs`, `src/session_protocol.rs`, `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs`, `src/package.rs`, `src/capability.rs`, `src/extension.rs`, `src/crypto.rs`, `src/device.rs`, `src/keyring.rs` |
 | Hub | Runtime policy, lifecycle, routing, recovery, and extension supervision. | Raw terminal byte delivery, CLI argument parsing, React/TUI rendering, Rails/cloud/Auth policy, Project Pipelines/GitHub/Cloudflare product logic, or legacy compatibility paths. Terminal bytes are represented by core frames and should flow through session/client data-plane actors, not hub policy loops. | `Layer::Hub` responsibility text in `src/boundary.rs`; terminal byte exclusions are reinforced by `TransportIngress::TerminalInput` and `TransportEgress::TerminalOutput` in `src/transport.rs` |
 | CLI | Operator commands and process startup. `src/boundary.rs` also names CLI argument parsing as something the hub does not own. | Reusable protocol contracts, hub runtime policy, provider policy, or UI/product behavior. | `Layer::Cli` and `Layer::Hub` responsibility text in `src/boundary.rs` |
 | Client | Presentation, local input, concrete transport adaptation, liveness reporting, and rendering of core UI/entity contracts. | Session lifecycle policy, hub supervision, provider authority, concrete WebRTC negotiation policy in core, or product-specific workflow state. | `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs` |
@@ -58,10 +58,11 @@ There is no defer category.
 ### Preserve
 
 Preserve contracts already represented in this crate: layer responsibility
-names, session/client/subscription/request identifiers, transport-neutral
-ingress and egress frames, client liveness and scope shapes, entity frames,
-minimal UI node kinds, package manifests, extension metadata, capability
-surfaces, and narrow crypto/identity operation requests.
+names, session/client/subscription/request identifiers, session-process
+protocol constants, handshake bytes, frame payload contracts, length-prefixed
+framing, transport-neutral ingress and egress frames, client liveness and scope
+shapes, entity frames, minimal UI node kinds, package manifests, extension
+metadata, capability surfaces, and narrow crypto/identity operation requests.
 
 ### Translate
 

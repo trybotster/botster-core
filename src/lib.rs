@@ -14,6 +14,7 @@ pub mod extension;
 pub mod keyring;
 pub mod package;
 pub mod session;
+pub mod session_protocol;
 pub mod transport;
 pub mod ui;
 
@@ -36,4 +37,16 @@ pub use keyring::{
 };
 pub use package::{PackageManifest, PackageSource};
 pub use session::{RequestId, SessionId, SubscriptionId};
+pub use session_protocol::{
+    decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,
+    encode_string, encode_welcome, read_hello, read_welcome, write_hello, write_welcome, Frame,
+    FrameDecoder, ModeFlags, NotificationPayload, ProcessExitedPayload, PromptMarkPayload,
+    ProtocolError, ResizePayload, Rgb, SessionMetadata, TeePayload, TerminalColorProfile,
+    TimeoutPayload, DESYNC_THRESHOLD, FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED,
+    FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_MODE_FLAGS,
+    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
+    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
+    MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
+};
 pub use transport::{TransportEgress, TransportIngress};
