@@ -70,6 +70,7 @@ fn stable_hub_and_client_controls_are_typed() {
         },
     };
     let session = SessionIoRequest::Resize {
+        session_id: session_id(),
         rows: 40,
         cols: 120,
     };
