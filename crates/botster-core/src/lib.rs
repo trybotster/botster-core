@@ -14,6 +14,7 @@ pub use contract::{
     actor, boundary, client, client_stream, entity, notification, session, session_protocol,
     transport, ui,
 };
+pub use engine::session_activity;
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
@@ -53,6 +54,7 @@ pub use device::{
     device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
     PublicSigningKeyBytes,
 };
+pub use engine::{apply_session_activity_event, classify_session_activity};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
@@ -68,7 +70,10 @@ pub use notification::{
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use package::{PackageManifest, PackageSource};
-pub use session::{RequestId, SessionId, SubscriptionId};
+pub use session::{
+    CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
+    SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
+};
 pub use session_protocol::{
     decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,
     encode_string, encode_welcome, read_hello, read_welcome, write_hello, write_welcome, Frame,

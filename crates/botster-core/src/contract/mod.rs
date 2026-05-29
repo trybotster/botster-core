@@ -42,7 +42,10 @@ pub use notification::{
     NotificationInbox, NotificationItem, NotificationKind, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
-pub use session::{RequestId, SessionId, SubscriptionId};
+pub use session::{
+    CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
+    SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
+};
 pub use session_protocol::{
     decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,
     encode_string, encode_welcome, read_hello, read_welcome, write_hello, write_welcome, Frame,

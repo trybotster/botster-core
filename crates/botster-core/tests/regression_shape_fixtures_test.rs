@@ -9,6 +9,7 @@ use botster_core::entity::{EntityFrame, EntityKind};
 use botster_core::session::{SessionId, SubscriptionId};
 use botster_core::session_protocol::{encode_frame, FrameDecoder, FRAME_PTY_OUTPUT};
 use botster_core::transport::TransportEgress;
+use botster_core::{SessionActivityStatus, SessionLifecycleState};
 use botster_core_test_support::fixtures::regression::regression_shapes;
 
 fn session_id() -> SessionId {
@@ -62,6 +63,22 @@ fn regression_shape_noisy_pty_replay_is_ordered_opaque_output() {
         })
         .collect();
     assert_eq!(egress, round_trip(&egress));
+}
+
+#[test]
+fn last_output_regression_shape_translates_to_core_activity() {
+    let (session, status) =
+        regression_shapes::last_output_activity(session_id(), 1_000, 42, 1_020, 30);
+
+    assert_eq!(session, round_trip(&session));
+    assert_eq!(session.lifecycle, SessionLifecycleState::Running);
+    assert_eq!(session.activity.last_output_at, Some(1_000));
+    assert_eq!(session.activity.last_input_at, None);
+    assert_eq!(status, SessionActivityStatus::Active);
+
+    let (_, stale_status) =
+        regression_shapes::last_output_activity(session_id(), 1_000, 42, 1_031, 30);
+    assert_eq!(stale_status, SessionActivityStatus::Idle);
 }
 
 #[test]
