@@ -59,6 +59,30 @@ compatibility branch. Hub policy belongs in the hub, CLI startup belongs in the
 CLI, client rendering belongs in clients, and product workflows belong in
 plugins or providers.
 
+## Extraction Compatibility Policy
+
+Extraction compatibility for `botster-core` has only three verdicts:
+`preserve`, `translate`, and `drop`. There is no defer bucket. If old
+behavior is outside this crate's boundary, future extraction tickets may delete
+the old expectation or exclude it from core instead of fossilizing accidental
+coupling.
+
+Preserve means the contract is reusable core surface and must remain stable.
+Translate means the old name or call path maps to a current core contract, but
+the legacy surface is not carried forward. Drop means the behavior belongs to
+the hub, CLI, a client, a plugin, or a product layer rather than this crate.
+
+| Path | Verdict | Policy |
+| --- | --- | --- |
+| Transport-neutral identifiers, ingress and egress frames, entity frames, UI contract shapes, package manifests, capabilities, extension metadata, and narrow crypto or identity operation contracts | preserve | These are the reusable cross-client contracts `botster-core` exists to carry. |
+| `context.json` migration | drop | Legacy migration belongs to hub or CLI migration policy if it is still needed, not to reusable core contracts. |
+| Legacy repo-cwd hub identity | drop | Hub identity must not be derived from ambient repository cwd. Core may keep narrow identity operation contracts, but cwd-derived hub policy stays out. |
+| Old forwarder terminology | translate | Terminal client data-plane lifetimes translate to terminal subscriptions. Public core vocabulary should not preserve `PtyForwarder`, `StopForwarder`, or `create_pty_forwarder` names. |
+| Browser-only plugin stores | drop | Browser-only persistence is client or product behavior. Plugin-owned dynamic state should use plugin/runtime storage contracts and namespaced entity frames, not a browser-only core store. |
+| Direct snapshot helpers | translate | Transport-neutral snapshot frames and payload shapes may be preserved, but helper calls that bypass session/client-worker ownership are legacy mechanics. Do not add direct helper APIs such as `snapshot_and_subscribe`. |
+| Hub-owned PTY relays | drop | The hub owns attach policy and cleanup, not terminal byte delivery. PTY egress belongs to the session/client-worker data plane. |
+| Product-specific UI refresh behavior | drop | Product refresh behavior belongs in clients, plugins, or hub policy. Core preserves UI and entity contract shapes only. |
+
 ## License
 
 [O'Saasy License](LICENSE) - free to use, modify, and distribute. Cannot be

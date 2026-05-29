@@ -1,12 +1,59 @@
 //! Boundary contract tests.
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use botster_core::boundary::{responsibility, Layer};
 use botster_core::capability::{Capability, CapabilitySurface};
 use botster_core::extension::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 use botster_core::package::PackageManifest;
+
+const README: &str = include_str!("../README.md");
+
+fn policy_section() -> &'static str {
+    README
+        .split("## Extraction Compatibility Policy")
+        .nth(1)
+        .and_then(|section| section.split("## License").next())
+        .expect("README must contain an Extraction Compatibility Policy section before License")
+}
+
+fn assert_policy_verdict(path: &str, verdict: &str) {
+    let path = path.to_ascii_lowercase();
+    let verdict = verdict.to_ascii_lowercase();
+    let matching_row = policy_section()
+        .lines()
+        .map(|line| line.replace('`', "").to_ascii_lowercase())
+        .find(|line| line.contains(&path) && line.contains(&verdict));
+
+    assert!(
+        matching_row.is_some(),
+        "policy must classify `{path}` with verdict `{verdict}`"
+    );
+}
+
+fn normalized_policy() -> String {
+    policy_section()
+        .replace('`', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn rust_source_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+
+    for entry in fs::read_dir(dir).expect("source directory must be readable") {
+        let path = entry.expect("source entry must be readable").path();
+        if path.is_dir() {
+            files.extend(rust_source_files(&path));
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+            files.push(path);
+        }
+    }
+
+    files
+}
 
 #[test]
 fn layer_responsibilities_keep_cli_out_of_core_and_hub() {
@@ -116,4 +163,84 @@ fn readme_requires_preserve_translate_drop_migration_choices() {
 fn readme() -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md");
     fs::read_to_string(path).expect("README.md should be readable")
+}
+
+#[test]
+fn readme_documents_extraction_compatibility_decision_rules() {
+    let policy = normalized_policy();
+
+    assert!(policy.contains("preserve"));
+    assert!(policy.contains("translate"));
+    assert!(policy.contains("drop"));
+    assert!(policy.contains("there is no defer bucket"));
+    assert!(policy.contains("delete"));
+    assert!(policy.contains("exclude"));
+    assert!(policy.contains("fossilizing accidental coupling"));
+}
+
+#[test]
+fn readme_classifies_preserved_core_contract_families() {
+    let policy = normalized_policy();
+
+    for contract in [
+        "transport-neutral identifiers",
+        "ingress and egress frames",
+        "entity frames",
+        "ui contract shapes",
+        "package manifests",
+        "capabilities",
+        "extension metadata",
+        "crypto or identity operation contracts",
+    ] {
+        assert!(
+            policy.contains(contract),
+            "policy must preserve `{contract}` as a core contract family"
+        );
+    }
+
+    assert_policy_verdict("transport-neutral identifiers", "preserve");
+}
+
+#[test]
+fn readme_classifies_ticket_named_excluded_paths() {
+    assert_policy_verdict("context.json migration", "drop");
+    assert_policy_verdict("legacy repo-cwd hub identity", "drop");
+    assert_policy_verdict("old forwarder terminology", "translate");
+    assert_policy_verdict("browser-only plugin stores", "drop");
+    assert_policy_verdict("direct snapshot helpers", "translate");
+    assert_policy_verdict("hub-owned pty relays", "drop");
+    assert_policy_verdict("product-specific ui refresh behavior", "drop");
+}
+
+#[test]
+fn readme_translates_forwarders_and_direct_snapshot_helpers() {
+    let policy = normalized_policy();
+
+    assert!(policy.contains("terminal subscriptions"));
+    assert!(policy.contains("ptyforwarder"));
+    assert!(policy.contains("stopforwarder"));
+    assert!(policy.contains("create_pty_forwarder"));
+    assert!(policy.contains("transport-neutral snapshot"));
+    assert!(policy.contains("snapshot_and_subscribe"));
+    assert!(policy.contains("session/client-worker ownership"));
+}
+
+#[test]
+fn source_does_not_reintroduce_legacy_public_api_names() {
+    let disallowed = [
+        "PtyForwarder",
+        "StopForwarder",
+        "create_pty_forwarder",
+        "snapshot_and_subscribe",
+    ];
+
+    for path in rust_source_files(Path::new("src")) {
+        let contents = fs::read_to_string(&path).expect("source file must be readable");
+        for token in disallowed {
+            assert!(
+                !contents.contains(token),
+                "{path:?} must not reintroduce legacy public API `{token}`"
+            );
+        }
+    }
 }
