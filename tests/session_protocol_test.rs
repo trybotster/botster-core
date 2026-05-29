@@ -1,0 +1,315 @@
+//! Session-process wire protocol contract tests.
+
+use std::collections::HashMap;
+
+use botster_core::session_protocol::*;
+
+fn metadata() -> SessionMetadata {
+    SessionMetadata {
+        session_uuid: "sess-test-123".to_string(),
+        pid: 42,
+        rows: 24,
+        cols: 80,
+        last_output_at: 1_234,
+        title: Some("Build".to_string()),
+        cwd: Some("/work/repo".to_string()),
+        port: Some(4321),
+        mode_flags: ModeFlags {
+            kitty_enabled: true,
+            cursor_visible: false,
+            bracketed_paste: true,
+            mouse_mode: 6,
+            alt_screen: true,
+            focus_reporting: true,
+            application_cursor: false,
+        },
+        recovery_identity: Some(serde_json::json!({
+            "session_type": "agent",
+            "workspace_id": "ws-test",
+        })),
+    }
+}
+
+#[test]
+fn handshake_round_trips_magic_version_and_metadata() {
+    let encoded_hello = encode_hello(PROTOCOL_VERSION);
+    let encoded_welcome = encode_welcome(PROTOCOL_VERSION, &metadata()).unwrap();
+
+    assert_eq!(&encoded_hello[..4], HELLO_MAGIC);
+    assert_eq!(decode_hello(&encoded_hello).unwrap(), PROTOCOL_VERSION);
+
+    let (version, decoded) = decode_welcome(&encoded_welcome).unwrap();
+    assert_eq!(version, PROTOCOL_VERSION);
+    assert_eq!(decoded, metadata());
+}
+
+#[test]
+fn frame_constants_match_session_process_wire_spec() {
+    // Values are pinned from reference evidence:
+    // /Users/jasonconigliari/Rails/trybotster/cli/src/session/protocol.rs
+    assert_eq!(PROTOCOL_VERSION, 2);
+    assert_eq!(HELLO_MAGIC, b"SPH1");
+    assert_eq!(WELCOME_MAGIC, b"SPA1");
+    assert_eq!(MAX_METADATA_LEN, 64 * 1024);
+    assert_eq!(MAX_FRAME_LEN, 128 * 1024 * 1024);
+    assert_eq!(DESYNC_THRESHOLD, 100);
+
+    assert_eq!(FRAME_PTY_INPUT, 0x01);
+    assert_eq!(FRAME_PTY_OUTPUT, 0x02);
+    assert_eq!(FRAME_RESIZE, 0x03);
+    assert_eq!(FRAME_ARM_TEE, 0x04);
+    assert_eq!(FRAME_GET_SNAPSHOT, 0x05);
+    assert_eq!(FRAME_SNAPSHOT, 0x06);
+    assert_eq!(FRAME_PROCESS_EXITED, 0x07);
+    assert_eq!(FRAME_PING, 0x08);
+    assert_eq!(FRAME_PONG, 0x09);
+    assert_eq!(FRAME_SHUTDOWN, 0x0a);
+    assert_eq!(FRAME_SET_TIMEOUT, 0x0b);
+    assert_eq!(FRAME_GET_MODE_FLAGS, 0x0c);
+    assert_eq!(FRAME_MODE_FLAGS, 0x0d);
+    assert_eq!(FRAME_GET_SCREEN, 0x0e);
+    assert_eq!(FRAME_SCREEN, 0x0f);
+    assert_eq!(FRAME_TITLE_CHANGED, 0x10);
+    assert_eq!(FRAME_BELL, 0x11);
+    assert_eq!(FRAME_MODE_CHANGED, 0x12);
+    assert_eq!(FRAME_CWD_CHANGED, 0x13);
+    assert_eq!(FRAME_PROMPT_MARK, 0x14);
+    assert_eq!(FRAME_NOTIFICATION, 0x15);
+    assert_eq!(FRAME_SET_COLOR_PROFILE, 0x16);
+}
+
+#[test]
+fn frame_round_trips_binary_string_empty_and_json_payloads() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"\x00\xffraw").unwrap());
+    bytes.extend_from_slice(&encode_string(FRAME_TITLE_CHANGED, "terminal").unwrap());
+    bytes.extend_from_slice(&encode_empty(FRAME_BELL).unwrap());
+    bytes.extend_from_slice(
+        &encode_json(
+            FRAME_RESIZE,
+            &ResizePayload {
+                rows: 30,
+                cols: 100,
+            },
+        )
+        .unwrap(),
+    );
+
+    let mut decoder = FrameDecoder::new();
+    let frames = decoder.feed(&bytes).unwrap();
+
+    assert_eq!(frames.len(), 4);
+    assert_eq!(frames[0].payload, b"\x00\xffraw");
+    assert_eq!(std::str::from_utf8(&frames[1].payload).unwrap(), "terminal");
+    assert!(frames[2].payload.is_empty());
+    assert_eq!(
+        frames[3].json::<ResizePayload>().unwrap(),
+        ResizePayload {
+            rows: 30,
+            cols: 100
+        }
+    );
+}
+
+#[test]
+fn decoder_buffers_split_header_and_payload_until_complete() {
+    let encoded = encode_frame(FRAME_PTY_INPUT, b"hello").unwrap();
+    let mut decoder = FrameDecoder::new();
+
+    assert!(decoder.feed(&encoded[..3]).unwrap().is_empty());
+    assert!(decoder.feed(&encoded[3..6]).unwrap().is_empty());
+
+    let frames = decoder.feed(&encoded[6..]).unwrap();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].frame_type, FRAME_PTY_INPUT);
+    assert_eq!(frames[0].payload, b"hello");
+}
+
+#[test]
+fn decoder_drains_multiple_frames_from_one_feed() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"one").unwrap());
+    bytes.extend_from_slice(&encode_frame(FRAME_PTY_OUTPUT, b"two").unwrap());
+    bytes.extend_from_slice(&encode_empty(FRAME_PONG).unwrap());
+
+    let mut decoder = FrameDecoder::new();
+    let frames = decoder.feed(&bytes).unwrap();
+
+    assert_eq!(frames.len(), 3);
+    assert_eq!(frames[0].payload, b"one");
+    assert_eq!(frames[1].payload, b"two");
+    assert!(frames[2].payload.is_empty());
+}
+
+#[test]
+fn decoder_rejects_zero_length_header() {
+    let mut decoder = FrameDecoder::new();
+    let err = decoder.feed(&0u32.to_le_bytes()).unwrap_err();
+
+    assert!(matches!(err, ProtocolError::FrameLengthZero));
+}
+
+#[test]
+fn decoder_rejects_oversized_header() {
+    let mut decoder = FrameDecoder::new();
+    let oversized = ((MAX_FRAME_LEN as u32) + 1).to_le_bytes();
+    let err = decoder.feed(&oversized).unwrap_err();
+
+    assert!(matches!(
+        err,
+        ProtocolError::FrameLengthTooLarge { len, max }
+            if len == MAX_FRAME_LEN + 1 && max == MAX_FRAME_LEN
+    ));
+}
+
+#[test]
+fn decoder_reports_desync_after_repeated_bad_headers() {
+    let mut decoder = FrameDecoder::new();
+
+    for _ in 1..DESYNC_THRESHOLD {
+        decoder.record_discarded_header().unwrap();
+        assert!(!decoder.is_desynced());
+    }
+
+    let err = decoder.record_discarded_header().unwrap_err();
+    assert!(matches!(
+        err,
+        ProtocolError::Desynchronized {
+            bad_headers,
+            threshold
+        } if bad_headers == DESYNC_THRESHOLD && threshold == DESYNC_THRESHOLD
+    ));
+    assert!(decoder.is_desynced());
+}
+
+#[test]
+fn handshake_rejects_metadata_over_64k() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(WELCOME_MAGIC);
+    bytes.push(PROTOCOL_VERSION);
+    bytes.extend_from_slice(&((MAX_METADATA_LEN as u32) + 1).to_le_bytes());
+
+    let err = decode_welcome(&bytes).unwrap_err();
+
+    assert!(matches!(
+        err,
+        ProtocolError::MetadataTooLarge { len, max }
+            if len == MAX_METADATA_LEN + 1 && max == MAX_METADATA_LEN
+    ));
+}
+
+#[test]
+fn session_metadata_round_trips_optional_recovery_identity_and_mode_flags() {
+    let json = serde_json::to_vec(&metadata()).unwrap();
+    let decoded: SessionMetadata = serde_json::from_slice(&json).unwrap();
+
+    assert_eq!(decoded, metadata());
+    assert_eq!(
+        decoded.recovery_identity.unwrap()["session_type"],
+        serde_json::json!("agent")
+    );
+}
+
+#[test]
+fn mode_flags_round_trip_all_fields() {
+    let flags = metadata().mode_flags;
+    let json = serde_json::to_vec(&flags).unwrap();
+    let decoded: ModeFlags = serde_json::from_slice(&json).unwrap();
+
+    assert_eq!(decoded, flags);
+}
+
+#[test]
+fn sparse_mode_changed_omits_unchanged_fields() {
+    let changed = ModeChanged {
+        kitty_enabled: Some(true),
+        alt_screen: Some(false),
+        ..Default::default()
+    };
+
+    let value = serde_json::to_value(&changed).unwrap();
+
+    assert_eq!(value["kitty_enabled"], true);
+    assert_eq!(value["alt_screen"], false);
+    assert!(value.get("cursor_visible").is_none());
+    assert!(value.get("bracketed_paste").is_none());
+}
+
+#[test]
+fn mode_changed_from_flags_populates_every_replay_field() {
+    let flags = metadata().mode_flags;
+    let changed = mode_changed_from_flags(flags.clone());
+
+    assert_eq!(changed.kitty_enabled, Some(flags.kitty_enabled));
+    assert_eq!(changed.cursor_visible, Some(flags.cursor_visible));
+    assert_eq!(changed.bracketed_paste, Some(flags.bracketed_paste));
+    assert_eq!(changed.mouse_mode, Some(flags.mouse_mode));
+    assert_eq!(changed.alt_screen, Some(flags.alt_screen));
+    assert_eq!(changed.focus_reporting, Some(flags.focus_reporting));
+    assert_eq!(changed.application_cursor, Some(flags.application_cursor));
+}
+
+#[test]
+fn terminal_color_profile_serializes_core_rgb_map() {
+    let mut colors = HashMap::new();
+    colors.insert(0, Rgb { r: 1, g: 2, b: 3 });
+    colors.insert(
+        257,
+        Rgb {
+            r: 254,
+            g: 253,
+            b: 252,
+        },
+    );
+    let profile = TerminalColorProfile { colors };
+
+    let json = serde_json::to_vec(&profile).unwrap();
+    let decoded: TerminalColorProfile = serde_json::from_slice(&json).unwrap();
+
+    assert_eq!(decoded, profile);
+}
+
+#[test]
+fn process_exit_payload_supports_code_and_signal_absence() {
+    let exited = ProcessExitedPayload {
+        exit_code: Some(0),
+        signal: None,
+    };
+    let unknown = ProcessExitedPayload {
+        exit_code: None,
+        signal: None,
+    };
+
+    assert_eq!(
+        serde_json::from_slice::<ProcessExitedPayload>(&serde_json::to_vec(&exited).unwrap())
+            .unwrap(),
+        exited
+    );
+    assert_eq!(
+        serde_json::from_slice::<ProcessExitedPayload>(&serde_json::to_vec(&unknown).unwrap())
+            .unwrap(),
+        unknown
+    );
+}
+
+#[test]
+fn handshake_exposes_peer_protocol_version_without_policy_negotiation() {
+    let peer_version = PROTOCOL_VERSION - 1;
+    let encoded_hello = encode_hello(peer_version);
+    let encoded_welcome = encode_welcome(peer_version, &metadata()).unwrap();
+
+    assert_eq!(decode_hello(&encoded_hello).unwrap(), peer_version);
+    assert_eq!(decode_welcome(&encoded_welcome).unwrap().0, peer_version);
+}
+
+#[test]
+fn snapshot_frame_round_trips_opaque_bytes_without_parsing() {
+    let snapshot = vec![0, 1, 2, 3, 255, 128, 64, 32];
+    let encoded = encode_frame(FRAME_SNAPSHOT, &snapshot).unwrap();
+    let mut decoder = FrameDecoder::new();
+    let frames = decoder.feed(&encoded).unwrap();
+
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].frame_type, FRAME_SNAPSHOT);
+    assert_eq!(frames[0].payload, snapshot);
+}
