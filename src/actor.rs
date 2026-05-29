@@ -1228,7 +1228,8 @@ pub enum PluginWorkerEvent {
     },
     /// Handler invocation completed.
     InvocationCompleted(PluginInvocationSuccess),
-    /// Handler invocation failed.
+    /// Handler invocation failed. Timeout failures are reported exclusively by
+    /// `InvocationTimedOut`, so this event must not carry `TimedOut`.
     InvocationFailed(PluginInvocationFailure),
     /// Handler invocation timed out.
     InvocationTimedOut(PluginInvocationFailure),
