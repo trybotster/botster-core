@@ -25,7 +25,9 @@ struct BoundaryJsonEscapeHatch {
     source_marker: &'static str,
 }
 
-const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 8] = [
+// Keep this owner/reason inventory in sync with the recursive source scan in
+// boundary_test.rs so new BoundaryJson fields are both classified and detected.
+const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 10] = [
     BoundaryJsonEscapeHatch {
         path: "TransportSignal.payload",
         owner: "relay",
@@ -81,6 +83,20 @@ const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 8] = [
         reason: "relay/plugin adapter egress payload schema is opaque to core",
         file: "src/contract/transport.rs",
         source_marker: "pub enum TransportEgress",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "NotificationAction.extension",
+        owner: "plugin",
+        reason: "plugin notification action extension schema is opaque to core",
+        file: "src/contract/notification.rs",
+        source_marker: "pub struct NotificationAction",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "NotificationContent.extension",
+        owner: "plugin",
+        reason: "plugin notification content extension schema is opaque to core",
+        file: "src/contract/notification.rs",
+        source_marker: "pub struct NotificationContent",
     },
 ];
 
@@ -259,7 +275,7 @@ fn boundary_json_is_reserved_for_lua_plugin_or_relay_payloads() {
 
 #[test]
 fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
-    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 8);
+    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 10);
 
     for hatch in BOUNDARY_JSON_ESCAPE_HATCHES {
         assert!(!hatch.path.is_empty(), "{:?}", hatch.path);
@@ -309,6 +325,8 @@ fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
             "PluginInvocationSuccess.payload",
             "TransportIngress::BoundaryPayload.payload",
             "TransportEgress::BoundaryPayload.payload",
+            "NotificationAction.extension",
+            "NotificationContent.extension",
         ]
     );
 }
@@ -515,6 +533,7 @@ fn stable_botster_controls_do_not_use_boundary_json() {
     for file in [
         "src/contract/actor.rs",
         "src/contract/transport.rs",
+        "src/contract/notification.rs",
         "src/lib.rs",
         "src/contract/boundary.rs",
     ] {
@@ -541,13 +560,17 @@ fn stable_botster_controls_do_not_use_boundary_json() {
     assert!(boundary_fields.iter().all(|field| {
         field.starts_with("src/contract/actor.rs:")
             || field.starts_with("src/contract/transport.rs:")
+            || field.starts_with("src/contract/notification.rs:")
     }));
 
     let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");
     let transport_source =
         std::fs::read_to_string("src/contract/transport.rs").expect("read transport source");
+    let notification_source =
+        std::fs::read_to_string("src/contract/notification.rs").expect("read notification source");
     assert!(!actor_source.contains("serde_json::Value"));
     assert!(!transport_source.contains("serde_json::Value"));
+    assert!(!notification_source.contains("serde_json::Value"));
 }
 
 #[test]
