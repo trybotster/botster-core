@@ -6,48 +6,58 @@ It is intentionally not the Botster application, not the hub, and not the CLI.
 It contains the transport-neutral mechanisms and data shapes that every Botster
 host, client, provider, and plugin runtime must agree on.
 
-## Boundary
+## Ownership Boundary
 
-```text
-core = reusable mechanisms and contracts
-hub  = Botster policy, orchestration, lifecycle, and extension supervision
-cli  = executable entrypoint and operator commands
-```
+This crate documents contracts the current code proves. It is not a parking
+lot for future hub, client, cloud, or plugin behavior.
 
-Core owns stable primitives such as:
+| Layer | Owns | Does not own | Current proof |
+| --- | --- | --- | --- |
+| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; terminal ingress/egress frames; entity frames; UI node shapes; package, capability, extension, crypto, and identity contracts. | Runtime policy, executable startup, product workflows, concrete adapters, or raw private key material. | `src/boundary.rs`, `src/session.rs`, `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs`, `src/package.rs`, `src/capability.rs`, `src/extension.rs`, `src/crypto.rs` |
+| Hub | Runtime policy, lifecycle, routing, recovery, and extension supervision. | Raw terminal byte delivery, CLI argument parsing, React/TUI rendering, Rails/cloud/Auth policy, Project Pipelines/GitHub/Cloudflare product logic, or legacy compatibility paths. Terminal bytes are represented by core frames and should flow through session/client data-plane actors, not hub policy loops. | `Layer::Hub` responsibility text in `src/boundary.rs`; terminal byte exclusions are reinforced by `TransportIngress::TerminalInput` and `TransportEgress::TerminalOutput` in `src/transport.rs` |
+| CLI | Operator commands and process startup. `src/boundary.rs` also names CLI argument parsing as something the hub does not own. | Reusable protocol contracts, hub runtime policy, provider policy, or UI/product behavior. | `Layer::Cli` and `Layer::Hub` responsibility text in `src/boundary.rs` |
+| Client | Presentation, local input, concrete transport adaptation, liveness reporting, and rendering of core UI/entity contracts. | Session lifecycle policy, hub supervision, provider authority, concrete WebRTC negotiation policy in core, or product-specific workflow state. | `src/client.rs`, `src/transport.rs`, `src/entity.rs`, `src/ui.rs` |
+| Provider/plugin | `Layer::Extension` behavior described by package manifests, `ExtensionKind::Plugin` or `ExtensionKind::Provider`, entrypoints, and granted capabilities such as client admission, signaling relay, hub presence, or browser shell. | Implicit hub internals, private key material, marketplace/update policy, Rails/cloud/Auth implementation in core, or bypassing capability declarations. Providers are privileged extension packages, not a separate `Layer::Provider` variant. | `Layer::Extension` responsibility text in `src/boundary.rs`, plus `src/package.rs`, `src/extension.rs`, `src/capability.rs`, and `tests/boundary_test.rs` |
 
-- session, client, subscription, and request identifiers
-- transport-neutral ingress and egress frames
-- terminal attach and liveness state
-- entity and UI contract shapes
-- package manifest, capability, and extension metadata
-- narrow crypto and identity operation contracts
+## Explicit Ban List
 
-Core does not own:
+The following behavior does not belong in `botster-core`:
 
-- Rails, TryBotster Cloud, ActionCable, or hosted web policy
-- concrete WebRTC, TUI, or socket adapter implementations
-- plugin loading policy or marketplace update policy
-- auth product flows
-- CLI argument parsing or terminal raw-mode setup
+- hub policy
+- CLI startup
+- Rails/cloud/Auth implementation
+- concrete WebRTC negotiation policy
+- React/TUI rendering
+- Project Pipelines/GitHub/Cloudflare product logic
+- legacy compatibility paths
 
-## Migration Goal
+## Migration Guidance
 
-Botster should become a local-first PTY/workspace multiplexer runtime that can
-optionally federate with TryBotster Cloud. `botster-core` is the first stable
-package boundary toward that shape.
+Every extraction decision must be classified as preserve, translate, or drop.
+There is no defer category.
 
-The first migration slices should move already-proven contracts here before
-moving behavior:
+### Preserve
 
-1. transport-neutral identifiers and frames
-2. entity/UI contract types
-3. package manifest and capability declarations
-4. narrow crypto/identity operation contracts
-5. worker message contracts once the current repo is ready
+Preserve contracts already represented in this crate: layer responsibility
+names, session/client/subscription/request identifiers, transport-neutral
+ingress and egress frames, client liveness and scope shapes, entity frames,
+minimal UI node kinds, package manifests, extension metadata, capability
+surfaces, and narrow crypto/identity operation requests.
 
-Do not move hub policy here just because it is written in Rust. Hub policy
-belongs in `botster-hub`.
+### Translate
+
+Translate concrete runtime implementations into core contracts only after the
+current code proves a stable cross-layer shape. Examples include converting a
+client adapter behavior into a transport-neutral frame or converting a
+provider need into an explicit capability declaration.
+
+### Drop
+
+Drop behavior that is application policy, product integration, historical
+compatibility, or executable wiring. Do not preserve it in core behind a new
+compatibility branch. Hub policy belongs in the hub, CLI startup belongs in the
+CLI, client rendering belongs in clients, and product workflows belong in
+plugins or providers.
 
 ## License
 
