@@ -54,6 +54,9 @@ pub enum NotificationSeverity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationSource {
     /// Stable source label shown to hosts and clients.
+    ///
+    /// Embedding applications can use this label directly without registering
+    /// as a plugin.
     pub label: String,
     /// Optional plugin owner key when the source is plugin-owned.
     pub plugin_key: Option<String>,

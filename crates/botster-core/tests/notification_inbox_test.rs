@@ -93,6 +93,29 @@ fn notify_only_records_attention_without_generic_message_body() {
 }
 
 #[test]
+fn application_sources_do_not_need_plugin_identity() {
+    let item = NotificationItem::message(
+        notification_id("host-app-1"),
+        client_target("client-1"),
+        NotificationSeverity::Info,
+        NotificationSource {
+            label: "embedding-host".to_string(),
+            plugin_key: None,
+        },
+        NotificationContent {
+            title: "Host app notice".to_string(),
+            body: Some("The embedding application emitted this message.".to_string()),
+            extension: None,
+        },
+        NotificationTimestamp(11),
+    );
+
+    assert_eq!(item.source.label, "embedding-host");
+    assert!(item.source.plugin_key.is_none());
+    assert_eq!(round_trip(&item), item);
+}
+
+#[test]
 fn expired_items_are_not_drained_as_deliverable() {
     let mut inbox = NotificationInbox::new();
     let expired_id = notification_id("expired-1");
