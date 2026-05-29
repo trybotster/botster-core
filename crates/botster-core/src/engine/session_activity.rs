@@ -10,13 +10,11 @@ use crate::session::{CoreSession, SessionActivity, SessionActivityEvent, Session
 pub fn apply_session_activity_event(session: &mut CoreSession, event: SessionActivityEvent) {
     match event {
         SessionActivityEvent::InputBytes { at, bytes } => {
-            session.activity.input_bytes = session.activity.input_bytes.saturating_add(bytes);
             if bytes > 0 {
                 session.activity.last_input_at = Some(at);
             }
         }
         SessionActivityEvent::OutputBytes { at, bytes } => {
-            session.activity.output_bytes = session.activity.output_bytes.saturating_add(bytes);
             if bytes > 0 {
                 session.activity.last_output_at = Some(at);
             }
@@ -33,7 +31,9 @@ pub fn apply_session_activity_event(session: &mut CoreSession, event: SessionAct
 /// Classify activity from an injected clock and threshold.
 ///
 /// A session is active when its latest input, output, or declared activity is
-/// at or within `active_threshold_seconds` of `now_seconds`.
+/// at or within `active_threshold_seconds` of `now_seconds`. This reflects
+/// activity recency only; hosts combine this verdict with lifecycle when they
+/// need a liveness or UI status projection.
 #[must_use]
 pub fn classify_session_activity(
     activity: &SessionActivity,

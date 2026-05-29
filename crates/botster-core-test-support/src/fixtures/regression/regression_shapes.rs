@@ -13,7 +13,7 @@ use botster_core::actor::{
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
 use botster_core::entity::{EntityFrame, EntityId, EntityKind};
-use botster_core::session::{CoreSession, RequestId, SessionActivityEvent, SessionId, SessionKind};
+use botster_core::session::{CoreSession, RequestId, SessionActivityEvent, SessionId};
 use botster_core::session_activity::apply_session_activity_event;
 use botster_core::transport::TransportEgress;
 use botster_core::{classify_session_activity, SubscriptionId};
@@ -40,11 +40,7 @@ pub fn last_output_activity(
     now_seconds: u64,
     active_threshold_seconds: u64,
 ) -> (CoreSession, SessionActivityStatus) {
-    let mut session = CoreSession::new(
-        session_id,
-        SessionKind::Terminal,
-        SessionLifecycleState::Running,
-    );
+    let mut session = CoreSession::new(session_id, SessionLifecycleState::Running);
     apply_session_activity_event(
         &mut session,
         SessionActivityEvent::OutputBytes {
