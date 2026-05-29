@@ -13,8 +13,11 @@ use botster_core::actor::{
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
 use botster_core::entity::{EntityFrame, EntityId, EntityKind};
-use botster_core::session::{RequestId, SessionId, SubscriptionId};
+use botster_core::session::{CoreSession, RequestId, SessionActivityEvent, SessionId, SessionKind};
+use botster_core::session_activity::apply_session_activity_event;
 use botster_core::transport::TransportEgress;
+use botster_core::{classify_session_activity, SubscriptionId};
+use botster_core::{SessionActivityStatus, SessionLifecycleState};
 
 /// Translate noisy PTY replay into ordered opaque output byte chunks.
 ///
@@ -23,6 +26,36 @@ use botster_core::transport::TransportEgress;
 #[must_use]
 pub fn noisy_pty_replay(chunks: &[&[u8]]) -> Vec<Vec<u8>> {
     chunks.iter().map(|chunk| (*chunk).to_vec()).collect()
+}
+
+/// Translate last-output activity evidence into core output-byte accounting.
+///
+/// Verdict: translate. Activity is derived from observed output bytes and an
+/// injected clock/threshold, independent of whether any client is attached.
+#[must_use]
+pub fn last_output_activity(
+    session_id: SessionId,
+    output_at: u64,
+    output_bytes: u64,
+    now_seconds: u64,
+    active_threshold_seconds: u64,
+) -> (CoreSession, SessionActivityStatus) {
+    let mut session = CoreSession::new(
+        session_id,
+        SessionKind::Terminal,
+        SessionLifecycleState::Running,
+    );
+    apply_session_activity_event(
+        &mut session,
+        SessionActivityEvent::OutputBytes {
+            at: output_at,
+            bytes: output_bytes,
+        },
+    );
+    let status =
+        classify_session_activity(&session.activity, now_seconds, active_threshold_seconds);
+
+    (session, status)
 }
 
 /// Translate stale reconnect generation evidence into current identity fields.
