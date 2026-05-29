@@ -1,6 +1,9 @@
 //! Fake runtime adapters for downstream conformance tests.
 
+pub mod plugin_worker;
 pub mod session_worker;
+
+pub use plugin_worker::{FakePluginBehavior, FakePluginRuntime};
 
 use botster_core::client::ClientId;
 use botster_core::session::SubscriptionId;
