@@ -4,6 +4,7 @@
 //! defines stable data shapes and low-level contracts, while `botster-hub`
 //! owns Botster policy and orchestration.
 
+pub mod actor;
 pub mod boundary;
 pub mod capability;
 pub mod client;
@@ -18,7 +19,15 @@ pub mod session_protocol;
 pub mod transport;
 pub mod ui;
 
-pub use boundary::{Layer, LayerResponsibility};
+pub use actor::{
+    BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
+    ClientControlFrame, ClientWorkerMessage, HubControlMessage, HubControlOrigin,
+    PasteFileErrorReason, PluginHandlerKind, PluginHandlerRef, PluginKey, PluginLoadSpec,
+    PluginWorkerEvent, PluginWorkerMessage, PreparedSnapshot, QueueSource, SessionIoEvent,
+    SessionIoRequest, SessionLifecycleState, TerminalAttachState, TransportConnectionMode,
+    TransportDisconnectReason, TransportPeerState, TransportSignal, PUBLIC_QUEUE_SOURCES,
+};
+pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
 pub use client::{ClientId, ClientScope, ClientState};
 pub use crypto::{
