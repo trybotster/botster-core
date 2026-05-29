@@ -8,6 +8,7 @@ pub mod actor;
 pub mod boundary;
 pub mod capability;
 pub mod client;
+pub mod client_stream;
 pub mod crypto;
 pub mod device;
 pub mod entity;
@@ -39,6 +40,9 @@ pub use actor::{
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
 pub use client::{ClientId, ClientScope, ClientState};
+pub use client_stream::{
+    ClientStreamGeneration, ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome,
+};
 pub use crypto::{
     decrypt_aes_gcm, encrypt_aes_gcm, AesGcmEnvelope, AesGcmKey, CryptoError, CryptoOperation,
     IdentityOperation,
