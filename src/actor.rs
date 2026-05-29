@@ -882,12 +882,26 @@ pub enum PluginHandlerKind {
     AssetMessage,
     /// Timer callback handler.
     Timer,
-    /// MCP handler.
-    Mcp,
+    /// MCP tool handler.
+    McpTool,
+    /// MCP prompt handler.
+    McpPrompt,
+    /// MCP resource handler.
+    McpResource,
+    /// MCP proxy auth-error recovery handler.
+    McpProxyAuthError,
     /// Event handler.
     Event,
     /// HTTP callback handler.
     Http,
+    /// File watch callback handler.
+    Watch,
+    /// ActionCable subscription callback handler.
+    ActionCable,
+    /// Entity provider handler.
+    EntityProvider,
+    /// Notification decision handler.
+    Notification,
 }
 
 /// Stable plugin-owned handler reference.
@@ -901,6 +915,97 @@ pub struct PluginHandlerRef {
     pub handler_id: String,
 }
 
+/// Plugin-owned descriptor family registered in a parent hub.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginDescriptorKind {
+    /// UI action descriptor.
+    UiAction,
+    /// Session action descriptor.
+    SessionAction,
+    /// Command descriptor.
+    Command,
+    /// Hook descriptor.
+    Hook,
+    /// Surface route descriptor.
+    SurfaceRoute,
+    /// Asset descriptor.
+    Asset,
+    /// Timer descriptor.
+    Timer,
+    /// MCP tool descriptor.
+    McpTool,
+    /// MCP prompt descriptor.
+    McpPrompt,
+    /// MCP resource descriptor.
+    McpResource,
+    /// Event subscription descriptor.
+    Event,
+    /// HTTP callback descriptor.
+    Http,
+    /// File watch descriptor.
+    Watch,
+    /// ActionCable subscription descriptor.
+    ActionCable,
+    /// Entity provider descriptor.
+    EntityProvider,
+    /// Notification descriptor.
+    Notification,
+}
+
+/// Stable reference to a plugin-owned descriptor held by the parent hub.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginDescriptorRef {
+    /// Owning plugin.
+    pub plugin_key: PluginKey,
+    /// Descriptor family.
+    pub kind: PluginDescriptorKind,
+    /// Stable descriptor id within the plugin.
+    pub descriptor_id: String,
+}
+
+/// Plugin-owned descriptor body plus optional executable handler address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginOwnedDescriptor {
+    /// Descriptor identity and owner.
+    pub descriptor: PluginDescriptorRef,
+    /// Executable handler address, when this descriptor invokes plugin code.
+    pub handler: Option<PluginHandlerRef>,
+    /// Plugin-owned descriptor body.
+    pub body: BoundaryJson,
+}
+
+/// Plugin-owned runtime resource family tracked for cleanup.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginResourceKind {
+    /// Timer resource.
+    Timer,
+    /// File watch resource.
+    Watch,
+    /// ActionCable subscription resource.
+    ActionCableSubscription,
+    /// Local webhook listener resource.
+    LocalWebhook,
+    /// In-flight HTTP request resource.
+    HttpRequest,
+    /// MCP registration resource.
+    McpRegistration,
+    /// Entity provider resource.
+    EntityProvider,
+}
+
+/// Stable reference to a plugin-owned runtime resource.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginResourceRef {
+    /// Owning plugin.
+    pub plugin_key: PluginKey,
+    /// Resource family.
+    pub kind: PluginResourceKind,
+    /// Stable resource id within the plugin.
+    pub resource_id: String,
+}
+
 /// Metadata needed to load a plugin worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginLoadSpec {
@@ -910,6 +1015,143 @@ pub struct PluginLoadSpec {
     pub package: String,
     /// Entrypoint path or logical id.
     pub entrypoint: String,
+    /// Plugin-owned descriptors exposed to the parent hub.
+    pub descriptors: Vec<PluginOwnedDescriptor>,
+    /// Plugin-owned load metadata.
+    pub metadata: Option<BoundaryJson>,
+}
+
+/// Serializable context supplied to a plugin handler invocation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationContext {
+    /// Client involved in the invocation, when client-scoped.
+    pub client_id: Option<ClientId>,
+    /// Session involved in the invocation, when session-scoped.
+    pub session_id: Option<SessionId>,
+    /// Subscription involved in the invocation, when stream-scoped.
+    pub subscription_id: Option<SubscriptionId>,
+    /// Surface route or node involved in the invocation, when UI-scoped.
+    pub surface_id: Option<String>,
+    /// Human-readable source of the invocation.
+    pub origin: Option<String>,
+    /// Plugin-owned contextual metadata.
+    pub metadata: Option<BoundaryJson>,
+}
+
+/// Request to invoke a stable plugin-owned handler.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler to invoke.
+    pub handler: PluginHandlerRef,
+    /// Runtime timeout in milliseconds.
+    pub timeout_ms: u64,
+    /// Serializable invocation context.
+    pub context: PluginInvocationContext,
+    /// Plugin-owned invocation payload.
+    pub payload: BoundaryJson,
+}
+
+/// Handler invocation failure category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginInvocationFailureKind {
+    /// Handler returned a failure.
+    HandlerFailed,
+    /// Handler exceeded the configured timeout.
+    TimedOut,
+    /// Invocation was cancelled by the runtime.
+    Cancelled,
+    /// Invocation was rejected because the worker queue was pressured.
+    Backpressured,
+    /// Worker stopped before the invocation completed.
+    WorkerStopped,
+}
+
+/// Successful plugin handler invocation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationSuccess {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler that completed.
+    pub handler: PluginHandlerRef,
+    /// Plugin-owned response payload.
+    pub payload: Option<BoundaryJson>,
+}
+
+/// Failed plugin handler invocation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginInvocationFailure {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Handler that failed.
+    pub handler: PluginHandlerRef,
+    /// Failure category.
+    pub kind: PluginInvocationFailureKind,
+    /// Timeout in milliseconds that applied to this invocation.
+    pub timeout_ms: Option<u64>,
+    /// Human-readable failure.
+    pub reason: String,
+}
+
+/// Plugin handler invocation outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum PluginInvocationResult {
+    /// Invocation completed successfully.
+    Completed(PluginInvocationSuccess),
+    /// Invocation failed.
+    Failed(PluginInvocationFailure),
+}
+
+/// Cleanup scope for plugin reload or unload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCleanupScope {
+    /// Remove descriptor registrations only.
+    Descriptors,
+    /// Remove runtime resources only.
+    Resources,
+    /// Remove descriptor registrations and runtime resources.
+    DescriptorsAndResources,
+}
+
+/// Request to reload one plugin worker and replace its owned registrations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginReloadSpec {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin being replaced.
+    pub plugin_key: PluginKey,
+    /// New load metadata for the replacement worker.
+    pub load: PluginLoadSpec,
+    /// Cleanup scope for the old worker's owned state.
+    pub cleanup: PluginCleanupScope,
+}
+
+/// Request to unload one plugin worker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginUnloadSpec {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin being unloaded.
+    pub plugin_key: PluginKey,
+    /// Cleanup scope for the worker's owned state.
+    pub cleanup: PluginCleanupScope,
+}
+
+/// Cleanup result for plugin reload or unload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCleanupResult {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin whose owned state was cleaned.
+    pub plugin_key: PluginKey,
+    /// Descriptors removed by cleanup.
+    pub removed_descriptors: Vec<PluginDescriptorRef>,
+    /// Runtime resources removed by cleanup.
+    pub removed_resources: Vec<PluginResourceRef>,
 }
 
 /// Messages accepted by a plugin worker.
@@ -924,14 +1166,11 @@ pub enum PluginWorkerMessage {
         spec: PluginLoadSpec,
     },
     /// Invoke a stable plugin handler ref.
-    Invoke {
-        /// Request correlation id.
-        request_id: RequestId,
-        /// Handler to invoke.
-        handler: PluginHandlerRef,
-        /// Plugin-owned payload.
-        payload: BoundaryJson,
-    },
+    Invoke(PluginInvocationRequest),
+    /// Reload this plugin worker with replacement metadata.
+    Reload(PluginReloadSpec),
+    /// Unload this plugin worker and cleanup owned state.
+    Unload(PluginUnloadSpec),
     /// Notify plugin worker of queue pressure.
     Backpressure(BackpressureSummary),
     /// Stop plugin worker.
@@ -955,6 +1194,28 @@ pub enum PluginWorkerEvent {
         plugin_key: PluginKey,
         /// Registered handlers.
         handlers: Vec<PluginHandlerRef>,
+        /// Registered descriptors exposed to the parent hub.
+        descriptors: Vec<PluginDescriptorRef>,
+    },
+    /// Plugin reloaded successfully.
+    Reloaded {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Reloaded plugin.
+        plugin_key: PluginKey,
+        /// Cleanup performed before replacement.
+        cleanup: PluginCleanupResult,
+        /// Replacement descriptors exposed to the parent hub.
+        descriptors: Vec<PluginDescriptorRef>,
+    },
+    /// Plugin unloaded successfully.
+    Unloaded {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Unloaded plugin.
+        plugin_key: PluginKey,
+        /// Cleanup performed during unload.
+        cleanup: PluginCleanupResult,
     },
     /// Plugin failed to load or execute.
     Failed {
@@ -966,16 +1227,16 @@ pub enum PluginWorkerEvent {
         reason: String,
     },
     /// Handler invocation completed.
-    Completed {
-        /// Request correlation id.
-        request_id: RequestId,
-        /// Handler that completed.
-        handler: PluginHandlerRef,
-        /// Plugin-owned response payload.
-        payload: Option<BoundaryJson>,
-    },
+    InvocationCompleted(PluginInvocationSuccess),
+    /// Handler invocation failed. Timeout failures are reported exclusively by
+    /// `InvocationTimedOut`, so this event must not carry `TimedOut`.
+    InvocationFailed(PluginInvocationFailure),
+    /// Handler invocation timed out.
+    InvocationTimedOut(PluginInvocationFailure),
     /// Plugin worker observed queue pressure.
     Backpressure(BackpressureSummary),
+    /// Plugin cleanup completed outside reload or unload.
+    CleanupCompleted(PluginCleanupResult),
     /// Plugin worker stopped.
     Stopped {
         /// Plugin that stopped.
