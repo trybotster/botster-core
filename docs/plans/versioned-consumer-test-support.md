@@ -18,8 +18,10 @@ Run: `run_1780077466_843858`
 - Keep the existing separate crate shape unless implementation discovers a hard architectural blocker. It is already a workspace member and `botster-core` already depends on it only as a dev-dependency.
 - Add small, public conformance assertions that exercise public `botster_core` types and fixture output, not private implementation details.
 - Add small fake transport/session helpers only where they make consumer tests realistic without pulling in hub policy or runtime actors.
-- Add at least one core test and one downstream-style example/integration test that use the same public helper from `botster-core-test-support`.
+- Add at least one core test and one downstream-style example/integration test that use the same net-new public helper from `botster-core-test-support`.
+- The shared helper used for that acceptance check must be a conformance assertion or fake added by this ticket, such as `assert_terminal_output_round_trips` or `FakeSessionTransport`, not the pre-existing `regression_shapes` fixture helpers from the dependency ticket.
 - Document that `botster-core-test-support` is version-coupled to the matching `botster-core` release and belongs in downstream `dev-dependencies`.
+- Keep `botster-core-test-support` publishable for downstream dev-dependency use: do not add `publish = false`, and keep its crate version locked to `botster-core` (`0.1.0` today).
 - Keep all fixtures/builders/assertions generic to core contracts: identifiers, transport ingress/egress, session protocol frames, entity frames, actor/client stream data, and plugin worker contract data.
 
 ## Non-Scope
@@ -29,6 +31,7 @@ Run: `run_1780077466_843858`
 - No copied old `trybotster` runtime tests or reliance on reference paths existing in this repo.
 - No broad refactor of current core contract types unless an existing public type cannot support a required assertion.
 - No optional configuration layer, feature matrix, or compatibility shims beyond normal Cargo dev-dependency use.
+- No reusable helper work in `crates/botster-core-dev`; that crate is a `publish = false` binary smoke harness and is out of scope for consumer-importable support.
 - No PII or environment-specific path content in source/docs.
 
 ## Assumptions And Unknowns
@@ -58,6 +61,10 @@ Possibly touched:
 - `crates/botster-core-test-support/src/fixtures/regression/regression_shapes.rs`
 - `docs/plans/versioned-consumer-test-support.md` if Plan Review requests refinement
 
+Out of scope:
+
+- `crates/botster-core-dev`: publish-disabled binary smoke harness; do not move reusable consumer helpers here.
+
 ## Botster Layers Touched
 
 - Rust core contract workspace.
@@ -74,9 +81,10 @@ Possibly touched:
 
 - Support helpers can accidentally become product policy. Mitigation: every public helper should return or assert public `botster_core` contract data only.
 - Fakes can grow into a runtime simulator. Mitigation: keep fakes in-memory and frame-oriented; do not model hub lifecycle, worker scheduling, provider auth, or renderer behavior.
-- The same-helper acceptance can be satisfied superficially. Mitigation: use one named public assertion/helper from both a `botster-core` test and a consumer-style test in the support crate.
-- Version coupling can be under-documented. Mitigation: README and crate rustdoc should both state matching-release/dev-dependency use.
-- Production builds might pull test support accidentally if dependency direction changes. Mitigation: verify `botster-core-test-support` appears only under `botster-core` dev-dependencies and workspace membership, not production dependencies.
+- The same-helper acceptance can be satisfied superficially. Mitigation: use one named net-new public assertion/helper from both a `botster-core` test and a consumer-style test in the support crate.
+- Version coupling can be under-documented. Mitigation: README and crate rustdoc should both state matching-release/dev-dependency use, and review should confirm `botster-core` and `botster-core-test-support` remain on the same version.
+- Publish posture can be broken by treating test support like the publish-disabled smoke harness. Mitigation: review should confirm `botster-core-test-support` has no `publish = false` and `botster-core-dev` remains the only publish-disabled dev harness.
+- Production builds might pull test support accidentally if dependency direction changes. Mitigation: run a production dependency graph check that fails if `botster-core-test-support` appears in the normal dependency graph.
 - Clippy may reject assertion/fake code because `unwrap_used` is denied as warnings under `-D warnings`. Mitigation: avoid `unwrap` in library code; tests may use `expect` with clear messages where current repo style already does.
 
 ## Acceptance Checks And Tests
@@ -86,10 +94,14 @@ Possibly touched:
 - `cargo test -p botster-core regression_shape`
 - `cargo test --workspace`
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo tree -p botster-core -e normal` and confirm `botster-core-test-support` is absent from the normal production dependency graph.
 - Review checks:
-  - `botster-core-test-support` is a dev/test-only support crate and is not required by production builds.
+  - `botster-core-test-support` is a dev/test-only support crate and is not required by production builds, proven by the `cargo tree -p botster-core -e normal` output.
+  - `botster-core-test-support` remains publishable for downstream dev-dependency use: no `publish = false`, and its version matches `botster-core` (`0.1.0` today).
+  - `crates/botster-core-dev` remains out of scope; no reusable consumer helper is added there.
   - README/rustdoc explicitly says helpers are version-coupled to the matching `botster-core` release.
-  - At least one `botster-core` test and one downstream-style test use the same public support helper.
+  - At least one `botster-core` test and one downstream-style test use the same net-new public support helper from this ticket, preferably a named assertion such as `assert_terminal_output_round_trips` or an equivalent fake-backed assertion from `assertions/mod.rs` or `fake/mod.rs`.
+  - Existing `regression_shapes` fixture usage from the prior dependency ticket does not satisfy the same-helper acceptance check by itself.
   - Conformance assertions use public `botster_core` types, not private modules or old `trybotster` internals.
   - Fake transports/sessions stay generic and in-memory.
   - No source/docs include PII or local absolute paths other than this plan's pipeline worktree context.
