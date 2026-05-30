@@ -10,7 +10,8 @@ fn dev_harness_exercises_public_engine_path() {
     assert_eq!(report.attached_client_id.0, "engine-smoke-client");
     assert_eq!(report.terminal_input, "echo engine-smoke\n");
     assert_eq!(report.client_output, "engine-smoke-output\n");
-    assert_eq!(report.notifications, vec!["Engine smoke notice"]);
+    assert_eq!(report.output_activity_at, Some(10));
+    assert_eq!(report.notifications, vec!["Inbox smoke notice"]);
     assert!(report.session_notification_routed);
     assert_eq!(report.plugin_result, "fake plugin handler invoked");
     assert!(report.shutdown_requested);
