@@ -10,4 +10,5 @@ publish = false
 
 [dependencies]
 botster-core = { path = "../botster-core" }
-
+botster-core-test-support = { path = "../botster-core-test-support" }
+serde_json = "1.0"
