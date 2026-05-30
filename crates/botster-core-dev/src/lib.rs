@@ -12,11 +12,13 @@ use botster_core::{
     PluginInvocationContext, PluginInvocationFailure, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginKey,
     PluginLoadSpec, PluginRuntime, PluginWorkerEngine, PluginWorkerRegistration, RequestId,
-    SessionId, SessionIoEvent, SessionIoRequest, SessionRuntime, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SessionId, SessionIoEvent, SessionIoRequest, SessionRuntime, SessionSpawnRequest,
+    SessionWorkerEngine, SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory,
     SubscriptionId, SubscriptionMultiplexer, TransportEgress, TransportIngress,
 };
-use botster_core_test_support::fake::FakeSessionRuntime;
+use botster_core_test_support::fake::{
+    FakeSessionRuntime, FakeSessionWorkerRuntime, RuntimeCommand,
+};
 
 /// Deterministic report emitted by the dev-only engine smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +31,8 @@ pub struct EngineSmokeReport {
     pub terminal_input: String,
     /// Terminal output delivered back to the subscribed client.
     pub client_output: String,
+    /// Session output activity timestamp observed through `SessionWorkerEngine`.
+    pub output_activity_at: Option<u64>,
     /// Notification titles drained from the typed notification inbox.
     pub notifications: Vec<String>,
     /// Whether the typed session notification path stayed out of client egress.
@@ -49,6 +53,7 @@ impl EngineSmokeReport {
             format!("client attached: {}", self.attached_client_id.0),
             format!("terminal input routed: {:?}", self.terminal_input),
             format!("client observed output: {:?}", self.client_output),
+            format!("output activity at: {:?}", self.output_activity_at),
             format!("notifications drained: {}", self.notifications.join(", ")),
             format!(
                 "session notification routed: {}",
@@ -88,8 +93,8 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let client_id = ClientId("engine-smoke-client".to_string());
     let subscription_id = SubscriptionId("engine-smoke-subscription".to_string());
 
-    let mut runtime = FakeSessionRuntime::new();
-    runtime
+    let mut spawn_runtime = FakeSessionRuntime::new();
+    spawn_runtime
         .spawn_session(SessionSpawnRequest {
             request_id: request_id("spawn"),
             session_id: session_id.clone(),
@@ -104,6 +109,7 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
 
     let mut multiplexer = SubscriptionMultiplexer::new();
+    let mut session_worker = SessionWorkerEngine::new(FakeSessionWorkerRuntime::new());
     let subscribe = multiplexer.handle_client_ingress(
         client_id.clone(),
         TransportIngress::SubscribeSession {
@@ -130,23 +136,37 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         .session_requests
         .iter()
         .find_map(|(_, request)| match request {
-            SessionIoRequest::PtyInput { session_id, data } => Some((session_id, data)),
+            SessionIoRequest::PtyInput { session_id, data } => {
+                Some((session_id.clone(), data.clone()))
+            }
             _ => None,
         })
         .ok_or_else(|| {
             EngineSmokeError::new("terminal input did not reach session request path")
         })?;
-    runtime
-        .send_input(SessionRuntimeInput::PtyInput {
-            session_id: routed_input.0.clone(),
-            data: routed_input.1.clone(),
-        })
-        .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
+    route_session_requests(&mut session_worker, input.session_requests);
+    let input_was_written = session_worker.runtime().commands().iter().any(|command| {
+        matches!(
+            command,
+            RuntimeCommand::WriteInput { session_id: id, data }
+                if id == &routed_input.0 && data == &routed_input.1
+        )
+    });
+    if !input_was_written {
+        return Err(EngineSmokeError::new(
+            "terminal input did not reach session worker runtime",
+        ));
+    }
 
     let output_bytes = b"engine-smoke-output\n".to_vec();
-    runtime.emit_output(session_id.clone(), output_bytes.clone());
+    let output = session_worker.handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
+        session_id: session_id.clone(),
+        data: output_bytes,
+        last_output_at: 10,
+    });
+    let output_activity_at = output.last_output_at;
     let mut client_output = String::new();
-    for event in drain_runtime_events(&mut runtime, &session_id)? {
+    for event in output.events {
         let output = multiplexer.handle_session_event(event);
         client_output.push_str(&terminal_output_text(&output.client_egress)?);
     }
@@ -155,7 +175,7 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let session_notification = multiplexer.handle_session_event(SessionIoEvent::Notification {
         session_id: session_id.clone(),
         payload: NotificationPayload {
-            title: "Engine smoke notice".to_string(),
+            title: "Session event notice".to_string(),
             body: "typed session notification routed".to_string(),
         },
     });
@@ -164,15 +184,18 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
     let plugin_result = invoke_fake_plugin()?;
 
-    runtime
-        .send_input(SessionRuntimeInput::Shutdown {
-            session_id: session_id.clone(),
-        })
-        .map_err(|error| EngineSmokeError::new(format!("shutdown failed: {error}")))?;
-    let shutdown_requested = runtime
-        .inputs()
+    let shutdown = session_worker.handle_request(SessionIoRequest::Shutdown {
+        session_id: session_id.clone(),
+        reason: "engine smoke complete".to_string(),
+    });
+    for event in shutdown.events {
+        let _ = multiplexer.handle_session_event(event);
+    }
+    let shutdown_requested = session_worker
+        .runtime()
+        .commands()
         .iter()
-        .any(|input| matches!(input, SessionRuntimeInput::Shutdown { session_id: id } if id == &session_id));
+        .any(|command| matches!(command, RuntimeCommand::Shutdown { session_id: id, .. } if id == &session_id));
 
     Ok(EngineSmokeReport {
         spawned_session_id: session_id,
@@ -180,6 +203,7 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         terminal_input: String::from_utf8(input_bytes)
             .map_err(|error| EngineSmokeError::new(format!("input was not utf-8: {error}")))?,
         client_output,
+        output_activity_at,
         notifications,
         session_notification_routed,
         plugin_result,
@@ -187,27 +211,13 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     })
 }
 
-fn drain_runtime_events(
-    runtime: &mut FakeSessionRuntime,
-    session_id: &SessionId,
-) -> Result<Vec<SessionIoEvent>, EngineSmokeError> {
-    runtime
-        .drain_output(session_id)
-        .map_err(|error| EngineSmokeError::new(format!("output drain failed: {error}")))?
-        .into_iter()
-        .map(|output| match output {
-            SessionRuntimeOutput::PtyOutput { session_id, data } => {
-                Ok(SessionIoEvent::TerminalBytes { session_id, data })
-            }
-            SessionRuntimeOutput::ProcessExited {
-                session_id,
-                payload,
-            } => Ok(SessionIoEvent::ProcessExited {
-                session_id,
-                payload,
-            }),
-        })
-        .collect()
+fn route_session_requests(
+    session_worker: &mut SessionWorkerEngine<FakeSessionWorkerRuntime>,
+    requests: Vec<(SessionId, SessionIoRequest)>,
+) {
+    for (_, request) in requests {
+        let _ = session_worker.handle_request(request);
+    }
 }
 
 fn terminal_output_text(
@@ -233,6 +243,9 @@ fn terminal_output_text(
 
 fn post_and_drain_notification(session_id: &SessionId) -> Vec<String> {
     let mut inbox = NotificationInbox::new();
+    // This intentionally exercises the standalone typed inbox primitive; the
+    // separate SessionIoEvent::Notification check above proves session-event
+    // notification routing stays out of terminal client egress.
     inbox.post(NotificationItem::message(
         NotificationId("engine-smoke-notification".to_string()),
         NotificationTarget::Session(session_id.clone()),
@@ -242,7 +255,7 @@ fn post_and_drain_notification(session_id: &SessionId) -> Vec<String> {
             plugin_key: None,
         },
         NotificationContent {
-            title: "Engine smoke notice".to_string(),
+            title: "Inbox smoke notice".to_string(),
             body: Some("The dev harness posted a typed notification.".to_string()),
             extension: None,
         },
