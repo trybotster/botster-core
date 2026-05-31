@@ -60,6 +60,14 @@ and it must not carry hub policy, CLI startup behavior, renderer assumptions,
 auth, provider marketplace behavior, Project Pipelines product behavior, or
 other product-specific flows.
 
+For embedders that need to prove the released local engine path, the support
+crate also exposes a managed local conformance harness. It spawns explicit
+test commands through `ManagedSessionRuntime<LocalProcessRuntime>`, attaches
+fake clients with public transport frames, drains real PTY output through
+`ManagedSessionRuntime::drain_runtime_once`, and provides assertions for
+fanout, activity, and shutdown semantics. PTY-dependent tests should be
+Unix-gated or use the harness skip reason on unsupported hosts.
+
 ## Terminal Screen And Snapshot Boundary
 
 `botster-core` exposes a narrow terminal screen boundary for hosts that need
