@@ -6,6 +6,7 @@ Run: `run_1780189443_396097`
 ## Context Loaded
 
 - Pipeline context loaded with `project_pipelines_current_context`: ticket `Add default local PTY process runtime to botster-core`, current step `botster_plan`, gate `botster_plan_gate`, prior artifacts, reviews, findings, and the human answer to `question_1780191167_662553`.
+- Current return reason loaded: GitHub review on PR #26 requested changes with body "Please fix merge conflict." `gh pr view 26` reports head `project-pipelines/ticket_1780189402_540507`, base `main`, mergeable `CONFLICTING`, review decision `CHANGES_REQUESTED`.
 - Human scope decision loaded: choose option A for this ticket. Implement the default local PTY/process runtime at the `SessionRuntime` boundary only. Do not expand this ticket into a full `SessionWorkerRuntime` bridge or terminal-emulator grid.
 - Latest Plan Review loaded: `review_1780191548_622010` returned changes required because the prior revision chose option B. This revision re-scopes to option A.
 - Required playbooks loaded:
@@ -76,6 +77,30 @@ Botster layers touched:
 Worktree/target assumption: implementers work in the pipeline-provided `botster-core` worktree for target `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`, targeting `main`.
 
 Pipeline gates/artifacts: this file is the revised Plan artifact. Gate evidence should cite this file, the human answer, and the run checklist.
+
+## PR Conflict Return Plan
+
+The feature plan above remains the approved implementation scope. The current returned Plan step is a narrow PR maintenance pass:
+
+- Update the existing PR #26 branch `project-pipelines/ticket_1780189402_540507`; do not create a new branch, run, or PR.
+- Bring the branch current with `main` using the repo's normal Git workflow.
+- Resolve merge conflicts surgically while preserving the approved SessionRuntime-only scope.
+- Do not reintroduce `SessionWorkerRuntime`, `SessionWorkerEngine` behavior tests, `MultiplexerEngine` fanout tests, Ghostty/restty, terminal-grid/parser work, shell/default command policy, PATH mutation, or product configuration discovery.
+- Carry the open low-severity review finding `finding_1780193017_482511`: either resolve it by ensuring final PTY bytes cannot be dropped when exit wins the race against reader-channel drain, or document it exactly as residual risk in implementation gate evidence if left unchanged.
+- Push the updated existing branch so PR #26 becomes mergeable again.
+- Reply or otherwise satisfy the GitHub review by updating the PR branch; no separate PR is needed.
+
+Conflict-pass verification:
+
+- `git status --short --branch` must show a clean branch after conflict resolution.
+- `gh pr view 26 --json mergeable,reviewDecision,statusCheckRollup` should no longer report `CONFLICTING`.
+- Re-run the approved verification for this ticket after conflict resolution:
+  - `cargo fmt`
+  - `cargo test -p botster-core local_process_runtime`
+  - `cargo test -p botster-core session_runtime`
+  - `cargo test -p botster-core`
+  - `cargo test`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
 
 ## Assumptions And Unknowns
 
