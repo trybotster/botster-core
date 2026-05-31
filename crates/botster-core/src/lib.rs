@@ -15,7 +15,8 @@ pub use contract::{
     transport, ui,
 };
 pub use engine::{
-    multiplexer, plugin_worker, session_activity, session_worker, subscription_multiplexer,
+    managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
+    subscription_multiplexer,
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
@@ -58,12 +59,13 @@ pub use device::{
     PublicSigningKeyBytes,
 };
 pub use engine::{
-    apply_session_activity_event, classify_session_activity, MultiplexerEngine,
-    MultiplexerEngineError, MultiplexerEngineObservation, MultiplexerEngineOutcome,
-    MultiplexerSpawnOutcome, PluginHandlerRegistration, PluginWorkerEngine,
-    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
-    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
-    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
+    apply_session_activity_event, classify_session_activity, ManagedSessionRuntime,
+    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
+    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
+    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
+    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
+    SubscriptionMultiplexerOutcome,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
