@@ -60,14 +60,14 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ManagedSessionRuntime,
-    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
-    MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
-    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
-    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
-    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
-    TerminalScreenRuntime,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, DefaultBotsterEngine,
+    DefaultBotsterEngineError, ManagedSessionRuntime, ManagedSessionRuntimeError,
+    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
+    MultiplexerEngineOutcome, MultiplexerSpawnOutcome, PluginHandlerRegistration,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine,
+    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
+    TerminalScreenOutcome, TerminalScreenRuntime,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
