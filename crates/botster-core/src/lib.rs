@@ -21,6 +21,7 @@ pub use engine::{
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
+    LocalProcessRuntimeOptions, LocalProcessSessionRuntime, LocalProcessSessionWorkerRuntime,
     PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,

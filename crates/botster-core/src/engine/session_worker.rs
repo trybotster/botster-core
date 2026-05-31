@@ -7,6 +7,7 @@ use crate::contract::actor::{
 };
 use crate::contract::session::SessionId;
 use crate::contract::session_protocol::ProcessExitedPayload;
+use crate::runtime::SessionRuntimeError;
 
 /// Host-supplied operations used by the reusable session worker engine.
 pub trait SessionWorkerRuntime {
@@ -49,7 +50,11 @@ pub trait SessionWorkerRuntime {
     );
 
     /// Shut down the runtime side of the session.
-    fn shutdown(&mut self, session_id: &SessionId, reason: &str);
+    fn shutdown(
+        &mut self,
+        session_id: &SessionId,
+        reason: &str,
+    ) -> Result<Vec<SessionWorkerRuntimeEvent>, SessionRuntimeError>;
 }
 
 /// Runtime-originated events accepted by the session worker engine.
@@ -137,12 +142,18 @@ where
     }
 
     /// Handle one typed session I/O request.
-    pub fn handle_request(&mut self, request: SessionIoRequest) -> SessionWorkerOutcome {
+    pub fn handle_request(
+        &mut self,
+        request: SessionIoRequest,
+    ) -> Result<SessionWorkerOutcome, SessionRuntimeError> {
         if self.closed {
-            return SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at);
+            return Ok(SessionWorkerOutcome::from_events(
+                Vec::new(),
+                self.last_output_at,
+            ));
         }
 
-        match request {
+        let outcome = match request {
             SessionIoRequest::SubscribeTerminal {
                 request_id,
                 session_id,
@@ -161,12 +172,16 @@ where
                 };
                 self.handle_request(SessionIoRequest::GetInitialSnapshot(request))
             }
-            SessionIoRequest::UnsubscribeTerminal { .. } => {
-                SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at)
-            }
+            SessionIoRequest::UnsubscribeTerminal { .. } => Ok(SessionWorkerOutcome::from_events(
+                Vec::new(),
+                self.last_output_at,
+            )),
             SessionIoRequest::PtyInput { session_id, data } => {
                 self.runtime.write_input(&session_id, &data);
-                SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    Vec::new(),
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::Resize {
                 session_id,
@@ -174,7 +189,10 @@ where
                 cols,
             } => {
                 self.runtime.resize(&session_id, rows, cols);
-                SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    Vec::new(),
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::GetSnapshot {
                 request_id,
@@ -182,26 +200,38 @@ where
             } => {
                 let event =
                     SessionIoEvent::SnapshotReady(self.runtime.snapshot(request_id, session_id));
-                SessionWorkerOutcome::from_events(vec![event], self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    vec![event],
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::GetInitialSnapshot(request) => {
                 self.runtime
                     .resize(&request.session_id, request.rows, request.cols);
                 self.initial_snapshot_barrier = Some(InitialSnapshotBarrier::new());
                 self.runtime.request_initial_snapshot(request);
-                SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    Vec::new(),
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::SendFile(request) => {
                 let event = match self.runtime.send_file(request) {
                     Ok(written) => SessionIoEvent::SendFileWritten(written),
                     Err(failed) => SessionIoEvent::SendFileFailed(failed),
                 };
-                SessionWorkerOutcome::from_events(vec![event], self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    vec![event],
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::PrepareSnapshot(request) => {
                 let event =
                     SessionIoEvent::PreparedSnapshotReady(self.runtime.prepare_snapshot(request));
-                SessionWorkerOutcome::from_events(vec![event], self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    vec![event],
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::GetModeFlags {
                 request_id,
@@ -209,7 +239,10 @@ where
             } => {
                 let event =
                     SessionIoEvent::ModeFlagsReady(self.runtime.mode_flags(request_id, session_id));
-                SessionWorkerOutcome::from_events(vec![event], self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    vec![event],
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::GetScreen {
                 request_id,
@@ -217,23 +250,46 @@ where
             } => {
                 let event =
                     SessionIoEvent::ScreenReady(self.runtime.screen(request_id, session_id));
-                SessionWorkerOutcome::from_events(vec![event], self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    vec![event],
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::SetColorProfile {
                 session_id,
                 color_profile,
             } => {
                 self.runtime.set_color_profile(&session_id, color_profile);
-                SessionWorkerOutcome::from_events(Vec::new(), self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    Vec::new(),
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::Shutdown { session_id, reason } => {
-                self.runtime.shutdown(&session_id, &reason);
+                let runtime_events = self.runtime.shutdown(&session_id, &reason)?;
                 self.closed = true;
                 let mut events = self.flush_initial_output_events(&session_id);
+                for runtime_event in runtime_events {
+                    if let SessionWorkerRuntimeEvent::ProcessExited {
+                        session_id,
+                        payload,
+                    } = runtime_event
+                    {
+                        events.push(SessionIoEvent::ProcessExited {
+                            session_id,
+                            payload,
+                        });
+                    }
+                }
                 events.push(SessionIoEvent::Shutdown { session_id, reason });
-                SessionWorkerOutcome::from_events(events, self.last_output_at)
+                Ok(SessionWorkerOutcome::from_events(
+                    events,
+                    self.last_output_at,
+                ))
             }
-        }
+        }?;
+
+        Ok(outcome)
     }
 
     /// Handle one runtime-originated event.
