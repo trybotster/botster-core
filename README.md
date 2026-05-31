@@ -1,10 +1,12 @@
 # botster-core
 
-`botster-core` is the reusable Botster runtime workspace.
+`botster-core` is the embeddable, programmable, tmux-like local engine for
+Botster hosts.
 
 It is intentionally not the Botster application, not the hub, and not the CLI.
-It contains the transport-neutral mechanisms and data shapes that every Botster
-host, client, provider, and plugin runtime must agree on.
+It contains the reusable local execution mechanics, typed contracts, and
+policy-free engine facades that every Botster host, client, provider, and
+plugin runtime must agree on.
 
 ## Workspace Layout
 
@@ -14,6 +16,35 @@ host, client, provider, and plugin runtime must agree on.
 - `crates/botster-core-dev`: dev-only engine smoke harnesses that fake a
   session/client/plugin path for core development; not the product CLI, install
   UX, auth flow, hub daemon, marketplace, or persistent config surface.
+
+## What Core Proves Today
+
+The current crate proves the reusable engine pieces that make Botster embeddable:
+
+- typed session, client, subscription, request, transport, entity, UI, package,
+  crypto, identity, notification, terminal snapshot, and plugin worker contracts
+- default local session mechanics through `SessionWorkerEngine`
+- subscription fanout through `SubscriptionMultiplexer`
+- session registry, activity/lifecycle observations, typed notification inbox,
+  and plugin worker invocation through `MultiplexerEngine`
+- the synchronous `BotsterEngine` facade for consumers that want tmux-like
+  operations instead of raw transport-frame plumbing
+- consumer test harnesses and fakes in `botster-core-test-support`
+
+This documentation reframe does not move product policy into core. It clarifies
+that hosts embed the local engine while the hub or other products still own auth,
+persistence policy, config locations, cloud federation, marketplace and
+install/update policy, WebRTC/signaling/API adapters, UI, and workflow-specific
+behavior.
+
+## Embedding Path
+
+Use `BotsterEngine` when a host wants method-level operations for the common
+tmux-like path: spawn a session, attach clients, write and resize terminal
+streams, receive output, drain notifications, invoke plugin handlers, classify
+activity, and shut sessions down. The rustdoc example on `BotsterEngine` is
+compile-checked against the public facade, and `crates/botster-core-dev` mirrors
+that path with a deterministic smoke harness.
 
 ## Consumer Test Support
 
