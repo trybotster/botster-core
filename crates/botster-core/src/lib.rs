@@ -12,11 +12,11 @@ pub mod runtime;
 
 pub use contract::{
     actor, boundary, client, client_stream, entity, notification, session, session_protocol,
-    transport, ui,
+    terminal_screen, transport, ui,
 };
 pub use engine::{
-    managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
-    subscription_multiplexer,
+    botster, managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
+    subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
@@ -59,13 +59,15 @@ pub use device::{
     PublicSigningKeyBytes,
 };
 pub use engine::{
-    apply_session_activity_event, classify_session_activity, ManagedSessionRuntime,
+    apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ManagedSessionRuntime,
     ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
     PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
     SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
-    SubscriptionMultiplexerOutcome,
+    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
+    TerminalScreenRuntime,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
@@ -97,6 +99,10 @@ pub use session_protocol::{
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
     MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
+};
+pub use terminal_screen::{
+    TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
+    TerminalSnapshotPayload,
 };
 pub use transport::{TransportEgress, TransportIngress};
 pub use ui::{
