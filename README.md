@@ -53,6 +53,11 @@ outcomes such as client egress frames, session worker requests/events,
 notification items, plugin invocation results, and activity/lifecycle
 observations for the host to deliver or persist.
 
+`LocalProcessRuntime` is intentionally not the session worker data-plane
+bridge. Hosts that use `MultiplexerEngine` still supply a `SessionWorkerRuntime`
+for terminal snapshots, screen state, and worker event delivery until a later
+integration adds that bridge explicitly.
+
 | Layer | Owns | Does not own | Current proof |
 | --- | --- | --- | --- |
 | Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; a default local PTY-backed `SessionRuntime` adapter for explicit spawn requests; plugin worker handler refs, descriptors, invocation, lifecycle, cleanup, and pressure events; entity frames; UI node shapes; package, capability, extension, crypto, identity contracts, and the synchronous `MultiplexerEngine` facade that coordinates those mechanisms. | Runtime policy, executable selection, product workflows, product-specific concrete adapters, device persistence policy, executable plugin callbacks, async supervision, notification presentation, or raw private key material. | `crates/botster-core/src/contract/boundary.rs`, `crates/botster-core/src/contract/actor.rs`, `crates/botster-core/src/contract/session.rs`, `crates/botster-core/src/contract/session_protocol.rs`, `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs`, `crates/botster-core/src/runtime/local_process.rs`, `crates/botster-core/src/engine/multiplexer.rs`, `crates/botster-core/src/package/manifest.rs`, `crates/botster-core/src/package/capability.rs`, `crates/botster-core/src/package/extension.rs`, `crates/botster-core/src/identity/crypto.rs`, `crates/botster-core/src/identity/device.rs`, `crates/botster-core/src/identity/keyring.rs` |

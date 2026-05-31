@@ -5,8 +5,9 @@ Run: `run_1780189443_396097`
 
 ## Context Loaded
 
-- Pipeline context loaded with `project_pipelines_current_context`: ticket `Add default local PTY process runtime to botster-core`, current step `botster_plan`, gate `botster_plan_gate`.
-- Prior Plan Review loaded: `review_1780190794_938873` returned changes required. This revision addresses the open findings about runtime-path proof, the separate `SessionRuntime` and `SessionWorkerRuntime` contracts, `ResizePayload` naming, and shutdown cleanup.
+- Pipeline context loaded with `project_pipelines_current_context`: ticket `Add default local PTY process runtime to botster-core`, current step `botster_plan`, gate `botster_plan_gate`, prior artifacts, reviews, findings, and the human answer to `question_1780191167_662553`.
+- Human scope decision loaded: choose option A for this ticket. Implement the default local PTY/process runtime at the `SessionRuntime` boundary only. Do not expand this ticket into a full `SessionWorkerRuntime` bridge or terminal-emulator grid.
+- Latest Plan Review loaded: `review_1780191548_622010` returned changes required because the prior revision chose option B. This revision re-scopes to option A.
 - Required playbooks loaded:
   - `planner-playbook`
   - `botster-planner-playbook`
@@ -22,66 +23,69 @@ Run: `run_1780189443_396097`
   - `pty-spawn-prepends-binary-directory-to-path`
 - Repo context inspected:
   - `README.md`: `botster-core` owns reusable mechanisms and policy-free contracts; hosts own executable choice, auth, persistence, concrete transport delivery, and product workflows.
-  - `crates/botster-core/src/runtime/mod.rs`: current `SessionRuntime` trait and `SessionSpawnRequest` contract are host-provided only.
-  - `crates/botster-core/src/engine/session_worker.rs`: `SessionWorkerRuntime` is a separate engine I/O adapter trait for write, resize, snapshot, mode/screen helpers, send-file preparation, color profile, and shutdown.
-  - `crates/botster-core/src/engine/multiplexer.rs`: public facade uses `SessionRuntime` only for `spawn_session`; terminal I/O and session events route through the per-session `SessionWorkerRuntime` and explicit `handle_runtime_event`.
+  - `crates/botster-core/src/runtime/mod.rs`: `SessionRuntime` is the spawn/send-input/drain-output boundary this ticket targets.
+  - `crates/botster-core/src/engine/session_worker.rs`: `SessionWorkerRuntime` is a separate session worker data-plane adapter and is now explicitly out of scope for this ticket.
+  - `crates/botster-core/src/engine/multiplexer.rs`: `MultiplexerEngine` calls `SessionRuntime::spawn_session` only; it does not call `send_input` or `drain_output`.
   - `crates/botster-core/tests/session_runtime_contract_test.rs`: current tests prove the trait with `FakeSessionRuntime`, not a real local process runtime.
-  - `crates/botster-core-test-support/src/fake/session_worker.rs`: fake worker/runtime patterns for targeted acceptance tests.
-  - Prior plan artifacts: `core-session-worker-engine.md` and `assemble-core-multiplexer-engine-api.md`.
+  - Prior plan artifacts: `core-session-worker-engine.md`, `assemble-core-multiplexer-engine-api.md`, and prior revisions of this plan.
 - Dependency check:
-  - `portable-pty` latest release verified as `0.9.0` on docs.rs/crates.io search. It is maintained enough for evaluation and matches existing Botster vault notes about its API boundaries.
+  - `portable-pty` latest release verified as `0.9.0` on docs.rs/crates.io search. It remains the leading maintained, policy-free Rust PTY/process primitive to evaluate.
 
 ## Scope
 
-Add a reusable default local PTY/process runtime inside `botster-core` so embedders can get a working local session engine without implementing PTY management themselves.
+Add a reusable default local PTY/process runtime inside `botster-core` at the `SessionRuntime` boundary so embedders can spawn and drive a local PTY session directly without implementing PTY management.
 
 In scope:
 
-- Add a concrete public local runtime adapter, likely `LocalProcessRuntime`, under `crates/botster-core/src/runtime/`.
-- Implement both existing local-session contracts:
-  - `SessionRuntime` for explicit spawn, direct input, direct resize/shutdown, and direct output draining.
-  - `SessionWorkerRuntime` for the session worker engine's input, resize, snapshot, helper, and shutdown calls.
-- Prefer a cloneable/shared-state adapter shape so embedders can use the same default runtime as both `MultiplexerEngine`'s `SessionRuntime` and its per-session `SessionWorkerRuntime` without implementing PTY management.
+- Add a concrete public runtime adapter, likely `LocalProcessRuntime`, under `crates/botster-core/src/runtime/`.
+- Implement the existing `SessionRuntime` trait only:
+  - `spawn_session`
+  - `send_input`
+  - `drain_output`
 - Spawn the requested executable with the exact `SessionSpawnRequest` command, arguments, working directory, explicit environment variables, and optional `ResizePayload`.
-- Use a maintained Rust PTY/process primitive when it fits; `portable-pty 0.9.0` is the leading candidate.
+- Use or evaluate a maintained Rust PTY/process primitive when it fits; `portable-pty 0.9.0` is the leading candidate.
 - Manage runtime-owned session state: child identity, output reader, input writer, resize handle, exit reporting, and shutdown cleanup.
 - Drain available output as `SessionRuntimeOutput::PtyOutput` and child exit as `SessionRuntimeOutput::ProcessExited`.
 - Deliver `SessionRuntimeInput::PtyInput`, `Resize`, and `Shutdown` through the concrete runtime.
-- Map `SessionWorkerRuntime::write_input`, `resize`, `snapshot`, `request_initial_snapshot`, `mode_flags`, `screen`, `set_color_profile`, and `shutdown` onto the same local PTY/process state where the selected primitive supports the operation. For helper requests that cannot be meaningfully supported by a raw PTY primitive yet, return deterministic policy-free placeholder data or typed failure events already modeled by the contract, and document the limitation in tests.
 - Return typed `SessionRuntimeErrorKind::SpawnFailed`, `SessionNotFound`, `InputFailed`, or `OutputFailed` for failure paths.
-- Add platform-gated tests where needed to prove real local spawn, output drain, input write where applicable, resize contract where supported, spawn failure reporting, shutdown cleanup, and no private user paths or PII in docs/fixtures.
+- Add platform-gated tests where needed to prove real local spawn, output read, input write where applicable, resize contract where supported, spawn failure reporting, shutdown cleanup, direct public trait use, and no private user paths or PII in docs/fixtures.
 - Re-export the new runtime type from `runtime/mod.rs` and `lib.rs` if it is intended as public embedder API.
-- Update README narrowly to state that core now includes an optional/default local runtime adapter while hosts still own policy and request construction.
+- Update README narrowly to state that core now includes a policy-free local `SessionRuntime` implementation while hosts still construct explicit spawn requests and own product policy.
+- Small adapter seams/types are allowed only if they avoid painting the future `SessionWorkerRuntime`/`MultiplexerEngine` bridge into a corner. They must not implement the bridge in this ticket.
 
 Non-scope:
 
+- No `impl SessionWorkerRuntime for LocalProcessRuntime`.
+- No `SessionWorkerEngine<LocalProcessRuntime>` behavior tests.
+- No `MultiplexerEngine` end-to-end terminal fanout test.
+- No terminal-emulator grid, parser-backed snapshot, `screen`, `mode_flags`, or snapshot helper behavior.
+- No Ghostty/restty dependency or trybotster-owned terminal parser fork. Those belong to the separate terminal screen/snapshot/parser ticket.
 - No default command, shell selection, PATH mutation, product config discovery, target admission, auth, cloud, Rails, WebRTC, TUI, marketplace, Project Pipelines, or Lua plugin behavior.
 - No hub recovery, broker persistence, session manifest policy, reconnect policy, retention policy, or process-freezing behavior.
-- No broad rewrite of `SessionRuntime`, `SessionWorkerEngine`, `MultiplexerEngine`, or test-support fakes. Small accessors/helpers are allowed only if needed to wire the default adapter into existing public contracts.
+- No broad rewrite of `SessionRuntime`, `SessionWorkerEngine`, `MultiplexerEngine`, or test-support fakes.
 - No compatibility branch or version-suffixed duplicate API.
 - No wholesale port of old TryBotster hub/session process code.
 
 Botster layers touched:
 
 - Rust `botster-core` runtime layer: primary surface.
-- Rust `botster-core` session worker adapter surface: implement the existing `SessionWorkerRuntime` contract for the local runtime; do not change session worker policy.
 - Rust `botster-core` public exports and tests.
-- Rust `botster-core` docs/README only for the public boundary.
-- No plugin, SPA, TUI, Rails relay, MCP, provider, or product workflow layer changes.
+- Rust `botster-core` docs/README only for the public `SessionRuntime` boundary.
+- No session worker, plugin, SPA, TUI, Rails relay, MCP, provider, or product workflow layer changes.
 
 Worktree/target assumption: implementers work in the pipeline-provided `botster-core` worktree for target `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`, targeting `main`.
 
-Pipeline gates/artifacts: this file is the Plan artifact. Gate evidence should cite this file and the run checklist.
+Pipeline gates/artifacts: this file is the revised Plan artifact. Gate evidence should cite this file, the human answer, and the run checklist.
 
 ## Assumptions And Unknowns
 
 Assumptions:
 
-- The ticket intentionally changes core from "trait only" to "trait plus one default local implementation" for both the spawn/runtime trait and the session worker runtime adapter.
+- The human answer to `question_1780191167_662553` is authoritative for this ticket.
+- The ticket acceptance criteria map to `SessionRuntime`: spawn, output read, input write, resize, spawn failure, typed errors, and no PII.
+- The future `SessionWorkerRuntime` bridge, supervised session task runtime, ergonomic `BotsterEngine` API, and default-runtime integration are separate tickets.
 - A concrete PTY/process primitive in core does not violate the core boundary if it remains policy-free and only executes explicit spawn requests.
-- The existing synchronous `SessionRuntime` trait is sufficient for direct trait-level use if the concrete runtime owns background reader/exit plumbing internally and exposes available data through `drain_output`.
-- The existing `SessionWorkerRuntime` trait remains the engine data-plane adapter. A default local runtime must implement it too, or embedders still need to write PTY management for the assembled engine path.
-- `MultiplexerEngine<LocalProcessRuntime, LocalProcessRuntime>` can honestly prove spawn-path compatibility and worker-command compatibility, but not automatic output fanout unless the test explicitly drains local runtime output and feeds converted `SessionWorkerRuntimeEvent` values into `handle_runtime_event`.
+- The existing synchronous `SessionRuntime` trait is sufficient if the concrete runtime owns background reader/exit plumbing internally and exposes currently available data through `drain_output`.
 - `portable-pty` should be evaluated first because it provides a cross-platform PTY API and is the latest known maintained fit for this layer.
 - Tests may need platform gates. Unix can prove PTY echo/input and resize more directly; Windows behavior should be included if the selected primitive supports it cleanly.
 - Spawn requests should use synthetic paths and commands only, such as `sh`, `printf`, `cat`, or Rust test binaries where platform appropriate. Do not include private home paths.
@@ -95,7 +99,7 @@ Unknowns for implementation:
 - Shutdown cleanup must be concrete, not "drop the PTY and hope." Plan for direct child termination on all platforms supported by the primitive, plus Unix process-group termination where the selected primitive exposes or permits it without fragile hand-rolled PTY setup. If process-group cleanup cannot be implemented cleanly in this ticket, document it as residual risk and still assert the directly spawned child is gone in tests.
 - Whether the runtime module should be named `local_process`, `local_pty`, or `process`. Prefer names that describe the mechanism without implying product policy.
 
-No human question is blocking. The ticket intent is clear and can be satisfied without waiving scope.
+No human question remains blocking. The prior ambiguity was answered with option A.
 
 ## Affected Surfaces / Files
 
@@ -107,31 +111,30 @@ Expected:
 - `crates/botster-core/src/runtime/mod.rs`
   - Export the new concrete runtime module/type.
 - `crates/botster-core/src/runtime/local_process.rs` or `local_pty.rs`
-  - Implement `LocalProcessRuntime`, shared per-session state, `SessionRuntime`, `SessionWorkerRuntime`, spawn, input, resize, snapshots/helpers where supported, drain, exit, and shutdown.
+  - Implement `LocalProcessRuntime`, per-session state, `SessionRuntime`, spawn, input, resize, drain, exit, and shutdown.
 - `crates/botster-core/src/lib.rs`
   - Re-export public concrete runtime type and any narrow config/error helpers if needed.
 - `crates/botster-core/tests/local_process_runtime_test.rs`
-  - Real local runtime acceptance tests for direct `SessionRuntime` and `SessionWorkerRuntime` behavior.
+  - Real local runtime acceptance tests for direct `SessionRuntime` behavior.
 - `crates/botster-core/tests/session_runtime_contract_test.rs`
   - Possible small source guard update so the concrete runtime remains free of product/private-path terms.
 - `README.md`
-  - Narrow boundary update: core has a default local runtime adapter, while hosts still construct explicit spawn requests and own policy.
+  - Narrow boundary update: core has a default local `SessionRuntime` adapter, while hosts still construct explicit spawn requests and own policy.
 - `docs/plans/default-local-pty-process-runtime.md`
-  - This plan artifact.
+  - This revised plan artifact.
 
 Possible but avoid unless necessary:
 
-- `crates/botster-core/src/engine/multiplexer.rs`
-  - Only if a tiny accessor/helper is necessary. Tests may instantiate `MultiplexerEngine<LocalProcessRuntime, LocalProcessRuntime>` without changing this file.
 - `crates/botster-core-test-support`
-  - Only if reusable conformance helpers are needed. Real runtime tests can probably live directly in `botster-core/tests`.
+  - Only if a tiny reusable conformance helper is genuinely useful. Real runtime tests can probably live directly in `botster-core/tests`.
 
 Not expected:
 
 - `crates/botster-core-dev`.
-- `crates/botster-core/src/engine/session_worker.rs`, except for compiler-required narrow helper accessors. The local runtime should adapt to the existing trait.
+- `crates/botster-core/src/engine/session_worker.rs`.
+- `crates/botster-core/src/engine/multiplexer.rs`.
 - `crates/botster-core/src/contract/*`.
-- Any hub, CLI, browser, TUI, Rails, Lua plugin, MCP, Project Pipelines, provider, or old TryBotster files.
+- Any Ghostty/restty, hub, CLI, browser, TUI, Rails, Lua plugin, MCP, Project Pipelines, provider, or old TryBotster files.
 
 ## Implementation Shape
 
@@ -139,15 +142,12 @@ Suggested minimal API:
 
 - `LocalProcessRuntime::new() -> Self`
 - `impl Default for LocalProcessRuntime`
-- `impl Clone for LocalProcessRuntime` if shared state is used so the same adapter can be installed as the session runtime and per-session worker runtime.
 - `impl SessionRuntime for LocalProcessRuntime`
-- `impl SessionWorkerRuntime for LocalProcessRuntime`
 - Internal `LocalSession` state keyed by `SessionId`:
   - PTY writer/master handle needed for input and resize
   - reader thread or nonblocking reader channel for output bytes
   - child/waiter state for process exit
   - shutdown flag and last known exit
-  - latest terminal size for snapshot/helper responses when the raw PTY primitive cannot provide a richer parser-backed snapshot
 
 Behavior details:
 
@@ -163,24 +163,19 @@ Behavior details:
 - `send_input(Resize)` applies rows/cols through the PTY primitive.
 - `send_input(Shutdown)` terminates the runtime-owned child/session and records a process exit if available.
 - `drain_output(session_id)` returns all currently buffered output plus any newly observed exit event, then removes drained items.
-- `SessionWorkerRuntime::write_input` writes exact bytes to the same PTY input path.
-- `SessionWorkerRuntime::resize` applies rows/cols to the same PTY resize path and records the current `ResizePayload`.
-- `SessionWorkerRuntime::snapshot` and `request_initial_snapshot` should return the best contract-compliant local snapshot available without adding a terminal parser. A raw PTY runtime may return currently buffered bytes or an empty/synthetic snapshot with the requested rows/cols, but tests must document what is proven.
-- Provide a small conversion helper only if useful, such as `LocalProcessRuntime::drain_worker_events(session_id, last_output_at) -> Result<Vec<SessionWorkerRuntimeEvent>, SessionRuntimeError>`, so embedders can poll the local runtime and feed `MultiplexerEngine::handle_runtime_event`. This helper must stay mechanical and policy-free.
 - Unknown sessions return `SessionRuntimeErrorKind::SessionNotFound`.
 - Spawn failures include the failed executable name but must not include private absolute paths unless they came from the explicit request and tests use synthetic values.
 
 ## Risks
 
 - Adding executable discovery, default shells, PATH mutation, config lookup, or target admission would turn a reusable runtime into product policy.
+- Accidentally retaining the prior B-scope `SessionWorkerRuntime` bridge would violate the human decision and broaden this ticket.
 - A concrete runtime that is only exported but not driven by tests would fail the runtime-path proof requirement.
 - Blocking reads in `drain_output` can hang hosts or tests. Output collection should be backgrounded or nonblocking.
 - Shutdown can leak children if it relies only on dropping PTY handles. The implementation should include direct child cleanup and consider process-group cleanup where supported.
 - `portable-pty` may not expose every needed operation uniformly across platforms. Keep the adapter narrow and gate tests rather than hand-rolling fragile OS PTY code.
 - Exit reporting can race with final output. Tests should assert output can be drained before or with process exit for simple commands.
-- A `MultiplexerEngine` test can overclaim if it skips the real local runtime output path. Engine proof must distinguish spawn/worker-command wiring from explicit polling and `handle_runtime_event` delivery.
-- Snapshot helper behavior can be mistaken for a real terminal parser. The default local runtime should not claim parser-backed snapshots unless it actually owns one.
-- Public docs can overclaim production hub wiring. The README should describe the core adapter, not claim Botster hub integration.
+- Public docs can overclaim `MultiplexerEngine` or session-worker integration. The README should describe the `SessionRuntime` adapter only.
 - Adding dependencies without version verification would violate local dependency discipline. The latest known `portable-pty` version has been checked.
 
 ## Acceptance Checks / Tests
@@ -214,20 +209,18 @@ Required targeted tests:
    - Spawn a long-running command, send `Shutdown`, and assert the directly spawned child exits within a bounded timeout.
    - On Unix, assert process-group cleanup when implemented; if not implemented, explicitly document process-group cleanup as residual risk and still prove no direct child leak.
 
-7. `local_process_runtime_satisfies_session_worker_runtime_contract`
-   - Instantiate `SessionWorkerEngine<LocalProcessRuntime>` or call the `SessionWorkerRuntime` trait through the public engine.
-   - Prove `PtyInput`, `Resize`, `GetSnapshot` or `GetInitialSnapshot`, and `Shutdown` route to the real local runtime adapter, not a fake worker.
+7. `local_process_runtime_can_be_used_through_public_session_runtime_trait`
+   - Box it as `Box<dyn SessionRuntime>` or otherwise call it through the public trait.
+   - Prove direct public trait use, not private helper methods.
 
-8. `local_process_runtime_can_be_used_through_public_session_runtime_trait`
-   - Box it as `Box<dyn SessionRuntime>` and prove direct public trait use.
-   - If a `MultiplexerEngine<LocalProcessRuntime, LocalProcessRuntime>` test is added, state exactly what it proves: spawn goes through `SessionRuntime`, client input/resize requests go through the local `SessionWorkerRuntime`, and output fanout requires explicitly draining local runtime output and feeding `SessionWorkerRuntimeEvent` into the engine.
-
-9. `local_process_runtime_output_can_be_fed_into_multiplexer_when_polled`
-   - Optional if the helper shape is small: spawn through `MultiplexerEngine<LocalProcessRuntime, LocalProcessRuntime>`, subscribe a client, drain local runtime output into `SessionWorkerRuntimeEvent`, call `handle_runtime_event`, and assert client egress.
-   - This test must not imply the engine automatically calls `SessionRuntime::drain_output`; polling remains host-owned.
-
-10. `runtime_docs_and_tests_do_not_embed_private_paths_or_pii`
+8. `runtime_docs_and_tests_do_not_embed_private_paths_or_pii`
    - Source/fixture guard for private home paths, user names, or product-only terms in the new runtime tests/docs.
+
+Explicitly dropped from this ticket:
+
+- Any test proving `SessionWorkerEngine<LocalProcessRuntime>` routes PTY input/resize/snapshot/shutdown.
+- Any `MultiplexerEngine` fanout test that requires `SessionWorkerRuntime` or `handle_runtime_event`.
+- Any Ghostty/restty or terminal-grid snapshot/parser test.
 
 Commands:
 
@@ -240,14 +233,9 @@ Commands:
 
 Runtime/user path proof:
 
-- Implementation must show the production-facing public core path changes from trait-only to real embeddable local runtime.
-- Evidence should include tests importing `botster_core::LocalProcessRuntime` or its final public name and driving `SessionRuntime::spawn_session`, `send_input`, and `drain_output`.
-- Evidence must also show the same default runtime, or a sibling public adapter backed by the same local state, satisfying `SessionWorkerRuntime` through `SessionWorkerEngine`.
-- If a `MultiplexerEngine` test is practical, it must be framed precisely:
-  - It can prove `spawn_session` uses the local `SessionRuntime`.
-  - It can prove client input/resize requests use the local `SessionWorkerRuntime`.
-  - It can prove output fanout only if the test explicitly drains local runtime output and passes converted `SessionWorkerRuntimeEvent` values to `handle_runtime_event`.
-  - It must not claim that `MultiplexerEngine` automatically calls `SessionRuntime::send_input` or `drain_output`; the repo currently does not have that path.
+- Implementation must show the production-facing public core path changes from trait-only to a real embeddable local `SessionRuntime`.
+- Evidence should include tests importing `botster_core::LocalProcessRuntime` or its final public name and driving `SessionRuntime::spawn_session`, `send_input`, and `drain_output` against a real local child.
+- Evidence must not claim `MultiplexerEngine` end-to-end terminal I/O changed in this ticket. That integration is intentionally deferred by the human answer.
 
 ## Vault Gaps Worth Capturing
 
@@ -262,6 +250,7 @@ No pre-implementation capture is required. Existing vault notes already constrai
 ## Vault Checklist Evidence
 
 - Vault/project notes constrained the plan: `planner-playbook`, `botster-planner-playbook`, `identity`, `goals`, `botster-architecture`, `cli-patterns`, `sessionioworker is the production read path for session pty output`, `portable_pty MasterPty is private bypass with ioctl and raw fd`, `pty master fd close sends sighup but ignores it needs killpg`, `botster runtime now uses broker-authoritative pty lifecycle with unified session registry`, and `pty-spawn-prepends-binary-directory-to-path`.
-- Convention conflicts: none. The plan adds a concrete mechanism adapter but keeps product/runtime policy outside core and requires explicit spawn requests.
+- Human decision constrained the plan: option A from `question_1780191167_662553`, `SessionRuntime` only for this ticket.
+- Convention conflicts: none after re-scope. The plan adds a concrete mechanism adapter but keeps product/runtime policy outside core and requires explicit spawn requests.
 - Verification evidence so far: planning inspection only; no implementation tests were run in the Plan step. Planned verification commands are listed above.
 - Durable knowledge capture: no capture before implementation. Capture after implementation if the selected primitive or cleanup behavior creates a reusable Botster convention.
