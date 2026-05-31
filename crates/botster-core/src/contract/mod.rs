@@ -8,6 +8,7 @@ pub mod entity;
 pub mod notification;
 pub mod session;
 pub mod session_protocol;
+pub mod terminal_screen;
 pub mod transport;
 pub mod ui;
 
@@ -58,6 +59,10 @@ pub use session_protocol::{
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
     MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
+};
+pub use terminal_screen::{
+    TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
+    TerminalSnapshotPayload,
 };
 pub use transport::{TransportEgress, TransportIngress};
 pub use ui::{

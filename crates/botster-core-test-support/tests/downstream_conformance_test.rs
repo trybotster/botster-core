@@ -3,8 +3,9 @@
 use botster_core::client::ClientId;
 use botster_core::session::{RequestId, SessionId, SubscriptionId};
 use botster_core::transport::{TransportEgress, TransportIngress};
+use botster_core::{TerminalScreenEngine, TerminalScreenHook, TerminalScreenSize};
 use botster_core_test_support::assertions::assert_terminal_output_round_trips;
-use botster_core_test_support::fake::FakeSessionTransport;
+use botster_core_test_support::fake::{FakeSessionTransport, FakeTerminalScreenRuntime};
 
 fn session_id() -> SessionId {
     SessionId("session-consumer".to_string())
@@ -63,5 +64,27 @@ fn downstream_consumer_can_record_public_transport_frames() {
     assert!(matches!(
         &transport.egress()[0],
         TransportEgress::TerminalOutput { data, .. } if data == b"README.md\r\n"
+    ));
+}
+
+#[test]
+fn downstream_consumer_can_drive_terminal_screen_fake() {
+    let mut engine = TerminalScreenEngine::new(FakeTerminalScreenRuntime::new());
+
+    engine.resize(TerminalScreenSize::new(33, 101));
+    let output = engine.normalize_output(b"downstream\xff");
+    let snapshot = engine.capture_snapshot();
+
+    assert_eq!(
+        output.hooks,
+        vec![TerminalScreenHook::OutputNormalized {
+            bytes: b"downstream\xff".len()
+        }]
+    );
+    assert!(matches!(
+        snapshot.snapshot,
+        Some(snapshot)
+            if snapshot.bytes == b"downstream\xff"
+                && snapshot.size == TerminalScreenSize::new(33, 101)
     ));
 }

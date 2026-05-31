@@ -174,10 +174,28 @@ where
         self.sessions.get(session_id)
     }
 
+    /// Return known session ids.
+    #[must_use]
+    pub fn session_ids(&self) -> Vec<SessionId> {
+        self.sessions.keys().cloned().collect()
+    }
+
     /// Return the host runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {
         &self.session_runtime
+    }
+
+    /// Return a mutable host runtime adapter.
+    pub const fn session_runtime_mut(&mut self) -> &mut R {
+        &mut self.session_runtime
+    }
+
+    /// Return a mutable session worker runtime adapter.
+    pub fn session_worker_runtime_mut(&mut self, session_id: &SessionId) -> Option<&mut W> {
+        self.session_workers
+            .get_mut(session_id)
+            .map(SessionWorkerEngine::runtime_mut)
     }
 
     /// Return the plugin worker engine.

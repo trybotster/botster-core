@@ -2,8 +2,10 @@
 
 pub mod plugin_worker;
 pub mod session_worker;
+pub mod terminal_screen;
 
 pub use plugin_worker::{FakePluginBehavior, FakePluginRuntime};
+pub use terminal_screen::FakeTerminalScreenRuntime;
 
 use botster_core::client::ClientId;
 use botster_core::session::SubscriptionId;
@@ -22,6 +24,7 @@ pub struct FakeSessionRuntime {
     inputs: Vec<SessionRuntimeInput>,
     outputs: Vec<SessionRuntimeOutput>,
     next_spawn_error: Option<SessionRuntimeError>,
+    next_drain_error: Option<SessionRuntimeError>,
 }
 
 impl FakeSessionRuntime {
@@ -33,6 +36,11 @@ impl FakeSessionRuntime {
     /// Configure the next spawn attempt to fail with a typed runtime error.
     pub fn fail_next_spawn(&mut self, error: SessionRuntimeError) {
         self.next_spawn_error = Some(error);
+    }
+
+    /// Configure the next output drain attempt to fail with a typed runtime error.
+    pub fn fail_next_drain(&mut self, error: SessionRuntimeError) {
+        self.next_drain_error = Some(error);
     }
 
     /// Return all spawn requests observed by the fake runtime.
@@ -113,6 +121,10 @@ impl SessionRuntime for FakeSessionRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        if let Some(error) = self.next_drain_error.take() {
+            return Err(error);
+        }
+
         if !self.session_exists(session_id) {
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SessionNotFound,
