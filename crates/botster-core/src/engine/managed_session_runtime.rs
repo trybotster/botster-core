@@ -17,7 +17,7 @@ use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest,
 };
-use crate::session::{CoreSessionMetadata, RequestId, SessionId};
+use crate::session::{CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId};
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
 use crate::transport::TransportIngress;
 use crate::ClientId;
@@ -161,6 +161,20 @@ where
         }
 
         Ok(outcome)
+    }
+
+    /// Classify one session's activity at the provided clock value.
+    pub fn classify_activity(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+        active_threshold_seconds: u64,
+    ) -> Result<SessionActivityStatus, ManagedSessionRuntimeError> {
+        Ok(self.engine.classify_session_activity(
+            session_id,
+            now_seconds,
+            active_threshold_seconds,
+        )?)
     }
 
     /// Shut down a managed session through the worker/runtime path.
