@@ -44,10 +44,12 @@ fn engine() -> SessionWorkerEngine<FakeSessionWorkerRuntime> {
 fn session_worker_routes_input_writes() {
     let mut engine = engine();
 
-    let outcome = engine.handle_request(SessionIoRequest::PtyInput {
-        session_id: session_id(),
-        data: b"ls\n".to_vec(),
-    });
+    let outcome = engine
+        .handle_request(SessionIoRequest::PtyInput {
+            session_id: session_id(),
+            data: b"ls\n".to_vec(),
+        })
+        .expect("input request succeeds");
 
     assert!(outcome.events.is_empty());
     assert_eq!(
@@ -63,15 +65,19 @@ fn session_worker_routes_input_writes() {
 fn session_worker_routes_resize_before_snapshot() {
     let mut engine = engine();
 
-    engine.handle_request(SessionIoRequest::Resize {
-        session_id: session_id(),
-        rows: 40,
-        cols: 120,
-    });
-    let outcome = engine.handle_request(SessionIoRequest::GetSnapshot {
-        request_id: request_id("snapshot-1"),
-        session_id: session_id(),
-    });
+    engine
+        .handle_request(SessionIoRequest::Resize {
+            session_id: session_id(),
+            rows: 40,
+            cols: 120,
+        })
+        .expect("resize request succeeds");
+    let outcome = engine
+        .handle_request(SessionIoRequest::GetSnapshot {
+            request_id: request_id("snapshot-1"),
+            session_id: session_id(),
+        })
+        .expect("snapshot request succeeds");
 
     assert_eq!(
         engine.runtime().commands()[0],
@@ -97,27 +103,34 @@ fn session_worker_routes_resize_before_snapshot() {
 fn session_worker_routes_send_file_prepare_mode_and_screen_requests() {
     let mut engine = engine();
 
-    let send_file = engine.handle_request(SessionIoRequest::SendFile(SendFileRequest {
-        request_id: request_id("send-file-1"),
-        session_id: session_id(),
-        filename: "send-file.txt".to_string(),
-        data: b"send-file".to_vec(),
-    }));
-    let prepared =
-        engine.handle_request(SessionIoRequest::PrepareSnapshot(PreparedSnapshotRequest {
+    let send_file = engine
+        .handle_request(SessionIoRequest::SendFile(SendFileRequest {
+            request_id: request_id("send-file-1"),
+            session_id: session_id(),
+            filename: "send-file.txt".to_string(),
+            data: b"send-file".to_vec(),
+        }))
+        .expect("send file request succeeds");
+    let prepared = engine
+        .handle_request(SessionIoRequest::PrepareSnapshot(PreparedSnapshotRequest {
             request_id: request_id("prepared-1"),
             session_id: session_id(),
             snapshot: b"prepared".to_vec(),
             recovery: true,
-        }));
-    let mode = engine.handle_request(SessionIoRequest::GetModeFlags {
-        request_id: request_id("mode-1"),
-        session_id: session_id(),
-    });
-    let screen = engine.handle_request(SessionIoRequest::GetScreen {
-        request_id: request_id("screen-1"),
-        session_id: session_id(),
-    });
+        }))
+        .expect("prepare snapshot request succeeds");
+    let mode = engine
+        .handle_request(SessionIoRequest::GetModeFlags {
+            request_id: request_id("mode-1"),
+            session_id: session_id(),
+        })
+        .expect("mode flags request succeeds");
+    let screen = engine
+        .handle_request(SessionIoRequest::GetScreen {
+            request_id: request_id("screen-1"),
+            session_id: session_id(),
+        })
+        .expect("screen request succeeds");
 
     assert!(matches!(
         send_file.events[0],
@@ -135,16 +148,18 @@ fn session_worker_routes_send_file_prepare_mode_and_screen_requests() {
 fn initial_snapshot_precedes_live_output_through_engine() {
     let mut engine = engine();
 
-    engine.handle_request(SessionIoRequest::GetInitialSnapshot(
-        InitialSnapshotRequest {
-            request_id: request_id("initial-1"),
-            session_id: session_id(),
-            client_id: client_id(),
-            subscription_id: subscription_id(),
-            rows: 30,
-            cols: 100,
-        },
-    ));
+    engine
+        .handle_request(SessionIoRequest::GetInitialSnapshot(
+            InitialSnapshotRequest {
+                request_id: request_id("initial-1"),
+                session_id: session_id(),
+                client_id: client_id(),
+                subscription_id: subscription_id(),
+                rows: 30,
+                cols: 100,
+            },
+        ))
+        .expect("initial snapshot request succeeds");
     let live = engine.handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
         session_id: session_id(),
         data: b"live-1".to_vec(),
@@ -187,16 +202,18 @@ fn initial_snapshot_precedes_live_output_through_engine() {
 fn steady_state_live_output_emits_after_initial_snapshot() {
     let mut engine = engine();
 
-    engine.handle_request(SessionIoRequest::GetInitialSnapshot(
-        InitialSnapshotRequest {
-            request_id: request_id("initial-1"),
-            session_id: session_id(),
-            client_id: client_id(),
-            subscription_id: subscription_id(),
-            rows: 30,
-            cols: 100,
-        },
-    ));
+    engine
+        .handle_request(SessionIoRequest::GetInitialSnapshot(
+            InitialSnapshotRequest {
+                request_id: request_id("initial-1"),
+                session_id: session_id(),
+                client_id: client_id(),
+                subscription_id: subscription_id(),
+                rows: 30,
+                cols: 100,
+            },
+        ))
+        .expect("initial snapshot request succeeds");
     engine.handle_runtime_event(SessionWorkerRuntimeEvent::InitialSnapshotReady(
         InitialSnapshotReady {
             request_id: request_id("initial-1"),
@@ -255,16 +272,18 @@ fn process_exit_follows_prior_live_output_event() {
 fn process_exit_flushes_pre_snapshot_output_before_exit_event() {
     let mut engine = engine();
 
-    engine.handle_request(SessionIoRequest::GetInitialSnapshot(
-        InitialSnapshotRequest {
-            request_id: request_id("initial-1"),
-            session_id: session_id(),
-            client_id: client_id(),
-            subscription_id: subscription_id(),
-            rows: 30,
-            cols: 100,
-        },
-    ));
+    engine
+        .handle_request(SessionIoRequest::GetInitialSnapshot(
+            InitialSnapshotRequest {
+                request_id: request_id("initial-1"),
+                session_id: session_id(),
+                client_id: client_id(),
+                subscription_id: subscription_id(),
+                rows: 30,
+                cols: 100,
+            },
+        ))
+        .expect("initial snapshot request succeeds");
     engine.handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
         session_id: session_id(),
         data: b"pending".to_vec(),
@@ -292,14 +311,18 @@ fn process_exit_flushes_pre_snapshot_output_before_exit_event() {
 fn shutdown_closes_engine() {
     let mut engine = engine();
 
-    let shutdown = engine.handle_request(SessionIoRequest::Shutdown {
-        session_id: session_id(),
-        reason: "test".to_string(),
-    });
-    let later = engine.handle_request(SessionIoRequest::PtyInput {
-        session_id: session_id(),
-        data: b"ignored".to_vec(),
-    });
+    let shutdown = engine
+        .handle_request(SessionIoRequest::Shutdown {
+            session_id: session_id(),
+            reason: "test".to_string(),
+        })
+        .expect("shutdown request succeeds");
+    let later = engine
+        .handle_request(SessionIoRequest::PtyInput {
+            session_id: session_id(),
+            data: b"ignored".to_vec(),
+        })
+        .expect("closed worker request succeeds");
 
     assert!(matches!(
         shutdown.events[0],

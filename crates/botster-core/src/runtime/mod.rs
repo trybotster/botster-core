@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
-pub use local_process::LocalProcessRuntime;
+pub use local_process::{
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
+};
 
 /// Host-implemented session runtime boundary.
 ///
@@ -165,6 +167,10 @@ pub enum SessionRuntimeErrorKind {
     InputFailed,
     /// Runtime output could not be read.
     OutputFailed,
+    /// Runtime shutdown could not complete cleanly.
+    ShutdownFailed,
+    /// Runtime process cleanup failed after shutdown started.
+    CleanupFailed,
 }
 
 /// Typed error returned by a host session runtime implementation.

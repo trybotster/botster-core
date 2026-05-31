@@ -274,7 +274,14 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
         );
     }
 
-    fn shutdown(&mut self, _session_id: &SessionId, _reason: &str) {}
+    fn shutdown(
+        &mut self,
+        _session_id: &SessionId,
+        _reason: &str,
+    ) -> Result<Vec<botster_core::SessionWorkerRuntimeEvent>, botster_core::SessionRuntimeError>
+    {
+        Ok(Vec::new())
+    }
 }
 
 #[test]
@@ -282,30 +289,39 @@ fn terminal_screen_runtime_seam_feeds_existing_session_worker_contracts() {
     let runtime = TerminalBackedSessionRuntime::new();
     let mut worker = SessionWorkerEngine::new(runtime);
 
-    worker.handle_request(SessionIoRequest::Resize {
-        session_id: session_id(),
-        rows: 50,
-        cols: 120,
-    });
-    let snapshot = worker.handle_request(SessionIoRequest::GetSnapshot {
-        request_id: request_id("snapshot-1"),
-        session_id: session_id(),
-    });
-    let prepared =
-        worker.handle_request(SessionIoRequest::PrepareSnapshot(PreparedSnapshotRequest {
+    worker
+        .handle_request(SessionIoRequest::Resize {
+            session_id: session_id(),
+            rows: 50,
+            cols: 120,
+        })
+        .expect("resize request succeeds");
+    let snapshot = worker
+        .handle_request(SessionIoRequest::GetSnapshot {
+            request_id: request_id("snapshot-1"),
+            session_id: session_id(),
+        })
+        .expect("snapshot request succeeds");
+    let prepared = worker
+        .handle_request(SessionIoRequest::PrepareSnapshot(PreparedSnapshotRequest {
             request_id: request_id("prepared-1"),
             session_id: session_id(),
             snapshot: b"prepared\xff".to_vec(),
             recovery: true,
-        }));
-    let mode = worker.handle_request(SessionIoRequest::GetModeFlags {
-        request_id: request_id("mode-1"),
-        session_id: session_id(),
-    });
-    let screen = worker.handle_request(SessionIoRequest::GetScreen {
-        request_id: request_id("screen-1"),
-        session_id: session_id(),
-    });
+        }))
+        .expect("prepared snapshot request succeeds");
+    let mode = worker
+        .handle_request(SessionIoRequest::GetModeFlags {
+            request_id: request_id("mode-1"),
+            session_id: session_id(),
+        })
+        .expect("mode flags request succeeds");
+    let screen = worker
+        .handle_request(SessionIoRequest::GetScreen {
+            request_id: request_id("screen-1"),
+            session_id: session_id(),
+        })
+        .expect("screen request succeeds");
 
     assert!(matches!(
         &snapshot.events[0],
