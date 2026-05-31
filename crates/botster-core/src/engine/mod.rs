@@ -4,12 +4,17 @@
 //! policy, auth, persistence, cloud federation, and product UI stay outside
 //! `botster-core`.
 
+pub mod botster;
 pub mod multiplexer;
 pub mod plugin_worker;
 pub mod session_activity;
 pub mod session_worker;
 pub mod subscription_multiplexer;
 
+pub use botster::{
+    BotsterEngine, BotsterEngineError, BotsterEngineObservation, BotsterEngineOutput,
+    BotsterSpawnOutcome,
+};
 pub use multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
