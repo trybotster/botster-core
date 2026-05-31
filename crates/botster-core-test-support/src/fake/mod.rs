@@ -2,8 +2,10 @@
 
 pub mod plugin_worker;
 pub mod session_worker;
+pub mod terminal_screen;
 
 pub use plugin_worker::{FakePluginBehavior, FakePluginRuntime};
+pub use terminal_screen::FakeTerminalScreenRuntime;
 
 use botster_core::client::ClientId;
 use botster_core::session::SubscriptionId;
