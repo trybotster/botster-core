@@ -5,6 +5,7 @@
 //! `botster-core`.
 
 pub mod botster;
+pub mod managed_session_runtime;
 pub mod multiplexer;
 pub mod plugin_worker;
 pub mod session_activity;
@@ -16,6 +17,7 @@ pub use botster::{
     BotsterEngine, BotsterEngineError, BotsterEngineObservation, BotsterEngineOutput,
     BotsterSpawnOutcome,
 };
+pub use managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 pub use multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
