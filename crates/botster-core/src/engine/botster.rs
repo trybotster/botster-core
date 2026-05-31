@@ -34,6 +34,137 @@ pub type BotsterEngineOutput = MultiplexerEngineOutcome;
 /// Hosts still provide concrete runtime adapters and policy-resolved spawn
 /// requests. This facade only turns common session/client/plugin operations
 /// into method calls over the lower-level `MultiplexerEngine`.
+///
+/// # Example
+///
+/// This example uses test-support fakes so the host-owned PTY process and
+/// plugin callback policy stay outside `botster-core`.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use botster_core::{
+/// #     BotsterEngine, BoundaryJson, ClientId, CoreSessionMetadata, ExtensionEntrypoint,
+/// #     ExtensionKind, ExtensionRuntime, NotificationContent, NotificationId,
+/// #     NotificationItem, NotificationSeverity, NotificationSource, NotificationTarget,
+/// #     NotificationTimestamp, PackageManifest, PluginHandlerKind, PluginHandlerRef,
+/// #     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
+/// #     PluginInvocationResult, PluginKey, PluginLoadSpec, PluginWorkerRegistration,
+/// #     RequestId, SessionActivityStatus, SessionId, SessionSpawnRequest, SpawnEnvironment,
+/// #     SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+/// # };
+/// # use botster_core_test_support::fake::{
+/// #     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+/// # };
+/// let session_id = SessionId("docs-session".to_string());
+/// let client_id = ClientId("docs-client".to_string());
+/// let subscription_id = SubscriptionId("docs-subscription".to_string());
+///
+/// let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+///     BotsterEngine::new(FakeSessionRuntime::new());
+///
+/// engine.spawn_session(
+///     SessionSpawnRequest {
+///         request_id: RequestId("docs-spawn".to_string()),
+///         session_id: session_id.clone(),
+///         executable: "fake-shell".to_string(),
+///         arguments: vec!["--login".to_string()],
+///         working_directory: SpawnWorkingDirectory {
+///             path: "/workspace".to_string(),
+///         },
+///         environment: SpawnEnvironment::default(),
+///         initial_pty_size: None,
+///     },
+///     CoreSessionMetadata::new(),
+///     FakeSessionWorkerRuntime::new(),
+/// )?;
+///
+/// engine.attach_client(client_id.clone(), session_id.clone(), subscription_id.clone(), 1)?;
+/// engine.write_bytes(client_id.clone(), session_id.clone(), b"echo docs\n".to_vec(), 2)?;
+/// engine.resize(client_id.clone(), session_id.clone(), 40, 120, 3)?;
+///
+/// let output = engine.receive_output(session_id.clone(), b"docs output\n".to_vec(), 4)?;
+/// assert!(output.client_egress.iter().any(|(_, frame)| {
+///     matches!(frame, TransportEgress::TerminalOutput { data, .. } if data == b"docs output\n")
+/// }));
+///
+/// let notification_id = engine.post_notification(NotificationItem::message(
+///     NotificationId("docs-notification".to_string()),
+///     NotificationTarget::Session(session_id.clone()),
+///     NotificationSeverity::Info,
+///     NotificationSource {
+///         label: "docs-host".to_string(),
+///         plugin_key: None,
+///     },
+///     NotificationContent {
+///         title: "Docs notice".to_string(),
+///         body: None,
+///         extension: None,
+///     },
+///     NotificationTimestamp(5),
+/// ));
+/// let notifications = engine.drain_notifications(
+///     NotificationTarget::Session(session_id.clone()),
+///     NotificationTimestamp(6),
+/// );
+/// assert_eq!(notifications[0].id, notification_id);
+///
+/// let plugin_key = PluginKey("docs-plugin".to_string());
+/// let handler = PluginHandlerRef {
+///     plugin_key: plugin_key.clone(),
+///     kind: PluginHandlerKind::Command,
+///     handler_id: "run".to_string(),
+/// };
+/// engine.load_plugin(PluginWorkerRegistration {
+///     load: PluginLoadSpec {
+///         plugin_key: plugin_key.clone(),
+///         package: plugin_key.0.clone(),
+///         entrypoint: "plugin.lua".to_string(),
+///         descriptors: Vec::new(),
+///         metadata: None,
+///     },
+///     manifest: PackageManifest {
+///         name: plugin_key.0.clone(),
+///         version: "0.1.0".to_string(),
+///         kind: ExtensionKind::Plugin,
+///         botster: ">=0.1.0".to_string(),
+///         source: None,
+///         capabilities: Vec::new(),
+///         entrypoints: vec![ExtensionEntrypoint {
+///             runtime: ExtensionRuntime::Lua,
+///             path: "plugin.lua".to_string(),
+///             bootstrap: false,
+///         }],
+///     },
+///     runtime: Arc::new(FakePluginRuntime::success("ok")),
+///     handlers: vec![PluginHandlerRegistration {
+///         handler: handler.clone(),
+///         required_capability: None,
+///     }],
+///     resources: Vec::new(),
+/// });
+/// let plugin_result = engine.invoke_plugin(PluginInvocationRequest {
+///     request_id: RequestId("docs-plugin-request".to_string()),
+///     handler,
+///     timeout_ms: 1_000,
+///     context: PluginInvocationContext {
+///         client_id: Some(client_id.clone()),
+///         session_id: Some(session_id.clone()),
+///         subscription_id: Some(subscription_id.clone()),
+///         surface_id: None,
+///         origin: Some("docs-host".to_string()),
+///         metadata: None,
+///     },
+///     payload: BoundaryJson(serde_json::json!({ "command": "run" })),
+/// });
+/// assert!(matches!(plugin_result, PluginInvocationResult::Completed(_)));
+///
+/// assert_eq!(
+///     engine.classify_activity(&session_id, 5, 10)?,
+///     SessionActivityStatus::Active
+/// );
+/// engine.shutdown_session(session_id, "docs complete", 7)?;
+/// # Ok::<(), botster_core::BotsterEngineError>(())
+/// ```
 #[derive(Clone)]
 pub struct BotsterEngine<R, W> {
     multiplexer: MultiplexerEngine<R, W>,
