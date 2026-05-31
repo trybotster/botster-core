@@ -91,30 +91,32 @@ resizing, receiving output frames, posting and draining notifications, invoking
 plugin handlers, classifying activity, and shutting sessions down. It composes
 the lower-level `MultiplexerEngine`, which remains available for embedders that
 need direct transport-frame control. Hosts may provide their own
-`SessionRuntime`, or use `LocalProcessRuntime` as the default local PTY-backed
-process adapter for explicit spawn requests.
+`SessionRuntime`, or use `DefaultBotsterEngine` as the default local PTY-backed
+facade for explicit spawn requests.
 
 The facade is intentionally synchronous and policy-free. Hosts still choose
 executables, working directories, environment inheritance, auth, persistence,
 retention, reconnect rules, concrete transports, plugin installation policy,
-notification presentation, and any async supervision. `LocalProcessRuntime`
-does not discover product config, select default commands, or mutate requests;
-it only runs the executable, arguments, directory, environment, and PTY size the
-host already supplied. Shutdown terminates the direct child process owned by the
-runtime; process-tree or process-group escalation is left to a later supervision
-layer. Core returns typed
+notification presentation, and any async supervision. `DefaultBotsterEngine`
+wires `LocalProcessRuntime` through the managed session worker and subscription
+fanout path, but it does not discover product config, select default commands,
+or mutate requests; it only runs the executable, arguments, directory,
+environment, and PTY size the host already supplied. Shutdown terminates the
+direct child process owned by the runtime; process-tree or process-group
+escalation is left to a later supervision layer. Core returns typed
 outcomes such as client egress frames, session worker requests/events,
 notification items, plugin invocation results, and activity/lifecycle
 observations for the host to deliver or persist.
 
-`LocalProcessRuntime` is intentionally not the session worker data-plane
-bridge. Hosts that use `MultiplexerEngine` still supply a `SessionWorkerRuntime`
-for terminal snapshots, screen state, and worker event delivery until a later
-integration adds that bridge explicitly.
+`LocalProcessRuntime` remains only the process adapter. Hosts that use
+`MultiplexerEngine` directly still supply a `SessionWorkerRuntime` for terminal
+snapshots, screen state, and worker event delivery. `DefaultBotsterEngine`
+provides the default managed bridge for local PTY output, input, resize,
+activity, and shutdown without exposing the internal worker adapter.
 
 | Layer | Owns | Does not own | Current proof |
 | --- | --- | --- | --- |
-| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; a default local PTY-backed `SessionRuntime` adapter for explicit spawn requests; plugin worker handler refs, descriptors, invocation, lifecycle, cleanup, and pressure events; entity frames; UI node shapes; package, capability, extension, crypto, identity contracts, the synchronous `MultiplexerEngine` assembled primitive, and the ergonomic `BotsterEngine` facade that coordinates those mechanisms for embedders. | Runtime policy, executable startup or selection, product workflows, product-specific concrete adapters, device persistence policy, executable plugin callbacks, async supervision, notification presentation, or raw private key material. | `crates/botster-core/src/contract/boundary.rs`, `crates/botster-core/src/contract/actor.rs`, `crates/botster-core/src/contract/session.rs`, `crates/botster-core/src/contract/session_protocol.rs`, `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs`, `crates/botster-core/src/runtime/local_process.rs`, `crates/botster-core/src/engine/botster.rs`, `crates/botster-core/src/engine/multiplexer.rs`, `crates/botster-core/src/package/manifest.rs`, `crates/botster-core/src/package/capability.rs`, `crates/botster-core/src/package/extension.rs`, `crates/botster-core/src/identity/crypto.rs`, `crates/botster-core/src/identity/device.rs`, `crates/botster-core/src/identity/keyring.rs` |
+| Core | Reusable mechanisms and transport-neutral contracts: session, client, subscription, and request identifiers; session-process protocol constants, handshake bytes, frame payload contracts, and length-prefixed framing; terminal ingress/egress frames; a default local PTY-backed `SessionRuntime` adapter and `DefaultBotsterEngine` managed facade for explicit spawn requests; plugin worker handler refs, descriptors, invocation, lifecycle, cleanup, and pressure events; entity frames; UI node shapes; package, capability, extension, crypto, identity contracts, the synchronous `MultiplexerEngine` assembled primitive, and the ergonomic `BotsterEngine` facade that coordinates those mechanisms for embedders. | Runtime policy, executable startup or selection, product workflows, product-specific concrete adapters, device persistence policy, executable plugin callbacks, async supervision, notification presentation, or raw private key material. | `crates/botster-core/src/contract/boundary.rs`, `crates/botster-core/src/contract/actor.rs`, `crates/botster-core/src/contract/session.rs`, `crates/botster-core/src/contract/session_protocol.rs`, `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs`, `crates/botster-core/src/runtime/local_process.rs`, `crates/botster-core/src/engine/botster.rs`, `crates/botster-core/src/engine/multiplexer.rs`, `crates/botster-core/src/package/manifest.rs`, `crates/botster-core/src/package/capability.rs`, `crates/botster-core/src/package/extension.rs`, `crates/botster-core/src/identity/crypto.rs`, `crates/botster-core/src/identity/device.rs`, `crates/botster-core/src/identity/keyring.rs` |
 | Hub | Runtime policy, lifecycle, routing, recovery, and extension supervision. | Raw terminal byte delivery, CLI argument parsing, React/TUI rendering, Rails/cloud/Auth policy, Project Pipelines/GitHub/Cloudflare product logic, or legacy compatibility paths. Terminal bytes are represented by core frames and should flow through session/client data-plane actors, not hub policy loops. | `Layer::Hub` responsibility text in `crates/botster-core/src/contract/boundary.rs`; terminal byte exclusions are reinforced by `TransportIngress::TerminalInput` and `TransportEgress::TerminalOutput` in `crates/botster-core/src/contract/transport.rs` |
 | CLI | Operator commands and process startup. `crates/botster-core/src/contract/boundary.rs` also names CLI argument parsing as something the hub does not own. | Reusable protocol contracts, hub runtime policy, provider policy, or UI/product behavior. | `Layer::Cli` and `Layer::Hub` responsibility text in `crates/botster-core/src/contract/boundary.rs` |
 | Client | Presentation, local input, concrete transport adaptation, liveness reporting, and rendering of core UI/entity contracts. | Session lifecycle policy, hub supervision, provider authority, concrete WebRTC negotiation policy in core, or product-specific workflow state. | `crates/botster-core/src/contract/client.rs`, `crates/botster-core/src/contract/transport.rs`, `crates/botster-core/src/contract/entity.rs`, `crates/botster-core/src/contract/ui.rs` |
