@@ -127,6 +127,11 @@ fn session_runtime_error_kinds_pin_all_serialized_variants() {
         ),
         (SessionRuntimeErrorKind::InputFailed, "\"InputFailed\""),
         (SessionRuntimeErrorKind::OutputFailed, "\"OutputFailed\""),
+        (
+            SessionRuntimeErrorKind::ShutdownFailed,
+            "\"ShutdownFailed\"",
+        ),
+        (SessionRuntimeErrorKind::CleanupFailed, "\"CleanupFailed\""),
     ];
 
     for (kind, json) in variants {
