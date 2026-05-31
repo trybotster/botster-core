@@ -156,7 +156,7 @@ mod unix {
         let session_id = session_id("local-runtime-resize");
 
         runtime
-            .spawn_session(shell_request(session_id.clone(), "sleep 1"))
+            .spawn_session(shell_request(session_id.clone(), "sleep 0.2; stty size"))
             .expect("spawn resizable local command");
 
         runtime
@@ -168,9 +168,15 @@ mod unix {
                 },
             })
             .expect("resize local pty");
-        runtime
-            .send_input(SessionRuntimeInput::Shutdown { session_id })
-            .expect("shutdown resized local command");
+
+        let output = collect_until(&mut runtime, &session_id, |output| {
+            output_text(output).contains("33 120") && has_exit(output)
+        });
+
+        assert!(
+            output_text(&output).contains("33 120"),
+            "expected resized terminal dimensions, got {output:?}"
+        );
     }
 
     #[test]
@@ -228,6 +234,11 @@ mod unix {
         let output = collect_until(&mut runtime, &session_id, has_exit);
 
         assert!(has_exit(&output), "expected shutdown exit, got {output:?}");
+
+        let output_error = runtime
+            .drain_output(&session_id)
+            .expect_err("exited session should be pruned after exit report");
+        assert_eq!(output_error.kind, SessionRuntimeErrorKind::SessionNotFound);
     }
 
     #[test]
@@ -269,6 +280,9 @@ mod unix {
         let mut files = source_files("src/runtime");
         files.push(PathBuf::from("tests/local_process_runtime_test.rs"));
         files.push(PathBuf::from("../../README.md"));
+        files.push(PathBuf::from(
+            "../../docs/plans/default-local-pty-process-runtime.md",
+        ));
 
         for source_file in files {
             let source = fs::read_to_string(&source_file).expect("read source file");
