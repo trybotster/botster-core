@@ -11,7 +11,9 @@ host, client, provider, and plugin runtime must agree on.
 - `crates/botster-core`: production contract and engine crate.
 - `crates/botster-core-test-support`: dev-dependency fixtures, fakes, and
   conformance helpers for consumers pinned to the same core version.
-- `crates/botster-core-dev`: dev-only smoke harness, not the product CLI.
+- `crates/botster-core-dev`: dev-only engine smoke harnesses that fake a
+  session/client/plugin path for core development; not the product CLI, install
+  UX, auth flow, hub daemon, marketplace, or persistent config surface.
 
 ## Consumer Test Support
 
