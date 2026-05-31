@@ -48,7 +48,9 @@ retention, reconnect rules, concrete transports, plugin installation policy,
 notification presentation, and any async supervision. `LocalProcessRuntime`
 does not discover product config, select default commands, or mutate requests;
 it only runs the executable, arguments, directory, environment, and PTY size the
-host already supplied. Core returns typed
+host already supplied. Shutdown terminates the direct child process owned by the
+runtime; process-tree or process-group escalation is left to a later supervision
+layer. Core returns typed
 outcomes such as client egress frames, session worker requests/events,
 notification items, plugin invocation results, and activity/lifecycle
 observations for the host to deliver or persist.

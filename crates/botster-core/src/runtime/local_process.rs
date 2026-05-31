@@ -158,42 +158,51 @@ impl SessionRuntime for LocalProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
         let mut output = Vec::new();
+        let mut session_exited = false;
 
-        loop {
-            match session.output.try_recv() {
-                Ok(ReaderEvent::Output(data)) => output.push(SessionRuntimeOutput::PtyOutput {
-                    session_id: session_id.clone(),
-                    data,
-                }),
-                Ok(ReaderEvent::Failed(message)) => {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        message,
-                    ));
+        {
+            let session = self.session_mut(session_id)?;
+
+            loop {
+                match session.output.try_recv() {
+                    Ok(ReaderEvent::Output(data)) => output.push(SessionRuntimeOutput::PtyOutput {
+                        session_id: session_id.clone(),
+                        data,
+                    }),
+                    Ok(ReaderEvent::Failed(message)) => {
+                        return Err(SessionRuntimeError::new(
+                            SessionRuntimeErrorKind::OutputFailed,
+                            message,
+                        ));
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => break,
                 }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
+            }
+
+            if !session.exit_reported {
+                if let Some(status) = session.child.try_wait().map_err(|error| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        format!("read child exit status failed: {error}"),
+                    )
+                })? {
+                    session.exit_reported = true;
+                    session_exited = true;
+                    output.push(SessionRuntimeOutput::ProcessExited {
+                        session_id: session_id.clone(),
+                        payload: ProcessExitedPayload {
+                            exit_code: i32::try_from(status.exit_code()).ok(),
+                            signal: None,
+                        },
+                    });
+                }
             }
         }
 
-        if !session.exit_reported {
-            if let Some(status) = session.child.try_wait().map_err(|error| {
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    format!("read child exit status failed: {error}"),
-                )
-            })? {
-                session.exit_reported = true;
-                output.push(SessionRuntimeOutput::ProcessExited {
-                    session_id: session_id.clone(),
-                    payload: ProcessExitedPayload {
-                        exit_code: i32::try_from(status.exit_code()).ok(),
-                        signal: None,
-                    },
-                });
-            }
+        if session_exited {
+            self.sessions.remove(session_id);
         }
 
         Ok(output)
