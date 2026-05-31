@@ -10,6 +10,7 @@ pub mod plugin_worker;
 pub mod session_activity;
 pub mod session_worker;
 pub mod subscription_multiplexer;
+pub mod terminal_screen;
 
 pub use botster::{
     BotsterEngine, BotsterEngineError, BotsterEngineObservation, BotsterEngineOutput,
@@ -30,3 +31,4 @@ pub use session_worker::{
 pub use subscription_multiplexer::{
     SubscriptionMultiplexer, SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
 };
+pub use terminal_screen::{TerminalScreenEngine, TerminalScreenOutcome, TerminalScreenRuntime};

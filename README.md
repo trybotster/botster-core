@@ -29,6 +29,25 @@ and it must not carry hub policy, CLI startup behavior, renderer assumptions,
 auth, provider marketplace behavior, Project Pipelines product behavior, or
 other product-specific flows.
 
+## Terminal Screen And Snapshot Boundary
+
+`botster-core` exposes a narrow terminal screen boundary for hosts that need
+to normalize terminal output, capture or replay opaque snapshots, and read
+synchronous screen state through a small runtime adapter. The boundary is
+defined by `TerminalScreenEngine`, `TerminalScreenRuntime`,
+`TerminalOutputChunk`, `TerminalSnapshotPayload`, and `TerminalScreenState`.
+
+Snapshot payload bytes are opaque. Core records dimensions and an optional
+host-owned format label, but it does not parse terminal cells or decide which
+terminal backend a host should use. Concrete adapters may be backed by
+Ghostty, restty, or another terminal implementation; those are host dependency
+choices and are not dependencies of `botster-core`.
+
+Correlated delivery still uses the existing session-worker carriers such as
+`SnapshotReady`, `PreparedSnapshotRequest`, `PreparedSnapshotReady`, and
+`ScreenReady`. `TerminalSnapshotPayload` is only the reusable, correlation-free
+value a runtime adapter can convert into those carriers.
+
 ## Ownership Boundary
 
 This crate documents contracts the current code proves. It is not a parking
