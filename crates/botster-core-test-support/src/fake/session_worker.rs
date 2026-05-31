@@ -4,7 +4,8 @@ use botster_core::{
     BackpressureRoute, MailboxSendFailure, MailboxSendFailureReason, ModeFlags, ModeFlagsReady,
     PreparedSnapshotReady, PreparedSnapshotRequest, QueueSource, RequestId, ScreenReady,
     SendFileFailed, SendFileRequest, SendFileWritten, SessionId, SessionIoRequest,
-    SessionWorkerRuntime, SnapshotReady, TerminalColorProfile,
+    SessionRuntimeError, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SnapshotReady,
+    TerminalColorProfile,
 };
 
 /// Runtime command recorded by the fake session runtime.
@@ -171,11 +172,16 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
         });
     }
 
-    fn shutdown(&mut self, session_id: &SessionId, reason: &str) {
+    fn shutdown(
+        &mut self,
+        session_id: &SessionId,
+        reason: &str,
+    ) -> Result<Vec<SessionWorkerRuntimeEvent>, SessionRuntimeError> {
         self.commands.push(RuntimeCommand::Shutdown {
             session_id: session_id.clone(),
             reason: reason.to_string(),
         });
+        Ok(Vec::new())
     }
 }
 

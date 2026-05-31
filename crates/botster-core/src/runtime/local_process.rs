@@ -1,58 +1,100 @@
-//! Default local PTY-backed process runtime.
+//! Default local PTY-backed process runtime with process-group cleanup.
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
+use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
-    ProcessExitedPayload, ProcessIdentity, ResizePayload, SessionId, SessionRuntime,
+    InitialSnapshotRequest, ModeFlags, ModeFlagsReady, PreparedSnapshotReady,
+    PreparedSnapshotRequest, ProcessExitedPayload, ProcessIdentity, RequestId, ResizePayload,
+    ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionId, SessionRuntime,
     SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest,
+    SessionRuntimeOutput, SessionSpawnRequest, SnapshotReady, TerminalColorProfile,
 };
+
+const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+#[cfg(unix)]
+const SIGTERM: i32 = 15;
+#[cfg(unix)]
+const SIGKILL: i32 = 9;
+
+#[cfg(unix)]
+extern "C" {
+    fn kill(pid: i32, signal: i32) -> i32;
+}
+
+/// Options for local process shutdown behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalProcessRuntimeOptions {
+    /// Time to wait after graceful termination before forced cleanup.
+    ///
+    /// Synchronous shutdown can block the caller for up to roughly
+    /// `2 * shutdown_grace`: once after graceful termination and once after
+    /// forced cleanup.
+    pub shutdown_grace: Duration,
+    /// Sleep interval used while polling for process exit.
+    pub poll_interval: Duration,
+}
+
+impl Default for LocalProcessRuntimeOptions {
+    fn default() -> Self {
+        Self {
+            shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
+            poll_interval: POLL_INTERVAL,
+        }
+    }
+}
 
 /// Policy-free local process runtime backed by a PTY.
 ///
 /// This runtime executes the exact executable, arguments, working directory,
-/// environment, and PTY size provided by `SessionSpawnRequest`.
-#[derive(Default)]
+/// environment, and PTY size provided by `SessionSpawnRequest`. On Unix, it
+/// also uses the PTY process group leader to terminate the whole process group
+/// during shutdown so child processes are not orphaned.
+#[derive(Clone)]
 pub struct LocalProcessRuntime {
-    sessions: HashMap<SessionId, LocalSession>,
+    registry: Arc<LocalProcessRegistry>,
+    options: LocalProcessRuntimeOptions,
 }
 
-struct LocalSession {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    child: Box<dyn Child + Send + Sync>,
-    output: Receiver<ReaderEvent>,
-    exit_reported: bool,
-}
-
-enum ReaderEvent {
-    Output(Vec<u8>),
-    Failed(String),
+impl Default for LocalProcessRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LocalProcessRuntime {
-    /// Build an empty local process runtime.
+    /// Build an empty local process runtime with default shutdown behavior.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self::with_options(LocalProcessRuntimeOptions::default())
     }
 
-    fn session_mut(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<&mut LocalSession, SessionRuntimeError> {
-        self.sessions.get_mut(session_id).ok_or_else(|| {
-            SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SessionNotFound,
-                format!("session not found: {}", session_id.0),
-            )
-        })
+    /// Build an empty local process runtime with explicit shutdown behavior.
+    #[must_use]
+    pub fn with_options(options: LocalProcessRuntimeOptions) -> Self {
+        Self {
+            registry: Arc::new(LocalProcessRegistry::default()),
+            options,
+        }
+    }
+
+    /// Build a paired worker runtime backed by the same process registry.
+    #[must_use]
+    pub fn worker_runtime(&self) -> LocalProcessWorkerRuntime {
+        LocalProcessWorkerRuntime {
+            registry: Arc::clone(&self.registry),
+            options: self.options,
+        }
     }
 }
 
@@ -77,8 +119,10 @@ impl SessionRuntime for LocalProcessRuntime {
             .slave
             .spawn_command(command)
             .map_err(|error| spawn_error(&request.executable, error.to_string()))?;
+        let pid = child.process_id();
+        let process_group = process_group_leader(pty_pair.master.as_ref(), pid);
         let process = ProcessIdentity {
-            pid: child.process_id(),
+            pid,
             runtime_id: Some(request.session_id.0.clone()),
         };
         let reader = pty_pair.master.try_clone_reader().map_err(|error| {
@@ -95,16 +139,19 @@ impl SessionRuntime for LocalProcessRuntime {
         })?;
         let output = spawn_reader(reader);
 
-        self.sessions.insert(
+        self.registry.insert(
             request.session_id.clone(),
             LocalSession {
                 master: pty_pair.master,
                 writer,
                 child,
                 output,
-                exit_reported: false,
+                process_group,
+                exit_payload: None,
+                outputs: Vec::new(),
+                exit_output_queued: false,
             },
-        );
+        )?;
 
         Ok(SessionRuntimeHandle {
             request_id: request.request_id,
@@ -116,41 +163,15 @@ impl SessionRuntime for LocalProcessRuntime {
     fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
         match input {
             SessionRuntimeInput::PtyInput { session_id, data } => {
-                let session = self.session_mut(&session_id)?;
-                session.writer.write_all(&data).map_err(|error| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::InputFailed,
-                        format!("write pty input failed: {error}"),
-                    )
-                })?;
-                session.writer.flush().map_err(|error| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::InputFailed,
-                        format!("flush pty input failed: {error}"),
-                    )
-                })
+                self.registry.write_input(&session_id, &data)
             }
             SessionRuntimeInput::Resize { session_id, size } => {
-                let session = self.session_mut(&session_id)?;
-                session
-                    .master
-                    .resize(pty_size(Some(&size)))
-                    .map_err(|error| {
-                        SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::InputFailed,
-                            format!("resize pty failed: {error}"),
-                        )
-                    })
+                self.registry.resize(&session_id, size)
             }
-            SessionRuntimeInput::Shutdown { session_id } => {
-                let session = self.session_mut(&session_id)?;
-                session.child.kill().map_err(|error| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::InputFailed,
-                        format!("kill child process failed: {error}"),
-                    )
-                })
-            }
+            SessionRuntimeInput::Shutdown { session_id } => self
+                .registry
+                .shutdown_and_queue_output(&session_id, self.options)
+                .map(|_| ()),
         }
     }
 
@@ -158,55 +179,365 @@ impl SessionRuntime for LocalProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        let mut output = Vec::new();
-        let mut session_exited = false;
+        self.registry.drain_output(session_id)
+    }
+}
 
-        {
-            let session = self.session_mut(session_id)?;
+/// Worker-side local process runtime used by the engine path.
+#[derive(Clone)]
+pub struct LocalProcessWorkerRuntime {
+    registry: Arc<LocalProcessRegistry>,
+    options: LocalProcessRuntimeOptions,
+}
 
-            loop {
-                match session.output.try_recv() {
-                    Ok(ReaderEvent::Output(data)) => output.push(SessionRuntimeOutput::PtyOutput {
-                        session_id: session_id.clone(),
-                        data,
-                    }),
-                    Ok(ReaderEvent::Failed(message)) => {
-                        return Err(SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::OutputFailed,
-                            message,
-                        ));
-                    }
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => break,
-                }
-            }
+impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
+    fn write_input(&mut self, session_id: &SessionId, data: &[u8]) {
+        let _ = self.registry.write_input(session_id, data);
+    }
 
-            if !session.exit_reported {
-                if let Some(status) = session.child.try_wait().map_err(|error| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        format!("read child exit status failed: {error}"),
-                    )
-                })? {
-                    session.exit_reported = true;
-                    session_exited = true;
-                    output.push(SessionRuntimeOutput::ProcessExited {
-                        session_id: session_id.clone(),
-                        payload: ProcessExitedPayload {
-                            exit_code: i32::try_from(status.exit_code()).ok(),
-                            signal: None,
-                        },
-                    });
-                }
-            }
+    fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16) {
+        let _ = self
+            .registry
+            .resize(session_id, ResizePayload { rows, cols });
+    }
+
+    fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
+        let (rows, cols) = self.registry.terminal_size(&session_id).unwrap_or((24, 80));
+        SnapshotReady {
+            request_id,
+            session_id,
+            data: Vec::new(),
+            rows,
+            cols,
         }
+    }
 
-        if session_exited {
-            self.sessions.remove(session_id);
+    fn request_initial_snapshot(&mut self, _request: InitialSnapshotRequest) {}
+
+    fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {
+        Ok(SendFileWritten {
+            request_id: request.request_id,
+            session_id: request.session_id,
+            bytes: request.data.len(),
+            storage_ref: None,
+        })
+    }
+
+    fn prepare_snapshot(&mut self, request: PreparedSnapshotRequest) -> PreparedSnapshotReady {
+        PreparedSnapshotReady {
+            request_id: request.request_id,
+            session_id: request.session_id,
+            uncompressed_len: request.snapshot.len(),
+            payload: request.snapshot,
+            recovery: request.recovery,
+        }
+    }
+
+    fn mode_flags(&mut self, request_id: RequestId, session_id: SessionId) -> ModeFlagsReady {
+        ModeFlagsReady {
+            request_id,
+            session_id,
+            mode_flags: ModeFlags::default(),
+        }
+    }
+
+    fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {
+        ScreenReady {
+            request_id,
+            session_id,
+            text: String::new(),
+        }
+    }
+
+    fn set_color_profile(&mut self, _session_id: &SessionId, _color_profile: TerminalColorProfile) {
+    }
+
+    fn shutdown(
+        &mut self,
+        session_id: &SessionId,
+        _reason: &str,
+    ) -> Result<Vec<SessionWorkerRuntimeEvent>, SessionRuntimeError> {
+        let payload = self
+            .registry
+            .shutdown_and_queue_output(session_id, self.options)?;
+
+        Ok(payload
+            .into_iter()
+            .map(|payload| SessionWorkerRuntimeEvent::ProcessExited {
+                session_id: session_id.clone(),
+                payload,
+            })
+            .collect())
+    }
+}
+
+#[derive(Default)]
+struct LocalProcessRegistry {
+    sessions: Mutex<HashMap<SessionId, LocalSession>>,
+}
+
+impl Drop for LocalProcessRegistry {
+    fn drop(&mut self) {
+        let sessions = match self.sessions.get_mut() {
+            Ok(sessions) => sessions,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        for session in sessions.values_mut() {
+            let _ = terminate_session(session, LocalProcessRuntimeOptions::default());
+        }
+    }
+}
+
+impl LocalProcessRegistry {
+    fn insert(
+        &self,
+        session_id: SessionId,
+        session: LocalSession,
+    ) -> Result<(), SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        if sessions.contains_key(&session_id) {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "local process session already exists",
+            ));
+        }
+        sessions.insert(session_id, session);
+        Ok(())
+    }
+
+    fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        let session = session_mut(&mut sessions, session_id)?;
+        session.writer.write_all(data).map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                format!("write pty input failed: {error}"),
+            )
+        })?;
+        session.writer.flush().map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                format!("flush pty input failed: {error}"),
+            )
+        })
+    }
+
+    fn resize(
+        &self,
+        session_id: &SessionId,
+        size: ResizePayload,
+    ) -> Result<(), SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        let session = session_mut(&mut sessions, session_id)?;
+        session
+            .master
+            .resize(pty_size(Some(&size)))
+            .map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    format!("resize pty failed: {error}"),
+                )
+            })
+    }
+
+    fn terminal_size(&self, session_id: &SessionId) -> Result<(u16, u16), SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        let session = session_mut(&mut sessions, session_id)?;
+        let size = session.master.get_size().map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                format!("read pty size failed: {error}"),
+            )
+        })?;
+        Ok((size.rows, size.cols))
+    }
+
+    fn shutdown_and_queue_output(
+        &self,
+        session_id: &SessionId,
+        options: LocalProcessRuntimeOptions,
+    ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        let session = session_mut(&mut sessions, session_id)?;
+        let observed = terminate_session(session, options)?;
+        queue_exit_output(session, session_id, observed.clone());
+        Ok(observed)
+    }
+
+    fn drain_output(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        let session = session_mut(&mut sessions, session_id)?;
+        let mut output = drain_reader_output(session, session_id)?;
+        harvest_session(session)?;
+        queue_exit_output(session, session_id, None);
+        let mut queued_output = session.outputs.drain(..).collect();
+        output.append(&mut queued_output);
+
+        if session.exit_payload.is_some() && session.exit_output_queued {
+            sessions.remove(session_id);
         }
 
         Ok(output)
     }
+
+    fn lock(
+        &self,
+    ) -> Result<MutexGuard<'_, HashMap<SessionId, LocalSession>>, SessionRuntimeError> {
+        self.sessions.lock().map_err(|_| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::CleanupFailed,
+                "local process registry lock poisoned",
+            )
+        })
+    }
+}
+
+struct LocalSession {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    output: Receiver<ReaderEvent>,
+    process_group: Option<i32>,
+    exit_payload: Option<ProcessExitedPayload>,
+    outputs: Vec<SessionRuntimeOutput>,
+    exit_output_queued: bool,
+}
+
+enum ReaderEvent {
+    Output(Vec<u8>),
+    Failed(String),
+}
+
+fn session_mut<'a>(
+    sessions: &'a mut HashMap<SessionId, LocalSession>,
+    session_id: &SessionId,
+) -> Result<&'a mut LocalSession, SessionRuntimeError> {
+    sessions.get_mut(session_id).ok_or_else(|| {
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::SessionNotFound,
+            format!("session not found: {}", session_id.0),
+        )
+    })
+}
+
+fn terminate_session(
+    session: &mut LocalSession,
+    options: LocalProcessRuntimeOptions,
+) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
+    if session.exit_payload.is_some() {
+        send_forced_signal(session)?;
+        return Ok(None);
+    }
+
+    harvest_session(session)?;
+    if session.exit_payload.is_some() {
+        send_forced_signal(session)?;
+        return Ok(session.exit_payload.clone());
+    }
+
+    send_graceful_signal(session)?;
+    if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
+        send_forced_signal(session)?;
+        return Ok(session.exit_payload.clone());
+    }
+
+    send_forced_signal(session)?;
+    if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
+        return Ok(session.exit_payload.clone());
+    }
+
+    Err(SessionRuntimeError::new(
+        SessionRuntimeErrorKind::CleanupFailed,
+        "local process did not exit after forced cleanup",
+    ))
+}
+
+fn harvest_session(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
+    if session.exit_payload.is_some() {
+        return Ok(());
+    }
+
+    let Some(status) = session.child.try_wait().map_err(|error| {
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::OutputFailed,
+            format!("failed to inspect local process status: {error}"),
+        )
+    })?
+    else {
+        return Ok(());
+    };
+
+    session.exit_payload = Some(ProcessExitedPayload {
+        exit_code: i32::try_from(status.exit_code()).ok(),
+        signal: signal_number(status.signal()),
+    });
+    Ok(())
+}
+
+fn wait_for_exit(
+    session: &mut LocalSession,
+    grace: Duration,
+    poll_interval: Duration,
+) -> Result<bool, SessionRuntimeError> {
+    let deadline = Instant::now() + grace;
+    loop {
+        harvest_session(session)?;
+        if session.exit_payload.is_some() {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(poll_interval.min(deadline.saturating_duration_since(Instant::now())));
+    }
+}
+
+fn queue_exit_output(
+    session: &mut LocalSession,
+    session_id: &SessionId,
+    payload: Option<ProcessExitedPayload>,
+) {
+    if session.exit_output_queued {
+        return;
+    }
+
+    let Some(payload) = payload.or_else(|| session.exit_payload.clone()) else {
+        return;
+    };
+
+    session.exit_payload = Some(payload.clone());
+    session.outputs.push(SessionRuntimeOutput::ProcessExited {
+        session_id: session_id.clone(),
+        payload,
+    });
+    session.exit_output_queued = true;
+}
+
+fn drain_reader_output(
+    session: &mut LocalSession,
+    session_id: &SessionId,
+) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+    let mut output = Vec::new();
+    loop {
+        match session.output.try_recv() {
+            Ok(ReaderEvent::Output(data)) => output.push(SessionRuntimeOutput::PtyOutput {
+                session_id: session_id.clone(),
+                data,
+            }),
+            Ok(ReaderEvent::Failed(message)) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    message,
+                ));
+            }
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+        }
+    }
+    Ok(output)
 }
 
 fn pty_size(size: Option<&ResizePayload>) -> PtySize {
@@ -266,4 +597,95 @@ fn spawn_error(executable: &str, detail: String) -> SessionRuntimeError {
         SessionRuntimeErrorKind::SpawnFailed,
         format!("spawn failed for {executable}: {detail}"),
     )
+}
+
+#[cfg(unix)]
+fn process_group_leader(master: &dyn MasterPty, pid: Option<u32>) -> Option<i32> {
+    master
+        .process_group_leader()
+        .or_else(|| pid.map(|pid| pid as i32))
+}
+
+#[cfg(not(unix))]
+fn process_group_leader(_master: &dyn MasterPty, _pid: Option<u32>) -> Option<i32> {
+    None
+}
+
+#[cfg(unix)]
+fn send_graceful_signal(session: &LocalSession) -> Result<(), SessionRuntimeError> {
+    signal_process_group(
+        session.process_group,
+        SIGTERM,
+        SessionRuntimeErrorKind::ShutdownFailed,
+    )
+}
+
+#[cfg(not(unix))]
+fn send_graceful_signal(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
+    session.child.kill().map_err(|error| {
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::ShutdownFailed,
+            format!("failed to terminate local process: {error}"),
+        )
+    })
+}
+
+#[cfg(unix)]
+fn send_forced_signal(session: &LocalSession) -> Result<(), SessionRuntimeError> {
+    signal_process_group(
+        session.process_group,
+        SIGKILL,
+        SessionRuntimeErrorKind::CleanupFailed,
+    )
+}
+
+#[cfg(not(unix))]
+fn send_forced_signal(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
+    session.child.kill().map_err(|error| {
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::CleanupFailed,
+            format!("failed to kill local process: {error}"),
+        )
+    })
+}
+
+#[cfg(unix)]
+fn signal_process_group(
+    process_group: Option<i32>,
+    signal: i32,
+    kind: SessionRuntimeErrorKind,
+) -> Result<(), SessionRuntimeError> {
+    let Some(process_group) = process_group else {
+        return Ok(());
+    };
+    let group = -process_group;
+    // The session leader may already be reaped when this runs. We still signal
+    // the original process group to clean up TERM-ignoring children; ESRCH below
+    // is treated as success when the group is already gone. There is a small
+    // PID/PGID reuse window after reap, accepted here to preserve the no-orphan
+    // guarantee for local process groups.
+    // SAFETY: `kill` is called with a negative process-group id created for
+    // the spawned child and a fixed signal number.
+    let result = unsafe { kill(group, signal) };
+    if result == 0 {
+        return Ok(());
+    }
+
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(3) {
+        return Ok(());
+    }
+
+    Err(SessionRuntimeError::new(
+        kind,
+        format!("failed to signal local process group: {error}"),
+    ))
+}
+
+fn signal_number(signal: Option<&str>) -> Option<i32> {
+    match signal {
+        Some(signal) if signal.contains("Killed") || signal.contains("9") => Some(9),
+        Some(signal) if signal.contains("Terminated") || signal.contains("15") => Some(15),
+        _ => None,
+    }
 }

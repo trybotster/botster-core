@@ -328,13 +328,18 @@ impl SessionWorkerRuntime for SessionRuntimeWorkerAdapter {
     fn set_color_profile(&mut self, _session_id: &SessionId, _color_profile: TerminalColorProfile) {
     }
 
-    fn shutdown(&mut self, session_id: &SessionId, _reason: &str) {
+    fn shutdown(
+        &mut self,
+        session_id: &SessionId,
+        _reason: &str,
+    ) -> Result<Vec<crate::SessionWorkerRuntimeEvent>, SessionRuntimeError> {
         self.state
             .borrow_mut()
             .inputs
             .push(SessionRuntimeInput::Shutdown {
                 session_id: session_id.clone(),
             });
+        Ok(Vec::new())
     }
 }
 

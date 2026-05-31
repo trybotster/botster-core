@@ -380,13 +380,19 @@ where
             reason,
         };
         let mut outcome = self.handle_session_request(request, now_seconds)?;
-        self.apply_lifecycle(session_id.clone(), SessionLifecycleState::Stopping)?;
-        outcome
-            .observations
-            .push(MultiplexerEngineObservation::SessionLifecycle {
-                session_id,
-                state: SessionLifecycleState::Stopping,
-            });
+        if !outcome
+            .session_events
+            .iter()
+            .any(|event| matches!(event, SessionIoEvent::ProcessExited { .. }))
+        {
+            self.apply_lifecycle(session_id.clone(), SessionLifecycleState::Stopping)?;
+            outcome
+                .observations
+                .push(MultiplexerEngineObservation::SessionLifecycle {
+                    session_id,
+                    state: SessionLifecycleState::Stopping,
+                });
+        }
         Ok(outcome)
     }
 
@@ -402,7 +408,7 @@ where
                 session_id: session_id.clone(),
             }
         })?;
-        Ok(worker.handle_request(request))
+        Ok(worker.handle_request(request)?)
     }
 
     fn session_worker_is_closed(
@@ -473,7 +479,10 @@ where
                 },
             ),
             SessionIoEvent::Shutdown { session_id, .. } => {
-                self.apply_lifecycle(session_id.clone(), SessionLifecycleState::Stopping)
+                match self.session(session_id).map(|session| &session.lifecycle) {
+                    Some(SessionLifecycleState::Exited { .. }) => Ok(()),
+                    _ => self.apply_lifecycle(session_id.clone(), SessionLifecycleState::Stopping),
+                }
             }
             SessionIoEvent::TerminalBytes { .. }
             | SessionIoEvent::InitialSnapshotReady(_)
