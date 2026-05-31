@@ -15,7 +15,7 @@ pub use contract::{
     terminal_screen, transport, ui,
 };
 pub use engine::{
-    botster, multiplexer, plugin_worker, session_activity, session_worker,
+    botster, managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
@@ -60,13 +60,14 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, MultiplexerEngine,
-    MultiplexerEngineError, MultiplexerEngineObservation, MultiplexerEngineOutcome,
-    MultiplexerSpawnOutcome, PluginHandlerRegistration, PluginWorkerEngine,
-    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
-    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
-    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
-    TerminalScreenOutcome, TerminalScreenRuntime,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ManagedSessionRuntime,
+    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
+    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
+    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
+    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
+    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
+    TerminalScreenRuntime,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
