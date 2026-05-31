@@ -5,6 +5,7 @@ use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::TransportIngress;
+use crate::engine::managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
@@ -13,7 +14,7 @@ use crate::engine::plugin_worker::{
     PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
-use crate::runtime::{SessionRuntime, SessionSpawnRequest};
+use crate::runtime::{LocalProcessRuntime, SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
 use crate::{ClientId, SubscriptionId};
 
@@ -28,6 +29,163 @@ pub type BotsterSpawnOutcome = MultiplexerSpawnOutcome;
 
 /// Accumulated output from one ergonomic Botster engine operation.
 pub type BotsterEngineOutput = MultiplexerEngineOutcome;
+
+/// Default local PTY-backed engine error.
+pub type DefaultBotsterEngineError = ManagedSessionRuntimeError;
+
+/// Public default local PTY-backed Botster engine facade.
+///
+/// This is the policy-free default path for embedders that want to run a real
+/// local process without supplying custom runtime adapters. Hosts still provide
+/// explicit spawn requests; the facade only wires the local process runtime
+/// through the managed session worker and subscription fanout path.
+pub struct DefaultBotsterEngine {
+    runtime: ManagedSessionRuntime<LocalProcessRuntime>,
+}
+
+impl DefaultBotsterEngine {
+    /// Build an empty local PTY-backed engine.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            runtime: ManagedSessionRuntime::new(LocalProcessRuntime::new()),
+        }
+    }
+
+    /// Return a recorded session.
+    #[must_use]
+    pub fn session(&self, session_id: &SessionId) -> Option<&CoreSession> {
+        self.runtime.session(session_id)
+    }
+
+    /// Return the local process runtime adapter.
+    #[must_use]
+    pub const fn session_runtime(&self) -> &LocalProcessRuntime {
+        self.runtime.session_runtime()
+    }
+
+    /// Spawn a local PTY-backed session with an explicit host-owned request.
+    pub fn spawn_session(
+        &mut self,
+        request: SessionSpawnRequest,
+        metadata: CoreSessionMetadata,
+    ) -> Result<BotsterSpawnOutcome, DefaultBotsterEngineError> {
+        self.runtime.spawn_session(request, metadata)
+    }
+
+    /// Attach a client to a session stream.
+    pub fn attach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id.clone(),
+            TransportIngress::SubscribeSession {
+                client_id,
+                session_id,
+                subscription_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Detach a client from a session stream.
+    pub fn detach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id.clone(),
+            TransportIngress::UnsubscribeSession {
+                client_id,
+                session_id,
+                subscription_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Write terminal bytes from a client into the local process runtime.
+    pub fn write_bytes(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        data: impl Into<Vec<u8>>,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id,
+            TransportIngress::TerminalInput {
+                session_id,
+                data: data.into(),
+            },
+            now_seconds,
+        )
+    }
+
+    /// Resize a session terminal from a client-facing path.
+    pub fn resize(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id,
+            TransportIngress::Resize {
+                session_id,
+                rows,
+                cols,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Drain currently available local runtime output through subscription fanout.
+    pub fn drain_runtime_once(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.drain_runtime_once(session_id, last_output_at)
+    }
+
+    /// Classify one session's activity at the provided clock value.
+    pub fn classify_activity(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+        active_threshold_seconds: u64,
+    ) -> Result<SessionActivityStatus, DefaultBotsterEngineError> {
+        self.runtime
+            .classify_activity(session_id, now_seconds, active_threshold_seconds)
+    }
+
+    /// Shut down one local PTY-backed session through the managed runtime path.
+    pub fn shutdown_session(
+        &mut self,
+        session_id: SessionId,
+        reason: impl Into<String>,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .shutdown_session(session_id, reason, now_seconds)
+    }
+}
+
+impl Default for DefaultBotsterEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Ergonomic embeddable core API for tmux-like Botster consumers.
 ///

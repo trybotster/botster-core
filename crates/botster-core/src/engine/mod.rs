@@ -15,7 +15,7 @@ pub mod terminal_screen;
 
 pub use botster::{
     BotsterEngine, BotsterEngineError, BotsterEngineObservation, BotsterEngineOutput,
-    BotsterSpawnOutcome,
+    BotsterSpawnOutcome, DefaultBotsterEngine, DefaultBotsterEngineError,
 };
 pub use managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 pub use multiplexer::{
