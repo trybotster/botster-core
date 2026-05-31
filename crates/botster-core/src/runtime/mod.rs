@@ -1,7 +1,12 @@
-//! Host-provided runtime interfaces for the multiplexer engine.
+//! Runtime interfaces and default adapters for the multiplexer engine.
 //!
-//! Runtime traits will let embedders supply clocks, process/session execution,
+//! Runtime traits let embedders supply clocks, process/session execution,
 //! plugin runtimes, and I/O without coupling core to a specific hub process.
+//! The local process adapter is a policy-free default for explicit spawn
+//! requests; hosts still decide command, directory, environment, and lifecycle
+//! policy before entering core.
+
+mod local_process;
 
 use std::error::Error;
 use std::fmt;
@@ -10,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
+
+pub use local_process::LocalProcessRuntime;
 
 /// Host-implemented session runtime boundary.
 ///
