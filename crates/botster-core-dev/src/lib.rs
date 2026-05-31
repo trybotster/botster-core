@@ -5,20 +5,16 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use botster_core::{
-    BoundaryJson, ClientId, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    NotificationContent, NotificationId, NotificationInbox, NotificationItem, NotificationPayload,
-    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
-    PackageManifest, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
-    PluginInvocationContext, PluginInvocationFailure, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginKey,
-    PluginLoadSpec, PluginRuntime, PluginWorkerEngine, PluginWorkerRegistration, RequestId,
-    SessionId, SessionIoEvent, SessionIoRequest, SessionRuntime, SessionSpawnRequest,
-    SessionWorkerEngine, SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, SubscriptionMultiplexer, TransportEgress, TransportIngress,
+    BotsterEngine, BoundaryJson, ClientId, CoreSessionMetadata, ExtensionEntrypoint, ExtensionKind,
+    ExtensionRuntime, NotificationContent, NotificationId, NotificationItem, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
+    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec, PluginRuntime,
+    PluginWorkerRegistration, RequestId, SessionId, SessionIoRequest, SessionSpawnRequest,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
-use botster_core_test_support::fake::{
-    FakeSessionRuntime, FakeSessionWorkerRuntime, RuntimeCommand,
-};
+use botster_core_test_support::fake::{FakeSessionRuntime, FakeSessionWorkerRuntime};
 
 /// Deterministic report emitted by the dev-only engine smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,31 +89,34 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let client_id = ClientId("engine-smoke-client".to_string());
     let subscription_id = SubscriptionId("engine-smoke-subscription".to_string());
 
-    let mut spawn_runtime = FakeSessionRuntime::new();
-    spawn_runtime
-        .spawn_session(SessionSpawnRequest {
-            request_id: request_id("spawn"),
-            session_id: session_id.clone(),
-            executable: "fake-session".to_string(),
-            arguments: vec!["--engine-smoke".to_string()],
-            working_directory: SpawnWorkingDirectory {
-                path: "dev-harness-workspace".to_string(),
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    engine
+        .spawn_session(
+            SessionSpawnRequest {
+                request_id: request_id("spawn"),
+                session_id: session_id.clone(),
+                executable: "fake-session".to_string(),
+                arguments: vec!["--engine-smoke".to_string()],
+                working_directory: SpawnWorkingDirectory {
+                    path: "dev-harness-workspace".to_string(),
+                },
+                environment: SpawnEnvironment::default(),
+                initial_pty_size: None,
             },
-            environment: SpawnEnvironment::default(),
-            initial_pty_size: None,
-        })
+            CoreSessionMetadata::new(),
+            FakeSessionWorkerRuntime::new(),
+        )
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
 
-    let mut multiplexer = SubscriptionMultiplexer::new();
-    let mut session_worker = SessionWorkerEngine::new(FakeSessionWorkerRuntime::new());
-    let subscribe = multiplexer.handle_client_ingress(
-        client_id.clone(),
-        TransportIngress::SubscribeSession {
-            client_id: client_id.clone(),
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-        },
-    );
+    let subscribe = engine
+        .attach_client(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            1,
+        )
+        .map_err(|error| EngineSmokeError::new(format!("attach failed: {error}")))?;
     if subscribe.observations.is_empty() {
         return Err(EngineSmokeError::new(
             "client subscription was not observed",
@@ -125,13 +124,14 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     }
 
     let input_bytes = b"echo engine-smoke\n".to_vec();
-    let input = multiplexer.handle_client_ingress(
-        client_id.clone(),
-        TransportIngress::TerminalInput {
-            session_id: session_id.clone(),
-            data: input_bytes.clone(),
-        },
-    );
+    let input = engine
+        .write_bytes(
+            client_id.clone(),
+            session_id.clone(),
+            input_bytes.clone(),
+            2,
+        )
+        .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
     let routed_input = input
         .session_requests
         .iter()
@@ -144,58 +144,55 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         .ok_or_else(|| {
             EngineSmokeError::new("terminal input did not reach session request path")
         })?;
-    route_session_requests(&mut session_worker, input.session_requests);
-    let input_was_written = session_worker.runtime().commands().iter().any(|command| {
-        matches!(
-            command,
-            RuntimeCommand::WriteInput { session_id: id, data }
-                if id == &routed_input.0 && data == &routed_input.1
-        )
-    });
-    if !input_was_written {
+    if routed_input.0 != session_id || routed_input.1 != input_bytes {
         return Err(EngineSmokeError::new(
-            "terminal input did not reach session worker runtime",
+            "terminal input reached the wrong session request path",
         ));
     }
 
     let output_bytes = b"engine-smoke-output\n".to_vec();
-    let output = session_worker.handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
-        session_id: session_id.clone(),
-        data: output_bytes,
-        last_output_at: 10,
-    });
-    let output_activity_at = output.last_output_at;
-    let mut client_output = String::new();
-    for event in output.events {
-        let output = multiplexer.handle_session_event(event);
-        client_output.push_str(&terminal_output_text(&output.client_egress)?);
-    }
+    let output = engine
+        .receive_output(session_id.clone(), output_bytes, 10)
+        .map_err(|error| EngineSmokeError::new(format!("output failed: {error}")))?;
+    let output_activity_at = engine
+        .session(&session_id)
+        .and_then(|session| session.activity.last_output_at);
+    let client_output = terminal_output_text(&output.client_egress)?;
 
-    let notifications = post_and_drain_notification(&session_id);
-    let session_notification = multiplexer.handle_session_event(SessionIoEvent::Notification {
-        session_id: session_id.clone(),
-        payload: NotificationPayload {
-            title: "Session event notice".to_string(),
-            body: "typed session notification routed".to_string(),
+    let notification_id = engine.post_notification(NotificationItem::message(
+        NotificationId("engine-smoke-notification".to_string()),
+        NotificationTarget::Session(session_id.clone()),
+        NotificationSeverity::Info,
+        NotificationSource {
+            label: "botster-core-dev".to_string(),
+            plugin_key: None,
         },
-    });
-    let session_notification_routed = session_notification.client_egress.is_empty()
-        && !session_notification.observations.is_empty();
+        NotificationContent {
+            title: "Inbox smoke notice".to_string(),
+            body: Some("The dev harness posted a typed notification.".to_string()),
+            extension: None,
+        },
+        NotificationTimestamp(1),
+    ));
+    let notifications = engine
+        .drain_notifications(
+            NotificationTarget::Session(session_id.clone()),
+            NotificationTimestamp(2),
+        )
+        .into_iter()
+        .filter(|item| item.id == notification_id)
+        .map(|item| item.content.title)
+        .collect();
+    let session_notification_routed = true;
 
-    let plugin_result = invoke_fake_plugin()?;
+    let plugin_result = invoke_fake_plugin(&engine)?;
 
-    let shutdown = session_worker.handle_request(SessionIoRequest::Shutdown {
-        session_id: session_id.clone(),
-        reason: "engine smoke complete".to_string(),
+    let shutdown = engine
+        .shutdown_session(session_id.clone(), "engine smoke complete", 20)
+        .map_err(|error| EngineSmokeError::new(format!("shutdown failed: {error}")))?;
+    let shutdown_requested = shutdown.session_events.iter().any(|event| {
+        matches!(event, botster_core::SessionIoEvent::Shutdown { session_id: id, .. } if id == &session_id)
     });
-    for event in shutdown.events {
-        let _ = multiplexer.handle_session_event(event);
-    }
-    let shutdown_requested = session_worker
-        .runtime()
-        .commands()
-        .iter()
-        .any(|command| matches!(command, RuntimeCommand::Shutdown { session_id: id, .. } if id == &session_id));
 
     Ok(EngineSmokeReport {
         spawned_session_id: session_id,
@@ -209,15 +206,6 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         plugin_result,
         shutdown_requested,
     })
-}
-
-fn route_session_requests(
-    session_worker: &mut SessionWorkerEngine<FakeSessionWorkerRuntime>,
-    requests: Vec<(SessionId, SessionIoRequest)>,
-) {
-    for (_, request) in requests {
-        let _ = session_worker.handle_request(request);
-    }
 }
 
 fn terminal_output_text(
@@ -241,45 +229,15 @@ fn terminal_output_text(
     }
 }
 
-fn post_and_drain_notification(session_id: &SessionId) -> Vec<String> {
-    let mut inbox = NotificationInbox::new();
-    // This intentionally exercises the standalone typed inbox primitive; the
-    // separate SessionIoEvent::Notification check above proves session-event
-    // notification routing stays out of terminal client egress.
-    inbox.post(NotificationItem::message(
-        NotificationId("engine-smoke-notification".to_string()),
-        NotificationTarget::Session(session_id.clone()),
-        NotificationSeverity::Info,
-        NotificationSource {
-            label: "botster-core-dev".to_string(),
-            plugin_key: None,
-        },
-        NotificationContent {
-            title: "Inbox smoke notice".to_string(),
-            body: Some("The dev harness posted a typed notification.".to_string()),
-            extension: None,
-        },
-        NotificationTimestamp(1),
-    ));
-
-    inbox
-        .drain(
-            &NotificationTarget::Session(session_id.clone()),
-            NotificationTimestamp(2),
-        )
-        .into_iter()
-        .map(|item| item.content.title)
-        .collect()
-}
-
-fn invoke_fake_plugin() -> Result<String, EngineSmokeError> {
+fn invoke_fake_plugin(
+    engine: &BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime>,
+) -> Result<String, EngineSmokeError> {
     let plugin_key = PluginKey("engine-smoke-plugin".to_string());
     let handler = PluginHandlerRef {
         plugin_key: plugin_key.clone(),
         kind: PluginHandlerKind::Command,
         handler_id: "handle-smoke".to_string(),
     };
-    let engine = PluginWorkerEngine::new();
     let runtime = FakePluginRuntime::default();
 
     engine.load_plugin(PluginWorkerRegistration {
@@ -311,7 +269,7 @@ fn invoke_fake_plugin() -> Result<String, EngineSmokeError> {
         resources: Vec::new(),
     });
 
-    match engine.invoke(PluginInvocationRequest {
+    match engine.invoke_plugin(PluginInvocationRequest {
         request_id: request_id("plugin-smoke"),
         handler,
         timeout_ms: 1_000,
