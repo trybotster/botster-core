@@ -1,17 +1,19 @@
 //! Public ergonomic Botster engine API acceptance tests.
 
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use botster_core::{
     BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
-    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem,
-    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
-    PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
-    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
-    PluginWorkerRegistration, RequestId, SessionActivityStatus, SessionId, SessionIoRequest,
-    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress,
+    DefaultBotsterEngine, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
+    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
+    NotificationTarget, NotificationTimestamp, PackageManifest, PluginDescriptorKind,
+    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
+    PluginInvocationContext, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerRegistration, RequestId, ResizePayload,
+    SessionActivityStatus, SessionId, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
 use botster_core_test_support::fake::{
     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -121,6 +123,144 @@ fn plugin_invocation(handler: PluginHandlerRef) -> PluginInvocationRequest {
         },
         payload: BoundaryJson(serde_json::json!({ "command": "run" })),
     }
+}
+
+fn default_spawn_request() -> SessionSpawnRequest {
+    SessionSpawnRequest {
+        request_id: request_id("default-spawn-1"),
+        session_id: SessionId("default-local-session-1".to_string()),
+        executable: "/bin/sh".to_string(),
+        arguments: vec![
+            "-c".to_string(),
+            "printf 'ready\\n'; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done"
+                .to_string(),
+        ],
+        working_directory: SpawnWorkingDirectory {
+            path: std::env::current_dir()
+                .expect("current dir for default engine test")
+                .display()
+                .to_string(),
+        },
+        environment: SpawnEnvironment::default(),
+        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+    }
+}
+
+fn drain_default_until(
+    engine: &mut DefaultBotsterEngine,
+    session_id: &SessionId,
+    needle: &[u8],
+    last_output_at: &mut u64,
+) -> Vec<u8> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut observed = Vec::new();
+
+    while Instant::now() < deadline {
+        let outcome = engine
+            .drain_runtime_once(session_id, *last_output_at)
+            .expect("drain default runtime output");
+        *last_output_at += 1;
+
+        for (_, frame) in outcome.client_egress {
+            if let TransportEgress::TerminalOutput { data, .. } = frame {
+                observed.extend(data);
+            }
+        }
+
+        if observed
+            .windows(needle.len())
+            .any(|window| window == needle)
+        {
+            return observed;
+        }
+
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    panic!(
+        "timed out waiting for {:?} in {:?}",
+        String::from_utf8_lossy(needle),
+        String::from_utf8_lossy(&observed)
+    );
+}
+
+#[test]
+fn default_botster_engine_spawns_local_session_and_fans_out_output() {
+    let mut engine = DefaultBotsterEngine::new();
+    let request = default_spawn_request();
+    let session_id = request.session_id.clone();
+    let client_id = client_id("default-client");
+    let subscription_id = subscription_id("default-subscription");
+    let mut logical_clock = 20;
+
+    let spawn = engine
+        .spawn_session(request, CoreSessionMetadata::new())
+        .expect("spawn local default session");
+    assert_eq!(spawn.handle.session_id, session_id);
+    assert_eq!(spawn.session.lifecycle, SessionLifecycleState::Running);
+
+    engine
+        .attach_client(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id,
+            logical_clock,
+        )
+        .expect("attach client through default engine");
+    logical_clock += 1;
+
+    let ready = drain_default_until(&mut engine, &session_id, b"ready", &mut logical_clock);
+    assert!(
+        ready
+            .windows(b"ready".len())
+            .any(|window| window == b"ready"),
+        "default engine should fan out local PTY startup output"
+    );
+
+    engine
+        .write_bytes(
+            client_id.clone(),
+            session_id.clone(),
+            b"ping-default\n".to_vec(),
+            logical_clock,
+        )
+        .expect("write input through default engine");
+    logical_clock += 1;
+    drain_default_until(
+        &mut engine,
+        &session_id,
+        b"echo:ping-default",
+        &mut logical_clock,
+    );
+
+    engine
+        .resize(client_id, session_id.clone(), 30, 100, logical_clock)
+        .expect("resize through default engine");
+    logical_clock += 1;
+
+    assert_eq!(
+        engine
+            .classify_activity(&session_id, logical_clock, 5)
+            .expect("classify default runtime activity"),
+        SessionActivityStatus::Active
+    );
+
+    let shutdown = engine
+        .shutdown_session(session_id.clone(), "test complete", logical_clock)
+        .expect("shutdown default runtime session");
+    assert!(shutdown.observations.iter().any(|observation| {
+        observation
+            == &BotsterEngineObservation::SessionLifecycle {
+                session_id: session_id.clone(),
+                state: SessionLifecycleState::Stopping,
+            }
+    }));
+    assert!(matches!(
+        engine
+            .session(&session_id)
+            .map(|session| &session.lifecycle),
+        Some(SessionLifecycleState::Stopping)
+    ));
 }
 
 #[test]

@@ -15,14 +15,14 @@ pub use contract::{
     terminal_screen, transport, ui,
 };
 pub use engine::{
-    botster, multiplexer, plugin_worker, session_activity, session_worker,
+    botster, managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
-    LocalProcessRuntimeOptions, LocalProcessSessionRuntime, LocalProcessSessionWorkerRuntime,
-    PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PluginRuntime,
+    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
 };
@@ -61,11 +61,12 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, MultiplexerEngine,
-    MultiplexerEngineError, MultiplexerEngineObservation, MultiplexerEngineOutcome,
-    MultiplexerSpawnOutcome, PluginHandlerRegistration, PluginWorkerEngine,
-    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
-    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, DefaultBotsterEngine,
+    DefaultBotsterEngineError, ManagedSessionRuntime, ManagedSessionRuntimeError,
+    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
+    MultiplexerEngineOutcome, MultiplexerSpawnOutcome, PluginHandlerRegistration,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine,
+    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
     SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
     TerminalScreenOutcome, TerminalScreenRuntime,
 };

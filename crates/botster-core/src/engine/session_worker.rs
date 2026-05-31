@@ -131,6 +131,11 @@ where
         &self.runtime
     }
 
+    /// Return a mutable view of the runtime adapter.
+    pub const fn runtime_mut(&mut self) -> &mut R {
+        &mut self.runtime
+    }
+
     /// Current output activity timestamp.
     pub const fn last_output_at(&self) -> Option<u64> {
         self.last_output_at
