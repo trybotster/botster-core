@@ -10,6 +10,11 @@
 //! and ties future Ghostty work to [`TerminalScreenRuntime`] without exposing a
 //! fake runtime that returns placeholder behavior.
 //!
+//! Enabling the `libghostty-vt` feature builds the pinned trybotster Ghostty
+//! fork from `vendor/ghostty` and links its static `libghostty-vt` archive.
+//! Default builds leave that native path disabled so workspace tests do not
+//! require Ghostty or Zig.
+//!
 //! restty remains a web/client rendering path. Clients may consume terminal
 //! state and streams, but restty must not become core shadow-terminal
 //! infrastructure or the authoritative parser/snapshot owner.
@@ -52,6 +57,10 @@
 //! ```
 
 use botster_core::engine::TerminalScreenRuntime;
+
+/// Minimal libghostty-vt FFI used by feature-gated native build tests.
+#[cfg(feature = "libghostty-vt")]
+pub mod sys;
 
 /// Snapshot format label reserved for Ghostty-owned opaque snapshot payloads.
 pub const GHOSTTY_SNAPSHOT_FORMAT: &str = "ghostty";
