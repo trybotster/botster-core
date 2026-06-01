@@ -7,18 +7,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::{
-    BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata, EngineCommandKind,
-    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem,
-    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
-    PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
+    BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata, EngineCommand,
+    EngineCommandError, EngineCommandKind, EngineCommandOutcome, ExtensionEntrypoint,
+    ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
+    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
+    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
     PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
     PluginWorkerRegistration, PreparedSnapshotRequest, RequestId, SessionActivityStatus, SessionId,
     SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
     SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
-use botster_core::{DefaultBotsterEngine, ResizePayload};
+use botster_core::{DefaultBotsterEngine, DefaultEngineCommand, ResizePayload};
 use botster_core_test_support::fake::{
     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
@@ -201,18 +202,24 @@ fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     let mut logical_clock = 20;
 
     let spawn = engine
-        .spawn_session(request, CoreSessionMetadata::new())
+        .execute_command(DefaultEngineCommand::SpawnSession {
+            request,
+            metadata: CoreSessionMetadata::new(),
+        })
         .expect("spawn local default session");
+    let EngineCommandOutcome::SpawnSession(spawn) = spawn else {
+        panic!("expected spawn outcome");
+    };
     assert_eq!(spawn.handle.session_id, session_id);
     assert_eq!(spawn.session.lifecycle, SessionLifecycleState::Running);
 
     engine
-        .attach_client(
-            client_id.clone(),
-            session_id.clone(),
+        .execute_command(DefaultEngineCommand::AttachClient {
+            client_id: client_id.clone(),
+            session_id: session_id.clone(),
             subscription_id,
-            logical_clock,
-        )
+            now_seconds: logical_clock,
+        })
         .expect("attach client through default engine");
     logical_clock += 1;
 
@@ -225,12 +232,12 @@ fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     );
 
     engine
-        .write_bytes(
-            client_id.clone(),
-            session_id.clone(),
-            b"ping-default\n".to_vec(),
-            logical_clock,
-        )
+        .execute_command(DefaultEngineCommand::SendInput {
+            client_id: client_id.clone(),
+            session_id: session_id.clone(),
+            data: b"ping-default\n".to_vec(),
+            now_seconds: logical_clock,
+        })
         .expect("write input through default engine");
     logical_clock += 1;
     drain_default_until(
@@ -241,7 +248,13 @@ fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     );
 
     engine
-        .resize(client_id, session_id.clone(), 30, 100, logical_clock)
+        .execute_command(DefaultEngineCommand::Resize {
+            client_id,
+            session_id: session_id.clone(),
+            rows: 30,
+            cols: 100,
+            now_seconds: logical_clock,
+        })
         .expect("resize through default engine");
     logical_clock += 1;
 
@@ -253,8 +266,15 @@ fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     );
 
     let shutdown = engine
-        .shutdown_session(session_id.clone(), "test complete", logical_clock)
+        .execute_command(DefaultEngineCommand::Shutdown {
+            session_id: session_id.clone(),
+            reason: "test complete".to_string(),
+            now_seconds: logical_clock,
+        })
         .expect("shutdown default runtime session");
+    let EngineCommandOutcome::Output(shutdown) = shutdown else {
+        panic!("expected shutdown output");
+    };
     assert!(shutdown.observations.iter().any(|observation| {
         observation
             == &BotsterEngineObservation::SessionLifecycle {
@@ -466,71 +486,227 @@ fn botster_engine_consumer_lifecycle_uses_public_api() {
 }
 
 #[test]
-fn engine_command_surface_uses_crate_root_facade_for_inventory_screen_and_snapshots() {
-    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::SpawnSession));
-    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::InspectSession));
-    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::CaptureSnapshot));
+fn engine_command_surface_uses_crate_root_facade_for_all_typed_commands() {
+    assert_eq!(
+        ENGINE_COMMAND_KINDS,
+        &[
+            EngineCommandKind::SpawnSession,
+            EngineCommandKind::AttachClient,
+            EngineCommandKind::DetachClient,
+            EngineCommandKind::SendInput,
+            EngineCommandKind::Resize,
+            EngineCommandKind::ListSessions,
+            EngineCommandKind::InspectSession,
+            EngineCommandKind::ReadScreen,
+            EngineCommandKind::CaptureSnapshot,
+            EngineCommandKind::ReplaySnapshot,
+            EngineCommandKind::Shutdown,
+            EngineCommandKind::Notifications,
+        ]
+    );
 
     let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
         BotsterEngine::new(FakeSessionRuntime::new());
-    engine
-        .spawn_session(
-            spawn_request(),
-            CoreSessionMetadata::new(),
-            FakeSessionWorkerRuntime::new(),
-        )
+    let spawn = engine
+        .execute_command(EngineCommand::SpawnSession {
+            request: spawn_request(),
+            metadata: CoreSessionMetadata::new(),
+            worker_runtime: FakeSessionWorkerRuntime::new(),
+        })
         .expect("spawn through command facade");
+    let EngineCommandOutcome::SpawnSession(spawn) = spawn else {
+        panic!("expected spawn outcome");
+    };
+    assert_eq!(spawn.handle.session_id, session_id());
 
-    let sessions = engine.list_sessions();
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].session_id, session_id());
+    engine
+        .execute_command(EngineCommand::AttachClient {
+            client_id: client_id("client-command"),
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-command"),
+            now_seconds: 9,
+        })
+        .expect("attach through typed command");
+
+    let input = engine
+        .execute_command(EngineCommand::SendInput {
+            client_id: client_id("client-command"),
+            session_id: session_id(),
+            data: b"command input\n".to_vec(),
+            now_seconds: 10,
+        })
+        .expect("input through typed command");
+    assert!(matches!(
+        input,
+        EngineCommandOutcome::Output(output)
+            if output.session_requests.iter().any(|(_, request)| {
+                matches!(request, SessionIoRequest::PtyInput { data, .. } if data == b"command input\n")
+            })
+    ));
+
+    let resize = engine
+        .execute_command(EngineCommand::Resize {
+            client_id: client_id("client-command"),
+            session_id: session_id(),
+            rows: 40,
+            cols: 120,
+            now_seconds: 10,
+        })
+        .expect("resize through typed command");
+    assert!(matches!(
+        resize,
+        EngineCommandOutcome::Output(output)
+            if output.session_requests.iter().any(|(_, request)| {
+                matches!(request, SessionIoRequest::Resize { rows: 40, cols: 120, .. })
+            })
+    ));
+
+    let sessions = engine
+        .execute_command(EngineCommand::ListSessions)
+        .expect("list through typed command");
+    assert!(matches!(
+        sessions,
+        EngineCommandOutcome::Sessions(sessions)
+            if sessions.len() == 1 && sessions[0].session_id == session_id()
+    ));
 
     engine
         .receive_output(session_id(), b"command output".to_vec(), 10)
         .expect("record output before command inspection");
     let inspection = engine
-        .inspect_session(&session_id(), 11, 5)
+        .execute_command(EngineCommand::InspectSession {
+            session_id: session_id(),
+            now_seconds: 11,
+            active_threshold_seconds: 5,
+        })
         .expect("inspect through command facade");
+    let EngineCommandOutcome::Inspection(inspection) = inspection else {
+        panic!("expected inspection");
+    };
     assert_eq!(inspection.session.session_id, session_id());
     assert_eq!(inspection.session.lifecycle, SessionLifecycleState::Running);
     assert_eq!(inspection.activity_status, SessionActivityStatus::Active);
 
     let screen = engine
-        .read_screen(request_id("screen-command-1"), session_id(), 11)
+        .execute_command(EngineCommand::ReadScreen {
+            request_id: request_id("screen-command-1"),
+            session_id: session_id(),
+            now_seconds: 11,
+        })
         .expect("read screen through command facade");
     assert!(matches!(
-        screen.session_events.first(),
-        Some(SessionIoEvent::ScreenReady(screen))
-            if screen.request_id == request_id("screen-command-1") && screen.text == "screen"
+        screen,
+        EngineCommandOutcome::Output(output)
+            if matches!(
+                output.session_events.first(),
+                Some(SessionIoEvent::ScreenReady(screen))
+                    if screen.request_id == request_id("screen-command-1") && screen.text == "screen"
+            )
     ));
 
     let snapshot = engine
-        .capture_snapshot(request_id("snapshot-command-1"), session_id(), 12)
+        .execute_command(EngineCommand::CaptureSnapshot {
+            request_id: request_id("snapshot-command-1"),
+            session_id: session_id(),
+            now_seconds: 12,
+        })
         .expect("capture snapshot through command facade");
     assert!(matches!(
-        snapshot.session_events.first(),
-        Some(SessionIoEvent::SnapshotReady(snapshot))
-            if snapshot.request_id == request_id("snapshot-command-1")
-                && snapshot.data == b"snapshot"
+        snapshot,
+        EngineCommandOutcome::Output(output)
+            if matches!(
+                output.session_events.first(),
+                Some(SessionIoEvent::SnapshotReady(snapshot))
+                    if snapshot.request_id == request_id("snapshot-command-1")
+                        && snapshot.data == b"snapshot"
+            )
     ));
 
     let replay = engine
-        .replay_snapshot(
-            PreparedSnapshotRequest {
+        .execute_command(EngineCommand::ReplaySnapshot {
+            request: PreparedSnapshotRequest {
                 request_id: request_id("replay-command-1"),
                 session_id: session_id(),
                 snapshot: b"prepared snapshot".to_vec(),
                 recovery: true,
             },
-            13,
-        )
+            now_seconds: 13,
+        })
         .expect("replay snapshot through command facade");
     assert!(matches!(
-        replay.session_events.first(),
-        Some(SessionIoEvent::PreparedSnapshotReady(prepared))
-            if prepared.request_id == request_id("replay-command-1")
-                && prepared.payload == b"prepared snapshot"
-                && prepared.recovery
+        replay,
+        EngineCommandOutcome::Output(output)
+            if matches!(
+                output.session_events.first(),
+                Some(SessionIoEvent::PreparedSnapshotReady(prepared))
+                    if prepared.request_id == request_id("replay-command-1")
+                        && prepared.payload == b"prepared snapshot"
+                        && prepared.recovery
+            )
+    ));
+
+    let notification = NotificationItem::message(
+        botster_core::NotificationId("typed-notice-1".to_string()),
+        NotificationTarget::Session(session_id()),
+        NotificationSeverity::Info,
+        NotificationSource {
+            label: "typed-command-test".to_string(),
+            plugin_key: None,
+        },
+        NotificationContent {
+            title: "Typed notice".to_string(),
+            body: None,
+            extension: None,
+        },
+        NotificationTimestamp(30),
+    );
+    let posted = engine
+        .execute_command(EngineCommand::PostNotification { item: notification })
+        .expect("post notification through typed command");
+    assert!(matches!(
+        posted,
+        EngineCommandOutcome::NotificationPosted(id)
+            if id == botster_core::NotificationId("typed-notice-1".to_string())
+    ));
+
+    let drained = engine
+        .execute_command(EngineCommand::DrainNotifications {
+            target: NotificationTarget::Session(session_id()),
+            now: NotificationTimestamp(31),
+        })
+        .expect("drain notifications through typed command");
+    assert!(matches!(
+        drained,
+        EngineCommandOutcome::NotificationsDrained(items)
+            if items.len() == 1 && items[0].id == botster_core::NotificationId("typed-notice-1".to_string())
+    ));
+
+    engine
+        .execute_command(EngineCommand::DetachClient {
+            client_id: client_id("client-command"),
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-command"),
+            now_seconds: 32,
+        })
+        .expect("detach through typed command");
+
+    let shutdown = engine
+        .execute_command(EngineCommand::Shutdown {
+            session_id: session_id(),
+            reason: "typed command complete".to_string(),
+            now_seconds: 40,
+        })
+        .expect("shutdown through typed command");
+    assert!(matches!(
+        shutdown,
+        EngineCommandOutcome::Output(output)
+            if output.observations.iter().any(|observation| {
+                observation
+                    == &BotsterEngineObservation::SessionLifecycle {
+                        session_id: session_id(),
+                        state: SessionLifecycleState::Stopping,
+                    }
+            })
     ));
 }
 
@@ -548,4 +724,62 @@ fn botster_engine_returns_typed_error_for_unknown_session() {
             session_id: session_id()
         }
     );
+}
+
+#[test]
+fn engine_command_error_preserves_command_kind_and_typed_source() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let error = engine
+        .execute_command(EngineCommand::SendInput {
+            client_id: client_id("client-a"),
+            session_id: session_id(),
+            data: b"ls\n".to_vec(),
+            now_seconds: 1,
+        })
+        .expect_err("unknown session should be typed");
+
+    assert_eq!(error.kind, EngineCommandKind::SendInput);
+    assert_eq!(
+        error.source,
+        botster_core::BotsterEngineError::UnknownSession {
+            session_id: session_id()
+        }
+    );
+    let _: EngineCommandError<botster_core::BotsterEngineError> = error;
+}
+
+#[cfg(feature = "local-runtime")]
+#[test]
+fn default_engine_command_replay_error_preserves_typed_unsupported_context() {
+    let mut engine = DefaultBotsterEngine::new();
+    let request = default_spawn_request();
+    let session_id = request.session_id.clone();
+
+    engine
+        .execute_command(DefaultEngineCommand::SpawnSession {
+            request,
+            metadata: CoreSessionMetadata::new(),
+        })
+        .expect("spawn local default session");
+
+    let error = engine
+        .execute_command(DefaultEngineCommand::ReplaySnapshot {
+            request: PreparedSnapshotRequest {
+                request_id: request_id("default-replay-unsupported"),
+                session_id,
+                snapshot: b"snapshot".to_vec(),
+                recovery: true,
+            },
+            now_seconds: 20,
+        })
+        .expect_err("default command should preserve unsupported replay");
+
+    assert_eq!(error.kind, EngineCommandKind::ReplaySnapshot);
+    assert!(matches!(
+        error.source,
+        botster_core::DefaultBotsterEngineError::UnsupportedSessionRequest {
+            request_kind: "prepare_snapshot",
+        }
+    ));
 }
