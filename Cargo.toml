@@ -3,6 +3,6 @@ members = [
     "crates/botster-core",
     "crates/botster-core-dev",
     "crates/botster-core-test-support",
+    "crates/botster-terminal-ghostty",
 ]
 resolver = "2"
-
