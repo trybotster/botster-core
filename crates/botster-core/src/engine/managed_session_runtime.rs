@@ -6,9 +6,10 @@ use std::rc::Rc;
 use thiserror::Error;
 
 use crate::contract::actor::{
-    ModeFlagsReady, PreparedSnapshotReady, ScreenReady, SendFileFailed, SendFileRequest,
-    SendFileWritten, SessionIoRequest, SnapshotReady,
+    ModeFlagsReady, PreparedSnapshotReady, PreparedSnapshotRequest, ScreenReady, SendFileFailed,
+    SendFileRequest, SendFileWritten, SessionIoRequest, SnapshotReady,
 };
+use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
@@ -72,6 +73,12 @@ where
     #[must_use]
     pub fn session(&self, session_id: &SessionId) -> Option<&crate::CoreSession> {
         self.engine.session(session_id)
+    }
+
+    /// Return sessions currently recorded by the managed engine.
+    #[must_use]
+    pub fn list_sessions(&self) -> Vec<crate::CoreSession> {
+        self.engine.list_sessions()
     }
 
     /// Return the host session runtime adapter.
@@ -181,6 +188,69 @@ where
             now_seconds,
             active_threshold_seconds,
         )?)
+    }
+
+    /// Inspect one session's lifecycle and activity through the managed engine.
+    pub fn inspect_session(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+        active_threshold_seconds: u64,
+    ) -> Result<EngineSessionInspection, ManagedSessionRuntimeError> {
+        Ok(EngineSessionInspection {
+            session: self
+                .session(session_id)
+                .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                    session_id: session_id.clone(),
+                })?
+                .clone(),
+            activity_status: self.classify_activity(
+                session_id,
+                now_seconds,
+                active_threshold_seconds,
+            )?,
+        })
+    }
+
+    /// Read a session's plain screen state through the existing worker path.
+    pub fn read_screen(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.handle_session_request(
+            SessionIoRequest::GetScreen {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Capture a session snapshot through the existing worker path.
+    pub fn capture_snapshot(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Replay or prepare a snapshot through the existing worker path.
+    pub fn replay_snapshot(
+        &mut self,
+        request: PreparedSnapshotRequest,
+        now_seconds: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.handle_session_request(SessionIoRequest::PrepareSnapshot(request), now_seconds)
     }
 
     /// Shut down a managed session through the worker/runtime path.

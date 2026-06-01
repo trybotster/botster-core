@@ -21,8 +21,9 @@ pub use contract::{
     terminal_screen, transport, ui,
 };
 pub use engine::{
-    botster, managed_session_runtime, multiplexer, plugin_worker, session_activity, session_worker,
-    subscription_multiplexer, terminal_screen as terminal_screen_engine,
+    botster, command as engine_command, managed_session_runtime, multiplexer, plugin_worker,
+    session_activity, session_worker, subscription_multiplexer,
+    terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
@@ -68,14 +69,18 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ManagedSessionRuntime,
-    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, EngineClientId,
+    EngineCommandEvent, EngineCommandKind, EngineCommandResult, EngineNotificationId,
+    EngineNotificationItem, EngineNotificationTarget, EngineReplaySnapshotRequest, EngineRequestId,
+    EngineSessionId, EngineSessionInspection, EngineSessionIoRequest, EngineSpawnSessionMetadata,
+    EngineSpawnSessionRequest, EngineSpawnSessionResult, EngineSubscriptionId,
+    ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
     PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
     SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
     SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
-    TerminalScreenRuntime,
+    TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError};
