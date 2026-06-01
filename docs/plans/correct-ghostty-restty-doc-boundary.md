@@ -9,8 +9,8 @@ Run: run_1780289848_421022
   `ticket_1780289832_257116`, run `run_1780289848_421022`, current step
   `botster_plan`, gate `botster_plan_gate`; no prior artifacts, findings,
   questions, or answers.
-- Worktree: pipeline-provided ticket worktree at
-  `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1780289832_257116`.
+- Worktree: pipeline-provided ticket worktree for target
+  `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Target: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Required playbooks loaded:
   - [[planner-playbook]]
