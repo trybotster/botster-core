@@ -51,6 +51,12 @@ activity, and shut sessions down. The rustdoc example on `BotsterEngine` is
 compile-checked against the public facade, and `crates/botster-core-dev` mirrors
 that path with a deterministic smoke harness.
 
+The policy-free command surface is specified in
+`docs/architecture/engine-command-surface.md`. It names `BotsterEngine` as the
+canonical command facade, keeps `MultiplexerEngine` as the lower-level assembled
+primitive, and maps supported commands to existing typed request, result, event,
+and error shapes.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current

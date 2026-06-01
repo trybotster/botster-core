@@ -1,10 +1,11 @@
 //! Ergonomic embeddable Botster engine facade.
 
-use crate::actor::{PluginInvocationRequest, PluginInvocationResult};
+use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PreparedSnapshotRequest};
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::TransportIngress;
+use crate::engine::command::EngineSessionInspection;
 #[cfg(feature = "local-runtime")]
 use crate::engine::managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 use crate::engine::multiplexer::{
@@ -62,6 +63,12 @@ impl DefaultBotsterEngine {
     #[must_use]
     pub fn session(&self, session_id: &SessionId) -> Option<&CoreSession> {
         self.runtime.session(session_id)
+    }
+
+    /// Return sessions currently recorded by the local command facade.
+    #[must_use]
+    pub fn list_sessions(&self) -> Vec<CoreSession> {
+        self.runtime.list_sessions()
     }
 
     /// Return the local process runtime adapter.
@@ -173,6 +180,48 @@ impl DefaultBotsterEngine {
     ) -> Result<SessionActivityStatus, DefaultBotsterEngineError> {
         self.runtime
             .classify_activity(session_id, now_seconds, active_threshold_seconds)
+    }
+
+    /// Inspect one session's lifecycle and activity through the command facade.
+    pub fn inspect_session(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+        active_threshold_seconds: u64,
+    ) -> Result<EngineSessionInspection, DefaultBotsterEngineError> {
+        self.runtime
+            .inspect_session(session_id, now_seconds, active_threshold_seconds)
+    }
+
+    /// Read a session's plain screen state where the managed runtime supports it.
+    pub fn read_screen(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .read_screen(request_id, session_id, now_seconds)
+    }
+
+    /// Capture a session snapshot where the managed runtime supports it.
+    pub fn capture_snapshot(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .capture_snapshot(request_id, session_id, now_seconds)
+    }
+
+    /// Replay or prepare a snapshot where the managed runtime supports it.
+    pub fn replay_snapshot(
+        &mut self,
+        request: PreparedSnapshotRequest,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.replay_snapshot(request, now_seconds)
     }
 
     /// Shut down one local PTY-backed session through the managed runtime path.
@@ -360,6 +409,12 @@ where
         self.multiplexer.session(session_id)
     }
 
+    /// Return sessions currently recorded by the command facade.
+    #[must_use]
+    pub fn list_sessions(&self) -> Vec<CoreSession> {
+        self.multiplexer.list_sessions()
+    }
+
     /// Return the host runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {
@@ -479,6 +534,50 @@ where
         })
     }
 
+    /// Read a session's plain screen state through the session worker path.
+    pub fn read_screen(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer.handle_session_request(
+            crate::SessionIoRequest::GetScreen {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Capture a session snapshot through the session worker path.
+    pub fn capture_snapshot(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer.handle_session_request(
+            crate::SessionIoRequest::GetSnapshot {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Replay or prepare a snapshot through the session worker path.
+    pub fn replay_snapshot(
+        &mut self,
+        request: PreparedSnapshotRequest,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer.handle_session_request(
+            crate::SessionIoRequest::PrepareSnapshot(request),
+            now_seconds,
+        )
+    }
+
     /// Route one runtime-originated session worker event.
     pub fn handle_runtime_event(
         &mut self,
@@ -523,6 +622,28 @@ where
             now_seconds,
             active_threshold_seconds,
         )
+    }
+
+    /// Inspect one session's lifecycle and activity through the command facade.
+    pub fn inspect_session(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+        active_threshold_seconds: u64,
+    ) -> Result<EngineSessionInspection, BotsterEngineError> {
+        Ok(EngineSessionInspection {
+            session: self
+                .session(session_id)
+                .ok_or_else(|| BotsterEngineError::UnknownSession {
+                    session_id: session_id.clone(),
+                })?
+                .clone(),
+            activity_status: self.classify_activity(
+                session_id,
+                now_seconds,
+                active_threshold_seconds,
+            )?,
+        })
     }
 
     /// Shut down one session worker and update core lifecycle state.
