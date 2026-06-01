@@ -22,6 +22,15 @@ fn dev_harness_exercises_real_default_engine_path() {
         "input should reach the local command and echo through client egress"
     );
     assert_eq!(report.resized_to, Some((30, 100)));
+    assert!(
+        report.screen_text.contains("echo:ping-embedder"),
+        "read screen should return plain terminal text from the default local runtime"
+    );
+    assert!(
+        report.snapshot_bytes > 0,
+        "capture snapshot should return opaque snapshot payload bytes"
+    );
+    assert_eq!(report.snapshot_size, Some((30, 100)));
     assert_eq!(
         report.activity_status,
         botster_core::SessionActivityStatus::Active
