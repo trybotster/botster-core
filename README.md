@@ -68,6 +68,37 @@ With default features disabled, `LocalProcessRuntime`,
 `DefaultBotsterEngine`, and `DefaultBotsterEngineError` are intentionally not
 exported, and `portable-pty` is absent from the production dependency tree.
 
+## Local Verification
+
+Run the same workspace checks used by pull request and main-branch CI before
+opening a pull request:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo test --doc --workspace
+cargo doc --workspace --no-deps
+```
+
+On Unix hosts, also run the local PTY acceptance test:
+
+```sh
+cargo test -p botster-core --test local_process_runtime_test
+```
+
+The PTY test file is Unix-gated so unsupported platforms skip it at compile
+time. CI runs that targeted check only on the Linux runner and does not depend
+on hub, Rails, WebRTC, TUI, browser, marketplace, cloud, or Project Pipelines
+runtime setup.
+
+Release verification also builds the whole workspace in release mode on pushes
+to `main` and on manual workflow dispatch:
+
+```sh
+cargo build --workspace --release
+```
+
 ## Consumer Test Support
 
 `botster-core-test-support` is the version-coupled test surface for downstream
