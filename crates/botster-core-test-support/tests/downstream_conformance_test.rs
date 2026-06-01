@@ -8,8 +8,17 @@ use botster_core::{
     CoreSessionMetadata, LocalProcessRuntime, ManagedSessionRuntime, ResizePayload,
     SessionLifecycleState,
 };
-use botster_core::{TerminalScreenEngine, TerminalScreenHook, TerminalScreenSize};
-use botster_core_test_support::assertions::assert_terminal_output_round_trips;
+use botster_core::{
+    ModeFlags, SessionIoEvent, TerminalColorProfile, TerminalOutputChunk, TerminalScreenEngine,
+    TerminalScreenHook, TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState,
+    TerminalSnapshotPayload,
+};
+use botster_core_test_support::assertions::{
+    assert_initial_snapshot_precedes_live_output,
+    assert_terminal_backend_resize_survives_snapshot_restore,
+    assert_terminal_backend_screen_state_matches_output_and_metadata,
+    assert_terminal_backend_snapshot_round_trips_opaque_state, assert_terminal_output_round_trips,
+};
 #[cfg(feature = "local-runtime")]
 use botster_core_test_support::conformance::{
     assert_output_activity, assert_shutdown_requested, assert_terminal_output_fanout,
@@ -102,6 +111,95 @@ fn downstream_consumer_can_drive_terminal_screen_fake() {
             if snapshot.bytes == b"downstream\xff"
                 && snapshot.size == TerminalScreenSize::new(33, 101)
     ));
+}
+
+#[test]
+fn downstream_consumer_can_assert_terminal_backend_shadow_state_contract() {
+    assert_terminal_backend_snapshot_round_trips_opaque_state(FakeTerminalScreenRuntime::new());
+    assert_terminal_backend_resize_survives_snapshot_restore(FakeTerminalScreenRuntime::new());
+}
+
+#[test]
+fn downstream_consumer_can_assert_terminal_backend_screen_state_contract() {
+    let mut runtime = FakeTerminalScreenRuntime::new();
+    let mode_flags = ModeFlags {
+        cursor_visible: true,
+        bracketed_paste: true,
+        mouse_mode: 1,
+        ..ModeFlags::default()
+    };
+    let color_profile = TerminalColorProfile::default();
+    let expected_state = TerminalScreenState {
+        size: TerminalScreenSize::new(29, 103),
+        plain_text: "metadata-backed-screen".to_string(),
+        title: Some("contract shell".to_string()),
+        cwd: Some("file:///workspace".to_string()),
+        mode_flags: mode_flags.clone(),
+        color_profile: Some(color_profile.clone()),
+    };
+
+    runtime.set_synced_state(
+        expected_state.title.clone(),
+        expected_state.cwd.clone(),
+        mode_flags,
+        Some(color_profile),
+    );
+
+    assert_terminal_backend_screen_state_matches_output_and_metadata(runtime, expected_state);
+}
+
+#[test]
+fn downstream_consumer_can_assert_initial_snapshot_before_live_output_contract() {
+    let events = assert_initial_snapshot_precedes_live_output();
+
+    assert!(matches!(
+        &events[0],
+        SessionIoEvent::InitialSnapshotReady(snapshot)
+            if snapshot.snapshot == b"initial-snapshot\x00"
+                && snapshot.rows == 45
+                && snapshot.cols == 120
+    ));
+    assert!(matches!(
+        &events[1],
+        SessionIoEvent::TerminalBytes { data, .. } if data == b"live-before-snapshot\xff"
+    ));
+}
+
+#[test]
+fn terminal_backend_conformance_rejects_broken_restore_runtime() {
+    let result = std::panic::catch_unwind(|| {
+        assert_terminal_backend_resize_survives_snapshot_restore(BrokenRestoreRuntime::default());
+    });
+
+    assert!(
+        result.is_err(),
+        "resize/restore conformance should fail when replay_snapshot drops state"
+    );
+}
+
+#[derive(Debug, Clone, Default)]
+struct BrokenRestoreRuntime {
+    inner: FakeTerminalScreenRuntime,
+}
+
+impl TerminalScreenRuntime for BrokenRestoreRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        self.inner.write_output(bytes)
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.inner.resize(size);
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        self.inner.capture_snapshot()
+    }
+
+    fn replay_snapshot(&mut self, _payload: TerminalSnapshotPayload) {}
+
+    fn screen_state(&self) -> TerminalScreenState {
+        self.inner.screen_state()
+    }
 }
 
 #[cfg(all(unix, feature = "local-runtime"))]
