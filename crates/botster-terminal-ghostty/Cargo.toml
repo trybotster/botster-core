@@ -1,0 +1,30 @@
+[package]
+name = "botster-terminal-ghostty"
+version = "0.1.0"
+edition = "2021"
+authors = ["Botster contributors"]
+description = "Ghostty shadow-terminal adapter boundary for Botster core hosts"
+repository = "https://github.com/trybotster/botster-core"
+homepage = "https://github.com/trybotster/botster-core"
+documentation = "https://docs.rs/botster-terminal-ghostty"
+license-file = "../../LICENSE"
+readme = "../../README.md"
+keywords = ["terminal", "ghostty", "pty", "multiplexer", "runtime"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+botster-core = { path = "../botster-core", default-features = false }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+unwrap_used = "warn"
