@@ -7,15 +7,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::{
-    BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
+    BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata, EngineCommandKind,
     ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem,
     NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
     PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
     PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
     PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
-    PluginWorkerRegistration, RequestId, SessionActivityStatus, SessionId, SessionIoRequest,
-    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress,
+    PluginWorkerRegistration, PreparedSnapshotRequest, RequestId, SessionActivityStatus, SessionId,
+    SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{DefaultBotsterEngine, ResizePayload};
@@ -463,6 +463,75 @@ fn botster_engine_consumer_lifecycle_uses_public_api() {
             .expect("late closed output does not refresh activity"),
         SessionActivityStatus::Idle
     );
+}
+
+#[test]
+fn engine_command_surface_uses_crate_root_facade_for_inventory_screen_and_snapshots() {
+    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::SpawnSession));
+    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::InspectSession));
+    assert!(ENGINE_COMMAND_KINDS.contains(&EngineCommandKind::CaptureSnapshot));
+
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    engine
+        .spawn_session(
+            spawn_request(),
+            CoreSessionMetadata::new(),
+            FakeSessionWorkerRuntime::new(),
+        )
+        .expect("spawn through command facade");
+
+    let sessions = engine.list_sessions();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].session_id, session_id());
+
+    engine
+        .receive_output(session_id(), b"command output".to_vec(), 10)
+        .expect("record output before command inspection");
+    let inspection = engine
+        .inspect_session(&session_id(), 11, 5)
+        .expect("inspect through command facade");
+    assert_eq!(inspection.session.session_id, session_id());
+    assert_eq!(inspection.session.lifecycle, SessionLifecycleState::Running);
+    assert_eq!(inspection.activity_status, SessionActivityStatus::Active);
+
+    let screen = engine
+        .read_screen(request_id("screen-command-1"), session_id(), 11)
+        .expect("read screen through command facade");
+    assert!(matches!(
+        screen.session_events.first(),
+        Some(SessionIoEvent::ScreenReady(screen))
+            if screen.request_id == request_id("screen-command-1") && screen.text == "screen"
+    ));
+
+    let snapshot = engine
+        .capture_snapshot(request_id("snapshot-command-1"), session_id(), 12)
+        .expect("capture snapshot through command facade");
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.request_id == request_id("snapshot-command-1")
+                && snapshot.data == b"snapshot"
+    ));
+
+    let replay = engine
+        .replay_snapshot(
+            PreparedSnapshotRequest {
+                request_id: request_id("replay-command-1"),
+                session_id: session_id(),
+                snapshot: b"prepared snapshot".to_vec(),
+                recovery: true,
+            },
+            13,
+        )
+        .expect("replay snapshot through command facade");
+    assert!(matches!(
+        replay.session_events.first(),
+        Some(SessionIoEvent::PreparedSnapshotReady(prepared))
+            if prepared.request_id == request_id("replay-command-1")
+                && prepared.payload == b"prepared snapshot"
+                && prepared.recovery
+    ));
 }
 
 #[test]

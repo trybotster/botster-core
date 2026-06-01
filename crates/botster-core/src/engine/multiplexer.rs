@@ -180,6 +180,12 @@ where
         self.sessions.keys().cloned().collect()
     }
 
+    /// Return sessions currently recorded by the assembled engine.
+    #[must_use]
+    pub fn list_sessions(&self) -> Vec<CoreSession> {
+        self.sessions.values().cloned().collect()
+    }
+
     /// Return the host runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {

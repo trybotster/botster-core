@@ -5,6 +5,7 @@
 //! `botster-core`.
 
 pub mod botster;
+pub mod command;
 pub mod managed_session_runtime;
 pub mod multiplexer;
 pub mod plugin_worker;
@@ -19,6 +20,13 @@ pub use botster::{
 };
 #[cfg(feature = "local-runtime")]
 pub use botster::{DefaultBotsterEngine, DefaultBotsterEngineError};
+pub use command::{
+    EngineClientId, EngineCommandEvent, EngineCommandKind, EngineCommandResult,
+    EngineNotificationId, EngineNotificationItem, EngineNotificationTarget,
+    EngineReplaySnapshotRequest, EngineRequestId, EngineSessionId, EngineSessionInspection,
+    EngineSessionIoRequest, EngineSpawnSessionMetadata, EngineSpawnSessionRequest,
+    EngineSpawnSessionResult, EngineSubscriptionId, ENGINE_COMMAND_KINDS,
+};
 pub use managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 pub use multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
