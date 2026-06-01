@@ -31,8 +31,13 @@
 //! persistence, config discovery, auth, cloud/WebRTC/signaling, marketplace
 //! policy, CLI UX, TUI/browser rendering, and product workflows.
 
+use std::error::Error;
+use std::fmt;
+
 use crate::actor::{PreparedSnapshotRequest, SessionIoEvent, SessionIoRequest};
-use crate::contract::notification::{NotificationId, NotificationItem, NotificationTarget};
+use crate::contract::notification::{
+    NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
+};
 use crate::engine::botster::{BotsterEngineOutput, BotsterSpawnOutcome};
 use crate::runtime::SessionSpawnRequest;
 use crate::session::{
@@ -85,6 +90,275 @@ pub const ENGINE_COMMAND_KINDS: &[EngineCommandKind] = &[
     EngineCommandKind::Notifications,
 ];
 
+/// Typed command request executed by [`BotsterEngine`](crate::BotsterEngine).
+///
+/// The generic worker runtime is supplied only by [`SpawnSession`](Self::SpawnSession)
+/// because custom host adapters own worker construction.
+pub enum EngineCommand<W> {
+    /// Spawn a session from explicit host-resolved process details.
+    SpawnSession {
+        /// Spawn request supplied by the host.
+        request: SessionSpawnRequest,
+        /// Core session metadata supplied by the host.
+        metadata: CoreSessionMetadata,
+        /// Host worker runtime for the spawned session.
+        worker_runtime: W,
+    },
+    /// Attach one client subscription to a session.
+    AttachClient {
+        /// Client being attached.
+        client_id: ClientId,
+        /// Session receiving the subscription.
+        session_id: SessionId,
+        /// Subscription identity chosen by the host.
+        subscription_id: SubscriptionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Detach one client subscription from a session.
+    DetachClient {
+        /// Client being detached.
+        client_id: ClientId,
+        /// Session losing the subscription.
+        session_id: SessionId,
+        /// Subscription identity chosen by the host.
+        subscription_id: SubscriptionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Send terminal bytes from a client to a session.
+    SendInput {
+        /// Client sending input.
+        client_id: ClientId,
+        /// Session receiving input.
+        session_id: SessionId,
+        /// Terminal bytes supplied by the caller.
+        data: Vec<u8>,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Resize a session terminal.
+    Resize {
+        /// Client requesting the resize.
+        client_id: ClientId,
+        /// Session being resized.
+        session_id: SessionId,
+        /// Terminal rows.
+        rows: u16,
+        /// Terminal columns.
+        cols: u16,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// List recorded sessions.
+    ListSessions,
+    /// Inspect one session lifecycle and activity.
+    InspectSession {
+        /// Session being inspected.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+        /// Maximum idle interval classified as active.
+        active_threshold_seconds: u64,
+    },
+    /// Read plain screen state where the worker supports it.
+    ReadScreen {
+        /// Caller-supplied request id.
+        request_id: RequestId,
+        /// Session being read.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Capture an opaque terminal snapshot where the worker supports it.
+    CaptureSnapshot {
+        /// Caller-supplied request id.
+        request_id: RequestId,
+        /// Session being snapshotted.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Replay or prepare an opaque terminal snapshot where the worker supports it.
+    ReplaySnapshot {
+        /// Snapshot request supplied by the caller.
+        request: PreparedSnapshotRequest,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Shut down one session.
+    Shutdown {
+        /// Session being shut down.
+        session_id: SessionId,
+        /// Host-supplied reason string.
+        reason: String,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Queue one notification in the generic engine inbox.
+    PostNotification {
+        /// Notification item supplied by the caller.
+        item: NotificationItem,
+    },
+    /// Drain deliverable notifications for one target.
+    DrainNotifications {
+        /// Target to drain.
+        target: NotificationTarget,
+        /// Caller-supplied notification clock.
+        now: NotificationTimestamp,
+    },
+}
+
+impl<W> EngineCommand<W> {
+    /// Return the stable command kind represented by this request.
+    #[must_use]
+    pub const fn kind(&self) -> EngineCommandKind {
+        match self {
+            Self::SpawnSession { .. } => EngineCommandKind::SpawnSession,
+            Self::AttachClient { .. } => EngineCommandKind::AttachClient,
+            Self::DetachClient { .. } => EngineCommandKind::DetachClient,
+            Self::SendInput { .. } => EngineCommandKind::SendInput,
+            Self::Resize { .. } => EngineCommandKind::Resize,
+            Self::ListSessions => EngineCommandKind::ListSessions,
+            Self::InspectSession { .. } => EngineCommandKind::InspectSession,
+            Self::ReadScreen { .. } => EngineCommandKind::ReadScreen,
+            Self::CaptureSnapshot { .. } => EngineCommandKind::CaptureSnapshot,
+            Self::ReplaySnapshot { .. } => EngineCommandKind::ReplaySnapshot,
+            Self::Shutdown { .. } => EngineCommandKind::Shutdown,
+            Self::PostNotification { .. } | Self::DrainNotifications { .. } => {
+                EngineCommandKind::Notifications
+            }
+        }
+    }
+}
+
+/// Typed command request executed by `DefaultBotsterEngine`.
+///
+/// Notifications are intentionally absent because the default local facade does
+/// not expose notification inbox methods today.
+#[cfg(feature = "local-runtime")]
+pub enum DefaultEngineCommand {
+    /// Spawn a local PTY-backed session from explicit host-resolved details.
+    SpawnSession {
+        /// Spawn request supplied by the host.
+        request: SessionSpawnRequest,
+        /// Core session metadata supplied by the host.
+        metadata: CoreSessionMetadata,
+    },
+    /// Attach one client subscription to a session.
+    AttachClient {
+        /// Client being attached.
+        client_id: ClientId,
+        /// Session receiving the subscription.
+        session_id: SessionId,
+        /// Subscription identity chosen by the host.
+        subscription_id: SubscriptionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Detach one client subscription from a session.
+    DetachClient {
+        /// Client being detached.
+        client_id: ClientId,
+        /// Session losing the subscription.
+        session_id: SessionId,
+        /// Subscription identity chosen by the host.
+        subscription_id: SubscriptionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Send terminal bytes from a client to a session.
+    SendInput {
+        /// Client sending input.
+        client_id: ClientId,
+        /// Session receiving input.
+        session_id: SessionId,
+        /// Terminal bytes supplied by the caller.
+        data: Vec<u8>,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Resize a session terminal.
+    Resize {
+        /// Client requesting the resize.
+        client_id: ClientId,
+        /// Session being resized.
+        session_id: SessionId,
+        /// Terminal rows.
+        rows: u16,
+        /// Terminal columns.
+        cols: u16,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// List recorded sessions.
+    ListSessions,
+    /// Inspect one session lifecycle and activity.
+    InspectSession {
+        /// Session being inspected.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+        /// Maximum idle interval classified as active.
+        active_threshold_seconds: u64,
+    },
+    /// Read plain screen state where the managed runtime supports it.
+    ReadScreen {
+        /// Caller-supplied request id.
+        request_id: RequestId,
+        /// Session being read.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Capture an opaque terminal snapshot where the managed runtime supports it.
+    CaptureSnapshot {
+        /// Caller-supplied request id.
+        request_id: RequestId,
+        /// Session being snapshotted.
+        session_id: SessionId,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Replay or prepare an opaque terminal snapshot where the managed runtime supports it.
+    ReplaySnapshot {
+        /// Snapshot request supplied by the caller.
+        request: PreparedSnapshotRequest,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+    /// Shut down one session.
+    Shutdown {
+        /// Session being shut down.
+        session_id: SessionId,
+        /// Host-supplied reason string.
+        reason: String,
+        /// Caller-supplied logical clock.
+        now_seconds: u64,
+    },
+}
+
+#[cfg(feature = "local-runtime")]
+impl DefaultEngineCommand {
+    /// Return the stable command kind represented by this request.
+    #[must_use]
+    pub const fn kind(&self) -> EngineCommandKind {
+        match self {
+            Self::SpawnSession { .. } => EngineCommandKind::SpawnSession,
+            Self::AttachClient { .. } => EngineCommandKind::AttachClient,
+            Self::DetachClient { .. } => EngineCommandKind::DetachClient,
+            Self::SendInput { .. } => EngineCommandKind::SendInput,
+            Self::Resize { .. } => EngineCommandKind::Resize,
+            Self::ListSessions => EngineCommandKind::ListSessions,
+            Self::InspectSession { .. } => EngineCommandKind::InspectSession,
+            Self::ReadScreen { .. } => EngineCommandKind::ReadScreen,
+            Self::CaptureSnapshot { .. } => EngineCommandKind::CaptureSnapshot,
+            Self::ReplaySnapshot { .. } => EngineCommandKind::ReplaySnapshot,
+            Self::Shutdown { .. } => EngineCommandKind::Shutdown,
+        }
+    }
+}
+
 /// Session inspection returned by the command facade.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineSessionInspection {
@@ -92,6 +366,58 @@ pub struct EngineSessionInspection {
     pub session: CoreSession,
     /// Activity classification at the caller-provided clock value.
     pub activity_status: SessionActivityStatus,
+}
+
+/// Typed result returned by a heterogeneous engine command execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineCommandOutcome {
+    /// Session spawn completed.
+    SpawnSession(BotsterSpawnOutcome),
+    /// A command produced session/client output.
+    Output(BotsterEngineOutput),
+    /// Recorded sessions were listed.
+    Sessions(Vec<CoreSession>),
+    /// One session was inspected.
+    Inspection(EngineSessionInspection),
+    /// One notification was queued.
+    NotificationPosted(NotificationId),
+    /// Deliverable notifications were drained.
+    NotificationsDrained(Vec<NotificationItem>),
+}
+
+/// Error returned by typed command execution.
+#[derive(Debug)]
+pub struct EngineCommandError<E> {
+    /// Command kind that failed.
+    pub kind: EngineCommandKind,
+    /// Typed facade error from the underlying engine.
+    pub source: E,
+}
+
+impl<E> EngineCommandError<E> {
+    /// Wrap a facade error with the command kind that produced it.
+    #[must_use]
+    pub const fn new(kind: EngineCommandKind, source: E) -> Self {
+        Self { kind, source }
+    }
+}
+
+impl<E> fmt::Display for EngineCommandError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{:?} command failed: {}", self.kind, self.source)
+    }
+}
+
+impl<E> Error for EngineCommandError<E>
+where
+    E: Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
 }
 
 /// Spawn request shape used by the command surface.
@@ -103,8 +429,8 @@ pub type EngineSpawnSessionMetadata = CoreSessionMetadata;
 /// Spawn result shape returned by the command facade.
 pub type EngineSpawnSessionResult = BotsterSpawnOutcome;
 
-/// Mutating command result shape returned by the command facade.
-pub type EngineCommandResult = BotsterEngineOutput;
+/// Typed command result shape returned by the command facade.
+pub type EngineCommandResult = EngineCommandOutcome;
 
 /// Session worker event shape surfaced by command outcomes.
 pub type EngineCommandEvent = SessionIoEvent;

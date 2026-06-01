@@ -9,9 +9,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::{
-    BotsterEngineObservation, ClientId, CoreSessionMetadata, DefaultBotsterEngine, RequestId,
-    ResizePayload, SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    BotsterEngineObservation, ClientId, CoreSessionMetadata, DefaultBotsterEngine,
+    DefaultEngineCommand, EngineCommandOutcome, RequestId, ResizePayload, SessionActivityStatus,
+    SessionId, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress,
 };
 
 /// Deterministic report emitted by the dev-only real embedder smoke harness.
@@ -101,8 +102,14 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let mut logical_clock = 20;
 
     let spawn = engine
-        .spawn_session(request.clone(), CoreSessionMetadata::new())
+        .execute_command(DefaultEngineCommand::SpawnSession {
+            request: request.clone(),
+            metadata: CoreSessionMetadata::new(),
+        })
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
+    let EngineCommandOutcome::SpawnSession(spawn) = spawn else {
+        return Err(EngineSmokeError::new("spawn command returned wrong result"));
+    };
     if spawn.handle.session_id != session_id {
         return Err(EngineSmokeError::new(
             "spawned session id did not match request",
@@ -110,12 +117,12 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     }
 
     engine
-        .attach_client(
-            client_id.clone(),
-            session_id.clone(),
+        .execute_command(DefaultEngineCommand::AttachClient {
+            client_id: client_id.clone(),
+            session_id: session_id.clone(),
             subscription_id,
-            logical_clock,
-        )
+            now_seconds: logical_clock,
+        })
         .map_err(|error| EngineSmokeError::new(format!("attach failed: {error}")))?;
     logical_clock += 1;
 
@@ -123,12 +130,12 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
     let input = "ping-embedder\n";
     engine
-        .write_bytes(
-            client_id.clone(),
-            session_id.clone(),
-            input.as_bytes().to_vec(),
-            logical_clock,
-        )
+        .execute_command(DefaultEngineCommand::SendInput {
+            client_id: client_id.clone(),
+            session_id: session_id.clone(),
+            data: input.as_bytes().to_vec(),
+            now_seconds: logical_clock,
+        })
         .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
     logical_clock += 1;
 
@@ -141,13 +148,13 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
     let resized_to = (30, 100);
     engine
-        .resize(
+        .execute_command(DefaultEngineCommand::Resize {
             client_id,
-            session_id.clone(),
-            resized_to.0,
-            resized_to.1,
-            logical_clock,
-        )
+            session_id: session_id.clone(),
+            rows: resized_to.0,
+            cols: resized_to.1,
+            now_seconds: logical_clock,
+        })
         .map_err(|error| EngineSmokeError::new(format!("resize failed: {error}")))?;
     logical_clock += 1;
 
@@ -156,12 +163,17 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         .map_err(|error| EngineSmokeError::new(format!("classify failed: {error}")))?;
 
     let shutdown = engine
-        .shutdown_session(
-            session_id.clone(),
-            "real embedder smoke complete",
-            logical_clock,
-        )
+        .execute_command(DefaultEngineCommand::Shutdown {
+            session_id: session_id.clone(),
+            reason: "real embedder smoke complete".to_string(),
+            now_seconds: logical_clock,
+        })
         .map_err(|error| EngineSmokeError::new(format!("shutdown failed: {error}")))?;
+    let EngineCommandOutcome::Output(shutdown) = shutdown else {
+        return Err(EngineSmokeError::new(
+            "shutdown command returned wrong result",
+        ));
+    };
     let shutdown_observed = shutdown.observations.iter().any(|observation| {
         observation
             == &BotsterEngineObservation::SessionLifecycle {
