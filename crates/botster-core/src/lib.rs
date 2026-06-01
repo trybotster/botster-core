@@ -5,7 +5,7 @@
 //! owns Botster policy and orchestration.
 //!
 //! The default feature set includes `local-runtime`, which exposes the
-//! policy-free local PTY/process adapter and [`DefaultBotsterEngine`]. Embedders
+//! policy-free local PTY/process adapter and `DefaultBotsterEngine`. Embedders
 //! that only need contracts and custom host adapters can disable default
 //! features and keep [`BotsterEngine`], runtime traits, and transport contracts
 //! without the local process dependency.

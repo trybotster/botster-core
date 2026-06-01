@@ -3,7 +3,7 @@
 //! The engine owns reusable worker mechanics: handler lookup, per-plugin
 //! capacity accounting, capability checks, deadline attribution, and scoped
 //! reload/unload cleanup. Concrete Lua, WASM, or host runtimes implement
-//! [`PluginRuntime`](crate::runtime::PluginRuntime) outside core.
+//! [`PluginRuntime`] outside core.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
