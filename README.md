@@ -13,9 +13,10 @@ plugin runtime must agree on.
 - `crates/botster-core`: production contract and engine crate.
 - `crates/botster-core-test-support`: dev-dependency fixtures, fakes, and
   conformance helpers for consumers pinned to the same core version.
-- `crates/botster-core-dev`: dev-only engine smoke harnesses that fake a
-  session/client/plugin path for core development; not the product CLI, install
-  UX, auth flow, hub daemon, marketplace, or persistent config surface.
+- `crates/botster-core-dev`: dev-only engine smoke harnesses that run an
+  explicit local command through the public default command API for core
+  development; not the product CLI, install UX, auth flow, hub daemon,
+  marketplace, or persistent config surface.
 - `crates/botster-terminal-ghostty`: feature-gated crate for the blessed
   Ghostty shadow-terminal adapter path. It depends on the backend-neutral core
   terminal seam, owns the trybotster Ghostty fork pin under `vendor/ghostty`,
