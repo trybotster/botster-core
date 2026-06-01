@@ -1,6 +1,5 @@
-#![cfg(unix)]
-
 //! Local process runtime acceptance and shutdown behavior tests.
+#![cfg(all(unix, feature = "local-runtime"))]
 
 use std::fs;
 use std::path::{Path, PathBuf};
