@@ -60,8 +60,13 @@ pub fn assert_terminal_output_round_trips(
     egress
 }
 
-/// Assert that a terminal backend preserves opaque snapshot bytes, dimensions,
-/// and host-owned format labels through capture and replay.
+/// Assert that a byte-level fake terminal backend preserves snapshot bytes,
+/// dimensions, host-owned format labels, and deterministic re-export through
+/// capture and replay.
+///
+/// Real opaque backends should use
+/// [`assert_terminal_backend_opaque_snapshot_conformance`] instead so they are
+/// not constrained to private snapshot byte layout or re-export determinism.
 pub fn assert_terminal_backend_snapshot_round_trips_opaque_state<R>(runtime: R)
 where
     R: TerminalScreenRuntime,
@@ -101,9 +106,9 @@ where
     assert_eq!(restored, captured);
 }
 
-/// Assert that an opaque terminal backend preserves visible state, dimensions,
-/// and host-owned format labels through capture and replay without depending
-/// on private snapshot byte contents.
+/// Assert that an opaque terminal backend captures non-empty snapshot bytes and
+/// preserves visible state, dimensions, and host-owned format labels through
+/// capture and replay without depending on private snapshot byte layout.
 pub fn assert_terminal_backend_opaque_snapshot_conformance<R>(
     runtime: R,
     expected_format: Option<&str>,
