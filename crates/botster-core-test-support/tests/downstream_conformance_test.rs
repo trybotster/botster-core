@@ -15,6 +15,7 @@ use botster_core::{
 };
 use botster_core_test_support::assertions::{
     assert_initial_snapshot_precedes_live_output,
+    assert_terminal_backend_opaque_snapshot_conformance,
     assert_terminal_backend_resize_survives_snapshot_restore,
     assert_terminal_backend_screen_state_matches_output_and_metadata,
     assert_terminal_backend_snapshot_round_trips_opaque_state, assert_terminal_output_round_trips,
@@ -116,6 +117,10 @@ fn downstream_consumer_can_drive_terminal_screen_fake() {
 #[test]
 fn downstream_consumer_can_assert_terminal_backend_shadow_state_contract() {
     assert_terminal_backend_snapshot_round_trips_opaque_state(FakeTerminalScreenRuntime::new());
+    assert_terminal_backend_opaque_snapshot_conformance(
+        FakeTerminalScreenRuntime::new(),
+        Some("fake-opaque-v1"),
+    );
     assert_terminal_backend_resize_survives_snapshot_restore(FakeTerminalScreenRuntime::new());
 }
 
