@@ -23,6 +23,65 @@ pub trait TerminalScreenRuntime {
     fn screen_state(&self) -> TerminalScreenState;
 }
 
+/// Minimal terminal state runtime for core-managed session snapshots.
+#[derive(Debug, Clone)]
+pub(crate) struct PlainTerminalScreenRuntime {
+    size: TerminalScreenSize,
+    bytes: Vec<u8>,
+    plain_text: String,
+    format: Option<String>,
+}
+
+impl Default for PlainTerminalScreenRuntime {
+    fn default() -> Self {
+        Self {
+            size: TerminalScreenSize::new(24, 80),
+            bytes: Vec::new(),
+            plain_text: String::new(),
+            format: Some("plain-opaque-v1".to_string()),
+        }
+    }
+}
+
+impl PlainTerminalScreenRuntime {
+    /// Build an empty plain terminal state runtime.
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn refresh_plain_text(&mut self) {
+        self.plain_text = String::from_utf8_lossy(&self.bytes).into_owned();
+    }
+}
+
+impl TerminalScreenRuntime for PlainTerminalScreenRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        self.bytes.extend_from_slice(bytes);
+        self.refresh_plain_text();
+        TerminalOutputChunk::new(bytes.to_vec())
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.size = size;
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        TerminalSnapshotPayload::new(self.bytes.clone(), self.size, self.format.clone())
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.bytes = payload.bytes;
+        self.size = payload.size;
+        self.format = payload.format;
+        self.refresh_plain_text();
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        TerminalScreenState::new(self.size, self.plain_text.clone())
+    }
+}
+
 /// Outcome produced by one terminal screen engine operation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TerminalScreenOutcome {
