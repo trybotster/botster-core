@@ -16,6 +16,9 @@ plugin runtime must agree on.
 - `crates/botster-core-dev`: dev-only engine smoke harnesses that fake a
   session/client/plugin path for core development; not the product CLI, install
   UX, auth flow, hub daemon, marketplace, or persistent config surface.
+- `crates/botster-terminal-ghostty`: scaffold crate for the blessed Ghostty
+  shadow-terminal adapter path. It depends on the backend-neutral core terminal
+  seam and is where future concrete Ghostty integration belongs.
 
 ## What Core Proves Today
 
@@ -135,9 +138,14 @@ Zig build policy in a future optional adapter crate rather than in core.
 
 Snapshot payload bytes are opaque. Core records dimensions and an optional
 host-owned format label, but it does not parse terminal cells or decide which
-terminal backend a host should use. Concrete adapters may be backed by
-Ghostty, restty, or another terminal implementation; those are host dependency
-choices and are not dependencies of `botster-core`.
+terminal backend a host should use. Botster's blessed authoritative
+shadow-terminal backend path is Ghostty, housed in the sibling
+`botster-terminal-ghostty` crate so concrete native parser policy stays out of
+`botster-core`.
+
+restty is a web/client renderer path. It may consume terminal state and streams
+through client data-plane contracts, but it is not core shadow-terminal
+infrastructure and must not own authoritative terminal truth.
 
 Correlated delivery still uses the existing session-worker carriers such as
 `SnapshotReady`, `PreparedSnapshotRequest`, `PreparedSnapshotReady`, and
