@@ -1,6 +1,7 @@
 //! Scheduling-neutral managed session runtime over core engine primitives.
 
 use std::cell::RefCell;
+use std::error::Error;
 use std::rc::Rc;
 
 use thiserror::Error;
@@ -13,7 +14,9 @@ use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
 use crate::engine::session_worker::SessionWorkerRuntime;
-use crate::engine::terminal_screen::{PlainTerminalScreenRuntime, TerminalScreenEngine};
+use crate::engine::terminal_screen::{
+    PlainTerminalScreenRuntime, TerminalScreenEngine, TerminalScreenRuntime,
+};
 use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest,
@@ -39,7 +42,17 @@ pub enum ManagedSessionRuntimeError {
         /// Stable request kind that requires host-owned terminal state.
         request_kind: &'static str,
     },
+    /// A host-supplied terminal backend could not be constructed.
+    #[error("managed session runtime could not construct terminal backend")]
+    TerminalBackendConstruction {
+        /// Backend construction failure from the host adapter.
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
+    },
 }
+
+type TerminalBackendFactory<T> =
+    Rc<dyn Fn(TerminalScreenSize) -> Result<T, Box<dyn Error + Send + Sync>>>;
 
 /// Scheduling-neutral coordinator for one or more managed live sessions.
 ///
@@ -49,22 +62,47 @@ pub enum ManagedSessionRuntimeError {
 /// session worker and subscription multiplexer path. Terminal snapshot and
 /// screen reads come from core-owned state updated by drained runtime output.
 #[derive(Clone)]
-pub struct ManagedSessionRuntime<R>
+pub struct ManagedSessionRuntime<R, T = PlainTerminalScreenRuntime>
 where
     R: SessionRuntime,
+    T: TerminalScreenRuntime,
 {
-    engine: MultiplexerEngine<R, SessionRuntimeWorkerAdapter>,
+    engine: MultiplexerEngine<R, SessionRuntimeWorkerAdapter<T>>,
+    terminal_backend_factory: TerminalBackendFactory<T>,
 }
 
-impl<R> ManagedSessionRuntime<R>
+impl<R> ManagedSessionRuntime<R, PlainTerminalScreenRuntime>
 where
     R: SessionRuntime,
 {
     /// Build a managed runtime around a host session runtime.
     #[must_use]
     pub fn new(runtime: R) -> Self {
+        Self::with_terminal_backend_factory(runtime, |size| {
+            Ok::<_, std::convert::Infallible>(PlainTerminalScreenRuntime::new(size))
+        })
+    }
+}
+
+impl<R, T> ManagedSessionRuntime<R, T>
+where
+    R: SessionRuntime,
+    T: TerminalScreenRuntime + 'static,
+{
+    /// Build a managed runtime with a host-supplied terminal backend factory.
+    ///
+    /// The factory is called once per spawned session with that session's
+    /// initial PTY size, or the managed runtime's default terminal size.
+    pub fn with_terminal_backend_factory<E, F>(runtime: R, factory: F) -> Self
+    where
+        E: Error + Send + Sync + 'static,
+        F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
+    {
         Self {
             engine: MultiplexerEngine::new(runtime),
+            terminal_backend_factory: Rc::new(move |size| {
+                factory(size).map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+            }),
         }
     }
 
@@ -91,9 +129,19 @@ where
         request: SessionSpawnRequest,
         metadata: CoreSessionMetadata,
     ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
-        Ok(self
-            .engine
-            .spawn_session(request, metadata, SessionRuntimeWorkerAdapter::new())?)
+        let size = request
+            .initial_pty_size
+            .as_ref()
+            .map(|size| TerminalScreenSize::new(size.rows, size.cols))
+            .unwrap_or_else(|| TerminalScreenSize::new(24, 80));
+        let terminal = (self.terminal_backend_factory)(size)
+            .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
+
+        Ok(self.engine.spawn_session(
+            request,
+            metadata,
+            SessionRuntimeWorkerAdapter::new(terminal),
+        )?)
     }
 
     /// Route one client ingress frame through the existing multiplexer path.
@@ -242,22 +290,45 @@ where
     fn engine_worker(
         &mut self,
         session_id: &SessionId,
-    ) -> Option<&mut SessionRuntimeWorkerAdapter> {
+    ) -> Option<&mut SessionRuntimeWorkerAdapter<T>> {
         self.engine.session_worker_runtime_mut(session_id)
     }
 }
 
 /// Session worker adapter that converts PTY I/O and lifecycle operations into runtime inputs.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct SessionRuntimeWorkerAdapter {
-    state: Rc<RefCell<SessionRuntimeWorkerState>>,
+#[derive(Debug)]
+pub(crate) struct SessionRuntimeWorkerAdapter<T>
+where
+    T: TerminalScreenRuntime,
+{
+    state: Rc<RefCell<SessionRuntimeWorkerState<T>>>,
 }
 
-impl SessionRuntimeWorkerAdapter {
+impl<T> Clone for SessionRuntimeWorkerAdapter<T>
+where
+    T: TerminalScreenRuntime,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state: Rc::clone(&self.state),
+        }
+    }
+}
+
+impl<T> SessionRuntimeWorkerAdapter<T>
+where
+    T: TerminalScreenRuntime,
+{
     /// Build an adapter with core-owned terminal state.
     #[must_use]
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub(crate) fn new(terminal: T) -> Self {
+        Self {
+            state: Rc::new(RefCell::new(SessionRuntimeWorkerState {
+                inputs: Vec::new(),
+                terminal: TerminalScreenEngine::new(terminal),
+                pending_runtime_events: Vec::new(),
+            })),
+        }
     }
 
     /// Record runtime output in terminal state before live fanout.
@@ -281,23 +352,19 @@ impl SessionRuntimeWorkerAdapter {
 }
 
 #[derive(Debug, Clone)]
-struct SessionRuntimeWorkerState {
+struct SessionRuntimeWorkerState<T>
+where
+    T: TerminalScreenRuntime,
+{
     inputs: Vec<SessionRuntimeInput>,
-    terminal: TerminalScreenEngine<PlainTerminalScreenRuntime>,
+    terminal: TerminalScreenEngine<T>,
     pending_runtime_events: Vec<crate::SessionWorkerRuntimeEvent>,
 }
 
-impl Default for SessionRuntimeWorkerState {
-    fn default() -> Self {
-        Self {
-            inputs: Vec::new(),
-            terminal: TerminalScreenEngine::new(PlainTerminalScreenRuntime::new()),
-            pending_runtime_events: Vec::new(),
-        }
-    }
-}
-
-impl SessionWorkerRuntime for SessionRuntimeWorkerAdapter {
+impl<T> SessionWorkerRuntime for SessionRuntimeWorkerAdapter<T>
+where
+    T: TerminalScreenRuntime,
+{
     fn write_input(&mut self, session_id: &SessionId, data: &[u8]) {
         self.state
             .borrow_mut()

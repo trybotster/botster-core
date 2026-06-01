@@ -19,6 +19,9 @@ libghostty-vt = []
 [dependencies]
 botster-core = { path = "../botster-core", default-features = false }
 
+[dev-dependencies]
+botster-core-test-support = { path = "../botster-core-test-support", default-features = false }
+
 [package.metadata.docs.rs]
 all-features = true
 

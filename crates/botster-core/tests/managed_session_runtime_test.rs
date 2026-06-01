@@ -1,13 +1,17 @@
 //! Managed session runtime acceptance tests.
 
+use std::cell::RefCell;
 use std::fs;
+use std::rc::Rc;
 
 use botster_core::{
     BackpressureRoute, CoreSessionMetadata, MailboxSendFailureReason, ManagedSessionRuntime,
     ManagedSessionRuntimeError, ProcessExitedPayload, QueueSource, RequestId, ResizePayload,
     SessionId, SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionRuntimeError,
     SessionRuntimeErrorKind, SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TerminalColorProfile, TransportEgress, TransportIngress,
+    SpawnWorkingDirectory, SubscriptionId, TerminalColorProfile, TerminalOutputChunk,
+    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+    TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -63,6 +67,48 @@ fn subscribe(runtime: &mut ManagedSessionRuntime<FakeSessionRuntime>) {
         .expect("subscribe client");
 }
 
+#[derive(Debug, Clone)]
+struct SpyTerminalRuntime {
+    size: TerminalScreenSize,
+    writes: Rc<RefCell<Vec<Vec<u8>>>>,
+}
+
+impl SpyTerminalRuntime {
+    fn new(size: TerminalScreenSize, writes: Rc<RefCell<Vec<Vec<u8>>>>) -> Self {
+        Self { size, writes }
+    }
+}
+
+impl TerminalScreenRuntime for SpyTerminalRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        self.writes.borrow_mut().push(bytes.to_vec());
+        TerminalOutputChunk::new(bytes.to_vec())
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.size = size;
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        TerminalSnapshotPayload::new(
+            self.writes.borrow().concat(),
+            self.size,
+            Some("spy-terminal-snapshot-v1".to_string()),
+        )
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.size = payload.size;
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        TerminalScreenState::new(
+            self.size,
+            String::from_utf8_lossy(&self.writes.borrow().concat()).into_owned(),
+        )
+    }
+}
+
 #[test]
 fn supervised_session_reader_events_reach_subscription_multiplexer() {
     let mut runtime = managed_runtime();
@@ -104,6 +150,52 @@ fn supervised_session_reader_events_reach_subscription_multiplexer() {
         snapshot.session_events.first(),
         Some(SessionIoEvent::SnapshotReady(snapshot))
             if snapshot.data == b"hello" && snapshot.rows == 24 && snapshot.cols == 80
+    ));
+}
+
+#[test]
+fn supervised_session_can_inject_non_plain_terminal_backend_factory() {
+    let writes = Rc::new(RefCell::new(Vec::new()));
+    let factory_writes = Rc::clone(&writes);
+    let mut runtime = ManagedSessionRuntime::with_terminal_backend_factory(
+        FakeSessionRuntime::new(),
+        move |size| {
+            Ok::<_, std::convert::Infallible>(SpyTerminalRuntime::new(
+                size,
+                Rc::clone(&factory_writes),
+            ))
+        },
+    );
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session with injected terminal backend");
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"injected backend bytes".to_vec());
+    runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime output through injected backend");
+
+    assert_eq!(
+        writes.borrow().as_slice(),
+        [b"injected backend bytes".to_vec()]
+    );
+
+    let snapshot = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-injected"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot reads injected backend");
+
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.data == b"injected backend bytes"
     ));
 }
 
