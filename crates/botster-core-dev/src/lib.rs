@@ -2,41 +2,45 @@
 
 use std::error::Error;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+
+#[cfg(unix)]
+use std::thread;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 use botster_core::{
-    BotsterEngine, BoundaryJson, ClientId, CoreSessionMetadata, ExtensionEntrypoint, ExtensionKind,
-    ExtensionRuntime, NotificationContent, NotificationId, NotificationItem, NotificationSeverity,
-    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
-    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
-    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
-    PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec, PluginRuntime,
-    PluginWorkerRegistration, RequestId, SessionId, SessionIoRequest, SessionSpawnRequest,
+    BotsterEngineObservation, ClientId, CoreSessionMetadata, DefaultBotsterEngine, RequestId,
+    ResizePayload, SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest,
     SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
-use botster_core_test_support::fake::{FakeSessionRuntime, FakeSessionWorkerRuntime};
 
-/// Deterministic report emitted by the dev-only engine smoke harness.
+/// Deterministic report emitted by the dev-only real embedder smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineSmokeReport {
-    /// Session spawned through the host runtime boundary.
+    /// Whether this host ran the real local PTY example.
+    pub ran_real_embedder: bool,
+    /// Session spawned through the public default local engine.
     pub spawned_session_id: SessionId,
-    /// Client attached through the subscription multiplexer.
+    /// Client attached through the public subscription path.
     pub attached_client_id: ClientId,
-    /// Terminal input routed from the client path to the session runtime.
+    /// Explicit executable selected by the embedding host.
+    pub executable: String,
+    /// Explicit arguments selected by the embedding host.
+    pub arguments: Vec<String>,
+    /// Working directory selected without embedding user-specific host paths.
+    pub working_directory: String,
+    /// Startup output observed through subscribed client egress.
+    pub startup_output: String,
+    /// Terminal input sent through the client-facing path.
     pub terminal_input: String,
-    /// Terminal output delivered back to the subscribed client.
-    pub client_output: String,
-    /// Session output activity timestamp observed through `SessionWorkerEngine`.
-    pub output_activity_at: Option<u64>,
-    /// Notification titles drained from the typed notification inbox.
-    pub notifications: Vec<String>,
-    /// Whether the typed session notification path stayed out of client egress.
-    pub session_notification_routed: bool,
-    /// Summary returned by the fake plugin handler through `PluginWorkerEngine`.
-    pub plugin_result: String,
-    /// Whether shutdown was requested through the runtime boundary.
-    pub shutdown_requested: bool,
+    /// Echoed output observed through subscribed client egress.
+    pub echoed_output: String,
+    /// Resize dimensions sent through the client-facing path.
+    pub resized_to: Option<(u16, u16)>,
+    /// Activity classification after real PTY output.
+    pub activity_status: SessionActivityStatus,
+    /// Whether shutdown moved the managed session toward stopping.
+    pub shutdown_observed: bool,
 }
 
 impl EngineSmokeReport {
@@ -44,19 +48,18 @@ impl EngineSmokeReport {
     #[must_use]
     pub fn lines(&self) -> Vec<String> {
         vec![
-            "botster-core dev engine smoke".to_string(),
+            "botster-core real embedder smoke".to_string(),
+            format!("real embedder ran: {}", self.ran_real_embedder),
             format!("session spawned: {}", self.spawned_session_id.0),
             format!("client attached: {}", self.attached_client_id.0),
+            format!("explicit command: {} {:?}", self.executable, self.arguments),
+            format!("working directory: {}", self.working_directory),
+            format!("startup output observed: {:?}", self.startup_output),
             format!("terminal input routed: {:?}", self.terminal_input),
-            format!("client observed output: {:?}", self.client_output),
-            format!("output activity at: {:?}", self.output_activity_at),
-            format!("notifications drained: {}", self.notifications.join(", ")),
-            format!(
-                "session notification routed: {}",
-                self.session_notification_routed
-            ),
-            format!("plugin result: {}", self.plugin_result),
-            format!("shutdown requested: {}", self.shutdown_requested),
+            format!("echoed output observed: {:?}", self.echoed_output),
+            format!("resize requested: {:?}", self.resized_to),
+            format!("activity status: {:?}", self.activity_status),
+            format!("shutdown observed: {}", self.shutdown_observed),
         ]
     }
 }
@@ -83,253 +86,183 @@ impl fmt::Display for EngineSmokeError {
 
 impl Error for EngineSmokeError {}
 
-/// Run the dev-only engine smoke scenario used by both the binary and tests.
+/// Run the dev-only real embedder smoke scenario used by both the binary and tests.
 pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
-    let session_id = SessionId("engine-smoke-session".to_string());
-    let client_id = ClientId("engine-smoke-client".to_string());
-    let subscription_id = SubscriptionId("engine-smoke-subscription".to_string());
+    run_real_embedder_smoke()
+}
 
-    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
-        BotsterEngine::new(FakeSessionRuntime::new());
-    engine
-        .spawn_session(
-            SessionSpawnRequest {
-                request_id: request_id("spawn"),
-                session_id: session_id.clone(),
-                executable: "fake-session".to_string(),
-                arguments: vec!["--engine-smoke".to_string()],
-                working_directory: SpawnWorkingDirectory {
-                    path: "dev-harness-workspace".to_string(),
-                },
-                environment: SpawnEnvironment::default(),
-                initial_pty_size: None,
-            },
-            CoreSessionMetadata::new(),
-            FakeSessionWorkerRuntime::new(),
-        )
+#[cfg(unix)]
+fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
+    let mut engine = DefaultBotsterEngine::new();
+    let request = real_embedder_spawn_request();
+    let session_id = request.session_id.clone();
+    let client_id = ClientId("real-embedder-client".to_string());
+    let subscription_id = SubscriptionId("real-embedder-subscription".to_string());
+    let mut logical_clock = 20;
+
+    let spawn = engine
+        .spawn_session(request.clone(), CoreSessionMetadata::new())
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
+    if spawn.handle.session_id != session_id {
+        return Err(EngineSmokeError::new(
+            "spawned session id did not match request",
+        ));
+    }
 
-    let subscribe = engine
+    engine
         .attach_client(
             client_id.clone(),
             session_id.clone(),
-            subscription_id.clone(),
-            1,
+            subscription_id,
+            logical_clock,
         )
         .map_err(|error| EngineSmokeError::new(format!("attach failed: {error}")))?;
-    if subscribe.observations.is_empty() {
-        return Err(EngineSmokeError::new(
-            "client subscription was not observed",
-        ));
-    }
+    logical_clock += 1;
 
-    let input_bytes = b"echo engine-smoke\n".to_vec();
-    let input = engine
+    let startup_output = drain_until_text(&mut engine, &session_id, b"ready", &mut logical_clock)?;
+
+    let input = "ping-embedder\n";
+    engine
         .write_bytes(
             client_id.clone(),
             session_id.clone(),
-            input_bytes.clone(),
-            2,
+            input.as_bytes().to_vec(),
+            logical_clock,
         )
         .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
-    let routed_input = input
-        .session_requests
-        .iter()
-        .find_map(|(_, request)| match request {
-            SessionIoRequest::PtyInput { session_id, data } => {
-                Some((session_id.clone(), data.clone()))
-            }
-            _ => None,
-        })
-        .ok_or_else(|| {
-            EngineSmokeError::new("terminal input did not reach session request path")
-        })?;
-    if routed_input.0 != session_id || routed_input.1 != input_bytes {
-        return Err(EngineSmokeError::new(
-            "terminal input reached the wrong session request path",
-        ));
-    }
+    logical_clock += 1;
 
-    let output_bytes = b"engine-smoke-output\n".to_vec();
-    let output = engine
-        .receive_output(session_id.clone(), output_bytes, 10)
-        .map_err(|error| EngineSmokeError::new(format!("output failed: {error}")))?;
-    let output_activity_at = engine
-        .session(&session_id)
-        .and_then(|session| session.activity.last_output_at);
-    let client_output = terminal_output_text(&output.client_egress)?;
+    let echoed_output = drain_until_text(
+        &mut engine,
+        &session_id,
+        b"echo:ping-embedder",
+        &mut logical_clock,
+    )?;
 
-    let notification_id = engine.post_notification(NotificationItem::message(
-        NotificationId("engine-smoke-notification".to_string()),
-        NotificationTarget::Session(session_id.clone()),
-        NotificationSeverity::Info,
-        NotificationSource {
-            label: "botster-core-dev".to_string(),
-            plugin_key: None,
-        },
-        NotificationContent {
-            title: "Inbox smoke notice".to_string(),
-            body: Some("The dev harness posted a typed notification.".to_string()),
-            extension: None,
-        },
-        NotificationTimestamp(1),
-    ));
-    let notifications = engine
-        .drain_notifications(
-            NotificationTarget::Session(session_id.clone()),
-            NotificationTimestamp(2),
+    let resized_to = (30, 100);
+    engine
+        .resize(
+            client_id,
+            session_id.clone(),
+            resized_to.0,
+            resized_to.1,
+            logical_clock,
         )
-        .into_iter()
-        .filter(|item| item.id == notification_id)
-        .map(|item| item.content.title)
-        .collect();
-    let session_notification_routed = true;
+        .map_err(|error| EngineSmokeError::new(format!("resize failed: {error}")))?;
+    logical_clock += 1;
 
-    let plugin_result = invoke_fake_plugin(&engine)?;
+    let activity_status = engine
+        .classify_activity(&session_id, logical_clock, 5)
+        .map_err(|error| EngineSmokeError::new(format!("classify failed: {error}")))?;
 
     let shutdown = engine
-        .shutdown_session(session_id.clone(), "engine smoke complete", 20)
+        .shutdown_session(
+            session_id.clone(),
+            "real embedder smoke complete",
+            logical_clock,
+        )
         .map_err(|error| EngineSmokeError::new(format!("shutdown failed: {error}")))?;
-    let shutdown_requested = shutdown.session_events.iter().any(|event| {
-        matches!(event, botster_core::SessionIoEvent::Shutdown { session_id: id, .. } if id == &session_id)
+    let shutdown_observed = shutdown.observations.iter().any(|observation| {
+        observation
+            == &BotsterEngineObservation::SessionLifecycle {
+                session_id: session_id.clone(),
+                state: SessionLifecycleState::Stopping,
+            }
     });
 
     Ok(EngineSmokeReport {
+        ran_real_embedder: true,
         spawned_session_id: session_id,
-        attached_client_id: client_id,
-        terminal_input: String::from_utf8(input_bytes)
-            .map_err(|error| EngineSmokeError::new(format!("input was not utf-8: {error}")))?,
-        client_output,
-        output_activity_at,
-        notifications,
-        session_notification_routed,
-        plugin_result,
-        shutdown_requested,
+        attached_client_id: ClientId("real-embedder-client".to_string()),
+        executable: request.executable,
+        arguments: request.arguments,
+        working_directory: request.working_directory.path,
+        startup_output,
+        terminal_input: input.to_string(),
+        echoed_output,
+        resized_to: Some(resized_to),
+        activity_status,
+        shutdown_observed,
     })
 }
 
-fn terminal_output_text(
-    egress: &[(ClientId, TransportEgress)],
+#[cfg(not(unix))]
+fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
+    Ok(EngineSmokeReport {
+        ran_real_embedder: false,
+        spawned_session_id: SessionId("real-embedder-session".to_string()),
+        attached_client_id: ClientId("real-embedder-client".to_string()),
+        executable: "sh".to_string(),
+        arguments: Vec::new(),
+        working_directory: ".".to_string(),
+        startup_output: "skipped: local PTY example requires Unix".to_string(),
+        terminal_input: String::new(),
+        echoed_output: String::new(),
+        resized_to: None,
+        activity_status: SessionActivityStatus::Idle,
+        shutdown_observed: false,
+    })
+}
+
+#[cfg(unix)]
+fn real_embedder_spawn_request() -> SessionSpawnRequest {
+    SessionSpawnRequest {
+        request_id: request_id("spawn"),
+        session_id: SessionId("real-embedder-session".to_string()),
+        executable: "sh".to_string(),
+        arguments: vec![
+            "-c".to_string(),
+            "printf 'ready\\n'; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done"
+                .to_string(),
+        ],
+        working_directory: SpawnWorkingDirectory {
+            path: ".".to_string(),
+        },
+        environment: SpawnEnvironment::default(),
+        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+    }
+}
+
+#[cfg(unix)]
+fn drain_until_text(
+    engine: &mut DefaultBotsterEngine,
+    session_id: &SessionId,
+    needle: &[u8],
+    logical_clock: &mut u64,
 ) -> Result<String, EngineSmokeError> {
-    let mut output = String::new();
-    for (_, frame) in egress {
-        if let TransportEgress::TerminalOutput { data, .. } = frame {
-            output.push_str(&String::from_utf8(data.clone()).map_err(|error| {
-                EngineSmokeError::new(format!("output was not utf-8: {error}"))
-            })?);
-        }
-    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut observed = Vec::new();
 
-    if output.is_empty() {
-        Err(EngineSmokeError::new(
-            "session output did not reach subscribed client",
-        ))
-    } else {
-        Ok(output)
-    }
-}
+    while Instant::now() < deadline {
+        let output = engine
+            .drain_runtime_once(session_id, *logical_clock)
+            .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?;
+        *logical_clock += 1;
 
-fn invoke_fake_plugin(
-    engine: &BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime>,
-) -> Result<String, EngineSmokeError> {
-    let plugin_key = PluginKey("engine-smoke-plugin".to_string());
-    let handler = PluginHandlerRef {
-        plugin_key: plugin_key.clone(),
-        kind: PluginHandlerKind::Command,
-        handler_id: "handle-smoke".to_string(),
-    };
-    let runtime = FakePluginRuntime::default();
-
-    engine.load_plugin(PluginWorkerRegistration {
-        load: PluginLoadSpec {
-            plugin_key: plugin_key.clone(),
-            package: "engine-smoke-plugin".to_string(),
-            entrypoint: "plugin.lua".to_string(),
-            descriptors: Vec::new(),
-            metadata: None,
-        },
-        manifest: PackageManifest {
-            name: "engine-smoke-plugin".to_string(),
-            version: "0.1.0".to_string(),
-            kind: ExtensionKind::Plugin,
-            botster: ">=0.1.0".to_string(),
-            source: None,
-            capabilities: Vec::new(),
-            entrypoints: vec![ExtensionEntrypoint {
-                runtime: ExtensionRuntime::Lua,
-                path: "plugin.lua".to_string(),
-                bootstrap: false,
-            }],
-        },
-        runtime: Arc::new(runtime),
-        handlers: vec![PluginHandlerRegistration {
-            handler: handler.clone(),
-            required_capability: None,
-        }],
-        resources: Vec::new(),
-    });
-
-    match engine.invoke_plugin(PluginInvocationRequest {
-        request_id: request_id("plugin-smoke"),
-        handler,
-        timeout_ms: 1_000,
-        context: PluginInvocationContext {
-            client_id: None,
-            session_id: None,
-            subscription_id: None,
-            surface_id: None,
-            origin: Some("botster-core-dev".to_string()),
-            metadata: None,
-        },
-        payload: BoundaryJson(serde_json::json!({ "command": "smoke" })),
-    }) {
-        PluginInvocationResult::Completed(success) => success
-            .payload
-            .and_then(|payload| {
-                payload
-                    .0
-                    .get("result")
-                    .and_then(serde_json::Value::as_str)
-                    .map(ToString::to_string)
-            })
-            .ok_or_else(|| EngineSmokeError::new("plugin returned no result payload")),
-        PluginInvocationResult::Failed(failure) => Err(EngineSmokeError::new(format!(
-            "plugin failed: {}",
-            failure.reason
-        ))),
-    }
-}
-
-#[derive(Clone, Default)]
-struct FakePluginRuntime {
-    invocations: Arc<Mutex<Vec<RequestId>>>,
-}
-
-impl PluginRuntime for FakePluginRuntime {
-    fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationResult {
-        match self.invocations.lock() {
-            Ok(mut invocations) => invocations.push(request.request_id.clone()),
-            Err(_) => {
-                return PluginInvocationResult::Failed(PluginInvocationFailure {
-                    request_id: request.request_id,
-                    handler: request.handler,
-                    kind: PluginInvocationFailureKind::HandlerFailed,
-                    timeout_ms: None,
-                    reason: "fake plugin invocation recorder was poisoned".to_string(),
-                });
+        for (_, frame) in output.client_egress {
+            if let TransportEgress::TerminalOutput { data, .. } = frame {
+                observed.extend(data);
             }
         }
 
-        PluginInvocationResult::Completed(PluginInvocationSuccess {
-            request_id: request.request_id,
-            handler: request.handler,
-            payload: Some(BoundaryJson(serde_json::json!({
-                "result": "fake plugin handler invoked"
-            }))),
-        })
+        if observed
+            .windows(needle.len())
+            .any(|window| window == needle)
+        {
+            return String::from_utf8(observed)
+                .map_err(|error| EngineSmokeError::new(format!("output was not utf-8: {error}")));
+        }
+
+        thread::sleep(Duration::from_millis(20));
     }
+
+    Err(EngineSmokeError::new(format!(
+        "timed out waiting for {:?} in {:?}",
+        String::from_utf8_lossy(needle),
+        String::from_utf8_lossy(&observed)
+    )))
 }
 
 fn request_id(value: &str) -> RequestId {
-    RequestId(format!("engine-smoke-{value}"))
+    RequestId(format!("real-embedder-{value}"))
 }
