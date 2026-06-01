@@ -4,6 +4,7 @@
 
 use botster_core::contract::terminal_screen::{TerminalScreenSize, TerminalSnapshotPayload};
 use botster_core::engine::TerminalScreenRuntime;
+use botster_core_test_support::assertions::assert_terminal_backend_opaque_snapshot_conformance;
 use botster_terminal_ghostty::{GhosttyTerminal, GhosttyTerminalRuntime, GHOSTTY_SNAPSHOT_FORMAT};
 
 fn runtime() -> GhosttyTerminal {
@@ -69,6 +70,11 @@ fn snapshot_round_trips_through_opaque_payload() {
 
     assert!(restored.screen_state().plain_text.contains("snapshot text"));
     assert_eq!(restored.last_error(), None);
+}
+
+#[test]
+fn passes_reusable_opaque_terminal_backend_conformance() {
+    assert_terminal_backend_opaque_snapshot_conformance(runtime(), Some(GHOSTTY_SNAPSHOT_FORMAT));
 }
 
 #[test]
