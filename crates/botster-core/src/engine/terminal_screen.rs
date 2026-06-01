@@ -25,7 +25,7 @@ pub trait TerminalScreenRuntime {
 
 /// Minimal terminal state runtime for core-managed session snapshots.
 #[derive(Debug, Clone)]
-pub(crate) struct PlainTerminalScreenRuntime {
+pub struct PlainTerminalScreenRuntime {
     size: TerminalScreenSize,
     bytes: Vec<u8>,
     plain_text: String,
@@ -46,8 +46,13 @@ impl Default for PlainTerminalScreenRuntime {
 impl PlainTerminalScreenRuntime {
     /// Build an empty plain terminal state runtime.
     #[must_use]
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub fn new(size: TerminalScreenSize) -> Self {
+        Self {
+            size,
+            bytes: Vec::new(),
+            plain_text: String::new(),
+            format: Some("plain-opaque-v1".to_string()),
+        }
     }
 
     fn refresh_plain_text(&mut self) {
