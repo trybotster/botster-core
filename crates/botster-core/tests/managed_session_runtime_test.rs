@@ -5,9 +5,9 @@ use std::fs;
 use botster_core::{
     BackpressureRoute, CoreSessionMetadata, MailboxSendFailureReason, ManagedSessionRuntime,
     ManagedSessionRuntimeError, ProcessExitedPayload, QueueSource, RequestId, ResizePayload,
-    SessionId, SessionIoRequest, SessionLifecycleState, SessionRuntimeError,
+    SessionId, SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionRuntimeError,
     SessionRuntimeErrorKind, SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress, TransportIngress,
+    SpawnWorkingDirectory, SubscriptionId, TerminalColorProfile, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -90,6 +90,76 @@ fn supervised_session_reader_events_reach_subscription_multiplexer() {
             },
         )]
     );
+
+    let snapshot = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-after-output"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot after output");
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.data == b"hello" && snapshot.rows == 24 && snapshot.cols == 80
+    ));
+}
+
+#[test]
+fn supervised_session_pty_output_updates_shadow_terminal_snapshot() {
+    let mut runtime = managed_runtime();
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"shadow bytes".to_vec());
+    runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime output");
+
+    let outcome = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-1"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot reads core state");
+
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.data == b"shadow bytes" && snapshot.rows == 24 && snapshot.cols == 80
+    ));
+}
+
+#[test]
+fn supervised_session_screen_read_uses_core_shadow_terminal_state() {
+    let mut runtime = managed_runtime();
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"line one\nline two".to_vec());
+    runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime output");
+
+    let outcome = runtime
+        .handle_session_request(
+            SessionIoRequest::GetScreen {
+                request_id: request_id("screen-1"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("screen reads core state");
+
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::ScreenReady(screen)) if screen.text.contains("line two")
+    ));
 }
 
 #[test]
@@ -133,7 +203,7 @@ fn supervised_session_resize_forwarding_reaches_runtime_before_snapshot() {
             11,
         )
         .expect("resize");
-    let error = runtime
+    let outcome = runtime
         .handle_client_ingress(
             client_id("client-a"),
             TransportIngress::RequestSnapshot {
@@ -142,13 +212,7 @@ fn supervised_session_resize_forwarding_reaches_runtime_before_snapshot() {
             },
             12,
         )
-        .expect_err("managed runtime does not fabricate snapshots");
-    assert!(matches!(
-        error,
-        ManagedSessionRuntimeError::UnsupportedSessionRequest {
-            request_kind: "request_snapshot",
-        }
-    ));
+        .expect("snapshot request is supported");
 
     assert_eq!(
         runtime.session_runtime().inputs().last(),
@@ -160,6 +224,240 @@ fn supervised_session_resize_forwarding_reaches_runtime_before_snapshot() {
             },
         })
     );
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.rows == 40 && snapshot.cols == 120
+    ));
+}
+
+#[test]
+fn supervised_session_live_output_fanout_still_emits_original_bytes() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let bytes = b"\x1b[31mhello\x00\xff".to_vec();
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), bytes.clone());
+    let output = runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime output");
+    let snapshot = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-1"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot reads same bytes");
+
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-a"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-a"),
+                data: bytes.clone(),
+            },
+        )]
+    );
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot)) if snapshot.data == bytes
+    ));
+}
+
+#[test]
+fn supervised_session_request_snapshot_is_no_longer_unsupported() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"snapshot payload".to_vec());
+    runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime output");
+
+    let outcome = runtime
+        .handle_client_ingress(
+            client_id("client-a"),
+            TransportIngress::RequestSnapshot {
+                request_id: request_id("snapshot-1"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("request snapshot is supported");
+
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot)) if snapshot.data == b"snapshot payload"
+    ));
+}
+
+#[test]
+fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+
+    runtime
+        .handle_session_request(
+            SessionIoRequest::SubscribeTerminal {
+                request_id: request_id("initial-1"),
+                session_id: session_id(),
+                client_id: client_id("client-a"),
+                subscription_id: subscription_id("sub-a"),
+                rows: 30,
+                cols: 100,
+            },
+            20,
+        )
+        .expect("subscribe terminal");
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"live after request".to_vec());
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 21)
+        .expect("deliver initial snapshot and held output");
+
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::InitialSnapshotReady(snapshot))
+            if snapshot.snapshot.is_empty() && snapshot.rows == 30 && snapshot.cols == 100
+    ));
+    assert!(matches!(
+        outcome.session_events.get(1),
+        Some(SessionIoEvent::TerminalBytes { data, .. }) if data == b"live after request"
+    ));
+    assert!(matches!(
+        outcome.client_egress.first(),
+        Some((_, TransportEgress::TerminalOutput { data, .. }))
+            if data == b"live after request"
+    ));
+}
+
+#[test]
+fn supervised_session_initial_snapshot_after_prior_output_reflects_shadow_state() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"prior output".to_vec());
+    runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain prior output");
+    runtime
+        .handle_session_request(
+            SessionIoRequest::SubscribeTerminal {
+                request_id: request_id("initial-1"),
+                session_id: session_id(),
+                client_id: client_id("client-a"),
+                subscription_id: subscription_id("sub-a"),
+                rows: 24,
+                cols: 80,
+            },
+            21,
+        )
+        .expect("subscribe terminal");
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"held live".to_vec());
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 22)
+        .expect("deliver initial snapshot and held output");
+
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::InitialSnapshotReady(snapshot))
+            if snapshot.snapshot == b"prior output"
+    ));
+    assert!(matches!(
+        outcome.session_events.get(1),
+        Some(SessionIoEvent::TerminalBytes { data, .. }) if data == b"held live"
+    ));
+}
+
+#[test]
+fn supervised_session_resize_updates_runtime_and_shadow_before_snapshot() {
+    let mut runtime = managed_runtime();
+
+    runtime
+        .handle_session_request(
+            SessionIoRequest::Resize {
+                session_id: session_id(),
+                rows: 50,
+                cols: 132,
+            },
+            20,
+        )
+        .expect("resize");
+    let snapshot = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-1"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot");
+
+    assert_eq!(
+        runtime.session_runtime().inputs().last(),
+        Some(&SessionRuntimeInput::Resize {
+            session_id: session_id(),
+            size: ResizePayload {
+                rows: 50,
+                cols: 132
+            },
+        })
+    );
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.rows == 50 && snapshot.cols == 132
+    ));
+}
+
+#[test]
+fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_backed() {
+    let mut runtime = managed_runtime();
+
+    let mode_error = runtime
+        .handle_session_request(
+            SessionIoRequest::GetModeFlags {
+                request_id: request_id("mode-1"),
+                session_id: session_id(),
+            },
+            20,
+        )
+        .expect_err("mode flags remain explicitly unsupported");
+    assert!(matches!(
+        mode_error,
+        ManagedSessionRuntimeError::UnsupportedSessionRequest {
+            request_kind: "get_mode_flags",
+        }
+    ));
+
+    let color_error = runtime
+        .handle_session_request(
+            SessionIoRequest::SetColorProfile {
+                session_id: session_id(),
+                color_profile: TerminalColorProfile::default(),
+            },
+            21,
+        )
+        .expect_err("color profile remains explicitly unsupported");
+    assert!(matches!(
+        color_error,
+        ManagedSessionRuntimeError::UnsupportedSessionRequest {
+            request_kind: "set_color_profile",
+        }
+    ));
 }
 
 #[test]
@@ -312,6 +610,8 @@ fn supervised_session_contract_excludes_concrete_transport_and_product_policy() 
         "retention",
         "reconnect",
         "cloud",
+        "restty",
+        "Ghostty",
     ] {
         assert!(
             !source.contains(forbidden),

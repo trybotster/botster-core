@@ -13,12 +13,14 @@ use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
 use crate::engine::session_worker::SessionWorkerRuntime;
+use crate::engine::terminal_screen::{PlainTerminalScreenRuntime, TerminalScreenEngine};
 use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest,
 };
 use crate::session::{CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId};
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
+use crate::terminal_screen::TerminalScreenSize;
 use crate::transport::TransportIngress;
 use crate::ClientId;
 
@@ -44,9 +46,8 @@ pub enum ManagedSessionRuntimeError {
 /// Hosts still choose the executor, thread, or event loop that calls these
 /// methods. This type defines the reusable semantics for routing client writes
 /// into `SessionRuntimeInput` and draining runtime output through the existing
-/// session worker and subscription multiplexer path. Terminal-state requests
-/// such as snapshots and screen reads require a host-owned terminal state
-/// worker and are rejected instead of fabricated here.
+/// session worker and subscription multiplexer path. Terminal snapshot and
+/// screen reads come from core-owned state updated by drained runtime output.
 #[derive(Clone)]
 pub struct ManagedSessionRuntime<R>
 where
@@ -136,6 +137,9 @@ where
         for output in outputs {
             let runtime_event = match output {
                 SessionRuntimeOutput::PtyOutput { session_id, data } => {
+                    if let Some(worker) = self.engine_worker(&session_id) {
+                        worker.record_output(&data);
+                    }
                     crate::SessionWorkerRuntimeEvent::TerminalBytes {
                         session_id,
                         data,
@@ -159,6 +163,8 @@ where
             outcome.session_events.extend(step.session_events);
             outcome.observations.extend(step.observations);
         }
+
+        self.route_pending_runtime_events(&mut outcome)?;
 
         Ok(outcome)
     }
@@ -205,6 +211,30 @@ where
         Ok(())
     }
 
+    fn route_pending_runtime_events(
+        &mut self,
+        outcome: &mut MultiplexerEngineOutcome,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let session_ids = self.engine_session_ids();
+        for session_id in session_ids {
+            let events = self
+                .engine_worker(&session_id)
+                .map(SessionRuntimeWorkerAdapter::drain_pending_runtime_events)
+                .unwrap_or_default();
+            for event in events {
+                let step = self.engine.handle_runtime_event(event)?;
+                outcome.client_egress.extend(step.client_egress);
+                outcome.session_requests.extend(step.session_requests);
+                outcome
+                    .client_control_frames
+                    .extend(step.client_control_frames);
+                outcome.session_events.extend(step.session_events);
+                outcome.observations.extend(step.observations);
+            }
+        }
+        Ok(())
+    }
+
     fn engine_session_ids(&self) -> Vec<SessionId> {
         self.engine.session_ids()
     }
@@ -224,31 +254,45 @@ pub(crate) struct SessionRuntimeWorkerAdapter {
 }
 
 impl SessionRuntimeWorkerAdapter {
-    /// Build an adapter with no terminal-state backing.
+    /// Build an adapter with core-owned terminal state.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// Record runtime output in terminal state before live fanout.
+    pub(crate) fn record_output(&mut self, data: &[u8]) {
+        self.state.borrow_mut().terminal.normalize_output(data);
     }
 
     /// Drain pending runtime inputs recorded by worker operations.
     pub(crate) fn drain_inputs(&mut self) -> Vec<SessionRuntimeInput> {
         self.state.borrow_mut().inputs.drain(..).collect()
     }
+
+    /// Drain pending worker events that must pass through the worker engine.
+    pub(crate) fn drain_pending_runtime_events(&mut self) -> Vec<crate::SessionWorkerRuntimeEvent> {
+        self.state
+            .borrow_mut()
+            .pending_runtime_events
+            .drain(..)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
 struct SessionRuntimeWorkerState {
     inputs: Vec<SessionRuntimeInput>,
-    rows: u16,
-    cols: u16,
+    terminal: TerminalScreenEngine<PlainTerminalScreenRuntime>,
+    pending_runtime_events: Vec<crate::SessionWorkerRuntimeEvent>,
 }
 
 impl Default for SessionRuntimeWorkerState {
     fn default() -> Self {
         Self {
             inputs: Vec::new(),
-            rows: 24,
-            cols: 80,
+            terminal: TerminalScreenEngine::new(PlainTerminalScreenRuntime::new()),
+            pending_runtime_events: Vec::new(),
         }
     }
 }
@@ -266,8 +310,7 @@ impl SessionWorkerRuntime for SessionRuntimeWorkerAdapter {
 
     fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16) {
         let mut state = self.state.borrow_mut();
-        state.rows = rows;
-        state.cols = cols;
+        state.terminal.resize(TerminalScreenSize::new(rows, cols));
         state.inputs.push(SessionRuntimeInput::Resize {
             session_id: session_id.clone(),
             size: ResizePayload { rows, cols },
@@ -275,17 +318,36 @@ impl SessionWorkerRuntime for SessionRuntimeWorkerAdapter {
     }
 
     fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
-        let state = self.state.borrow();
-        SnapshotReady {
-            request_id,
-            session_id,
-            data: Vec::new(),
-            rows: state.rows,
-            cols: state.cols,
-        }
+        let snapshot = self
+            .state
+            .borrow_mut()
+            .terminal
+            .capture_snapshot()
+            .snapshot
+            .expect("terminal screen engine captures a snapshot");
+        snapshot.into_snapshot_ready(request_id, session_id)
     }
 
-    fn request_initial_snapshot(&mut self, _request: crate::InitialSnapshotRequest) {}
+    fn request_initial_snapshot(&mut self, request: crate::InitialSnapshotRequest) {
+        let snapshot = self
+            .state
+            .borrow_mut()
+            .terminal
+            .capture_snapshot()
+            .snapshot
+            .expect("terminal screen engine captures a snapshot");
+        self.state.borrow_mut().pending_runtime_events.push(
+            crate::SessionWorkerRuntimeEvent::InitialSnapshotReady(crate::InitialSnapshotReady {
+                request_id: request.request_id,
+                session_id: request.session_id,
+                client_id: request.client_id,
+                subscription_id: request.subscription_id,
+                snapshot: snapshot.bytes,
+                rows: snapshot.size.rows,
+                cols: snapshot.size.cols,
+            }),
+        );
+    }
 
     fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {
         Ok(SendFileWritten {
@@ -318,10 +380,17 @@ impl SessionWorkerRuntime for SessionRuntimeWorkerAdapter {
     }
 
     fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {
+        let screen = self
+            .state
+            .borrow()
+            .terminal
+            .screen_state()
+            .screen
+            .expect("terminal screen engine reads screen state");
         ScreenReady {
             request_id,
             session_id,
-            text: String::new(),
+            text: screen.plain_text,
         }
     }
 
@@ -347,12 +416,12 @@ fn reject_unsupported_ingress(
     ingress: &TransportIngress,
 ) -> Result<(), ManagedSessionRuntimeError> {
     match ingress {
-        TransportIngress::RequestSnapshot { .. } => unsupported("request_snapshot"),
         TransportIngress::SendFile { .. } => unsupported("send_file"),
         TransportIngress::SubscribeSession { .. }
         | TransportIngress::UnsubscribeSession { .. }
         | TransportIngress::TerminalInput { .. }
         | TransportIngress::Resize { .. }
+        | TransportIngress::RequestSnapshot { .. }
         | TransportIngress::Focus { .. }
         | TransportIngress::Heartbeat { .. }
         | TransportIngress::BoundaryPayload { .. }
@@ -365,15 +434,15 @@ fn reject_unsupported_session_request(
     request: &SessionIoRequest,
 ) -> Result<(), ManagedSessionRuntimeError> {
     match request {
-        SessionIoRequest::SubscribeTerminal { .. } => unsupported("subscribe_terminal"),
-        SessionIoRequest::GetSnapshot { .. } => unsupported("get_snapshot"),
-        SessionIoRequest::GetInitialSnapshot(_) => unsupported("get_initial_snapshot"),
         SessionIoRequest::SendFile(_) => unsupported("send_file"),
         SessionIoRequest::PrepareSnapshot(_) => unsupported("prepare_snapshot"),
         SessionIoRequest::GetModeFlags { .. } => unsupported("get_mode_flags"),
-        SessionIoRequest::GetScreen { .. } => unsupported("get_screen"),
         SessionIoRequest::SetColorProfile { .. } => unsupported("set_color_profile"),
-        SessionIoRequest::UnsubscribeTerminal { .. }
+        SessionIoRequest::SubscribeTerminal { .. }
+        | SessionIoRequest::GetSnapshot { .. }
+        | SessionIoRequest::GetInitialSnapshot(_)
+        | SessionIoRequest::GetScreen { .. }
+        | SessionIoRequest::UnsubscribeTerminal { .. }
         | SessionIoRequest::PtyInput { .. }
         | SessionIoRequest::Resize { .. }
         | SessionIoRequest::Shutdown { .. } => Ok(()),
