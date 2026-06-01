@@ -6,6 +6,7 @@
 //! requests; hosts still decide command, directory, environment, and lifecycle
 //! policy before entering core.
 
+#[cfg(feature = "local-runtime")]
 mod local_process;
 
 use std::error::Error;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
+#[cfg(feature = "local-runtime")]
 pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
 };
