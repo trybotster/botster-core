@@ -351,7 +351,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SessionRuntimeWorkerState<T>
 where
     T: TerminalScreenRuntime,

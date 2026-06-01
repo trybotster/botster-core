@@ -200,6 +200,31 @@ fn supervised_session_can_inject_non_plain_terminal_backend_factory() {
 }
 
 #[test]
+fn supervised_session_backend_factory_error_surfaces_as_typed_error() {
+    let mut runtime = ManagedSessionRuntime::with_terminal_backend_factory(
+        FakeSessionRuntime::new(),
+        |_size| -> Result<SpyTerminalRuntime, std::io::Error> {
+            Err(std::io::Error::other("backend factory failed"))
+        },
+    );
+
+    let error = runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect_err("spawn should fail when terminal backend construction fails");
+
+    match error {
+        ManagedSessionRuntimeError::TerminalBackendConstruction { source } => {
+            assert_eq!(source.to_string(), "backend factory failed");
+        }
+        other => panic!("expected terminal backend construction error, got {other:?}"),
+    }
+    assert!(
+        runtime.session(&session_id()).is_none(),
+        "failed backend construction must not register the session"
+    );
+}
+
+#[test]
 fn supervised_session_pty_output_updates_shadow_terminal_snapshot() {
     let mut runtime = managed_runtime();
 
