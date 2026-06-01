@@ -129,6 +129,10 @@ synchronous screen state through a small runtime adapter. The boundary is
 defined by `TerminalScreenEngine`, `TerminalScreenRuntime`,
 `TerminalOutputChunk`, `TerminalSnapshotPayload`, and `TerminalScreenState`.
 
+The Ghostty adapter audit lives in
+`docs/architecture/ghostty-shadow-terminal-adapter.md`; it keeps Ghostty and
+Zig build policy in a future optional adapter crate rather than in core.
+
 Snapshot payload bytes are opaque. Core records dimensions and an optional
 host-owned format label, but it does not parse terminal cells or decide which
 terminal backend a host should use. Concrete adapters may be backed by
