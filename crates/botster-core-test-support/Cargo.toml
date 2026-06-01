@@ -12,8 +12,12 @@ documentation = "https://docs.rs/botster-core-test-support"
 keywords = ["botster", "testing", "fixtures", "conformance"]
 categories = ["development-tools::testing"]
 
+[features]
+default = ["local-runtime"]
+local-runtime = ["botster-core/local-runtime"]
+
 [dependencies]
-botster-core = { path = "../botster-core", version = "0.1.0" }
+botster-core = { path = "../botster-core", version = "0.1.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

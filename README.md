@@ -46,6 +46,28 @@ activity, and shut sessions down. The rustdoc example on `BotsterEngine` is
 compile-checked against the public facade, and `crates/botster-core-dev` mirrors
 that path with a deterministic smoke harness.
 
+`DefaultBotsterEngine` is available through the default `local-runtime` feature
+for embedders that want the policy-free local PTY/process path without writing
+their own `SessionRuntime`. The feature is default-on to preserve the current
+crate behavior for local hosts:
+
+```toml
+botster-core = "0.1.0"
+```
+
+Contract-only embedders can opt out of the local process dependency and keep the
+public contracts, `BotsterEngine`, runtime traits, package, identity, UI, entity,
+transport, and plugin-worker types:
+
+```toml
+botster-core = { version = "0.1.0", default-features = false }
+```
+
+With default features disabled, `LocalProcessRuntime`,
+`LocalProcessWorkerRuntime`, `LocalProcessRuntimeOptions`,
+`DefaultBotsterEngine`, and `DefaultBotsterEngineError` are intentionally not
+exported, and `portable-pty` is absent from the production dependency tree.
+
 ## Local Verification
 
 Run the same workspace checks used by pull request and main-branch CI before

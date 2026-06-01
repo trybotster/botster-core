@@ -3,11 +3,14 @@
 use botster_core::client::ClientId;
 use botster_core::session::{RequestId, SessionId, SubscriptionId};
 use botster_core::transport::{TransportEgress, TransportIngress};
+#[cfg(feature = "local-runtime")]
 use botster_core::{
     CoreSessionMetadata, LocalProcessRuntime, ManagedSessionRuntime, ResizePayload,
-    SessionLifecycleState, TerminalScreenEngine, TerminalScreenHook, TerminalScreenSize,
+    SessionLifecycleState,
 };
+use botster_core::{TerminalScreenEngine, TerminalScreenHook, TerminalScreenSize};
 use botster_core_test_support::assertions::assert_terminal_output_round_trips;
+#[cfg(feature = "local-runtime")]
 use botster_core_test_support::conformance::{
     assert_output_activity, assert_shutdown_requested, assert_terminal_output_fanout,
     local_shell_spawn_request, DisposableManagedLocalSession,
@@ -22,6 +25,7 @@ fn subscription_id() -> SubscriptionId {
     SubscriptionId("sub-consumer".to_string())
 }
 
+#[cfg(feature = "local-runtime")]
 fn client_id(value: &str) -> ClientId {
     ClientId(value.to_string())
 }
@@ -100,7 +104,7 @@ fn downstream_consumer_can_drive_terminal_screen_fake() {
     ));
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "local-runtime"))]
 #[test]
 fn downstream_consumer_can_conform_against_managed_local_runtime() {
     use std::time::Duration;
@@ -162,6 +166,7 @@ fn downstream_consumer_can_conform_against_managed_local_runtime() {
     );
 }
 
+#[cfg(feature = "local-runtime")]
 #[test]
 fn downstream_consumer_can_build_explicit_local_spawn_request() {
     let request = local_shell_spawn_request(

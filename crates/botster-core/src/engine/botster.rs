@@ -5,6 +5,7 @@ use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::TransportIngress;
+#[cfg(feature = "local-runtime")]
 use crate::engine::managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
@@ -14,7 +15,9 @@ use crate::engine::plugin_worker::{
     PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
-use crate::runtime::{LocalProcessRuntime, SessionRuntime, SessionSpawnRequest};
+#[cfg(feature = "local-runtime")]
+use crate::runtime::LocalProcessRuntime;
+use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
 use crate::{ClientId, SubscriptionId};
 
@@ -31,6 +34,7 @@ pub type BotsterSpawnOutcome = MultiplexerSpawnOutcome;
 pub type BotsterEngineOutput = MultiplexerEngineOutcome;
 
 /// Default local PTY-backed engine error.
+#[cfg(feature = "local-runtime")]
 pub type DefaultBotsterEngineError = ManagedSessionRuntimeError;
 
 /// Public default local PTY-backed Botster engine facade.
@@ -39,10 +43,12 @@ pub type DefaultBotsterEngineError = ManagedSessionRuntimeError;
 /// local process without supplying custom runtime adapters. Hosts still provide
 /// explicit spawn requests; the facade only wires the local process runtime
 /// through the managed session worker and subscription fanout path.
+#[cfg(feature = "local-runtime")]
 pub struct DefaultBotsterEngine {
     runtime: ManagedSessionRuntime<LocalProcessRuntime>,
 }
 
+#[cfg(feature = "local-runtime")]
 impl DefaultBotsterEngine {
     /// Build an empty local PTY-backed engine.
     #[must_use]
@@ -181,6 +187,7 @@ impl DefaultBotsterEngine {
     }
 }
 
+#[cfg(feature = "local-runtime")]
 impl Default for DefaultBotsterEngine {
     fn default() -> Self {
         Self::new()

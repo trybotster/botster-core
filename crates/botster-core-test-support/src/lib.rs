@@ -5,6 +5,7 @@
 //! release.
 
 pub mod assertions;
+#[cfg(feature = "local-runtime")]
 pub mod conformance;
 pub mod fake;
 pub mod fixtures;
