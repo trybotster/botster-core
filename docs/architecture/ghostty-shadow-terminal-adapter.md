@@ -99,13 +99,19 @@ solves the risky parts this adapter would otherwise rediscover.
 `cli/build.rs` builds the vendored Ghostty checkout with:
 
 ```sh
-zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline
+zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev
 ```
 
 It then links a static `libghostty-vt.a`. On macOS it repacks the Zig archive
 with `ar` to avoid archive-member alignment failures and links the C++ runtime.
 The build also pins rerun triggers for `vendor/ghostty/build.zig`,
 `build.zig.zon`, `src`, and `include`.
+
+The adapter build passes `-Dversion-string=1.3.2-dev` because the pinned fork
+commit is reachable from a downstream tag that does not match Ghostty's
+`vX.Y.Z` release-tag expectation. The explicit version string preserves the
+fork's `build.zig.zon` version and avoids coupling adapter builds to local git
+tag discovery.
 
 `cli/build_support.rs` requires Zig `0.15.2` and resolves candidates from
 `BOTSTER_ZIG`, `ZIG`, a mise-managed Zig install, `zig` from `PATH`, and
@@ -238,6 +244,8 @@ Build constraints to preserve:
 - require Zig `0.15.2` until the fork moves;
 - include `-Demit-lib-vt`, `-Doptimize=ReleaseFast`, `-Dsimd=false`, and
   `-Dcpu=baseline`;
+- pass `-Dversion-string=1.3.2-dev` for the pinned fork commit so Ghostty's
+  release-tag validation does not depend on local git tag discovery;
 - account for mise tool selection as well as `PATH`;
 - keep static-vs-shared distribution policy inside the adapter crate;
 - document platform-specific link handling such as macOS archive repacking if

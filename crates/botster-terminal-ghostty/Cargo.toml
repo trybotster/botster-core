@@ -8,9 +8,13 @@ repository = "https://github.com/trybotster/botster-core"
 homepage = "https://github.com/trybotster/botster-core"
 documentation = "https://docs.rs/botster-terminal-ghostty"
 license-file = "../../LICENSE"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["terminal", "ghostty", "pty", "multiplexer", "runtime"]
 categories = ["command-line-utilities", "development-tools"]
+
+[features]
+default = []
+libghostty-vt = []
 
 [dependencies]
 botster-core = { path = "../botster-core", default-features = false }
