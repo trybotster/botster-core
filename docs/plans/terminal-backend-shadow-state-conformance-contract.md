@@ -29,7 +29,8 @@ The smallest shape is a set of assertions in `crates/botster-core-test-support/s
 
 ## Non-Scope
 
-- No Ghostty, libghostty-vt, restty, WASM, or vendored terminal backend implementation.
+- No Ghostty, libghostty-vt, WASM, or vendored terminal backend
+  implementation. No restty client-renderer integration.
 - No client rendering assertions, browser/TUI behavior, React/Catalyst UI, or terminal cell painting policy.
 - No new terminal protocol frame family unless compiler pressure proves an existing public type cannot carry the contract.
 - No new runtime dependency in `botster-core` or `botster-core-test-support`.
@@ -95,7 +96,7 @@ Production path proof for this ticket is intentionally scaffold-level: the runti
 
 - A conformance helper that only checks struct construction would not prove the runtime path; assertions must drive engine methods.
 - Snapshot tests using only UTF-8 strings could miss binary snapshot corruption.
-- Folding client rendering concerns into the helper would violate the ticket boundary and make Ghostty/restty decisions prematurely.
+- Folding client rendering concerns into the helper would violate the ticket boundary. Ghostty backend choices and restty client-renderer choices both stay outside this conformance slice.
 - Adding a second backend trait could split the terminal backend contract from the already-exported `TerminalScreenRuntime`.
 - Treating restore as optional in this ticket would require a core contract extension that is outside scope; implementation must assert restore unconditionally for `TerminalScreenRuntime`.
 - Without a negative backend test, the conformance suite could pass even if an assertion silently checks the wrong behavior.

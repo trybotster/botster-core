@@ -44,7 +44,10 @@ Add a transport-neutral session-process protocol surface to `botster-core`.
 
 The protocol belongs in core because frame constants, handshake shape, length-prefixed encoding, serializable metadata, terminal mode state, process-exit payloads, and opaque snapshot transport are reusable contracts shared by future hub, CLI/session process, TUI, browser, and provider code. The old concrete socket connection, SessionIoWorker routing, PTY parser mutation, reconnect policy, and hub recovery behavior do not belong in core.
 
-The implementation should use existing crate dependencies only: `serde`, `serde_json`, and `thiserror`. Do not add `anyhow`, `log`, terminal parser crates, Ghostty/restty bindings, Tokio, or Unix socket dependencies for this slice.
+The implementation should use existing crate dependencies only: `serde`,
+`serde_json`, and `thiserror`. Do not add `anyhow`, `log`, terminal parser
+crates, Ghostty backend bindings, Tokio, or Unix socket dependencies for this
+slice. Do not add restty client-renderer bindings.
 
 Protocol version behavior should align with the extraction compatibility policy: expose and preserve peer protocol versions as contract data, reject malformed handshakes explicitly, and leave migration/negotiation policy to callers. Core should not introduce compatibility shims for old implementation details.
 
@@ -90,7 +93,9 @@ In scope:
 
 - No hub recovery policy, retry policy, reconnect admission, process discovery, manifest reconciliation, target scoping, or lifecycle cleanup.
 - No concrete `SessionConnection`, `SessionIoWorker`, Unix socket, Tokio, or client worker implementation.
-- No PTY handling, parser resize mutation, terminal import/export, Ghostty/restty snapshot parsing, or terminal state comparison.
+- No PTY handling, parser resize mutation, terminal import/export, Ghostty
+  backend snapshot parsing, or terminal state comparison. No restty
+  client-renderer snapshot handling.
 - No Rails, ActionCable, WebRTC, TUI, React SPA, Project Pipelines plugin, provider, or hosted preview changes.
 - No legacy compatibility adapter. Translate evidence into the new core contract and drop old hub policy from this crate.
 
@@ -172,7 +177,7 @@ Implementation should run:
 Review should additionally confirm:
 
 - No new runtime dependency beyond existing crate dependencies.
-- No Unix socket, Tokio, PTY, hub recovery, client worker, Ghostty/restty, Rails, ActionCable, WebRTC, TUI, or SPA code entered `botster-core`.
+- No Unix socket, Tokio, PTY, hub recovery, client worker, Ghostty backend, restty client-renderer, Rails, ActionCable, WebRTC, TUI, or SPA code entered `botster-core`.
 - No pushed terminal mode-change event contract is introduced; terminal modes
   remain limited to handshake `ModeFlags` metadata in this slice.
 - Bad header handling is explicit and test-covered.

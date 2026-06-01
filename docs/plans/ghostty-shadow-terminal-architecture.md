@@ -256,8 +256,8 @@ Implementation acceptance:
 - The skeleton does not expose a behavior-returning unavailable runtime. Any
   compileable API is docs/marker/config oriented or doc-tested as an adapter
   shape.
-- No real Ghostty/restty dependency, build.rs, FFI, submodule, WASM, or renderer
-  policy is added.
+- No real Ghostty backend dependency, build.rs, FFI, submodule, or WASM policy
+  is added. No restty client-renderer policy is added.
 - No PII is introduced.
 
 Suggested tests/checks:

@@ -67,7 +67,9 @@ Non-scope:
 
 - No hub, Rails, WebRTC, TUI, React SPA, Lua plugin, MCP, provider, Project Pipelines, marketplace, auth, persistence, target admission, reconnect, or notification presentation integration.
 - No new product policy such as default shell choice, executable discovery, config lookup, PATH mutation, worktree admission, environment inheritance, or session retention.
-- No terminal emulator grid, Ghostty/restty parser, full snapshot implementation, or mode/screen state fabrication.
+- No terminal emulator grid, Ghostty parser/backend integration, full snapshot
+  implementation, or mode/screen state fabrication. No restty client-renderer
+  integration.
 - No broad rewrite of `SessionRuntime`, `SessionWorkerRuntime`, `MultiplexerEngine`, `ManagedSessionRuntime`, or test-support fakes.
 - No duplicate version-suffixed facade or compatibility branch. This should be a cold, current API shape.
 - No PII in tests, docs, metadata, command strings, or fixtures.
