@@ -16,9 +16,11 @@ plugin runtime must agree on.
 - `crates/botster-core-dev`: dev-only engine smoke harnesses that fake a
   session/client/plugin path for core development; not the product CLI, install
   UX, auth flow, hub daemon, marketplace, or persistent config surface.
-- `crates/botster-terminal-ghostty`: scaffold crate for the blessed Ghostty
-  shadow-terminal adapter path. It depends on the backend-neutral core terminal
-  seam and is where future concrete Ghostty integration belongs.
+- `crates/botster-terminal-ghostty`: feature-gated crate for the blessed
+  Ghostty shadow-terminal adapter path. It depends on the backend-neutral core
+  terminal seam, owns the trybotster Ghostty fork pin under `vendor/ghostty`,
+  and builds static `libghostty-vt` only when the `libghostty-vt` feature is
+  explicitly enabled.
 
 ## What Core Proves Today
 
@@ -146,6 +148,22 @@ shadow-terminal backend path is Ghostty, housed in the sibling
 restty is a web/client renderer path. It may consume terminal state and streams
 through client data-plane contracts, but it is not core shadow-terminal
 infrastructure and must not own authoritative terminal truth.
+
+`botster-terminal-ghostty` pins the trybotster Ghostty fork at
+`76853b34274208fe7c051cfe13eb1c7ee63c469b`. Default workspace builds do not
+require the submodule or Zig. To exercise the native path, initialize the
+submodule and enable the feature:
+
+```sh
+git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty
+cargo test -p botster-terminal-ghostty --features libghostty-vt
+```
+
+Feature-enabled builds require Zig `0.15.2` and run
+`zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev`.
+The vendored Ghostty fork is MIT licensed; preserve
+`crates/botster-terminal-ghostty/vendor/ghostty/LICENSE` in source or binary
+distributions that include it.
 
 Correlated delivery still uses the existing session-worker carriers such as
 `SnapshotReady`, `PreparedSnapshotRequest`, `PreparedSnapshotReady`, and
