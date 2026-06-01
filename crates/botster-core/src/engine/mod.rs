@@ -20,12 +20,15 @@ pub use botster::{
 };
 #[cfg(feature = "local-runtime")]
 pub use botster::{DefaultBotsterEngine, DefaultBotsterEngineError};
+#[cfg(feature = "local-runtime")]
+pub use command::DefaultEngineCommand;
 pub use command::{
-    EngineClientId, EngineCommandEvent, EngineCommandKind, EngineCommandResult,
-    EngineNotificationId, EngineNotificationItem, EngineNotificationTarget,
-    EngineReplaySnapshotRequest, EngineRequestId, EngineSessionId, EngineSessionInspection,
-    EngineSessionIoRequest, EngineSpawnSessionMetadata, EngineSpawnSessionRequest,
-    EngineSpawnSessionResult, EngineSubscriptionId, ENGINE_COMMAND_KINDS,
+    EngineClientId, EngineCommand, EngineCommandError, EngineCommandEvent, EngineCommandKind,
+    EngineCommandOutcome, EngineCommandResult, EngineNotificationId, EngineNotificationItem,
+    EngineNotificationTarget, EngineReplaySnapshotRequest, EngineRequestId, EngineSessionId,
+    EngineSessionInspection, EngineSessionIoRequest, EngineSpawnSessionMetadata,
+    EngineSpawnSessionRequest, EngineSpawnSessionResult, EngineSubscriptionId,
+    ENGINE_COMMAND_KINDS,
 };
 pub use managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 pub use multiplexer::{

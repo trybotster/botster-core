@@ -5,7 +5,11 @@ use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::TransportIngress;
-use crate::engine::command::EngineSessionInspection;
+#[cfg(feature = "local-runtime")]
+use crate::engine::command::DefaultEngineCommand;
+use crate::engine::command::{
+    EngineCommand, EngineCommandError, EngineCommandOutcome, EngineSessionInspection,
+};
 #[cfg(feature = "local-runtime")]
 use crate::engine::managed_session_runtime::{ManagedSessionRuntime, ManagedSessionRuntimeError};
 use crate::engine::multiplexer::{
@@ -84,6 +88,90 @@ impl DefaultBotsterEngine {
         metadata: CoreSessionMetadata,
     ) -> Result<BotsterSpawnOutcome, DefaultBotsterEngineError> {
         self.runtime.spawn_session(request, metadata)
+    }
+
+    /// Execute one typed command through the default local engine facade.
+    pub fn execute_command(
+        &mut self,
+        command: DefaultEngineCommand,
+    ) -> Result<EngineCommandOutcome, EngineCommandError<DefaultBotsterEngineError>> {
+        let kind = command.kind();
+        match command {
+            DefaultEngineCommand::SpawnSession { request, metadata } => self
+                .spawn_session(request, metadata)
+                .map(EngineCommandOutcome::SpawnSession),
+            DefaultEngineCommand::AttachClient {
+                client_id,
+                session_id,
+                subscription_id,
+                now_seconds,
+            } => self
+                .attach_client(client_id, session_id, subscription_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::DetachClient {
+                client_id,
+                session_id,
+                subscription_id,
+                now_seconds,
+            } => self
+                .detach_client(client_id, session_id, subscription_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::SendInput {
+                client_id,
+                session_id,
+                data,
+                now_seconds,
+            } => self
+                .write_bytes(client_id, session_id, data, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::Resize {
+                client_id,
+                session_id,
+                rows,
+                cols,
+                now_seconds,
+            } => self
+                .resize(client_id, session_id, rows, cols, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::ListSessions => {
+                Ok(EngineCommandOutcome::Sessions(self.list_sessions()))
+            }
+            DefaultEngineCommand::InspectSession {
+                session_id,
+                now_seconds,
+                active_threshold_seconds,
+            } => self
+                .inspect_session(&session_id, now_seconds, active_threshold_seconds)
+                .map(EngineCommandOutcome::Inspection),
+            DefaultEngineCommand::ReadScreen {
+                request_id,
+                session_id,
+                now_seconds,
+            } => self
+                .read_screen(request_id, session_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::CaptureSnapshot {
+                request_id,
+                session_id,
+                now_seconds,
+            } => self
+                .capture_snapshot(request_id, session_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::ReplaySnapshot {
+                request,
+                now_seconds,
+            } => self
+                .replay_snapshot(request, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            DefaultEngineCommand::Shutdown {
+                session_id,
+                reason,
+                now_seconds,
+            } => self
+                .shutdown_session(session_id, reason, now_seconds)
+                .map(EngineCommandOutcome::Output),
+        }
+        .map_err(|source| EngineCommandError::new(kind, source))
     }
 
     /// Attach a client to a session stream.
@@ -442,6 +530,98 @@ where
     ) -> Result<BotsterSpawnOutcome, BotsterEngineError> {
         self.multiplexer
             .spawn_session(request, metadata, worker_runtime)
+    }
+
+    /// Execute one typed command through the public engine facade.
+    pub fn execute_command(
+        &mut self,
+        command: EngineCommand<W>,
+    ) -> Result<EngineCommandOutcome, EngineCommandError<BotsterEngineError>> {
+        let kind = command.kind();
+        match command {
+            EngineCommand::SpawnSession {
+                request,
+                metadata,
+                worker_runtime,
+            } => self
+                .spawn_session(request, metadata, worker_runtime)
+                .map(EngineCommandOutcome::SpawnSession),
+            EngineCommand::AttachClient {
+                client_id,
+                session_id,
+                subscription_id,
+                now_seconds,
+            } => self
+                .attach_client(client_id, session_id, subscription_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::DetachClient {
+                client_id,
+                session_id,
+                subscription_id,
+                now_seconds,
+            } => self
+                .detach_client(client_id, session_id, subscription_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::SendInput {
+                client_id,
+                session_id,
+                data,
+                now_seconds,
+            } => self
+                .write_bytes(client_id, session_id, data, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::Resize {
+                client_id,
+                session_id,
+                rows,
+                cols,
+                now_seconds,
+            } => self
+                .resize(client_id, session_id, rows, cols, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::ListSessions => Ok(EngineCommandOutcome::Sessions(self.list_sessions())),
+            EngineCommand::InspectSession {
+                session_id,
+                now_seconds,
+                active_threshold_seconds,
+            } => self
+                .inspect_session(&session_id, now_seconds, active_threshold_seconds)
+                .map(EngineCommandOutcome::Inspection),
+            EngineCommand::ReadScreen {
+                request_id,
+                session_id,
+                now_seconds,
+            } => self
+                .read_screen(request_id, session_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::CaptureSnapshot {
+                request_id,
+                session_id,
+                now_seconds,
+            } => self
+                .capture_snapshot(request_id, session_id, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::ReplaySnapshot {
+                request,
+                now_seconds,
+            } => self
+                .replay_snapshot(request, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::Shutdown {
+                session_id,
+                reason,
+                now_seconds,
+            } => self
+                .shutdown_session(session_id, reason, now_seconds)
+                .map(EngineCommandOutcome::Output),
+            EngineCommand::PostNotification { item } => Ok(
+                EngineCommandOutcome::NotificationPosted(self.post_notification(item)),
+            ),
+            EngineCommand::DrainNotifications { target, now } => Ok(
+                EngineCommandOutcome::NotificationsDrained(self.drain_notifications(target, now)),
+            ),
+        }
+        .map_err(|source| EngineCommandError::new(kind, source))
     }
 
     /// Attach a client to a session stream.
