@@ -30,6 +30,21 @@
 //! for the caller to deliver. Hosts own executors, queues, retry policy,
 //! persistence, config discovery, auth, cloud/WebRTC/signaling, marketplace
 //! policy, CLI UX, TUI/browser rendering, and product workflows.
+//!
+//! ```
+//! use botster_core::{
+//!     ClientId, EngineCommand, EngineCommandKind, SessionId, SubscriptionId,
+//! };
+//!
+//! let command: EngineCommand<()> = EngineCommand::AttachClient {
+//!     client_id: ClientId("client-a".to_string()),
+//!     session_id: SessionId("session-a".to_string()),
+//!     subscription_id: SubscriptionId("sub-a".to_string()),
+//!     now_seconds: 10,
+//! };
+//!
+//! assert_eq!(command.kind(), EngineCommandKind::AttachClient);
+//! ```
 
 use std::error::Error;
 use std::fmt;

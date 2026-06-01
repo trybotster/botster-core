@@ -13,10 +13,10 @@ plugin runtime must agree on.
 - `crates/botster-core`: production contract and engine crate.
 - `crates/botster-core-test-support`: dev-dependency fixtures, fakes, and
   conformance helpers for consumers pinned to the same core version.
-- `crates/botster-core-dev`: dev-only engine smoke harnesses that run an
-  explicit local command through the public default command API for core
-  development; not the product CLI, install UX, auth flow, hub daemon,
-  marketplace, or persistent config surface.
+- `crates/botster-core-dev`: dev-only real embedder smoke harnesses that drive
+  `DefaultBotsterEngine` and `DefaultEngineCommand` through an explicit local
+  command for core development; not the product CLI, install UX, auth flow, hub
+  daemon, marketplace, or persistent config surface.
 - `crates/botster-terminal-ghostty`: feature-gated crate for the blessed
   Ghostty shadow-terminal adapter path. It depends on the backend-neutral core
   terminal seam, owns the trybotster Ghostty fork pin under `vendor/ghostty`,
@@ -58,6 +58,24 @@ canonical command facade, keeps `MultiplexerEngine` as the lower-level assembled
 primitive, and maps supported commands to existing typed request, result, event,
 and error shapes.
 
+For custom runtimes, translate host or hub intents into `EngineCommand<W>` and
+dispatch them with `BotsterEngine::execute_command(...)`. For the default local
+PTY-backed path, use `DefaultEngineCommand` with `DefaultBotsterEngine`:
+
+```rust
+use botster_core::{CoreSessionMetadata, DefaultBotsterEngine, DefaultEngineCommand};
+
+let mut engine = DefaultBotsterEngine::new();
+let outcome = engine.execute_command(DefaultEngineCommand::SpawnSession {
+    request: host_resolved_spawn_request,
+    metadata: CoreSessionMetadata::new(),
+})?;
+```
+
+The host supplies the executable, working directory, environment, ids, clocks,
+request ids, client delivery, and persistence policy. Core executes the explicit
+capability request and returns typed outcomes for the host to route.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current
@@ -91,6 +109,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --doc --workspace
 cargo doc --workspace --no-deps
+```
+
+For command-surface docs, also verify the contract-only feature set so
+rustdoc links do not depend on default local-runtime items:
+
+```sh
+cargo doc -p botster-core --no-default-features --no-deps
+cargo test -p botster-core --no-default-features --lib
 ```
 
 On Unix hosts, also run the local PTY acceptance test:
