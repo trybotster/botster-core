@@ -263,6 +263,7 @@ fn drain_until_text(
     )))
 }
 
+#[cfg(unix)]
 fn request_id(value: &str) -> RequestId {
     RequestId(format!("real-embedder-{value}"))
 }
