@@ -7,8 +7,12 @@ description = "Test support and conformance fixtures for botster-core consumers"
 license-file = "../../LICENSE"
 repository = "https://github.com/trybotster/botster-core"
 
+[features]
+default = ["local-runtime"]
+local-runtime = ["botster-core/local-runtime"]
+
 [dependencies]
-botster-core = { path = "../botster-core" }
+botster-core = { path = "../botster-core", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
@@ -22,4 +26,3 @@ perf = { level = "warn", priority = -1 }
 style = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 unwrap_used = "warn"
-

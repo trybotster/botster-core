@@ -3,6 +3,12 @@
 //! `botster-core` is the shared substrate for Botster hosts and clients. It
 //! defines stable data shapes and low-level contracts, while `botster-hub`
 //! owns Botster policy and orchestration.
+//!
+//! The default feature set includes `local-runtime`, which exposes the
+//! policy-free local PTY/process adapter and [`DefaultBotsterEngine`]. Embedders
+//! that only need contracts and custom host adapters can disable default
+//! features and keep [`BotsterEngine`], runtime traits, and transport contracts
+//! without the local process dependency.
 
 pub mod contract;
 pub mod engine;
@@ -20,9 +26,10 @@ pub use engine::{
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
+#[cfg(feature = "local-runtime")]
+pub use runtime::{LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime};
 pub use runtime::{
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PluginRuntime,
-    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
 };
@@ -61,15 +68,17 @@ pub use device::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, DefaultBotsterEngine,
-    DefaultBotsterEngineError, ManagedSessionRuntime, ManagedSessionRuntimeError,
-    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
-    MultiplexerEngineOutcome, MultiplexerSpawnOutcome, PluginHandlerRegistration,
-    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine,
-    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
-    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
-    TerminalScreenOutcome, TerminalScreenRuntime,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ManagedSessionRuntime,
+    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
+    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
+    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
+    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
+    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
+    TerminalScreenRuntime,
 };
+#[cfg(feature = "local-runtime")]
+pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,

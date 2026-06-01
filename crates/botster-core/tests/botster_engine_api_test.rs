@@ -1,20 +1,24 @@
 //! Public ergonomic Botster engine API acceptance tests.
 
 use std::sync::Arc;
+#[cfg(feature = "local-runtime")]
 use std::thread;
+#[cfg(feature = "local-runtime")]
 use std::time::{Duration, Instant};
 
 use botster_core::{
     BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
-    DefaultBotsterEngine, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
-    NotificationTarget, NotificationTimestamp, PackageManifest, PluginDescriptorKind,
-    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
-    PluginInvocationContext, PluginInvocationRequest, PluginInvocationResult, PluginKey,
-    PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerRegistration, RequestId, ResizePayload,
-    SessionActivityStatus, SessionId, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem,
+    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
+    PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
+    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
+    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
+    PluginWorkerRegistration, RequestId, SessionActivityStatus, SessionId, SessionIoRequest,
+    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress,
 };
+#[cfg(feature = "local-runtime")]
+use botster_core::{DefaultBotsterEngine, ResizePayload};
 use botster_core_test_support::fake::{
     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
@@ -125,6 +129,7 @@ fn plugin_invocation(handler: PluginHandlerRef) -> PluginInvocationRequest {
     }
 }
 
+#[cfg(feature = "local-runtime")]
 fn default_spawn_request() -> SessionSpawnRequest {
     SessionSpawnRequest {
         request_id: request_id("default-spawn-1"),
@@ -146,6 +151,7 @@ fn default_spawn_request() -> SessionSpawnRequest {
     }
 }
 
+#[cfg(feature = "local-runtime")]
 fn drain_default_until(
     engine: &mut DefaultBotsterEngine,
     session_id: &SessionId,
@@ -184,6 +190,7 @@ fn drain_default_until(
     );
 }
 
+#[cfg(feature = "local-runtime")]
 #[test]
 fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     let mut engine = DefaultBotsterEngine::new();
