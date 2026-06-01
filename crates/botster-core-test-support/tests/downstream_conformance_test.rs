@@ -5,8 +5,9 @@ use botster_core::session::{RequestId, SessionId, SubscriptionId};
 use botster_core::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
 use botster_core::{
-    CoreSessionMetadata, LocalProcessRuntime, ManagedSessionRuntime, ResizePayload,
-    SessionLifecycleState,
+    CoreSessionMetadata, DefaultBotsterEngine, EngineCommandKind, EngineCommandOutcome,
+    LocalProcessRuntime, ManagedSessionRuntime, PreparedSnapshotRequest, ResizePayload,
+    SessionActivityStatus, SessionIoRequest, SessionLifecycleState,
 };
 use botster_core::{
     ModeFlags, SessionIoEvent, TerminalColorProfile, TerminalOutputChunk, TerminalScreenEngine,
@@ -22,8 +23,11 @@ use botster_core_test_support::assertions::{
 };
 #[cfg(feature = "local-runtime")]
 use botster_core_test_support::conformance::{
-    assert_output_activity, assert_shutdown_requested, assert_terminal_output_fanout,
-    local_shell_spawn_request, DisposableManagedLocalSession,
+    assert_command_inspection_activity, assert_command_output_fanout,
+    assert_command_replay_snapshot_behavior, assert_command_screen_ready,
+    assert_command_sessions_include, assert_command_snapshot_ready, assert_output_activity,
+    assert_shutdown_requested, assert_terminal_output_fanout, local_shell_spawn_request,
+    DisposableCommandLocalSession, DisposableManagedLocalSession,
 };
 use botster_core_test_support::fake::{FakeSessionTransport, FakeTerminalScreenRuntime};
 
@@ -263,6 +267,153 @@ fn downstream_consumer_can_conform_against_managed_local_runtime() {
         .shutdown("downstream conformance complete", 23)
         .expect("shutdown through managed runtime");
     assert_shutdown_requested(&shutdown, harness.session_id());
+    assert_eq!(
+        harness.session().map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Stopping)
+    );
+}
+
+#[cfg(all(unix, feature = "local-runtime"))]
+#[test]
+fn downstream_consumer_can_conform_against_default_engine_commands() {
+    use std::time::Duration;
+
+    let request = local_shell_spawn_request(
+        RequestId("req-command-local".to_string()),
+        SessionId("session-command-local".to_string()),
+        "printf 'botster-command-local-output\\n'; read line; printf \"command-input:%s\\n\" \"$line\"; sleep 1",
+    );
+    let mut harness = DisposableCommandLocalSession::spawn(request, CoreSessionMetadata::new())
+        .expect("spawn disposable command local session");
+    let _public_engine: &DefaultBotsterEngine = harness.engine();
+
+    harness
+        .attach_client(
+            client_id("client-command-a"),
+            SubscriptionId("sub-command-a".to_string()),
+            10,
+        )
+        .expect("attach first downstream client through typed command");
+    harness
+        .attach_client(
+            client_id("client-command-b"),
+            SubscriptionId("sub-command-b".to_string()),
+            11,
+        )
+        .expect("attach second downstream client through typed command");
+
+    let output = harness
+        .drain_runtime_until_output_contains(
+            b"botster-command-local-output",
+            20,
+            Duration::from_secs(5),
+        )
+        .expect("drain real PTY output through default command engine");
+    let output = EngineCommandOutcome::Output(output);
+
+    assert_command_output_fanout(
+        &output,
+        harness.session_id(),
+        harness.attached_clients(),
+        b"botster-command-local-output",
+    );
+
+    let active = harness
+        .inspect_session(21, 5)
+        .expect("inspect active session through typed command");
+    assert_command_inspection_activity(
+        &active,
+        harness.session_id(),
+        SessionActivityStatus::Active,
+    );
+
+    let idle = harness
+        .inspect_session(200, 5)
+        .expect("inspect idle session through typed command");
+    assert_command_inspection_activity(&idle, harness.session_id(), SessionActivityStatus::Idle);
+
+    let sessions = harness
+        .list_sessions()
+        .expect("list sessions through typed command");
+    assert_command_sessions_include(&sessions, harness.session_id());
+
+    harness
+        .write_bytes(client_id("client-command-a"), b"typed\n".to_vec(), 22)
+        .expect("write through typed command");
+    let input_output = harness
+        .drain_runtime_until_output_contains(b"command-input:typed", 23, Duration::from_secs(5))
+        .expect("drain input response through default command engine");
+    let input_output = EngineCommandOutcome::Output(input_output);
+    assert_command_output_fanout(
+        &input_output,
+        harness.session_id(),
+        harness.attached_clients(),
+        b"command-input:typed",
+    );
+
+    let resize = harness
+        .resize(client_id("client-command-a"), 33, 120, 24)
+        .expect("resize through typed command");
+    assert!(matches!(
+        resize,
+        EngineCommandOutcome::Output(ref output)
+            if output.session_requests.iter().any(|(_, request)| matches!(
+                request,
+                SessionIoRequest::Resize {
+                    session_id,
+                    rows: 33,
+                    cols: 120,
+                } if session_id == harness.session_id()
+            ))
+    ));
+
+    let screen_request_id = RequestId("req-command-screen".to_string());
+    let screen = harness
+        .read_screen(screen_request_id.clone(), 25)
+        .expect("read screen through typed command");
+    assert_command_screen_ready(&screen, &screen_request_id, harness.session_id());
+
+    let snapshot_request_id = RequestId("req-command-snapshot".to_string());
+    let snapshot = harness
+        .capture_snapshot(snapshot_request_id.clone(), 26)
+        .expect("capture snapshot through typed command");
+    let snapshot_bytes =
+        assert_command_snapshot_ready(&snapshot, &snapshot_request_id, harness.session_id());
+
+    let replay_request_id = RequestId("req-command-replay".to_string());
+    let replay = harness.replay_snapshot(
+        PreparedSnapshotRequest {
+            request_id: replay_request_id.clone(),
+            session_id: harness.session_id().clone(),
+            snapshot: snapshot_bytes,
+            recovery: false,
+        },
+        27,
+    );
+    assert_command_replay_snapshot_behavior(&replay, &replay_request_id, harness.session_id());
+    if let Err(botster_core_test_support::conformance::EngineConformanceError::Command(error)) =
+        replay
+    {
+        assert_eq!(error.kind, EngineCommandKind::ReplaySnapshot);
+    }
+
+    harness
+        .detach_client(
+            client_id("client-command-b"),
+            SubscriptionId("sub-command-b".to_string()),
+            28,
+        )
+        .expect("detach downstream client through typed command");
+
+    let shutdown = harness
+        .shutdown("downstream command conformance complete", 29)
+        .expect("shutdown through typed command");
+    match shutdown {
+        EngineCommandOutcome::Output(output) => {
+            assert_shutdown_requested(&output, harness.session_id());
+        }
+        outcome => panic!("expected shutdown output, got {outcome:?}"),
+    }
     assert_eq!(
         harness.session().map(|session| &session.lifecycle),
         Some(&SessionLifecycleState::Stopping)
