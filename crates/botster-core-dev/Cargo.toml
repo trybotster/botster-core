@@ -6,6 +6,7 @@ authors = ["Botster contributors"]
 description = "Dev-only smoke harness for botster-core"
 license-file = "../../LICENSE"
 repository = "https://github.com/trybotster/botster-core"
+homepage = "https://github.com/trybotster/botster-core"
 publish = false
 
 [dependencies]
