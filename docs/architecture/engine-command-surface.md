@@ -21,11 +21,19 @@ Core commands are mechanisms, not product actions. Hosts provide explicit ids, c
 | Shutdown | `SessionId`, reason, caller clock | `BotsterEngineOutput` with lifecycle observations | `BotsterEngine::shutdown_session`, `DefaultBotsterEngine::shutdown_session` | Host owns reason text and shutdown policy |
 | Notifications | `NotificationItem`, `NotificationTarget`, caller clock | `NotificationId` and `Vec<NotificationItem>` | `BotsterEngine::post_notification`, `BotsterEngine::drain_notifications` | Host/plugin owns presentation and delivery policy |
 
-The compile-checked command vocabulary lives in `botster_core::engine_command` and is re-exported at the crate root as `EngineCommandKind`, `ENGINE_COMMAND_KINDS`, `EngineSessionInspection`, and type aliases for the existing request/result/event shapes.
+The compile-checked command API lives in `botster_core::engine_command` and is re-exported at the crate root:
+
+- `EngineCommand<W>` is the typed request enum for `BotsterEngine<R, W>`. Its spawn variant carries the host-supplied worker runtime because custom embedders own worker construction. Its notification variants are thin inbox delegates over `BotsterEngine::post_notification` and `BotsterEngine::drain_notifications`.
+- `DefaultEngineCommand` is the typed request enum for `DefaultBotsterEngine` when the `local-runtime` feature is enabled. It covers the local PTY-backed session/client/screen/snapshot/shutdown commands, but intentionally omits notifications because `DefaultBotsterEngine` does not currently expose notification inbox methods.
+- `EngineCommandOutcome` is the heterogeneous typed result enum. It preserves the existing rich result types: `BotsterSpawnOutcome`, `BotsterEngineOutput`, `Vec<CoreSession>`, `EngineSessionInspection`, `NotificationId`, and drained `Vec<NotificationItem>`.
+- `EngineCommandError<E>` wraps the underlying typed facade error with the `EngineCommandKind` that failed.
+- `EngineCommandKind` and `ENGINE_COMMAND_KINDS` remain the vocabulary/drift guard for the command surface.
+
+Both facades expose `execute_command(...)` as the typed dispatch entry point. The implementation is intentionally a thin exhaustive match that delegates to the public facade methods listed above; it is not a second engine router and does not mutate lower-level state directly.
 
 ## Error Model
 
-The command facade reuses the existing typed errors:
+The command facade reuses the existing typed errors through `EngineCommandError<E>`:
 
 - `BotsterEngineError` for adapter-backed `BotsterEngine` calls.
 - `DefaultBotsterEngineError` for local PTY-backed `DefaultBotsterEngine` calls.

@@ -70,11 +70,12 @@ pub use device::{
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
     BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, EngineClientId,
-    EngineCommandEvent, EngineCommandKind, EngineCommandResult, EngineNotificationId,
-    EngineNotificationItem, EngineNotificationTarget, EngineReplaySnapshotRequest, EngineRequestId,
-    EngineSessionId, EngineSessionInspection, EngineSessionIoRequest, EngineSpawnSessionMetadata,
-    EngineSpawnSessionRequest, EngineSpawnSessionResult, EngineSubscriptionId,
-    ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    EngineCommand, EngineCommandError, EngineCommandEvent, EngineCommandKind, EngineCommandOutcome,
+    EngineCommandResult, EngineNotificationId, EngineNotificationItem, EngineNotificationTarget,
+    EngineReplaySnapshotRequest, EngineRequestId, EngineSessionId, EngineSessionInspection,
+    EngineSessionIoRequest, EngineSpawnSessionMetadata, EngineSpawnSessionRequest,
+    EngineSpawnSessionResult, EngineSubscriptionId, ManagedSessionRuntime,
+    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
     PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
@@ -83,7 +84,7 @@ pub use engine::{
     TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
-pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError};
+pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
