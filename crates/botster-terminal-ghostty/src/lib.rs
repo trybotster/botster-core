@@ -212,6 +212,7 @@ mod native {
                 };
             }
 
+            self.clear_last_error();
             TerminalOutputChunk::new(bytes.to_vec())
         }
 
@@ -261,7 +262,9 @@ mod native {
                 return Err(GhosttyTerminalError::operation("snapshot_export", result));
             }
 
-            Ok(copy_ghostty_buffer(out_ptr, out_len))
+            let bytes = copy_ghostty_buffer(out_ptr, out_len);
+            self.clear_last_error();
+            Ok(bytes)
         }
 
         /// Import an opaque Ghostty terminal snapshot.
@@ -289,7 +292,9 @@ mod native {
         /// Read Ghostty's active screen as plain text.
         pub fn plain_text(&self) -> Result<String, GhosttyTerminalError> {
             let bytes = self.format_plain_bytes()?;
-            Ok(String::from_utf8_lossy(&bytes).into_owned())
+            let plain_text = String::from_utf8_lossy(&bytes).into_owned();
+            self.clear_last_error();
+            Ok(plain_text)
         }
 
         fn format_plain_bytes(&self) -> Result<Vec<u8>, GhosttyTerminalError> {
@@ -325,7 +330,9 @@ mod native {
                 return Err(GhosttyTerminalError::operation("formatter_format", result));
             }
 
-            Ok(copy_ghostty_buffer(out_ptr, out_len))
+            let bytes = copy_ghostty_buffer(out_ptr, out_len);
+            self.clear_last_error();
+            Ok(bytes)
         }
 
         fn record_error(&self, error: GhosttyTerminalError) {

@@ -41,11 +41,16 @@ fn write_output_preserves_bytes_and_updates_plain_screen() {
 fn resize_maps_terminal_screen_size_to_ghostty() {
     let mut runtime = runtime();
 
-    runtime.resize(TerminalScreenSize::new(12, 40));
+    runtime.resize(TerminalScreenSize::new(12, 5));
+    runtime.write_output(b"abcdef");
     let snapshot = runtime.capture_snapshot();
+    let screen = runtime.screen_state();
+    let lines: Vec<_> = screen.plain_text.lines().collect();
 
-    assert_eq!(runtime.size(), TerminalScreenSize::new(12, 40));
-    assert_eq!(snapshot.size, TerminalScreenSize::new(12, 40));
+    assert_eq!(runtime.size(), TerminalScreenSize::new(12, 5));
+    assert_eq!(snapshot.size, TerminalScreenSize::new(12, 5));
+    assert_eq!(lines.first(), Some(&"abcde"));
+    assert_eq!(lines.get(1), Some(&"f"));
     assert_eq!(runtime.last_error(), None);
 }
 
@@ -79,4 +84,26 @@ fn fallible_import_records_error_without_panicking_trait_replay() {
     runtime.replay_snapshot(invalid);
 
     assert!(runtime.last_error().is_some());
+}
+
+#[test]
+fn successful_operations_clear_prior_last_error() {
+    let mut runtime = runtime();
+    let invalid = TerminalSnapshotPayload::new(
+        b"not a ghostty snapshot".to_vec(),
+        TerminalScreenSize::new(24, 80),
+        Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
+    );
+
+    runtime.replay_snapshot(invalid.clone());
+    assert!(runtime.last_error().is_some());
+
+    runtime.write_output(b"ok");
+    assert_eq!(runtime.last_error(), None);
+
+    runtime.replay_snapshot(invalid);
+    assert!(runtime.last_error().is_some());
+
+    assert!(runtime.screen_state().plain_text.contains("ok"));
+    assert_eq!(runtime.last_error(), None);
 }
