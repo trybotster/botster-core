@@ -60,7 +60,10 @@ Non-scope:
 - No `SessionWorkerEngine<LocalProcessRuntime>` behavior tests.
 - No `MultiplexerEngine` end-to-end terminal fanout test.
 - No terminal-emulator grid, parser-backed snapshot, `screen`, `mode_flags`, or snapshot helper behavior.
-- No Ghostty/restty dependency or trybotster-owned terminal parser fork. Those belong to the separate terminal screen/snapshot/parser ticket.
+- No Ghostty backend dependency or trybotster-owned terminal parser fork.
+  Terminal backend work belongs to the separate terminal screen/snapshot/parser
+  path. No restty client-renderer dependency; restty remains client rendering
+  only.
 - No default command, shell selection, PATH mutation, product config discovery, target admission, auth, cloud, Rails, WebRTC, TUI, marketplace, Project Pipelines, or Lua plugin behavior.
 - No hub recovery, broker persistence, session manifest policy, reconnect policy, retention policy, or process-freezing behavior.
 - No broad rewrite of `SessionRuntime`, `SessionWorkerEngine`, `MultiplexerEngine`, or test-support fakes.
@@ -85,7 +88,10 @@ The feature plan above remains the approved implementation scope. The current re
 - Update the existing PR #26 branch `project-pipelines/ticket_1780189402_540507`; do not create a new branch, run, or PR.
 - Bring the branch current with `main` using the repo's normal Git workflow.
 - Resolve merge conflicts surgically while preserving the approved SessionRuntime-only scope.
-- Do not reintroduce `SessionWorkerRuntime`, `SessionWorkerEngine` behavior tests, `MultiplexerEngine` fanout tests, Ghostty/restty, terminal-grid/parser work, shell/default command policy, PATH mutation, or product configuration discovery.
+- Do not reintroduce `SessionWorkerRuntime`, `SessionWorkerEngine` behavior
+  tests, `MultiplexerEngine` fanout tests, Ghostty backend work,
+  terminal-grid/parser work, shell/default command policy, PATH mutation, or
+  product configuration discovery. Do not add restty client-renderer work.
 - Carry the open low-severity review finding `finding_1780193017_482511`: either resolve it by ensuring final PTY bytes cannot be dropped when exit wins the race against reader-channel drain, or document it exactly as residual risk in implementation gate evidence if left unchanged.
 - Push the updated existing branch so PR #26 becomes mergeable again.
 - Reply or otherwise satisfy the GitHub review by updating the PR branch; no separate PR is needed.
@@ -159,7 +165,7 @@ Not expected:
 - `crates/botster-core/src/engine/session_worker.rs`.
 - `crates/botster-core/src/engine/multiplexer.rs`.
 - `crates/botster-core/src/contract/*`.
-- Any Ghostty/restty, hub, CLI, browser, TUI, Rails, Lua plugin, MCP, Project Pipelines, provider, or old TryBotster files.
+- Any Ghostty backend, restty client renderer, hub, CLI, browser, TUI, Rails, Lua plugin, MCP, Project Pipelines, provider, or old TryBotster files.
 
 ## Implementation Shape
 
@@ -245,7 +251,8 @@ Explicitly dropped from this ticket:
 
 - Any test proving `SessionWorkerEngine<LocalProcessRuntime>` routes PTY input/resize/snapshot/shutdown.
 - Any `MultiplexerEngine` fanout test that requires `SessionWorkerRuntime` or `handle_runtime_event`.
-- Any Ghostty/restty or terminal-grid snapshot/parser test.
+- Any Ghostty backend or terminal-grid snapshot/parser test.
+- Any restty client-renderer test.
 
 Commands:
 
