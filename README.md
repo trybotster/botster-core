@@ -167,6 +167,23 @@ reports elapsed time, drain rounds, delivered bytes, and the queue/backpressure
 observations exposed by the public API. Local PTY reader pressure is surfaced as
 typed session-I/O backpressure through `DefaultBotsterEngine::drain_runtime_once`.
 
+The final adversarial proof composes that load path with hub-facing command
+probes through the same public facade. In CI-safe mode it starts 20 local PTYs,
+keeps one noisy PTY active, proves at least one quiet PTY completes while noisy
+output is still in flight, then probes list, inspect, attach, detach, resize,
+input, read-screen, capture-snapshot, and shutdown with generous per-phase
+regression bounds. `SendInput` uses a live interactive control session and must
+produce an observable echo, so the check proves delivery rather than only typed
+command routing. Cleanup is proven by asserting background sessions reach the
+retained `Exited` lifecycle and the shutdown-killed control session no longer
+has a live local runtime handle.
+
+Run the CI-safe adversarial proof:
+
+```sh
+BOTSTER_ENV=test cargo test -p botster-core-test-support adversarial_hot_path -- --nocapture
+```
+
 Run the CI-safe default, which covers 20 local PTY sessions:
 
 ```sh
@@ -186,10 +203,22 @@ BOTSTER_ENV=test cargo test -p botster-core-test-support many_pty_load_100 -- --
 ```
 
 Failures include hot-path labels such as spawn, attach, drain, timeout,
-output, noisy-output, and process-exit, plus synthetic session and client ids.
-The current public default-engine path exposes local PTY reader pressure but
-does not expose slow-client/plugin-pressure counters; the harness report names
-that remaining limitation instead of fabricating metrics.
+output, noisy-output, list, inspect, input, resize, read-screen,
+capture-snapshot, shutdown-control, cleanup, and process-exit, plus synthetic
+session and client ids. The current public default-engine path exposes local
+PTY reader pressure but does not expose a combined slow-client/plugin-pressure
+counter. Treat the proof matrix as:
+
+- Direct adversarial proof: many PTYs, one noisy PTY, quiet-session completion,
+  public command responsiveness, observable input delivery, screen/snapshot
+  reads where supported, and clean shutdown.
+- Focused slow-client isolation proof:
+  `BOTSTER_ENV=test cargo test -p botster-core --test subscription_multiplexer_engine_test`
+- Focused slow-plugin isolation proof:
+  `BOTSTER_ENV=test cargo test -p botster-core --test plugin_worker_engine_test`
+
+The adversarial harness report names that composition boundary instead of
+fabricating slow-client or plugin counters.
 
 ## Terminal Screen And Snapshot Boundary
 
