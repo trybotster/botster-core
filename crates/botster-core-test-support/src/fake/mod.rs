@@ -23,6 +23,7 @@ pub struct FakeSessionRuntime {
     handles: Vec<SessionRuntimeHandle>,
     inputs: Vec<SessionRuntimeInput>,
     outputs: Vec<SessionRuntimeOutput>,
+    drain_attempts: Vec<SessionId>,
     next_spawn_error: Option<SessionRuntimeError>,
     next_drain_error: Option<SessionRuntimeError>,
 }
@@ -51,6 +52,11 @@ impl FakeSessionRuntime {
     /// Return all runtime inputs observed by the fake runtime.
     pub fn inputs(&self) -> &[SessionRuntimeInput] {
         &self.inputs
+    }
+
+    /// Return session ids passed to `drain_output`, in call order.
+    pub fn drain_attempts(&self) -> &[SessionId] {
+        &self.drain_attempts
     }
 
     /// Queue raw PTY output for a session.
@@ -121,6 +127,8 @@ impl SessionRuntime for FakeSessionRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        self.drain_attempts.push(session_id.clone());
+
         if let Some(error) = self.next_drain_error.take() {
             return Err(error);
         }
@@ -149,6 +157,18 @@ impl SessionRuntime for FakeSessionRuntime {
         }
 
         self.outputs = retained;
+        if drained.iter().any(|output| {
+            matches!(
+                output,
+                SessionRuntimeOutput::ProcessExited {
+                    session_id: output_session_id,
+                    ..
+                } if output_session_id == session_id
+            )
+        }) {
+            self.handles
+                .retain(|handle| &handle.session_id != session_id);
+        }
         Ok(drained)
     }
 }

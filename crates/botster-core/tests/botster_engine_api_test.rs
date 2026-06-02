@@ -192,6 +192,44 @@ fn drain_default_until(
 }
 
 #[cfg(feature = "local-runtime")]
+fn drain_default_all_until(
+    engine: &mut DefaultBotsterEngine,
+    needle: &[u8],
+    last_output_at: &mut u64,
+) -> Vec<u8> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut observed = Vec::new();
+
+    while Instant::now() < deadline {
+        let outcome = engine
+            .drain_runtime_all_once(*last_output_at)
+            .expect("fair drain default runtime output");
+        *last_output_at += 1;
+
+        for (_, frame) in outcome.client_egress {
+            if let TransportEgress::TerminalOutput { data, .. } = frame {
+                observed.extend(data);
+            }
+        }
+
+        if observed
+            .windows(needle.len())
+            .any(|window| window == needle)
+        {
+            return observed;
+        }
+
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    panic!(
+        "timed out waiting for {:?} in {:?}",
+        String::from_utf8_lossy(needle),
+        String::from_utf8_lossy(&observed)
+    );
+}
+
+#[cfg(feature = "local-runtime")]
 #[test]
 fn default_botster_engine_spawns_local_session_and_fans_out_output() {
     let mut engine = DefaultBotsterEngine::new();
@@ -288,6 +326,53 @@ fn default_botster_engine_spawns_local_session_and_fans_out_output() {
             .map(|session| &session.lifecycle),
         Some(SessionLifecycleState::Stopping)
     ));
+}
+
+#[cfg(feature = "local-runtime")]
+#[test]
+fn default_botster_engine_exposes_fair_runtime_drain() {
+    let mut engine = DefaultBotsterEngine::new();
+    let request = default_spawn_request();
+    let session_id = request.session_id.clone();
+    let client_id = client_id("default-fair-client");
+    let subscription_id = subscription_id("default-fair-subscription");
+    let mut logical_clock = 20;
+
+    engine
+        .spawn_session(request, CoreSessionMetadata::new())
+        .expect("spawn local default session");
+    engine
+        .attach_client(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id,
+            logical_clock,
+        )
+        .expect("attach client through default engine facade");
+    logical_clock += 1;
+
+    let ready = drain_default_all_until(&mut engine, b"ready", &mut logical_clock);
+    assert!(
+        ready
+            .windows(b"ready".len())
+            .any(|window| window == b"ready"),
+        "fair default drain should fan out local PTY startup output"
+    );
+
+    engine
+        .write_bytes(
+            client_id,
+            session_id.clone(),
+            b"ping-fair-default\n".to_vec(),
+            logical_clock,
+        )
+        .expect("write input through default engine facade");
+    logical_clock += 1;
+    drain_default_all_until(&mut engine, b"echo:ping-fair-default", &mut logical_clock);
+
+    engine
+        .shutdown_session(session_id, "fair drain test complete", logical_clock)
+        .expect("shutdown default runtime session");
 }
 
 #[test]

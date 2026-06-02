@@ -23,6 +23,10 @@ fn session_id() -> SessionId {
     SessionId("managed-session-1".to_string())
 }
 
+fn numbered_session_id(index: usize) -> SessionId {
+    SessionId(format!("managed-session-{index}"))
+}
+
 fn client_id(value: &str) -> botster_core::ClientId {
     botster_core::ClientId(value.to_string())
 }
@@ -32,9 +36,13 @@ fn subscription_id(value: &str) -> SubscriptionId {
 }
 
 fn spawn_request() -> SessionSpawnRequest {
+    spawn_request_for(session_id(), "spawn-managed-1")
+}
+
+fn spawn_request_for(session_id: SessionId, request_id_value: &str) -> SessionSpawnRequest {
     SessionSpawnRequest {
-        request_id: request_id("spawn-managed-1"),
-        session_id: session_id(),
+        request_id: request_id(request_id_value),
+        session_id,
         executable: "fake-shell".to_string(),
         arguments: Vec::new(),
         working_directory: SpawnWorkingDirectory {
@@ -54,17 +62,84 @@ fn managed_runtime() -> ManagedSessionRuntime<FakeSessionRuntime> {
 }
 
 fn subscribe(runtime: &mut ManagedSessionRuntime<FakeSessionRuntime>) {
+    subscribe_to(
+        runtime,
+        client_id("client-a"),
+        session_id(),
+        subscription_id("sub-a"),
+    );
+}
+
+fn subscribe_to(
+    runtime: &mut ManagedSessionRuntime<FakeSessionRuntime>,
+    client_id: botster_core::ClientId,
+    session_id: SessionId,
+    subscription_id: SubscriptionId,
+) {
     runtime
         .handle_client_ingress(
-            client_id("client-a"),
+            client_id.clone(),
             TransportIngress::SubscribeSession {
-                client_id: client_id("client-a"),
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-a"),
+                client_id,
+                session_id,
+                subscription_id,
             },
             10,
         )
         .expect("subscribe client");
+}
+
+fn spawn_numbered_sessions(
+    runtime: &mut ManagedSessionRuntime<FakeSessionRuntime>,
+    count: usize,
+) -> Vec<(SessionId, botster_core::ClientId, SubscriptionId)> {
+    (0..count)
+        .map(|index| {
+            let session_id = numbered_session_id(index);
+            let client_id = client_id(&format!("client-{index}"));
+            let subscription_id = subscription_id(&format!("sub-{index}"));
+            runtime
+                .spawn_session(
+                    spawn_request_for(session_id.clone(), &format!("spawn-managed-{index}")),
+                    CoreSessionMetadata::new(),
+                )
+                .expect("spawn numbered session");
+            subscribe_to(
+                runtime,
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            );
+            (session_id, client_id, subscription_id)
+        })
+        .collect()
+}
+
+fn terminal_output_bytes_for(
+    outcome: &botster_core::MultiplexerEngineOutcome,
+    client_id: &botster_core::ClientId,
+    subscription_id: &SubscriptionId,
+    session_id: &SessionId,
+) -> Vec<u8> {
+    outcome
+        .client_egress
+        .iter()
+        .filter_map(|(received_client, egress)| match egress {
+            TransportEgress::TerminalOutput {
+                session_id: received_session_id,
+                subscription_id: received_subscription_id,
+                data,
+            } if received_client == client_id
+                && received_session_id == session_id
+                && received_subscription_id == subscription_id =>
+            {
+                Some(data.as_slice())
+            }
+            _ => None,
+        })
+        .flatten()
+        .copied()
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +181,240 @@ impl TerminalScreenRuntime for SpyTerminalRuntime {
             self.size,
             String::from_utf8_lossy(&self.writes.borrow().concat()).into_owned(),
         )
+    }
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_visits_each_active_session_once_per_tick() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 3);
+
+    for (index, (session_id, _, _)) in sessions.iter().enumerate() {
+        runtime
+            .session_runtime_mut()
+            .emit_output(session_id.clone(), format!("fair:{index}\n").into_bytes());
+    }
+
+    let outcome = runtime
+        .drain_runtime_all_once(20)
+        .expect("fair drain all sessions");
+
+    for (index, (session_id, client_id, subscription_id)) in sessions.iter().enumerate() {
+        assert_eq!(
+            terminal_output_bytes_for(&outcome, client_id, subscription_id, session_id),
+            format!("fair:{index}\n").into_bytes(),
+            "each active session should deliver output in the same aggregate tick"
+        );
+        assert_eq!(
+            runtime
+                .session_runtime()
+                .drain_attempts()
+                .iter()
+                .filter(|attempted| *attempted == session_id)
+                .count(),
+            1,
+            "each active session should be drained exactly once in one fair tick"
+        );
+    }
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_bounds_work_to_one_drain_per_session_per_tick() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 3);
+    let noisy_session = &sessions[0].0;
+
+    for line in 0..64 {
+        runtime.session_runtime_mut().emit_output(
+            noisy_session.clone(),
+            format!("noisy:{line}\n").into_bytes(),
+        );
+    }
+    for (index, (session_id, _, _)) in sessions.iter().enumerate().skip(1) {
+        runtime
+            .session_runtime_mut()
+            .emit_output(session_id.clone(), format!("quiet:{index}\n").into_bytes());
+    }
+
+    let outcome = runtime
+        .drain_runtime_all_once(20)
+        .expect("fair drain noisy and quiet sessions");
+
+    assert!(
+        terminal_output_bytes_for(&outcome, &sessions[0].1, &sessions[0].2, &sessions[0].0)
+            .windows(b"noisy:63\n".len())
+            .any(|window| window == b"noisy:63\n"),
+        "byte volume remains runtime-defined, but noisy session gets one drain call"
+    );
+    for (index, (session_id, client_id, subscription_id)) in sessions.iter().enumerate().skip(1) {
+        assert_eq!(
+            terminal_output_bytes_for(&outcome, client_id, subscription_id, session_id),
+            format!("quiet:{index}\n").into_bytes(),
+            "quiet sessions must deliver in the same aggregate tick as noisy output"
+        );
+    }
+    for (session_id, _, _) in &sessions {
+        assert_eq!(
+            runtime
+                .session_runtime()
+                .drain_attempts()
+                .iter()
+                .filter(|attempted| *attempted == session_id)
+                .count(),
+            1,
+            "fair drain bound is one drain_output call per session per tick, not bytes per tick"
+        );
+    }
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_skips_empty_sessions_without_starving_later_output() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 3);
+    let later = &sessions[2];
+    runtime
+        .session_runtime_mut()
+        .emit_output(later.0.clone(), b"later output".to_vec());
+
+    let outcome = runtime
+        .drain_runtime_all_once(20)
+        .expect("fair drain with empty earlier sessions");
+
+    assert_eq!(
+        terminal_output_bytes_for(&outcome, &later.1, &later.2, &later.0),
+        b"later output".to_vec()
+    );
+    for (session_id, _, _) in &sessions {
+        assert_eq!(
+            runtime
+                .session_runtime()
+                .drain_attempts()
+                .iter()
+                .filter(|attempted| *attempted == session_id)
+                .count(),
+            1,
+            "empty sessions should be attempted once without blocking later sessions"
+        );
+    }
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_tolerates_exited_session_and_preserves_per_session_order() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 2);
+    let exited = &sessions[0];
+    let live = &sessions[1];
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(exited.0.clone(), b"tail before exit".to_vec());
+    runtime.session_runtime_mut().emit_exit(
+        exited.0.clone(),
+        ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    );
+    runtime
+        .session_runtime_mut()
+        .emit_output(live.0.clone(), b"live after exit".to_vec());
+
+    let outcome = runtime
+        .drain_runtime_all_once(20)
+        .expect("fair drain with one exited session");
+
+    let exited_frames = outcome
+        .client_egress
+        .iter()
+        .filter_map(|(client_id, egress)| {
+            if client_id == &exited.1 {
+                Some(egress)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        exited_frames.first(),
+        Some(TransportEgress::TerminalOutput { data, .. }) if data == b"tail before exit"
+    ));
+    assert!(matches!(
+        exited_frames.get(1),
+        Some(TransportEgress::ProcessExit { code: Some(0), .. })
+    ));
+    assert_eq!(
+        terminal_output_bytes_for(&outcome, &live.1, &live.2, &live.0),
+        b"live after exit".to_vec(),
+        "another session's output should still deliver in the same aggregate tick"
+    );
+
+    let followup = runtime
+        .drain_runtime_all_once(21)
+        .expect("fair drain should skip runtime-removed exited sessions");
+    assert!(followup.client_egress.is_empty());
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_routes_pending_runtime_events_once() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 2);
+    let initial = &sessions[0];
+
+    runtime
+        .handle_session_request(
+            SessionIoRequest::SubscribeTerminal {
+                request_id: request_id("initial-fair"),
+                session_id: initial.0.clone(),
+                client_id: initial.1.clone(),
+                subscription_id: initial.2.clone(),
+                rows: 30,
+                cols: 100,
+            },
+            20,
+        )
+        .expect("queue initial snapshot");
+
+    let outcome = runtime
+        .drain_runtime_all_once(21)
+        .expect("fair drain routes pending runtime events once");
+
+    assert_eq!(
+        outcome
+            .session_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    SessionIoEvent::InitialSnapshotReady(snapshot)
+                        if snapshot.request_id == request_id("initial-fair")
+                )
+            })
+            .count(),
+        1,
+        "pending worker runtime events should be routed once per aggregate tick, not once per session"
+    );
+}
+
+#[test]
+fn managed_session_runtime_fair_drain_error_returns_typed_runtime_error() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    spawn_numbered_sessions(&mut runtime, 2);
+    runtime
+        .session_runtime_mut()
+        .fail_next_drain(SessionRuntimeError::new(
+            SessionRuntimeErrorKind::OutputFailed,
+            "aggregate read failed",
+        ));
+
+    let error = runtime
+        .drain_runtime_all_once(20)
+        .expect_err("aggregate drain should abort on typed runtime error");
+
+    match error {
+        ManagedSessionRuntimeError::Runtime(error) => {
+            assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
+        }
+        other => panic!("expected runtime error, got {other:?}"),
     }
 }
 

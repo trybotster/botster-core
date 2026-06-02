@@ -259,6 +259,14 @@ impl DefaultBotsterEngine {
         self.runtime.drain_runtime_once(session_id, last_output_at)
     }
 
+    /// Drain currently available local runtime output once for every live session.
+    pub fn drain_runtime_all_once(
+        &mut self,
+        last_output_at: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.drain_runtime_all_once(last_output_at)
+    }
+
     /// Classify one session's activity at the provided clock value.
     pub fn classify_activity(
         &self,
