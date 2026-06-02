@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{mpsc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,6 +26,17 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(50),
         poll_interval: Duration::from_millis(5),
     }
+}
+
+fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
+    LocalProcessRuntimeOptions {
+        shutdown_grace: Duration::from_millis(700),
+        poll_interval: Duration::from_millis(20),
+    }
+}
+
+fn term_ignoring_process_group_script() -> &'static str {
+    "trap '' TERM; sh -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; wait $!"
 }
 
 fn session_id(value: &str) -> SessionId {
@@ -151,6 +162,16 @@ fn has_exit(output: &[SessionRuntimeOutput]) -> bool {
     output
         .iter()
         .any(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
+}
+
+fn exit_signal(output: &[SessionRuntimeOutput], expected_session: &SessionId) -> Option<i32> {
+    output.iter().find_map(|event| match event {
+        SessionRuntimeOutput::ProcessExited {
+            session_id,
+            payload,
+        } if session_id == expected_session => payload.signal,
+        _ => None,
+    })
 }
 
 fn source_files(root: impl AsRef<Path>) -> Vec<PathBuf> {
@@ -429,6 +450,102 @@ fn local_process_runtime_shutdown_is_idempotent() {
 }
 
 #[test]
+fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
+    let _guard = local_process_test_lock();
+    let options = slow_shutdown_runtime_options();
+    let mut runtime = LocalProcessRuntime::with_options(options);
+    let child_pid_file = unique_temp_path("nonblocking-child-pid");
+    let stubborn = session_id("local-nonblocking-stubborn");
+    let peer = session_id("local-nonblocking-peer");
+
+    runtime
+        .spawn_session(shell_request_with_env(
+            stubborn.clone(),
+            term_ignoring_process_group_script(),
+            SpawnEnvironment {
+                variables: vec![env_var(
+                    "CHILD_PID_FILE",
+                    child_pid_file.display().to_string(),
+                )],
+            },
+        ))
+        .expect("spawn stubborn process");
+    let _child_pid = wait_for_child_pid(&child_pid_file);
+    runtime
+        .spawn_session(shell_request(peer.clone(), "cat"))
+        .expect("spawn peer process");
+
+    let mut shutdown_runtime = runtime.clone();
+    let shutdown_session = stubborn.clone();
+    let (started_tx, started_rx) = mpsc::channel();
+    let shutdown = thread::spawn(move || {
+        started_tx.send(()).expect("notify shutdown thread started");
+        let started = Instant::now();
+        shutdown_runtime
+            .send_input(SessionRuntimeInput::Shutdown {
+                session_id: shutdown_session,
+            })
+            .expect("shutdown stubborn process");
+        started.elapsed()
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("shutdown thread should start");
+    thread::sleep(Duration::from_millis(100));
+
+    let started = Instant::now();
+    runtime
+        .send_input(SessionRuntimeInput::Resize {
+            session_id: peer.clone(),
+            size: ResizePayload { rows: 31, cols: 90 },
+        })
+        .expect("resize peer while stubborn shutdown waits");
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: peer.clone(),
+            data: b"peer-still-live\n".to_vec(),
+        })
+        .expect("write peer while stubborn shutdown waits");
+    let output = collect_until(&mut runtime, &peer, |output| {
+        output_text(output).contains("peer-still-live")
+    });
+    runtime
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: peer.clone(),
+        })
+        .expect("shutdown peer while stubborn shutdown waits");
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "peer operations were blocked for {elapsed:?}"
+    );
+    assert!(output_text(&output).contains("peer-still-live"));
+
+    let shutdown_elapsed = shutdown.join().expect("join stubborn shutdown thread");
+    assert!(
+        shutdown_elapsed >= options.shutdown_grace,
+        "stubborn shutdown completed too quickly: {shutdown_elapsed:?}"
+    );
+    let stubborn_output = collect_until(&mut runtime, &stubborn, has_exit);
+    assert_eq!(
+        exit_signal(&stubborn_output, &stubborn),
+        Some(SIGKILL),
+        "stubborn process should require forced cleanup"
+    );
+    assert_eq!(
+        stubborn_output
+            .iter()
+            .filter(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
+            .count(),
+        1,
+        "stubborn shutdown should queue exactly one process exit"
+    );
+    let _ = fs::remove_file(child_pid_file);
+}
+
+#[test]
 fn local_process_runtime_drop_cleans_live_child_group() {
     let _guard = local_process_test_lock();
     let child_pid_file = unique_temp_path("drop-child-pid");
@@ -578,6 +695,106 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         Some(SessionLifecycleState::Exited { .. })
     ));
     assert!(wait_until(|| !process_exists(pid)));
+}
+
+#[test]
+fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
+    let _guard = local_process_test_lock();
+    let options = slow_shutdown_runtime_options();
+    let mut runtime = LocalProcessRuntime::with_options(options);
+    let mut engine = MultiplexerEngine::new(runtime.clone());
+    let child_pid_file = unique_temp_path("engine-nonblocking-child-pid");
+    let stubborn = session_id("engine-nonblocking-stubborn");
+    let peer = session_id("engine-nonblocking-peer");
+
+    engine
+        .spawn_session(
+            shell_request_with_env(
+                stubborn.clone(),
+                term_ignoring_process_group_script(),
+                SpawnEnvironment {
+                    variables: vec![env_var(
+                        "CHILD_PID_FILE",
+                        child_pid_file.display().to_string(),
+                    )],
+                },
+            ),
+            CoreSessionMetadata::new(),
+            runtime.worker_runtime(),
+        )
+        .expect("spawn stubborn process through engine");
+    let _child_pid = wait_for_child_pid(&child_pid_file);
+    engine
+        .spawn_session(
+            shell_request(peer.clone(), "cat"),
+            CoreSessionMetadata::new(),
+            runtime.worker_runtime(),
+        )
+        .expect("spawn peer process through engine");
+
+    let shutdown_session = stubborn.clone();
+    let (started_tx, started_rx) = mpsc::channel();
+    let shutdown = thread::spawn(move || {
+        started_tx
+            .send(())
+            .expect("notify engine shutdown thread started");
+        let started = Instant::now();
+        let outcome = engine
+            .shutdown_session(shutdown_session, "engine slow shutdown", 10)
+            .expect("shutdown stubborn session through engine");
+        (started.elapsed(), outcome)
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("engine shutdown thread should start");
+    thread::sleep(Duration::from_millis(100));
+
+    let started = Instant::now();
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: peer.clone(),
+            data: b"engine-peer-still-live\n".to_vec(),
+        })
+        .expect("write peer while engine shutdown waits");
+    let output = collect_until(&mut runtime, &peer, |output| {
+        output_text(output).contains("engine-peer-still-live")
+    });
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "peer runtime access was blocked by engine shutdown for {elapsed:?}"
+    );
+    assert!(output_text(&output).contains("engine-peer-still-live"));
+
+    runtime
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: peer.clone(),
+        })
+        .expect("shutdown peer after engine contention proof");
+    let (shutdown_elapsed, shutdown_outcome) =
+        shutdown.join().expect("join engine shutdown thread");
+    assert!(
+        shutdown_elapsed >= options.shutdown_grace,
+        "engine stubborn shutdown completed too quickly: {shutdown_elapsed:?}"
+    );
+    assert!(
+        shutdown_outcome.session_events.iter().any(|event| {
+            matches!(
+                event,
+                botster_core::SessionIoEvent::ProcessExited {
+                    session_id,
+                    payload: ProcessExitedPayload {
+                        signal: Some(SIGKILL),
+                        ..
+                    },
+                } if session_id == &stubborn
+            )
+        }),
+        "engine stubborn shutdown should require forced cleanup"
+    );
+    let _ = fs::remove_file(child_pid_file);
 }
 
 #[test]

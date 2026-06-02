@@ -273,7 +273,7 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
 
 #[derive(Default)]
 struct LocalProcessRegistry {
-    sessions: Mutex<HashMap<SessionId, LocalSession>>,
+    sessions: Mutex<HashMap<SessionId, LocalSessionHandle>>,
 }
 
 impl Drop for LocalProcessRegistry {
@@ -283,8 +283,11 @@ impl Drop for LocalProcessRegistry {
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        for session in sessions.values_mut() {
-            let _ = terminate_session(session, LocalProcessRuntimeOptions::default());
+        let sessions: Vec<_> = sessions.drain().map(|(_, session)| session).collect();
+        for session in sessions {
+            if let Ok(mut session) = session.lock() {
+                let _ = terminate_session(&mut session, LocalProcessRuntimeOptions::default());
+            }
         }
     }
 }
@@ -302,13 +305,13 @@ impl LocalProcessRegistry {
                 "local process session already exists",
             ));
         }
-        sessions.insert(session_id, session);
+        sessions.insert(session_id, Arc::new(Mutex::new(session)));
         Ok(())
     }
 
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
-        let mut sessions = self.lock()?;
-        let session = session_mut(&mut sessions, session_id)?;
+        let session = self.session(session_id)?;
+        let mut session = lock_session(&session)?;
         session.writer.write_all(data).map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::InputFailed,
@@ -328,8 +331,8 @@ impl LocalProcessRegistry {
         session_id: &SessionId,
         size: ResizePayload,
     ) -> Result<(), SessionRuntimeError> {
-        let mut sessions = self.lock()?;
-        let session = session_mut(&mut sessions, session_id)?;
+        let session = self.session(session_id)?;
+        let session = lock_session(&session)?;
         session
             .master
             .resize(pty_size(Some(&size)))
@@ -342,8 +345,8 @@ impl LocalProcessRegistry {
     }
 
     fn terminal_size(&self, session_id: &SessionId) -> Result<(u16, u16), SessionRuntimeError> {
-        let mut sessions = self.lock()?;
-        let session = session_mut(&mut sessions, session_id)?;
+        let session = self.session(session_id)?;
+        let session = lock_session(&session)?;
         let size = session.master.get_size().map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::OutputFailed,
@@ -358,10 +361,10 @@ impl LocalProcessRegistry {
         session_id: &SessionId,
         options: LocalProcessRuntimeOptions,
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
-        let mut sessions = self.lock()?;
-        let session = session_mut(&mut sessions, session_id)?;
-        let observed = terminate_session(session, options)?;
-        queue_exit_output(session, session_id, observed.clone());
+        let session = self.session(session_id)?;
+        let mut session = lock_session(&session)?;
+        let observed = terminate_session(&mut session, options)?;
+        queue_exit_output(&mut session, session_id, observed.clone());
         Ok(observed)
     }
 
@@ -369,16 +372,17 @@ impl LocalProcessRegistry {
         &self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        let mut sessions = self.lock()?;
-        let session = session_mut(&mut sessions, session_id)?;
-        let mut output = drain_reader_output(session, session_id)?;
-        harvest_session(session)?;
-        queue_exit_output(session, session_id, None);
+        let session = self.session(session_id)?;
+        let mut session = lock_session(&session)?;
+        let mut output = drain_reader_output(&mut session, session_id)?;
+        harvest_session(&mut session)?;
+        queue_exit_output(&mut session, session_id, None);
         let mut queued_output = session.outputs.drain(..).collect();
         output.append(&mut queued_output);
 
         if session.exit_payload.is_some() && session.exit_output_queued {
-            sessions.remove(session_id);
+            drop(session);
+            self.remove(session_id)?;
         }
 
         Ok(output)
@@ -386,7 +390,7 @@ impl LocalProcessRegistry {
 
     fn lock(
         &self,
-    ) -> Result<MutexGuard<'_, HashMap<SessionId, LocalSession>>, SessionRuntimeError> {
+    ) -> Result<MutexGuard<'_, HashMap<SessionId, LocalSessionHandle>>, SessionRuntimeError> {
         self.sessions.lock().map_err(|_| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::CleanupFailed,
@@ -394,7 +398,25 @@ impl LocalProcessRegistry {
             )
         })
     }
+
+    fn session(&self, session_id: &SessionId) -> Result<LocalSessionHandle, SessionRuntimeError> {
+        let sessions = self.lock()?;
+        sessions.get(session_id).cloned().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SessionNotFound,
+                format!("session not found: {}", session_id.0),
+            )
+        })
+    }
+
+    fn remove(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        let mut sessions = self.lock()?;
+        sessions.remove(session_id);
+        Ok(())
+    }
 }
+
+type LocalSessionHandle = Arc<Mutex<LocalSession>>;
 
 struct LocalSession {
     master: Box<dyn MasterPty + Send>,
@@ -412,14 +434,13 @@ enum ReaderEvent {
     Failed(String),
 }
 
-fn session_mut<'a>(
-    sessions: &'a mut HashMap<SessionId, LocalSession>,
-    session_id: &SessionId,
-) -> Result<&'a mut LocalSession, SessionRuntimeError> {
-    sessions.get_mut(session_id).ok_or_else(|| {
+fn lock_session(
+    session: &LocalSessionHandle,
+) -> Result<MutexGuard<'_, LocalSession>, SessionRuntimeError> {
+    session.lock().map_err(|_| {
         SessionRuntimeError::new(
-            SessionRuntimeErrorKind::SessionNotFound,
-            format!("session not found: {}", session_id.0),
+            SessionRuntimeErrorKind::CleanupFailed,
+            "local process session lock poisoned",
         )
     })
 }
