@@ -213,6 +213,7 @@ fn manifest(plugin: &PluginKey) -> PackageManifest {
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        host_profile: None,
     }
 }
 

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::host_profile::HostProfileMetadata;
 use crate::capability::Capability;
 use crate::extension::{ExtensionEntrypoint, ExtensionKind};
 
@@ -40,4 +41,7 @@ pub struct PackageManifest {
     pub capabilities: Vec<Capability>,
     /// Entrypoints supplied by this package.
     pub entrypoints: Vec<ExtensionEntrypoint>,
+    /// Host-profile metadata for privileged provider packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_profile: Option<HostProfileMetadata>,
 }

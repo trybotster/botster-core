@@ -373,6 +373,7 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
                 path: "plugin.lua".to_string(),
                 bootstrap: false,
             }],
+            host_profile: None,
         },
         runtime: Arc::new(runtime),
         handlers: vec![botster_core::PluginHandlerRegistration {
