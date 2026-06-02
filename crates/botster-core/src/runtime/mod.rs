@@ -21,14 +21,17 @@ use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{BackpressureSummary, ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
 pub use capability::{
-    CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
-    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
+    apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
+    CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
+    CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
     CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
     CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
     FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
-    HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime, PluginStoreCapabilityRequest,
-    PluginStoreKey, PluginStoreOperation, ScopedRelativePath, TimerCapabilityRequest,
-    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest, WebSocketMessage,
+    HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime, PluginStoreBackend,
+    PluginStoreCapabilityRequest, PluginStoreEntry, PluginStoreKey, PluginStoreLimits,
+    PluginStoreOperation, PluginStoreRecord, PluginStoreResult, ScopedRelativePath,
+    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
+    WebSocketMessage,
 };
 #[cfg(feature = "local-runtime")]
 pub use local_process::{

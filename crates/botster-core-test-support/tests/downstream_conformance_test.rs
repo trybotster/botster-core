@@ -10,9 +10,9 @@ use botster_core::{
     SessionActivityStatus, SessionIoRequest, SessionLifecycleState,
 };
 use botster_core::{
-    ModeFlags, SessionIoEvent, TerminalColorProfile, TerminalOutputChunk, TerminalScreenEngine,
-    TerminalScreenHook, TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState,
-    TerminalSnapshotPayload,
+    ModeFlags, PluginKey, PluginStoreBackend, PluginStoreKey, PluginStoreLimits, SessionIoEvent,
+    TerminalColorProfile, TerminalOutputChunk, TerminalScreenEngine, TerminalScreenHook,
+    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 use botster_core_test_support::assertions::{
     assert_initial_snapshot_precedes_live_output,
@@ -30,7 +30,9 @@ use botster_core_test_support::conformance::{
     run_adversarial_hot_path_load, run_many_pty_load, AdversarialHotPathConfig,
     DisposableCommandLocalSession, DisposableManagedLocalSession, ManyPtyLoadConfig,
 };
-use botster_core_test_support::fake::{FakeSessionTransport, FakeTerminalScreenRuntime};
+use botster_core_test_support::fake::{
+    FakePluginStoreBackend, FakeSessionTransport, FakeTerminalScreenRuntime,
+};
 
 fn session_id() -> SessionId {
     SessionId("session-consumer".to_string())
@@ -38,6 +40,10 @@ fn session_id() -> SessionId {
 
 fn subscription_id() -> SubscriptionId {
     SubscriptionId("sub-consumer".to_string())
+}
+
+fn plugin_key(value: &str) -> PluginKey {
+    PluginKey(value.to_string())
 }
 
 #[cfg(feature = "local-runtime")]
@@ -117,6 +123,34 @@ fn downstream_consumer_can_drive_terminal_screen_fake() {
             if snapshot.bytes == b"downstream\xff"
                 && snapshot.size == TerminalScreenSize::new(33, 101)
     ));
+}
+
+#[test]
+fn downstream_consumer_can_drive_plugin_store_fake_backend() {
+    let backend = FakePluginStoreBackend::new();
+    let plugin = plugin_key("consumer");
+    let key = PluginStoreKey("settings".to_string());
+
+    let record = backend
+        .set(
+            &plugin,
+            key.clone(),
+            1,
+            serde_json::json!({ "enabled": true }),
+            None,
+            PluginStoreLimits::default(),
+        )
+        .expect("fake plugin-store set");
+
+    assert_eq!(record.revision, 1);
+    assert_eq!(
+        backend
+            .get(&plugin, &key)
+            .expect("fake plugin-store get")
+            .expect("record exists")
+            .payload,
+        serde_json::json!({ "enabled": true })
+    );
 }
 
 #[test]

@@ -300,19 +300,24 @@ pub struct PluginStoreCapabilityRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum PluginStoreOperation {
-    /// Get one JSON value.
+    /// Get one JSON record.
     Get {
         /// Target key.
         key: PluginStoreKey,
     },
-    /// Set one JSON value.
+    /// Set one JSON record.
     Set {
         /// Target key.
         key: PluginStoreKey,
-        /// JSON value.
-        value: serde_json::Value,
+        /// Schema version declared by the plugin for this payload.
+        schema_version: u64,
+        /// Plugin-owned JSON payload.
+        payload: serde_json::Value,
+        /// Optional compare-and-swap guard.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_revision: Option<u64>,
     },
-    /// Remove one JSON value.
+    /// Remove one JSON record.
     Delete {
         /// Target key.
         key: PluginStoreKey,
@@ -323,11 +328,238 @@ pub enum PluginStoreOperation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prefix: Option<String>,
     },
+    /// Apply an RFC 7396-style merge patch to one JSON record.
+    Patch {
+        /// Target key.
+        key: PluginStoreKey,
+        /// Merge-patch object applied to the plugin-owned payload.
+        patch: serde_json::Value,
+        /// Optional compare-and-swap guard.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_revision: Option<u64>,
+    },
 }
 
 /// Stable plugin-store key.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PluginStoreKey(pub String);
+
+impl PluginStoreKey {
+    /// Maximum key length in bytes.
+    pub const MAX_BYTES: usize = 256;
+
+    /// Whether this key is non-empty, bounded, and does not contain path traversal.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        let key = self.0.as_str();
+        !key.is_empty()
+            && key.len() <= Self::MAX_BYTES
+            && !key.starts_with('/')
+            && !key.starts_with('\\')
+            && !key.split('/').any(|segment| segment == "..")
+            && !key.split('\\').any(|segment| segment == "..")
+    }
+}
+
+/// Plugin-store write limits enforced by core before accepting mutations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginStoreLimits {
+    /// Maximum serialized JSON bytes for one payload.
+    pub max_record_bytes: usize,
+    /// Maximum number of records one plugin namespace may hold.
+    pub max_plugin_keys: usize,
+    /// Maximum aggregate serialized JSON payload bytes for one plugin namespace.
+    pub max_plugin_bytes: usize,
+}
+
+impl Default for PluginStoreLimits {
+    fn default() -> Self {
+        Self {
+            max_record_bytes: 64 * 1024,
+            max_plugin_keys: 1_024,
+            max_plugin_bytes: 4 * 1024 * 1024,
+        }
+    }
+}
+
+/// Stored JSON record envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginStoreRecord {
+    /// Owning plugin namespace.
+    pub plugin_key: PluginKey,
+    /// Record key inside the plugin namespace.
+    pub key: PluginStoreKey,
+    /// Plugin-declared schema version.
+    pub schema_version: u64,
+    /// Monotonic record revision.
+    pub revision: u64,
+    /// Plugin-owned JSON payload.
+    pub payload: serde_json::Value,
+}
+
+impl PluginStoreRecord {
+    /// Serialized payload size in bytes.
+    #[must_use]
+    pub fn payload_bytes(&self) -> usize {
+        plugin_store_payload_bytes(&self.payload)
+    }
+}
+
+/// Lightweight record metadata returned by list operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginStoreEntry {
+    /// Record key inside the plugin namespace.
+    pub key: PluginStoreKey,
+    /// Plugin-declared schema version.
+    pub schema_version: u64,
+    /// Current record revision.
+    pub revision: u64,
+    /// Serialized payload size in bytes.
+    pub bytes: usize,
+}
+
+impl From<&PluginStoreRecord> for PluginStoreEntry {
+    fn from(record: &PluginStoreRecord) -> Self {
+        Self {
+            key: record.key.clone(),
+            schema_version: record.schema_version,
+            revision: record.revision,
+            bytes: record.payload_bytes(),
+        }
+    }
+}
+
+/// Typed plugin-store operation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PluginStoreResult {
+    /// Get returned a record.
+    Record {
+        /// Retrieved record envelope.
+        record: PluginStoreRecord,
+    },
+    /// Set or patch wrote a record.
+    Written {
+        /// Written record envelope.
+        record: PluginStoreRecord,
+    },
+    /// Delete removed a record.
+    Deleted {
+        /// Removed record key.
+        key: PluginStoreKey,
+        /// Removed record revision.
+        revision: u64,
+    },
+    /// List returned deterministic metadata.
+    List {
+        /// Ordered record metadata entries.
+        entries: Vec<PluginStoreEntry>,
+    },
+}
+
+/// Host-implemented storage backend for plugin-store runtime implementations.
+///
+/// Core owns the typed operation semantics. Host profiles own concrete storage
+/// policy and should call this backend from their non-blocking capability
+/// runtime worker, not directly inside plugin handler execution.
+pub trait PluginStoreBackend: Send + Sync {
+    /// Get one record owned by `plugin_key`.
+    fn get(
+        &self,
+        plugin_key: &PluginKey,
+        key: &PluginStoreKey,
+    ) -> Result<Option<PluginStoreRecord>, CapabilityRuntimeError>;
+
+    /// Write one record with an optional revision guard.
+    fn set(
+        &self,
+        plugin_key: &PluginKey,
+        key: PluginStoreKey,
+        schema_version: u64,
+        payload: serde_json::Value,
+        expected_revision: Option<u64>,
+        limits: PluginStoreLimits,
+    ) -> Result<PluginStoreRecord, CapabilityRuntimeError>;
+
+    /// Delete one record.
+    fn delete(
+        &self,
+        plugin_key: &PluginKey,
+        key: &PluginStoreKey,
+    ) -> Result<PluginStoreRecord, CapabilityRuntimeError>;
+
+    /// List deterministic metadata for one plugin namespace.
+    fn list(
+        &self,
+        plugin_key: &PluginKey,
+        prefix: Option<&str>,
+    ) -> Result<Vec<PluginStoreEntry>, CapabilityRuntimeError>;
+
+    /// Apply an RFC 7396-style merge patch to one record.
+    fn patch(
+        &self,
+        plugin_key: &PluginKey,
+        key: &PluginStoreKey,
+        patch: serde_json::Value,
+        expected_revision: Option<u64>,
+        limits: PluginStoreLimits,
+    ) -> Result<PluginStoreRecord, CapabilityRuntimeError>;
+}
+
+/// Serialized JSON payload size used by quota checks.
+#[must_use]
+pub fn plugin_store_payload_bytes(payload: &serde_json::Value) -> usize {
+    serde_json::to_vec(payload)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX)
+}
+
+/// Apply RFC 7396-style JSON merge patch semantics.
+pub fn apply_plugin_store_merge_patch(
+    target: &mut serde_json::Value,
+    patch: &serde_json::Value,
+) -> Result<(), CapabilityRuntimeError> {
+    let serde_json::Value::Object(patch_object) = patch else {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::PatchFailed,
+            "plugin-store merge patch must be a JSON object",
+        ));
+    };
+
+    if !target.is_object() {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::PatchFailed,
+            "plugin-store merge patch target must be a JSON object",
+        ));
+    }
+
+    merge_patch_object(target, patch_object);
+    Ok(())
+}
+
+fn merge_patch_object(
+    target: &mut serde_json::Value,
+    patch_object: &serde_json::Map<String, serde_json::Value>,
+) {
+    let target_object = target
+        .as_object_mut()
+        .expect("target object checked before merge patch");
+    for (key, patch_value) in patch_object {
+        if patch_value.is_null() {
+            target_object.remove(key);
+        } else if let (Some(target_value), serde_json::Value::Object(child_patch)) =
+            (target_object.get_mut(key), patch_value)
+        {
+            if target_value.is_object() {
+                merge_patch_object(target_value, child_patch);
+            } else {
+                target_object.insert(key.clone(), patch_value.clone());
+            }
+        } else {
+            target_object.insert(key.clone(), patch_value.clone());
+        }
+    }
+}
 
 /// Timer registration or cancellation request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -402,6 +634,9 @@ pub struct CapabilityOperationCompleted {
     /// Optional HTTP-style response metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<HttpCapabilityResponse>,
+    /// Optional plugin-store operation result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_store: Option<PluginStoreResult>,
 }
 
 /// HTTP response metadata.
@@ -538,6 +773,16 @@ pub enum CapabilityRuntimeErrorKind {
     RuntimeStopped,
     /// The request was invalid for its operation family.
     InvalidRequest,
+    /// A plugin-store record was not found.
+    StoreNotFound,
+    /// A plugin-store expected revision did not match the current revision.
+    RevisionConflict,
+    /// A plugin-store write would exceed configured limits.
+    QuotaExceeded,
+    /// A plugin-store merge patch was invalid or could not be applied.
+    PatchFailed,
+    /// A plugin-store backend failed after request acceptance.
+    BackendFailed,
 }
 
 /// Typed error returned by a capability runtime implementation.
