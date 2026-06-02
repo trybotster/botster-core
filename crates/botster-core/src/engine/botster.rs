@@ -1,6 +1,8 @@
 //! Ergonomic embeddable Botster engine facade.
 
-use crate::actor::{PluginInvocationRequest, PreparedSnapshotRequest};
+use crate::actor::{
+    MailboxSendFailureReason, PluginInvocationRequest, PreparedSnapshotRequest, QueueSource,
+};
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
@@ -265,6 +267,52 @@ impl DefaultBotsterEngine {
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
         self.runtime.drain_runtime_all_once(last_output_at)
+    }
+
+    /// Report client-side backpressure through the default local engine path.
+    pub fn report_backpressure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .report_backpressure(client_id, session_id, source, capacity, depth)
+    }
+
+    /// Report accepted-but-slow delivery through the default local engine path.
+    pub fn report_delivery_lag(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.report_delivery_lag(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            capacity,
+            depth,
+        )
+    }
+
+    /// Report a failed delivery attempt through the default local engine path.
+    pub fn report_delivery_failure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        reason: MailboxSendFailureReason,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .report_delivery_failure(client_id, session_id, subscription_id, source, reason)
     }
 
     /// Classify one session's activity at the provided clock value.
@@ -772,6 +820,57 @@ where
         event: SessionWorkerRuntimeEvent,
     ) -> Result<BotsterEngineOutput, BotsterEngineError> {
         self.multiplexer.handle_runtime_event(event)
+    }
+
+    /// Report client-side backpressure through the public engine facade.
+    pub fn report_backpressure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer
+            .report_backpressure(client_id, session_id, source, capacity, depth)
+    }
+
+    /// Report accepted-but-slow delivery through the public engine facade.
+    pub fn report_delivery_lag(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer.report_delivery_lag(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            capacity,
+            depth,
+        )
+    }
+
+    /// Report a failed delivery attempt through the public engine facade.
+    pub fn report_delivery_failure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        reason: MailboxSendFailureReason,
+    ) -> Result<BotsterEngineOutput, BotsterEngineError> {
+        self.multiplexer.report_delivery_failure(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            reason,
+        )
     }
 
     /// Queue a notification item in the core inbox.

@@ -8,8 +8,9 @@ use thiserror::Error;
 
 use crate::contract::actor::SessionLifecycleState;
 use crate::contract::actor::{
-    ModeFlagsReady, PreparedSnapshotReady, PreparedSnapshotRequest, ScreenReady, SendFileFailed,
-    SendFileRequest, SendFileWritten, SessionIoRequest, SnapshotReady,
+    MailboxSendFailureReason, ModeFlagsReady, PreparedSnapshotReady, PreparedSnapshotRequest,
+    QueueSource, ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionIoRequest,
+    SnapshotReady,
 };
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
@@ -23,7 +24,9 @@ use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
     SessionRuntimeOutput, SessionSpawnRequest,
 };
-use crate::session::{CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId};
+use crate::session::{
+    CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
+};
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
 use crate::terminal_screen::TerminalScreenSize;
 use crate::transport::TransportIngress;
@@ -177,6 +180,58 @@ where
         let outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
         Ok(outcome)
+    }
+
+    /// Report client-side backpressure through the managed engine path.
+    pub fn report_backpressure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self
+            .engine
+            .report_backpressure(client_id, session_id, source, capacity, depth)?)
+    }
+
+    /// Report accepted-but-slow delivery through the managed engine path.
+    pub fn report_delivery_lag(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self.engine.report_delivery_lag(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            capacity,
+            depth,
+        )?)
+    }
+
+    /// Report a failed delivery attempt through the managed engine path.
+    pub fn report_delivery_failure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        reason: MailboxSendFailureReason,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self.engine.report_delivery_failure(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            reason,
+        )?)
     }
 
     /// Drain currently available runtime output once for a session.
