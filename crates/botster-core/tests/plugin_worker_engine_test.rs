@@ -769,6 +769,70 @@ fn unload_cleanup_removes_only_owner_plugin() {
 }
 
 #[test]
+fn unload_cleanup_tracks_capability_runtime_resource_kinds() {
+    let plugin = plugin_key("project-pipelines");
+    let other_plugin = plugin_key("preview");
+    let command = handler(&plugin, "advance");
+    let other_command = handler(&other_plugin, "render");
+    let engine = PluginWorkerEngine::new();
+
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("ok"),
+        command.clone(),
+        vec![descriptor(&plugin, "advance", command)],
+        Vec::new(),
+        None,
+    ));
+    engine.load_plugin(registration(
+        &other_plugin,
+        FakeRuntime::success("ok"),
+        other_command.clone(),
+        vec![descriptor(&other_plugin, "render", other_command)],
+        Vec::new(),
+        None,
+    ));
+
+    for kind in [
+        PluginResourceKind::HttpRequest,
+        PluginResourceKind::NetworkConnection,
+        PluginResourceKind::Watch,
+        PluginResourceKind::FilesystemOperation,
+        PluginResourceKind::PluginStoreOperation,
+        PluginResourceKind::Timer,
+    ] {
+        let resource_id = format!("{kind:?}");
+        engine.record_resource(PluginResourceRef {
+            plugin_key: plugin.clone(),
+            kind,
+            resource_id,
+        });
+    }
+    engine.record_resource(PluginResourceRef {
+        plugin_key: other_plugin.clone(),
+        kind: PluginResourceKind::NetworkConnection,
+        resource_id: "other-ws".to_string(),
+    });
+
+    let cleanup = engine.unload_plugin(PluginUnloadSpec {
+        request_id: request_id("cleanup-runtime"),
+        plugin_key: plugin.clone(),
+        cleanup: PluginCleanupScope::DescriptorsAndResources,
+    });
+
+    assert_eq!(cleanup.plugin_key, plugin);
+    assert_eq!(cleanup.removed_resources.len(), 6);
+    assert!(cleanup
+        .removed_resources
+        .iter()
+        .all(|resource| resource.plugin_key == plugin));
+    assert!(!cleanup
+        .removed_resources
+        .iter()
+        .any(|resource| resource.plugin_key == other_plugin));
+}
+
+#[test]
 fn capability_checks_use_declared_package_metadata_for_rejection_and_grant() {
     let plugin = plugin_key("networked");
     let command = handler(&plugin, "fetch");

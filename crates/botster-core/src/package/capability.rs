@@ -20,6 +20,8 @@ pub enum CapabilitySurface {
     Filesystem,
     /// Use outbound network primitives.
     Network,
+    /// Register bounded timer or interval callbacks.
+    Timers,
     /// Use secret storage by operation.
     Secrets,
     /// Request crypto operations without raw key access.
