@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::actor::{
-    ClientControlFrame, MailboxSendFailureReason, PluginInvocationRequest, QueueSource,
+    ClientControlFrame, MailboxSendFailureReason, PluginCleanupResult, PluginCleanupScope,
+    PluginInvocationRequest, PluginKey, PluginReloadSpec, PluginTimerCancellationResult,
+    PluginTimerId, PluginTimerSchedule, PluginUnloadSpec, QueueSource,
 };
 use crate::contract::actor::{
     BackpressureSummary, SessionIoEvent, SessionIoRequest, SessionLifecycleState,
@@ -14,6 +16,9 @@ use crate::contract::notification::{
     NotificationId, NotificationInbox, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::{TransportEgress, TransportIngress};
+use crate::engine::plugin_timer::{
+    PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler,
+};
 use crate::engine::plugin_worker::{
     PluginInvocationOutcome, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
@@ -150,6 +155,7 @@ pub struct MultiplexerEngine<R, W> {
     subscriptions: SubscriptionMultiplexer,
     notifications: NotificationInbox,
     plugins: PluginWorkerEngine,
+    timers: PluginTimerScheduler,
 }
 
 impl<R, W> MultiplexerEngine<R, W>
@@ -172,6 +178,7 @@ where
             subscriptions: SubscriptionMultiplexer::new(),
             notifications: NotificationInbox::new(),
             plugins: PluginWorkerEngine::with_config(plugin_config),
+            timers: PluginTimerScheduler::new(),
         }
     }
 
@@ -212,9 +219,19 @@ where
     }
 
     /// Return the plugin worker engine.
+    ///
+    /// Hosts that need reload or unload cleanup should call
+    /// [`Self::reload_plugin`] or [`Self::unload_plugin`] so scheduler-owned
+    /// timer resources are cleaned with worker-owned resources.
     #[must_use]
     pub const fn plugin_workers(&self) -> &PluginWorkerEngine {
         &self.plugins
+    }
+
+    /// Return the plugin timer scheduler.
+    #[must_use]
+    pub const fn plugin_timers(&self) -> &PluginTimerScheduler {
+        &self.timers
     }
 
     /// Spawn a session, record core state, and install its worker adapter.
@@ -410,9 +427,60 @@ where
         self.plugins.load_plugin(registration);
     }
 
+    /// Reload one plugin and cleanup scheduler-owned timer resources for it.
+    pub fn reload_plugin(
+        &self,
+        spec: PluginReloadSpec,
+        registration: PluginWorkerRegistration,
+    ) -> PluginCleanupResult {
+        let timer_cleanup = if cleanup_removes_resources(&spec.cleanup) {
+            self.timers
+                .cleanup_plugin(spec.request_id.clone(), &spec.plugin_key)
+        } else {
+            empty_cleanup(spec.request_id.clone(), spec.plugin_key.clone())
+        };
+        let worker_cleanup = self.plugins.reload_plugin(spec, registration);
+        merge_cleanup(worker_cleanup, timer_cleanup)
+    }
+
+    /// Unload one plugin and cleanup scheduler-owned timer resources for it.
+    pub fn unload_plugin(&self, spec: PluginUnloadSpec) -> PluginCleanupResult {
+        let timer_cleanup = if cleanup_removes_resources(&spec.cleanup) {
+            self.timers
+                .cleanup_plugin(spec.request_id.clone(), &spec.plugin_key)
+        } else {
+            empty_cleanup(spec.request_id.clone(), spec.plugin_key.clone())
+        };
+        let worker_cleanup = self.plugins.unload_plugin(spec);
+        merge_cleanup(worker_cleanup, timer_cleanup)
+    }
+
     /// Invoke a registered plugin handler.
     pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.plugins.invoke(request)
+    }
+
+    /// Schedule plugin timer work without invoking plugin code inline.
+    pub fn schedule_plugin_timer(
+        &self,
+        schedule: PluginTimerSchedule,
+    ) -> PluginTimerScheduleOutcome {
+        self.timers.schedule(schedule)
+    }
+
+    /// Cancel one plugin timer by handle.
+    pub fn cancel_plugin_timer(
+        &self,
+        request_id: crate::RequestId,
+        plugin_key: &PluginKey,
+        timer_id: &PluginTimerId,
+    ) -> PluginTimerCancellationResult {
+        self.timers.cancel(request_id, plugin_key, timer_id)
+    }
+
+    /// Drain due plugin timers through the existing plugin worker engine.
+    pub fn drain_plugin_timers_due(&self, now_ms: u64) -> PluginTimerDrainOutcome {
+        self.timers.drain_due(now_ms, &self.plugins)
     }
 
     /// Queue a notification item in the core inbox.
@@ -616,6 +684,34 @@ where
     fn default() -> Self {
         Self::new(R::default())
     }
+}
+
+fn cleanup_removes_resources(scope: &PluginCleanupScope) -> bool {
+    matches!(
+        scope,
+        PluginCleanupScope::Resources | PluginCleanupScope::DescriptorsAndResources
+    )
+}
+
+fn empty_cleanup(request_id: crate::RequestId, plugin_key: PluginKey) -> PluginCleanupResult {
+    PluginCleanupResult {
+        request_id,
+        plugin_key,
+        removed_descriptors: Vec::new(),
+        removed_resources: Vec::new(),
+    }
+}
+
+fn merge_cleanup(
+    mut worker_cleanup: PluginCleanupResult,
+    timer_cleanup: PluginCleanupResult,
+) -> PluginCleanupResult {
+    for resource in timer_cleanup.removed_resources {
+        if !worker_cleanup.removed_resources.contains(&resource) {
+            worker_cleanup.removed_resources.push(resource);
+        }
+    }
+    worker_cleanup
 }
 
 fn ingress_session_id(ingress: &TransportIngress) -> Option<SessionId> {

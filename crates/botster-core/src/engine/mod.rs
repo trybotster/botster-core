@@ -8,6 +8,7 @@ pub mod botster;
 pub mod command;
 pub mod managed_session_runtime;
 pub mod multiplexer;
+pub mod plugin_timer;
 pub mod plugin_worker;
 pub mod session_activity;
 pub mod session_worker;
@@ -35,6 +36,7 @@ pub use multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
+pub use plugin_timer::{PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler};
 pub use plugin_worker::{
     PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerEngine,
     PluginWorkerEngineConfig, PluginWorkerRegistration,
