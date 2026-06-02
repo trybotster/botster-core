@@ -36,8 +36,8 @@ pub use multiplexer::{
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
 pub use plugin_worker::{
-    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerRegistration,
+    PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerEngine,
+    PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
 pub use session_activity::{apply_session_activity_event, classify_session_activity};
 pub use session_worker::{

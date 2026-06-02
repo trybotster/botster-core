@@ -1,6 +1,6 @@
 //! Ergonomic embeddable Botster engine facade.
 
-use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PreparedSnapshotRequest};
+use crate::actor::{PluginInvocationRequest, PreparedSnapshotRequest};
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
@@ -17,7 +17,7 @@ use crate::engine::multiplexer::{
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
 use crate::engine::plugin_worker::{
-    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
+    PluginInvocationOutcome, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
@@ -466,7 +466,7 @@ impl Default for DefaultBotsterEngine {
 ///     },
 ///     payload: BoundaryJson(serde_json::json!({ "command": "run" })),
 /// });
-/// assert!(matches!(plugin_result, PluginInvocationResult::Completed(_)));
+/// assert!(matches!(plugin_result.result, PluginInvocationResult::Completed(_)));
 ///
 /// assert_eq!(
 ///     engine.classify_activity(&session_id, 5, 10)?,
@@ -794,7 +794,7 @@ where
     }
 
     /// Invoke a registered plugin handler.
-    pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationResult {
+    pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.multiplexer.invoke_plugin(request)
     }
 

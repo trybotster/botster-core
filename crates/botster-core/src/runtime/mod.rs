@@ -11,6 +11,8 @@ mod local_process;
 
 use std::error::Error;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -202,6 +204,36 @@ impl fmt::Display for SessionRuntimeError {
 
 impl Error for SessionRuntimeError {}
 
+/// Cooperative cancellation signal for one plugin invocation.
+///
+/// `PluginWorkerEngine` signals this token when an invocation times out or
+/// when its owning plugin is unloaded/reloaded. Runtimes should check it while
+/// executing long-running handlers and return promptly once cancellation is
+/// requested.
+#[derive(Debug, Clone, Default)]
+pub struct PluginCancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl PluginCancellationToken {
+    /// Build a fresh token in the non-cancelled state.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mark this invocation as cancelled.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    /// Returns true after core has requested cooperative cancellation.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
 /// Host-provided executable runtime for one or more plugin workers.
 ///
 /// `PluginWorkerEngine` invokes this trait across a `std::thread` boundary so
@@ -211,7 +243,11 @@ impl Error for SessionRuntimeError {}
 /// mailbox before implementing this trait.
 pub trait PluginRuntime: Send + Sync + 'static {
     /// Invoke a stable plugin handler request.
-    fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationResult;
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        cancellation: PluginCancellationToken,
+    ) -> PluginInvocationResult;
 
     /// Stop runtime-owned resources for one plugin.
     fn stop(&self, _plugin_key: &PluginKey) {}
