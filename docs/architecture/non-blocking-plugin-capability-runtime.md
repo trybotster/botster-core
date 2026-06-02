@@ -2,7 +2,19 @@
 
 Botster core defines plugin capability I/O as a bounded runtime mailbox contract, not as inline HTTP, WebSocket, file, store, watch, or timer execution. Plugin code and first-party host profiles submit typed requests, receive typed handles, and drain typed events through host-provided runtimes. PTY, session, client, and plugin-worker hot paths must not perform blocking capability I/O inline.
 
-This document describes the scaffold in `botster_core::runtime::capability`. It is intentionally contract-only. There is no concrete async runtime, HTTP client, WebSocket backend, filesystem resolver, plugin-store adapter, watcher, timer scheduler, or Lua integration in this ticket.
+This document describes the reusable contracts in
+`botster_core::runtime::capability` plus concrete core runtime primitives for
+HTTP and file watching. `HttpCapabilityRuntime` provides bounded, non-blocking
+HTTP around a host-implemented transport boundary. `FileWatchRuntime` provides
+capability-scoped watch registration, scoped-path validation,
+debounce/coalescing, bounded delivery, and cleanup over a host-provided event
+source. WebSocket, filesystem, plugin-store, timer scheduler, Lua integration,
+and concrete OS watcher adapters remain host/profile-owned.
+
+The HTTP and file-watch deliverables are intentionally core runtime primitives
+exercised by tests. There is no Lua `http.request` or `watch.directory` path, no
+`PluginWorkerEngine` ownership of these runtime instances, and no hub/profile
+default policy wiring in these tickets.
 
 ## Boundary
 
@@ -20,7 +32,7 @@ The queue source for pressure reports is `QueueSource::PluginWorker`. The capabi
 
 The scaffold names these operation families:
 
-- `HttpCapabilityRequest`: outbound HTTP request metadata.
+- `HttpCapabilityRequest`: outbound HTTP request metadata accepted by `HttpCapabilityRuntime`.
 - `WebSocketCapabilityRequest`: connect, send, and close operations.
 - `WatchCapabilityRequest`: scoped file-watch register and unregister operations.
 - `FilesystemCapabilityRequest`: scoped read, write, list, stat, and remove operations.
@@ -70,6 +82,8 @@ These resource refs fit the existing `PluginCleanupResult` unload/reload cleanup
 
 The capability runtime must use bounded submit and callback/event queues. When it cannot accept more work, it reports `CapabilityRuntimeErrorKind::Backpressured` or emits `CapabilityRuntimeEvent::Backpressure(BackpressureSummary)`.
 
+`HttpCapabilityRuntime::submit` validates capability grants, host/scheme policy, headers, body limits, timeout, and capacity without performing transport I/O inline. Accepted work runs on runtime-owned background worker threads through `HttpCapabilityTransport`; `drain_events` pulls completion, failure, timeout, cancellation, and pressure events.
+
 Pressure reports must include:
 
 - `QueueSource::PluginWorker`
@@ -91,6 +105,10 @@ Cancellation is explicit:
 
 Timeouts, cancellations, invalid requests, runtime stops, unknown operations, and unknown resources are represented with `CapabilityRuntimeErrorKind` and mirrored in failure events.
 
+The HTTP runtime reuses `PluginCancellationToken` for in-flight transport cancellation. `cancel`, timeout detection, and `cleanup_plugin` all trip the token. Host transports must poll it while blocking or collecting chunks; late transport completions after timeout, cancel, or cleanup are ignored.
+
+HTTP response body limits are enforced by the host transport while collecting response chunks. Core supplies `HttpTransportRequest` limits and `HttpCapabilityRuntime::validate_response` so host transports and tests can apply the same bounded header/body checks before emitting a response.
+
 ## Events
 
 `CapabilityRuntimeEvent` is the typed event surface for future hub/profile/plugin-runtime integration:
@@ -109,6 +127,27 @@ Timeouts, cancellations, invalid requests, runtime stops, unknown operations, an
 
 Events carry plugin identity, operation ids, and resource refs where applicable. Plugin-owned JSON store values and WebSocket messages are payload data, while stable Botster control fields remain typed.
 
+## File Watch Runtime
+
+The watch family now has a core-owned runtime over a host-provided
+`FileWatchEventSource`. Core owns the policy-free mechanics that every host
+adapter needs:
+
+- watch registration state;
+- same-plugin callback and capability-scope checks;
+- `ScopedRelativePath` shape validation;
+- deterministic debounce/coalescing over injected event timestamps;
+- bounded per-plugin delivery with `QueueSource::PluginWorker` pressure;
+- single-resource release through `WatchCapabilityRequest::Unregister` or
+  `PluginCapabilityRuntime::release_resource`;
+- all-watch cleanup for one plugin through `cleanup_plugin`.
+
+The coalescing key is plugin, watch resource, scoped relative path, and overflow
+family. Path-specific events for the same key use last-writer-wins semantics
+inside the debounce window. Backend overflow is held on a separate overflow key
+for the watch resource and is emitted as `WatchChangeKind::Overflow`, not
+collapsed into a path-specific successful change.
+
 ## Hub/Profile-Owned Policy
 
 The host profile owns policy and backend selection:
@@ -120,14 +159,33 @@ The host profile owns policy and backend selection:
 - Plugin-store namespace backing.
 - Credentials and secret lookup.
 - Timer quotas.
-- Queue capacities.
+- Queue-capacity config values.
 - Retry policy.
-- Concrete async runtime, threads, tasks, and watchers.
+- Concrete async runtime, threads, tasks, and OS watcher adapters.
+- Directory selection, filesystem root resolution, and symlink behavior for
+  watched scopes.
 
-Botster core owns reusable contract mechanics only: typed requests, capabilities, handles, events, errors, cleanup refs, and pressure metadata.
+Botster core owns reusable contract mechanics: typed requests, capabilities,
+handles, events, errors, cleanup refs, pressure metadata, and the watch runtime
+mechanism listed above.
 
 ## Runtime Path Evidence
 
-This ticket is scaffold-only by design. There is no live HTTP, WebSocket, watch, filesystem, plugin-store, or timer entry point yet.
+These tickets are scaffold-only by design at the production entry-point layer.
+There is no live Lua, hub, WebSocket, filesystem, plugin-store, timer, HTTP, or
+watch entry point yet.
 
-The verifiable changed runtime path is the public `botster_core` contract surface that future host profiles and plugin runtimes import. The contract is exercised by `plugin_capability_runtime_test` and by the `PluginWorkerEngine` cleanup regression that records and removes capability runtime resources through the existing plugin unload path.
+The verifiable changed runtime paths are the public `botster_core` contract
+surface plus `HttpCapabilityRuntime<T: HttpCapabilityTransport>` and
+`FileWatchRuntime<S: FileWatchEventSource>` implementing the existing
+`PluginCapabilityRuntime` trait. `plugin_capability_runtime_test` exercises
+accepted and denied HTTP submissions, typed validation errors, worker-thread
+non-blocking behavior, timeout and cancellation through `PluginCancellationToken`,
+response size limits, cleanup isolation, and typed transport failures.
+`plugin_file_watch_runtime_test` instantiates the watch runtime, submits allowed
+and denied watch requests, injects fake source events with deterministic
+timestamps, drains coalesced watch events, and asserts source-side unregister
+calls for single-resource and plugin cleanup paths. `PluginWorkerEngine` cleanup
+remains descriptor/resource-ledger cleanup only; real in-flight HTTP and watch
+cleanup is owned by the concrete capability runtime until a future ticket wires
+the engine to own runtime instances.
