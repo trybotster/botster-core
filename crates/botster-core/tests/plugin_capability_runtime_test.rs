@@ -15,11 +15,12 @@ use botster_core::{
     FilesystemEntry, FilesystemEntryKind, FilesystemMetadata, FilesystemOperation,
     HttpCapabilityEndpointPolicy, HttpCapabilityRequest, HttpCapabilityResponse,
     HttpCapabilityRuntime, HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader,
-    HttpTransportRequest, PluginCancellationToken, PluginCapabilityRuntime, PluginCleanupResult,
-    PluginHandlerKind, PluginHandlerRef, PluginKey, PluginResourceKind, PluginResourceRef,
-    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, QueueSource, RequestId,
-    ScopedRelativePath, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
-    WebSocketCapabilityRequest, WebSocketMessage,
+    HttpTransportRequest, InMemoryWebSocketCapabilityRuntime, PluginCancellationToken,
+    PluginCapabilityRuntime, PluginCleanupResult, PluginHandlerKind, PluginHandlerRef, PluginKey,
+    PluginResourceKind, PluginResourceRef, PluginStoreCapabilityRequest, PluginStoreKey,
+    PluginStoreOperation, QueueSource, RequestId, ScopedRelativePath, TimerCapabilityRequest,
+    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
+    WebSocketCapabilityRuntimeConfig, WebSocketMessage,
 };
 
 fn plugin_key(name: &str) -> PluginKey {
@@ -85,6 +86,74 @@ fn capability_set(capabilities: Vec<Capability>) -> BTreeSet<Capability> {
 
 fn endpoint_policy() -> HttpCapabilityEndpointPolicy {
     HttpCapabilityEndpointPolicy::new(["https"], ["api.example.test"])
+}
+
+fn websocket_capability() -> Capability {
+    Capability {
+        surface: CapabilitySurface::Network,
+        scope: Some("websocket".to_string()),
+    }
+}
+
+fn websocket_runtime(
+    outbound_capacity: usize,
+    inbound_capacity: usize,
+    event_capacity: usize,
+) -> InMemoryWebSocketCapabilityRuntime {
+    InMemoryWebSocketCapabilityRuntime::new(WebSocketCapabilityRuntimeConfig::new(
+        BTreeSet::from([websocket_capability()]),
+        outbound_capacity,
+        inbound_capacity,
+        event_capacity,
+    ))
+}
+
+fn connect_request(plugin: &PluginKey, id: &str) -> CapabilityRuntimeRequest {
+    request(
+        plugin,
+        id,
+        CapabilityOperation::WebSocket(WebSocketCapabilityRequest::Connect {
+            endpoint: "events-feed".to_string(),
+            protocols: vec!["botster.events.v1".to_string()],
+        }),
+    )
+}
+
+fn send_request(
+    plugin: &PluginKey,
+    id: &str,
+    resource_id: &str,
+    body: &str,
+) -> CapabilityRuntimeRequest {
+    request(
+        plugin,
+        id,
+        CapabilityOperation::WebSocket(WebSocketCapabilityRequest::Send {
+            resource_id: CapabilityResourceId(resource_id.to_string()),
+            message: WebSocketMessage::Text(body.to_string()),
+        }),
+    )
+}
+
+fn close_request(plugin: &PluginKey, id: &str, resource_id: &str) -> CapabilityRuntimeRequest {
+    request(
+        plugin,
+        id,
+        CapabilityOperation::WebSocket(WebSocketCapabilityRequest::Close {
+            resource_id: CapabilityResourceId(resource_id.to_string()),
+            code: Some(1000),
+            reason: Some("done".to_string()),
+        }),
+    )
+}
+
+fn handle_resource_id(handle: &botster_core::CapabilityRuntimeHandle) -> String {
+    handle
+        .resource
+        .as_ref()
+        .expect("websocket connect returns a resource")
+        .resource_id
+        .clone()
 }
 
 #[derive(Clone)]
@@ -640,6 +709,296 @@ fn cleanup_events_can_target_one_plugins_runtime_resources() {
         round_trip(&CapabilityRuntimeEvent::CleanupCompleted(cleanup.clone())),
         CapabilityRuntimeEvent::CleanupCompleted(cleanup)
     );
+}
+
+#[test]
+fn websocket_runtime_checks_capability_before_opening_connection() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = InMemoryWebSocketCapabilityRuntime::new(
+        WebSocketCapabilityRuntimeConfig::new(BTreeSet::new(), 1, 1, 8),
+    );
+
+    let error = runtime
+        .submit(connect_request(&plugin, "connect-denied"))
+        .expect_err("missing websocket grant rejects connection");
+
+    assert_eq!(
+        error.kind,
+        botster_core::CapabilityRuntimeErrorKind::CapabilityDenied
+    );
+    assert!(runtime
+        .drain_events(&plugin)
+        .expect("drain events")
+        .is_empty());
+}
+
+#[test]
+fn websocket_runtime_emits_connect_inbound_send_and_close_lifecycle_events() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(4, 4, 16);
+
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-1"))
+        .expect("connect accepted");
+    let resource = connect.resource.clone().expect("connect resource");
+    let resource_id = handle_resource_id(&connect);
+
+    runtime
+        .enqueue_inbound_message(&resource, WebSocketMessage::Text("hello".to_string()))
+        .expect("inbound queued");
+    runtime
+        .submit(send_request(&plugin, "send-1", &resource_id, "ack"))
+        .expect("send accepted");
+    let outbound = runtime
+        .drain_outbound_messages(&resource)
+        .expect("host drains outbound");
+    runtime
+        .submit(close_request(&plugin, "close-1", &resource_id))
+        .expect("close accepted");
+
+    let events = runtime.drain_events(&plugin).expect("drain events");
+
+    assert_eq!(outbound, vec![WebSocketMessage::Text("ack".to_string())]);
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::ResourceOpened(opened)
+            if opened.operation_id == operation_id("connect-1")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::WebSocketMessage(message)
+            if message.message == WebSocketMessage::Text("hello".to_string())
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::ResourceReleased(released)
+            if released.operation_id == operation_id("close-1")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::Completed(completed)
+            if completed.operation_id == operation_id("send-1")
+    )));
+}
+
+#[test]
+fn websocket_runtime_rejects_saturated_outbound_send_synchronously() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(1, 4, 16);
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-1"))
+        .expect("connect accepted");
+    let resource_id = handle_resource_id(&connect);
+
+    runtime
+        .submit(send_request(&plugin, "send-1", &resource_id, "first"))
+        .expect("first send accepted");
+    let error = runtime
+        .submit(send_request(&plugin, "send-2", &resource_id, "second"))
+        .expect_err("full outbound queue rejects immediately");
+    let events = runtime.drain_events(&plugin).expect("drain events");
+
+    assert_eq!(
+        error.kind,
+        botster_core::CapabilityRuntimeErrorKind::Backpressured
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::Backpressure(summary)
+            if summary.capacity == 1
+                && summary.depth == 1
+                && summary.route.plugin_key == Some(plugin.clone())
+    )));
+}
+
+#[test]
+fn websocket_runtime_event_backpressure_does_not_enqueue_rejected_send() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(4, 4, 3);
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-1"))
+        .expect("connect accepted");
+    let resource = connect.resource.clone().expect("connect resource");
+    let resource_id = handle_resource_id(&connect);
+
+    runtime
+        .submit(send_request(&plugin, "send-1", &resource_id, "accepted"))
+        .expect("first send fills remaining event capacity");
+    assert_eq!(
+        runtime
+            .drain_outbound_messages(&resource)
+            .expect("host drains accepted outbound"),
+        vec![WebSocketMessage::Text("accepted".to_string())]
+    );
+
+    let error = runtime
+        .submit(send_request(&plugin, "send-2", &resource_id, "rejected"))
+        .expect_err("full event queue rejects before outbound mutation");
+
+    assert_eq!(
+        error.kind,
+        botster_core::CapabilityRuntimeErrorKind::Backpressured
+    );
+    assert!(runtime
+        .drain_outbound_messages(&resource)
+        .expect("host drains outbound after rejected send")
+        .is_empty());
+}
+
+#[test]
+fn websocket_runtime_bounds_events_only_receive_queue() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(4, 1, 16);
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-1"))
+        .expect("connect accepted");
+    let resource = connect.resource.clone().expect("connect resource");
+
+    runtime
+        .enqueue_inbound_message(&resource, WebSocketMessage::Text("one".to_string()))
+        .expect("first inbound accepted");
+    let error = runtime
+        .enqueue_inbound_message(&resource, WebSocketMessage::Text("two".to_string()))
+        .expect_err("bounded inbound receive queue rejects pressure");
+    let events = runtime.drain_events(&plugin).expect("drain events");
+
+    assert_eq!(
+        error.kind,
+        botster_core::CapabilityRuntimeErrorKind::Backpressured
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, CapabilityRuntimeEvent::WebSocketMessage(_)))
+            .count(),
+        1
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::Backpressure(summary)
+            if summary.capacity == 1
+                && summary.depth == 1
+                && summary.route.plugin_key == Some(plugin.clone())
+    )));
+}
+
+#[test]
+fn websocket_runtime_event_backpressure_does_not_drift_inbound_depth() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(4, 1, 2);
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-1"))
+        .expect("connect fills event capacity");
+    let resource = connect.resource.clone().expect("connect resource");
+
+    let error = runtime
+        .enqueue_inbound_message(&resource, WebSocketMessage::Text("rejected".to_string()))
+        .expect_err("full event queue rejects before inbound depth mutation");
+
+    assert_eq!(
+        error.kind,
+        botster_core::CapabilityRuntimeErrorKind::Backpressured
+    );
+    let connect_events = runtime.drain_events(&plugin).expect("drain connect events");
+    assert_eq!(
+        connect_events
+            .iter()
+            .filter(|event| matches!(event, CapabilityRuntimeEvent::WebSocketMessage(_)))
+            .count(),
+        0
+    );
+
+    runtime
+        .enqueue_inbound_message(&resource, WebSocketMessage::Text("accepted".to_string()))
+        .expect("inbound accepts after draining events because depth did not drift");
+    let second = runtime.enqueue_inbound_message(
+        &resource,
+        WebSocketMessage::Text("still-bounded".to_string()),
+    );
+
+    assert_eq!(
+        second
+            .expect_err("real inbound capacity still applies")
+            .kind,
+        botster_core::CapabilityRuntimeErrorKind::Backpressured
+    );
+}
+
+#[test]
+fn websocket_runtime_reports_timeout_and_cancellation_as_typed_events() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = websocket_runtime(4, 4, 16);
+    let mut timed_out = connect_request(&plugin, "connect-timeout");
+    timed_out.timeout_ms = 0;
+
+    let timeout = runtime
+        .submit(timed_out)
+        .expect_err("zero timeout rejects operation");
+    let connect = runtime
+        .submit(connect_request(&plugin, "connect-cancel"))
+        .expect("connect accepted");
+    runtime
+        .cancel(&plugin, &connect.operation_id)
+        .expect("cancel known websocket operation");
+    let cancel_send = runtime.submit(send_request(
+        &plugin,
+        "send-after-cancel",
+        &handle_resource_id(&connect),
+        "lost",
+    ));
+    let events = runtime.drain_events(&plugin).expect("drain events");
+
+    assert_eq!(
+        timeout.kind,
+        botster_core::CapabilityRuntimeErrorKind::TimedOut
+    );
+    assert_eq!(
+        cancel_send.expect_err("cancel releases resource").kind,
+        botster_core::CapabilityRuntimeErrorKind::ResourceNotFound
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::TimedOut(failure)
+            if failure.operation_id == operation_id("connect-timeout")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        CapabilityRuntimeEvent::Cancelled(failure)
+            if failure.operation_id == operation_id("connect-cancel")
+    )));
+}
+
+#[test]
+fn websocket_runtime_cleanup_targets_only_one_plugins_connections() {
+    let plugin_a = plugin_key("project-pipelines");
+    let plugin_b = plugin_key("preview");
+    let mut runtime = websocket_runtime(4, 4, 16);
+    let connection_a = runtime
+        .submit(connect_request(&plugin_a, "connect-a"))
+        .expect("plugin a connect");
+    let connection_b = runtime
+        .submit(connect_request(&plugin_b, "connect-b"))
+        .expect("plugin b connect");
+    let resource_a = connection_a.resource.clone().expect("plugin a resource");
+    let resource_b = connection_b.resource.clone().expect("plugin b resource");
+
+    let cleanup = runtime
+        .cleanup_plugin(&plugin_a)
+        .expect("cleanup plugin a resources");
+
+    assert_eq!(cleanup.plugin_key, plugin_a);
+    assert_eq!(cleanup.removed_resources, vec![resource_a.clone()]);
+    assert_eq!(
+        runtime
+            .drain_outbound_messages(&resource_a)
+            .expect_err("plugin a connection removed")
+            .kind,
+        botster_core::CapabilityRuntimeErrorKind::ResourceNotFound
+    );
+    assert!(runtime
+        .drain_outbound_messages(&resource_b)
+        .expect("plugin b connection remains")
+        .is_empty());
 }
 
 #[test]
