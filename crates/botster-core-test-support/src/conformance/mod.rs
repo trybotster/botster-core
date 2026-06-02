@@ -1005,6 +1005,10 @@ fn run_hot_path_probes(
     drain_rounds_before_probes: usize,
 ) -> Result<AdversarialHotPathReport, EngineConformanceError> {
     let noisy_session = harness.sessions[noisy_index].clone();
+    let quiet_sessions_completed_before_probes = quiet_sessions_completed(harness, noisy_index);
+    let noisy_output_active_during_probes = noisy_session.ready_seen
+        && !noisy_session.done_seen
+        && quiet_sessions_completed_before_probes > 0;
     let mut phase_timings = Vec::new();
 
     let sessions = timed_phase(
@@ -1220,10 +1224,10 @@ fn run_hot_path_probes(
         noisy_session_id: noisy_session.session_id,
         quiet_session_id: quiet_session.session_id,
         control_session_id: control.session_id.clone(),
-        quiet_sessions_completed_before_probes: quiet_sessions_completed(harness, noisy_index),
+        quiet_sessions_completed_before_probes,
         drain_rounds_before_probes,
         total_drain_rounds: drain_rounds_before_probes,
-        noisy_output_active_during_probes: true,
+        noisy_output_active_during_probes,
         phase_timings,
         queue_backpressure_observations: Vec::new(),
         cleanup_exited_sessions: 0,
