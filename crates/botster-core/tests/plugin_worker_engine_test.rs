@@ -5,13 +5,14 @@ use std::time::Duration;
 
 use botster_core::{
     BoundaryJson, Capability, CapabilitySurface, ExtensionEntrypoint, ExtensionKind,
-    ExtensionRuntime, PackageManifest, PluginCancellationToken, PluginCleanupScope,
-    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailure,
-    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult,
-    PluginInvocationSuccess, PluginKey, PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec,
-    PluginResourceKind, PluginResourceRef, PluginRuntime, PluginUnloadSpec, PluginWorkerEngine,
-    PluginWorkerEngineConfig, PluginWorkerEvent, PluginWorkerRegistration, RequestId,
+    ExtensionRuntime, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
+    PluginCancellationToken, PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef,
+    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef, PluginRuntime,
+    PluginUnloadSpec, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerEvent,
+    PluginWorkerRegistration, RequestId,
 };
 
 #[derive(Clone)]
@@ -230,6 +231,7 @@ fn manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageMan
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        host_profile: None,
     }
 }
 
@@ -876,6 +878,50 @@ fn capability_checks_use_declared_package_metadata_for_rejection_and_grant() {
         PluginInvocationResult::Completed(_)
     ));
     assert_eq!(runtime.invocations().len(), 1);
+}
+
+#[test]
+fn host_profile_metadata_is_not_a_plugin_worker_capability_grant() {
+    let plugin = plugin_key("networked-profile");
+    let command = handler(&plugin, "fetch");
+    let required = network_capability();
+    let engine = PluginWorkerEngine::new();
+    let runtime = FakeRuntime::success("not-called");
+    let mut manifest = manifest(&plugin, Vec::new());
+
+    manifest.host_profile = Some(HostProfileMetadata {
+        profile_id: "botster-hub".to_string(),
+        compatibility: ">=0.1.0".to_string(),
+        precedence: 10,
+        required_providers: vec!["network-provider".to_string()],
+        required_capabilities: vec![required.clone()],
+        policy_sections: vec![HostProfilePolicySection::Capabilities],
+    });
+
+    engine.load_plugin(PluginWorkerRegistration {
+        load: load_spec(&plugin, vec![descriptor(&plugin, "fetch", command.clone())]),
+        manifest,
+        runtime: Arc::new(runtime.clone()),
+        handlers: vec![PluginHandlerRegistration {
+            handler: command.clone(),
+            required_capability: Some(required),
+        }],
+        resources: Vec::new(),
+    });
+
+    let rejected = engine.invoke(invocation("req-denied-profile", command.clone(), 1_000));
+    match rejected.result {
+        PluginInvocationResult::Failed(failure) => {
+            assert_eq!(failure.handler, command);
+            assert_eq!(failure.kind, PluginInvocationFailureKind::HandlerFailed);
+            assert!(failure.reason.contains("capability"));
+        }
+        other => panic!("expected capability rejection, got {other:?}"),
+    }
+    assert!(
+        runtime.invocations().is_empty(),
+        "metadata must not bypass manifest.capabilities"
+    );
 }
 
 #[test]

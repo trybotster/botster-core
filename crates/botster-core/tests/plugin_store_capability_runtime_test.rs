@@ -692,6 +692,7 @@ fn registration(plugin_key: &PluginKey, handler: PluginHandlerRef) -> PluginWork
                 path: "plugin.lua".to_string(),
                 bootstrap: false,
             }],
+            host_profile: None,
         },
         runtime: Arc::new(FakePluginRuntime::new(FakePluginBehavior::Success(
             BoundaryJson(serde_json::json!({ "value": "ok" })),

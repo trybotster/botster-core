@@ -26,7 +26,7 @@ pub use engine::{
     terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
-pub use package::{capability, extension, manifest};
+pub use package::{capability, extension, host_profile, manifest};
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
     CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
@@ -123,7 +123,10 @@ pub use notification::{
     NotificationInbox, NotificationItem, NotificationKind, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
-pub use package::{PackageManifest, PackageSource};
+pub use package::{
+    admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError, HostProfileMetadata,
+    HostProfilePolicySection, PackageManifest, PackageSource,
+};
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
     SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,

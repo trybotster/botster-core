@@ -497,6 +497,7 @@ impl Default for DefaultBotsterEngine {
 ///             path: "plugin.lua".to_string(),
 ///             bootstrap: false,
 ///         }],
+///         host_profile: None,
 ///     },
 ///     runtime: Arc::new(FakePluginRuntime::success("ok")),
 ///     handlers: vec![PluginHandlerRegistration {
