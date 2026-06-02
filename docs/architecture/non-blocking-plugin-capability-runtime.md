@@ -2,7 +2,9 @@
 
 Botster core defines plugin capability I/O as a bounded runtime mailbox contract, not as inline HTTP, WebSocket, file, store, watch, or timer execution. Plugin code and first-party host profiles submit typed requests, receive typed handles, and drain typed events through host-provided runtimes. PTY, session, client, and plugin-worker hot paths must not perform blocking capability I/O inline.
 
-This document describes the scaffold in `botster_core::runtime::capability`. It is intentionally contract-only. There is no concrete async runtime, HTTP client, WebSocket backend, filesystem resolver, plugin-store adapter, watcher, timer scheduler, or Lua integration in this ticket.
+This document describes the scaffold in `botster_core::runtime::capability` plus the first concrete runtime primitive: `HttpCapabilityRuntime`. HTTP now has a bounded, non-blocking runtime around a host-implemented transport boundary. WebSocket, filesystem, plugin-store, watcher, timer scheduler, and Lua integration remain scaffold-only.
+
+The HTTP deliverable is intentionally a core runtime primitive exercised by tests. There is no Lua `http.request` path, no `PluginWorkerEngine` ownership of the runtime, and no hub/profile default policy wiring in this ticket.
 
 ## Boundary
 
@@ -20,7 +22,7 @@ The queue source for pressure reports is `QueueSource::PluginWorker`. The capabi
 
 The scaffold names these operation families:
 
-- `HttpCapabilityRequest`: outbound HTTP request metadata.
+- `HttpCapabilityRequest`: outbound HTTP request metadata accepted by `HttpCapabilityRuntime`.
 - `WebSocketCapabilityRequest`: connect, send, and close operations.
 - `WatchCapabilityRequest`: scoped file-watch register and unregister operations.
 - `FilesystemCapabilityRequest`: scoped read, write, list, stat, and remove operations.
@@ -70,6 +72,8 @@ These resource refs fit the existing `PluginCleanupResult` unload/reload cleanup
 
 The capability runtime must use bounded submit and callback/event queues. When it cannot accept more work, it reports `CapabilityRuntimeErrorKind::Backpressured` or emits `CapabilityRuntimeEvent::Backpressure(BackpressureSummary)`.
 
+`HttpCapabilityRuntime::submit` validates capability grants, host/scheme policy, headers, body limits, timeout, and capacity without performing transport I/O inline. Accepted work runs on runtime-owned background worker threads through `HttpCapabilityTransport`; `drain_events` pulls completion, failure, timeout, cancellation, and pressure events.
+
 Pressure reports must include:
 
 - `QueueSource::PluginWorker`
@@ -90,6 +94,10 @@ Cancellation is explicit:
 - `PluginCapabilityRuntime::cleanup_plugin(plugin_key)` releases all resources owned by one plugin.
 
 Timeouts, cancellations, invalid requests, runtime stops, unknown operations, and unknown resources are represented with `CapabilityRuntimeErrorKind` and mirrored in failure events.
+
+The HTTP runtime reuses `PluginCancellationToken` for in-flight transport cancellation. `cancel`, timeout detection, and `cleanup_plugin` all trip the token. Host transports must poll it while blocking or collecting chunks; late transport completions after timeout, cancel, or cleanup are ignored.
+
+HTTP response body limits are enforced by the host transport while collecting response chunks. Core supplies `HttpTransportRequest` limits and `HttpCapabilityRuntime::validate_response` so host transports and tests can apply the same bounded header/body checks before emitting a response.
 
 ## Events
 
@@ -128,6 +136,6 @@ Botster core owns reusable contract mechanics only: typed requests, capabilities
 
 ## Runtime Path Evidence
 
-This ticket is scaffold-only by design. There is no live HTTP, WebSocket, watch, filesystem, plugin-store, or timer entry point yet.
+This ticket is scaffold-only by design at the production entry-point layer. There is no live Lua, hub, WebSocket, watch, filesystem, plugin-store, or timer entry point yet.
 
-The verifiable changed runtime path is the public `botster_core` contract surface that future host profiles and plugin runtimes import. The contract is exercised by `plugin_capability_runtime_test` and by the `PluginWorkerEngine` cleanup regression that records and removes capability runtime resources through the existing plugin unload path.
+The verifiable changed runtime path is the public `botster_core` contract and HTTP runtime surface that future host profiles and plugin runtimes import. `plugin_capability_runtime_test` exercises accepted and denied HTTP submissions, typed validation errors, worker-thread non-blocking behavior, timeout and cancellation through `PluginCancellationToken`, response size limits, cleanup isolation, and typed transport failures. `PluginWorkerEngine` cleanup remains descriptor/resource-ledger cleanup only; real in-flight HTTP cleanup is owned by `HttpCapabilityRuntime::cleanup_plugin` until a future ticket wires the engine to own a runtime instance.

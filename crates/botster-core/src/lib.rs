@@ -32,14 +32,15 @@ pub use runtime::{
     CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
     CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
     CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
-    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
-    HttpCapabilityResponse, HttpHeader, PluginCancellationToken, PluginCapabilityRuntime,
-    PluginRuntime, PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation,
-    ProcessIdentity, ScopedRelativePath, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
-    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
-    WebSocketMessage,
+    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityEndpointPolicy,
+    HttpCapabilityRequest, HttpCapabilityResponse, HttpCapabilityRuntime,
+    HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader, HttpTransportRequest,
+    PluginCancellationToken, PluginCapabilityRuntime, PluginRuntime, PluginStoreCapabilityRequest,
+    PluginStoreKey, PluginStoreOperation, ProcessIdentity, ScopedRelativePath, SessionRuntime,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable,
+    SpawnWorkingDirectory, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
+    WebSocketCapabilityRequest, WebSocketMessage,
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
