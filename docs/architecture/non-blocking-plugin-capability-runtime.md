@@ -4,17 +4,21 @@ Botster core defines plugin capability I/O as a bounded runtime mailbox contract
 
 This document describes the reusable contracts in
 `botster_core::runtime::capability` plus concrete core runtime primitives for
-HTTP and file watching. `HttpCapabilityRuntime` provides bounded, non-blocking
-HTTP around a host-implemented transport boundary. `FileWatchRuntime` provides
+HTTP, file watching, and a deterministic WebSocket harness.
+`HttpCapabilityRuntime` provides bounded, non-blocking HTTP around a
+host-implemented transport boundary. `FileWatchRuntime` provides
 capability-scoped watch registration, scoped-path validation,
 debounce/coalescing, bounded delivery, and cleanup over a host-provided event
-source. WebSocket, filesystem, plugin-store, timer scheduler, Lua integration,
-and concrete OS watcher adapters remain host/profile-owned.
+source. `InMemoryWebSocketCapabilityRuntime` provides a policy-free WebSocket
+primitive/harness for bounded lifecycle testing without opening real sockets.
+Filesystem, plugin-store, timer scheduler, Lua integration, concrete WebSocket
+network adapters, and concrete OS watcher adapters remain host/profile-owned.
 
-The HTTP and file-watch deliverables are intentionally core runtime primitives
-exercised by tests. There is no Lua `http.request` or `watch.directory` path, no
-`PluginWorkerEngine` ownership of these runtime instances, and no hub/profile
-default policy wiring in these tickets.
+The HTTP, file-watch, and WebSocket deliverables are intentionally core runtime
+primitives exercised by tests. There is no Lua `http.request`,
+`watch.directory`, or WebSocket plugin path, no `PluginWorkerEngine` ownership
+of these runtime instances, and no hub/profile default policy wiring in these
+tickets.
 
 ## Boundary
 
@@ -50,6 +54,28 @@ Each request carries:
 HTTP maps to `CapabilitySurface::Network` with scope `http`. WebSocket maps to `CapabilitySurface::Network` with scope `websocket`. File watch and scoped filesystem operations map to `CapabilitySurface::Filesystem` with the host-owned scope id. Plugin-store operations map to `CapabilitySurface::PluginDb` with the store namespace. Timers map to `CapabilitySurface::Timers` with scope `callbacks`.
 
 Core names the capability requirement. Hub/profile policy decides which packages receive which grants, allowed origins, filesystem scopes, namespaces, credentials, quotas, and backend implementations.
+
+## WebSocket Runtime Harness
+
+`InMemoryWebSocketCapabilityRuntime` implements `PluginCapabilityRuntime` for
+the WebSocket operation family without opening real sockets. It is a core
+primitive and test harness, not a product transport.
+
+The runtime proves:
+
+- `CapabilitySurface::Network` with scope `websocket` is checked before connection acceptance.
+- Capability grants are configured per runtime context; host profiles that serve plugins with heterogeneous grants must instantiate or wrap runtimes per grant context before submitting plugin requests.
+- `Connect`, `Send`, and `Close` return typed handles or typed errors.
+- Persistent connections are tracked as `PluginResourceKind::NetworkConnection`.
+- Outbound send queues are bounded per connection and reject saturated sends synchronously with `CapabilityRuntimeErrorKind::Backpressured`.
+- Inbound receive is events-only through `CapabilityRuntimeEvent::WebSocketMessage`; there is no separate core `Receive` action.
+- Inbound event queues are bounded and emit typed backpressure when saturated.
+- Timeout, cancellation, release, and plugin cleanup use typed runtime events and errors. The harness treats `timeout_ms == 0` as an already-expired operation; real elapsed-time measurement and backend cancellation timing belong to host profiles.
+- Event-queue backpressure is checked before connection or message state is mutated, so a rejected operation does not leak a connection, enqueue an outbound message, or inflate inbound receive depth.
+
+Core intentionally exposes no reconnect operation. Host profiles own reconnect
+by issuing a fresh `Connect` request and by selecting retry loops, origin rules,
+credentials, and concrete network backends.
 
 ## Scoped Filesystem
 
@@ -178,16 +204,21 @@ mechanism listed above.
 ## Runtime Path Evidence
 
 These tickets are scaffold-only by design at the production entry-point layer.
-There is no live Lua, hub, WebSocket, filesystem, plugin-store, timer, HTTP, or
-watch entry point yet.
+There is no live Lua, hub, real WebSocket network adapter, filesystem,
+plugin-store, timer, HTTP, or watch entry point yet.
 
 The verifiable changed runtime paths are the public `botster_core` contract
 surface plus `HttpCapabilityRuntime<T: HttpCapabilityTransport>` and
-`FileWatchRuntime<S: FileWatchEventSource>` implementing the existing
+`FileWatchRuntime<S: FileWatchEventSource>` and
+`InMemoryWebSocketCapabilityRuntime` implementing the existing
 `PluginCapabilityRuntime` trait. `plugin_capability_runtime_test` exercises
 accepted and denied HTTP submissions, typed validation errors, worker-thread
 non-blocking behavior, timeout and cancellation through `PluginCancellationToken`,
-response size limits, cleanup isolation, and typed transport failures.
+response size limits, cleanup isolation, typed transport failures, WebSocket
+capability gating, connect/send/inbound-event/close lifecycle, synchronous
+bounded-send backpressure, bounded receive-event pressure, event-queue
+backpressure without state drift, timeout/cancellation, and plugin-scoped
+cleanup.
 `plugin_file_watch_runtime_test` instantiates the watch runtime, submits allowed
 and denied watch requests, injects fake source events with deterministic
 timestamps, drains coalesced watch events, and asserts source-side unregister
