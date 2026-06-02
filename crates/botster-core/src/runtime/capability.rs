@@ -1,9 +1,11 @@
 //! Capability-scoped plugin runtime contracts.
 //!
-//! Core only defines the request, handle, event, and cleanup shapes for
-//! non-blocking plugin capability I/O. Host profiles provide concrete HTTP,
-//! WebSocket, filesystem, store, watcher, and timer implementations behind a
-//! bounded mailbox.
+//! Core defines the request, handle, event, and cleanup shapes for
+//! non-blocking plugin capability I/O. The watch family also has a core-owned
+//! runtime mechanism for registration state, scoped-path validation,
+//! debounce/coalescing, bounded delivery, and cleanup over a host-provided event
+//! source. Host profiles still provide concrete HTTP, WebSocket, filesystem,
+//! store, timer, and OS watcher adapters behind bounded mailboxes.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::error::Error;
@@ -951,7 +953,12 @@ pub struct CapabilityOperationFailure {
     pub reason: String,
 }
 
-/// Host-implemented, non-blocking capability runtime boundary.
+/// Non-blocking capability runtime boundary.
+///
+/// Host profiles implement concrete capability backends. Core also provides a
+/// policy-free file watch implementation of this trait over an injected event
+/// source, while the concrete OS watcher and directory/root policy stay with
+/// the host profile.
 pub trait PluginCapabilityRuntime {
     /// Enqueue one operation request without performing blocking I/O inline.
     fn submit(
