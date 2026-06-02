@@ -3,8 +3,9 @@
 use std::sync::Arc;
 #[cfg(feature = "local-runtime")]
 use std::thread;
+use std::time::Duration;
 #[cfg(feature = "local-runtime")]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use botster_core::{
     BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata, EngineCommand,
@@ -12,16 +13,17 @@ use botster_core::{
     ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
     PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
-    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
-    PluginWorkerRegistration, PreparedSnapshotRequest, RequestId, SessionActivityStatus, SessionId,
-    SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
+    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
+    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
+    RequestId, SessionActivityStatus, SessionId, SessionIoEvent, SessionIoRequest,
+    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{DefaultBotsterEngine, DefaultEngineCommand, ResizePayload};
 use botster_core_test_support::fake::{
-    FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+    FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
 
 fn request_id(value: &str) -> RequestId {
@@ -128,6 +130,53 @@ fn plugin_invocation(handler: PluginHandlerRef) -> PluginInvocationRequest {
         },
         payload: BoundaryJson(serde_json::json!({ "command": "run" })),
     }
+}
+
+fn plugin_invocation_with_timeout(
+    request_id_value: &str,
+    handler: PluginHandlerRef,
+    timeout_ms: u64,
+) -> PluginInvocationRequest {
+    PluginInvocationRequest {
+        request_id: request_id(request_id_value),
+        timeout_ms,
+        ..plugin_invocation(handler)
+    }
+}
+
+#[test]
+fn botster_engine_invoke_plugin_exposes_timeout_events() {
+    let engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::with_plugin_config(
+            FakeSessionRuntime::new(),
+            botster_core::PluginWorkerEngineConfig {
+                per_plugin_capacity: 1,
+            },
+        );
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
+        duration: Duration::from_millis(100),
+        payload: BoundaryJson(serde_json::json!({ "value": "late" })),
+    });
+    engine.load_plugin(plugin_registration(plugin_runtime, &plugin, &handler));
+
+    let timeout = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "botster-plugin-timeout",
+        handler,
+        10,
+    ));
+    assert!(matches!(
+        timeout.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    assert!(matches!(
+        timeout.events.as_slice(),
+        [PluginWorkerEvent::InvocationTimedOut(failure)]
+            if failure.request_id == request_id("botster-plugin-timeout")
+                && failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
 }
 
 #[cfg(feature = "local-runtime")]
@@ -414,7 +463,7 @@ fn botster_engine_consumer_lifecycle_uses_public_api() {
 
     let plugin_result = engine.invoke_plugin(plugin_invocation(handler.clone()));
     assert_eq!(plugin_runtime.invocations().len(), 1);
-    match plugin_result {
+    match plugin_result.result {
         PluginInvocationResult::Completed(success) => {
             assert_eq!(success.request_id, request_id("plugin-1"));
             assert_eq!(success.handler, handler);

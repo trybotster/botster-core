@@ -30,9 +30,9 @@ pub use package::{capability, extension, manifest};
 #[cfg(feature = "local-runtime")]
 pub use runtime::{LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime};
 pub use runtime::{
-    PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
-    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+    PluginCancellationToken, PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError,
+    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
 };
 
 pub use actor::{
@@ -77,11 +77,11 @@ pub use engine::{
     EngineSpawnSessionResult, EngineSubscriptionId, ManagedSessionRuntime,
     ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
-    PluginHandlerRegistration, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
-    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
-    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
-    TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
+    PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerEngine,
+    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
+    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
+    TerminalScreenOutcome, TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand};

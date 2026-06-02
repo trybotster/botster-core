@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use botster_core::{
-    BoundaryJson, PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
-    PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginRuntime,
+    BoundaryJson, PluginCancellationToken, PluginInvocationFailure, PluginInvocationFailureKind,
+    PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginKey,
+    PluginRuntime,
 };
 
 /// Behavior returned by a fake plugin runtime.
@@ -22,6 +23,8 @@ pub enum FakePluginBehavior {
         /// Payload returned after the delay.
         payload: BoundaryJson,
     },
+    /// Wait until core signals cancellation, then fail as cancelled.
+    WaitForCancellation,
 }
 
 /// Shared fake plugin runtime for public API and conformance tests.
@@ -30,6 +33,7 @@ pub struct FakePluginRuntime {
     behavior: Arc<Mutex<FakePluginBehavior>>,
     invocations: Arc<Mutex<Vec<PluginInvocationRequest>>>,
     stopped: Arc<Mutex<Vec<PluginKey>>>,
+    cancellations_observed: Arc<Mutex<usize>>,
 }
 
 impl FakePluginRuntime {
@@ -63,6 +67,7 @@ impl FakePluginRuntime {
             behavior: Arc::new(Mutex::new(behavior)),
             invocations: Arc::new(Mutex::new(Vec::new())),
             stopped: Arc::new(Mutex::new(Vec::new())),
+            cancellations_observed: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -83,10 +88,23 @@ impl FakePluginRuntime {
             .expect("fake plugin runtime stopped lock")
             .clone()
     }
+
+    /// Number of invocations where the fake observed cancellation.
+    #[must_use]
+    pub fn cancellations_observed(&self) -> usize {
+        *self
+            .cancellations_observed
+            .lock()
+            .expect("fake plugin runtime cancellations lock")
+    }
 }
 
 impl PluginRuntime for FakePluginRuntime {
-    fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationResult {
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        cancellation: PluginCancellationToken,
+    ) -> PluginInvocationResult {
         self.invocations
             .lock()
             .expect("fake plugin runtime invocations lock")
@@ -120,6 +138,22 @@ impl PluginRuntime for FakePluginRuntime {
                     request_id: request.request_id,
                     handler: request.handler,
                     payload: Some(payload),
+                })
+            }
+            FakePluginBehavior::WaitForCancellation => {
+                while !cancellation.is_cancelled() {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                *self
+                    .cancellations_observed
+                    .lock()
+                    .expect("fake plugin runtime cancellations lock") += 1;
+                PluginInvocationResult::Failed(PluginInvocationFailure {
+                    request_id: request.request_id,
+                    handler: request.handler,
+                    kind: PluginInvocationFailureKind::Cancelled,
+                    timeout_ms: None,
+                    reason: "cancelled by test fake".to_string(),
                 })
             }
         }
