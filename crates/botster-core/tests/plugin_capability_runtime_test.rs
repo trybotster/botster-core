@@ -7,14 +7,16 @@ use std::time::{Duration, Instant};
 
 use botster_core::{
     BackpressureSummary, Capability, CapabilityOperation, CapabilityOperationCompleted,
-    CapabilityOperationFailure, CapabilityOperationId, CapabilityResourceEvent,
-    CapabilityResourceId, CapabilityRuntimeEvent, CapabilityRuntimeRequest, CapabilitySurface,
-    CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
-    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityEndpointPolicy,
-    HttpCapabilityRequest, HttpCapabilityResponse, HttpCapabilityRuntime,
-    HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader, HttpTransportRequest,
-    PluginCancellationToken, PluginCapabilityRuntime, PluginCleanupResult, PluginHandlerKind,
-    PluginHandlerRef, PluginKey, PluginResourceKind, PluginResourceRef,
+    CapabilityOperationFailure, CapabilityOperationId, CapabilityOperationResult,
+    CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeEvent,
+    CapabilityRuntimeRequest, CapabilitySurface, CapabilityTimerEvent, CapabilityWatchEvent,
+    CapabilityWebSocketEvent, FilesystemCapabilityGrant, FilesystemCapabilityLimits,
+    FilesystemCapabilityPermissions, FilesystemCapabilityRequest, FilesystemCapabilityResult,
+    FilesystemEntry, FilesystemEntryKind, FilesystemMetadata, FilesystemOperation,
+    HttpCapabilityEndpointPolicy, HttpCapabilityRequest, HttpCapabilityResponse,
+    HttpCapabilityRuntime, HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader,
+    HttpTransportRequest, PluginCancellationToken, PluginCapabilityRuntime, PluginCleanupResult,
+    PluginHandlerKind, PluginHandlerRef, PluginKey, PluginResourceKind, PluginResourceRef,
     PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, QueueSource, RequestId,
     ScopedRelativePath, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
     WebSocketCapabilityRequest, WebSocketMessage,
@@ -325,6 +327,11 @@ fn every_operation_family_round_trips_and_declares_required_capability() {
                 operation: FilesystemOperation::Read {
                     path: ScopedRelativePath("README.md".to_string()),
                 },
+                limits: Some(FilesystemCapabilityLimits {
+                    max_read_bytes: Some(65_536),
+                    max_write_bytes: None,
+                    max_list_entries: None,
+                }),
             }),
         ),
         request(
@@ -396,12 +403,20 @@ fn every_operation_family_round_trips_and_declares_required_capability() {
 #[test]
 fn scoped_filesystem_paths_are_relative_contracts_not_host_policy() {
     let scoped = ScopedRelativePath("logs/session.log".to_string());
-    let absolute = ScopedRelativePath("/Users/person/secret.txt".to_string());
+    let absolute = ScopedRelativePath("/tmp/secret.txt".to_string());
     let traversal = ScopedRelativePath("../outside".to_string());
+    let nested_traversal = ScopedRelativePath("logs/../outside".to_string());
+    let drive_absolute = ScopedRelativePath("C:\\secret.txt".to_string());
+    let drive_relative = ScopedRelativePath("C:secret.txt".to_string());
+    let unc = ScopedRelativePath("\\\\server\\share\\secret.txt".to_string());
 
     assert!(scoped.is_scoped_relative());
     assert!(!absolute.is_scoped_relative());
     assert!(!traversal.is_scoped_relative());
+    assert!(!nested_traversal.is_scoped_relative());
+    assert!(!drive_absolute.is_scoped_relative());
+    assert!(!drive_relative.is_scoped_relative());
+    assert!(!unc.is_scoped_relative());
 
     let request = FilesystemCapabilityRequest {
         scope_id: "workspace".to_string(),
@@ -409,9 +424,92 @@ fn scoped_filesystem_paths_are_relative_contracts_not_host_policy() {
             path: scoped.clone(),
             bytes: b"ok".to_vec(),
         },
+        limits: Some(FilesystemCapabilityLimits {
+            max_read_bytes: None,
+            max_write_bytes: Some(1024),
+            max_list_entries: None,
+        }),
     };
 
+    assert_eq!(request.operation.path(), &scoped);
     assert_eq!(round_trip(&request).operation, request.operation);
+}
+
+#[test]
+fn scoped_filesystem_grants_limits_and_results_are_typed_contracts() {
+    let grant = FilesystemCapabilityGrant {
+        scope_id: "workspace".to_string(),
+        permissions: FilesystemCapabilityPermissions {
+            read: true,
+            write: true,
+            list: true,
+            stat: true,
+            remove: false,
+        },
+        limits: Some(FilesystemCapabilityLimits {
+            max_read_bytes: Some(65_536),
+            max_write_bytes: Some(16_384),
+            max_list_entries: Some(256),
+        }),
+    };
+
+    assert_eq!(round_trip(&grant), grant);
+
+    let path = ScopedRelativePath("src/lib.rs".to_string());
+    let result = CapabilityOperationResult::Filesystem(FilesystemCapabilityResult::List {
+        path: ScopedRelativePath("src".to_string()),
+        entries: vec![FilesystemEntry {
+            path: path.clone(),
+            kind: FilesystemEntryKind::File,
+            size_bytes: Some(1234),
+        }],
+    });
+
+    let stat = CapabilityOperationResult::Filesystem(FilesystemCapabilityResult::Stat {
+        path,
+        metadata: FilesystemMetadata {
+            kind: FilesystemEntryKind::File,
+            size_bytes: Some(1234),
+            readonly: false,
+        },
+    });
+
+    assert_eq!(round_trip(&result), result);
+    assert_eq!(round_trip(&stat), stat);
+}
+
+#[test]
+fn scoped_filesystem_permissions_gate_each_operation_kind() {
+    let read_only = FilesystemCapabilityPermissions {
+        read: true,
+        write: false,
+        list: false,
+        stat: false,
+        remove: false,
+    };
+    let path = ScopedRelativePath("README.md".to_string());
+
+    assert!(read_only.allows(&FilesystemOperation::Read { path: path.clone() }));
+    assert!(!read_only.allows(&FilesystemOperation::Write {
+        path: path.clone(),
+        bytes: b"denied".to_vec(),
+    }));
+    assert!(!read_only.allows(&FilesystemOperation::List { path: path.clone() }));
+    assert!(!read_only.allows(&FilesystemOperation::Stat { path: path.clone() }));
+    assert!(!read_only.allows(&FilesystemOperation::Remove { path }));
+
+    let list_and_stat = FilesystemCapabilityPermissions {
+        read: false,
+        write: false,
+        list: true,
+        stat: true,
+        remove: false,
+    };
+    let path = ScopedRelativePath("src".to_string());
+
+    assert!(!list_and_stat.allows(&FilesystemOperation::Read { path: path.clone() }));
+    assert!(list_and_stat.allows(&FilesystemOperation::List { path: path.clone() }));
+    assert!(list_and_stat.allows(&FilesystemOperation::Stat { path }));
 }
 
 #[test]
@@ -448,11 +546,21 @@ fn events_round_trip_with_plugin_identity_operation_ids_and_pressure_route() {
         CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
             plugin_key: plugin.clone(),
             operation_id: operation_id("http-1"),
-            response: Some(HttpCapabilityResponse {
+            result: Some(CapabilityOperationResult::Http(HttpCapabilityResponse {
                 status: 200,
                 headers: Vec::new(),
                 body: b"{}".to_vec(),
-            }),
+            })),
+        }),
+        CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
+            plugin_key: plugin.clone(),
+            operation_id: operation_id("fs-1"),
+            result: Some(CapabilityOperationResult::Filesystem(
+                FilesystemCapabilityResult::Read {
+                    path: ScopedRelativePath("README.md".to_string()),
+                    bytes: b"hello".to_vec(),
+                },
+            )),
         }),
         CapabilityRuntimeEvent::ResourceOpened(CapabilityResourceEvent {
             plugin_key: plugin.clone(),
@@ -565,7 +673,7 @@ fn http_runtime_accepts_allowed_request_and_emits_completion_event() {
         events.as_slice(),
         [CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
             operation_id: completed_operation_id,
-            response: Some(HttpCapabilityResponse { status: 200, .. }),
+            result: Some(CapabilityOperationResult::Http(HttpCapabilityResponse { status: 200, .. })),
             ..
         })] if completed_operation_id == &operation_id("http-ok")
     ));
