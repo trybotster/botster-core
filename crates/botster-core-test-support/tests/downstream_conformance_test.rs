@@ -27,7 +27,8 @@ use botster_core_test_support::conformance::{
     assert_command_replay_snapshot_behavior, assert_command_screen_ready,
     assert_command_sessions_include, assert_command_snapshot_ready, assert_output_activity,
     assert_shutdown_requested, assert_terminal_output_fanout, local_shell_spawn_request,
-    DisposableCommandLocalSession, DisposableManagedLocalSession,
+    run_many_pty_load, DisposableCommandLocalSession, DisposableManagedLocalSession,
+    ManyPtyLoadConfig,
 };
 use botster_core_test_support::fake::{FakeSessionTransport, FakeTerminalScreenRuntime};
 
@@ -435,5 +436,102 @@ fn downstream_consumer_can_build_explicit_local_spawn_request() {
     assert_eq!(
         request.initial_pty_size,
         Some(ResizePayload { rows: 24, cols: 80 })
+    );
+}
+
+#[cfg(all(unix, feature = "local-runtime"))]
+#[test]
+fn many_pty_load_default() {
+    let config = match std::env::var("BOTSTER_CORE_LOAD_SESSIONS") {
+        Ok(value) => match value
+            .parse::<usize>()
+            .expect("BOTSTER_CORE_LOAD_SESSIONS must be a positive integer")
+        {
+            50 => ManyPtyLoadConfig::local_50(),
+            count => {
+                let mut config = ManyPtyLoadConfig::ci_default();
+                config.session_count = count;
+                config
+            }
+        },
+        Err(_) => ManyPtyLoadConfig::ci_default(),
+    };
+
+    let report = run_many_pty_load(config).expect("run many-PTY load harness");
+
+    assert!(
+        report.session_count >= 20,
+        "default many-PTY load should cover at least 20 sessions; report={report:?}"
+    );
+    assert_eq!(
+        report.outputs_completed, report.session_count,
+        "output hot path regressed; report={report:?}"
+    );
+    assert_eq!(
+        report.exits_observed, report.session_count,
+        "process-exit hot path regressed; report={report:?}"
+    );
+    assert!(
+        report.drain_rounds >= 1,
+        "round-robin drain path was not exercised; report={report:?}"
+    );
+    assert!(
+        report.total_output_bytes > 0,
+        "terminal-output hot path was not exercised; report={report:?}"
+    );
+    assert!(
+        !report.queue_backpressure_observations.is_empty(),
+        "report should name public queue/backpressure observations; report={report:?}"
+    );
+}
+
+#[cfg(all(unix, feature = "local-runtime"))]
+#[test]
+fn many_pty_load_adversarial_noisy_reports_missing_slow_client_primitive() {
+    let mut config = ManyPtyLoadConfig::ci_default().with_noisy_session(0);
+    config.timeout = std::time::Duration::from_secs(25);
+    config.normal_output_lines = 2;
+    config.noisy_output_lines = 96;
+
+    let report = run_many_pty_load(config).expect("run adversarial many-PTY load harness");
+
+    assert_eq!(
+        report.outputs_completed, report.session_count,
+        "noisy-output hot path regressed; report={report:?}"
+    );
+    assert_eq!(
+        report.exits_observed, report.session_count,
+        "process-exit hot path regressed under noisy output; report={report:?}"
+    );
+    assert!(
+        report.noisy_session_id.is_some(),
+        "adversarial report should name the noisy session; report={report:?}"
+    );
+    assert!(
+        report
+            .slow_client_observation
+            .contains("No public slow-client/plugin-pressure primitive"),
+        "report should state the exact missing slow-client primitive; report={report:?}"
+    );
+}
+
+#[cfg(all(unix, feature = "local-runtime"))]
+#[test]
+#[ignore = "opt-in many-PTY pressure check for local hardening runs"]
+fn many_pty_load_100() {
+    let report = run_many_pty_load(ManyPtyLoadConfig::opt_in_100())
+        .expect("run opt-in 100-session many-PTY load harness");
+
+    assert_eq!(
+        report.session_count, 100,
+        "100-session opt-in path did not run the requested load; report={report:?}"
+    );
+    assert_eq!(
+        report.outputs_completed, 100,
+        "output hot path regressed under 100 sessions; report={report:?}"
+    );
+    assert_eq!(
+        report.exits_observed, 100,
+        "process-exit hot path regressed under 100 sessions; report={report:?}"
     );
 }
