@@ -58,7 +58,11 @@ Core does not trust or resolve absolute filesystem paths. Filesystem and watch r
 - An opaque host-owned `scope_id`.
 - A `ScopedRelativePath` below that scope.
 
-`ScopedRelativePath::is_scoped_relative()` verifies the contract-level shape: non-empty, not absolute, and no `..` traversal segments. Host profiles still own path resolution, symlink policy, allowed roots, and platform-specific safety rules.
+`ScopedRelativePath::is_scoped_relative()` verifies only the contract-level shape: non-empty, not Unix absolute, not Windows drive-prefixed, not UNC-style, and no `..` traversal segments. Host profiles still own the real containment guard: canonicalize the granted root and candidate target, then prove the canonical target remains under the canonical root according to the platform's filesystem semantics. Core deliberately does not implement root resolution or symlink policy.
+
+`FilesystemCapabilityGrant`, `FilesystemCapabilityPermissions`, and `FilesystemCapabilityLimits` name the scoped grant and size-limit contract that a host profile enforces. Core does not decide which plugin receives a grant, which directory backs a scope, how symlinks are treated, or which quota values apply.
+
+Successful filesystem completion uses `CapabilityOperationResult::Filesystem(FilesystemCapabilityResult)`. Filesystem read, write, list, stat, and remove results must not be tunneled through `HttpCapabilityResponse` or untyped JSON.
 
 ## Handles And Resources
 
@@ -127,6 +131,8 @@ HTTP response body limits are enforced by the host transport while collecting re
 
 Events carry plugin identity, operation ids, and resource refs where applicable. Plugin-owned JSON store values and WebSocket messages are payload data, while stable Botster control fields remain typed.
 
+`CapabilityOperationCompleted` carries `CapabilityOperationResult`, with family-specific variants such as `Http` and `Filesystem`. This is an additive shared-contract shape; future operation families should add typed result variants instead of reusing another family's envelope.
+
 ## File Watch Runtime
 
 The watch family now has a core-owned runtime over a host-provided
@@ -189,3 +195,12 @@ calls for single-resource and plugin cleanup paths. `PluginWorkerEngine` cleanup
 remains descriptor/resource-ledger cleanup only; real in-flight HTTP and watch
 cleanup is owned by the concrete capability runtime until a future ticket wires
 the engine to own runtime instances.
+
+Scoped filesystem remains contract-only in production core. Its verifiable path
+is the public `botster_core` contract surface plus `botster-core-test-support`
+fake capability runtime coverage proving `submit()` accepts and tracks work
+before any completion event is available. Real temporary-file I/O proofs for
+symlink containment, normalization, size-limit enforcement, atomic write
+durability, and timeout/cancel behavior remain host-profile responsibilities.
+Review and Verify should treat those as intentionally deferred until a concrete
+host profile such as Botster Hub wires a filesystem backend over this contract.
