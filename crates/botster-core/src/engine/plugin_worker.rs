@@ -6,7 +6,7 @@
 //! [`PluginRuntime`] outside core.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -14,11 +14,13 @@ use crate::actor::{
     BackpressureRoute, BackpressureSummary, PluginCleanupResult, PluginCleanupScope,
     PluginDescriptorRef, PluginHandlerRef, PluginInvocationFailure, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec, PluginReloadSpec,
-    PluginResourceRef, PluginUnloadSpec, QueueSource,
+    PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent, QueueSource,
 };
 use crate::capability::Capability;
 use crate::manifest::PackageManifest;
-use crate::runtime::PluginRuntime;
+use crate::runtime::{PluginCancellationToken, PluginRuntime};
+
+static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Engine-wide worker execution configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +61,31 @@ pub struct PluginWorkerRegistration {
     pub resources: Vec<PluginResourceRef>,
 }
 
+/// Result plus typed worker events observed while invoking a plugin handler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginInvocationOutcome {
+    /// Caller-facing invocation result.
+    pub result: PluginInvocationResult,
+    /// Typed worker events produced by the invoke path.
+    pub events: Vec<PluginWorkerEvent>,
+}
+
+impl PluginInvocationOutcome {
+    fn new(result: PluginInvocationResult) -> Self {
+        Self {
+            result,
+            events: Vec::new(),
+        }
+    }
+
+    fn with_event(result: PluginInvocationResult, event: PluginWorkerEvent) -> Self {
+        Self {
+            result,
+            events: vec![event],
+        }
+    }
+}
+
 /// Reusable plugin worker execution engine.
 #[derive(Clone, Default)]
 pub struct PluginWorkerEngine {
@@ -83,16 +110,22 @@ impl PluginWorkerEngine {
     /// Load or replace one plugin worker.
     pub fn load_plugin(&self, registration: PluginWorkerRegistration) {
         let plugin_key = registration.load.plugin_key.clone();
-        let worker = WorkerState::new(registration);
+        let worker = WorkerState::new(registration, self.config.per_plugin_capacity);
 
-        self.workers
+        let previous = self
+            .workers
             .lock()
             .expect("plugin worker engine mutex poisoned")
-            .insert(plugin_key, worker);
+            .insert(plugin_key.clone(), worker);
+
+        if let Some(previous) = previous {
+            previous.cancel_all_in_flight();
+            previous.runtime.stop(&plugin_key);
+        }
     }
 
     /// Invoke a stable plugin handler through its owning runtime.
-    pub fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationResult {
+    pub fn invoke(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         let worker = match self.worker_for(&request.handler.plugin_key) {
             Some(worker) => worker,
             None => return worker_stopped(request, "plugin worker is not loaded"),
@@ -112,51 +145,87 @@ impl PluginWorkerEngine {
             }
         }
 
-        if worker.in_flight.load(Ordering::SeqCst) >= self.config.per_plugin_capacity {
-            return PluginInvocationResult::Failed(PluginInvocationFailure {
+        if worker.depth() >= self.config.per_plugin_capacity {
+            let summary = self.backpressure_for(&request.handler.plugin_key);
+            let failure = PluginInvocationFailure {
                 request_id: request.request_id,
                 handler: request.handler,
                 kind: PluginInvocationFailureKind::Backpressured,
                 timeout_ms: None,
                 reason: "plugin worker queue is at capacity".to_string(),
-            });
+            };
+            return PluginInvocationOutcome::with_event(
+                PluginInvocationResult::Failed(failure),
+                PluginWorkerEvent::Backpressure(summary),
+            );
         }
-
-        worker.in_flight.fetch_add(1, Ordering::SeqCst);
 
         let timeout_ms = request.timeout_ms;
         let timeout_request_id = request.request_id.clone();
         let timeout_handler = request.handler.clone();
-        let runtime = worker.runtime.clone();
-        let in_flight = worker.in_flight.clone();
+        let invocation_key = request.request_id.clone();
         let (sender, receiver) = mpsc::channel();
+        let cancellation = PluginCancellationToken::new();
+        worker.track_invocation(invocation_key.clone(), cancellation.clone());
 
-        std::thread::spawn(move || {
-            let result = runtime.invoke(request);
-            in_flight.fetch_sub(1, Ordering::SeqCst);
-            let _ = sender.send(result);
-        });
+        if let Err(error) = worker.dispatch(WorkerJob {
+            request,
+            cancellation: cancellation.clone(),
+            result_sender: sender,
+        }) {
+            worker.finish_invocation(&invocation_key);
+            let failure = PluginInvocationFailure {
+                request_id: timeout_request_id,
+                handler: timeout_handler,
+                kind: if error.worker_stopped {
+                    PluginInvocationFailureKind::WorkerStopped
+                } else {
+                    PluginInvocationFailureKind::Backpressured
+                },
+                timeout_ms: None,
+                reason: if error.worker_stopped {
+                    "plugin worker stopped before accepting invocation"
+                } else {
+                    "plugin worker queue is at capacity"
+                }
+                .to_string(),
+            };
+            let result = PluginInvocationResult::Failed(failure);
+            return if error.worker_stopped {
+                PluginInvocationOutcome::new(result)
+            } else {
+                PluginInvocationOutcome::with_event(
+                    result,
+                    PluginWorkerEvent::Backpressure(self.backpressure_for(&error.plugin_key)),
+                )
+            };
+        }
 
         match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
-            Ok(result) => result,
+            Ok(result) => PluginInvocationOutcome::new(result),
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                PluginInvocationResult::Failed(PluginInvocationFailure {
+                cancellation.cancel();
+                let failure = PluginInvocationFailure {
                     request_id: timeout_request_id,
                     handler: timeout_handler,
                     kind: PluginInvocationFailureKind::TimedOut,
                     timeout_ms: Some(timeout_ms),
                     reason: "plugin handler exceeded timeout".to_string(),
-                })
+                };
+                PluginInvocationOutcome::with_event(
+                    PluginInvocationResult::Failed(failure.clone()),
+                    PluginWorkerEvent::InvocationTimedOut(failure),
+                )
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(mpsc::RecvTimeoutError::Disconnected) => PluginInvocationOutcome::new(
                 PluginInvocationResult::Failed(PluginInvocationFailure {
                     request_id: timeout_request_id,
                     handler: timeout_handler,
                     kind: PluginInvocationFailureKind::WorkerStopped,
                     timeout_ms: None,
                     reason: "plugin runtime stopped before completing invocation".to_string(),
-                })
-            }
+                }),
+            ),
         }
     }
 
@@ -199,7 +268,7 @@ impl PluginWorkerEngine {
     pub fn backpressure_for(&self, plugin_key: &PluginKey) -> BackpressureSummary {
         let depth = self
             .worker_for(plugin_key)
-            .map(|worker| worker.in_flight.load(Ordering::SeqCst))
+            .map(|worker| worker.depth())
             .unwrap_or_default();
 
         BackpressureSummary {
@@ -238,6 +307,7 @@ impl PluginWorkerEngine {
         };
 
         if stop_runtime {
+            worker.cancel_all_in_flight();
             worker.runtime.stop(plugin_key);
         }
 
@@ -280,11 +350,12 @@ struct WorkerState {
     handlers: HashMap<PluginHandlerRef, PluginHandlerRegistration>,
     descriptors: Vec<PluginDescriptorRef>,
     resources: Arc<Mutex<Vec<PluginResourceRef>>>,
-    in_flight: Arc<AtomicUsize>,
+    slots: Arc<Vec<WorkerSlot>>,
+    in_flight: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
 }
 
 impl WorkerState {
-    fn new(registration: PluginWorkerRegistration) -> Self {
+    fn new(registration: PluginWorkerRegistration, capacity: usize) -> Self {
         let descriptors = registration
             .load
             .descriptors
@@ -296,34 +367,144 @@ impl WorkerState {
             .into_iter()
             .map(|handler| (handler.handler.clone(), handler))
             .collect();
+        let runtime = registration.runtime;
+        let in_flight = Arc::new(Mutex::new(HashMap::new()));
+        let generation = NEXT_WORKER_GENERATION.fetch_add(1, Ordering::SeqCst);
+        let mut slots = Vec::with_capacity(capacity);
+
+        for slot_index in 0..capacity {
+            let (sender, receiver) = mpsc::channel::<WorkerJob>();
+            let idle = Arc::new(AtomicBool::new(true));
+            let slot_idle = idle.clone();
+            let slot_runtime = runtime.clone();
+            let slot_in_flight = in_flight.clone();
+            std::thread::Builder::new()
+                .name(format!("botster-plugin-worker-{generation}-{slot_index}"))
+                .spawn(move || {
+                    while let Ok(job) = receiver.recv() {
+                        let request_id = job.request.request_id.clone();
+                        let result = slot_runtime.invoke(job.request, job.cancellation);
+                        slot_in_flight
+                            .lock()
+                            .expect("plugin worker in-flight mutex poisoned")
+                            .remove(&request_id);
+                        slot_idle.store(true, Ordering::SeqCst);
+                        let _ = job.result_sender.send(result);
+                    }
+                })
+                .expect("spawn plugin worker thread");
+            slots.push(WorkerSlot { sender, idle });
+        }
 
         Self {
             manifest: registration.manifest,
-            runtime: registration.runtime,
+            runtime,
             handlers,
             descriptors,
             resources: Arc::new(Mutex::new(registration.resources)),
-            in_flight: Arc::new(AtomicUsize::new(0)),
+            slots: Arc::new(slots),
+            in_flight,
         }
+    }
+
+    fn dispatch(&self, job: WorkerJob) -> Result<(), WorkerDispatchError> {
+        let plugin_key = job.request.handler.plugin_key.clone();
+
+        for slot in self.slots.iter() {
+            if slot
+                .idle
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                if slot.sender.send(job).is_ok() {
+                    return Ok(());
+                }
+                slot.idle.store(true, Ordering::SeqCst);
+                return Err(WorkerDispatchError {
+                    worker_stopped: true,
+                    plugin_key,
+                });
+            }
+        }
+
+        Err(WorkerDispatchError {
+            worker_stopped: false,
+            plugin_key,
+        })
+    }
+
+    fn track_invocation(
+        &self,
+        request_id: crate::session::RequestId,
+        cancellation: PluginCancellationToken,
+    ) {
+        self.in_flight
+            .lock()
+            .expect("plugin worker in-flight mutex poisoned")
+            .insert(request_id, cancellation);
+    }
+
+    fn finish_invocation(&self, request_id: &crate::session::RequestId) {
+        self.in_flight
+            .lock()
+            .expect("plugin worker in-flight mutex poisoned")
+            .remove(request_id);
+    }
+
+    fn cancel_all_in_flight(&self) {
+        let tokens = self
+            .in_flight
+            .lock()
+            .expect("plugin worker in-flight mutex poisoned")
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for token in tokens {
+            token.cancel();
+        }
+    }
+
+    fn depth(&self) -> usize {
+        self.in_flight
+            .lock()
+            .expect("plugin worker in-flight mutex poisoned")
+            .len()
     }
 }
 
-fn worker_stopped(request: PluginInvocationRequest, reason: &str) -> PluginInvocationResult {
-    PluginInvocationResult::Failed(PluginInvocationFailure {
+struct WorkerSlot {
+    sender: mpsc::Sender<WorkerJob>,
+    idle: Arc<AtomicBool>,
+}
+
+struct WorkerJob {
+    request: PluginInvocationRequest,
+    cancellation: PluginCancellationToken,
+    result_sender: mpsc::Sender<PluginInvocationResult>,
+}
+
+struct WorkerDispatchError {
+    worker_stopped: bool,
+    plugin_key: PluginKey,
+}
+
+fn worker_stopped(request: PluginInvocationRequest, reason: &str) -> PluginInvocationOutcome {
+    PluginInvocationOutcome::new(PluginInvocationResult::Failed(PluginInvocationFailure {
         request_id: request.request_id,
         handler: request.handler,
         kind: PluginInvocationFailureKind::WorkerStopped,
         timeout_ms: None,
         reason: reason.to_string(),
-    })
+    }))
 }
 
-fn handler_failed(request: PluginInvocationRequest, reason: &str) -> PluginInvocationResult {
-    PluginInvocationResult::Failed(PluginInvocationFailure {
+fn handler_failed(request: PluginInvocationRequest, reason: &str) -> PluginInvocationOutcome {
+    PluginInvocationOutcome::new(PluginInvocationResult::Failed(PluginInvocationFailure {
         request_id: request.request_id,
         handler: request.handler,
         kind: PluginInvocationFailureKind::HandlerFailed,
         timeout_ms: None,
         reason: reason.to_string(),
-    })
+    }))
 }
