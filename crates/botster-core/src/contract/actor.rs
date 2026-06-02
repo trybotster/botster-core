@@ -1024,6 +1024,124 @@ pub struct PluginResourceRef {
     pub resource_id: String,
 }
 
+/// Stable reference to a plugin-owned timer resource.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PluginTimerId(pub String);
+
+/// Timer scheduling mode owned by core mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginTimerMode {
+    /// Deliver once when due.
+    OneShot,
+    /// Deliver at a fixed interval after the first due time.
+    Interval {
+        /// Interval between due ticks in logical milliseconds.
+        interval_ms: u64,
+    },
+    /// Replace prior pending work for the same plugin/key before delivery.
+    Debounce {
+        /// Plugin-scoped debounce key.
+        key: String,
+    },
+}
+
+/// Request to schedule plugin-owned timer work.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginTimerSchedule {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Stable timer id within the plugin.
+    pub timer_id: PluginTimerId,
+    /// Timer callback handler. Must use [`PluginHandlerKind::Timer`].
+    pub handler: PluginHandlerRef,
+    /// Logical due time in milliseconds, supplied by the host.
+    pub due_at_ms: u64,
+    /// Timer mode.
+    pub mode: PluginTimerMode,
+    /// Runtime timeout in milliseconds for the plugin callback invocation.
+    pub timeout_ms: u64,
+    /// Serializable invocation context.
+    pub context: PluginInvocationContext,
+    /// Plugin-owned timer payload.
+    pub payload: BoundaryJson,
+}
+
+/// Result of cancelling a plugin timer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginTimerCancellationResult {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Plugin that owned the timer.
+    pub plugin_key: PluginKey,
+    /// Timer id requested for cancellation.
+    pub timer_id: PluginTimerId,
+    /// Whether a pending timer was removed.
+    pub cancelled: bool,
+    /// Runtime resource removed by cancellation.
+    pub removed_resource: Option<PluginResourceRef>,
+}
+
+/// Typed scheduler event emitted by timer mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PluginTimerEvent {
+    /// Timer schedule request was rejected before entering scheduler state.
+    Rejected {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Timer that was rejected.
+        timer_id: PluginTimerId,
+        /// Plugin that would have owned the timer.
+        plugin_key: PluginKey,
+        /// Human-readable rejection reason.
+        reason: String,
+    },
+    /// Timer was accepted into scheduler state.
+    Scheduled {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Runtime resource now owned by the scheduler.
+        resource: PluginResourceRef,
+    },
+    /// A pending timer was cancelled or replaced.
+    Cancelled {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Runtime resource removed by cancellation.
+        resource: PluginResourceRef,
+        /// Human-readable cancellation reason.
+        reason: String,
+    },
+    /// Timer callback was delivered through the plugin worker path.
+    Fired {
+        /// Timer that fired.
+        timer_id: PluginTimerId,
+        /// Invocation request id used for the callback.
+        request_id: RequestId,
+        /// Worker invocation result.
+        result: PluginInvocationResult,
+    },
+    /// Repeatable timer work was coalesced instead of queued again.
+    Coalesced {
+        /// Timer whose due ticks were coalesced.
+        timer_id: PluginTimerId,
+        /// Owning plugin.
+        plugin_key: PluginKey,
+        /// Number of due ticks skipped by coalescing.
+        skipped_ticks: u64,
+        /// Typed pressure route for this repeatable work.
+        route: BackpressureRoute,
+    },
+    /// Worker backpressure was observed while delivering a timer.
+    Backpressured {
+        /// Timer whose callback hit worker pressure.
+        timer_id: PluginTimerId,
+        /// Plugin-worker backpressure summary.
+        summary: BackpressureSummary,
+    },
+}
+
 /// Metadata needed to load a plugin worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginLoadSpec {

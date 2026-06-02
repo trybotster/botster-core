@@ -27,7 +27,7 @@ struct BoundaryJsonEscapeHatch {
 
 // Keep this owner/reason inventory in sync with the recursive source scan in
 // boundary_test.rs so new BoundaryJson fields are both classified and detected.
-const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 10] = [
+const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 11] = [
     BoundaryJsonEscapeHatch {
         path: "TransportSignal.payload",
         owner: "relay",
@@ -69,6 +69,13 @@ const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 10] = [
         reason: "plugin handler response schema is owned by the plugin",
         file: "src/contract/actor.rs",
         source_marker: "pub struct PluginInvocationSuccess",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "PluginTimerSchedule.payload",
+        owner: "plugin",
+        reason: "plugin timer callback input schema is owned by the plugin",
+        file: "src/contract/actor.rs",
+        source_marker: "pub struct PluginTimerSchedule",
     },
     BoundaryJsonEscapeHatch {
         path: "TransportIngress::BoundaryPayload.payload",
@@ -275,7 +282,7 @@ fn boundary_json_is_reserved_for_lua_plugin_or_relay_payloads() {
 
 #[test]
 fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
-    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 10);
+    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 11);
 
     for hatch in BOUNDARY_JSON_ESCAPE_HATCHES {
         assert!(!hatch.path.is_empty(), "{:?}", hatch.path);
@@ -323,6 +330,7 @@ fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
             "PluginInvocationContext.metadata",
             "PluginInvocationRequest.payload",
             "PluginInvocationSuccess.payload",
+            "PluginTimerSchedule.payload",
             "TransportIngress::BoundaryPayload.payload",
             "TransportEgress::BoundaryPayload.payload",
             "NotificationAction.extension",

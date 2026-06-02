@@ -1,0 +1,473 @@
+//! Plugin timer scheduler acceptance tests.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use botster_core::{
+    BotsterEngine, BoundaryJson, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
+    PackageManifest, PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef,
+    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginOwnedDescriptor, PluginResourceKind, PluginResourceRef, PluginTimerEvent,
+    PluginTimerId, PluginTimerMode, PluginTimerSchedule, PluginUnloadSpec,
+    PluginWorkerRegistration, RequestId,
+};
+use botster_core_test_support::fake::{
+    FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+};
+
+fn request_id(value: &str) -> RequestId {
+    RequestId(value.to_string())
+}
+
+fn plugin_key(value: &str) -> PluginKey {
+    PluginKey(value.to_string())
+}
+
+fn timer_id(value: &str) -> PluginTimerId {
+    PluginTimerId(value.to_string())
+}
+
+fn timer_handler(plugin_key: &PluginKey, handler_id: &str) -> PluginHandlerRef {
+    PluginHandlerRef {
+        plugin_key: plugin_key.clone(),
+        kind: PluginHandlerKind::Timer,
+        handler_id: handler_id.to_string(),
+    }
+}
+
+fn command_handler(plugin_key: &PluginKey, handler_id: &str) -> PluginHandlerRef {
+    PluginHandlerRef {
+        plugin_key: plugin_key.clone(),
+        kind: PluginHandlerKind::Command,
+        handler_id: handler_id.to_string(),
+    }
+}
+
+fn manifest(plugin_key: &PluginKey) -> PackageManifest {
+    PackageManifest {
+        name: plugin_key.0.clone(),
+        version: "0.1.0".to_string(),
+        kind: ExtensionKind::Plugin,
+        botster: ">=0.1.0".to_string(),
+        source: None,
+        capabilities: Vec::new(),
+        entrypoints: vec![ExtensionEntrypoint {
+            runtime: ExtensionRuntime::Lua,
+            path: "plugin.lua".to_string(),
+            bootstrap: false,
+        }],
+    }
+}
+
+fn registration(
+    runtime: FakePluginRuntime,
+    plugin_key: &PluginKey,
+    handler: &PluginHandlerRef,
+) -> PluginWorkerRegistration {
+    PluginWorkerRegistration {
+        load: PluginLoadSpec {
+            plugin_key: plugin_key.clone(),
+            package: plugin_key.0.clone(),
+            entrypoint: "plugin.lua".to_string(),
+            descriptors: vec![PluginOwnedDescriptor {
+                descriptor: PluginDescriptorRef {
+                    plugin_key: plugin_key.clone(),
+                    kind: PluginDescriptorKind::Timer,
+                    descriptor_id: handler.handler_id.clone(),
+                },
+                handler: Some(handler.clone()),
+                body: BoundaryJson(serde_json::json!({ "title": "Timer" })),
+            }],
+            metadata: None,
+        },
+        manifest: manifest(plugin_key),
+        runtime: Arc::new(runtime),
+        handlers: vec![PluginHandlerRegistration {
+            handler: handler.clone(),
+            required_capability: None,
+        }],
+        resources: Vec::new(),
+    }
+}
+
+fn timer_schedule(
+    request_id_value: &str,
+    timer_id_value: &str,
+    handler: PluginHandlerRef,
+    due_at_ms: u64,
+    mode: PluginTimerMode,
+    payload_value: &str,
+) -> PluginTimerSchedule {
+    PluginTimerSchedule {
+        request_id: request_id(request_id_value),
+        timer_id: timer_id(timer_id_value),
+        handler,
+        due_at_ms,
+        mode,
+        timeout_ms: 25,
+        context: PluginInvocationContext {
+            client_id: None,
+            session_id: None,
+            subscription_id: None,
+            surface_id: None,
+            origin: Some("plugin-timer-test".to_string()),
+            metadata: None,
+        },
+        payload: BoundaryJson(serde_json::json!({ "value": payload_value })),
+    }
+}
+
+fn plugin_invocation(handler: PluginHandlerRef, timeout_ms: u64) -> PluginInvocationRequest {
+    PluginInvocationRequest {
+        request_id: request_id("occupy-worker"),
+        handler,
+        timeout_ms,
+        context: PluginInvocationContext {
+            client_id: None,
+            session_id: None,
+            subscription_id: None,
+            surface_id: None,
+            origin: Some("plugin-timer-test".to_string()),
+            metadata: None,
+        },
+        payload: BoundaryJson(serde_json::json!({ "value": "occupy" })),
+    }
+}
+
+fn engine() -> BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> {
+    BotsterEngine::with_plugin_config(
+        FakeSessionRuntime::new(),
+        botster_core::PluginWorkerEngineConfig {
+            per_plugin_capacity: 1,
+        },
+    )
+}
+
+#[test]
+fn one_shot_timer_fires_through_plugin_worker_timer_handler() {
+    let engine = engine();
+    let plugin = plugin_key("timer-plugin");
+    let handler = timer_handler(&plugin, "on_timer");
+    let runtime = FakePluginRuntime::success("ok");
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "schedule-one-shot",
+        "timer-one",
+        handler,
+        10,
+        PluginTimerMode::OneShot,
+        "first",
+    ));
+    let outcome = engine.drain_plugin_timers_due(10);
+
+    assert_eq!(runtime.invocations().len(), 1);
+    let invocation = &runtime.invocations()[0];
+    assert_eq!(invocation.handler.kind, PluginHandlerKind::Timer);
+    assert_eq!(invocation.payload.0["value"], "first");
+    assert!(matches!(
+        outcome.events.as_slice(),
+        [PluginTimerEvent::Fired {
+            result: PluginInvocationResult::Completed(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn timer_schedule_path_does_not_block_on_slow_plugin_handler() {
+    let engine = engine();
+    let plugin = plugin_key("slow-plugin");
+    let handler = timer_handler(&plugin, "slow_timer");
+    let runtime = FakePluginRuntime::delayed(Duration::from_millis(100));
+    engine.load_plugin(registration(runtime, &plugin, &handler));
+
+    let started = std::time::Instant::now();
+    engine.schedule_plugin_timer(timer_schedule(
+        "schedule-slow",
+        "timer-slow",
+        handler,
+        10,
+        PluginTimerMode::OneShot,
+        "slow",
+    ));
+
+    assert!(started.elapsed() < Duration::from_millis(50));
+}
+
+#[test]
+fn timer_cancellation_prevents_pending_delivery() {
+    let engine = engine();
+    let plugin = plugin_key("cancel-plugin");
+    let handler = timer_handler(&plugin, "timer");
+    let runtime = FakePluginRuntime::success("ok");
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+    let id = timer_id("timer-cancelled");
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "schedule-cancel",
+        &id.0,
+        handler,
+        10,
+        PluginTimerMode::OneShot,
+        "cancelled",
+    ));
+    let cancellation = engine.cancel_plugin_timer(request_id("cancel"), &plugin, &id);
+    let outcome = engine.drain_plugin_timers_due(10);
+
+    assert!(cancellation.cancelled);
+    assert_eq!(
+        cancellation.removed_resource,
+        Some(PluginResourceRef {
+            plugin_key: plugin,
+            kind: PluginResourceKind::Timer,
+            resource_id: "timer-cancelled".to_string(),
+        })
+    );
+    assert!(runtime.invocations().is_empty());
+    assert!(outcome.events.is_empty());
+}
+
+#[test]
+fn timer_schedule_rejects_non_timer_handler_without_panicking() {
+    let engine = engine();
+    let plugin = plugin_key("wrong-handler-plugin");
+    let handler = command_handler(&plugin, "not_timer");
+
+    let outcome = engine.schedule_plugin_timer(timer_schedule(
+        "schedule-wrong-kind",
+        "wrong-kind",
+        handler,
+        10,
+        PluginTimerMode::OneShot,
+        "wrong",
+    ));
+
+    assert!(matches!(
+        outcome.events.as_slice(),
+        [PluginTimerEvent::Rejected {
+            timer_id,
+            plugin_key,
+            ..
+        }] if timer_id.0 == "wrong-kind" && plugin_key.0 == "wrong-handler-plugin"
+    ));
+    assert!(engine.drain_plugin_timers_due(10).events.is_empty());
+}
+
+#[test]
+fn debounce_replaces_prior_pending_timer_for_same_plugin_key() {
+    let engine = engine();
+    let plugin = plugin_key("debounce-plugin");
+    let other_plugin = plugin_key("other-debounce-plugin");
+    let handler = timer_handler(&plugin, "timer");
+    let other_handler = timer_handler(&other_plugin, "timer");
+    let runtime = FakePluginRuntime::success("ok");
+    let other_runtime = FakePluginRuntime::success("other");
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+    engine.load_plugin(registration(
+        other_runtime.clone(),
+        &other_plugin,
+        &other_handler,
+    ));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "debounce-a",
+        "debounce-old",
+        handler.clone(),
+        10,
+        PluginTimerMode::Debounce {
+            key: "refresh".to_string(),
+        },
+        "old",
+    ));
+    engine.schedule_plugin_timer(timer_schedule(
+        "debounce-b",
+        "debounce-new",
+        handler,
+        10,
+        PluginTimerMode::Debounce {
+            key: "refresh".to_string(),
+        },
+        "new",
+    ));
+    engine.schedule_plugin_timer(timer_schedule(
+        "debounce-other",
+        "debounce-other",
+        other_handler,
+        10,
+        PluginTimerMode::Debounce {
+            key: "refresh".to_string(),
+        },
+        "other",
+    ));
+    engine.drain_plugin_timers_due(10);
+
+    assert_eq!(runtime.invocations().len(), 1);
+    assert_eq!(runtime.invocations()[0].payload.0["value"], "new");
+    assert_eq!(other_runtime.invocations().len(), 1);
+    assert_eq!(other_runtime.invocations()[0].payload.0["value"], "other");
+}
+
+#[test]
+fn interval_timer_coalesces_under_worker_pressure() {
+    let engine = engine();
+    let plugin = plugin_key("interval-plugin");
+    let handler = timer_handler(&plugin, "timer");
+    let runtime = FakePluginRuntime::new(FakePluginBehavior::WaitForCancellation);
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "interval",
+        "interval-timer",
+        handler,
+        10,
+        PluginTimerMode::Interval { interval_ms: 10 },
+        "tick",
+    ));
+    let first = engine.drain_plugin_timers_due(10);
+    let second = engine.drain_plugin_timers_due(50);
+
+    assert!(runtime.invocations().len() <= 2);
+    assert!(matches!(
+        first.events.as_slice(),
+        [PluginTimerEvent::Fired { result: PluginInvocationResult::Failed(failure), .. }]
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    assert!(second.events.iter().any(|event| matches!(
+        event,
+        PluginTimerEvent::Coalesced {
+            timer_id,
+            skipped_ticks,
+            ..
+        } if timer_id.0 == "interval-timer" && *skipped_ticks > 0
+    )));
+}
+
+#[test]
+fn interval_timer_retries_after_timeout() {
+    let engine = engine();
+    let plugin = plugin_key("timeout-recovery-plugin");
+    let handler = timer_handler(&plugin, "timer");
+    let runtime = FakePluginRuntime::new(FakePluginBehavior::WaitForCancellation);
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "interval-timeout",
+        "interval-timeout-timer",
+        handler,
+        10,
+        PluginTimerMode::Interval { interval_ms: 10 },
+        "tick",
+    ));
+    let first = engine.drain_plugin_timers_due(10);
+    for _ in 0..50 {
+        if runtime.cancellations_observed() >= 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let second = engine.drain_plugin_timers_due(20);
+    for _ in 0..50 {
+        if runtime.cancellations_observed() >= 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    assert_eq!(runtime.cancellations_observed(), 2);
+    assert_eq!(runtime.invocations().len(), 2);
+    assert!(matches!(
+        first.events.as_slice(),
+        [PluginTimerEvent::Fired { result: PluginInvocationResult::Failed(failure), .. }]
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    assert!(matches!(
+        second.events.as_slice(),
+        [PluginTimerEvent::Fired { result: PluginInvocationResult::Failed(failure), .. }]
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+}
+
+#[test]
+fn interval_timer_retries_after_backpressure() {
+    let engine = engine();
+    let plugin = plugin_key("backpressure-recovery-plugin");
+    let handler = timer_handler(&plugin, "timer");
+    let runtime = FakePluginRuntime::delayed(Duration::from_millis(80));
+    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+
+    let occupied_engine = engine.clone();
+    let occupied_handler = handler.clone();
+    let occupied = std::thread::spawn(move || {
+        occupied_engine.invoke_plugin(plugin_invocation(occupied_handler, 200))
+    });
+    std::thread::sleep(Duration::from_millis(10));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "interval-backpressure",
+        "interval-backpressure-timer",
+        handler,
+        10,
+        PluginTimerMode::Interval { interval_ms: 10 },
+        "tick",
+    ));
+    let pressured = engine.drain_plugin_timers_due(10);
+    occupied.join().expect("join occupied worker");
+    let recovered = engine.drain_plugin_timers_due(20);
+
+    assert!(pressured.events.iter().any(|event| matches!(
+        event,
+        PluginTimerEvent::Backpressured { timer_id, .. }
+            if timer_id.0 == "interval-backpressure-timer"
+    )));
+    assert_eq!(runtime.invocations().len(), 2);
+    assert!(matches!(
+        recovered.events.as_slice(),
+        [PluginTimerEvent::Fired { .. }]
+    ));
+}
+
+#[test]
+fn plugin_unload_cleans_owned_timers_only() {
+    let engine = engine();
+    let plugin_a = plugin_key("plugin-a");
+    let plugin_b = plugin_key("plugin-b");
+    let handler_a = timer_handler(&plugin_a, "timer");
+    let handler_b = timer_handler(&plugin_b, "timer");
+    let runtime_a = FakePluginRuntime::success("a");
+    let runtime_b = FakePluginRuntime::success("b");
+    engine.load_plugin(registration(runtime_a.clone(), &plugin_a, &handler_a));
+    engine.load_plugin(registration(runtime_b.clone(), &plugin_b, &handler_b));
+
+    engine.schedule_plugin_timer(timer_schedule(
+        "schedule-a",
+        "timer-a",
+        handler_a,
+        10,
+        PluginTimerMode::OneShot,
+        "a",
+    ));
+    engine.schedule_plugin_timer(timer_schedule(
+        "schedule-b",
+        "timer-b",
+        handler_b,
+        10,
+        PluginTimerMode::OneShot,
+        "b",
+    ));
+    let cleanup = engine.unload_plugin(PluginUnloadSpec {
+        request_id: request_id("unload-a"),
+        plugin_key: plugin_a.clone(),
+        cleanup: PluginCleanupScope::DescriptorsAndResources,
+    });
+    engine.drain_plugin_timers_due(10);
+
+    assert!(cleanup.removed_resources.contains(&PluginResourceRef {
+        plugin_key: plugin_a,
+        kind: PluginResourceKind::Timer,
+        resource_id: "timer-a".to_string(),
+    }));
+    assert!(runtime_a.invocations().is_empty());
+    assert_eq!(runtime_b.invocations().len(), 1);
+}
