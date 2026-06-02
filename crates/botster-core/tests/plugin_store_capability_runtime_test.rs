@@ -297,7 +297,8 @@ fn plugin_store_merge_patch_uses_rfc_7396_style_semantics() {
                 schema_version: 1,
                 payload: serde_json::json!({
                     "nested": { "keep": true, "remove": true },
-                    "array": [1, 2]
+                    "array": [1, 2],
+                    "scalar": 5
                 }),
                 expected_revision: None,
             },
@@ -314,7 +315,9 @@ fn plugin_store_merge_patch_uses_rfc_7396_style_semantics() {
                 patch: serde_json::json!({
                     "nested": { "remove": null, "add": "yes" },
                     "array": [3],
-                    "new": "field"
+                    "new": "field",
+                    "fresh_nested": { "remove": null, "keep": 1 },
+                    "scalar": { "remove": null, "keep": 2 }
                 }),
                 expected_revision: Some(1),
             },
@@ -328,7 +331,9 @@ fn plugin_store_merge_patch_uses_rfc_7396_style_semantics() {
                 && record.payload == serde_json::json!({
                     "nested": { "keep": true, "add": "yes" },
                     "array": [3],
-                    "new": "field"
+                    "new": "field",
+                    "fresh_nested": { "keep": 1 },
+                    "scalar": { "keep": 2 }
                 })
     ));
 

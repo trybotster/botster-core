@@ -547,14 +547,14 @@ fn merge_patch_object(
     for (key, patch_value) in patch_object {
         if patch_value.is_null() {
             target_object.remove(key);
-        } else if let (Some(target_value), serde_json::Value::Object(child_patch)) =
-            (target_object.get_mut(key), patch_value)
-        {
-            if target_value.is_object() {
-                merge_patch_object(target_value, child_patch);
-            } else {
-                target_object.insert(key.clone(), patch_value.clone());
+        } else if let serde_json::Value::Object(child_patch) = patch_value {
+            let target_value = target_object
+                .entry(key.clone())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if !target_value.is_object() {
+                *target_value = serde_json::Value::Object(serde_json::Map::new());
             }
+            merge_patch_object(target_value, child_patch);
         } else {
             target_object.insert(key.clone(), patch_value.clone());
         }
