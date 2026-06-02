@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use thiserror::Error;
 
+use crate::contract::actor::SessionLifecycleState;
 use crate::contract::actor::{
     ModeFlagsReady, PreparedSnapshotReady, PreparedSnapshotRequest, ScreenReady, SendFileFailed,
     SendFileRequest, SendFileWritten, SessionIoRequest, SnapshotReady,
@@ -19,8 +20,8 @@ use crate::engine::terminal_screen::{
     PlainTerminalScreenRuntime, TerminalScreenEngine, TerminalScreenRuntime,
 };
 use crate::runtime::{
-    SessionRuntime, SessionRuntimeError, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest,
+    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest,
 };
 use crate::session::{CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId};
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
@@ -184,6 +185,47 @@ where
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let mut outcome = self.drain_runtime_output_for_session(session_id, last_output_at)?;
+        self.route_pending_runtime_events(&mut outcome)?;
+
+        Ok(outcome)
+    }
+
+    /// Drain currently available runtime output once for every live session.
+    ///
+    /// One call is one host scheduling tick: each currently recorded session is
+    /// attempted at most once, then pending worker runtime events are routed
+    /// once for the whole aggregate pass.
+    pub fn drain_runtime_all_once(
+        &mut self,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let session_ids = self.engine_session_ids();
+        let mut outcome = MultiplexerEngineOutcome::empty();
+
+        for session_id in session_ids {
+            match self.drain_runtime_output_for_session(&session_id, last_output_at) {
+                Ok(step) => append_outcome(&mut outcome, step),
+                Err(ManagedSessionRuntimeError::Runtime(error))
+                    if error.kind == SessionRuntimeErrorKind::SessionNotFound
+                        && self.session_exited(&session_id) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.route_pending_runtime_events(&mut outcome)?;
+
+        Ok(outcome)
+    }
+
+    fn drain_runtime_output_for_session(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let outputs = self.engine.session_runtime_mut().drain_output(session_id)?;
         let mut outcome = MultiplexerEngineOutcome::empty();
 
@@ -210,16 +252,8 @@ where
                 },
             };
             let step = self.engine.handle_runtime_event(runtime_event)?;
-            outcome.client_egress.extend(step.client_egress);
-            outcome.session_requests.extend(step.session_requests);
-            outcome
-                .client_control_frames
-                .extend(step.client_control_frames);
-            outcome.session_events.extend(step.session_events);
-            outcome.observations.extend(step.observations);
+            append_outcome(&mut outcome, step);
         }
-
-        self.route_pending_runtime_events(&mut outcome)?;
 
         Ok(outcome)
     }
@@ -341,13 +375,7 @@ where
                 .unwrap_or_default();
             for event in events {
                 let step = self.engine.handle_runtime_event(event)?;
-                outcome.client_egress.extend(step.client_egress);
-                outcome.session_requests.extend(step.session_requests);
-                outcome
-                    .client_control_frames
-                    .extend(step.client_control_frames);
-                outcome.session_events.extend(step.session_events);
-                outcome.observations.extend(step.observations);
+                append_outcome(outcome, step);
             }
         }
         Ok(())
@@ -363,6 +391,23 @@ where
     ) -> Option<&mut SessionRuntimeWorkerAdapter<T>> {
         self.engine.session_worker_runtime_mut(session_id)
     }
+
+    fn session_exited(&self, session_id: &SessionId) -> bool {
+        matches!(
+            self.session(session_id).map(|session| &session.lifecycle),
+            Some(SessionLifecycleState::Exited { .. })
+        )
+    }
+}
+
+fn append_outcome(target: &mut MultiplexerEngineOutcome, source: MultiplexerEngineOutcome) {
+    target.client_egress.extend(source.client_egress);
+    target.session_requests.extend(source.session_requests);
+    target
+        .client_control_frames
+        .extend(source.client_control_frames);
+    target.session_events.extend(source.session_events);
+    target.observations.extend(source.observations);
 }
 
 /// Session worker adapter that converts PTY I/O and lifecycle operations into runtime inputs.
