@@ -28,13 +28,15 @@ pub use engine::{
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
-    CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
-    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
+    apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
+    CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
+    CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
     CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
     CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
     FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
     HttpCapabilityResponse, HttpHeader, PluginCancellationToken, PluginCapabilityRuntime,
-    PluginRuntime, PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation,
+    PluginRuntime, PluginStoreBackend, PluginStoreCapabilityRequest, PluginStoreEntry,
+    PluginStoreKey, PluginStoreLimits, PluginStoreOperation, PluginStoreRecord, PluginStoreResult,
     ProcessIdentity, ScopedRelativePath, SessionRuntime, SessionRuntimeError,
     SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
