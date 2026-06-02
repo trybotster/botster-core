@@ -23,7 +23,13 @@ pub trait TerminalScreenRuntime {
     fn screen_state(&self) -> TerminalScreenState;
 }
 
-/// Minimal terminal state runtime for core-managed session snapshots.
+/// Maximum retained bytes for the plain fallback terminal state.
+///
+/// Live output chunks are returned unchanged; this cap only constrains the
+/// retained tail used by plain snapshots and screen reads.
+pub const PLAIN_TERMINAL_SCREEN_MAX_BYTES: usize = 1024 * 1024;
+
+/// Minimal bounded terminal state runtime for core-managed session snapshots.
 #[derive(Debug, Clone)]
 pub struct PlainTerminalScreenRuntime {
     size: TerminalScreenSize,
@@ -58,11 +64,19 @@ impl PlainTerminalScreenRuntime {
     fn refresh_plain_text(&mut self) {
         self.plain_text = String::from_utf8_lossy(&self.bytes).into_owned();
     }
+
+    fn retain_bounded_tail(&mut self) {
+        if self.bytes.len() > PLAIN_TERMINAL_SCREEN_MAX_BYTES {
+            let excess = self.bytes.len() - PLAIN_TERMINAL_SCREEN_MAX_BYTES;
+            self.bytes.drain(..excess);
+        }
+    }
 }
 
 impl TerminalScreenRuntime for PlainTerminalScreenRuntime {
     fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
         self.bytes.extend_from_slice(bytes);
+        self.retain_bounded_tail();
         self.refresh_plain_text();
         TerminalOutputChunk::new(bytes.to_vec())
     }
@@ -77,6 +91,7 @@ impl TerminalScreenRuntime for PlainTerminalScreenRuntime {
 
     fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
         self.bytes = payload.bytes;
+        self.retain_bounded_tail();
         self.size = payload.size;
         self.format = payload.format;
         self.refresh_plain_text();
