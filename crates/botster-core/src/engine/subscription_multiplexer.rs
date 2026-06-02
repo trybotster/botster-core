@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{
-    BackpressureRoute, BackpressureSummary, ClientControlFrame, QueueSource, SessionIoEvent,
-    SessionIoRequest, TerminalAttachState,
+    BackpressureRoute, BackpressureSummary, ClientControlFrame, DeliveryLag, MailboxSendFailure,
+    MailboxSendFailureReason, QueueSource, SessionIoEvent, SessionIoRequest, TerminalAttachState,
 };
 use crate::client::ClientId;
 use crate::client_stream::{ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome};
 use crate::session::SessionId;
+use crate::session::SubscriptionId;
 use crate::transport::{TransportEgress, TransportIngress};
 
 /// Observable multiplexer routing decision.
@@ -23,6 +24,20 @@ pub enum SubscriptionMultiplexerObservation {
         client_id: ClientId,
         /// Observation from the per-client stream harness.
         observation: ClientStreamObservation,
+    },
+    /// A delivery was accepted but the route is lagging.
+    DeliveryLagged {
+        /// Client whose delivery route is lagging.
+        client_id: ClientId,
+        /// Typed lag summary for the affected route.
+        lag: DeliveryLag,
+    },
+    /// A delivery failed at the caller-owned queue boundary.
+    DeliveryFailed {
+        /// Client whose delivery route failed.
+        client_id: ClientId,
+        /// Typed failure summary for the affected route.
+        failure: MailboxSendFailure,
     },
     /// A session event is intentionally not broadcast by the multiplexer.
     SessionEventNotBroadcast {
@@ -240,6 +255,81 @@ impl SubscriptionMultiplexer {
         multiplexer_outcome
     }
 
+    /// Report accepted-but-slow delivery for an active subscription route.
+    pub fn report_delivery_lag(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> SubscriptionMultiplexerOutcome {
+        let lag = DeliveryLag {
+            source,
+            capacity,
+            depth,
+            route: self.route_for_subscription(&client_id, session_id, subscription_id),
+        };
+
+        let mut outcome = SubscriptionMultiplexerOutcome::empty();
+        outcome
+            .observations
+            .push(SubscriptionMultiplexerObservation::DeliveryLagged { client_id, lag });
+        outcome
+    }
+
+    /// Report a failed delivery attempt at a caller-owned queue boundary.
+    pub fn report_delivery_failure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        reason: MailboxSendFailureReason,
+    ) -> SubscriptionMultiplexerOutcome {
+        let route = self.route_for_subscription(&client_id, session_id.clone(), subscription_id);
+        let failure = MailboxSendFailure {
+            source,
+            route: route.clone(),
+            reason,
+        };
+
+        if reason == MailboxSendFailureReason::QueueClosed {
+            if let Some(route_subscription_id) = route.subscription_id.as_ref() {
+                let mut multiplexer_outcome = SubscriptionMultiplexerOutcome::empty();
+                if self
+                    .clients
+                    .get(&client_id)
+                    .and_then(|harness| harness.active_subscription(&session_id))
+                    == Some(route_subscription_id)
+                {
+                    let harness = self
+                        .clients
+                        .get_mut(&client_id)
+                        .expect("checked client stream exists");
+                    let outcome = harness.handle_ingress(TransportIngress::UnsubscribeSession {
+                        client_id: client_id.clone(),
+                        session_id: session_id.clone(),
+                        subscription_id: route_subscription_id.clone(),
+                    });
+                    multiplexer_outcome.append_client_outcome(&client_id, outcome);
+                    self.sync_client_subscription(&client_id, &session_id);
+                }
+                multiplexer_outcome.observations.push(
+                    SubscriptionMultiplexerObservation::DeliveryFailed { client_id, failure },
+                );
+                return multiplexer_outcome;
+            }
+        }
+
+        let mut outcome = SubscriptionMultiplexerOutcome::empty();
+        outcome
+            .observations
+            .push(SubscriptionMultiplexerObservation::DeliveryFailed { client_id, failure });
+        outcome
+    }
+
     fn fanout_session_event(
         &mut self,
         session_id: &SessionId,
@@ -291,6 +381,20 @@ impl SubscriptionMultiplexer {
             .get(session_id)
             .cloned()
             .unwrap_or_default()
+    }
+
+    fn route_for_subscription(
+        &self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> BackpressureRoute {
+        BackpressureRoute {
+            session_id: Some(session_id),
+            client_id: Some(client_id.clone()),
+            subscription_id: Some(subscription_id),
+            plugin_key: None,
+        }
     }
 
     fn not_broadcast(

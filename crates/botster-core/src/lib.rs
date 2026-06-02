@@ -37,7 +37,7 @@ pub use runtime::{
 
 pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
-    ClientControlFrame, ClientWorkerMessage, HubControlMessage, HubControlOrigin,
+    ClientControlFrame, ClientWorkerMessage, DeliveryLag, HubControlMessage, HubControlOrigin,
     InitialSnapshotBarrier, InitialSnapshotPhase, InitialSnapshotReady, InitialSnapshotRequest,
     MailboxSendFailure, MailboxSendFailureReason, ModeFlagsReady, PluginCleanupResult,
     PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,

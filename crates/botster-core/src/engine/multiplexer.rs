@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::actor::{ClientControlFrame, PluginInvocationRequest};
+use crate::actor::{
+    ClientControlFrame, MailboxSendFailureReason, PluginInvocationRequest, QueueSource,
+};
 use crate::contract::actor::{SessionIoEvent, SessionIoRequest, SessionLifecycleState};
 use crate::contract::notification::{
     NotificationId, NotificationInbox, NotificationItem, NotificationTarget, NotificationTimestamp,
@@ -25,6 +27,7 @@ use crate::runtime::{
 };
 use crate::session::{
     CoreSession, CoreSessionMetadata, SessionActivityEvent, SessionActivityStatus, SessionId,
+    SubscriptionId,
 };
 use crate::ClientId;
 
@@ -331,6 +334,70 @@ where
         if !worker_was_closed {
             self.route_worker_events(worker_outcome, &mut outcome)?;
         }
+        Ok(outcome)
+    }
+
+    /// Report client-side backpressure through the public facade.
+    pub fn report_backpressure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let multiplexer_outcome = self
+            .subscriptions
+            .report_backpressure(client_id, session_id, source, capacity, depth);
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(multiplexer_outcome);
+        Ok(outcome)
+    }
+
+    /// Report accepted-but-slow delivery through the public facade.
+    pub fn report_delivery_lag(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        capacity: usize,
+        depth: usize,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let multiplexer_outcome = self.subscriptions.report_delivery_lag(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            capacity,
+            depth,
+        );
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(multiplexer_outcome);
+        Ok(outcome)
+    }
+
+    /// Report a failed delivery attempt through the public facade.
+    pub fn report_delivery_failure(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        source: QueueSource,
+        reason: MailboxSendFailureReason,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let multiplexer_outcome = self.subscriptions.report_delivery_failure(
+            client_id,
+            session_id,
+            subscription_id,
+            source,
+            reason,
+        );
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(multiplexer_outcome);
         Ok(outcome)
     }
 

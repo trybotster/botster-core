@@ -134,6 +134,19 @@ pub struct BackpressureSummary {
     pub route: BackpressureRoute,
 }
 
+/// Accepted-but-slow delivery with typed routing context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryLag {
+    /// Queue reporting lag.
+    pub source: QueueSource,
+    /// Configured queue capacity.
+    pub capacity: usize,
+    /// Current queued message count or lag depth.
+    pub depth: usize,
+    /// Typed path affected by the lag.
+    pub route: BackpressureRoute,
+}
+
 /// Actor mailbox send failure reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
