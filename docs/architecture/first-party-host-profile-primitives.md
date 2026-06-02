@@ -184,11 +184,46 @@ If hub-as-profile is accepted, core follow-up work should stay mechanism-level:
    profile-owned control currently proposed as `BoundaryJson` should become a
    typed contract instead.
 
+## Implementation status
+
+The first minimal core contract now exists in
+`crates/botster-core/src/package/host_profile.rs` and
+`PackageManifest.host_profile`. It covers recommendation 1 and the narrow
+admission portion of recommendation 2: typed profile identity, compatibility,
+precedence, required provider names, required capabilities, typed policy
+section names, provider-only admission, host enablement, source provenance,
+bootstrap entrypoints, and required capability presence.
+
+This remains intentionally scaffold-only at the core layer. There is no
+in-crate production caller because admission, install state, registry
+resolution, profile enablement, startup ordering, concrete policy storage, and
+hub wiring remain host/hub responsibilities. Wiring profile admission into
+`PluginWorkerEngine` or `BotsterEngine` would collapse the core-vs-host
+boundary this audit is preserving. The production caller is expected to be a
+host/hub package manager or startup path in a separate ticket.
+
+The metadata fields carry no personal or user data. They are mechanism-level
+contract fields only: profile identity, compatibility, precedence, required
+provider names, required capability declarations, and typed policy-section
+names.
+
+Open follow-ups remain recommendations 3-5: capability grant/consume ledger,
+typed startup/config lifecycle if core needs to bless ordering, durable
+persistence contracts, and concrete host/hub registry or package-manager
+wiring.
+
 ## Verification anchors
 
-This audit is scaffold-only. The production/user path did not change; the proof
-is that the note is grounded in existing public entry points and contract tests:
+This audit began as scaffold-only. The current core production-facing path is
+now a public contract helper that embedders can call before loading provider or
+plugin runtime paths; host/hub wiring still remains outside this crate. The
+proof is grounded in existing public entry points and contract tests:
 
+- `crates/botster-core/tests/host_profile_contract_test.rs` exercises
+  host-profile manifest serde compatibility, admission success, typed
+  rejection cases, and typed policy sections.
+- `crates/botster-core/tests/plugin_worker_engine_test.rs` verifies
+  host-profile metadata is not consulted by the plugin-worker capability gate.
 - `crates/botster-core/tests/botster_engine_api_test.rs` exercises
   `BotsterEngine`, plugin invocation, notifications, entity handling through
   the engine path, and `DefaultBotsterEngine` when `local-runtime` is enabled.
