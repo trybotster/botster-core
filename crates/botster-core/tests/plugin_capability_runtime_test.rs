@@ -410,7 +410,9 @@ fn every_operation_family_round_trips_and_declares_required_capability() {
                 namespace: "project-pipelines".to_string(),
                 operation: PluginStoreOperation::Set {
                     key: PluginStoreKey("runs/active".to_string()),
-                    value: serde_json::json!({ "state": "running" }),
+                    schema_version: 1,
+                    payload: serde_json::json!({ "state": "running" }),
+                    expected_revision: None,
                 },
             }),
         ),
