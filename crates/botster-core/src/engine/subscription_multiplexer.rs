@@ -255,7 +255,11 @@ impl SubscriptionMultiplexer {
         multiplexer_outcome
     }
 
-    /// Report accepted-but-slow delivery for an active subscription route.
+    /// Report accepted-but-slow delivery for a subscription route.
+    ///
+    /// This is an observation-only hub signal. It does not emit client health
+    /// frames or mutate subscriptions because the caller-owned queue accepted
+    /// the delivery.
     pub fn report_delivery_lag(
         &mut self,
         client_id: ClientId,
@@ -280,6 +284,9 @@ impl SubscriptionMultiplexer {
     }
 
     /// Report a failed delivery attempt at a caller-owned queue boundary.
+    ///
+    /// `QueueFull` is an observation-only hub signal and keeps the route
+    /// subscribed. `QueueClosed` removes only the matching active route.
     pub fn report_delivery_failure(
         &mut self,
         client_id: ClientId,

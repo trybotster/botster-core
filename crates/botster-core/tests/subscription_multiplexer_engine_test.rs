@@ -583,6 +583,37 @@ fn closed_delivery_route_does_not_remove_unrelated_subscribers() {
 }
 
 #[test]
+fn queue_full_delivery_failure_keeps_active_route_subscribed() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let full = multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueFull,
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"after-full".to_vec(),
+    });
+
+    assert!(full.client_control_frames.is_empty());
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                data: b"after-full".to_vec(),
+            },
+        )]
+    );
+}
+
+#[test]
 fn replacement_subscription_pressure_does_not_revive_old_route() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     subscribe(&mut multiplexer, "client-1", "sub-old");
