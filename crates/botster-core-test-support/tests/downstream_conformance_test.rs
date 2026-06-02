@@ -27,8 +27,8 @@ use botster_core_test_support::conformance::{
     assert_command_replay_snapshot_behavior, assert_command_screen_ready,
     assert_command_sessions_include, assert_command_snapshot_ready, assert_output_activity,
     assert_shutdown_requested, assert_terminal_output_fanout, local_shell_spawn_request,
-    run_many_pty_load, DisposableCommandLocalSession, DisposableManagedLocalSession,
-    ManyPtyLoadConfig,
+    run_adversarial_hot_path_load, run_many_pty_load, AdversarialHotPathConfig,
+    DisposableCommandLocalSession, DisposableManagedLocalSession, ManyPtyLoadConfig,
 };
 use botster_core_test_support::fake::{FakeSessionTransport, FakeTerminalScreenRuntime};
 
@@ -517,6 +517,73 @@ fn many_pty_load_adversarial_noisy_reports_reader_backpressure() {
                     && observation.contains("depth=64")
             }),
         "report should include typed session-io reader pressure; report={report:?}"
+    );
+}
+
+#[cfg(all(unix, feature = "local-runtime"))]
+#[test]
+fn adversarial_hot_path_commands_remain_bounded_under_noisy_load() {
+    let report = run_adversarial_hot_path_load(AdversarialHotPathConfig::ci_default())
+        .expect("run adversarial hot-path proof");
+
+    assert_eq!(
+        report.session_count, 20,
+        "CI-safe hot-path proof should use the default 20-session load; report={report:?}"
+    );
+    assert!(
+        report.noisy_output_active_during_probes,
+        "hot-path probes must overlap active noisy output; report={report:?}"
+    );
+    assert!(
+        report.quiet_sessions_completed_before_probes > 0,
+        "at least one quiet session should complete before probes while noisy output is active; report={report:?}"
+    );
+    assert!(
+        report.drain_rounds_before_probes > 0,
+        "background PTY drain path was not exercised before probes; report={report:?}"
+    );
+
+    for expected_phase in [
+        "list",
+        "inspect",
+        "attach",
+        "detach",
+        "resize",
+        "input",
+        "read-screen",
+        "capture-snapshot",
+        "shutdown-control",
+    ] {
+        assert!(
+            report
+                .phase_timings
+                .iter()
+                .any(|timing| timing.phase == expected_phase),
+            "missing hot-path phase {expected_phase}; report={report:?}"
+        );
+    }
+
+    assert!(
+        report.live_sessions_after_cleanup.is_empty(),
+        "cleanup should leave no live synthetic PTY sessions; report={report:?}"
+    );
+    assert_eq!(
+        report.cleanup_exited_sessions,
+        report.session_count + 1,
+        "all load sessions should exit and the control session should be cleaned up; report={report:?}"
+    );
+    assert!(
+        !report.queue_backpressure_observations.is_empty(),
+        "report should name public queue/backpressure observation boundary; report={report:?}"
+    );
+    assert!(
+        report
+            .slow_client_plugin_observation
+            .contains("subscription_multiplexer_engine_test")
+            && report
+                .slow_client_plugin_observation
+                .contains("plugin_worker_engine_test"),
+        "report should state focused slow-client/plugin proof boundary; report={report:?}"
     );
 }
 
