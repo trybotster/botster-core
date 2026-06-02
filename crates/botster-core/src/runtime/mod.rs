@@ -7,6 +7,7 @@
 //! policy before entering core.
 
 pub mod capability;
+mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
 
@@ -26,12 +27,17 @@ pub use capability::{
     CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
     CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
     CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
-    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
-    HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime, PluginStoreBackend,
-    PluginStoreCapabilityRequest, PluginStoreEntry, PluginStoreKey, PluginStoreLimits,
-    PluginStoreOperation, PluginStoreRecord, PluginStoreResult, ScopedRelativePath,
-    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
-    WebSocketMessage,
+    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityEndpointPolicy,
+    HttpCapabilityRequest, HttpCapabilityResponse, HttpCapabilityRuntime,
+    HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader, HttpTransportRequest,
+    PluginCapabilityRuntime, PluginStoreBackend, PluginStoreCapabilityRequest, PluginStoreEntry,
+    PluginStoreKey, PluginStoreLimits, PluginStoreOperation, PluginStoreRecord, PluginStoreResult,
+    ScopedRelativePath, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
+    WebSocketCapabilityRequest, WebSocketMessage,
+};
+pub use file_watch::{
+    FileWatchEventSource, FileWatchRegistration, FileWatchRuntime, FileWatchRuntimeConfig,
+    FileWatchSourceError, FileWatchSourceEvent, DEFAULT_FILE_WATCH_DEBOUNCE_MS,
 };
 #[cfg(feature = "local-runtime")]
 pub use local_process::{

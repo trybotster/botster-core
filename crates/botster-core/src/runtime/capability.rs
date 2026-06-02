@@ -1,20 +1,27 @@
 //! Capability-scoped plugin runtime contracts.
 //!
-//! Core only defines the request, handle, event, and cleanup shapes for
-//! non-blocking plugin capability I/O. Host profiles provide concrete HTTP,
-//! WebSocket, filesystem, store, watcher, and timer implementations behind a
-//! bounded mailbox.
+//! Core defines the request, handle, event, and cleanup shapes for
+//! non-blocking plugin capability I/O. The watch family also has a core-owned
+//! runtime mechanism for registration state, scoped-path validation,
+//! debounce/coalescing, bounded delivery, and cleanup over a host-provided event
+//! source. Host profiles still provide concrete HTTP, WebSocket, filesystem,
+//! store, timer, and OS watcher adapters behind bounded mailboxes.
 
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use super::PluginCancellationToken;
 use crate::actor::{
     BackpressureRoute, BackpressureSummary, PluginCleanupResult, PluginHandlerRef, PluginKey,
     PluginResourceKind, PluginResourceRef, QueueSource,
 };
-use crate::package::{Capability, CapabilitySurface};
+use crate::package::{Capability, CapabilitySet, CapabilitySurface};
 
 /// Stable identifier for one submitted capability operation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -154,6 +161,469 @@ pub struct HttpHeader {
     pub name: String,
     /// Header value.
     pub value: String,
+}
+
+/// Host-owned endpoint policy for HTTP capability requests.
+///
+/// Core validates against these supplied policy values, but does not choose
+/// default grants, trusted hosts, credentials, redirects, cookies, or retries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpCapabilityEndpointPolicy {
+    /// Allowed URL schemes such as `http` or `https`.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub allowed_schemes: BTreeSet<String>,
+    /// Allowed lower-case host names.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub allowed_hosts: BTreeSet<String>,
+}
+
+impl HttpCapabilityEndpointPolicy {
+    /// Build a policy from explicit scheme and host allowlists.
+    #[must_use]
+    pub fn new(
+        schemes: impl IntoIterator<Item = impl Into<String>>,
+        hosts: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            allowed_schemes: schemes
+                .into_iter()
+                .map(|scheme| scheme.into().to_ascii_lowercase())
+                .collect(),
+            allowed_hosts: hosts
+                .into_iter()
+                .map(|host| host.into().to_ascii_lowercase())
+                .collect(),
+        }
+    }
+}
+
+/// Bounded HTTP runtime settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpCapabilityRuntimeConfig {
+    /// Maximum concurrently accepted HTTP operations.
+    pub request_capacity: usize,
+    /// Maximum request body bytes accepted before enqueue.
+    pub max_request_body_bytes: usize,
+    /// Maximum response body bytes retained while collecting transport chunks.
+    pub max_response_body_bytes: usize,
+    /// Maximum request or response header count.
+    pub max_header_count: usize,
+    /// Maximum header name length in bytes.
+    pub max_header_name_bytes: usize,
+    /// Maximum header value length in bytes.
+    pub max_header_value_bytes: usize,
+}
+
+impl Default for HttpCapabilityRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            request_capacity: 64,
+            max_request_body_bytes: 1024 * 1024,
+            max_response_body_bytes: 4 * 1024 * 1024,
+            max_header_count: 64,
+            max_header_name_bytes: 128,
+            max_header_value_bytes: 8192,
+        }
+    }
+}
+
+/// Request handed to a host-implemented HTTP transport after core validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpTransportRequest {
+    /// Original capability runtime request.
+    pub runtime_request: CapabilityRuntimeRequest,
+    /// Parsed URL scheme.
+    pub scheme: String,
+    /// Parsed URL host.
+    pub host: String,
+    /// Runtime response body byte limit.
+    pub max_response_body_bytes: usize,
+    /// Runtime response header count limit.
+    pub max_header_count: usize,
+    /// Runtime response header name byte limit.
+    pub max_header_name_bytes: usize,
+    /// Runtime response header value byte limit.
+    pub max_header_value_bytes: usize,
+}
+
+/// Host-implemented HTTP transport boundary.
+///
+/// Implementors perform concrete HTTP I/O outside core. They must poll the
+/// provided cancellation token while blocking or collecting response chunks.
+pub trait HttpCapabilityTransport: Send + Sync + 'static {
+    /// Execute one already-authorized HTTP request.
+    fn execute(
+        &self,
+        request: HttpTransportRequest,
+        cancellation: PluginCancellationToken,
+    ) -> Result<HttpCapabilityResponse, CapabilityRuntimeError>;
+}
+
+/// Non-blocking HTTP implementation of [`PluginCapabilityRuntime`].
+///
+/// `submit` performs only validation, bounded admission, and worker-thread
+/// dispatch. Transport I/O runs on runtime-owned background threads and is
+/// observed later through `drain_events`.
+pub struct HttpCapabilityRuntime {
+    grants: CapabilitySet,
+    endpoint_policy: HttpCapabilityEndpointPolicy,
+    config: HttpCapabilityRuntimeConfig,
+    transport: Arc<dyn HttpCapabilityTransport>,
+    in_flight: HashMap<(PluginKey, CapabilityOperationId), HttpInFlightOperation>,
+    pending_events: VecDeque<CapabilityRuntimeEvent>,
+    completions_sender: mpsc::Sender<HttpWorkerCompletion>,
+    completions_receiver: mpsc::Receiver<HttpWorkerCompletion>,
+}
+
+impl HttpCapabilityRuntime {
+    /// Build a runtime over a host-implemented HTTP transport.
+    #[must_use]
+    pub fn new(
+        grants: CapabilitySet,
+        endpoint_policy: HttpCapabilityEndpointPolicy,
+        config: HttpCapabilityRuntimeConfig,
+        transport: Arc<dyn HttpCapabilityTransport>,
+    ) -> Self {
+        let (completions_sender, completions_receiver) = mpsc::channel();
+        Self {
+            grants,
+            endpoint_policy,
+            config,
+            transport,
+            in_flight: HashMap::new(),
+            pending_events: VecDeque::new(),
+            completions_sender,
+            completions_receiver,
+        }
+    }
+
+    fn drain_worker_completions(&mut self) {
+        while let Ok(completion) = self.completions_receiver.try_recv() {
+            let key = (
+                completion.plugin_key.clone(),
+                completion.operation_id.clone(),
+            );
+            if self.in_flight.remove(&key).is_none() {
+                continue;
+            }
+
+            let event = match completion.result {
+                Ok(response) => CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
+                    plugin_key: completion.plugin_key,
+                    operation_id: completion.operation_id,
+                    response: Some(response),
+                    plugin_store: None,
+                }),
+                Err(error) if error.kind == CapabilityRuntimeErrorKind::Cancelled => {
+                    CapabilityRuntimeEvent::Cancelled(CapabilityOperationFailure {
+                        plugin_key: completion.plugin_key,
+                        operation_id: completion.operation_id,
+                        error_kind: error.kind,
+                        reason: error.message,
+                    })
+                }
+                Err(error) if error.kind == CapabilityRuntimeErrorKind::TimedOut => {
+                    CapabilityRuntimeEvent::TimedOut(CapabilityOperationFailure {
+                        plugin_key: completion.plugin_key,
+                        operation_id: completion.operation_id,
+                        error_kind: error.kind,
+                        reason: error.message,
+                    })
+                }
+                Err(error) => CapabilityRuntimeEvent::Failed(CapabilityOperationFailure {
+                    plugin_key: completion.plugin_key,
+                    operation_id: completion.operation_id,
+                    error_kind: error.kind,
+                    reason: error.message,
+                }),
+            };
+            self.pending_events.push_back(event);
+        }
+    }
+
+    fn cancel_expired(&mut self) {
+        let expired = self
+            .in_flight
+            .iter()
+            .filter_map(|(key, operation)| {
+                if operation.started_at.elapsed() >= operation.timeout {
+                    Some((key.clone(), operation.cancellation.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for ((plugin_key, operation_id), cancellation) in expired {
+            cancellation.cancel();
+            self.in_flight
+                .remove(&(plugin_key.clone(), operation_id.clone()));
+            self.pending_events
+                .push_back(CapabilityRuntimeEvent::TimedOut(
+                    CapabilityOperationFailure {
+                        plugin_key,
+                        operation_id,
+                        error_kind: CapabilityRuntimeErrorKind::TimedOut,
+                        reason: "operation exceeded timeout".to_string(),
+                    },
+                ));
+        }
+    }
+
+    fn validate_http_request(
+        &self,
+        request: &CapabilityRuntimeRequest,
+    ) -> Result<HttpValidatedEndpoint, CapabilityRuntimeError> {
+        if !self.grants.contains(&request.required_capability()) {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::CapabilityDenied,
+                "plugin lacks network:http capability",
+            ));
+        }
+
+        if request.timeout_ms == 0 {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "timeout_ms must be greater than zero",
+            ));
+        }
+
+        let CapabilityOperation::Http(http) = &request.operation else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP runtime only accepts HTTP capability operations",
+            ));
+        };
+
+        if http.method.trim().is_empty() {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP method is required",
+            ));
+        }
+        if http.body.len() > self.config.max_request_body_bytes {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP request body exceeds configured limit",
+            ));
+        }
+        validate_headers(
+            &http.headers,
+            self.config.max_header_count,
+            self.config.max_header_name_bytes,
+            self.config.max_header_value_bytes,
+        )?;
+
+        let endpoint = parse_http_endpoint(&http.endpoint)?;
+        if !self
+            .endpoint_policy
+            .allowed_schemes
+            .contains(endpoint.scheme.as_str())
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::CapabilityDenied,
+                "HTTP URL scheme is not allowed",
+            ));
+        }
+        if !self
+            .endpoint_policy
+            .allowed_hosts
+            .contains(endpoint.host.as_str())
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::CapabilityDenied,
+                "HTTP host is not allowed",
+            ));
+        }
+
+        Ok(endpoint)
+    }
+
+    /// Validate response headers and body size against this runtime config.
+    ///
+    /// Host transports should call this before returning a response. Transports
+    /// that collect chunked bodies should enforce `max_response_body_bytes`
+    /// incrementally while collecting chunks.
+    pub fn validate_response(
+        config: &HttpCapabilityRuntimeConfig,
+        response: &HttpCapabilityResponse,
+    ) -> Result<(), CapabilityRuntimeError> {
+        validate_headers(
+            &response.headers,
+            config.max_header_count,
+            config.max_header_name_bytes,
+            config.max_header_value_bytes,
+        )?;
+        if response.body.len() > config.max_response_body_bytes {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP response body exceeds configured limit",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl PluginCapabilityRuntime for HttpCapabilityRuntime {
+    fn submit(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        self.drain_worker_completions();
+        self.cancel_expired();
+
+        let endpoint = self.validate_http_request(&request)?;
+        if self.in_flight.len() >= self.config.request_capacity {
+            self.pending_events
+                .push_back(CapabilityRuntimeEvent::Backpressure(
+                    request.backpressure(self.config.request_capacity, self.in_flight.len()),
+                ));
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::Backpressured,
+                "HTTP capability runtime request capacity reached",
+            ));
+        }
+
+        let plugin_key = request.plugin_key.clone();
+        let operation_id = request.operation_id.clone();
+        let resource = request.resource_ref(CapabilityResourceId(operation_id.0.clone()));
+        let cancellation = PluginCancellationToken::new();
+        let transport_request = HttpTransportRequest {
+            runtime_request: request.clone(),
+            scheme: endpoint.scheme,
+            host: endpoint.host,
+            max_response_body_bytes: self.config.max_response_body_bytes,
+            max_header_count: self.config.max_header_count,
+            max_header_name_bytes: self.config.max_header_name_bytes,
+            max_header_value_bytes: self.config.max_header_value_bytes,
+        };
+        self.in_flight.insert(
+            (plugin_key.clone(), operation_id.clone()),
+            HttpInFlightOperation {
+                resource: resource.clone(),
+                cancellation: cancellation.clone(),
+                started_at: Instant::now(),
+                timeout: Duration::from_millis(request.timeout_ms),
+            },
+        );
+
+        let transport = self.transport.clone();
+        let completions_sender = self.completions_sender.clone();
+        let worker_plugin_key = plugin_key.clone();
+        let worker_operation_id = operation_id.clone();
+        std::thread::Builder::new()
+            .name("botster-http-capability-runtime".to_string())
+            .spawn(move || {
+                let result = transport.execute(transport_request, cancellation);
+                let _ = completions_sender.send(HttpWorkerCompletion {
+                    plugin_key: worker_plugin_key,
+                    operation_id: worker_operation_id,
+                    result,
+                });
+            })
+            .map_err(|error| {
+                self.in_flight
+                    .remove(&(plugin_key.clone(), operation_id.clone()));
+                CapabilityRuntimeError::new(
+                    CapabilityRuntimeErrorKind::RuntimeStopped,
+                    format!("failed to start HTTP capability worker: {error}"),
+                )
+            })?;
+
+        Ok(CapabilityRuntimeHandle {
+            plugin_key,
+            operation_id,
+            resource: Some(resource),
+            required_capability: request.required_capability(),
+        })
+    }
+
+    fn cancel(
+        &mut self,
+        plugin_key: &PluginKey,
+        operation_id: &CapabilityOperationId,
+    ) -> Result<(), CapabilityRuntimeError> {
+        self.drain_worker_completions();
+        let key = (plugin_key.clone(), operation_id.clone());
+        let Some(operation) = self.in_flight.remove(&key) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::OperationNotFound,
+                "HTTP operation is not in flight",
+            ));
+        };
+        operation.cancellation.cancel();
+        self.pending_events
+            .push_back(CapabilityRuntimeEvent::Cancelled(
+                CapabilityOperationFailure {
+                    plugin_key: plugin_key.clone(),
+                    operation_id: operation_id.clone(),
+                    error_kind: CapabilityRuntimeErrorKind::Cancelled,
+                    reason: "operation cancelled".to_string(),
+                },
+            ));
+        Ok(())
+    }
+
+    fn release_resource(
+        &mut self,
+        resource: PluginResourceRef,
+    ) -> Result<(), CapabilityRuntimeError> {
+        self.cancel(
+            &resource.plugin_key,
+            &CapabilityOperationId(resource.resource_id.clone()),
+        )
+    }
+
+    fn drain_events(
+        &mut self,
+        plugin_key: &PluginKey,
+    ) -> Result<Vec<CapabilityRuntimeEvent>, CapabilityRuntimeError> {
+        self.drain_worker_completions();
+        self.cancel_expired();
+
+        let mut events = Vec::new();
+        let mut retained = VecDeque::new();
+        while let Some(event) = self.pending_events.pop_front() {
+            if event_plugin_key(&event).as_ref() == Some(plugin_key) {
+                events.push(event);
+            } else {
+                retained.push_back(event);
+            }
+        }
+        self.pending_events = retained;
+        Ok(events)
+    }
+
+    fn cleanup_plugin(
+        &mut self,
+        plugin_key: &PluginKey,
+    ) -> Result<PluginCleanupResult, CapabilityRuntimeError> {
+        self.drain_worker_completions();
+        let keys = self
+            .in_flight
+            .keys()
+            .filter(|(operation_plugin_key, _)| operation_plugin_key == plugin_key)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut removed_resources = Vec::with_capacity(keys.len());
+
+        for key in keys {
+            if let Some(operation) = self.in_flight.remove(&key) {
+                operation.cancellation.cancel();
+                removed_resources.push(operation.resource);
+            }
+        }
+
+        self.pending_events
+            .retain(|event| event_plugin_key(event).as_ref() != Some(plugin_key));
+
+        Ok(PluginCleanupResult {
+            request_id: crate::session::RequestId(format!("capability-cleanup-{}", plugin_key.0)),
+            plugin_key: plugin_key.clone(),
+            removed_descriptors: Vec::new(),
+            removed_resources,
+        })
+    }
 }
 
 /// WebSocket operation request.
@@ -719,7 +1189,12 @@ pub struct CapabilityOperationFailure {
     pub reason: String,
 }
 
-/// Host-implemented, non-blocking capability runtime boundary.
+/// Non-blocking capability runtime boundary.
+///
+/// Host profiles implement concrete capability backends. Core also provides a
+/// policy-free file watch implementation of this trait over an injected event
+/// source, while the concrete OS watcher and directory/root policy stay with
+/// the host profile.
 pub trait PluginCapabilityRuntime {
     /// Enqueue one operation request without performing blocking I/O inline.
     fn submit(
@@ -817,5 +1292,155 @@ fn scoped_capability(surface: CapabilitySurface, scope: impl Into<String>) -> Ca
     Capability {
         surface,
         scope: Some(scope.into()),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct HttpValidatedEndpoint {
+    scheme: String,
+    host: String,
+}
+
+struct HttpInFlightOperation {
+    resource: PluginResourceRef,
+    cancellation: PluginCancellationToken,
+    started_at: Instant,
+    timeout: Duration,
+}
+
+struct HttpWorkerCompletion {
+    plugin_key: PluginKey,
+    operation_id: CapabilityOperationId,
+    result: Result<HttpCapabilityResponse, CapabilityRuntimeError>,
+}
+
+fn parse_http_endpoint(endpoint: &str) -> Result<HttpValidatedEndpoint, CapabilityRuntimeError> {
+    let (scheme, rest) = endpoint.split_once("://").ok_or_else(|| {
+        CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::InvalidRequest,
+            "HTTP endpoint must be an absolute URL",
+        )
+    })?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme.is_empty()
+        || !scheme.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+        })
+    {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::InvalidRequest,
+            "HTTP endpoint has an invalid URL scheme",
+        ));
+    }
+
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .filter(|authority| !authority.is_empty())
+        .ok_or_else(|| {
+            CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP endpoint must include a host",
+            )
+        })?;
+    if authority.contains('@') {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::InvalidRequest,
+            "HTTP endpoint userinfo is not allowed",
+        ));
+    }
+    let host_port = authority
+        .strip_prefix('[')
+        .map_or(authority, |without_open| {
+            without_open
+                .split_once(']')
+                .map_or(authority, |(ipv6, _)| ipv6)
+        });
+    let host = host_port
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::InvalidRequest,
+            "HTTP endpoint host is empty",
+        ));
+    }
+
+    Ok(HttpValidatedEndpoint { scheme, host })
+}
+
+fn validate_headers(
+    headers: &[HttpHeader],
+    max_count: usize,
+    max_name_bytes: usize,
+    max_value_bytes: usize,
+) -> Result<(), CapabilityRuntimeError> {
+    if headers.len() > max_count {
+        return Err(CapabilityRuntimeError::new(
+            CapabilityRuntimeErrorKind::InvalidRequest,
+            "HTTP header count exceeds configured limit",
+        ));
+    }
+
+    for header in headers {
+        if header.name.is_empty()
+            || header.name.len() > max_name_bytes
+            || !header.name.bytes().all(is_http_token_byte)
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP header name is invalid or too long",
+            ));
+        }
+        if header.value.len() > max_value_bytes
+            || header.value.contains('\r')
+            || header.value.contains('\n')
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::InvalidRequest,
+                "HTTP header value is invalid or too long",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_http_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
+}
+
+fn event_plugin_key(event: &CapabilityRuntimeEvent) -> Option<PluginKey> {
+    match event {
+        CapabilityRuntimeEvent::Completed(event) => Some(event.plugin_key.clone()),
+        CapabilityRuntimeEvent::ResourceOpened(event)
+        | CapabilityRuntimeEvent::ResourceReleased(event) => Some(event.plugin_key.clone()),
+        CapabilityRuntimeEvent::WebSocketMessage(event) => Some(event.resource.plugin_key.clone()),
+        CapabilityRuntimeEvent::Watch(event) => Some(event.resource.plugin_key.clone()),
+        CapabilityRuntimeEvent::TimerFired(event) => Some(event.resource.plugin_key.clone()),
+        CapabilityRuntimeEvent::TimedOut(event)
+        | CapabilityRuntimeEvent::Cancelled(event)
+        | CapabilityRuntimeEvent::Failed(event) => Some(event.plugin_key.clone()),
+        CapabilityRuntimeEvent::Backpressure(event) => event.route.plugin_key.clone(),
+        CapabilityRuntimeEvent::CleanupCompleted(event) => Some(event.plugin_key.clone()),
     }
 }
