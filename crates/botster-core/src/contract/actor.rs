@@ -135,6 +135,11 @@ pub struct BackpressureSummary {
 }
 
 /// Accepted-but-slow delivery with typed routing context.
+///
+/// This intentionally mirrors [`BackpressureSummary`] route metadata while
+/// keeping distinct semantics: lag means delivery was accepted but is behind a
+/// caller-owned budget, not that a queue is full. Lag observations must not
+/// drive [`ClientControlFrame::Backpressure`] health frames.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeliveryLag {
     /// Queue reporting lag.
