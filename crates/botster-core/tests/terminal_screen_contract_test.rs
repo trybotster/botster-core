@@ -11,6 +11,10 @@ use botster_core::{
 };
 use botster_core_test_support::fake::FakeTerminalScreenRuntime;
 
+use botster_core::engine::terminal_screen::{
+    PlainTerminalScreenRuntime, PLAIN_TERMINAL_SCREEN_MAX_BYTES,
+};
+
 fn request_id(value: &str) -> RequestId {
     RequestId(value.to_string())
 }
@@ -21,6 +25,12 @@ fn session_id() -> SessionId {
 
 fn terminal_engine() -> TerminalScreenEngine<FakeTerminalScreenRuntime> {
     TerminalScreenEngine::new(FakeTerminalScreenRuntime::new())
+}
+
+fn oversized_plain_bytes() -> Vec<u8> {
+    let mut bytes = vec![b'a'; PLAIN_TERMINAL_SCREEN_MAX_BYTES];
+    bytes.extend_from_slice(b"bounded-tail");
+    bytes
 }
 
 #[test]
@@ -123,6 +133,67 @@ fn plain_screen_read_uses_fake_runtime_without_terminal_backend_dependency() {
 
     assert_eq!(state.plain_text, "one\r\ntwo");
     assert_eq!(state.size, TerminalScreenSize::new(24, 80));
+}
+
+#[test]
+fn plain_runtime_bounds_snapshot_and_screen_state_without_truncating_output_chunk() {
+    let mut engine = TerminalScreenEngine::new(PlainTerminalScreenRuntime::new(
+        TerminalScreenSize::new(24, 80),
+    ));
+    let bytes = oversized_plain_bytes();
+
+    let output = engine.normalize_output(&bytes);
+    let snapshot = engine
+        .capture_snapshot()
+        .snapshot
+        .expect("plain runtime captures snapshot");
+    let screen = engine
+        .screen_state()
+        .screen
+        .expect("plain runtime reads screen");
+
+    assert!(matches!(
+        output.output,
+        Some(output) if output.bytes == bytes
+    ));
+    assert_eq!(snapshot.bytes.len(), PLAIN_TERMINAL_SCREEN_MAX_BYTES);
+    assert_eq!(
+        snapshot.bytes,
+        bytes[bytes.len() - PLAIN_TERMINAL_SCREEN_MAX_BYTES..]
+    );
+    assert_eq!(screen.plain_text.len(), PLAIN_TERMINAL_SCREEN_MAX_BYTES);
+    assert!(screen.plain_text.ends_with("bounded-tail"));
+}
+
+#[test]
+fn plain_runtime_replay_snapshot_rebounds_oversized_payloads() {
+    let mut engine = TerminalScreenEngine::new(PlainTerminalScreenRuntime::new(
+        TerminalScreenSize::new(24, 80),
+    ));
+    let bytes = oversized_plain_bytes();
+
+    engine.replay_snapshot(TerminalSnapshotPayload::new(
+        bytes.clone(),
+        TerminalScreenSize::new(40, 120),
+        Some("plain-opaque-v1".to_string()),
+    ));
+    let snapshot = engine
+        .capture_snapshot()
+        .snapshot
+        .expect("plain runtime captures replayed snapshot");
+    let screen = engine
+        .screen_state()
+        .screen
+        .expect("plain runtime reads replayed screen");
+
+    assert_eq!(snapshot.bytes.len(), PLAIN_TERMINAL_SCREEN_MAX_BYTES);
+    assert_eq!(
+        snapshot.bytes,
+        bytes[bytes.len() - PLAIN_TERMINAL_SCREEN_MAX_BYTES..]
+    );
+    assert_eq!(snapshot.size, TerminalScreenSize::new(40, 120));
+    assert_eq!(screen.size, TerminalScreenSize::new(40, 120));
+    assert!(screen.plain_text.ends_with("bounded-tail"));
 }
 
 #[test]

@@ -15,6 +15,8 @@ use botster_core::{
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
+use botster_core::engine::terminal_screen::PLAIN_TERMINAL_SCREEN_MAX_BYTES;
+
 fn request_id(value: &str) -> RequestId {
     RequestId(value.to_string())
 }
@@ -43,6 +45,12 @@ fn spawn_request() -> SessionSpawnRequest {
         environment: SpawnEnvironment::default(),
         initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
     }
+}
+
+fn oversized_plain_bytes() -> Vec<u8> {
+    let mut bytes = vec![b'a'; PLAIN_TERMINAL_SCREEN_MAX_BYTES];
+    bytes.extend_from_slice(b"managed-bounded-tail");
+    bytes
 }
 
 fn managed_runtime() -> ManagedSessionRuntime<FakeSessionRuntime> {
@@ -384,6 +392,62 @@ fn supervised_session_live_output_fanout_still_emits_original_bytes() {
     assert!(matches!(
         snapshot.session_events.first(),
         Some(SessionIoEvent::SnapshotReady(snapshot)) if snapshot.data == bytes
+    ));
+}
+
+#[test]
+fn supervised_session_default_plain_backend_bounds_retained_state_without_truncating_fanout() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let bytes = oversized_plain_bytes();
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), bytes.clone());
+    let output = runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain oversized runtime output");
+    let snapshot = runtime
+        .handle_session_request(
+            SessionIoRequest::GetSnapshot {
+                request_id: request_id("snapshot-bounded"),
+                session_id: session_id(),
+            },
+            21,
+        )
+        .expect("snapshot reads bounded retained state");
+    let screen = runtime
+        .handle_session_request(
+            SessionIoRequest::GetScreen {
+                request_id: request_id("screen-bounded"),
+                session_id: session_id(),
+            },
+            22,
+        )
+        .expect("screen reads bounded retained state");
+
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-a"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-a"),
+                data: bytes.clone(),
+            },
+        )]
+    );
+    assert!(matches!(
+        snapshot.session_events.first(),
+        Some(SessionIoEvent::SnapshotReady(snapshot))
+            if snapshot.data.len() == PLAIN_TERMINAL_SCREEN_MAX_BYTES
+                && snapshot.data == bytes[bytes.len() - PLAIN_TERMINAL_SCREEN_MAX_BYTES..]
+    ));
+    assert!(matches!(
+        screen.session_events.first(),
+        Some(SessionIoEvent::ScreenReady(screen))
+            if screen.text.len() == PLAIN_TERMINAL_SCREEN_MAX_BYTES
+                && screen.text.ends_with("managed-bounded-tail")
     ));
 }
 
