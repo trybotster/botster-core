@@ -1,7 +1,9 @@
 //! Ergonomic embeddable Botster engine facade.
 
 use crate::actor::{
-    MailboxSendFailureReason, PluginInvocationRequest, PreparedSnapshotRequest, QueueSource,
+    MailboxSendFailureReason, PluginCleanupResult, PluginInvocationRequest, PluginKey,
+    PluginReloadSpec, PluginTimerCancellationResult, PluginTimerId, PluginTimerSchedule,
+    PluginUnloadSpec, PreparedSnapshotRequest, QueueSource,
 };
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
@@ -17,6 +19,9 @@ use crate::engine::managed_session_runtime::{ManagedSessionRuntime, ManagedSessi
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
     MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
+};
+use crate::engine::plugin_timer::{
+    PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler,
 };
 use crate::engine::plugin_worker::{
     PluginInvocationOutcome, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
@@ -566,9 +571,19 @@ where
     }
 
     /// Return the plugin worker engine.
+    ///
+    /// Hosts that need reload or unload cleanup should call
+    /// [`Self::reload_plugin`] or [`Self::unload_plugin`] so scheduler-owned
+    /// timer resources are cleaned with worker-owned resources.
     #[must_use]
     pub const fn plugin_workers(&self) -> &PluginWorkerEngine {
         self.multiplexer.plugin_workers()
+    }
+
+    /// Return the plugin timer scheduler.
+    #[must_use]
+    pub const fn plugin_timers(&self) -> &PluginTimerScheduler {
+        self.multiplexer.plugin_timers()
     }
 
     /// Return the lower-level assembled multiplexer engine.
@@ -892,9 +907,47 @@ where
         self.multiplexer.load_plugin(registration);
     }
 
+    /// Reload one plugin and cleanup scheduler-owned timer resources.
+    pub fn reload_plugin(
+        &self,
+        spec: PluginReloadSpec,
+        registration: PluginWorkerRegistration,
+    ) -> PluginCleanupResult {
+        self.multiplexer.reload_plugin(spec, registration)
+    }
+
+    /// Unload one plugin and cleanup scheduler-owned timer resources.
+    pub fn unload_plugin(&self, spec: PluginUnloadSpec) -> PluginCleanupResult {
+        self.multiplexer.unload_plugin(spec)
+    }
+
     /// Invoke a registered plugin handler.
     pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.multiplexer.invoke_plugin(request)
+    }
+
+    /// Schedule plugin timer work without invoking plugin code inline.
+    pub fn schedule_plugin_timer(
+        &self,
+        schedule: PluginTimerSchedule,
+    ) -> PluginTimerScheduleOutcome {
+        self.multiplexer.schedule_plugin_timer(schedule)
+    }
+
+    /// Cancel one plugin timer by handle.
+    pub fn cancel_plugin_timer(
+        &self,
+        request_id: crate::RequestId,
+        plugin_key: &PluginKey,
+        timer_id: &PluginTimerId,
+    ) -> PluginTimerCancellationResult {
+        self.multiplexer
+            .cancel_plugin_timer(request_id, plugin_key, timer_id)
+    }
+
+    /// Drain due plugin timers through the existing plugin worker engine.
+    pub fn drain_plugin_timers_due(&self, now_ms: u64) -> PluginTimerDrainOutcome {
+        self.multiplexer.drain_plugin_timers_due(now_ms)
     }
 
     /// Classify one session's activity at the provided clock value.

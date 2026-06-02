@@ -21,8 +21,8 @@ pub use contract::{
     terminal_screen, transport, ui,
 };
 pub use engine::{
-    botster, command as engine_command, managed_session_runtime, multiplexer, plugin_worker,
-    session_activity, session_worker, subscription_multiplexer,
+    botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
+    plugin_worker, session_activity, session_worker, subscription_multiplexer,
     terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
@@ -32,16 +32,20 @@ pub use runtime::{
     CapabilityOperationId, CapabilityOperationResult, CapabilityResourceEvent,
     CapabilityResourceId, CapabilityRuntimeError, CapabilityRuntimeErrorKind,
     CapabilityRuntimeEvent, CapabilityRuntimeHandle, CapabilityRuntimeRequest,
-    CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
-    FilesystemCapabilityGrant, FilesystemCapabilityLimits, FilesystemCapabilityPermissions,
-    FilesystemCapabilityRequest, FilesystemCapabilityResult, FilesystemEntry, FilesystemEntryKind,
-    FilesystemMetadata, FilesystemOperation, HttpCapabilityRequest, HttpCapabilityResponse,
-    HttpHeader, PluginCancellationToken, PluginCapabilityRuntime, PluginRuntime,
+    CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent, FileWatchEventSource,
+    FileWatchRegistration, FileWatchRuntime, FileWatchRuntimeConfig, FileWatchSourceError,
+    FileWatchSourceEvent, FilesystemCapabilityGrant, FilesystemCapabilityLimits,
+    FilesystemCapabilityPermissions, FilesystemCapabilityRequest, FilesystemCapabilityResult,
+    FilesystemEntry, FilesystemEntryKind, FilesystemMetadata, FilesystemOperation,
+    HttpCapabilityEndpointPolicy, HttpCapabilityRequest, HttpCapabilityResponse,
+    HttpCapabilityRuntime, HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader,
+    HttpTransportRequest, PluginCancellationToken, PluginCapabilityRuntime, PluginRuntime,
     PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ProcessIdentity,
     ScopedRelativePath, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, TimerCapabilityRequest,
     WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest, WebSocketMessage,
+    DEFAULT_FILE_WATCH_DEBOUNCE_MS,
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
@@ -58,7 +62,8 @@ pub use actor::{
     PluginHandlerRef, PluginInvocationContext, PluginInvocationFailure,
     PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult,
     PluginInvocationSuccess, PluginKey, PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec,
-    PluginResourceKind, PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent,
+    PluginResourceKind, PluginResourceRef, PluginTimerCancellationResult, PluginTimerEvent,
+    PluginTimerId, PluginTimerMode, PluginTimerSchedule, PluginUnloadSpec, PluginWorkerEvent,
     PluginWorkerMessage, PreparedSnapshotReady, PreparedSnapshotRequest, QueueSource, ScreenReady,
     SendFileErrorReason, SendFileFailed, SendFileRequest, SendFileWritten,
     SessionIoCoalescingPolicy, SessionIoEvent, SessionIoOrderedEvent, SessionIoRequest,
@@ -91,11 +96,12 @@ pub use engine::{
     EngineSpawnSessionResult, EngineSubscriptionId, ManagedSessionRuntime,
     ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
-    PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerEngine,
-    PluginWorkerEngineConfig, PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome,
-    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
-    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
-    TerminalScreenOutcome, TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
+    PluginHandlerRegistration, PluginInvocationOutcome, PluginTimerDrainOutcome,
+    PluginTimerScheduleOutcome, PluginTimerScheduler, PluginWorkerEngine, PluginWorkerEngineConfig,
+    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
+    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
+    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
+    TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand};
