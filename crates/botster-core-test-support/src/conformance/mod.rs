@@ -2,7 +2,8 @@
 //!
 //! These helpers intentionally wrap public `botster_core` APIs. They do not
 //! remap runtime output into worker events; real PTY output is drained through
-//! `ManagedSessionRuntime::drain_runtime_once`.
+//! `ManagedSessionRuntime::drain_runtime_once` or the fair aggregate drain
+//! helper.
 
 use std::error::Error;
 use std::fmt;
@@ -525,8 +526,9 @@ impl Drop for ManyPtyLoadHarness {
 /// Run a many-session local PTY load check through the public default engine.
 ///
 /// The harness uses one `DefaultBotsterEngine`, spawns explicit bounded shell
-/// commands, attaches one client per session, drains sessions in round-robin
-/// passes, and asserts both terminal output fanout and process-exit delivery.
+/// commands, attaches one client per session, drains every live session once
+/// per pass through the reusable fair helper, and asserts both terminal output
+/// fanout and process-exit delivery.
 #[cfg(feature = "local-runtime")]
 pub fn run_many_pty_load(
     config: ManyPtyLoadConfig,
@@ -638,31 +640,36 @@ fn drain_many_pty_sessions(
         let mut made_progress = false;
         drain_rounds += 1;
 
-        for index in 0..harness.sessions.len() {
-            if harness.sessions[index].complete() {
+        let output = harness
+            .engine
+            .drain_runtime_all_once(drain_rounds as u64 + 1)
+            .map_err(EngineConformanceError::from)
+            .map_err(|error| {
+                many_pty_error(
+                    "drain",
+                    None,
+                    None,
+                    format!("fair aggregate drain failed: {error}"),
+                )
+            })?;
+
+        if !output.client_egress.is_empty() || !output.session_events.is_empty() {
+            made_progress = true;
+        }
+
+        for session in &mut harness.sessions {
+            if session.complete() {
                 continue;
             }
-
-            let session_id = harness.sessions[index].session_id.clone();
-            let output = harness
-                .engine
-                .drain_runtime_once(&session_id, drain_rounds as u64 + 1)
-                .map_err(EngineConformanceError::from)
-                .map_err(|error| wrap_many_pty_error("drain", &session_id, None, error))?;
-
-            if !output.client_egress.is_empty() || !output.session_events.is_empty() {
-                made_progress = true;
-            }
-
             let delivered = terminal_output_bytes_for(
                 &output,
-                &harness.sessions[index].client_id,
-                &harness.sessions[index].subscription_id,
-                &session_id,
+                &session.client_id,
+                &session.subscription_id,
+                &session.session_id,
             );
             total_output_bytes += delivered.len();
-            harness.sessions[index].output.extend(delivered);
-            update_many_pty_completion(&mut harness.sessions[index], &output);
+            session.output.extend(delivered);
+            update_many_pty_completion(session, &output);
         }
 
         if harness.sessions.iter().all(ManyPtySessionState::complete) {
