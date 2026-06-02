@@ -1,8 +1,8 @@
 //! Subscription multiplexer engine acceptance tests.
 
 use botster_core::actor::{
-    BackpressureRoute, InitialSnapshotReady, QueueSource, SessionIoEvent, SnapshotReady,
-    TerminalAttachState,
+    BackpressureRoute, DeliveryLag, InitialSnapshotReady, MailboxSendFailure,
+    MailboxSendFailureReason, QueueSource, SessionIoEvent, SnapshotReady, TerminalAttachState,
 };
 use botster_core::client::ClientId;
 use botster_core::client_stream::ClientStreamObservation;
@@ -19,6 +19,10 @@ fn session_id() -> SessionId {
     SessionId("session-1".to_string())
 }
 
+fn named_session_id(id: &str) -> SessionId {
+    SessionId(id.to_string())
+}
+
 fn request_id(id: &str) -> RequestId {
     RequestId(id.to_string())
 }
@@ -28,11 +32,20 @@ fn subscription_id(id: &str) -> SubscriptionId {
 }
 
 fn subscribe(multiplexer: &mut SubscriptionMultiplexer, client: &str, subscription: &str) {
+    subscribe_to(multiplexer, client, session_id(), subscription);
+}
+
+fn subscribe_to(
+    multiplexer: &mut SubscriptionMultiplexer,
+    client: &str,
+    session: SessionId,
+    subscription: &str,
+) {
     multiplexer.handle_client_ingress(
         client_id(client),
         TransportIngress::SubscribeSession {
             client_id: client_id(client),
-            session_id: session_id(),
+            session_id: session,
             subscription_id: subscription_id(subscription),
         },
     );
@@ -431,6 +444,227 @@ fn backpressure_is_scoped_to_one_client_and_fanout_continues() {
                 },
             ),
         ]
+    );
+}
+
+#[test]
+fn slow_client_on_one_session_does_not_block_unrelated_session() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    let session_a = named_session_id("session-a");
+    let session_b = named_session_id("session-b");
+    subscribe_to(&mut multiplexer, "client-a", session_a.clone(), "sub-a");
+    subscribe_to(&mut multiplexer, "client-b", session_b.clone(), "sub-b");
+
+    let pressure = multiplexer.report_delivery_failure(
+        client_id("client-a"),
+        session_a.clone(),
+        subscription_id("sub-a"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueFull,
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_b.clone(),
+        data: b"other-session".to_vec(),
+    });
+
+    assert!(pressure.client_egress.is_empty());
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-b"),
+            TransportEgress::TerminalOutput {
+                session_id: session_b,
+                subscription_id: subscription_id("sub-b"),
+                data: b"other-session".to_vec(),
+            },
+        )]
+    );
+}
+
+#[test]
+fn lag_drop_and_closed_statuses_are_deterministic() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+
+    let lag = multiplexer.report_delivery_lag(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::TransportAdapter,
+        512,
+        128,
+    );
+    let drop = multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueFull,
+    );
+    let closed = multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueClosed,
+    );
+
+    let route = BackpressureRoute {
+        session_id: Some(session_id()),
+        client_id: Some(client_id("client-1")),
+        subscription_id: Some(subscription_id("sub-1")),
+        plugin_key: None,
+    };
+    assert_eq!(
+        lag.observations,
+        vec![SubscriptionMultiplexerObservation::DeliveryLagged {
+            client_id: client_id("client-1"),
+            lag: DeliveryLag {
+                source: QueueSource::TransportAdapter,
+                capacity: 512,
+                depth: 128,
+                route: route.clone(),
+            },
+        }]
+    );
+    assert_eq!(
+        drop.observations,
+        vec![SubscriptionMultiplexerObservation::DeliveryFailed {
+            client_id: client_id("client-1"),
+            failure: MailboxSendFailure {
+                source: QueueSource::ClientWorker,
+                route: route.clone(),
+                reason: MailboxSendFailureReason::QueueFull,
+            },
+        }]
+    );
+    assert!(closed.observations.iter().any(|observation| {
+        observation
+            == &SubscriptionMultiplexerObservation::DeliveryFailed {
+                client_id: client_id("client-1"),
+                failure: MailboxSendFailure {
+                    source: QueueSource::ClientWorker,
+                    route: route.clone(),
+                    reason: MailboxSendFailureReason::QueueClosed,
+                },
+            }
+    }));
+}
+
+#[test]
+fn closed_delivery_route_does_not_remove_unrelated_subscribers() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueClosed,
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"after-close".to_vec(),
+    });
+
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                data: b"after-close".to_vec(),
+            },
+        )]
+    );
+}
+
+#[test]
+fn replacement_subscription_pressure_does_not_revive_old_route() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-old");
+    subscribe(&mut multiplexer, "client-1", "sub-new");
+
+    let stale = multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-old"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueFull,
+    );
+    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"current".to_vec(),
+    });
+
+    assert!(stale.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            SubscriptionMultiplexerObservation::DeliveryFailed {
+                failure,
+                ..
+            } if failure.route.subscription_id == Some(subscription_id("sub-old"))
+        )
+    }));
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-new"),
+                data: b"current".to_vec(),
+            },
+        )]
+    );
+}
+
+#[test]
+fn process_exit_and_attach_state_use_independent_delivery_routes() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    multiplexer.report_delivery_failure(
+        client_id("client-1"),
+        session_id(),
+        subscription_id("sub-1"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueClosed,
+    );
+    let exit = multiplexer.handle_session_event(SessionIoEvent::ProcessExited {
+        session_id: session_id(),
+        payload: ProcessExitedPayload {
+            exit_code: Some(2),
+            signal: None,
+        },
+    });
+    let attach = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Detached);
+
+    assert_eq!(
+        exit.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::ProcessExit {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                code: Some(2),
+            },
+        )]
+    );
+    assert_eq!(
+        attach.client_egress,
+        vec![(
+            client_id("client-2"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-2"),
+                state: TerminalAttachState::Detached,
+            },
+        )]
     );
 }
 
