@@ -31,10 +31,12 @@ pub use capability::{
     FilesystemCapabilityRequest, FilesystemCapabilityResult, FilesystemEntry, FilesystemEntryKind,
     FilesystemMetadata, FilesystemOperation, HttpCapabilityEndpointPolicy, HttpCapabilityRequest,
     HttpCapabilityResponse, HttpCapabilityRuntime, HttpCapabilityRuntimeConfig,
-    HttpCapabilityTransport, HttpHeader, HttpTransportRequest, PluginCapabilityRuntime,
-    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ScopedRelativePath,
-    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
-    WebSocketMessage,
+    HttpCapabilityTransport, HttpHeader, HttpTransportRequest, InMemoryWebSocketCapabilityRuntime,
+    PluginCapabilityRuntime, PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation,
+    ScopedRelativePath, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
+    WebSocketCapabilityRequest, WebSocketCapabilityRuntimeConfig, WebSocketMessage,
+    DEFAULT_WEBSOCKET_EVENT_CAPACITY, DEFAULT_WEBSOCKET_INBOUND_CAPACITY,
+    DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
 };
 pub use file_watch::{
     FileWatchEventSource, FileWatchRegistration, FileWatchRuntime, FileWatchRuntimeConfig,

@@ -39,13 +39,15 @@ pub use runtime::{
     FilesystemEntry, FilesystemEntryKind, FilesystemMetadata, FilesystemOperation,
     HttpCapabilityEndpointPolicy, HttpCapabilityRequest, HttpCapabilityResponse,
     HttpCapabilityRuntime, HttpCapabilityRuntimeConfig, HttpCapabilityTransport, HttpHeader,
-    HttpTransportRequest, PluginCancellationToken, PluginCapabilityRuntime, PluginRuntime,
-    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ProcessIdentity,
-    ScopedRelativePath, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
-    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, TimerCapabilityRequest,
-    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest, WebSocketMessage,
-    DEFAULT_FILE_WATCH_DEBOUNCE_MS,
+    HttpTransportRequest, InMemoryWebSocketCapabilityRuntime, PluginCancellationToken,
+    PluginCapabilityRuntime, PluginRuntime, PluginStoreCapabilityRequest, PluginStoreKey,
+    PluginStoreOperation, ProcessIdentity, ScopedRelativePath, SessionRuntime, SessionRuntimeError,
+    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
+    WebSocketCapabilityRuntimeConfig, WebSocketMessage, DEFAULT_FILE_WATCH_DEBOUNCE_MS,
+    DEFAULT_WEBSOCKET_EVENT_CAPACITY, DEFAULT_WEBSOCKET_INBOUND_CAPACITY,
+    DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
