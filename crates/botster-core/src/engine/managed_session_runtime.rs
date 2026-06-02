@@ -14,7 +14,8 @@ use crate::contract::actor::{
 };
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
-    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
+    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
+    MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
 };
 use crate::engine::session_worker::SessionWorkerRuntime;
 use crate::engine::terminal_screen::{
@@ -305,6 +306,12 @@ where
                     session_id,
                     payload,
                 },
+                SessionRuntimeOutput::Backpressure(summary) => {
+                    outcome
+                        .observations
+                        .push(MultiplexerEngineObservation::Backpressure(summary));
+                    continue;
+                }
             };
             let step = self.engine.handle_runtime_event(runtime_event)?;
             append_outcome(&mut outcome, step);

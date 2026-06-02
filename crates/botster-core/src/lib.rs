@@ -28,7 +28,10 @@ pub use engine::{
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 #[cfg(feature = "local-runtime")]
-pub use runtime::{LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime};
+pub use runtime::{
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
+    DEFAULT_PTY_READER_CHUNK_CAPACITY,
+};
 pub use runtime::{
     PluginCancellationToken, PluginRuntime, ProcessIdentity, SessionRuntime, SessionRuntimeError,
     SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,

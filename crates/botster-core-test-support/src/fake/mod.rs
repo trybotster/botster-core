@@ -11,9 +11,9 @@ use botster_core::client::ClientId;
 use botster_core::session::SubscriptionId;
 use botster_core::transport::{TransportEgress, TransportIngress};
 use botster_core::{
-    ProcessExitedPayload, ProcessIdentity, SessionId, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest,
+    BackpressureSummary, ProcessExitedPayload, ProcessIdentity, SessionId, SessionRuntime,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest,
 };
 
 /// Deterministic fake implementation of the host session runtime contract.
@@ -71,6 +71,12 @@ impl FakeSessionRuntime {
             session_id,
             payload,
         });
+    }
+
+    /// Queue runtime-originated backpressure for a session.
+    pub fn emit_backpressure(&mut self, summary: BackpressureSummary) {
+        self.outputs
+            .push(SessionRuntimeOutput::Backpressure(summary));
     }
 
     fn session_exists(&self, session_id: &SessionId) -> bool {
@@ -147,6 +153,9 @@ impl SessionRuntime for FakeSessionRuntime {
             let output_session_id = match &output {
                 SessionRuntimeOutput::PtyOutput { session_id, .. }
                 | SessionRuntimeOutput::ProcessExited { session_id, .. } => session_id,
+                SessionRuntimeOutput::Backpressure(summary) => {
+                    summary.route.session_id.as_ref().unwrap_or(session_id)
+                }
             };
 
             if output_session_id == session_id {

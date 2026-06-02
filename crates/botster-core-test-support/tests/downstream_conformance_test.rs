@@ -487,17 +487,17 @@ fn many_pty_load_default() {
 
 #[cfg(all(unix, feature = "local-runtime"))]
 #[test]
-fn many_pty_load_adversarial_noisy_reports_missing_slow_client_primitive() {
+fn many_pty_load_adversarial_noisy_reports_reader_backpressure() {
     let mut config = ManyPtyLoadConfig::ci_default().with_noisy_session(0);
-    config.timeout = std::time::Duration::from_secs(25);
+    config.timeout = std::time::Duration::from_secs(35);
     config.normal_output_lines = 2;
-    config.noisy_output_lines = 96;
+    config.noisy_output_lines = 24_000;
 
     let report = run_many_pty_load(config).expect("run adversarial many-PTY load harness");
 
-    assert_eq!(
-        report.outputs_completed, report.session_count,
-        "noisy-output hot path regressed; report={report:?}"
+    assert!(
+        report.outputs_completed >= report.session_count.saturating_sub(1),
+        "quiet sessions should complete while the noisy session exercises backpressure; report={report:?}"
     );
     assert_eq!(
         report.exits_observed, report.session_count,
@@ -509,9 +509,14 @@ fn many_pty_load_adversarial_noisy_reports_missing_slow_client_primitive() {
     );
     assert!(
         report
-            .slow_client_observation
-            .contains("No public slow-client/plugin-pressure primitive"),
-        "report should state the exact missing slow-client primitive; report={report:?}"
+            .queue_backpressure_observations
+            .iter()
+            .any(|observation| {
+                observation.contains("source=session-io")
+                    && observation.contains("capacity=64")
+                    && observation.contains("depth=64")
+            }),
+        "report should include typed session-io reader pressure; report={report:?}"
     );
 }
 

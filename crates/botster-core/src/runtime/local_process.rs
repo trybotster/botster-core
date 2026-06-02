@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -12,15 +13,23 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
-    InitialSnapshotRequest, ModeFlags, ModeFlagsReady, PreparedSnapshotReady,
-    PreparedSnapshotRequest, ProcessExitedPayload, ProcessIdentity, RequestId, ResizePayload,
-    ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionId, SessionRuntime,
-    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SnapshotReady, TerminalColorProfile,
+    BackpressureRoute, BackpressureSummary, InitialSnapshotRequest, ModeFlags, ModeFlagsReady,
+    PreparedSnapshotReady, PreparedSnapshotRequest, ProcessExitedPayload, ProcessIdentity,
+    QueueSource, RequestId, ResizePayload, ScreenReady, SendFileFailed, SendFileRequest,
+    SendFileWritten, SessionId, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SnapshotReady, TerminalColorProfile,
 };
 
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+const PTY_READER_BUFFER_BYTES: usize = 8192;
+/// Default retained PTY reader chunks per session.
+///
+/// Chunks are at most 8192 bytes, so this bounds retained reader memory to
+/// roughly 512 KiB per live local PTY session before OS-level PTY backpressure
+/// slows the child process.
+pub const DEFAULT_PTY_READER_CHUNK_CAPACITY: usize = 64;
 
 #[cfg(unix)]
 const SIGTERM: i32 = 15;
@@ -43,6 +52,10 @@ pub struct LocalProcessRuntimeOptions {
     pub shutdown_grace: Duration,
     /// Sleep interval used while polling for process exit.
     pub poll_interval: Duration,
+    /// Retained PTY reader chunks per session before the reader blocks.
+    ///
+    /// Values below one are clamped to one chunk when the reader starts.
+    pub pty_reader_chunk_capacity: usize,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -50,6 +63,7 @@ impl Default for LocalProcessRuntimeOptions {
         Self {
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             poll_interval: POLL_INTERVAL,
+            pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
         }
     }
 }
@@ -137,7 +151,8 @@ impl SessionRuntime for LocalProcessRuntime {
                 format!("open pty writer failed: {error}"),
             )
         })?;
-        let output = spawn_reader(reader);
+        let (output, output_pressure, output_capacity) =
+            spawn_reader(reader, self.options.pty_reader_chunk_capacity);
 
         self.registry.insert(
             request.session_id.clone(),
@@ -146,6 +161,8 @@ impl SessionRuntime for LocalProcessRuntime {
                 writer,
                 child,
                 output,
+                output_pressure,
+                output_capacity,
                 process_group,
                 exit_payload: None,
                 outputs: Vec::new(),
@@ -423,6 +440,8 @@ struct LocalSession {
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
     output: Receiver<ReaderEvent>,
+    output_pressure: Arc<ReaderPressure>,
+    output_capacity: usize,
     process_group: Option<i32>,
     exit_payload: Option<ProcessExitedPayload>,
     outputs: Vec<SessionRuntimeOutput>,
@@ -443,6 +462,12 @@ fn lock_session(
             "local process session lock poisoned",
         )
     })
+}
+
+#[derive(Default)]
+struct ReaderPressure {
+    depth: AtomicUsize,
+    pressured: AtomicBool,
 }
 
 fn terminate_session(
@@ -543,13 +568,38 @@ fn drain_reader_output(
     session_id: &SessionId,
 ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
     let mut output = Vec::new();
+    if session
+        .output_pressure
+        .pressured
+        .swap(false, Ordering::AcqRel)
+    {
+        output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
+            source: QueueSource::SessionIo,
+            capacity: session.output_capacity,
+            depth: session
+                .output_pressure
+                .depth
+                .load(Ordering::Acquire)
+                .min(session.output_capacity),
+            route: BackpressureRoute {
+                session_id: Some(session_id.clone()),
+                client_id: None,
+                subscription_id: None,
+                plugin_key: None,
+            },
+        }));
+    }
     loop {
         match session.output.try_recv() {
-            Ok(ReaderEvent::Output(data)) => output.push(SessionRuntimeOutput::PtyOutput {
-                session_id: session_id.clone(),
-                data,
-            }),
+            Ok(ReaderEvent::Output(data)) => {
+                decrement_reader_depth(&session.output_pressure);
+                output.push(SessionRuntimeOutput::PtyOutput {
+                    session_id: session_id.clone(),
+                    data,
+                });
+            }
             Ok(ReaderEvent::Failed(message)) => {
+                decrement_reader_depth(&session.output_pressure);
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     message,
@@ -578,32 +628,72 @@ fn pty_size(size: Option<&ResizePayload>) -> PtySize {
     }
 }
 
-fn spawn_reader(mut reader: Box<dyn Read + Send>) -> Receiver<ReaderEvent> {
-    let (sender, receiver) = mpsc::channel();
+fn spawn_reader(
+    mut reader: Box<dyn Read + Send>,
+    capacity: usize,
+) -> (Receiver<ReaderEvent>, Arc<ReaderPressure>, usize) {
+    let capacity = capacity.max(1);
+    let pressure = Arc::new(ReaderPressure::default());
+    let reader_pressure = Arc::clone(&pressure);
+    let (sender, receiver) = mpsc::sync_channel(capacity);
     thread::spawn(move || {
-        let mut buffer = [0; 8192];
+        let mut buffer = [0; PTY_READER_BUFFER_BYTES];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(bytes_read) => {
-                    if sender
-                        .send(ReaderEvent::Output(buffer[..bytes_read].to_vec()))
-                        .is_err()
+                    if send_reader_event(
+                        &sender,
+                        &reader_pressure,
+                        ReaderEvent::Output(buffer[..bytes_read].to_vec()),
+                    )
+                    .is_err()
                     {
                         break;
                     }
                 }
                 Err(error) if is_terminal_closed(&error) => break,
                 Err(error) => {
-                    let _ = sender.send(ReaderEvent::Failed(format!(
-                        "read pty output failed: {error}"
-                    )));
+                    let _ = send_reader_event(
+                        &sender,
+                        &reader_pressure,
+                        ReaderEvent::Failed(format!("read pty output failed: {error}")),
+                    );
                     break;
                 }
             }
         }
     });
-    receiver
+    (receiver, pressure, capacity)
+}
+
+fn send_reader_event(
+    sender: &SyncSender<ReaderEvent>,
+    pressure: &ReaderPressure,
+    event: ReaderEvent,
+) -> Result<(), ()> {
+    pressure.depth.fetch_add(1, Ordering::AcqRel);
+    match sender.try_send(event) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(event)) => {
+            pressure.pressured.store(true, Ordering::Release);
+            sender.send(event).map_err(|_| {
+                decrement_reader_depth(pressure);
+            })
+        }
+        Err(TrySendError::Disconnected(_)) => {
+            decrement_reader_depth(pressure);
+            Err(())
+        }
+    }
+}
+
+fn decrement_reader_depth(pressure: &ReaderPressure) {
+    let _ = pressure
+        .depth
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
+            depth.checked_sub(1)
+        });
 }
 
 fn is_terminal_closed(error: &io::Error) -> bool {
