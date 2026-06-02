@@ -7,14 +7,14 @@ use botster_core::{
     MultiplexerEngine, MultiplexerEngineObservation, NotificationContent, NotificationItem,
     NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
     PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
-    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
-    PluginWorkerRegistration, RequestId, SessionActivityStatus, SessionId, SessionLifecycleState,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
-    TransportIngress,
+    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, RequestId,
+    SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{
-    FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+    FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
 
 fn request_id(value: &str) -> RequestId {
@@ -121,6 +121,88 @@ fn plugin_invocation(handler: PluginHandlerRef) -> PluginInvocationRequest {
         },
         payload: BoundaryJson(serde_json::json!({ "command": "run" })),
     }
+}
+
+fn plugin_invocation_with_timeout(
+    request_id_value: &str,
+    handler: PluginHandlerRef,
+    timeout_ms: u64,
+) -> PluginInvocationRequest {
+    PluginInvocationRequest {
+        request_id: request_id(request_id_value),
+        timeout_ms,
+        ..plugin_invocation(handler)
+    }
+}
+
+#[test]
+fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
+    let engine: MultiplexerEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        MultiplexerEngine::with_plugin_config(
+            FakeSessionRuntime::new(),
+            botster_core::PluginWorkerEngineConfig {
+                per_plugin_capacity: 1,
+            },
+        );
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::WaitForCancellation);
+    engine.load_plugin(plugin_registration(
+        plugin_runtime.clone(),
+        &plugin,
+        &handler,
+    ));
+
+    let timeout = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "plugin-timeout",
+        handler.clone(),
+        10,
+    ));
+    assert!(matches!(
+        timeout.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    assert!(matches!(
+        timeout.events.as_slice(),
+        [PluginWorkerEvent::InvocationTimedOut(failure)]
+            if failure.request_id == request_id("plugin-timeout")
+                && failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+
+    let cancellation_deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+    while plugin_runtime.cancellations_observed() == 0
+        && std::time::Instant::now() < cancellation_deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(plugin_runtime.cancellations_observed(), 1);
+
+    let late_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
+        duration: std::time::Duration::from_millis(100),
+        payload: BoundaryJson(serde_json::json!({ "value": "late" })),
+    });
+    engine.load_plugin(plugin_registration(late_runtime, &plugin, &handler));
+    let first = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "plugin-timeout-2",
+        handler.clone(),
+        10,
+    ));
+    assert!(matches!(
+        first.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    let pressured = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "plugin-pressured",
+        handler,
+        10,
+    ));
+    assert!(matches!(
+        pressured.events.as_slice(),
+        [PluginWorkerEvent::Backpressure(summary)]
+            if summary.capacity == 1 && summary.depth == 1
+    ));
 }
 
 #[test]
@@ -237,7 +319,7 @@ fn multiplexer_engine_drives_spawn_attach_output_notification_plugin_activity_an
 
     let plugin_result = engine.invoke_plugin(plugin_invocation(handler.clone()));
     assert_eq!(plugin_runtime.invocations().len(), 1);
-    match plugin_result {
+    match plugin_result.result {
         PluginInvocationResult::Completed(success) => {
             assert_eq!(success.request_id, request_id("plugin-1"));
             assert_eq!(success.handler, handler);

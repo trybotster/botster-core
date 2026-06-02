@@ -4,14 +4,14 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::actor::{ClientControlFrame, PluginInvocationRequest, PluginInvocationResult};
+use crate::actor::{ClientControlFrame, PluginInvocationRequest};
 use crate::contract::actor::{SessionIoEvent, SessionIoRequest, SessionLifecycleState};
 use crate::contract::notification::{
     NotificationId, NotificationInbox, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::contract::transport::{TransportEgress, TransportIngress};
 use crate::engine::plugin_worker::{
-    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
+    PluginInvocationOutcome, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
 use crate::engine::session_activity::{apply_session_activity_event, classify_session_activity};
 use crate::engine::session_worker::{
@@ -340,7 +340,7 @@ where
     }
 
     /// Invoke a registered plugin handler.
-    pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationResult {
+    pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.plugins.invoke(request)
     }
 
