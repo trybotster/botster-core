@@ -22,14 +22,13 @@ use crate::{BackpressureSummary, ProcessExitedPayload, RequestId, ResizePayload,
 
 pub use capability::{
     CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
-    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeCleanup,
-    CapabilityRuntimeError, CapabilityRuntimeErrorKind, CapabilityRuntimeEvent,
-    CapabilityRuntimeHandle, CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent,
-    CapabilityWebSocketEvent, FilesystemCapabilityRequest, FilesystemOperation,
-    HttpCapabilityRequest, HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime,
-    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ScopedRelativePath,
-    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
-    WebSocketMessage,
+    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
+    CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
+    CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
+    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
+    HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime, PluginStoreCapabilityRequest,
+    PluginStoreKey, PluginStoreOperation, ScopedRelativePath, TimerCapabilityRequest,
+    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest, WebSocketMessage,
 };
 #[cfg(feature = "local-runtime")]
 pub use local_process::{
