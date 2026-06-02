@@ -1007,6 +1007,12 @@ pub enum PluginResourceKind {
     LocalWebhook,
     /// In-flight HTTP request resource.
     HttpRequest,
+    /// Persistent network connection resource.
+    NetworkConnection,
+    /// In-flight scoped filesystem operation resource.
+    FilesystemOperation,
+    /// In-flight plugin-store operation resource.
+    PluginStoreOperation,
     /// MCP registration resource.
     McpRegistration,
     /// Entity provider resource.

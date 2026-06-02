@@ -6,6 +6,7 @@
 //! requests; hosts still decide command, directory, environment, and lifecycle
 //! policy before entering core.
 
+pub mod capability;
 #[cfg(feature = "local-runtime")]
 mod local_process;
 
@@ -19,6 +20,17 @@ use serde::{Deserialize, Serialize};
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{BackpressureSummary, ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
+pub use capability::{
+    CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
+    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeCleanup,
+    CapabilityRuntimeError, CapabilityRuntimeErrorKind, CapabilityRuntimeEvent,
+    CapabilityRuntimeHandle, CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent,
+    CapabilityWebSocketEvent, FilesystemCapabilityRequest, FilesystemOperation,
+    HttpCapabilityRequest, HttpCapabilityResponse, HttpHeader, PluginCapabilityRuntime,
+    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ScopedRelativePath,
+    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
+    WebSocketMessage,
+};
 #[cfg(feature = "local-runtime")]
 pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
