@@ -3,16 +3,19 @@
 use botster_core::client::ClientId;
 use botster_core::session::{RequestId, SessionId, SubscriptionId};
 use botster_core::transport::{TransportEgress, TransportIngress};
+use botster_core::{
+    CapabilityOperation, CapabilityOperationResult, CapabilityRuntimeEvent,
+    CapabilityRuntimeRequest, FilesystemCapabilityRequest, FilesystemCapabilityResult,
+    FilesystemOperation, ModeFlags, PluginCapabilityRuntime, PluginKey, PluginStoreBackend,
+    PluginStoreKey, PluginStoreLimits, ScopedRelativePath, SessionIoEvent, TerminalColorProfile,
+    TerminalOutputChunk, TerminalScreenEngine, TerminalScreenHook, TerminalScreenRuntime,
+    TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+};
 #[cfg(feature = "local-runtime")]
 use botster_core::{
     CoreSessionMetadata, DefaultBotsterEngine, EngineCommandKind, EngineCommandOutcome,
     LocalProcessRuntime, ManagedSessionRuntime, PreparedSnapshotRequest, ResizePayload,
     SessionActivityStatus, SessionIoRequest, SessionLifecycleState,
-};
-use botster_core::{
-    ModeFlags, PluginKey, PluginStoreBackend, PluginStoreKey, PluginStoreLimits, SessionIoEvent,
-    TerminalColorProfile, TerminalOutputChunk, TerminalScreenEngine, TerminalScreenHook,
-    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 use botster_core_test_support::assertions::{
     assert_initial_snapshot_precedes_live_output,
@@ -31,7 +34,7 @@ use botster_core_test_support::conformance::{
     DisposableCommandLocalSession, DisposableManagedLocalSession, ManyPtyLoadConfig,
 };
 use botster_core_test_support::fake::{
-    FakePluginStoreBackend, FakeSessionTransport, FakeTerminalScreenRuntime,
+    FakeCapabilityRuntime, FakePluginStoreBackend, FakeSessionTransport, FakeTerminalScreenRuntime,
 };
 
 fn session_id() -> SessionId {
@@ -206,6 +209,62 @@ fn downstream_consumer_can_assert_initial_snapshot_before_live_output_contract()
     assert!(matches!(
         &events[1],
         SessionIoEvent::TerminalBytes { data, .. } if data == b"live-before-snapshot\xff"
+    ));
+}
+
+#[test]
+fn downstream_consumer_can_prove_capability_submit_precedes_completion() {
+    let plugin = plugin_key("consumer-plugin");
+    let mut runtime = FakeCapabilityRuntime::new();
+    let request = CapabilityRuntimeRequest {
+        plugin_key: plugin.clone(),
+        operation_id: botster_core::CapabilityOperationId("fs-read-1".to_string()),
+        operation: CapabilityOperation::Filesystem(FilesystemCapabilityRequest {
+            scope_id: "workspace".to_string(),
+            operation: FilesystemOperation::Read {
+                path: ScopedRelativePath("README.md".to_string()),
+            },
+            limits: None,
+        }),
+        timeout_ms: 100,
+        callback: None,
+    };
+
+    let handle = runtime.submit(request.clone()).expect("submit capability");
+
+    assert_eq!(handle.operation_id, request.operation_id);
+    assert_eq!(runtime.submitted(), &[request]);
+    assert_eq!(runtime.pending_len(), 1);
+    assert!(
+        runtime
+            .drain_events(&plugin)
+            .expect("drain events before completion")
+            .is_empty(),
+        "submit must not complete filesystem work inline"
+    );
+
+    runtime
+        .complete_next(Some(CapabilityOperationResult::Filesystem(
+            FilesystemCapabilityResult::Read {
+                path: ScopedRelativePath("README.md".to_string()),
+                bytes: b"ok".to_vec(),
+            },
+        )))
+        .expect("complete pending operation");
+
+    let events = runtime
+        .drain_events(&plugin)
+        .expect("drain events after completion");
+    assert!(matches!(
+        &events[..],
+        [CapabilityRuntimeEvent::Completed(completed)]
+            if completed.operation_id == handle.operation_id
+                && matches!(
+                    &completed.result,
+                    Some(CapabilityOperationResult::Filesystem(
+                        FilesystemCapabilityResult::Read { .. }
+                    ))
+                )
     ));
 }
 

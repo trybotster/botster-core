@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use botster_core::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
-    CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityResourceId,
-    CapabilityRuntimeError, CapabilityRuntimeErrorKind, CapabilityRuntimeEvent,
-    CapabilityRuntimeHandle, CapabilityRuntimeRequest, CapabilitySet, PluginCapabilityRuntime,
-    PluginCleanupResult, PluginKey, PluginResourceRef, PluginStoreBackend,
+    CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationResult,
+    CapabilityResourceId, CapabilityRuntimeError, CapabilityRuntimeErrorKind,
+    CapabilityRuntimeEvent, CapabilityRuntimeHandle, CapabilityRuntimeRequest, CapabilitySet,
+    PluginCapabilityRuntime, PluginCleanupResult, PluginKey, PluginResourceRef, PluginStoreBackend,
     PluginStoreCapabilityRequest, PluginStoreEntry, PluginStoreKey, PluginStoreLimits,
     PluginStoreOperation, PluginStoreRecord, PluginStoreResult, RequestId,
 };
@@ -281,8 +281,7 @@ impl FakePluginStoreCapabilityRuntime {
             Ok(plugin_store) => CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
                 plugin_key: request.plugin_key,
                 operation_id: request.operation_id,
-                response: None,
-                plugin_store: Some(plugin_store),
+                result: Some(CapabilityOperationResult::PluginStore(plugin_store)),
             }),
             Err(error) => CapabilityRuntimeEvent::Failed(CapabilityOperationFailure {
                 plugin_key: request.plugin_key,

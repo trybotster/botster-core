@@ -7,7 +7,7 @@
 //! source. Host profiles still provide concrete HTTP, WebSocket, filesystem,
 //! store, timer, and OS watcher adapters behind bounded mailboxes.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::sync::mpsc;
@@ -22,6 +22,15 @@ use crate::actor::{
     PluginResourceKind, PluginResourceRef, QueueSource,
 };
 use crate::package::{Capability, CapabilitySet, CapabilitySurface};
+
+/// Default bounded WebSocket outbound message capacity per connection.
+pub const DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY: usize = 256;
+
+/// Default bounded WebSocket inbound event capacity per connection.
+pub const DEFAULT_WEBSOCKET_INBOUND_CAPACITY: usize = 256;
+
+/// Default bounded WebSocket runtime event capacity per plugin.
+pub const DEFAULT_WEBSOCKET_EVENT_CAPACITY: usize = 256;
 
 /// Stable identifier for one submitted capability operation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -41,6 +50,11 @@ pub struct CapabilityRuntimeRequest {
     /// Requested capability operation.
     pub operation: CapabilityOperation,
     /// Timeout budget in milliseconds for operation completion or first handle.
+    ///
+    /// The in-memory WebSocket harness treats `0` as an already-expired
+    /// operation and returns [`CapabilityRuntimeErrorKind::TimedOut`].
+    /// Concrete host profiles own elapsed-time measurement and backend
+    /// cancellation semantics.
     pub timeout_ms: u64,
     /// Optional plugin handler for completion or inbound events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,8 +325,7 @@ impl HttpCapabilityRuntime {
                 Ok(response) => CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
                     plugin_key: completion.plugin_key,
                     operation_id: completion.operation_id,
-                    response: Some(response),
-                    plugin_store: None,
+                    result: Some(CapabilityOperationResult::Http(response)),
                 }),
                 Err(error) if error.kind == CapabilityRuntimeErrorKind::Cancelled => {
                     CapabilityRuntimeEvent::Cancelled(CapabilityOperationFailure {
@@ -705,6 +718,9 @@ pub struct FilesystemCapabilityRequest {
     pub scope_id: String,
     /// Filesystem operation below the scope.
     pub operation: FilesystemOperation,
+    /// Optional operation limits requested by plugin code or injected by the host profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<FilesystemCapabilityLimits>,
 }
 
 /// Relative path within a host-owned filesystem scope.
@@ -719,9 +735,70 @@ impl ScopedRelativePath {
         !path.is_empty()
             && !path.starts_with('/')
             && !path.starts_with('\\')
+            && !has_windows_drive_prefix(path)
             && !path.split('/').any(|segment| segment == "..")
             && !path.split('\\').any(|segment| segment == "..")
     }
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+/// Host/profile grant for one scoped filesystem root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityGrant {
+    /// Opaque host-owned filesystem scope id.
+    pub scope_id: String,
+    /// Operations allowed within this scope.
+    pub permissions: FilesystemCapabilityPermissions,
+    /// Default limits applied by the host profile for this scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<FilesystemCapabilityLimits>,
+}
+
+/// Allowed scoped filesystem operations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityPermissions {
+    /// Read file bytes.
+    pub read: bool,
+    /// Write file bytes.
+    pub write: bool,
+    /// List child entries.
+    pub list: bool,
+    /// Read metadata.
+    pub stat: bool,
+    /// Remove files or empty directories.
+    pub remove: bool,
+}
+
+impl FilesystemCapabilityPermissions {
+    /// Whether this grant permits the requested scoped filesystem operation.
+    #[must_use]
+    pub const fn allows(&self, operation: &FilesystemOperation) -> bool {
+        match operation {
+            FilesystemOperation::Read { .. } => self.read,
+            FilesystemOperation::Write { .. } => self.write,
+            FilesystemOperation::List { .. } => self.list,
+            FilesystemOperation::Stat { .. } => self.stat,
+            FilesystemOperation::Remove { .. } => self.remove,
+        }
+    }
+}
+
+/// Host/profile limit contract for scoped filesystem operations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityLimits {
+    /// Maximum bytes a read operation may return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_read_bytes: Option<u64>,
+    /// Maximum bytes a write operation may accept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_write_bytes: Option<u64>,
+    /// Maximum child entries a list operation may return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_list_entries: Option<u64>,
 }
 
 /// Scoped filesystem operations named by core.
@@ -755,6 +832,20 @@ pub enum FilesystemOperation {
         /// Target relative path.
         path: ScopedRelativePath,
     },
+}
+
+impl FilesystemOperation {
+    /// Target relative path for this scoped filesystem operation.
+    #[must_use]
+    pub const fn path(&self) -> &ScopedRelativePath {
+        match self {
+            Self::Read { path }
+            | Self::Write { path, .. }
+            | Self::List { path }
+            | Self::Stat { path }
+            | Self::Remove { path } => path,
+        }
+    }
 }
 
 /// Plugin-scoped JSON store request.
@@ -1101,12 +1192,21 @@ pub struct CapabilityOperationCompleted {
     pub plugin_key: PluginKey,
     /// Completed operation id.
     pub operation_id: CapabilityOperationId,
-    /// Optional HTTP-style response metadata.
+    /// Optional typed operation result payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response: Option<HttpCapabilityResponse>,
-    /// Optional plugin-store operation result.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin_store: Option<PluginStoreResult>,
+    pub result: Option<CapabilityOperationResult>,
+}
+
+/// Typed successful operation result payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "result", rename_all = "snake_case")]
+pub enum CapabilityOperationResult {
+    /// HTTP response metadata and bytes.
+    Http(HttpCapabilityResponse),
+    /// Scoped filesystem result payload.
+    Filesystem(FilesystemCapabilityResult),
+    /// Plugin-store result payload.
+    PluginStore(PluginStoreResult),
 }
 
 /// HTTP response metadata.
@@ -1120,6 +1220,85 @@ pub struct HttpCapabilityResponse {
     /// Response body bytes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body: Vec<u8>,
+}
+
+/// Successful scoped filesystem operation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum FilesystemCapabilityResult {
+    /// Read file bytes.
+    Read {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned bytes.
+        bytes: Vec<u8>,
+    },
+    /// Wrote file bytes.
+    Write {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Number of bytes accepted by the host runtime.
+        bytes_written: u64,
+        /// Whether the host runtime completed the write through its atomic-write path.
+        atomic: bool,
+    },
+    /// Listed child entries.
+    List {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned child entries.
+        entries: Vec<FilesystemEntry>,
+    },
+    /// Returned file metadata.
+    Stat {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned metadata.
+        metadata: FilesystemMetadata,
+    },
+    /// Removed a file or empty directory.
+    Remove {
+        /// Target relative path.
+        path: ScopedRelativePath,
+    },
+}
+
+/// One scoped filesystem list entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemEntry {
+    /// Entry path relative to the granted scope.
+    pub path: ScopedRelativePath,
+    /// Entry type.
+    pub kind: FilesystemEntryKind,
+    /// Size in bytes when the host exposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+}
+
+/// Scoped filesystem entry kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesystemEntryKind {
+    /// Regular file.
+    File,
+    /// Directory.
+    Directory,
+    /// Symbolic link.
+    Symlink,
+    /// Other host-specific file type.
+    Other,
+}
+
+/// Scoped filesystem metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemMetadata {
+    /// File type.
+    pub kind: FilesystemEntryKind,
+    /// Size in bytes when the host exposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    /// Whether host metadata reports the entry as readonly.
+    pub readonly: bool,
 }
 
 /// Runtime resource lifecycle event.
@@ -1226,6 +1405,628 @@ pub trait PluginCapabilityRuntime {
         &mut self,
         plugin_key: &PluginKey,
     ) -> Result<PluginCleanupResult, CapabilityRuntimeError>;
+}
+
+/// Policy-free in-memory WebSocket capability runtime.
+///
+/// This runtime is a deterministic core harness: it enforces capability grants,
+/// bounded outbound/inbound queues, lifecycle events, cancellation, and plugin
+/// cleanup without opening real network sockets or selecting reconnect policy.
+#[derive(Debug, Clone)]
+pub struct InMemoryWebSocketCapabilityRuntime {
+    config: WebSocketCapabilityRuntimeConfig,
+    connections: BTreeMap<CapabilityResourceId, WebSocketConnectionState>,
+    operations: BTreeMap<CapabilityOperationId, WebSocketOperationState>,
+    events: HashMap<PluginKey, VecDeque<CapabilityRuntimeEvent>>,
+    next_resource_id: u64,
+}
+
+impl InMemoryWebSocketCapabilityRuntime {
+    /// Create a runtime from explicit host configuration.
+    #[must_use]
+    pub fn new(config: WebSocketCapabilityRuntimeConfig) -> Self {
+        Self {
+            config,
+            connections: BTreeMap::new(),
+            operations: BTreeMap::new(),
+            events: HashMap::new(),
+            next_resource_id: 1,
+        }
+    }
+
+    /// Queue an inbound WebSocket message from a host adapter.
+    ///
+    /// This is the events-only receive path: plugin code drains
+    /// [`CapabilityRuntimeEvent::WebSocketMessage`] rather than issuing a
+    /// separate receive request.
+    pub fn enqueue_inbound_message(
+        &mut self,
+        resource: &PluginResourceRef,
+        message: WebSocketMessage,
+    ) -> Result<(), CapabilityRuntimeError> {
+        let resource_id = CapabilityResourceId(resource.resource_id.clone());
+        let Some(connection) = self.connections.get(&resource_id) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not open",
+            ));
+        };
+
+        if connection.resource.plugin_key != resource.plugin_key
+            || connection.resource.kind != resource.kind
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not owned by this plugin",
+            ));
+        }
+
+        if connection.inbound_depth >= self.config.inbound_capacity {
+            let pressure = websocket_backpressure(
+                &resource.plugin_key,
+                self.config.inbound_capacity,
+                connection.inbound_depth,
+            );
+            self.push_event(
+                resource.plugin_key.clone(),
+                CapabilityRuntimeEvent::Backpressure(pressure),
+            )?;
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::Backpressured,
+                "websocket inbound queue is at capacity",
+            ));
+        }
+
+        self.ensure_event_capacity(&resource.plugin_key, 1)?;
+
+        let connection = self
+            .connections
+            .get_mut(&resource_id)
+            .expect("validated websocket connection exists");
+        connection.inbound_depth += 1;
+        self.push_event(
+            resource.plugin_key.clone(),
+            CapabilityRuntimeEvent::WebSocketMessage(CapabilityWebSocketEvent {
+                resource: resource.clone(),
+                message,
+            }),
+        )
+    }
+
+    /// Drain outbound messages accepted for a host WebSocket adapter.
+    pub fn drain_outbound_messages(
+        &mut self,
+        resource: &PluginResourceRef,
+    ) -> Result<Vec<WebSocketMessage>, CapabilityRuntimeError> {
+        let resource_id = CapabilityResourceId(resource.resource_id.clone());
+        let Some(connection) = self.connections.get_mut(&resource_id) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not open",
+            ));
+        };
+
+        if connection.resource != *resource {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not owned by this plugin",
+            ));
+        }
+
+        Ok(connection.outbound.drain(..).collect())
+    }
+
+    fn submit_websocket(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+        operation: WebSocketCapabilityRequest,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        if request.timeout_ms == 0 {
+            self.push_event(
+                request.plugin_key.clone(),
+                CapabilityRuntimeEvent::TimedOut(CapabilityOperationFailure {
+                    plugin_key: request.plugin_key,
+                    operation_id: request.operation_id,
+                    error_kind: CapabilityRuntimeErrorKind::TimedOut,
+                    reason: "websocket operation exceeded timeout".to_string(),
+                }),
+            )?;
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::TimedOut,
+                "websocket operation exceeded timeout",
+            ));
+        }
+
+        match operation {
+            WebSocketCapabilityRequest::Connect {
+                endpoint,
+                protocols,
+            } => self.connect(request, endpoint, protocols),
+            WebSocketCapabilityRequest::Send {
+                resource_id,
+                message,
+            } => self.send(request, resource_id, message),
+            WebSocketCapabilityRequest::Close {
+                resource_id,
+                code: _,
+                reason: _,
+            } => self.close(request, resource_id),
+        }
+    }
+
+    fn connect(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+        endpoint: String,
+        protocols: Vec<String>,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        let resource_id = self.next_resource_id();
+        let resource = request.resource_ref(resource_id.clone());
+        let required_capability = request.required_capability();
+        let operation_id = request.operation_id.clone();
+        let plugin_key = request.plugin_key.clone();
+
+        self.ensure_event_capacity(&plugin_key, 2)?;
+
+        let _ = (endpoint, protocols);
+        self.connections.insert(
+            resource_id,
+            WebSocketConnectionState {
+                resource: resource.clone(),
+                outbound: VecDeque::new(),
+                inbound_depth: 0,
+            },
+        );
+        self.operations.insert(
+            operation_id.clone(),
+            WebSocketOperationState {
+                plugin_key: plugin_key.clone(),
+                resource: Some(resource.clone()),
+            },
+        );
+
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::ResourceOpened(CapabilityResourceEvent {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                resource: resource.clone(),
+            }),
+        )?;
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                result: None,
+            }),
+        )?;
+
+        Ok(CapabilityRuntimeHandle {
+            plugin_key,
+            operation_id,
+            resource: Some(resource),
+            required_capability,
+        })
+    }
+
+    fn send(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+        resource_id: CapabilityResourceId,
+        message: WebSocketMessage,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        let Some(connection) = self.connections.get(&resource_id) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not open",
+            ));
+        };
+
+        if connection.resource.plugin_key != request.plugin_key {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not owned by this plugin",
+            ));
+        }
+
+        if connection.outbound.len() >= self.config.outbound_capacity {
+            let pressure = websocket_backpressure(
+                &request.plugin_key,
+                self.config.outbound_capacity,
+                connection.outbound.len(),
+            );
+            self.push_event(
+                request.plugin_key.clone(),
+                CapabilityRuntimeEvent::Backpressure(pressure),
+            )?;
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::Backpressured,
+                "websocket outbound queue is at capacity",
+            ));
+        }
+
+        self.ensure_event_capacity(&request.plugin_key, 1)?;
+
+        let connection = self
+            .connections
+            .get_mut(&resource_id)
+            .expect("validated websocket connection exists");
+        connection.outbound.push_back(message);
+        let resource = connection.resource.clone();
+        let required_capability = request.required_capability();
+        let operation_id = request.operation_id.clone();
+        let plugin_key = request.plugin_key.clone();
+        self.operations.insert(
+            operation_id.clone(),
+            WebSocketOperationState {
+                plugin_key: plugin_key.clone(),
+                resource: Some(resource.clone()),
+            },
+        );
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                result: None,
+            }),
+        )?;
+
+        Ok(CapabilityRuntimeHandle {
+            plugin_key,
+            operation_id,
+            resource: Some(resource),
+            required_capability,
+        })
+    }
+
+    fn close(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+        resource_id: CapabilityResourceId,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        let Some(connection) = self.connections.get(&resource_id) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not open",
+            ));
+        };
+
+        if connection.resource.plugin_key != request.plugin_key {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not owned by this plugin",
+            ));
+        }
+
+        self.ensure_event_capacity(&request.plugin_key, 2)?;
+
+        let connection = self
+            .connections
+            .remove(&resource_id)
+            .expect("validated websocket connection exists");
+        let required_capability = request.required_capability();
+        let operation_id = request.operation_id.clone();
+        let plugin_key = request.plugin_key.clone();
+        let resource = connection.resource;
+        self.operations.insert(
+            operation_id.clone(),
+            WebSocketOperationState {
+                plugin_key: plugin_key.clone(),
+                resource: Some(resource.clone()),
+            },
+        );
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::ResourceReleased(CapabilityResourceEvent {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                resource: resource.clone(),
+            }),
+        )?;
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                result: None,
+            }),
+        )?;
+
+        Ok(CapabilityRuntimeHandle {
+            plugin_key,
+            operation_id,
+            resource: Some(resource),
+            required_capability,
+        })
+    }
+
+    fn push_event(
+        &mut self,
+        plugin_key: PluginKey,
+        event: CapabilityRuntimeEvent,
+    ) -> Result<(), CapabilityRuntimeError> {
+        let events = self.events.entry(plugin_key.clone()).or_default();
+        if events.len() >= self.config.event_capacity {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::Backpressured,
+                "websocket runtime event queue is at capacity",
+            ));
+        }
+        events.push_back(event);
+        Ok(())
+    }
+
+    fn ensure_event_capacity(
+        &self,
+        plugin_key: &PluginKey,
+        additional_events: usize,
+    ) -> Result<(), CapabilityRuntimeError> {
+        let depth = self
+            .events
+            .get(plugin_key)
+            .map(VecDeque::len)
+            .unwrap_or_default();
+
+        if depth.saturating_add(additional_events) > self.config.event_capacity {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::Backpressured,
+                "websocket runtime event queue is at capacity",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn next_resource_id(&mut self) -> CapabilityResourceId {
+        let id = self.next_resource_id;
+        self.next_resource_id += 1;
+        CapabilityResourceId(format!("ws-{id}"))
+    }
+}
+
+impl Default for InMemoryWebSocketCapabilityRuntime {
+    fn default() -> Self {
+        Self::new(WebSocketCapabilityRuntimeConfig::default())
+    }
+}
+
+impl PluginCapabilityRuntime for InMemoryWebSocketCapabilityRuntime {
+    fn submit(
+        &mut self,
+        request: CapabilityRuntimeRequest,
+    ) -> Result<CapabilityRuntimeHandle, CapabilityRuntimeError> {
+        let required_capability = request.required_capability();
+        if !self
+            .config
+            .granted_capabilities
+            .contains(&required_capability)
+        {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::CapabilityDenied,
+                "plugin is missing required websocket capability",
+            ));
+        }
+
+        let operation = match request.operation.clone() {
+            CapabilityOperation::WebSocket(operation) => operation,
+            _ => {
+                return Err(CapabilityRuntimeError::new(
+                    CapabilityRuntimeErrorKind::InvalidRequest,
+                    "in-memory websocket runtime only accepts websocket operations",
+                ));
+            }
+        };
+
+        self.submit_websocket(request, operation)
+    }
+
+    fn cancel(
+        &mut self,
+        plugin_key: &PluginKey,
+        operation_id: &CapabilityOperationId,
+    ) -> Result<(), CapabilityRuntimeError> {
+        let Some(operation) = self.operations.get(operation_id).cloned() else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::OperationNotFound,
+                "websocket operation is not known",
+            ));
+        };
+
+        if operation.plugin_key != *plugin_key {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::OperationNotFound,
+                "websocket operation is not owned by this plugin",
+            ));
+        }
+
+        self.ensure_event_capacity(plugin_key, 1)?;
+        self.operations.remove(operation_id);
+
+        if let Some(resource) = &operation.resource {
+            self.connections
+                .remove(&CapabilityResourceId(resource.resource_id.clone()));
+        }
+
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::Cancelled(CapabilityOperationFailure {
+                plugin_key: plugin_key.clone(),
+                operation_id: operation_id.clone(),
+                error_kind: CapabilityRuntimeErrorKind::Cancelled,
+                reason: "websocket operation was cancelled".to_string(),
+            }),
+        )
+    }
+
+    fn release_resource(
+        &mut self,
+        resource: PluginResourceRef,
+    ) -> Result<(), CapabilityRuntimeError> {
+        let resource_id = CapabilityResourceId(resource.resource_id.clone());
+        let Some(connection) = self.connections.get(&resource_id) else {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not open",
+            ));
+        };
+
+        if connection.resource != resource {
+            return Err(CapabilityRuntimeError::new(
+                CapabilityRuntimeErrorKind::ResourceNotFound,
+                "websocket resource is not owned by this plugin",
+            ));
+        }
+
+        self.ensure_event_capacity(&resource.plugin_key, 1)?;
+        self.connections.remove(&resource_id);
+
+        self.push_event(
+            resource.plugin_key.clone(),
+            CapabilityRuntimeEvent::ResourceReleased(CapabilityResourceEvent {
+                plugin_key: resource.plugin_key.clone(),
+                operation_id: CapabilityOperationId(format!("release:{}", resource.resource_id)),
+                resource,
+            }),
+        )
+    }
+
+    fn drain_events(
+        &mut self,
+        plugin_key: &PluginKey,
+    ) -> Result<Vec<CapabilityRuntimeEvent>, CapabilityRuntimeError> {
+        let Some(events) = self.events.get_mut(plugin_key) else {
+            return Ok(Vec::new());
+        };
+        let drained = events.drain(..).collect::<Vec<_>>();
+
+        for event in &drained {
+            if let CapabilityRuntimeEvent::WebSocketMessage(message) = event {
+                if let Some(connection) = self
+                    .connections
+                    .get_mut(&CapabilityResourceId(message.resource.resource_id.clone()))
+                {
+                    connection.inbound_depth = connection.inbound_depth.saturating_sub(1);
+                }
+            }
+        }
+
+        Ok(drained)
+    }
+
+    fn cleanup_plugin(
+        &mut self,
+        plugin_key: &PluginKey,
+    ) -> Result<PluginCleanupResult, CapabilityRuntimeError> {
+        let removed_resources = self
+            .connections
+            .iter()
+            .filter(|(_, connection)| connection.resource.plugin_key == *plugin_key)
+            .map(|(resource_id, connection)| (resource_id.clone(), connection.resource.clone()))
+            .collect::<Vec<_>>();
+
+        for (resource_id, _) in &removed_resources {
+            self.connections.remove(resource_id);
+        }
+        self.operations
+            .retain(|_, operation| operation.plugin_key != *plugin_key);
+
+        let cleanup = PluginCleanupResult {
+            request_id: crate::session::RequestId(format!("capability-cleanup:{}", plugin_key.0)),
+            plugin_key: plugin_key.clone(),
+            removed_descriptors: Vec::new(),
+            removed_resources: removed_resources
+                .into_iter()
+                .map(|(_, resource)| resource)
+                .collect(),
+        };
+        self.events.remove(plugin_key);
+        self.push_event(
+            plugin_key.clone(),
+            CapabilityRuntimeEvent::CleanupCompleted(cleanup.clone()),
+        )?;
+        Ok(cleanup)
+    }
+}
+
+/// Configuration for the in-memory WebSocket runtime harness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebSocketCapabilityRuntimeConfig {
+    /// Capabilities granted to this host-configured runtime context.
+    ///
+    /// A host that serves plugins with different grants should instantiate or
+    /// wrap runtimes per grant context before submitting plugin requests.
+    pub granted_capabilities: CapabilitySet,
+    /// Maximum accepted outbound messages per WebSocket resource.
+    pub outbound_capacity: usize,
+    /// Maximum queued inbound events per WebSocket resource.
+    pub inbound_capacity: usize,
+    /// Maximum queued runtime events per plugin.
+    pub event_capacity: usize,
+}
+
+impl WebSocketCapabilityRuntimeConfig {
+    /// Build a bounded config from explicit grants and capacities.
+    #[must_use]
+    pub fn new(
+        granted_capabilities: CapabilitySet,
+        outbound_capacity: usize,
+        inbound_capacity: usize,
+        event_capacity: usize,
+    ) -> Self {
+        Self {
+            granted_capabilities,
+            outbound_capacity,
+            inbound_capacity,
+            event_capacity,
+        }
+    }
+}
+
+impl Default for WebSocketCapabilityRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            granted_capabilities: BTreeSet::from([scoped_capability(
+                CapabilitySurface::Network,
+                "websocket",
+            )]),
+            outbound_capacity: DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
+            inbound_capacity: DEFAULT_WEBSOCKET_INBOUND_CAPACITY,
+            event_capacity: DEFAULT_WEBSOCKET_EVENT_CAPACITY,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WebSocketConnectionState {
+    resource: PluginResourceRef,
+    outbound: VecDeque<WebSocketMessage>,
+    inbound_depth: usize,
+}
+
+#[derive(Debug, Clone)]
+struct WebSocketOperationState {
+    plugin_key: PluginKey,
+    resource: Option<PluginResourceRef>,
+}
+
+fn websocket_backpressure(
+    plugin_key: &PluginKey,
+    capacity: usize,
+    depth: usize,
+) -> BackpressureSummary {
+    BackpressureSummary {
+        source: QueueSource::PluginWorker,
+        capacity,
+        depth,
+        route: BackpressureRoute {
+            session_id: None,
+            client_id: None,
+            subscription_id: None,
+            plugin_key: Some(plugin_key.clone()),
+        },
+    }
 }
 
 /// Stable capability runtime error kind.
