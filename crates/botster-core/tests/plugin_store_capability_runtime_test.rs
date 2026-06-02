@@ -6,14 +6,15 @@ use std::thread;
 
 use botster_core::{
     BoundaryJson, Capability, CapabilityOperation, CapabilityOperationCompleted,
-    CapabilityOperationFailure, CapabilityOperationId, CapabilityRuntimeErrorKind,
-    CapabilityRuntimeEvent, CapabilityRuntimeRequest, CapabilitySet, CapabilitySurface,
-    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, PackageManifest, PluginCapabilityRuntime,
-    PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginKey, PluginLoadSpec, PluginOwnedDescriptor,
-    PluginResourceKind, PluginResourceRef, PluginRuntime, PluginStoreBackend,
-    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreLimits, PluginStoreOperation,
-    PluginStoreResult, PluginUnloadSpec, PluginWorkerEngine, PluginWorkerRegistration, RequestId,
+    CapabilityOperationFailure, CapabilityOperationId, CapabilityOperationResult,
+    CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeRequest, CapabilitySet,
+    CapabilitySurface, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, PackageManifest,
+    PluginCapabilityRuntime, PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef,
+    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginResourceKind, PluginResourceRef, PluginRuntime,
+    PluginStoreBackend, PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreLimits,
+    PluginStoreOperation, PluginStoreResult, PluginUnloadSpec, PluginWorkerEngine,
+    PluginWorkerRegistration, RequestId,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakePluginStoreBackend, FakePluginStoreCapabilityRuntime,
@@ -62,7 +63,7 @@ fn store_request(
 fn completed_plugin_store(event: CapabilityRuntimeEvent) -> PluginStoreResult {
     match event {
         CapabilityRuntimeEvent::Completed(CapabilityOperationCompleted {
-            plugin_store: Some(result),
+            result: Some(CapabilityOperationResult::PluginStore(result)),
             ..
         }) => result,
         other => panic!("expected plugin-store completion, got {other:?}"),

@@ -1,10 +1,12 @@
 //! Fake runtime adapters for downstream conformance tests.
 
+pub mod capability;
 pub mod plugin_store;
 pub mod plugin_worker;
 pub mod session_worker;
 pub mod terminal_screen;
 
+pub use capability::FakeCapabilityRuntime;
 pub use plugin_store::{FakePluginStoreBackend, FakePluginStoreCapabilityRuntime};
 pub use plugin_worker::{FakePluginBehavior, FakePluginRuntime};
 pub use terminal_screen::FakeTerminalScreenRuntime;
