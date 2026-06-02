@@ -184,7 +184,9 @@ fn store_request(plugin: &PluginKey, id: &str, key: &str) -> CapabilityRuntimeRe
             namespace: "project-pipelines".to_string(),
             operation: PluginStoreOperation::Set {
                 key: PluginStoreKey(key.to_string()),
-                value: serde_json::json!({ "state": "running" }),
+                schema_version: 1,
+                payload: serde_json::json!({ "state": "running" }),
+                expected_revision: None,
             },
         }),
     )
