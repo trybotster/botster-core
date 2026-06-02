@@ -12,15 +12,15 @@ use std::time::{Duration, Instant};
 use botster_core::{
     ClientId, CoreSession, CoreSessionMetadata, LocalProcessRuntime, ManagedSessionRuntime,
     ManagedSessionRuntimeError, MultiplexerEngineOutcome, ResizePayload, SessionId,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
-    TransportIngress,
+    SessionRuntimeErrorKind, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress, TransportIngress,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{
     DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand, EngineCommandError,
     EngineCommandKind, EngineCommandOutcome, EngineSessionInspection, MultiplexerEngineObservation,
     PreparedSnapshotRequest, ProcessExitedPayload, RequestId, SessionActivityStatus,
-    SessionIoEvent,
+    SessionIoEvent, SessionIoRequest, SessionLifecycleState,
 };
 
 /// Explicit reason a local PTY conformance test cannot run on this host.
@@ -470,6 +470,78 @@ pub struct ManyPtyLoadReport {
     pub slow_client_observation: String,
 }
 
+/// Configuration for adversarial public command hot-path proof.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+pub struct AdversarialHotPathConfig {
+    /// Many-PTY load configuration used as the background pressure.
+    pub load: ManyPtyLoadConfig,
+    /// Per-command responsiveness bound. This is a regression bound, not a benchmark target.
+    pub phase_budget: Duration,
+    /// Deadline for observing the control session's input echo.
+    pub input_timeout: Duration,
+}
+
+#[cfg(feature = "local-runtime")]
+impl AdversarialHotPathConfig {
+    /// CI-safe default: 20 PTYs, one bounded noisy PTY, and generous hot-path budgets.
+    #[must_use]
+    pub fn ci_default() -> Self {
+        let mut load = ManyPtyLoadConfig::ci_default().with_noisy_session(0);
+        load.timeout = Duration::from_secs(35);
+        load.normal_output_lines = 2;
+        load.noisy_output_lines = 24_000;
+
+        Self {
+            load,
+            phase_budget: Duration::from_secs(2),
+            input_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+/// One timed public command phase from the adversarial hot-path proof.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HotPathPhaseTiming {
+    /// Stable phase label.
+    pub phase: &'static str,
+    /// Elapsed time for this phase.
+    pub elapsed: Duration,
+}
+
+/// Report produced by the adversarial public command hot-path proof.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+pub struct AdversarialHotPathReport {
+    /// Number of many-PTY load sessions requested, excluding the input control session.
+    pub session_count: usize,
+    /// Noisy background session used for overlap proof.
+    pub noisy_session_id: SessionId,
+    /// Quiet load session that completed before probes ran.
+    pub quiet_session_id: SessionId,
+    /// Interactive control session used to prove `SendInput` delivery.
+    pub control_session_id: SessionId,
+    /// Number of quiet load sessions completed before probes ran.
+    pub quiet_sessions_completed_before_probes: usize,
+    /// Drain rounds completed before probes ran.
+    pub drain_rounds_before_probes: usize,
+    /// Total drain rounds, including cleanup.
+    pub total_drain_rounds: usize,
+    /// Whether the noisy session was still mid-output when hot-path probes ran.
+    pub noisy_output_active_during_probes: bool,
+    /// Timed hot-path command phases.
+    pub phase_timings: Vec<HotPathPhaseTiming>,
+    /// Queue or backpressure observations exposed by the current public API.
+    pub queue_backpressure_observations: Vec<String>,
+    /// Number of synthetic sessions that either reached `Exited` or lost their runtime handle after shutdown.
+    pub cleanup_exited_sessions: usize,
+    /// Synthetic session ids still live after cleanup.
+    pub live_sessions_after_cleanup: Vec<SessionId>,
+    /// Slow-client/plugin proof boundary for the current public default-engine API.
+    pub slow_client_plugin_observation: String,
+}
+
 #[cfg(feature = "local-runtime")]
 #[derive(Debug, Clone)]
 struct ManyPtySessionState {
@@ -554,6 +626,215 @@ pub fn run_many_pty_load(
     Ok(report)
 }
 
+/// Run an adversarial public-command hot-path proof through `DefaultBotsterEngine`.
+///
+/// Probes run while one noisy PTY is still mid-output, and `SendInput` is
+/// proven through an observable echo from a live interactive control session.
+#[cfg(feature = "local-runtime")]
+pub fn run_adversarial_hot_path_load(
+    config: AdversarialHotPathConfig,
+) -> Result<AdversarialHotPathReport, EngineConformanceError> {
+    require_local_pty().map_err(EngineConformanceError::Skipped)?;
+    validate_adversarial_hot_path_config(&config)?;
+
+    let started = Instant::now();
+    let deadline = started + config.load.timeout;
+    let noisy_index = config
+        .load
+        .noisy_session_index
+        .expect("validated noisy index");
+    let mut harness = ManyPtyLoadHarness::new();
+    spawn_many_pty_sessions(&mut harness, &config.load)?;
+    attach_many_pty_clients(&mut harness)?;
+
+    let control = spawn_adversarial_control_session(&mut harness)?;
+    let mut drain_rounds = 0;
+    let mut total_output_bytes = 0;
+    let mut queue_backpressure_observations = Vec::new();
+    let mut probe_report = None;
+
+    while Instant::now() < deadline {
+        drain_rounds += 1;
+        let output = harness
+            .engine
+            .drain_runtime_all_once(drain_rounds as u64 + 1)
+            .map_err(EngineConformanceError::from)
+            .map_err(|error| {
+                many_pty_error(
+                    "drain",
+                    None,
+                    None,
+                    format!("fair aggregate drain failed: {error}"),
+                )
+            })?;
+
+        queue_backpressure_observations.extend(queue_backpressure_observations_for(&output));
+        for session in &mut harness.sessions {
+            let delivered = terminal_output_bytes_for(
+                &output,
+                &session.client_id,
+                &session.subscription_id,
+                &session.session_id,
+            );
+            total_output_bytes += delivered.len();
+            session.output.extend(delivered);
+            update_many_pty_completion(session, &output);
+        }
+
+        if probe_report.is_none() && adversarial_probe_window_open(&harness, noisy_index) {
+            let quiet_session = quiet_probe_session(&harness, noisy_index)?;
+            probe_report = Some(run_hot_path_probes(
+                &mut harness,
+                &config,
+                noisy_index,
+                quiet_session,
+                &control,
+                drain_rounds,
+            )?);
+            break;
+        }
+
+        if output.client_egress.is_empty() && output.session_events.is_empty() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let mut report = probe_report.ok_or_else(|| {
+        let noisy = &harness.sessions[noisy_index];
+        many_pty_error(
+            "probe-window",
+            Some(noisy.session_id.clone()),
+            None,
+            format!(
+                "deadline {:?} elapsed before quiet sessions completed while noisy output remained active; noisy ready={} done={} exit={} total_output_bytes={}",
+                config.load.timeout,
+                noisy.ready_seen,
+                noisy.done_seen,
+                noisy.exit_seen,
+                total_output_bytes
+            ),
+        )
+    })?;
+
+    drain_remaining_adversarial_load(
+        &mut harness,
+        &config.load,
+        deadline,
+        &mut drain_rounds,
+        &mut queue_backpressure_observations,
+    )?;
+    cleanup_adversarial_sessions(&mut harness, &control, &mut report, deadline)?;
+    report.total_drain_rounds = drain_rounds.max(report.total_drain_rounds);
+    report.queue_backpressure_observations =
+        dedupe_preserving_order(queue_backpressure_observations);
+    if report.queue_backpressure_observations.is_empty() {
+        report.queue_backpressure_observations.push(
+            "DefaultBotsterEngine exposes typed reader backpressure observations; no reader pressure was observed in this run."
+                .to_string(),
+        );
+    }
+
+    Ok(report)
+}
+
+#[cfg(feature = "local-runtime")]
+fn validate_adversarial_hot_path_config(
+    config: &AdversarialHotPathConfig,
+) -> Result<(), EngineConformanceError> {
+    if config.load.session_count < 2 {
+        return Err(many_pty_error(
+            "config",
+            None,
+            None,
+            "adversarial hot-path proof requires at least one noisy and one quiet load session",
+        ));
+    }
+    match config.load.noisy_session_index {
+        Some(index) if index < config.load.session_count => Ok(()),
+        _ => Err(many_pty_error(
+            "config",
+            None,
+            None,
+            "adversarial hot-path proof requires a valid noisy_session_index",
+        )),
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+fn drain_remaining_adversarial_load(
+    harness: &mut ManyPtyLoadHarness,
+    config: &ManyPtyLoadConfig,
+    deadline: Instant,
+    drain_rounds: &mut usize,
+    queue_backpressure_observations: &mut Vec<String>,
+) -> Result<(), EngineConformanceError> {
+    while Instant::now() < deadline {
+        if many_pty_completion_satisfied(harness, config, queue_backpressure_observations) {
+            return Ok(());
+        }
+
+        *drain_rounds += 1;
+        let output = drain_many_pty_harness_once(harness, *drain_rounds as u64 + 1)?;
+        queue_backpressure_observations.extend(queue_backpressure_observations_for(&output));
+        for session in &mut harness.sessions {
+            let delivered = terminal_output_bytes_for(
+                &output,
+                &session.client_id,
+                &session.subscription_id,
+                &session.session_id,
+            );
+            session.output.extend(delivered);
+            update_many_pty_completion(session, &output);
+        }
+
+        if output.client_egress.is_empty() && output.session_events.is_empty() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    Err(many_pty_error(
+        "post-probe-drain",
+        None,
+        None,
+        format!(
+            "deadline {:?} elapsed before background sessions reached completion",
+            config.timeout
+        ),
+    ))
+}
+
+#[cfg(feature = "local-runtime")]
+fn drain_many_pty_harness_once(
+    harness: &mut ManyPtyLoadHarness,
+    last_output_at: u64,
+) -> Result<MultiplexerEngineOutcome, EngineConformanceError> {
+    let mut combined = MultiplexerEngineOutcome::empty();
+    let session_ids = harness
+        .sessions
+        .iter()
+        .filter(|session| !session.complete())
+        .map(|session| session.session_id.clone())
+        .collect::<Vec<_>>();
+
+    for session_id in session_ids {
+        let output = harness
+            .engine
+            .drain_runtime_once(&session_id, last_output_at)
+            .map_err(EngineConformanceError::from)
+            .map_err(|error| {
+                many_pty_error(
+                    "drain",
+                    Some(session_id.clone()),
+                    None,
+                    format!("post-probe session drain failed: {error}"),
+                )
+            })?;
+        append_outcome(&mut combined, output);
+    }
+
+    Ok(combined)
+}
+
 #[cfg(feature = "local-runtime")]
 fn spawn_many_pty_sessions(
     harness: &mut ManyPtyLoadHarness,
@@ -625,6 +906,508 @@ fn attach_many_pty_clients(harness: &mut ManyPtyLoadHarness) -> Result<(), Engin
     }
 
     Ok(())
+}
+
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+struct AdversarialControlSession {
+    session_id: SessionId,
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+}
+
+#[cfg(feature = "local-runtime")]
+fn spawn_adversarial_control_session(
+    harness: &mut ManyPtyLoadHarness,
+) -> Result<AdversarialControlSession, EngineConformanceError> {
+    let control = AdversarialControlSession {
+        session_id: SessionId("adversarial-control-session".to_string()),
+        client_id: ClientId("adversarial-control-client".to_string()),
+        subscription_id: SubscriptionId("adversarial-control-subscription".to_string()),
+    };
+    let request = local_shell_spawn_request(
+        RequestId("adversarial-control-spawn".to_string()),
+        control.session_id.clone(),
+        "printf 'adversarial-control:ready\\n'; IFS= read line; printf 'adversarial-control:input:%s\\n' \"$line\"; sleep 30",
+    );
+
+    harness
+        .engine
+        .execute_command(DefaultEngineCommand::SpawnSession {
+            request,
+            metadata: CoreSessionMetadata::new(),
+        })
+        .map_err(EngineConformanceError::from)
+        .map_err(|error| wrap_many_pty_error("spawn-control", &control.session_id, None, error))?;
+    harness
+        .engine
+        .execute_command(DefaultEngineCommand::AttachClient {
+            client_id: control.client_id.clone(),
+            session_id: control.session_id.clone(),
+            subscription_id: control.subscription_id.clone(),
+            now_seconds: 1,
+        })
+        .map_err(EngineConformanceError::from)
+        .map_err(|error| {
+            wrap_many_pty_error(
+                "attach-control",
+                &control.session_id,
+                Some(&control.client_id),
+                error,
+            )
+        })?;
+
+    Ok(control)
+}
+
+#[cfg(feature = "local-runtime")]
+fn adversarial_probe_window_open(harness: &ManyPtyLoadHarness, noisy_index: usize) -> bool {
+    let Some(noisy_session) = harness.sessions.get(noisy_index) else {
+        return false;
+    };
+
+    noisy_session.ready_seen
+        && !noisy_session.done_seen
+        && quiet_sessions_completed(harness, noisy_index) > 0
+}
+
+#[cfg(feature = "local-runtime")]
+fn quiet_sessions_completed(harness: &ManyPtyLoadHarness, noisy_index: usize) -> usize {
+    harness
+        .sessions
+        .iter()
+        .enumerate()
+        .filter(|(index, session)| *index != noisy_index && session.complete())
+        .count()
+}
+
+#[cfg(feature = "local-runtime")]
+fn quiet_probe_session(
+    harness: &ManyPtyLoadHarness,
+    noisy_index: usize,
+) -> Result<ManyPtySessionState, EngineConformanceError> {
+    harness
+        .sessions
+        .iter()
+        .enumerate()
+        .find(|(index, session)| *index != noisy_index && session.complete())
+        .map(|(_, session)| session.clone())
+        .ok_or_else(|| many_pty_error("quiet-session", None, None, "no quiet session completed"))
+}
+
+#[cfg(feature = "local-runtime")]
+fn run_hot_path_probes(
+    harness: &mut ManyPtyLoadHarness,
+    config: &AdversarialHotPathConfig,
+    noisy_index: usize,
+    quiet_session: ManyPtySessionState,
+    control: &AdversarialControlSession,
+    drain_rounds_before_probes: usize,
+) -> Result<AdversarialHotPathReport, EngineConformanceError> {
+    let noisy_session = harness.sessions[noisy_index].clone();
+    let quiet_sessions_completed_before_probes = quiet_sessions_completed(harness, noisy_index);
+    let noisy_output_active_during_probes = noisy_session.ready_seen
+        && !noisy_session.done_seen
+        && quiet_sessions_completed_before_probes > 0;
+    let mut phase_timings = Vec::new();
+
+    let sessions = timed_phase(
+        &mut phase_timings,
+        "list",
+        config.phase_budget,
+        || match harness
+            .engine
+            .execute_command(DefaultEngineCommand::ListSessions)?
+        {
+            EngineCommandOutcome::Sessions(sessions) => Ok(sessions),
+            outcome => Err(many_pty_error(
+                "list",
+                None,
+                None,
+                format!("unexpected outcome: {outcome:?}"),
+            )),
+        },
+    )?;
+    assert_session_list_contains(&sessions, &quiet_session.session_id, "list")?;
+    assert_session_list_contains(&sessions, &noisy_session.session_id, "list")?;
+    assert_session_list_contains(&sessions, &control.session_id, "list")?;
+
+    let inspection =
+        timed_phase(
+            &mut phase_timings,
+            "inspect",
+            config.phase_budget,
+            || match harness
+                .engine
+                .execute_command(DefaultEngineCommand::InspectSession {
+                    session_id: control.session_id.clone(),
+                    now_seconds: 20,
+                    active_threshold_seconds: 5,
+                })? {
+                EngineCommandOutcome::Inspection(inspection) => Ok(inspection),
+                outcome => Err(many_pty_error(
+                    "inspect",
+                    Some(control.session_id.clone()),
+                    None,
+                    format!("unexpected outcome: {outcome:?}"),
+                )),
+            },
+        )?;
+    if inspection.session.session_id != control.session_id {
+        return Err(many_pty_error(
+            "inspect",
+            Some(control.session_id.clone()),
+            None,
+            format!("inspected wrong session: {inspection:?}"),
+        ));
+    }
+
+    let probe_client = ClientId("adversarial-probe-client".to_string());
+    let probe_subscription = SubscriptionId("adversarial-probe-subscription".to_string());
+    timed_phase(&mut phase_timings, "attach", config.phase_budget, || {
+        harness
+            .engine
+            .execute_command(DefaultEngineCommand::AttachClient {
+                client_id: probe_client.clone(),
+                session_id: control.session_id.clone(),
+                subscription_id: probe_subscription.clone(),
+                now_seconds: 21,
+            })
+            .map(|_| ())
+            .map_err(EngineConformanceError::from)
+    })?;
+    timed_phase(&mut phase_timings, "detach", config.phase_budget, || {
+        harness
+            .engine
+            .execute_command(DefaultEngineCommand::DetachClient {
+                client_id: probe_client.clone(),
+                session_id: control.session_id.clone(),
+                subscription_id: probe_subscription.clone(),
+                now_seconds: 22,
+            })
+            .map(|_| ())
+            .map_err(EngineConformanceError::from)
+    })?;
+
+    timed_phase(&mut phase_timings, "resize", config.phase_budget, || {
+        let outcome = harness
+            .engine
+            .execute_command(DefaultEngineCommand::Resize {
+                client_id: control.client_id.clone(),
+                session_id: control.session_id.clone(),
+                rows: 33,
+                cols: 120,
+                now_seconds: 23,
+            })?;
+        let output = command_output(&outcome);
+        if output.session_requests.iter().any(|(_, request)| {
+            matches!(
+                request,
+                SessionIoRequest::Resize {
+                    session_id,
+                    rows: 33,
+                    cols: 120,
+                } if session_id == &control.session_id
+            )
+        }) {
+            Ok(())
+        } else {
+            Err(many_pty_error(
+                "resize",
+                Some(control.session_id.clone()),
+                Some(control.client_id.clone()),
+                format!("resize did not route typed session request: {output:?}"),
+            ))
+        }
+    })?;
+
+    timed_phase(&mut phase_timings, "input", config.input_timeout, || {
+        harness
+            .engine
+            .execute_command(DefaultEngineCommand::SendInput {
+                client_id: control.client_id.clone(),
+                session_id: control.session_id.clone(),
+                data: b"typed-hot-path\n".to_vec(),
+                now_seconds: 24,
+            })
+            .map_err(EngineConformanceError::from)?;
+        drain_control_until_input_echo(
+            harness,
+            control,
+            b"adversarial-control:input:typed-hot-path",
+            config.input_timeout,
+        )
+    })?;
+
+    timed_phase(
+        &mut phase_timings,
+        "read-screen",
+        config.phase_budget,
+        || {
+            let request_id = RequestId("adversarial-read-screen".to_string());
+            let outcome = harness
+                .engine
+                .execute_command(DefaultEngineCommand::ReadScreen {
+                    request_id: request_id.clone(),
+                    session_id: control.session_id.clone(),
+                    now_seconds: 25,
+                })?;
+            let output = command_output(&outcome);
+            if output.session_events.iter().any(|event| matches!(
+            event,
+            SessionIoEvent::ScreenReady(screen)
+                if screen.request_id == request_id && screen.session_id == control.session_id
+        )) {
+            Ok(())
+        } else {
+            Err(many_pty_error(
+                "read-screen",
+                Some(control.session_id.clone()),
+                None,
+                format!("screen-ready event missing: {output:?}"),
+            ))
+        }
+        },
+    )?;
+
+    timed_phase(
+        &mut phase_timings,
+        "capture-snapshot",
+        config.phase_budget,
+        || {
+            let request_id = RequestId("adversarial-capture-snapshot".to_string());
+            let outcome =
+                harness
+                    .engine
+                    .execute_command(DefaultEngineCommand::CaptureSnapshot {
+                        request_id: request_id.clone(),
+                        session_id: control.session_id.clone(),
+                        now_seconds: 26,
+                    })?;
+            let output = command_output(&outcome);
+            if output.session_events.iter().any(|event| matches!(
+                event,
+                SessionIoEvent::SnapshotReady(snapshot)
+                    if snapshot.request_id == request_id && snapshot.session_id == control.session_id
+            )) {
+                Ok(())
+            } else {
+                Err(many_pty_error(
+                    "capture-snapshot",
+                    Some(control.session_id.clone()),
+                    None,
+                    format!("snapshot-ready event missing: {output:?}"),
+                ))
+            }
+        },
+    )?;
+
+    timed_phase(
+        &mut phase_timings,
+        "shutdown-control",
+        config.phase_budget,
+        || {
+            harness
+                .engine
+                .execute_command(DefaultEngineCommand::Shutdown {
+                    session_id: control.session_id.clone(),
+                    reason: "adversarial hot-path control complete".to_string(),
+                    now_seconds: 27,
+                })
+                .map(|_| ())
+                .map_err(EngineConformanceError::from)
+        },
+    )?;
+
+    Ok(AdversarialHotPathReport {
+        session_count: config.load.session_count,
+        noisy_session_id: noisy_session.session_id,
+        quiet_session_id: quiet_session.session_id,
+        control_session_id: control.session_id.clone(),
+        quiet_sessions_completed_before_probes,
+        drain_rounds_before_probes,
+        total_drain_rounds: drain_rounds_before_probes,
+        noisy_output_active_during_probes,
+        phase_timings,
+        queue_backpressure_observations: Vec::new(),
+        cleanup_exited_sessions: 0,
+        live_sessions_after_cleanup: Vec::new(),
+        slow_client_plugin_observation:
+            "DefaultBotsterEngine hot-path proof composes with focused subscription_multiplexer_engine_test and plugin_worker_engine_test for slow-client/plugin isolation; no combined slow-client/plugin counter is exposed by the public default engine."
+                .to_string(),
+    })
+}
+
+#[cfg(feature = "local-runtime")]
+fn timed_phase<T>(
+    phase_timings: &mut Vec<HotPathPhaseTiming>,
+    phase: &'static str,
+    budget: Duration,
+    operation: impl FnOnce() -> Result<T, EngineConformanceError>,
+) -> Result<T, EngineConformanceError> {
+    let started = Instant::now();
+    let result = operation();
+    let elapsed = started.elapsed();
+    phase_timings.push(HotPathPhaseTiming { phase, elapsed });
+    if elapsed > budget {
+        return Err(many_pty_error(
+            phase,
+            None,
+            None,
+            format!("phase exceeded budget {budget:?}; elapsed {elapsed:?}"),
+        ));
+    }
+    result
+}
+
+#[cfg(feature = "local-runtime")]
+fn assert_session_list_contains(
+    sessions: &[CoreSession],
+    session_id: &SessionId,
+    phase: &'static str,
+) -> Result<(), EngineConformanceError> {
+    if sessions
+        .iter()
+        .any(|session| &session.session_id == session_id)
+    {
+        Ok(())
+    } else {
+        Err(many_pty_error(
+            phase,
+            Some(session_id.clone()),
+            None,
+            format!("listed sessions did not include session; got {sessions:?}"),
+        ))
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+fn drain_control_until_input_echo(
+    harness: &mut ManyPtyLoadHarness,
+    control: &AdversarialControlSession,
+    expected: &[u8],
+    timeout: Duration,
+) -> Result<(), EngineConformanceError> {
+    let deadline = Instant::now() + timeout;
+    let mut combined = MultiplexerEngineOutcome::empty();
+
+    while Instant::now() < deadline {
+        let output = harness
+            .engine
+            .drain_runtime_once(&control.session_id, 24)
+            .map_err(EngineConformanceError::from)?;
+        append_outcome(&mut combined, output);
+        let delivered = terminal_output_bytes_for(
+            &combined,
+            &control.client_id,
+            &control.subscription_id,
+            &control.session_id,
+        );
+        if delivered
+            .windows(expected.len())
+            .any(|window| window == expected)
+        {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    Err(EngineConformanceError::Timeout {
+        observed_output: String::from_utf8_lossy(&terminal_output_bytes_for(
+            &combined,
+            &control.client_id,
+            &control.subscription_id,
+            &control.session_id,
+        ))
+        .into_owned(),
+    })
+}
+
+#[cfg(feature = "local-runtime")]
+fn cleanup_adversarial_sessions(
+    harness: &mut ManyPtyLoadHarness,
+    control: &AdversarialControlSession,
+    report: &mut AdversarialHotPathReport,
+    deadline: Instant,
+) -> Result<(), EngineConformanceError> {
+    harness.shutdown_all(30_000);
+    let _ = harness
+        .engine
+        .execute_command(DefaultEngineCommand::Shutdown {
+            session_id: control.session_id.clone(),
+            reason: "adversarial hot-path cleanup".to_string(),
+            now_seconds: 30_000,
+        });
+
+    let mut control_cleaned_up = session_record_exited(&harness.engine, &control.session_id);
+    while Instant::now() < deadline {
+        if control_cleaned_up {
+            break;
+        }
+        control_cleaned_up = drain_control_cleanup_once(harness, control, report)?;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let mut live = harness
+        .sessions
+        .iter()
+        .filter(|session| !session.exit_seen)
+        .map(|session| session.session_id.clone())
+        .collect::<Vec<_>>();
+    if !control_cleaned_up {
+        live.push(control.session_id.clone());
+    }
+
+    report.cleanup_exited_sessions = harness
+        .sessions
+        .iter()
+        .filter(|session| session.exit_seen)
+        .count()
+        + usize::from(control_cleaned_up);
+    report.live_sessions_after_cleanup = live;
+
+    if report.live_sessions_after_cleanup.is_empty() {
+        Ok(())
+    } else {
+        Err(many_pty_error(
+            "cleanup",
+            None,
+            None,
+            format!(
+                "sessions remained live after cleanup: {:?}",
+                report.live_sessions_after_cleanup
+            ),
+        ))
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+fn drain_control_cleanup_once(
+    harness: &mut ManyPtyLoadHarness,
+    control: &AdversarialControlSession,
+    report: &mut AdversarialHotPathReport,
+) -> Result<bool, EngineConformanceError> {
+    report.total_drain_rounds += 1;
+    match harness.engine.drain_runtime_once(
+        &control.session_id,
+        30_000 + report.total_drain_rounds as u64,
+    ) {
+        Ok(_) => Ok(session_record_exited(&harness.engine, &control.session_id)),
+        Err(ManagedSessionRuntimeError::Runtime(error))
+            if error.kind == SessionRuntimeErrorKind::SessionNotFound =>
+        {
+            Ok(true)
+        }
+        Err(error) => Err(EngineConformanceError::from(error)),
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+fn session_record_exited(engine: &DefaultBotsterEngine, session_id: &SessionId) -> bool {
+    matches!(
+        engine.session(session_id).map(|session| &session.lifecycle),
+        Some(SessionLifecycleState::Exited { .. })
+    )
 }
 
 #[cfg(feature = "local-runtime")]
