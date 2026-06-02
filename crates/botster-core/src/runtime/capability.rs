@@ -568,16 +568,6 @@ impl fmt::Display for CapabilityRuntimeError {
 
 impl Error for CapabilityRuntimeError {}
 
-/// Cleanup plan for runtime resources owned by one plugin.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CapabilityRuntimeCleanup {
-    /// Owning plugin.
-    pub plugin_key: PluginKey,
-    /// Resources to release.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resources: Vec<PluginResourceRef>,
-}
-
 fn scoped_capability(surface: CapabilitySurface, scope: impl Into<String>) -> Capability {
     Capability {
         surface,
