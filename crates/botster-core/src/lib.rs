@@ -29,17 +29,19 @@ pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, manifest};
 pub use runtime::{
     CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
-    CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId, CapabilityRuntimeError,
-    CapabilityRuntimeErrorKind, CapabilityRuntimeEvent, CapabilityRuntimeHandle,
-    CapabilityRuntimeRequest, CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
-    FilesystemCapabilityRequest, FilesystemOperation, HttpCapabilityRequest,
-    HttpCapabilityResponse, HttpHeader, PluginCancellationToken, PluginCapabilityRuntime,
-    PluginRuntime, PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation,
-    ProcessIdentity, ScopedRelativePath, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
-    TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
-    WebSocketMessage,
+    CapabilityOperationId, CapabilityOperationResult, CapabilityResourceEvent,
+    CapabilityResourceId, CapabilityRuntimeError, CapabilityRuntimeErrorKind,
+    CapabilityRuntimeEvent, CapabilityRuntimeHandle, CapabilityRuntimeRequest,
+    CapabilityTimerEvent, CapabilityWatchEvent, CapabilityWebSocketEvent,
+    FilesystemCapabilityGrant, FilesystemCapabilityLimits, FilesystemCapabilityPermissions,
+    FilesystemCapabilityRequest, FilesystemCapabilityResult, FilesystemEntry, FilesystemEntryKind,
+    FilesystemMetadata, FilesystemOperation, HttpCapabilityRequest, HttpCapabilityResponse,
+    HttpHeader, PluginCancellationToken, PluginCapabilityRuntime, PluginRuntime,
+    PluginStoreCapabilityRequest, PluginStoreKey, PluginStoreOperation, ProcessIdentity,
+    ScopedRelativePath, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, TimerCapabilityRequest,
+    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest, WebSocketMessage,
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{

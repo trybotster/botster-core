@@ -235,6 +235,9 @@ pub struct FilesystemCapabilityRequest {
     pub scope_id: String,
     /// Filesystem operation below the scope.
     pub operation: FilesystemOperation,
+    /// Optional operation limits requested by plugin code or injected by the host profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<FilesystemCapabilityLimits>,
 }
 
 /// Relative path within a host-owned filesystem scope.
@@ -249,9 +252,70 @@ impl ScopedRelativePath {
         !path.is_empty()
             && !path.starts_with('/')
             && !path.starts_with('\\')
+            && !has_windows_drive_prefix(path)
             && !path.split('/').any(|segment| segment == "..")
             && !path.split('\\').any(|segment| segment == "..")
     }
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+/// Host/profile grant for one scoped filesystem root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityGrant {
+    /// Opaque host-owned filesystem scope id.
+    pub scope_id: String,
+    /// Operations allowed within this scope.
+    pub permissions: FilesystemCapabilityPermissions,
+    /// Default limits applied by the host profile for this scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<FilesystemCapabilityLimits>,
+}
+
+/// Allowed scoped filesystem operations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityPermissions {
+    /// Read file bytes.
+    pub read: bool,
+    /// Write file bytes.
+    pub write: bool,
+    /// List child entries.
+    pub list: bool,
+    /// Read metadata.
+    pub stat: bool,
+    /// Remove files or empty directories.
+    pub remove: bool,
+}
+
+impl FilesystemCapabilityPermissions {
+    /// Whether this grant permits the requested scoped filesystem operation.
+    #[must_use]
+    pub const fn allows(&self, operation: &FilesystemOperation) -> bool {
+        match operation {
+            FilesystemOperation::Read { .. } => self.read,
+            FilesystemOperation::Write { .. } => self.write,
+            FilesystemOperation::List { .. } => self.list,
+            FilesystemOperation::Stat { .. } => self.stat,
+            FilesystemOperation::Remove { .. } => self.remove,
+        }
+    }
+}
+
+/// Host/profile limit contract for scoped filesystem operations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemCapabilityLimits {
+    /// Maximum bytes a read operation may return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_read_bytes: Option<u64>,
+    /// Maximum bytes a write operation may accept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_write_bytes: Option<u64>,
+    /// Maximum child entries a list operation may return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_list_entries: Option<u64>,
 }
 
 /// Scoped filesystem operations named by core.
@@ -285,6 +349,20 @@ pub enum FilesystemOperation {
         /// Target relative path.
         path: ScopedRelativePath,
     },
+}
+
+impl FilesystemOperation {
+    /// Target relative path for this scoped filesystem operation.
+    #[must_use]
+    pub const fn path(&self) -> &ScopedRelativePath {
+        match self {
+            Self::Read { path }
+            | Self::Write { path, .. }
+            | Self::List { path }
+            | Self::Stat { path }
+            | Self::Remove { path } => path,
+        }
+    }
 }
 
 /// Plugin-scoped JSON store request.
@@ -399,9 +477,19 @@ pub struct CapabilityOperationCompleted {
     pub plugin_key: PluginKey,
     /// Completed operation id.
     pub operation_id: CapabilityOperationId,
-    /// Optional HTTP-style response metadata.
+    /// Optional typed operation result payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response: Option<HttpCapabilityResponse>,
+    pub result: Option<CapabilityOperationResult>,
+}
+
+/// Typed successful operation result payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "result", rename_all = "snake_case")]
+pub enum CapabilityOperationResult {
+    /// HTTP response metadata and bytes.
+    Http(HttpCapabilityResponse),
+    /// Scoped filesystem result payload.
+    Filesystem(FilesystemCapabilityResult),
 }
 
 /// HTTP response metadata.
@@ -415,6 +503,85 @@ pub struct HttpCapabilityResponse {
     /// Response body bytes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body: Vec<u8>,
+}
+
+/// Successful scoped filesystem operation result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum FilesystemCapabilityResult {
+    /// Read file bytes.
+    Read {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned bytes.
+        bytes: Vec<u8>,
+    },
+    /// Wrote file bytes.
+    Write {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Number of bytes accepted by the host runtime.
+        bytes_written: u64,
+        /// Whether the host runtime completed the write through its atomic-write path.
+        atomic: bool,
+    },
+    /// Listed child entries.
+    List {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned child entries.
+        entries: Vec<FilesystemEntry>,
+    },
+    /// Returned file metadata.
+    Stat {
+        /// Target relative path.
+        path: ScopedRelativePath,
+        /// Returned metadata.
+        metadata: FilesystemMetadata,
+    },
+    /// Removed a file or empty directory.
+    Remove {
+        /// Target relative path.
+        path: ScopedRelativePath,
+    },
+}
+
+/// One scoped filesystem list entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemEntry {
+    /// Entry path relative to the granted scope.
+    pub path: ScopedRelativePath,
+    /// Entry type.
+    pub kind: FilesystemEntryKind,
+    /// Size in bytes when the host exposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+}
+
+/// Scoped filesystem entry kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesystemEntryKind {
+    /// Regular file.
+    File,
+    /// Directory.
+    Directory,
+    /// Symbolic link.
+    Symlink,
+    /// Other host-specific file type.
+    Other,
+}
+
+/// Scoped filesystem metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesystemMetadata {
+    /// File type.
+    pub kind: FilesystemEntryKind,
+    /// Size in bytes when the host exposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    /// Whether host metadata reports the entry as readonly.
+    pub readonly: bool,
 }
 
 /// Runtime resource lifecycle event.
