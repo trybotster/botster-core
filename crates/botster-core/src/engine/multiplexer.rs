@@ -7,7 +7,9 @@ use thiserror::Error;
 use crate::actor::{
     ClientControlFrame, MailboxSendFailureReason, PluginInvocationRequest, QueueSource,
 };
-use crate::contract::actor::{SessionIoEvent, SessionIoRequest, SessionLifecycleState};
+use crate::contract::actor::{
+    BackpressureSummary, SessionIoEvent, SessionIoRequest, SessionLifecycleState,
+};
 use crate::contract::notification::{
     NotificationId, NotificationInbox, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
@@ -73,6 +75,8 @@ pub enum MultiplexerEngineObservation {
     },
     /// A lower-level subscription multiplexer observation was emitted.
     Subscription(SubscriptionMultiplexerObservation),
+    /// Runtime-originated bounded-queue pressure was observed.
+    Backpressure(BackpressureSummary),
 }
 
 /// Result of a successful session spawn through the assembled engine.

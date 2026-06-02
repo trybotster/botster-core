@@ -9,9 +9,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
     CoreSessionMetadata, LocalProcessRuntime, LocalProcessRuntimeOptions, MultiplexerEngine,
-    ProcessExitedPayload, RequestId, ResizePayload, SessionId, SessionLifecycleState,
+    ProcessExitedPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionLifecycleState,
     SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+    DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 
 const SIGKILL: i32 = 9;
@@ -25,6 +26,7 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
     LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(50),
         poll_interval: Duration::from_millis(5),
+        pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
     }
 }
 
@@ -32,6 +34,7 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
     LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(700),
         poll_interval: Duration::from_millis(20),
+        pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
     }
 }
 
@@ -150,7 +153,9 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .iter()
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
-            SessionRuntimeOutput::ProcessExited { .. } => None,
+            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::Backpressure(_) => {
+                None
+            }
         })
         .flatten()
         .copied()
@@ -217,6 +222,54 @@ fn local_process_runtime_spawns_simple_command_and_drains_output() {
 
     assert!(output_text(&output).contains("botster-local-output"));
     assert!(has_exit(&output), "expected process exit, got {output:?}");
+}
+
+#[test]
+fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
+        pty_reader_chunk_capacity: 1,
+        ..runtime_options()
+    });
+    let session = session_id("local-runtime-reader-pressure");
+
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "i=0; while [ \"$i\" -lt 128 ]; do printf 'reader-pressure:%03d:%08000d\\n' \"$i\" 0; i=$((i + 1)); done",
+        ))
+        .expect("spawn noisy local command");
+
+    thread::sleep(Duration::from_millis(100));
+    let output = runtime
+        .drain_output(&session)
+        .expect("drain local process pressure");
+
+    let summary = output
+        .iter()
+        .find_map(|event| match event {
+            SessionRuntimeOutput::Backpressure(summary) => Some(summary),
+            _ => None,
+        })
+        .expect("bounded reader pressure should be reported");
+    assert_eq!(summary.source, QueueSource::SessionIo);
+    assert_eq!(summary.capacity, 1);
+    assert_eq!(summary.depth, 1);
+    assert_eq!(summary.route.session_id, Some(session.clone()));
+    assert_eq!(summary.route.client_id, None);
+    assert!(output.iter().any(|event| {
+        matches!(
+            event,
+            SessionRuntimeOutput::PtyOutput {
+                session_id,
+                data,
+            } if session_id == &session && !data.is_empty()
+        )
+    }));
+
+    let _ = runtime.send_input(SessionRuntimeInput::Shutdown {
+        session_id: session,
+    });
 }
 
 #[test]

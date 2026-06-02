@@ -5,13 +5,14 @@ use std::fs;
 use std::rc::Rc;
 
 use botster_core::{
-    BackpressureRoute, CoreSessionMetadata, MailboxSendFailureReason, ManagedSessionRuntime,
-    ManagedSessionRuntimeError, ProcessExitedPayload, QueueSource, RequestId, ResizePayload,
-    SessionId, SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TerminalColorProfile, TerminalOutputChunk,
-    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
-    TransportEgress, TransportIngress,
+    BackpressureRoute, BackpressureSummary, CoreSessionMetadata, MailboxSendFailureReason,
+    ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngineObservation,
+    ProcessExitedPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionIoEvent,
+    SessionIoRequest, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TerminalColorProfile, TerminalOutputChunk, TerminalScreenRuntime,
+    TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload, TransportEgress,
+    TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -468,6 +469,42 @@ fn supervised_session_reader_events_reach_subscription_multiplexer() {
         Some(SessionIoEvent::SnapshotReady(snapshot))
             if snapshot.data == b"hello" && snapshot.rows == 24 && snapshot.cols == 80
     ));
+}
+
+#[test]
+fn supervised_session_reader_backpressure_reaches_managed_runtime_observations() {
+    let mut runtime = managed_runtime();
+    let summary = BackpressureSummary {
+        source: QueueSource::SessionIo,
+        capacity: 1,
+        depth: 1,
+        route: BackpressureRoute {
+            session_id: Some(session_id()),
+            client_id: None,
+            subscription_id: None,
+            plugin_key: None,
+        },
+    };
+    runtime
+        .session_runtime_mut()
+        .emit_backpressure(summary.clone());
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 20)
+        .expect("drain runtime backpressure");
+
+    assert_eq!(
+        outcome.observations,
+        vec![MultiplexerEngineObservation::Backpressure(summary)]
+    );
+    assert!(
+        outcome.client_egress.is_empty(),
+        "reader pressure is host-visible metadata, not terminal bytes"
+    );
+    assert!(
+        outcome.session_events.is_empty(),
+        "reader pressure is not a process/session lifecycle event"
+    );
 }
 
 #[test]
