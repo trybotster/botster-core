@@ -17,11 +17,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
-use crate::{ProcessExitedPayload, RequestId, ResizePayload, SessionId};
+use crate::{BackpressureSummary, ProcessExitedPayload, RequestId, ResizePayload, SessionId};
 
 #[cfg(feature = "local-runtime")]
 pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
+    DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 
 /// Host-implemented session runtime boundary.
@@ -158,6 +159,8 @@ pub enum SessionRuntimeOutput {
         /// Process exit payload reused from the session protocol.
         payload: ProcessExitedPayload,
     },
+    /// Runtime-originated bounded-queue pressure.
+    Backpressure(BackpressureSummary),
 }
 
 /// Stable category for a session runtime error.
