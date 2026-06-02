@@ -18,7 +18,7 @@ use botster_core::{
 use botster_core::{
     DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand, EngineCommandError,
     EngineCommandKind, EngineCommandOutcome, EngineSessionInspection, PreparedSnapshotRequest,
-    RequestId, SessionActivityStatus, SessionIoEvent,
+    ProcessExitedPayload, RequestId, SessionActivityStatus, SessionIoEvent,
 };
 
 /// Explicit reason a local PTY conformance test cannot run on this host.
@@ -64,6 +64,18 @@ pub enum EngineConformanceError {
         /// Bytes observed before timing out.
         observed_output: String,
     },
+    /// A many-PTY load harness assertion failed.
+    #[cfg(feature = "local-runtime")]
+    ManyPtyLoad {
+        /// Hot-path phase label.
+        phase: &'static str,
+        /// Session id involved in the failure, when available.
+        session_id: Option<SessionId>,
+        /// Client id involved in the failure, when available.
+        client_id: Option<ClientId>,
+        /// Failure details.
+        details: String,
+    },
 }
 
 impl fmt::Display for EngineConformanceError {
@@ -79,6 +91,16 @@ impl fmt::Display for EngineConformanceError {
                     "timed out waiting for output; observed {observed_output:?}"
                 )
             }
+            #[cfg(feature = "local-runtime")]
+            Self::ManyPtyLoad {
+                phase,
+                session_id,
+                client_id,
+                details,
+            } => write!(
+                formatter,
+                "many-PTY load failure in {phase}; session={session_id:?}; client={client_id:?}; {details}"
+            ),
         }
     }
 }
@@ -354,6 +376,445 @@ impl DisposableCommandLocalSession {
     #[must_use]
     pub fn attached_clients(&self) -> &[(ClientId, SubscriptionId)] {
         &self.attached_clients
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl Drop for DisposableCommandLocalSession {
+    fn drop(&mut self) {
+        let _ = self.shutdown("disposable command local session dropped", 0);
+    }
+}
+
+/// Configuration for the public many-PTY load harness.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+pub struct ManyPtyLoadConfig {
+    /// Number of local PTY sessions to spawn.
+    pub session_count: usize,
+    /// Overall deadline for round-robin draining.
+    pub timeout: Duration,
+    /// Number of bounded output lines printed by normal sessions.
+    pub normal_output_lines: usize,
+    /// Optional index of one noisier bounded-output session.
+    pub noisy_session_index: Option<usize>,
+    /// Number of bounded output lines printed by the noisy session.
+    pub noisy_output_lines: usize,
+}
+
+#[cfg(feature = "local-runtime")]
+impl ManyPtyLoadConfig {
+    /// CI-safe default load: 20 real local PTY sessions with bounded output.
+    #[must_use]
+    pub fn ci_default() -> Self {
+        Self {
+            session_count: 20,
+            timeout: Duration::from_secs(20),
+            normal_output_lines: 3,
+            noisy_session_index: None,
+            noisy_output_lines: 64,
+        }
+    }
+
+    /// Build a local 50-session configuration.
+    #[must_use]
+    pub fn local_50() -> Self {
+        Self {
+            session_count: 50,
+            timeout: Duration::from_secs(45),
+            ..Self::ci_default()
+        }
+    }
+
+    /// Build an opt-in 100-session configuration.
+    #[must_use]
+    pub fn opt_in_100() -> Self {
+        Self {
+            session_count: 100,
+            timeout: Duration::from_secs(90),
+            ..Self::ci_default()
+        }
+    }
+
+    /// Enable one bounded noisy session at the selected index.
+    #[must_use]
+    pub const fn with_noisy_session(mut self, index: usize) -> Self {
+        self.noisy_session_index = Some(index);
+        self
+    }
+}
+
+/// Rough timing and delivery observations from the many-PTY load harness.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+pub struct ManyPtyLoadReport {
+    /// Number of sessions requested.
+    pub session_count: usize,
+    /// Total elapsed wall-clock time.
+    pub elapsed: Duration,
+    /// Number of round-robin drain passes performed.
+    pub drain_rounds: usize,
+    /// Total terminal-output bytes delivered to attached clients.
+    pub total_output_bytes: usize,
+    /// Number of sessions whose ready and done markers reached every client.
+    pub outputs_completed: usize,
+    /// Number of sessions with observed process-exit events.
+    pub exits_observed: usize,
+    /// Optional noisy session id.
+    pub noisy_session_id: Option<SessionId>,
+    /// Queue or backpressure observations exposed by the current public API.
+    pub queue_backpressure_observations: Vec<String>,
+    /// Slow-client or plugin-pressure limitation for this run.
+    pub slow_client_observation: String,
+}
+
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone)]
+struct ManyPtySessionState {
+    session_id: SessionId,
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+    ready_marker: Vec<u8>,
+    done_marker: Vec<u8>,
+    output: Vec<u8>,
+    ready_seen: bool,
+    done_seen: bool,
+    exit_seen: bool,
+}
+
+#[cfg(feature = "local-runtime")]
+impl ManyPtySessionState {
+    fn complete(&self) -> bool {
+        self.ready_seen && self.done_seen && self.exit_seen
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+struct ManyPtyLoadHarness {
+    engine: DefaultBotsterEngine,
+    sessions: Vec<ManyPtySessionState>,
+}
+
+#[cfg(feature = "local-runtime")]
+impl ManyPtyLoadHarness {
+    fn new() -> Self {
+        Self {
+            engine: DefaultBotsterEngine::new(),
+            sessions: Vec::new(),
+        }
+    }
+
+    fn shutdown_all(&mut self, now_seconds: u64) {
+        for session in &self.sessions {
+            let _ = self.engine.execute_command(DefaultEngineCommand::Shutdown {
+                session_id: session.session_id.clone(),
+                reason: "many-PTY load harness cleanup".to_string(),
+                now_seconds,
+            });
+        }
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl Drop for ManyPtyLoadHarness {
+    fn drop(&mut self) {
+        self.shutdown_all(0);
+    }
+}
+
+/// Run a many-session local PTY load check through the public default engine.
+///
+/// The harness uses one `DefaultBotsterEngine`, spawns explicit bounded shell
+/// commands, attaches one client per session, drains sessions in round-robin
+/// passes, and asserts both terminal output fanout and process-exit delivery.
+#[cfg(feature = "local-runtime")]
+pub fn run_many_pty_load(
+    config: ManyPtyLoadConfig,
+) -> Result<ManyPtyLoadReport, EngineConformanceError> {
+    require_local_pty().map_err(EngineConformanceError::Skipped)?;
+    if config.session_count == 0 {
+        return Err(many_pty_error(
+            "config",
+            None,
+            None,
+            "session_count must be greater than zero",
+        ));
+    }
+
+    let started = Instant::now();
+    let mut harness = ManyPtyLoadHarness::new();
+    spawn_many_pty_sessions(&mut harness, &config)?;
+    attach_many_pty_clients(&mut harness)?;
+    let report = drain_many_pty_sessions(&mut harness, &config, started)?;
+    harness.shutdown_all(10_000);
+
+    Ok(report)
+}
+
+#[cfg(feature = "local-runtime")]
+fn spawn_many_pty_sessions(
+    harness: &mut ManyPtyLoadHarness,
+    config: &ManyPtyLoadConfig,
+) -> Result<(), EngineConformanceError> {
+    for index in 0..config.session_count {
+        let session_id = SessionId(format!("many-pty-session-{index:03}"));
+        let client_id = ClientId(format!("many-pty-client-{index:03}"));
+        let subscription_id = SubscriptionId(format!("many-pty-subscription-{index:03}"));
+        let ready_marker = format!("many-pty:{index}:ready").into_bytes();
+        let done_marker = format!("many-pty:{index}:done").into_bytes();
+        let line_count = if config.noisy_session_index == Some(index) {
+            config.noisy_output_lines
+        } else {
+            config.normal_output_lines
+        };
+        let script = many_pty_script(index, line_count);
+        let request = local_shell_spawn_request(
+            RequestId(format!("many-pty-spawn-{index:03}")),
+            session_id.clone(),
+            script,
+        );
+
+        harness
+            .engine
+            .execute_command(DefaultEngineCommand::SpawnSession {
+                request,
+                metadata: CoreSessionMetadata::new(),
+            })
+            .map_err(EngineConformanceError::from)
+            .map_err(|error| wrap_many_pty_error("spawn", &session_id, None, error))?;
+
+        harness.sessions.push(ManyPtySessionState {
+            session_id,
+            client_id,
+            subscription_id,
+            ready_marker,
+            done_marker,
+            output: Vec::new(),
+            ready_seen: false,
+            done_seen: false,
+            exit_seen: false,
+        });
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "local-runtime")]
+fn attach_many_pty_clients(harness: &mut ManyPtyLoadHarness) -> Result<(), EngineConformanceError> {
+    for session in &harness.sessions {
+        harness
+            .engine
+            .execute_command(DefaultEngineCommand::AttachClient {
+                client_id: session.client_id.clone(),
+                session_id: session.session_id.clone(),
+                subscription_id: session.subscription_id.clone(),
+                now_seconds: 1,
+            })
+            .map_err(EngineConformanceError::from)
+            .map_err(|error| {
+                wrap_many_pty_error(
+                    "attach",
+                    &session.session_id,
+                    Some(&session.client_id),
+                    error,
+                )
+            })?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "local-runtime")]
+fn drain_many_pty_sessions(
+    harness: &mut ManyPtyLoadHarness,
+    config: &ManyPtyLoadConfig,
+    started: Instant,
+) -> Result<ManyPtyLoadReport, EngineConformanceError> {
+    let deadline = started + config.timeout;
+    let mut drain_rounds = 0;
+    let mut total_output_bytes = 0;
+
+    while Instant::now() < deadline {
+        let mut made_progress = false;
+        drain_rounds += 1;
+
+        for index in 0..harness.sessions.len() {
+            if harness.sessions[index].complete() {
+                continue;
+            }
+
+            let session_id = harness.sessions[index].session_id.clone();
+            let output = harness
+                .engine
+                .drain_runtime_once(&session_id, drain_rounds as u64 + 1)
+                .map_err(EngineConformanceError::from)
+                .map_err(|error| wrap_many_pty_error("drain", &session_id, None, error))?;
+
+            if !output.client_egress.is_empty() || !output.session_events.is_empty() {
+                made_progress = true;
+            }
+
+            let delivered = terminal_output_bytes_for(
+                &output,
+                &harness.sessions[index].client_id,
+                &harness.sessions[index].subscription_id,
+                &session_id,
+            );
+            total_output_bytes += delivered.len();
+            harness.sessions[index].output.extend(delivered);
+            update_many_pty_completion(&mut harness.sessions[index], &output);
+        }
+
+        if harness.sessions.iter().all(ManyPtySessionState::complete) {
+            return Ok(many_pty_report(
+                harness,
+                config,
+                started.elapsed(),
+                drain_rounds,
+                total_output_bytes,
+            ));
+        }
+
+        if !made_progress {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let pending = harness
+        .sessions
+        .iter()
+        .filter(|session| !session.complete())
+        .map(|session| {
+            format!(
+                "{} ready={} done={} exit={} observed={:?}",
+                session.session_id.0,
+                session.ready_seen,
+                session.done_seen,
+                session.exit_seen,
+                String::from_utf8_lossy(&bounded_tail(&session.output, 160))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    Err(many_pty_error(
+        "timeout",
+        None,
+        None,
+        format!(
+            "deadline {:?} elapsed before all sessions completed; pending: {pending}",
+            config.timeout
+        ),
+    ))
+}
+
+#[cfg(feature = "local-runtime")]
+fn update_many_pty_completion(
+    session: &mut ManyPtySessionState,
+    output: &MultiplexerEngineOutcome,
+) {
+    session.ready_seen = session
+        .output
+        .windows(session.ready_marker.len())
+        .any(|window| window == session.ready_marker);
+    session.done_seen = session
+        .output
+        .windows(session.done_marker.len())
+        .any(|window| window == session.done_marker);
+    session.exit_seen |= output.session_events.iter().any(|event| {
+        matches!(
+            event,
+            SessionIoEvent::ProcessExited {
+                session_id,
+                payload: ProcessExitedPayload {
+                    exit_code: Some(0),
+                    ..
+                },
+            } if session_id == &session.session_id
+        )
+    });
+}
+
+#[cfg(feature = "local-runtime")]
+fn many_pty_report(
+    harness: &ManyPtyLoadHarness,
+    config: &ManyPtyLoadConfig,
+    elapsed: Duration,
+    drain_rounds: usize,
+    total_output_bytes: usize,
+) -> ManyPtyLoadReport {
+    let outputs_completed = harness
+        .sessions
+        .iter()
+        .filter(|session| session.ready_seen && session.done_seen)
+        .count();
+    let exits_observed = harness
+        .sessions
+        .iter()
+        .filter(|session| session.exit_seen)
+        .count();
+    let noisy_session_id = config
+        .noisy_session_index
+        .and_then(|index| harness.sessions.get(index))
+        .map(|session| session.session_id.clone());
+
+    ManyPtyLoadReport {
+        session_count: config.session_count,
+        elapsed,
+        drain_rounds,
+        total_output_bytes,
+        outputs_completed,
+        exits_observed,
+        noisy_session_id,
+        queue_backpressure_observations: vec![
+            "DefaultBotsterEngine exposes delivered client egress and typed session events; it does not expose queue-depth or backpressure counters on this public path.".to_string(),
+        ],
+        slow_client_observation:
+            "No public slow-client/plugin-pressure primitive is available through DefaultBotsterEngine; adversarial coverage is limited to one bounded noisy PTY session."
+                .to_string(),
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+fn many_pty_script(index: usize, line_count: usize) -> String {
+    format!(
+        "printf 'many-pty:{index}:ready\\n'; i=0; while [ \"$i\" -lt {line_count} ]; do printf 'many-pty:{index}:line:%03d\\n' \"$i\"; i=$((i + 1)); done; printf 'many-pty:{index}:done\\n'"
+    )
+}
+
+#[cfg(feature = "local-runtime")]
+fn bounded_tail(bytes: &[u8], max_len: usize) -> Vec<u8> {
+    let start = bytes.len().saturating_sub(max_len);
+    bytes[start..].to_vec()
+}
+
+#[cfg(feature = "local-runtime")]
+fn wrap_many_pty_error(
+    phase: &'static str,
+    session_id: &SessionId,
+    client_id: Option<&ClientId>,
+    error: EngineConformanceError,
+) -> EngineConformanceError {
+    many_pty_error(
+        phase,
+        Some(session_id.clone()),
+        client_id.cloned(),
+        error.to_string(),
+    )
+}
+
+#[cfg(feature = "local-runtime")]
+fn many_pty_error(
+    phase: &'static str,
+    session_id: Option<SessionId>,
+    client_id: Option<ClientId>,
+    details: impl Into<String>,
+) -> EngineConformanceError {
+    EngineConformanceError::ManyPtyLoad {
+        phase,
+        session_id,
+        client_id,
+        details: details.into(),
     }
 }
 

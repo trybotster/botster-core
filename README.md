@@ -159,6 +159,37 @@ fake clients with public transport frames, drains real PTY output through
 fanout, activity, and shutdown semantics. PTY-dependent tests should be
 Unix-gated or use the harness skip reason on unsupported hosts.
 
+The support crate also includes a many-PTY load harness for rough hot-path
+observations against the public `DefaultBotsterEngine` facade. It uses bounded
+synthetic shell commands, attaches one fake client per session, drains sessions
+round-robin, asserts terminal-output fanout and process-exit delivery, and
+reports elapsed time, drain rounds, delivered bytes, and the queue/backpressure
+observations currently exposed by the public API.
+
+Run the CI-safe default, which covers 20 local PTY sessions:
+
+```sh
+BOTSTER_ENV=test cargo test -p botster-core-test-support many_pty_load_default -- --nocapture
+```
+
+Run the normal local 50-session pressure check:
+
+```sh
+BOTSTER_ENV=test BOTSTER_CORE_LOAD_SESSIONS=50 cargo test -p botster-core-test-support many_pty_load_default -- --nocapture
+```
+
+Run the opt-in 100-session check:
+
+```sh
+BOTSTER_ENV=test cargo test -p botster-core-test-support many_pty_load_100 -- --ignored --nocapture
+```
+
+Failures include hot-path labels such as spawn, attach, drain, timeout,
+output, noisy-output, and process-exit, plus synthetic session and client ids.
+The current public default-engine path does not expose queue-depth,
+backpressure, or slow-client/plugin-pressure counters; the harness report names
+that limitation instead of fabricating metrics.
+
 ## Terminal Screen And Snapshot Boundary
 
 `botster-core` exposes a narrow terminal screen boundary for hosts that need
