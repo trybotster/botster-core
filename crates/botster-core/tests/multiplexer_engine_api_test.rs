@@ -73,6 +73,7 @@ fn plugin_manifest(plugin_key: &PluginKey) -> PackageManifest {
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        host_profile: None,
     }
 }
 

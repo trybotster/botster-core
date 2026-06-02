@@ -90,6 +90,7 @@ fn provider_is_a_privileged_extension_package() {
             path: "bootstrap.lua".to_string(),
             bootstrap: true,
         }],
+        host_profile: None,
     };
 
     assert_eq!(manifest.kind, ExtensionKind::Provider);
