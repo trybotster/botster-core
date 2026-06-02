@@ -235,3 +235,44 @@ symlink containment, normalization, size-limit enforcement, atomic write
 durability, and timeout/cancel behavior remain host-profile responsibilities.
 Review and Verify should treat those as intentionally deferred until a concrete
 host profile such as Botster Hub wires a filesystem backend over this contract.
+
+`plugin_capability_isolation_under_load_test` adds the cross-primitive
+acceptance proof for this scaffold. It saturates a slow `HttpCapabilityRuntime`,
+bounded `InMemoryWebSocketCapabilityRuntime` queues, noisy `FileWatchRuntime`
+delivery, bounded fake filesystem and plugin-store runtimes, and repeated timer
+delivery through `BotsterEngine`/`PluginWorkerEngine`. While those primitives
+are under pressure, the test drives the public `EngineCommand` facade for
+client attach, terminal input, session listing, session inspection, screen
+read, and snapshot capture. This ties the proof to Botster's documented
+SessionIo/ClientWorker data-plane invariant: terminal/session/client hot paths
+bypass capability runtime queues and the hub byte relay path.
+
+This is a scaffold separation proof, not a shared-executor contention proof:
+the engine does not hold references to the saturated capability runtimes yet,
+and core has no shared async executor for these families because executor and
+backend ownership remain host-profile policy. When a host profile wires engine
+ownership of runtime instances, it must add the matching contention-survival
+test for that shared production runtime.
+
+The same test asserts bounded pressure with typed `BackpressureSummary` values
+instead of relying on timing. The pressure route remains plugin-scoped with
+`QueueSource::PluginWorker`; the terminal/client assertions use the session and
+client actors' public command path. WebSocket, file-watch, filesystem, and
+plugin-store pressure in this core test is modeled as synchronous queue-full
+state because those runtimes are non-blocking by contract; only HTTP has a live
+blocked worker thread during the hot-path window. The filesystem and
+plugin-store portions remain bounded fake-runtime coverage only, because
+concrete host-profile backends are intentionally out of scope for core.
+
+The active watcher cleanup case keeps a noisy watch registered, unloads the
+owning plugin's watch resources, reloads the plugin worker, and proves an
+unrelated plugin invocation still completes. Cleanup may emit
+`CleanupCompleted`, but late source events must not reappear as new watch
+events for the unloaded plugin. This guards the watcher shutdown class where
+worker-owned watch forwarders must stop before runtime teardown.
+
+Focused run command:
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core --test plugin_capability_isolation_under_load_test
+```
