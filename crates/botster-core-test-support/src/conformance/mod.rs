@@ -18,8 +18,9 @@ use botster_core::{
 #[cfg(feature = "local-runtime")]
 use botster_core::{
     DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand, EngineCommandError,
-    EngineCommandKind, EngineCommandOutcome, EngineSessionInspection, PreparedSnapshotRequest,
-    ProcessExitedPayload, RequestId, SessionActivityStatus, SessionIoEvent,
+    EngineCommandKind, EngineCommandOutcome, EngineSessionInspection, MultiplexerEngineObservation,
+    PreparedSnapshotRequest, ProcessExitedPayload, RequestId, SessionActivityStatus,
+    SessionIoEvent,
 };
 
 /// Explicit reason a local PTY conformance test cannot run on this host.
@@ -635,6 +636,7 @@ fn drain_many_pty_sessions(
     let deadline = started + config.timeout;
     let mut drain_rounds = 0;
     let mut total_output_bytes = 0;
+    let mut queue_backpressure_observations = Vec::new();
 
     while Instant::now() < deadline {
         let mut made_progress = false;
@@ -656,6 +658,7 @@ fn drain_many_pty_sessions(
         if !output.client_egress.is_empty() || !output.session_events.is_empty() {
             made_progress = true;
         }
+        queue_backpressure_observations.extend(queue_backpressure_observations_for(&output));
 
         for session in &mut harness.sessions {
             if session.complete() {
@@ -672,13 +675,14 @@ fn drain_many_pty_sessions(
             update_many_pty_completion(session, &output);
         }
 
-        if harness.sessions.iter().all(ManyPtySessionState::complete) {
+        if many_pty_completion_satisfied(harness, config, &queue_backpressure_observations) {
             return Ok(many_pty_report(
                 harness,
                 config,
                 started.elapsed(),
                 drain_rounds,
                 total_output_bytes,
+                queue_backpressure_observations,
             ));
         }
 
@@ -716,6 +720,34 @@ fn drain_many_pty_sessions(
 }
 
 #[cfg(feature = "local-runtime")]
+fn many_pty_completion_satisfied(
+    harness: &ManyPtyLoadHarness,
+    config: &ManyPtyLoadConfig,
+    queue_backpressure_observations: &[String],
+) -> bool {
+    if harness.sessions.iter().all(ManyPtySessionState::complete) {
+        return true;
+    }
+
+    let Some(noisy_session_index) = config.noisy_session_index else {
+        return false;
+    };
+
+    let Some(noisy_session) = harness.sessions.get(noisy_session_index) else {
+        return false;
+    };
+
+    !queue_backpressure_observations.is_empty()
+        && noisy_session.ready_seen
+        && noisy_session.exit_seen
+        && harness
+            .sessions
+            .iter()
+            .enumerate()
+            .all(|(index, session)| index == noisy_session_index || session.complete())
+}
+
+#[cfg(feature = "local-runtime")]
 fn update_many_pty_completion(
     session: &mut ManyPtySessionState,
     output: &MultiplexerEngineOutcome,
@@ -743,12 +775,46 @@ fn update_many_pty_completion(
 }
 
 #[cfg(feature = "local-runtime")]
+fn queue_backpressure_observations_for(output: &MultiplexerEngineOutcome) -> Vec<String> {
+    output
+        .observations
+        .iter()
+        .filter_map(|observation| match observation {
+            MultiplexerEngineObservation::Backpressure(summary) => Some(format!(
+                "source={} capacity={} depth={} session_id={}",
+                summary.source.name(),
+                summary.capacity,
+                summary.depth,
+                summary
+                    .route
+                    .session_id
+                    .as_ref()
+                    .map_or("none", |session_id| session_id.0.as_str())
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "local-runtime")]
+fn dedupe_preserving_order(values: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::new();
+    for value in values {
+        if !deduped.contains(&value) {
+            deduped.push(value);
+        }
+    }
+    deduped
+}
+
+#[cfg(feature = "local-runtime")]
 fn many_pty_report(
     harness: &ManyPtyLoadHarness,
     config: &ManyPtyLoadConfig,
     elapsed: Duration,
     drain_rounds: usize,
     total_output_bytes: usize,
+    queue_backpressure_observations: Vec<String>,
 ) -> ManyPtyLoadReport {
     let outputs_completed = harness
         .sessions
@@ -765,6 +831,15 @@ fn many_pty_report(
         .and_then(|index| harness.sessions.get(index))
         .map(|session| session.session_id.clone());
 
+    let mut queue_backpressure_observations =
+        dedupe_preserving_order(queue_backpressure_observations);
+    if queue_backpressure_observations.is_empty() {
+        queue_backpressure_observations.push(
+            "DefaultBotsterEngine exposes typed reader backpressure observations; no reader pressure was observed in this run."
+                .to_string(),
+        );
+    }
+
     ManyPtyLoadReport {
         session_count: config.session_count,
         elapsed,
@@ -773,9 +848,7 @@ fn many_pty_report(
         outputs_completed,
         exits_observed,
         noisy_session_id,
-        queue_backpressure_observations: vec![
-            "DefaultBotsterEngine exposes delivered client egress and typed session events; it does not expose queue-depth or backpressure counters on this public path.".to_string(),
-        ],
+        queue_backpressure_observations,
         slow_client_observation:
             "No public slow-client/plugin-pressure primitive is available through DefaultBotsterEngine; adversarial coverage is limited to one bounded noisy PTY session."
                 .to_string(),

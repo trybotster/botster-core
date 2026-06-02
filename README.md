@@ -164,7 +164,8 @@ observations against the public `DefaultBotsterEngine` facade. It uses bounded
 synthetic shell commands, attaches one fake client per session, drains sessions
 round-robin, asserts terminal-output fanout and process-exit delivery, and
 reports elapsed time, drain rounds, delivered bytes, and the queue/backpressure
-observations currently exposed by the public API.
+observations exposed by the public API. Local PTY reader pressure is surfaced as
+typed session-I/O backpressure through `DefaultBotsterEngine::drain_runtime_once`.
 
 Run the CI-safe default, which covers 20 local PTY sessions:
 
@@ -186,9 +187,9 @@ BOTSTER_ENV=test cargo test -p botster-core-test-support many_pty_load_100 -- --
 
 Failures include hot-path labels such as spawn, attach, drain, timeout,
 output, noisy-output, and process-exit, plus synthetic session and client ids.
-The current public default-engine path does not expose queue-depth,
-backpressure, or slow-client/plugin-pressure counters; the harness report names
-that limitation instead of fabricating metrics.
+The current public default-engine path exposes local PTY reader pressure but
+does not expose slow-client/plugin-pressure counters; the harness report names
+that remaining limitation instead of fabricating metrics.
 
 ## Terminal Screen And Snapshot Boundary
 
