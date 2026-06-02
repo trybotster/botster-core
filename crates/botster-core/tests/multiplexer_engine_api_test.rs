@@ -3,15 +3,16 @@
 use std::sync::Arc;
 
 use botster_core::{
-    BoundaryJson, CoreSessionMetadata, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    MultiplexerEngine, MultiplexerEngineObservation, NotificationContent, NotificationItem,
-    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp,
-    PackageManifest, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
-    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
-    PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, RequestId,
-    SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress, TransportIngress,
+    BotsterEngine, BoundaryJson, CoreSessionMetadata, ExtensionEntrypoint, ExtensionKind,
+    ExtensionRuntime, MailboxSendFailureReason, MultiplexerEngine, MultiplexerEngineObservation,
+    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
+    NotificationTarget, NotificationTimestamp, PackageManifest, PluginDescriptorKind,
+    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
+    PluginInvocationContext, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerEvent,
+    PluginWorkerRegistration, QueueSource, RequestId, SessionActivityStatus, SessionId,
+    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -452,5 +453,119 @@ fn multiplexer_engine_routes_client_input_to_session_worker() {
             .session(&session_id())
             .map(|session| session.activity.last_input_at),
         Some(Some(11))
+    );
+}
+
+#[test]
+fn botster_engine_facade_reports_route_pressure_and_preserves_healthy_fanout() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    engine
+        .spawn_session(
+            spawn_request(),
+            CoreSessionMetadata::new(),
+            FakeSessionWorkerRuntime::new(),
+        )
+        .expect("spawn through public engine");
+    engine
+        .attach_client(
+            client_id("client-a"),
+            session_id(),
+            subscription_id("sub-a"),
+            10,
+        )
+        .expect("client a subscribes");
+    engine
+        .attach_client(
+            client_id("client-b"),
+            session_id(),
+            subscription_id("sub-b"),
+            10,
+        )
+        .expect("client b subscribes");
+
+    let pressure = engine
+        .report_backpressure(
+            client_id("client-a"),
+            session_id(),
+            QueueSource::ClientWorker,
+            512,
+            511,
+        )
+        .expect("pressure through public facade");
+    let lag = engine
+        .report_delivery_lag(
+            client_id("client-a"),
+            session_id(),
+            subscription_id("sub-a"),
+            QueueSource::TransportAdapter,
+            512,
+            128,
+        )
+        .expect("lag through public facade");
+    let drop = engine
+        .report_delivery_failure(
+            client_id("client-a"),
+            session_id(),
+            subscription_id("sub-a"),
+            QueueSource::ClientWorker,
+            MailboxSendFailureReason::QueueFull,
+        )
+        .expect("drop through public facade");
+    let closed = engine
+        .report_delivery_failure(
+            client_id("client-a"),
+            session_id(),
+            subscription_id("sub-a"),
+            QueueSource::ClientWorker,
+            MailboxSendFailureReason::QueueClosed,
+        )
+        .expect("closed through public facade");
+
+    assert_eq!(pressure.client_control_frames.len(), 1);
+    assert!(lag.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            MultiplexerEngineObservation::Subscription(
+                SubscriptionMultiplexerObservation::DeliveryLagged {
+                    client_id: observed_client_id,
+                    lag
+                }
+            ) if observed_client_id == &client_id("client-a")
+                && lag.route.subscription_id == Some(subscription_id("sub-a"))
+        )
+    }));
+    assert!(drop.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            MultiplexerEngineObservation::Subscription(
+                SubscriptionMultiplexerObservation::DeliveryFailed { failure, .. }
+            ) if failure.reason == MailboxSendFailureReason::QueueFull
+                && failure.route.subscription_id == Some(subscription_id("sub-a"))
+        )
+    }));
+    assert!(closed.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            MultiplexerEngineObservation::Subscription(
+                SubscriptionMultiplexerObservation::DeliveryFailed { failure, .. }
+            ) if failure.reason == MailboxSendFailureReason::QueueClosed
+                && failure.route.subscription_id == Some(subscription_id("sub-a"))
+        )
+    }));
+
+    let output = engine
+        .receive_output(session_id(), b"healthy path".to_vec(), 20)
+        .expect("runtime output still fans out");
+    assert_eq!(
+        output.client_egress,
+        vec![(
+            client_id("client-b"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-b"),
+                data: b"healthy path".to_vec(),
+            },
+        )]
     );
 }
