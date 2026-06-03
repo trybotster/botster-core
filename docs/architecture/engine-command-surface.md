@@ -20,12 +20,16 @@ Core commands are mechanisms, not product actions. Hosts provide explicit ids, c
 | Replay snapshot | `PreparedSnapshotRequest`, caller clock | `SessionIoEvent::PreparedSnapshotReady` in `BotsterEngineOutput` when adapter supports it | `BotsterEngine::replay_snapshot`, `DefaultBotsterEngine::replay_snapshot` | Host owns recovery intent and persistence |
 | Shutdown | `SessionId`, reason, caller clock | `BotsterEngineOutput` with lifecycle observations | `BotsterEngine::shutdown_session`, `DefaultBotsterEngine::shutdown_session` | Host owns reason text and shutdown policy |
 | Notifications | `NotificationItem`, `NotificationTarget`, caller clock | `NotificationId` and `Vec<NotificationItem>` | `BotsterEngine::post_notification`, `BotsterEngine::drain_notifications` | Host/plugin owns presentation and delivery policy |
+| Load plugin | `PluginWorkerRegistration` | `EngineCommandOutcome::PluginLoaded(PluginKey)` | `BotsterEngine::load_plugin` | Trusted host resolves/admitted package; core owns worker mechanics |
+| Reload plugin | `PluginReloadSpec` plus replacement `PluginWorkerRegistration` | `PluginCleanupResult` | `BotsterEngine::reload_plugin` | Trusted host owns reload policy; core scopes descriptor/resource cleanup |
+| Unload plugin | `PluginUnloadSpec` | `PluginCleanupResult` | `BotsterEngine::unload_plugin` | Trusted host owns unload policy; core removes worker-owned state |
+| Invoke plugin | `PluginInvocationRequest` | `PluginInvocationOutcome` with typed worker events | `BotsterEngine::invoke_plugin` | Trusted host chooses handler/payload; core enforces capability checks, timeout, and queue pressure |
 
 The compile-checked command API lives in `botster_core::engine_command` and is re-exported at the crate root:
 
-- `EngineCommand<W>` is the typed request enum for `BotsterEngine<R, W>`. Its spawn variant carries the host-supplied worker runtime because custom embedders own worker construction. Its notification variants are thin inbox delegates over `BotsterEngine::post_notification` and `BotsterEngine::drain_notifications`.
-- `DefaultEngineCommand` is the typed request enum for `DefaultBotsterEngine` when the `local-runtime` feature is enabled. It covers the local PTY-backed session/client/screen/snapshot/shutdown commands, but intentionally omits notifications because `DefaultBotsterEngine` does not currently expose notification inbox methods.
-- `EngineCommandOutcome` is the heterogeneous typed result enum. It preserves the existing rich result types: `BotsterSpawnOutcome`, `BotsterEngineOutput`, `Vec<CoreSession>`, `EngineSessionInspection`, `NotificationId`, and drained `Vec<NotificationItem>`.
+- `EngineCommand<W>` is the typed request enum for `BotsterEngine<R, W>`. Its spawn variant carries the host-supplied worker runtime because custom embedders own worker construction. Its notification variants are thin inbox delegates over `BotsterEngine::post_notification` and `BotsterEngine::drain_notifications`. Its plugin lifecycle variants delegate to the existing plugin-worker facade methods rather than adding a second runtime path.
+- `DefaultEngineCommand` is the typed request enum for `DefaultBotsterEngine` when the `local-runtime` feature is enabled. It covers the local PTY-backed session/client/screen/snapshot/shutdown commands, but intentionally omits notifications and plugin lifecycle because `DefaultBotsterEngine` does not currently expose those methods.
+- `EngineCommandOutcome` is the heterogeneous typed result enum. It preserves the existing rich result types: `BotsterSpawnOutcome`, `BotsterEngineOutput`, `Vec<CoreSession>`, `EngineSessionInspection`, `NotificationId`, drained `Vec<NotificationItem>`, `PluginCleanupResult`, and `PluginInvocationOutcome`.
 - `EngineCommandError<E>` wraps the underlying typed facade error with the `EngineCommandKind` that failed.
 - `EngineCommandKind` and `ENGINE_COMMAND_KINDS` remain the vocabulary/drift guard for the command surface.
 
@@ -50,4 +54,4 @@ Hosts may wrap these calls in actors, async tasks, queues, retry loops, transpor
 
 ## Explicit Exclusions
 
-The core command surface intentionally excludes product CLI UX, config discovery, auth, cloud/WebRTC/signaling, marketplace/update policy, Rails relay behavior, TUI rendering, restty/browser rendering, hub policy, provider policy, Project Pipelines behavior, command discovery, default-shell selection, historical browsing, reconnect policy, notification presentation, and plugin workflow policy.
+The core command surface intentionally excludes product CLI UX, config discovery, auth, cloud/WebRTC/signaling, marketplace/update policy, git/network install, Rails relay behavior, TUI rendering, restty/browser rendering, hub policy, provider policy, Project Pipelines behavior, command discovery, default-shell selection, historical browsing, reconnect policy, notification presentation, and plugin workflow policy.

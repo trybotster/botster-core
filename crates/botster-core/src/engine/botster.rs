@@ -692,6 +692,20 @@ where
             EngineCommand::DrainNotifications { target, now } => Ok(
                 EngineCommandOutcome::NotificationsDrained(self.drain_notifications(target, now)),
             ),
+            EngineCommand::LoadPlugin { registration } => {
+                let plugin_key = registration.load.plugin_key.clone();
+                self.load_plugin(registration);
+                Ok(EngineCommandOutcome::PluginLoaded(plugin_key))
+            }
+            EngineCommand::ReloadPlugin { spec, registration } => Ok(
+                EngineCommandOutcome::PluginReloaded(self.reload_plugin(spec, registration)),
+            ),
+            EngineCommand::UnloadPlugin { spec } => Ok(EngineCommandOutcome::PluginUnloaded(
+                self.unload_plugin(spec),
+            )),
+            EngineCommand::InvokePlugin { request } => Ok(EngineCommandOutcome::PluginInvoked(
+                self.invoke_plugin(request),
+            )),
         }
         .map_err(|source| EngineCommandError::new(kind, source))
     }
