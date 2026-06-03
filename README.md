@@ -76,6 +76,17 @@ The host supplies the executable, working directory, environment, ids, clocks,
 request ids, client delivery, and persistence policy. Core executes the explicit
 capability request and returns typed outcomes for the host to route.
 
+Host-profile admission is also a policy-free core contract. A trusted host or
+package manager can call `admit_host_profile(manifest, enabled,
+host_botster_version)` before loading provider or plugin runtime paths. The
+helper admits only provider manifests with source provenance, a bootstrap
+entrypoint, nonblank host-profile metadata, declared required capabilities, and
+Botster compatibility requirements satisfied by the caller-supplied host point
+version. Ordinary plugins that declare host-profile metadata are rejected by the
+admission helper, and plugin-worker capability checks continue to use only
+`PackageManifest.capabilities`; `host_profile.required_capabilities` is never a
+handler grant.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current
