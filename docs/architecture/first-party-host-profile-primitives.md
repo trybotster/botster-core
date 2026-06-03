@@ -225,6 +225,31 @@ contract fields only: profile identity, compatibility, precedence, required
 provider names, required capability declarations, and typed policy-section
 names.
 
+`crates/botster-core-dev` now includes a no-hub host-profile smoke proof. The
+shared binary/test harness constructs and admits a minimal provider manifest,
+then uses the admitted profile's exact `required_capabilities` entry as the
+ordinary plugin handler requirement. One plugin manifest carries that capability
+and completes through `BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>`;
+a second ordinary plugin omits the same capability and is rejected by the typed
+plugin-worker capability gate before its runtime is called.
+
+The proof also spawns a real local PTY session through the same generic
+`BotsterEngine` instance, attaches a client subscription, routes terminal input,
+drains runtime bytes back through `receive_output`, resizes the session,
+classifies activity, reads screen/snapshot command events, and shuts down. This
+proves a custom host can compose real local session management and worker-based
+plugin mechanics without `botster-hub`. The generic local worker reports
+screen/snapshot command events and terminal dimensions, but it does not own the
+managed shadow-terminal parser used by `DefaultBotsterEngine`; callers should
+not read this proof as a claim that the generic local worker provides the same
+snapshot payload fidelity as the managed default facade.
+
+The custom host inputs proven by the dev harness are: caller-supplied host
+Botster version, enablement decision, source provenance, bootstrap entrypoint,
+required provider names, required capabilities, explicit spawn request fields,
+client and subscription ids, logical clocks, and plugin worker registration plus
+runtime.
+
 Open follow-ups remain recommendations 3-5: capability grant/consume ledger,
 typed startup/config lifecycle if core needs to bless ordering, durable
 persistence contracts, and concrete host/hub registry or package-manager
@@ -246,6 +271,11 @@ proof is grounded in existing public entry points and contract tests:
 - `crates/botster-core/tests/botster_engine_api_test.rs` exercises
   `BotsterEngine`, plugin invocation, notifications, entity handling through
   the engine path, and `DefaultBotsterEngine` when `local-runtime` is enabled.
+- `crates/botster-core-dev/tests/engine_smoke_test.rs` exercises the shared
+  dev harness used by `cargo run -p botster-core-dev`, proving the no-hub
+  host-profile admission, one generic local-runtime engine for real session and
+  plugin work, subscribed terminal egress, and load-bearing plugin capability
+  allow/deny behavior.
 - `crates/botster-core/tests/plugin_worker_engine_test.rs` exercises worker
   load/invoke/reload/unload, backpressure, timeout/cancellation, resource
   cleanup, and package capability rejection/grant behavior.
