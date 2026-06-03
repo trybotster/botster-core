@@ -25,6 +25,10 @@
 //! | Replay snapshot | [`PreparedSnapshotRequest`] | [`SessionIoEvent::PreparedSnapshotReady`] in [`BotsterEngineOutput`] | [`BotsterEngine::replay_snapshot`](crate::BotsterEngine::replay_snapshot) |
 //! | Shutdown | [`SessionId`] plus host reason | [`BotsterEngineOutput`] | [`BotsterEngine::shutdown_session`](crate::BotsterEngine::shutdown_session) |
 //! | Notifications | [`NotificationItem`] and [`NotificationTarget`] | [`NotificationId`] / `Vec<NotificationItem>` | [`BotsterEngine::post_notification`](crate::BotsterEngine::post_notification), [`BotsterEngine::drain_notifications`](crate::BotsterEngine::drain_notifications) |
+//! | Load plugin | [`PluginWorkerRegistration`] | [`EngineCommandOutcome::PluginLoaded`] | [`BotsterEngine::load_plugin`](crate::BotsterEngine::load_plugin) |
+//! | Reload plugin | [`PluginReloadSpec`] plus [`PluginWorkerRegistration`] | [`PluginCleanupResult`] | [`BotsterEngine::reload_plugin`](crate::BotsterEngine::reload_plugin) |
+//! | Unload plugin | [`PluginUnloadSpec`] | [`PluginCleanupResult`] | [`BotsterEngine::unload_plugin`](crate::BotsterEngine::unload_plugin) |
+//! | Invoke plugin | [`PluginInvocationRequest`] | [`PluginInvocationOutcome`] | [`BotsterEngine::invoke_plugin`](crate::BotsterEngine::invoke_plugin) |
 //!
 //! Core methods are synchronous and deterministic: they return typed outcomes
 //! for the caller to deliver. Hosts own executors, queues, retry policy,
@@ -49,11 +53,15 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::actor::{PreparedSnapshotRequest, SessionIoEvent, SessionIoRequest};
+use crate::actor::{
+    PluginCleanupResult, PluginInvocationRequest, PluginKey, PluginReloadSpec, PluginUnloadSpec,
+    PreparedSnapshotRequest, SessionIoEvent, SessionIoRequest,
+};
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
 use crate::engine::botster::{BotsterEngineOutput, BotsterSpawnOutcome};
+use crate::engine::plugin_worker::{PluginInvocationOutcome, PluginWorkerRegistration};
 use crate::runtime::SessionSpawnRequest;
 use crate::session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
@@ -87,6 +95,14 @@ pub enum EngineCommandKind {
     Shutdown,
     /// Queue or drain core notification inbox items.
     Notifications,
+    /// Load one plugin worker.
+    LoadPlugin,
+    /// Reload one plugin worker and return scoped cleanup.
+    ReloadPlugin,
+    /// Unload one plugin worker and return scoped cleanup.
+    UnloadPlugin,
+    /// Invoke one registered plugin handler.
+    InvokePlugin,
 }
 
 /// All command names that belong to the current policy-free core surface.
@@ -103,6 +119,10 @@ pub const ENGINE_COMMAND_KINDS: &[EngineCommandKind] = &[
     EngineCommandKind::ReplaySnapshot,
     EngineCommandKind::Shutdown,
     EngineCommandKind::Notifications,
+    EngineCommandKind::LoadPlugin,
+    EngineCommandKind::ReloadPlugin,
+    EngineCommandKind::UnloadPlugin,
+    EngineCommandKind::InvokePlugin,
 ];
 
 /// Typed command request executed by [`BotsterEngine`](crate::BotsterEngine).
@@ -222,6 +242,28 @@ pub enum EngineCommand<W> {
         /// Caller-supplied notification clock.
         now: NotificationTimestamp,
     },
+    /// Load or replace one plugin worker.
+    LoadPlugin {
+        /// Worker registration supplied by the trusted host.
+        registration: PluginWorkerRegistration,
+    },
+    /// Reload one plugin worker and remove resources matching the cleanup scope.
+    ReloadPlugin {
+        /// Reload request and cleanup scope.
+        spec: PluginReloadSpec,
+        /// Replacement worker registration supplied by the trusted host.
+        registration: PluginWorkerRegistration,
+    },
+    /// Unload one plugin worker and remove resources matching the cleanup scope.
+    UnloadPlugin {
+        /// Unload request and cleanup scope.
+        spec: PluginUnloadSpec,
+    },
+    /// Invoke one plugin handler through the worker engine.
+    InvokePlugin {
+        /// Handler invocation request supplied by the trusted host.
+        request: PluginInvocationRequest,
+    },
 }
 
 impl<W> EngineCommand<W> {
@@ -243,6 +285,10 @@ impl<W> EngineCommand<W> {
             Self::PostNotification { .. } | Self::DrainNotifications { .. } => {
                 EngineCommandKind::Notifications
             }
+            Self::LoadPlugin { .. } => EngineCommandKind::LoadPlugin,
+            Self::ReloadPlugin { .. } => EngineCommandKind::ReloadPlugin,
+            Self::UnloadPlugin { .. } => EngineCommandKind::UnloadPlugin,
+            Self::InvokePlugin { .. } => EngineCommandKind::InvokePlugin,
         }
     }
 }
@@ -398,6 +444,14 @@ pub enum EngineCommandOutcome {
     NotificationPosted(NotificationId),
     /// Deliverable notifications were drained.
     NotificationsDrained(Vec<NotificationItem>),
+    /// One plugin worker was loaded.
+    PluginLoaded(PluginKey),
+    /// One plugin worker was reloaded and its prior worker state was cleaned up.
+    PluginReloaded(PluginCleanupResult),
+    /// One plugin worker was unloaded and cleaned up.
+    PluginUnloaded(PluginCleanupResult),
+    /// One plugin handler invocation completed through the worker engine.
+    PluginInvoked(PluginInvocationOutcome),
 }
 
 /// Error returned by typed command execution.
