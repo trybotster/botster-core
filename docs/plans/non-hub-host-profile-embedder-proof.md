@@ -6,7 +6,7 @@ Ticket: `ticket_1780447077_166056`
 
 - Pipeline context loaded with `project_pipelines_get_ticket` and `project_pipelines_current_context`: ticket `ticket_1780447077_166056`, run `run_1780455774_850143`, current step `botster_plan`, run step `run_step_1780455774_971357`, gate `botster_plan_gate`, target `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`.
 - Pipeline state: no prior artifacts, reviews, findings, questions, or question answers for this run. Dependency `ticket_1780447077_921369` / "Add core plugin package lifecycle command surface" is closed and merged through PR #68. Branch starts at `origin/main` commit `41e0110`.
-- Worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1780447077_166056`, branch `project-pipelines/ticket_1780447077_166056`. Ticket implementation target is `/Users/jasonconigliari/Projects/botster-core`; this run's assigned worktree is the active editing surface.
+- Worktree: the assigned Project Pipelines ticket worktree on branch `project-pipelines/ticket_1780447077_166056`. Ticket implementation target is the `botster-core` repository; this run's assigned worktree is the active editing surface.
 - Required playbooks loaded:
   - `planner-playbook`
   - `botster-planner-playbook`
