@@ -2,25 +2,58 @@
 
 use std::error::Error;
 use std::fmt;
+#[cfg(unix)]
+use std::sync::Arc;
 
 #[cfg(unix)]
 use std::thread;
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 use botster_core::{
-    BotsterEngineObservation, ClientId, CoreSessionMetadata, DefaultBotsterEngine,
-    DefaultEngineCommand, EngineCommandOutcome, RequestId, ResizePayload, SessionActivityStatus,
-    SessionId, SessionIoEvent, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    admit_host_profile, BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
+    EngineCommand, EngineCommandOutcome, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
+    HostProfilePolicySection, LocalProcessRuntime, LocalProcessWorkerRuntime, PackageManifest,
+    PackageSource, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
+    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
+    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginWorkerRegistration, RequestId, ResizePayload, SessionIoEvent,
+    SessionLifecycleState, SessionRuntime, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
+use botster_core::{Capability, CapabilitySurface, ClientId, SessionActivityStatus, SessionId};
+#[cfg(unix)]
+use botster_core_test_support::fake::FakePluginRuntime;
 
 /// Deterministic report emitted by the dev-only real embedder smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineSmokeReport {
     /// Whether this host ran the real local PTY example.
     pub ran_real_embedder: bool,
-    /// Session spawned through the public default local engine.
+    /// Host profile admitted before entering core runtime/plugin paths.
+    pub admitted_host_profile_id: String,
+    /// Capability declared by the admitted host profile and reused by plugin assertions.
+    pub admitted_required_capability: Capability,
+    /// Whether the exact admitted capability was used as the plugin handler requirement.
+    pub admitted_capability_drove_plugin_handler: bool,
+    /// Public engine surface selected for the no-hub proof.
+    pub engine_surface: String,
+    /// Whether one generic engine performed real session and plugin work.
+    pub single_engine_session_and_plugin: bool,
+    /// Whether an ordinary plugin with the admitted capability completed.
+    pub plugin_invocation_completed: bool,
+    /// Payload value returned by the allowed ordinary plugin.
+    pub plugin_invocation_value: String,
+    /// Whether the missing-capability plugin was rejected before its runtime was called.
+    pub plugin_missing_capability_rejected: bool,
+    /// Typed failure kind from the denied plugin invocation.
+    pub plugin_denial_failure_kind: String,
+    /// Whether the denied plugin runtime observed zero invocations.
+    pub denied_plugin_runtime_not_called: bool,
+    /// Requirements this dev proof shows a custom host must provide before entering core.
+    pub custom_host_requirements: Vec<String>,
+    /// Session spawned through the public generic local engine.
     pub spawned_session_id: SessionId,
     /// Client attached through the public subscription path.
     pub attached_client_id: ClientId,
@@ -46,7 +79,7 @@ pub struct EngineSmokeReport {
     pub snapshot_size: Option<(u16, u16)>,
     /// Activity classification after real PTY output.
     pub activity_status: SessionActivityStatus,
-    /// Whether shutdown moved the managed session toward stopping.
+    /// Whether the selected engine returned typed shutdown evidence.
     pub shutdown_observed: bool,
 }
 
@@ -57,6 +90,41 @@ impl EngineSmokeReport {
         vec![
             "botster-core real embedder smoke".to_string(),
             format!("real embedder ran: {}", self.ran_real_embedder),
+            format!("admitted host profile: {}", self.admitted_host_profile_id),
+            format!(
+                "admitted required capability: {:?}",
+                self.admitted_required_capability
+            ),
+            format!(
+                "admitted capability drove plugin handler: {}",
+                self.admitted_capability_drove_plugin_handler
+            ),
+            format!("engine surface: {}", self.engine_surface),
+            format!(
+                "single engine session and plugin: {}",
+                self.single_engine_session_and_plugin
+            ),
+            format!(
+                "plugin invocation completed: {}",
+                self.plugin_invocation_completed
+            ),
+            format!("plugin invocation value: {}", self.plugin_invocation_value),
+            format!(
+                "plugin missing capability rejected: {}",
+                self.plugin_missing_capability_rejected
+            ),
+            format!(
+                "plugin denial failure kind: {}",
+                self.plugin_denial_failure_kind
+            ),
+            format!(
+                "denied plugin runtime not called: {}",
+                self.denied_plugin_runtime_not_called
+            ),
+            format!(
+                "custom host requirements: {}",
+                self.custom_host_requirements.join(", ")
+            ),
             format!("session spawned: {}", self.spawned_session_id.0),
             format!("client attached: {}", self.attached_client_id.0),
             format!("explicit command: {} {:?}", self.executable, self.arguments),
@@ -103,7 +171,24 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
 #[cfg(unix)]
 fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
-    let mut engine = DefaultBotsterEngine::new();
+    let admitted =
+        admit_host_profile(&trusted_host_profile_manifest(), true, "0.1.0").map_err(|error| {
+            EngineSmokeError::new(format!("host profile admission failed: {error}"))
+        })?;
+    let admitted_capability = admitted
+        .metadata
+        .required_capabilities
+        .first()
+        .cloned()
+        .ok_or_else(|| {
+            EngineSmokeError::new("admitted host profile did not declare a required capability")
+        })?;
+
+    let runtime = LocalProcessRuntime::new();
+    let worker_runtime = runtime.worker_runtime();
+    let mut drain_runtime = runtime.clone();
+    let mut engine: BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime> =
+        BotsterEngine::new(runtime);
     let request = real_embedder_spawn_request();
     let session_id = request.session_id.clone();
     let client_id = ClientId("real-embedder-client".to_string());
@@ -111,9 +196,10 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let mut logical_clock = 20;
 
     let spawn = engine
-        .execute_command(DefaultEngineCommand::SpawnSession {
+        .execute_command(EngineCommand::SpawnSession {
             request: request.clone(),
             metadata: CoreSessionMetadata::new(),
+            worker_runtime,
         })
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
     let EngineCommandOutcome::SpawnSession(spawn) = spawn else {
@@ -127,6 +213,7 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
     let smoke_result = run_spawned_embedder_smoke(
         &mut engine,
+        &mut drain_runtime,
         request.clone(),
         session_id.clone(),
         client_id,
@@ -139,21 +226,44 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     }
 
     let mut report = smoke_result.expect("error branch returned above");
+    let plugin_proof = run_plugin_proof(&mut engine, &admitted_capability)?;
     let shutdown = shutdown_session(&mut engine, &session_id, logical_clock)?;
-    report.shutdown_observed = shutdown.observations.iter().any(|observation| {
+    report.shutdown_observed = shutdown.session_events.iter().any(|event| {
+        matches!(
+            event,
+            SessionIoEvent::Shutdown {
+                session_id: shutdown_session_id,
+                ..
+            } if shutdown_session_id == &session_id
+        )
+    }) || shutdown.observations.iter().any(|observation| {
         observation
             == &BotsterEngineObservation::SessionLifecycle {
                 session_id: session_id.clone(),
                 state: SessionLifecycleState::Stopping,
             }
     });
+    report.admitted_host_profile_id = admitted.metadata.profile_id;
+    report.admitted_required_capability = admitted_capability;
+    report.admitted_capability_drove_plugin_handler =
+        plugin_proof.handler_required_admitted_capability;
+    report.engine_surface =
+        "BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>".to_string();
+    report.single_engine_session_and_plugin = true;
+    report.plugin_invocation_completed = plugin_proof.allowed_completed;
+    report.plugin_invocation_value = plugin_proof.allowed_value;
+    report.plugin_missing_capability_rejected = plugin_proof.denied_rejected;
+    report.plugin_denial_failure_kind = plugin_proof.denial_failure_kind;
+    report.denied_plugin_runtime_not_called = plugin_proof.denied_runtime_not_called;
+    report.custom_host_requirements = custom_host_requirements();
 
     Ok(report)
 }
 
 #[cfg(unix)]
 fn run_spawned_embedder_smoke(
-    engine: &mut DefaultBotsterEngine,
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    drain_runtime: &mut LocalProcessRuntime,
     request: SessionSpawnRequest,
     session_id: SessionId,
     client_id: ClientId,
@@ -161,7 +271,7 @@ fn run_spawned_embedder_smoke(
     logical_clock: &mut u64,
 ) -> Result<EngineSmokeReport, EngineSmokeError> {
     engine
-        .execute_command(DefaultEngineCommand::AttachClient {
+        .execute_command(EngineCommand::AttachClient {
             client_id: client_id.clone(),
             session_id: session_id.clone(),
             subscription_id,
@@ -170,11 +280,12 @@ fn run_spawned_embedder_smoke(
         .map_err(|error| EngineSmokeError::new(format!("attach failed: {error}")))?;
     *logical_clock += 1;
 
-    let startup_output = drain_until_text(engine, &session_id, b"ready", logical_clock)?;
+    let startup_output =
+        drain_until_text(engine, drain_runtime, &session_id, b"ready", logical_clock)?;
 
     let input = "ping-embedder\n";
     engine
-        .execute_command(DefaultEngineCommand::SendInput {
+        .execute_command(EngineCommand::SendInput {
             client_id: client_id.clone(),
             session_id: session_id.clone(),
             data: input.as_bytes().to_vec(),
@@ -183,12 +294,17 @@ fn run_spawned_embedder_smoke(
         .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
     *logical_clock += 1;
 
-    let echoed_output =
-        drain_until_text(engine, &session_id, b"echo:ping-embedder", logical_clock)?;
+    let echoed_output = drain_until_text(
+        engine,
+        drain_runtime,
+        &session_id,
+        b"echo:ping-embedder",
+        logical_clock,
+    )?;
 
     let resized_to = (30, 100);
     engine
-        .execute_command(DefaultEngineCommand::Resize {
+        .execute_command(EngineCommand::Resize {
             client_id,
             session_id: session_id.clone(),
             rows: resized_to.0,
@@ -207,6 +323,17 @@ fn run_spawned_embedder_smoke(
 
     Ok(EngineSmokeReport {
         ran_real_embedder: true,
+        admitted_host_profile_id: String::new(),
+        admitted_required_capability: host_profile_capability(),
+        admitted_capability_drove_plugin_handler: false,
+        engine_surface: String::new(),
+        single_engine_session_and_plugin: false,
+        plugin_invocation_completed: false,
+        plugin_invocation_value: String::new(),
+        plugin_missing_capability_rejected: false,
+        plugin_denial_failure_kind: String::new(),
+        denied_plugin_runtime_not_called: false,
+        custom_host_requirements: Vec::new(),
         spawned_session_id: session_id,
         attached_client_id: ClientId("real-embedder-client".to_string()),
         executable: request.executable,
@@ -228,6 +355,17 @@ fn run_spawned_embedder_smoke(
 fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     Ok(EngineSmokeReport {
         ran_real_embedder: false,
+        admitted_host_profile_id: "minimal-test-host".to_string(),
+        admitted_required_capability: host_profile_capability(),
+        admitted_capability_drove_plugin_handler: false,
+        engine_surface: "skipped: local PTY example requires Unix".to_string(),
+        single_engine_session_and_plugin: false,
+        plugin_invocation_completed: false,
+        plugin_invocation_value: String::new(),
+        plugin_missing_capability_rejected: false,
+        plugin_denial_failure_kind: String::new(),
+        denied_plugin_runtime_not_called: false,
+        custom_host_requirements: custom_host_requirements(),
         spawned_session_id: SessionId("real-embedder-session".to_string()),
         attached_client_id: ClientId("real-embedder-client".to_string()),
         executable: "sh".to_string(),
@@ -266,7 +404,8 @@ fn real_embedder_spawn_request() -> SessionSpawnRequest {
 
 #[cfg(unix)]
 fn drain_until_text(
-    engine: &mut DefaultBotsterEngine,
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    drain_runtime: &mut LocalProcessRuntime,
     session_id: &SessionId,
     needle: &[u8],
     logical_clock: &mut u64,
@@ -275,14 +414,24 @@ fn drain_until_text(
     let mut observed = Vec::new();
 
     while Instant::now() < deadline {
-        let output = engine
-            .drain_runtime_once(session_id, *logical_clock)
-            .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?;
-        *logical_clock += 1;
+        for output in drain_runtime
+            .drain_output(session_id)
+            .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?
+        {
+            let SessionRuntimeOutput::PtyOutput { data, .. } = output else {
+                continue;
+            };
+            let output = engine
+                .receive_output(session_id.clone(), data, *logical_clock)
+                .map_err(|error| {
+                    EngineSmokeError::new(format!("receive output failed: {error}"))
+                })?;
+            *logical_clock += 1;
 
-        for (_, frame) in output.client_egress {
-            if let TransportEgress::TerminalOutput { data, .. } = frame {
-                observed.extend(data);
+            for (_, frame) in output.client_egress {
+                if let TransportEgress::TerminalOutput { data, .. } = frame {
+                    observed.extend(data);
+                }
             }
         }
 
@@ -306,12 +455,12 @@ fn drain_until_text(
 
 #[cfg(unix)]
 fn read_screen(
-    engine: &mut DefaultBotsterEngine,
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
     session_id: &SessionId,
     logical_clock: &mut u64,
 ) -> Result<String, EngineSmokeError> {
     let output = engine
-        .execute_command(DefaultEngineCommand::ReadScreen {
+        .execute_command(EngineCommand::ReadScreen {
             request_id: request_id("read-screen"),
             session_id: session_id.clone(),
             now_seconds: *logical_clock,
@@ -343,12 +492,12 @@ struct SnapshotEvidence {
 
 #[cfg(unix)]
 fn capture_snapshot(
-    engine: &mut DefaultBotsterEngine,
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
     session_id: &SessionId,
     logical_clock: &mut u64,
 ) -> Result<SnapshotEvidence, EngineSmokeError> {
     let output = engine
-        .execute_command(DefaultEngineCommand::CaptureSnapshot {
+        .execute_command(EngineCommand::CaptureSnapshot {
             request_id: request_id("capture-snapshot"),
             session_id: session_id.clone(),
             now_seconds: *logical_clock,
@@ -376,12 +525,12 @@ fn capture_snapshot(
 
 #[cfg(unix)]
 fn shutdown_session(
-    engine: &mut DefaultBotsterEngine,
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
     session_id: &SessionId,
     logical_clock: u64,
 ) -> Result<botster_core::BotsterEngineOutput, EngineSmokeError> {
     let shutdown = engine
-        .execute_command(DefaultEngineCommand::Shutdown {
+        .execute_command(EngineCommand::Shutdown {
             session_id: session_id.clone(),
             reason: "real embedder smoke complete".to_string(),
             now_seconds: logical_clock,
@@ -393,6 +542,254 @@ fn shutdown_session(
         ));
     };
     Ok(shutdown)
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PluginProof {
+    handler_required_admitted_capability: bool,
+    allowed_completed: bool,
+    allowed_value: String,
+    denied_rejected: bool,
+    denial_failure_kind: String,
+    denied_runtime_not_called: bool,
+}
+
+#[cfg(unix)]
+fn run_plugin_proof(
+    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    admitted_capability: &Capability,
+) -> Result<PluginProof, EngineSmokeError> {
+    let allowed_plugin = PluginKey("minimal-host-ordinary-plugin".to_string());
+    let denied_plugin = PluginKey("minimal-host-denied-plugin".to_string());
+    let allowed_handler = plugin_handler(&allowed_plugin);
+    let denied_handler = plugin_handler(&denied_plugin);
+    let allowed_runtime = FakePluginRuntime::success("allowed");
+    let denied_runtime = FakePluginRuntime::success("denied-runtime-should-not-run");
+    let allowed_required_capability = Some(admitted_capability.clone());
+    let denied_required_capability = Some(admitted_capability.clone());
+    let handler_required_admitted_capability = allowed_required_capability.as_ref()
+        == Some(admitted_capability)
+        && denied_required_capability.as_ref() == Some(admitted_capability);
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration(
+                allowed_runtime,
+                &allowed_plugin,
+                &allowed_handler,
+                vec![admitted_capability.clone()],
+                allowed_required_capability,
+            ),
+        })
+        .map_err(|error| EngineSmokeError::new(format!("load allowed plugin failed: {error}")))?;
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration(
+                denied_runtime.clone(),
+                &denied_plugin,
+                &denied_handler,
+                Vec::new(),
+                denied_required_capability,
+            ),
+        })
+        .map_err(|error| EngineSmokeError::new(format!("load denied plugin failed: {error}")))?;
+
+    let allowed = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation("allowed-plugin-request", allowed_handler),
+        })
+        .map_err(|error| {
+            EngineSmokeError::new(format!(
+                "invoke allowed plugin failed unexpectedly: {error}"
+            ))
+        })?;
+    let EngineCommandOutcome::PluginInvoked(allowed) = allowed else {
+        return Err(EngineSmokeError::new(
+            "allowed plugin invocation returned wrong result",
+        ));
+    };
+    let (allowed_completed, allowed_value) = match allowed.result {
+        PluginInvocationResult::Completed(success) => {
+            let value = success
+                .payload
+                .and_then(|payload| {
+                    payload
+                        .0
+                        .get("value")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            (true, value)
+        }
+        _ => (false, String::new()),
+    };
+
+    let denied = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation("denied-plugin-request", denied_handler),
+        })
+        .map_err(|error| {
+            EngineSmokeError::new(format!("invoke denied plugin failed unexpectedly: {error}"))
+        })?;
+    let EngineCommandOutcome::PluginInvoked(denied) = denied else {
+        return Err(EngineSmokeError::new(
+            "denied plugin invocation returned wrong result",
+        ));
+    };
+    let (denied_rejected, denial_failure_kind) = match denied.result {
+        PluginInvocationResult::Failed(failure) => (
+            failure.kind == PluginInvocationFailureKind::HandlerFailed
+                && failure.reason.contains("capability"),
+            format!("{:?}", failure.kind),
+        ),
+        _ => (false, String::new()),
+    };
+
+    Ok(PluginProof {
+        handler_required_admitted_capability,
+        allowed_completed,
+        allowed_value,
+        denied_rejected,
+        denial_failure_kind,
+        denied_runtime_not_called: denied_runtime.invocations().is_empty(),
+    })
+}
+
+#[cfg(unix)]
+fn trusted_host_profile_manifest() -> PackageManifest {
+    PackageManifest {
+        name: "minimal-test-host-provider".to_string(),
+        version: "0.1.0".to_string(),
+        kind: ExtensionKind::Provider,
+        botster: ">=0.1.0".to_string(),
+        source: Some(PackageSource::Git {
+            repo: "https://example.invalid/botster/minimal-test-host".to_string(),
+            reference: "v0.1.0".to_string(),
+        }),
+        capabilities: vec![host_profile_capability()],
+        entrypoints: vec![ExtensionEntrypoint {
+            runtime: ExtensionRuntime::Lua,
+            path: "bootstrap.lua".to_string(),
+            bootstrap: true,
+        }],
+        host_profile: Some(botster_core::HostProfileMetadata {
+            profile_id: "minimal-test-host".to_string(),
+            compatibility: ">=0.1.0".to_string(),
+            precedence: 10,
+            required_providers: vec!["local-process-provider".to_string()],
+            required_capabilities: vec![host_profile_capability()],
+            policy_sections: vec![
+                HostProfilePolicySection::Startup,
+                HostProfilePolicySection::Providers,
+                HostProfilePolicySection::Capabilities,
+                HostProfilePolicySection::ClientAdmission,
+            ],
+        }),
+    }
+}
+
+fn host_profile_capability() -> Capability {
+    Capability {
+        surface: CapabilitySurface::Mcp,
+        scope: Some("minimal-test-host.run".to_string()),
+    }
+}
+
+fn custom_host_requirements() -> Vec<String> {
+    vec![
+        "host Botster version".to_string(),
+        "enablement decision".to_string(),
+        "source provenance".to_string(),
+        "bootstrap entrypoint".to_string(),
+        "required provider names".to_string(),
+        "required capabilities".to_string(),
+        "explicit spawn request fields".to_string(),
+        "client and subscription ids".to_string(),
+        "logical clocks".to_string(),
+        "plugin worker registration and runtime".to_string(),
+    ]
+}
+
+#[cfg(unix)]
+fn plugin_registration(
+    runtime: FakePluginRuntime,
+    plugin_key: &PluginKey,
+    handler: &PluginHandlerRef,
+    capabilities: Vec<Capability>,
+    required_capability: Option<Capability>,
+) -> PluginWorkerRegistration {
+    PluginWorkerRegistration {
+        load: PluginLoadSpec {
+            plugin_key: plugin_key.clone(),
+            package: plugin_key.0.clone(),
+            entrypoint: "plugin.lua".to_string(),
+            descriptors: vec![PluginOwnedDescriptor {
+                descriptor: PluginDescriptorRef {
+                    plugin_key: plugin_key.clone(),
+                    kind: PluginDescriptorKind::Command,
+                    descriptor_id: "run".to_string(),
+                },
+                handler: Some(handler.clone()),
+                body: BoundaryJson(serde_json::json!({ "title": "Run" })),
+            }],
+            metadata: None,
+        },
+        manifest: plugin_manifest(plugin_key, capabilities),
+        runtime: Arc::new(runtime),
+        handlers: vec![PluginHandlerRegistration {
+            handler: handler.clone(),
+            required_capability,
+        }],
+        resources: Vec::new(),
+    }
+}
+
+#[cfg(unix)]
+fn plugin_manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageManifest {
+    PackageManifest {
+        name: plugin_key.0.clone(),
+        version: "0.1.0".to_string(),
+        kind: ExtensionKind::Plugin,
+        botster: ">=0.1.0".to_string(),
+        source: None,
+        capabilities,
+        entrypoints: vec![ExtensionEntrypoint {
+            runtime: ExtensionRuntime::Lua,
+            path: "plugin.lua".to_string(),
+            bootstrap: false,
+        }],
+        host_profile: None,
+    }
+}
+
+#[cfg(unix)]
+fn plugin_handler(plugin_key: &PluginKey) -> PluginHandlerRef {
+    PluginHandlerRef {
+        plugin_key: plugin_key.clone(),
+        kind: PluginHandlerKind::Command,
+        handler_id: "run".to_string(),
+    }
+}
+
+#[cfg(unix)]
+fn plugin_invocation(request: &str, handler: PluginHandlerRef) -> PluginInvocationRequest {
+    PluginInvocationRequest {
+        request_id: RequestId(format!("real-embedder-{request}")),
+        handler,
+        timeout_ms: 1_000,
+        context: PluginInvocationContext {
+            client_id: Some(ClientId("real-embedder-client".to_string())),
+            session_id: Some(SessionId("real-embedder-session".to_string())),
+            subscription_id: Some(SubscriptionId("real-embedder-subscription".to_string())),
+            surface_id: None,
+            origin: Some("minimal-test-host".to_string()),
+            metadata: None,
+        },
+        payload: BoundaryJson(serde_json::json!({ "command": "run" })),
+    }
 }
 
 #[cfg(unix)]
