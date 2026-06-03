@@ -8,15 +8,17 @@ use std::time::Duration;
 use std::time::Instant;
 
 use botster_core::{
-    BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata, EngineCommand,
-    EngineCommandError, EngineCommandKind, EngineCommandOutcome, ExtensionEntrypoint,
-    ExtensionKind, ExtensionRuntime, NotificationContent, NotificationItem, NotificationSeverity,
-    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
+    BotsterEngine, BotsterEngineObservation, BoundaryJson, Capability, CapabilitySurface,
+    CoreSessionMetadata, EngineCommand, EngineCommandError, EngineCommandKind,
+    EngineCommandOutcome, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
+    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
+    NotificationTarget, NotificationTimestamp, PackageManifest, PluginCleanupScope,
     PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
-    RequestId, SessionActivityStatus, SessionId, SessionIoEvent, SessionIoRequest,
+    PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
+    PluginUnloadSpec, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
+    QueueSource, RequestId, SessionActivityStatus, SessionId, SessionIoEvent, SessionIoRequest,
     SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
     SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
@@ -85,11 +87,44 @@ fn plugin_manifest(plugin_key: &PluginKey) -> PackageManifest {
     }
 }
 
+fn network_capability() -> Capability {
+    Capability {
+        surface: CapabilitySurface::Network,
+        scope: Some("api".to_string()),
+    }
+}
+
+fn plugin_resource(
+    plugin_key: &PluginKey,
+    kind: PluginResourceKind,
+    resource_id: &str,
+) -> PluginResourceRef {
+    PluginResourceRef {
+        plugin_key: plugin_key.clone(),
+        kind,
+        resource_id: resource_id.to_string(),
+    }
+}
+
 fn plugin_registration(
     runtime: FakePluginRuntime,
     plugin_key: &PluginKey,
     handler: &PluginHandlerRef,
 ) -> PluginWorkerRegistration {
+    plugin_registration_with(runtime, plugin_key, handler, Vec::new(), None, Vec::new())
+}
+
+fn plugin_registration_with(
+    runtime: FakePluginRuntime,
+    plugin_key: &PluginKey,
+    handler: &PluginHandlerRef,
+    capabilities: Vec<Capability>,
+    required_capability: Option<Capability>,
+    resources: Vec<PluginResourceRef>,
+) -> PluginWorkerRegistration {
+    let mut manifest = plugin_manifest(plugin_key);
+    manifest.capabilities = capabilities;
+
     PluginWorkerRegistration {
         load: PluginLoadSpec {
             plugin_key: plugin_key.clone(),
@@ -106,13 +141,13 @@ fn plugin_registration(
             }],
             metadata: None,
         },
-        manifest: plugin_manifest(plugin_key),
+        manifest,
         runtime: Arc::new(runtime),
         handlers: vec![PluginHandlerRegistration {
             handler: handler.clone(),
-            required_capability: None,
+            required_capability,
         }],
-        resources: Vec::new(),
+        resources,
     }
 }
 
@@ -142,6 +177,363 @@ fn plugin_invocation_with_timeout(
         request_id: request_id(request_id_value),
         timeout_ms,
         ..plugin_invocation(handler)
+    }
+}
+
+#[test]
+fn engine_command_load_plugin_then_invoke_dispatches_through_worker() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::success("ok");
+
+    let loaded = engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration(plugin_runtime.clone(), &plugin, &handler),
+        })
+        .expect("load plugin through command facade");
+    assert_eq!(loaded, EngineCommandOutcome::PluginLoaded(plugin.clone()));
+
+    let invoked = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation(handler.clone()),
+        })
+        .expect("invoke plugin through command facade");
+
+    assert_eq!(plugin_runtime.invocations().len(), 1);
+    match invoked {
+        EngineCommandOutcome::PluginInvoked(outcome) => match outcome.result {
+            PluginInvocationResult::Completed(success) => {
+                assert_eq!(success.handler, handler);
+                assert_eq!(
+                    success.payload,
+                    Some(BoundaryJson(serde_json::json!({ "value": "ok" })))
+                );
+            }
+            other => panic!("expected command plugin success, got {other:?}"),
+        },
+        other => panic!("expected plugin invocation outcome, got {other:?}"),
+    }
+}
+
+#[test]
+fn engine_command_reload_plugin_returns_target_cleanup_and_replaces_runtime() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let other_plugin = PluginKey("api-other-plugin".to_string());
+    let handler = plugin_handler(&plugin);
+    let other_handler = plugin_handler(&other_plugin);
+    let first_runtime = FakePluginRuntime::success("first");
+    let replacement_runtime = FakePluginRuntime::success("replacement");
+    let other_runtime = FakePluginRuntime::success("other");
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration_with(
+                first_runtime.clone(),
+                &plugin,
+                &handler,
+                Vec::new(),
+                None,
+                vec![plugin_resource(
+                    &plugin,
+                    PluginResourceKind::McpRegistration,
+                    "resource-a",
+                )],
+            ),
+        })
+        .expect("load target plugin");
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration_with(
+                other_runtime.clone(),
+                &other_plugin,
+                &other_handler,
+                Vec::new(),
+                None,
+                vec![plugin_resource(
+                    &other_plugin,
+                    PluginResourceKind::McpRegistration,
+                    "resource-b",
+                )],
+            ),
+        })
+        .expect("load other plugin");
+
+    let replacement_registration =
+        plugin_registration(replacement_runtime.clone(), &plugin, &handler);
+    let reload = engine
+        .execute_command(EngineCommand::ReloadPlugin {
+            spec: PluginReloadSpec {
+                request_id: request_id("reload-plugin-command"),
+                plugin_key: plugin.clone(),
+                load: replacement_registration.load.clone(),
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            },
+            registration: replacement_registration,
+        })
+        .expect("reload plugin through command facade");
+
+    match reload {
+        EngineCommandOutcome::PluginReloaded(cleanup) => {
+            assert_eq!(cleanup.request_id, request_id("reload-plugin-command"));
+            assert_eq!(cleanup.plugin_key, plugin);
+            assert_eq!(cleanup.removed_descriptors.len(), 1);
+            assert_eq!(cleanup.removed_resources.len(), 1);
+            assert!(cleanup
+                .removed_resources
+                .iter()
+                .all(|resource| resource.plugin_key == plugin));
+        }
+        other => panic!("expected plugin reload cleanup, got {other:?}"),
+    }
+    assert_eq!(first_runtime.stopped(), vec![plugin.clone()]);
+
+    let invoked = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation(handler.clone()),
+        })
+        .expect("invoke replacement plugin");
+    assert!(matches!(
+        invoked,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                &outcome.result,
+                PluginInvocationResult::Completed(success)
+                    if success.payload == Some(BoundaryJson(serde_json::json!({ "value": "replacement" })))
+            )
+    ));
+    assert_eq!(replacement_runtime.invocations().len(), 1);
+    assert!(other_runtime.stopped().is_empty());
+    assert_eq!(
+        engine.plugin_workers().descriptors_for(&other_plugin).len(),
+        1
+    );
+}
+
+#[test]
+fn engine_command_unload_plugin_cleans_resources_and_rejects_later_invoke() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::success("ok");
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration_with(
+                plugin_runtime.clone(),
+                &plugin,
+                &handler,
+                Vec::new(),
+                None,
+                vec![plugin_resource(
+                    &plugin,
+                    PluginResourceKind::NetworkConnection,
+                    "socket-1",
+                )],
+            ),
+        })
+        .expect("load plugin");
+
+    let unloaded = engine
+        .execute_command(EngineCommand::UnloadPlugin {
+            spec: PluginUnloadSpec {
+                request_id: request_id("unload-plugin-command"),
+                plugin_key: plugin.clone(),
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            },
+        })
+        .expect("unload plugin through command facade");
+
+    match unloaded {
+        EngineCommandOutcome::PluginUnloaded(cleanup) => {
+            assert_eq!(cleanup.request_id, request_id("unload-plugin-command"));
+            assert_eq!(cleanup.plugin_key, plugin);
+            assert_eq!(cleanup.removed_descriptors.len(), 1);
+            assert_eq!(cleanup.removed_resources.len(), 1);
+        }
+        other => panic!("expected plugin unload cleanup, got {other:?}"),
+    }
+    assert_eq!(plugin_runtime.stopped(), vec![plugin.clone()]);
+
+    let invoked = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation(handler),
+        })
+        .expect("invoke unloaded plugin returns typed worker failure");
+    assert!(matches!(
+        invoked,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                &outcome.result,
+                PluginInvocationResult::Failed(failure)
+                    if failure.kind == PluginInvocationFailureKind::WorkerStopped
+            )
+    ));
+}
+
+#[test]
+fn engine_command_plugin_capability_rejection_uses_manifest_metadata() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let required = network_capability();
+    let plugin_runtime = FakePluginRuntime::success("not-called");
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration_with(
+                plugin_runtime.clone(),
+                &plugin,
+                &handler,
+                Vec::new(),
+                Some(required),
+                Vec::new(),
+            ),
+        })
+        .expect("load plugin with missing capability grant");
+
+    let invoked = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation(handler.clone()),
+        })
+        .expect("capability rejection is a typed plugin outcome");
+    assert!(matches!(
+        invoked,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                &outcome.result,
+                PluginInvocationResult::Failed(failure)
+                    if failure.handler == handler
+                        && failure.kind == PluginInvocationFailureKind::HandlerFailed
+                        && failure.reason.contains("capability")
+            )
+    ));
+    assert!(plugin_runtime.invocations().is_empty());
+}
+
+#[test]
+fn engine_command_plugin_timeout_and_backpressure_events_surface() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::with_plugin_config(
+            FakeSessionRuntime::new(),
+            botster_core::PluginWorkerEngineConfig {
+                per_plugin_capacity: 1,
+            },
+        );
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
+        duration: Duration::from_millis(100),
+        payload: BoundaryJson(serde_json::json!({ "value": "late" })),
+    });
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration(plugin_runtime, &plugin, &handler),
+        })
+        .expect("load delayed plugin");
+
+    let timeout = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation_with_timeout("command-timeout", handler.clone(), 10),
+        })
+        .expect("timeout returns plugin outcome");
+    assert!(matches!(
+        timeout,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                outcome.events.as_slice(),
+                [PluginWorkerEvent::InvocationTimedOut(failure)]
+                    if failure.request_id == request_id("command-timeout")
+                        && failure.kind == PluginInvocationFailureKind::TimedOut
+            )
+    ));
+
+    let pressured = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation_with_timeout("command-pressured", handler, 10),
+        })
+        .expect("backpressure returns plugin outcome");
+    assert!(matches!(
+        pressured,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                outcome.events.as_slice(),
+                [PluginWorkerEvent::Backpressure(summary)]
+                    if summary.source == QueueSource::PluginWorker
+                        && summary.capacity == 1
+                        && summary.depth == 1
+            )
+    ));
+}
+
+#[test]
+fn engine_command_plugin_invoke_failure_releases_resources() {
+    let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    let plugin_runtime = FakePluginRuntime::failure("expected failure");
+
+    engine
+        .execute_command(EngineCommand::LoadPlugin {
+            registration: plugin_registration_with(
+                plugin_runtime.clone(),
+                &plugin,
+                &handler,
+                Vec::new(),
+                None,
+                vec![plugin_resource(
+                    &plugin,
+                    PluginResourceKind::FilesystemOperation,
+                    "operation-1",
+                )],
+            ),
+        })
+        .expect("load failing plugin");
+
+    let failed = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation(handler.clone()),
+        })
+        .expect("handler failure returns plugin outcome");
+    assert!(matches!(
+        failed,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                &outcome.result,
+                PluginInvocationResult::Failed(failure)
+                    if failure.kind == PluginInvocationFailureKind::HandlerFailed
+            )
+    ));
+
+    let unload = engine
+        .execute_command(EngineCommand::UnloadPlugin {
+            spec: PluginUnloadSpec {
+                request_id: request_id("unload-after-failure"),
+                plugin_key: plugin.clone(),
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            },
+        })
+        .expect("unload after failed invocation");
+
+    match unload {
+        EngineCommandOutcome::PluginUnloaded(cleanup) => {
+            assert_eq!(cleanup.plugin_key, plugin);
+            assert_eq!(
+                cleanup.removed_resources,
+                vec![plugin_resource(
+                    &plugin,
+                    PluginResourceKind::FilesystemOperation,
+                    "operation-1",
+                )]
+            );
+        }
+        other => panic!("expected unload cleanup after failure, got {other:?}"),
     }
 }
 
@@ -637,6 +1029,10 @@ fn engine_command_surface_uses_crate_root_facade_for_all_typed_commands() {
             EngineCommandKind::ReplaySnapshot,
             EngineCommandKind::Shutdown,
             EngineCommandKind::Notifications,
+            EngineCommandKind::LoadPlugin,
+            EngineCommandKind::ReloadPlugin,
+            EngineCommandKind::UnloadPlugin,
+            EngineCommandKind::InvokePlugin,
         ]
     );
 
