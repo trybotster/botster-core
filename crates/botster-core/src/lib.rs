@@ -124,8 +124,9 @@ pub use notification::{
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use package::{
-    admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError, HostProfileMetadata,
-    HostProfilePolicySection, PackageManifest, PackageSource,
+    admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError,
+    HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
+    PackageSource,
 };
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,

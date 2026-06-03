@@ -2,9 +2,11 @@
 
 use botster_core::{
     admit_host_profile, Capability, CapabilitySurface, ExtensionEntrypoint, ExtensionKind,
-    ExtensionRuntime, HostProfileAdmissionError, HostProfileMetadata, HostProfilePolicySection,
-    PackageManifest, PackageSource,
+    ExtensionRuntime, HostProfileAdmissionError, HostProfileCompatibilityField,
+    HostProfileMetadata, HostProfilePolicySection, PackageManifest, PackageSource,
 };
+
+const HOST_BOTSTER_VERSION: &str = "0.1.2";
 
 fn network_capability() -> Capability {
     Capability {
@@ -99,7 +101,8 @@ fn package_manifest_without_host_profile_keeps_serde_compatibility() {
 #[test]
 fn enabled_provider_with_source_bootstrap_and_required_capabilities_admits() {
     let manifest = provider_manifest();
-    let admitted = admit_host_profile(&manifest, true).expect("admit provider host profile");
+    let admitted = admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION)
+        .expect("admit provider host profile");
 
     assert_eq!(admitted.package_name, "botster-hub-profile");
     assert_eq!(admitted.package_version, "0.1.0");
@@ -110,12 +113,32 @@ fn enabled_provider_with_source_bootstrap_and_required_capabilities_admits() {
 }
 
 #[test]
+fn exact_compatibility_requirements_are_admitted() {
+    let mut manifest = provider_manifest();
+    manifest.botster = HOST_BOTSTER_VERSION.to_string();
+    manifest
+        .host_profile
+        .as_mut()
+        .expect("host profile metadata")
+        .compatibility = HOST_BOTSTER_VERSION.to_string();
+
+    assert!(admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION).is_ok());
+}
+
+#[test]
+fn lower_bound_compatibility_requirements_are_admitted() {
+    let manifest = provider_manifest();
+
+    assert!(admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION).is_ok());
+}
+
+#[test]
 fn ordinary_plugin_with_host_profile_metadata_is_rejected() {
     let mut manifest = provider_manifest();
     manifest.kind = ExtensionKind::Plugin;
 
     assert_eq!(
-        admit_host_profile(&manifest, true),
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::NotProvider)
     );
 }
@@ -126,7 +149,7 @@ fn provider_without_host_profile_metadata_is_rejected() {
     manifest.host_profile = None;
 
     assert_eq!(
-        admit_host_profile(&manifest, true),
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::MissingMetadata)
     );
 }
@@ -136,7 +159,7 @@ fn disabled_provider_is_rejected() {
     let manifest = provider_manifest();
 
     assert_eq!(
-        admit_host_profile(&manifest, false),
+        admit_host_profile(&manifest, false, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::Disabled)
     );
 }
@@ -147,7 +170,7 @@ fn provider_without_source_provenance_is_rejected() {
     manifest.source = None;
 
     assert_eq!(
-        admit_host_profile(&manifest, true),
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::MissingSource)
     );
 }
@@ -158,8 +181,19 @@ fn provider_without_bootstrap_entrypoint_is_rejected() {
     manifest.entrypoints[0].bootstrap = false;
 
     assert_eq!(
-        admit_host_profile(&manifest, true),
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::MissingBootstrapEntrypoint)
+    );
+}
+
+#[test]
+fn provider_with_blank_bootstrap_entrypoint_path_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest.entrypoints[0].path = " ".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(HostProfileAdmissionError::BlankBootstrapEntrypoint)
     );
 }
 
@@ -170,10 +204,118 @@ fn provider_missing_required_capability_is_rejected() {
     manifest.capabilities = Vec::new();
 
     assert_eq!(
-        admit_host_profile(&manifest, true),
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
         Err(HostProfileAdmissionError::MissingRequiredCapability(
             required
         ))
+    );
+}
+
+#[test]
+fn provider_with_blank_profile_id_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest
+        .host_profile
+        .as_mut()
+        .expect("host profile metadata")
+        .profile_id = " ".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(HostProfileAdmissionError::BlankProfileId)
+    );
+}
+
+#[test]
+fn provider_with_blank_profile_compatibility_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest
+        .host_profile
+        .as_mut()
+        .expect("host profile metadata")
+        .compatibility = " ".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(HostProfileAdmissionError::BlankProfileCompatibility)
+    );
+}
+
+#[test]
+fn provider_with_blank_required_provider_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest
+        .host_profile
+        .as_mut()
+        .expect("host profile metadata")
+        .required_providers = vec!["network-provider".to_string(), " ".to_string()];
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(HostProfileAdmissionError::BlankRequiredProvider)
+    );
+}
+
+#[test]
+fn malformed_host_botster_version_is_rejected() {
+    let manifest = provider_manifest();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, "0.1"),
+        Err(HostProfileAdmissionError::InvalidHostBotsterVersion(
+            "0.1".to_string()
+        ))
+    );
+}
+
+#[test]
+fn unsupported_compatibility_requirement_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest.botster = "^0.1.0".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(
+            HostProfileAdmissionError::UnsupportedCompatibilityRequirement {
+                field: HostProfileCompatibilityField::Package,
+                requirement: "^0.1.0".to_string(),
+            }
+        )
+    );
+}
+
+#[test]
+fn malformed_compatibility_requirement_version_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest.botster = ">=0.1".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(
+            HostProfileAdmissionError::MalformedCompatibilityRequirement {
+                field: HostProfileCompatibilityField::Package,
+                requirement: ">=0.1".to_string(),
+            }
+        )
+    );
+}
+
+#[test]
+fn compatibility_mismatch_is_rejected() {
+    let mut manifest = provider_manifest();
+    manifest
+        .host_profile
+        .as_mut()
+        .expect("host profile metadata")
+        .compatibility = ">=0.2.0".to_string();
+
+    assert_eq!(
+        admit_host_profile(&manifest, true, HOST_BOTSTER_VERSION),
+        Err(HostProfileAdmissionError::IncompatibleBotsterVersion {
+            field: HostProfileCompatibilityField::Profile,
+            requirement: ">=0.2.0".to_string(),
+            host_version: HOST_BOTSTER_VERSION.to_string(),
+        })
     );
 }
 

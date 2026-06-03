@@ -192,7 +192,18 @@ The first minimal core contract now exists in
 admission portion of recommendation 2: typed profile identity, compatibility,
 precedence, required provider names, required capabilities, typed policy
 section names, provider-only admission, host enablement, source provenance,
-bootstrap entrypoints, and required capability presence.
+bootstrap entrypoints, required capability presence, nonblank host-profile
+metadata, and explicit compatibility checks against a caller-supplied host
+Botster point version.
+
+The blessed admission helper is
+`admit_host_profile(manifest, enabled, host_botster_version)`. It validates both
+`PackageManifest.botster` and `HostProfileMetadata.compatibility` with the
+intentionally narrow core syntax: exact `MAJOR.MINOR.PATCH` and lower-bound
+`>=MAJOR.MINOR.PATCH` requirements only. It does not pull in a semver solver,
+and unsupported or malformed requirements fail admission with typed errors.
+This keeps compatibility validation explicit without turning core into a
+package manager.
 
 This remains intentionally scaffold-only at the core layer. There is no
 in-crate production caller because admission, install state, registry
@@ -201,6 +212,13 @@ hub wiring remain host/hub responsibilities. Wiring profile admission into
 `PluginWorkerEngine` or `BotsterEngine` would collapse the core-vs-host
 boundary this audit is preserving. The production caller is expected to be a
 host/hub package manager or startup path in a separate ticket.
+
+The ordinary-plugin boundary is enforced at the public admission API and at the
+plugin-worker capability gate. A manifest with `kind = Plugin` and
+`host_profile` metadata is rejected by `HostProfileAdmissionError::NotProvider`,
+and `PluginWorkerEngine` grants handler access only from
+`PackageManifest.capabilities`. Host-profile `required_capabilities` describe
+requirements for admission; they are not worker capability grants.
 
 The metadata fields carry no personal or user data. They are mechanism-level
 contract fields only: profile identity, compatibility, precedence, required
@@ -220,7 +238,8 @@ plugin runtime paths; host/hub wiring still remains outside this crate. The
 proof is grounded in existing public entry points and contract tests:
 
 - `crates/botster-core/tests/host_profile_contract_test.rs` exercises
-  host-profile manifest serde compatibility, admission success, typed
+  host-profile manifest serde compatibility, admission success, exact and
+  lower-bound compatibility acceptance, typed compatibility and blank-field
   rejection cases, and typed policy sections.
 - `crates/botster-core/tests/plugin_worker_engine_test.rs` verifies
   host-profile metadata is not consulted by the plugin-worker capability gate.

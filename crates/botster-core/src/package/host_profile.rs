@@ -54,6 +54,15 @@ pub struct AdmittedHostProfile {
     pub metadata: HostProfileMetadata,
 }
 
+/// Compatibility requirement field checked during host-profile admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostProfileCompatibilityField {
+    /// `PackageManifest.botster`.
+    Package,
+    /// `HostProfileMetadata.compatibility`.
+    Profile,
+}
+
 /// Host-profile admission failure.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HostProfileAdmissionError {
@@ -72,9 +81,52 @@ pub enum HostProfileAdmissionError {
     /// Package has no bootstrap entrypoint.
     #[error("host-profile package has no bootstrap entrypoint")]
     MissingBootstrapEntrypoint,
+    /// Package has a bootstrap entrypoint with a blank path.
+    #[error("host-profile package has a blank bootstrap entrypoint path")]
+    BlankBootstrapEntrypoint,
+    /// Host-profile metadata has a blank profile id.
+    #[error("host-profile metadata has a blank profile id")]
+    BlankProfileId,
+    /// Host-profile metadata has a blank compatibility requirement.
+    #[error("host-profile metadata has a blank compatibility requirement")]
+    BlankProfileCompatibility,
+    /// Host-profile metadata has a blank required provider name.
+    #[error("host-profile metadata has a blank required provider name")]
+    BlankRequiredProvider,
     /// Package manifest is missing a capability required by the host-profile metadata.
     #[error("host-profile package is missing required capability {0:?}")]
     MissingRequiredCapability(Capability),
+    /// Caller supplied an invalid host Botster point version.
+    #[error("host Botster version is invalid: {0}")]
+    InvalidHostBotsterVersion(String),
+    /// Compatibility requirement uses unsupported syntax.
+    #[error("unsupported compatibility requirement for {field:?}: {requirement}")]
+    UnsupportedCompatibilityRequirement {
+        /// Field carrying the unsupported requirement.
+        field: HostProfileCompatibilityField,
+        /// Unsupported requirement string.
+        requirement: String,
+    },
+    /// Compatibility requirement version is malformed.
+    #[error("malformed compatibility requirement for {field:?}: {requirement}")]
+    MalformedCompatibilityRequirement {
+        /// Field carrying the malformed requirement.
+        field: HostProfileCompatibilityField,
+        /// Malformed requirement string.
+        requirement: String,
+    },
+    /// Compatibility requirement does not admit the host Botster version.
+    #[error(
+        "host Botster version {host_version} does not satisfy {field:?} requirement {requirement}"
+    )]
+    IncompatibleBotsterVersion {
+        /// Field carrying the incompatible requirement.
+        field: HostProfileCompatibilityField,
+        /// Incompatible requirement string.
+        requirement: String,
+        /// Host Botster version supplied by the caller.
+        host_version: String,
+    },
 }
 
 /// Admit host-profile metadata from a package manifest when all core contract
@@ -82,6 +134,7 @@ pub enum HostProfileAdmissionError {
 pub fn admit_host_profile(
     manifest: &PackageManifest,
     enabled: bool,
+    host_botster_version: &str,
 ) -> Result<AdmittedHostProfile, HostProfileAdmissionError> {
     let metadata = manifest
         .host_profile
@@ -100,12 +153,30 @@ pub fn admit_host_profile(
         return Err(HostProfileAdmissionError::MissingSource);
     }
 
-    if !manifest
+    if metadata.profile_id.trim().is_empty() {
+        return Err(HostProfileAdmissionError::BlankProfileId);
+    }
+
+    if metadata.compatibility.trim().is_empty() {
+        return Err(HostProfileAdmissionError::BlankProfileCompatibility);
+    }
+
+    if metadata
+        .required_providers
+        .iter()
+        .any(|provider| provider.trim().is_empty())
+    {
+        return Err(HostProfileAdmissionError::BlankRequiredProvider);
+    }
+
+    let bootstrap_entrypoint = manifest
         .entrypoints
         .iter()
-        .any(|entrypoint| entrypoint.bootstrap)
-    {
-        return Err(HostProfileAdmissionError::MissingBootstrapEntrypoint);
+        .find(|entrypoint| entrypoint.bootstrap)
+        .ok_or(HostProfileAdmissionError::MissingBootstrapEntrypoint)?;
+
+    if bootstrap_entrypoint.path.trim().is_empty() {
+        return Err(HostProfileAdmissionError::BlankBootstrapEntrypoint);
     }
 
     if let Some(capability) = metadata
@@ -118,9 +189,121 @@ pub fn admit_host_profile(
         ));
     }
 
+    let host_version = Version::parse_host(host_botster_version)?;
+    require_compatible(
+        HostProfileCompatibilityField::Package,
+        &manifest.botster,
+        host_botster_version,
+        host_version,
+    )?;
+    require_compatible(
+        HostProfileCompatibilityField::Profile,
+        &metadata.compatibility,
+        host_botster_version,
+        host_version,
+    )?;
+
     Ok(AdmittedHostProfile {
         package_name: manifest.name.clone(),
         package_version: manifest.version.clone(),
         metadata: metadata.clone(),
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Version {
+    major: u64,
+    minor: u64,
+    patch: u64,
+}
+
+impl Version {
+    fn parse_host(version: &str) -> Result<Self, HostProfileAdmissionError> {
+        Self::parse(version).ok_or_else(|| {
+            HostProfileAdmissionError::InvalidHostBotsterVersion(version.to_string())
+        })
+    }
+
+    fn parse(version: &str) -> Option<Self> {
+        let mut components = version.split('.');
+        let major = parse_version_component(components.next()?)?;
+        let minor = parse_version_component(components.next()?)?;
+        let patch = parse_version_component(components.next()?)?;
+
+        if components.next().is_some() {
+            return None;
+        }
+
+        Some(Self {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
+fn parse_version_component(component: &str) -> Option<u64> {
+    if component.is_empty() || !component.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    component.parse().ok()
+}
+
+fn require_compatible(
+    field: HostProfileCompatibilityField,
+    requirement: &str,
+    host_version_string: &str,
+    host_version: Version,
+) -> Result<(), HostProfileAdmissionError> {
+    let requirement = requirement.trim();
+
+    if let Some(version) = requirement.strip_prefix(">=") {
+        let minimum = Version::parse(version).ok_or_else(|| {
+            HostProfileAdmissionError::MalformedCompatibilityRequirement {
+                field,
+                requirement: requirement.to_string(),
+            }
+        })?;
+
+        if host_version >= minimum {
+            return Ok(());
+        }
+
+        return Err(HostProfileAdmissionError::IncompatibleBotsterVersion {
+            field,
+            requirement: requirement.to_string(),
+            host_version: host_version_string.to_string(),
+        });
+    }
+
+    if requirement
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_digit())
+    {
+        let exact = Version::parse(requirement).ok_or_else(|| {
+            HostProfileAdmissionError::MalformedCompatibilityRequirement {
+                field,
+                requirement: requirement.to_string(),
+            }
+        })?;
+
+        if host_version == exact {
+            return Ok(());
+        }
+
+        return Err(HostProfileAdmissionError::IncompatibleBotsterVersion {
+            field,
+            requirement: requirement.to_string(),
+            host_version: host_version_string.to_string(),
+        });
+    }
+
+    Err(
+        HostProfileAdmissionError::UnsupportedCompatibilityRequirement {
+            field,
+            requirement: requirement.to_string(),
+        },
+    )
 }
