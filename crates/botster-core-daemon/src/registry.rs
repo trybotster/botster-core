@@ -71,10 +71,27 @@ impl RegistryRecord {
             created_at: now_seconds,
             updated_at: now_seconds,
             protocol_version: botster_core::PROTOCOL_VERSION,
-            handshake_verified: true,
-            ping_pong_supported: true,
+            handshake_verified: false,
+            ping_pong_supported: false,
             recovery_identity: None,
         }
+    }
+
+    /// Record restart-contract evidence observed from the session-worker protocol.
+    ///
+    /// Callers should only use this after the daemon has observed the
+    /// HELLO/WELCOME handshake, FRAME_PING/PONG liveness, and recovery identity
+    /// from [`botster_core::SessionMetadata`].
+    pub fn observe_restart_contract(
+        &mut self,
+        recovery_identity: serde_json::Value,
+        now_seconds: u64,
+    ) {
+        self.protocol_version = botster_core::PROTOCOL_VERSION;
+        self.handshake_verified = true;
+        self.ping_pong_supported = true;
+        self.recovery_identity = Some(recovery_identity);
+        self.updated_at = now_seconds;
     }
 
     /// Update state and timestamp.
@@ -157,7 +174,9 @@ impl SessionRegistry {
                 continue;
             }
             let data = fs::read(path)?;
-            records.push(serde_json::from_slice(&data)?);
+            if let Ok(record) = serde_json::from_slice(&data) {
+                records.push(record);
+            }
         }
         records.sort_by(|left: &RegistryRecord, right| left.session_id.0.cmp(&right.session_id.0));
         Ok(records)

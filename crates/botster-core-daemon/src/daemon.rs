@@ -203,6 +203,7 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
         let outcome = self.engine.drain_runtime_once(session_id, last_output_at)?;
+        self.reconcile_lifecycle_observations(&outcome.observations, last_output_at)?;
         Ok(DrainResult {
             client_egress: outcome.client_egress,
             observations: outcome.observations.clone(),
@@ -296,12 +297,15 @@ impl CoreDaemon {
             .map(|record| {
                 let state = if matches!(
                     record.state,
-                    RegistrySessionState::Exited | RegistrySessionState::Stale
+                    RegistrySessionState::Stopping
+                        | RegistrySessionState::Exited
+                        | RegistrySessionState::Stale
                 ) {
                     SessionAdoptionState::Terminal
                 } else if record.handshake_verified
                     && record.ping_pong_supported
                     && record.protocol_version == botster_core::PROTOCOL_VERSION
+                    && record.recovery_identity.is_some()
                 {
                     SessionAdoptionState::Adoptable
                 } else {
@@ -340,8 +344,33 @@ impl CoreDaemon {
         self.engine
             .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
-            record.mark(RegistrySessionState::Stopping, now_seconds);
+            record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
+        }
+        Ok(())
+    }
+
+    fn reconcile_lifecycle_observations(
+        &self,
+        observations: &[BotsterEngineObservation],
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        for observation in observations {
+            let BotsterEngineObservation::SessionLifecycle { session_id, state } = observation
+            else {
+                continue;
+            };
+            let registry_state = match state {
+                botster_core::SessionLifecycleState::Stopping => RegistrySessionState::Stopping,
+                botster_core::SessionLifecycleState::Exited { .. } => RegistrySessionState::Exited,
+                botster_core::SessionLifecycleState::Failed { .. } => RegistrySessionState::Stale,
+                botster_core::SessionLifecycleState::Starting
+                | botster_core::SessionLifecycleState::Running => continue,
+            };
+            if let Some(mut record) = self.registry.load(session_id)? {
+                record.mark(registry_state, now_seconds);
+                self.registry.save(&record)?;
+            }
         }
         Ok(())
     }

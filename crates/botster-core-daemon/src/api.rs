@@ -64,7 +64,10 @@ pub struct GuardedWriteRequest {
     pub client_id: ClientId,
     /// Bytes to inject when readiness evidence permits it.
     pub data: Vec<u8>,
-    /// Core-owned readiness evidence available to the daemon.
+    /// Host-supplied readiness evidence available to the daemon.
+    ///
+    /// The daemon validates this evidence fail-closed. It does not treat caller
+    /// assertions as downstream delivery proof.
     pub readiness: ReadinessEvidence,
     /// Logical timestamp supplied by the host scheduler.
     pub now_seconds: u64,
