@@ -282,6 +282,53 @@ where
         })
     }
 
+    /// Adopt a live runtime handle and install its worker adapter after daemon restart.
+    pub fn adopt_session(
+        &mut self,
+        handle: SessionRuntimeHandle,
+        metadata: CoreSessionMetadata,
+        worker_runtime: W,
+    ) -> Result<MultiplexerSpawnOutcome, MultiplexerEngineError> {
+        if self.sessions.contains_key(&handle.session_id) {
+            return Err(MultiplexerEngineError::SessionAlreadyExists {
+                session_id: handle.session_id,
+            });
+        }
+        if !metadata.is_within_encoded_len_limit() {
+            return Err(MultiplexerEngineError::MetadataTooLarge);
+        }
+
+        let mut session = CoreSession::with_metadata(
+            handle.session_id.clone(),
+            SessionLifecycleState::Starting,
+            metadata,
+        );
+        apply_session_activity_event(
+            &mut session,
+            SessionActivityEvent::Lifecycle {
+                state: SessionLifecycleState::Running,
+            },
+        );
+
+        self.session_handles
+            .insert(handle.session_id.clone(), handle.clone());
+        self.session_workers.insert(
+            handle.session_id.clone(),
+            SessionWorkerEngine::new(worker_runtime),
+        );
+        self.sessions
+            .insert(handle.session_id.clone(), session.clone());
+
+        Ok(MultiplexerSpawnOutcome {
+            handle,
+            session: session.clone(),
+            observations: vec![MultiplexerEngineObservation::SessionLifecycle {
+                session_id: session.session_id,
+                state: SessionLifecycleState::Running,
+            }],
+        })
+    }
+
     /// Route one client ingress frame through subscriptions and session workers.
     pub fn handle_client_ingress(
         &mut self,

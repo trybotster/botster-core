@@ -49,6 +49,9 @@ pub struct RegistryRecord {
     pub ping_pong_supported: bool,
     /// Optional recovery identity from the session-worker protocol.
     pub recovery_identity: Option<serde_json::Value>,
+    /// Number of extra live worker candidates claiming this session identity.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub duplicate_worker_candidates: usize,
 }
 
 impl RegistryRecord {
@@ -74,6 +77,7 @@ impl RegistryRecord {
             handshake_verified: false,
             ping_pong_supported: false,
             recovery_identity: None,
+            duplicate_worker_candidates: 0,
         }
     }
 
@@ -209,6 +213,10 @@ fn record_filename(session_id: &SessionId) -> String {
         })
         .collect();
     format!("{safe}.json")
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 /// Return the non-sensitive basename of an executable path.

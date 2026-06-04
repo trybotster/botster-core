@@ -22,8 +22,8 @@ use crate::engine::terminal_screen::{
     PlainTerminalScreenRuntime, TerminalScreenEngine, TerminalScreenRuntime,
 };
 use crate::runtime::{
-    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest,
+    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
 };
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{WorkerProcessRuntime, WorkerProcessRuntimeOptions};
@@ -104,6 +104,32 @@ impl ManagedSessionRuntime<WorkerProcessRuntime, PlainTerminalScreenRuntime> {
     #[must_use]
     pub fn with_worker_process_options(options: WorkerProcessRuntimeOptions) -> Self {
         Self::new(WorkerProcessRuntime::with_options(options))
+    }
+
+    /// Adopt a live worker process through its reopenable control endpoint.
+    pub fn adopt_worker_process(
+        &mut self,
+        session_id: SessionId,
+        process: ProcessIdentity,
+        socket_path: impl Into<std::path::PathBuf>,
+        metadata: CoreSessionMetadata,
+    ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
+        let handle =
+            self.engine
+                .session_runtime_mut()
+                .adopt_session(session_id, process, socket_path)?;
+        let terminal = (self.terminal_backend_factory)(TerminalScreenSize::new(24, 80))
+            .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
+        Ok(self.engine.adopt_session(
+            handle,
+            metadata,
+            SessionRuntimeWorkerAdapter::new(terminal),
+        )?)
+    }
+
+    /// Release worker processes for an intentional daemon restart.
+    pub fn release_workers_for_restart(&mut self) {
+        self.engine.session_runtime_mut().release_for_restart();
     }
 }
 
