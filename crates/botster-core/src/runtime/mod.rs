@@ -10,6 +10,8 @@ pub mod capability;
 mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
+#[cfg(feature = "local-runtime")]
+mod worker_process;
 
 use std::error::Error;
 use std::fmt;
@@ -48,6 +50,10 @@ pub use file_watch::{
 pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
     DEFAULT_PTY_READER_CHUNK_CAPACITY,
+};
+#[cfg(feature = "local-runtime")]
+pub use worker_process::{
+    WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_WORKER_EGRESS_CAPACITY,
 };
 
 /// Host-implemented session runtime boundary.

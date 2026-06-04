@@ -28,7 +28,7 @@ use crate::engine::plugin_worker::{
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
-use crate::runtime::LocalProcessRuntime;
+use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
 use crate::{ClientId, SubscriptionId};
@@ -49,6 +49,10 @@ pub type BotsterEngineOutput = MultiplexerEngineOutcome;
 #[cfg(feature = "local-runtime")]
 pub type DefaultBotsterEngineError = ManagedSessionRuntimeError;
 
+/// Worker-backed local PTY engine error.
+#[cfg(feature = "local-runtime")]
+pub type WorkerBackedBotsterEngineError = ManagedSessionRuntimeError;
+
 /// Public default local PTY-backed Botster engine facade.
 ///
 /// This is the policy-free default path for embedders that want to run a real
@@ -60,6 +64,12 @@ pub struct DefaultBotsterEngine {
     runtime: ManagedSessionRuntime<LocalProcessRuntime>,
 }
 
+/// Public local PTY-backed engine facade whose live PTY is owned by a worker process.
+#[cfg(feature = "local-runtime")]
+pub struct WorkerBackedBotsterEngine {
+    runtime: ManagedSessionRuntime<WorkerProcessRuntime>,
+}
+
 #[cfg(feature = "local-runtime")]
 impl DefaultBotsterEngine {
     /// Build an empty local PTY-backed engine.
@@ -68,6 +78,12 @@ impl DefaultBotsterEngine {
         Self {
             runtime: ManagedSessionRuntime::new(LocalProcessRuntime::new()),
         }
+    }
+
+    /// Build an empty local engine whose sessions are owned by worker processes.
+    #[must_use]
+    pub fn worker_backed(worker_path: impl Into<std::path::PathBuf>) -> WorkerBackedBotsterEngine {
+        WorkerBackedBotsterEngine::new(worker_path)
     }
 
     /// Return a recorded session.
@@ -380,6 +396,159 @@ impl DefaultBotsterEngine {
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime
+            .shutdown_session(session_id, reason, now_seconds)
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl WorkerBackedBotsterEngine {
+    /// Build an empty worker-backed local PTY engine.
+    #[must_use]
+    pub fn new(worker_path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            runtime: ManagedSessionRuntime::with_worker_process(worker_path),
+        }
+    }
+
+    /// Build an empty worker-backed local PTY engine with explicit options.
+    #[must_use]
+    pub fn with_options(options: WorkerProcessRuntimeOptions) -> Self {
+        Self {
+            runtime: ManagedSessionRuntime::with_worker_process_options(options),
+        }
+    }
+
+    /// Return a recorded session.
+    #[must_use]
+    pub fn session(&self, session_id: &SessionId) -> Option<&CoreSession> {
+        self.runtime.session(session_id)
+    }
+
+    /// Return sessions currently recorded by the worker-backed facade.
+    #[must_use]
+    pub fn list_sessions(&self) -> Vec<CoreSession> {
+        self.runtime.list_sessions()
+    }
+
+    /// Return the worker process runtime adapter.
+    #[must_use]
+    pub const fn session_runtime(&self) -> &WorkerProcessRuntime {
+        self.runtime.session_runtime()
+    }
+
+    /// Return the worker process runtime adapter mutably.
+    pub const fn session_runtime_mut(&mut self) -> &mut WorkerProcessRuntime {
+        self.runtime.session_runtime_mut()
+    }
+
+    /// Spawn a local session whose PTY is owned by a worker process.
+    pub fn spawn_session(
+        &mut self,
+        request: SessionSpawnRequest,
+        metadata: CoreSessionMetadata,
+    ) -> Result<BotsterSpawnOutcome, WorkerBackedBotsterEngineError> {
+        self.runtime.spawn_session(request, metadata)
+    }
+
+    /// Attach a client to a session stream.
+    pub fn attach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime
+            .session_runtime_mut()
+            .attach_consumer(&session_id)?;
+        self.runtime.handle_client_ingress(
+            client_id.clone(),
+            TransportIngress::SubscribeSession {
+                client_id,
+                session_id,
+                subscription_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Detach a client from a session stream.
+    pub fn detach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime
+            .session_runtime_mut()
+            .detach_consumer(&session_id)?;
+        self.runtime.handle_client_ingress(
+            client_id.clone(),
+            TransportIngress::UnsubscribeSession {
+                client_id,
+                session_id,
+                subscription_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Write terminal bytes from a client into the worker-owned PTY.
+    pub fn write_bytes(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        data: impl Into<Vec<u8>>,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id,
+            TransportIngress::TerminalInput {
+                session_id,
+                data: data.into(),
+            },
+            now_seconds,
+        )
+    }
+
+    /// Resize a session terminal from a client-facing path.
+    pub fn resize(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime.handle_client_ingress(
+            client_id,
+            TransportIngress::Resize {
+                session_id,
+                rows,
+                cols,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Drain currently available worker process output through subscription fanout.
+    pub fn drain_runtime_once(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime.drain_runtime_once(session_id, last_output_at)
+    }
+
+    /// Shut down a worker-owned session.
+    pub fn shutdown_session(
+        &mut self,
+        session_id: SessionId,
+        reason: impl Into<String>,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         self.runtime
             .shutdown_session(session_id, reason, now_seconds)
     }
