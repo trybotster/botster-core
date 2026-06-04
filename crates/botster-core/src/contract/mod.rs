@@ -4,6 +4,7 @@ pub mod actor;
 pub mod boundary;
 pub mod client;
 pub mod client_stream;
+pub mod durable_session;
 pub mod entity;
 pub mod notification;
 pub mod session;
@@ -35,6 +36,19 @@ pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use client::{ClientId, ClientScope, ClientState};
 pub use client_stream::{
     ClientStreamGeneration, ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome,
+};
+pub use durable_session::{
+    DaemonCliOperation, DaemonControlOperation, DaemonControlOutcome, DurableRestartSemantics,
+    DurableSessionProtocolVersion, GuardedSessionWriteDeferralReason, GuardedSessionWritePolicy,
+    GuardedSessionWritePrimitive, GuardedSessionWriteRejectionReason, GuardedSessionWriteRequest,
+    GuardedSessionWriteState, RestartBoundary, RestartSurvival, SessionReadinessEvidence,
+    SessionWorkerAdoptRequest, SessionWorkerAdoptionVerdict, SessionWorkerAttachRequest,
+    SessionWorkerCapability, SessionWorkerDetached, SessionWorkerFailure, SessionWorkerHealth,
+    SessionWorkerHealthReason, SessionWorkerHeartbeat, SessionWorkerId, SessionWorkerIdentity,
+    SessionWorkerOutputFrame, SessionWorkerProcessIdentity, SessionWorkerQueueLimits,
+    SessionWorkerShutdownMode, SessionWorkerShutdownRequest, SessionWorkerSpawnRequest,
+    SessionWorkerSpawned, SessionWorkerStaleReason, SlowConsumerBehavior, SnapshotHandoffStrategy,
+    DURABLE_SESSION_PROTOCOL_VERSION,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
