@@ -7,11 +7,11 @@ use std::thread;
 use std::time::Duration;
 
 use botster_core::{
-    read_hello, write_welcome, BackpressureSummary, Frame, LocalProcessRuntime,
-    LocalProcessRuntimeOptions, ResizePayload, SessionMetadata, SessionRuntime,
-    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, TimeoutPayload, WorkerHealth,
-    FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
+    read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions,
+    ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, TimeoutPayload, WorkerHealth, FRAME_PING, FRAME_PONG,
+    FRAME_PROCESS_EXITED, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
+    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION,
 };
 
 const LOOP_SLEEP: Duration = Duration::from_millis(10);
@@ -25,13 +25,17 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = WorkerArgs::parse(std::env::args().skip(1).collect())?;
-    let spawn_request: SessionSpawnRequest =
-        serde_json::from_str(&args.spawn_json).map_err(|error| error.to_string())?;
-    let session_id = spawn_request.session_id.clone();
     let mut stdin = io::stdin();
     let mut stdout = io::stdout();
 
     let _peer_version = read_hello(&mut stdin).map_err(|error| error.to_string())?;
+    let spawn_frame = read_frame(&mut stdin)?;
+    if spawn_frame.frame_type != FRAME_SPAWN_SESSION {
+        return Err("worker expected FRAME_SPAWN_SESSION after hello".to_string());
+    }
+    let spawn_request: SessionSpawnRequest =
+        serde_json::from_slice(&spawn_frame.payload).map_err(|error| error.to_string())?;
+    let session_id = spawn_request.session_id.clone();
 
     let runtime_options = LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(args.shutdown_grace_ms),
@@ -136,9 +140,7 @@ fn run() -> Result<(), String> {
                     send_json(&egress_sender, FRAME_PROCESS_EXITED, &payload);
                     shutdown_requested = true;
                 }
-                SessionRuntimeOutput::Backpressure(summary) => {
-                    send_json(&egress_sender, FRAME_PONG, &health_from_pressure(summary));
-                }
+                SessionRuntimeOutput::Backpressure(_) => {}
             }
         }
 
@@ -150,17 +152,6 @@ fn run() -> Result<(), String> {
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
     Ok(())
-}
-
-fn health_from_pressure(summary: BackpressureSummary) -> WorkerHealth {
-    WorkerHealth {
-        session_id: summary
-            .route
-            .session_id
-            .unwrap_or_else(|| botster_core::SessionId("unknown-session".to_string())),
-        worker_pid: process::id(),
-        reconnect_timeout_seconds: None,
-    }
 }
 
 fn spawn_stdin_reader(mut stdin: impl Read + Send + 'static, sender: mpsc::Sender<Frame>) {
@@ -221,7 +212,6 @@ fn read_frame(stream: &mut impl Read) -> Result<Frame, String> {
 }
 
 struct WorkerArgs {
-    spawn_json: String,
     egress_capacity: usize,
     pty_reader_chunk_capacity: usize,
     shutdown_grace_ms: u64,
@@ -230,7 +220,6 @@ struct WorkerArgs {
 
 impl WorkerArgs {
     fn parse(args: Vec<String>) -> Result<Self, String> {
-        let mut spawn_json = None;
         let mut egress_capacity = 64;
         let mut pty_reader_chunk_capacity = botster_core::DEFAULT_PTY_READER_CHUNK_CAPACITY;
         let mut shutdown_grace_ms = 500;
@@ -239,10 +228,6 @@ impl WorkerArgs {
 
         while index < args.len() {
             match args[index].as_str() {
-                "--spawn-json" => {
-                    index += 1;
-                    spawn_json = args.get(index).cloned();
-                }
                 "--egress-capacity" => {
                     index += 1;
                     egress_capacity = parse_arg(&args, index, "--egress-capacity")?;
@@ -265,7 +250,6 @@ impl WorkerArgs {
         }
 
         Ok(Self {
-            spawn_json: spawn_json.ok_or_else(|| "--spawn-json is required".to_string())?,
             egress_capacity,
             pty_reader_chunk_capacity,
             shutdown_grace_ms,

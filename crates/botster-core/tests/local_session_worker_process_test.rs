@@ -1,6 +1,7 @@
 //! Local session worker process acceptance tests.
 #![cfg(all(unix, feature = "local-runtime"))]
 
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,10 @@ use botster_core::{
     SubscriptionId, TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime,
     WorkerProcessRuntimeOptions,
 };
+
+extern "C" {
+    fn kill(pid: i32, signal: i32) -> i32;
+}
 
 fn worker_path() -> &'static str {
     env!("CARGO_BIN_EXE_botster-session-worker")
@@ -30,6 +35,38 @@ fn client_id(value: &str) -> botster_core::ClientId {
 
 fn subscription_id(value: &str) -> SubscriptionId {
     SubscriptionId(value.to_string())
+}
+
+fn process_exists(pid: u32) -> bool {
+    // SAFETY: signal 0 performs the POSIX existence check without delivering a
+    // signal to the target process.
+    unsafe { kill(pid as i32, 0) == 0 }
+}
+
+fn process_argv(pid: u32) -> String {
+    std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .or_else(|_| {
+            Command::new("ps")
+                .arg("-p")
+                .arg(pid.to_string())
+                .arg("-o")
+                .arg("command=")
+                .output()
+                .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        })
+        .unwrap_or_default()
+}
+
+fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    false
 }
 
 fn shell_request(session_id: SessionId, script: &str) -> SessionSpawnRequest {
@@ -109,6 +146,20 @@ fn backpressure(output: &[SessionRuntimeOutput]) -> Vec<BackpressureSummary> {
         .filter_map(|event| match event {
             SessionRuntimeOutput::Backpressure(summary) => Some(summary.clone()),
             _ => None,
+        })
+        .collect()
+}
+
+fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
+    output
+        .iter()
+        .filter_map(|event| match event {
+            SessionRuntimeOutput::PtyOutput { data, .. } => {
+                Some(String::from_utf8_lossy(data).into_owned())
+            }
+            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::Backpressure(_) => {
+                None
+            }
         })
         .collect()
 }
@@ -286,6 +337,65 @@ fn worker_backed_public_engine_path_routes_spawn_input_resize_output_and_shutdow
 }
 
 #[test]
+fn detaching_one_client_does_not_starve_other_subscribers() {
+    let mut engine = DefaultBotsterEngine::worker_backed(worker_path());
+    let session = session_id("worker-multi-client");
+    let client_a = client_id("worker-client-a");
+    let client_b = client_id("worker-client-b");
+    let sub_a = subscription_id("worker-sub-a");
+    let sub_b = subscription_id("worker-sub-b");
+
+    engine
+        .spawn_session(
+            shell_request(session.clone(), "printf 'multi-ready\\n'; cat"),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn worker-backed session");
+    engine
+        .attach_client(client_a.clone(), session.clone(), sub_a.clone(), 10)
+        .expect("attach first client");
+    engine
+        .attach_client(client_b.clone(), session.clone(), sub_b.clone(), 10)
+        .expect("attach second client");
+    engine
+        .detach_client(client_a.clone(), session.clone(), sub_a.clone(), 11)
+        .expect("detach first client only");
+    engine
+        .write_bytes(
+            client_b.clone(),
+            session.clone(),
+            b"still-attached\n".to_vec(),
+            12,
+        )
+        .expect("write after one client detaches");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut client_b_bytes = Vec::new();
+    while Instant::now() < deadline {
+        let outcome = engine
+            .drain_runtime_once(&session, 20)
+            .expect("drain multi-client worker-backed session");
+        client_b_bytes.extend(terminal_output_bytes(&outcome, &client_b, &sub_b, &session));
+        assert!(
+            terminal_output_bytes(&outcome, &client_a, &sub_a, &session).is_empty(),
+            "detached client should not receive terminal output"
+        );
+        if String::from_utf8_lossy(&client_b_bytes).contains("still-attached") {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    assert!(
+        String::from_utf8_lossy(&client_b_bytes).contains("still-attached"),
+        "still-attached subscriber should receive output after another client detaches"
+    );
+    engine
+        .shutdown_session(session, "test shutdown", 13)
+        .expect("shutdown multi-client worker-backed session");
+}
+
+#[test]
 fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let mut options = worker_options();
     options.egress_capacity = 2;
@@ -312,6 +422,17 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
             .any(|summary| summary.source == QueueSource::SessionIo),
         "bounded parent egress should report typed pressure while detached"
     );
+    let retained = output_event_texts(&detached).join("");
+    assert!(
+        retained.contains("tick:0"),
+        "bounded egress should retain the earliest PTY output"
+    );
+    if let (Some(first), Some(second)) = (retained.find("tick:0"), retained.find("tick:1")) {
+        assert!(
+            first <= second,
+            "retained PTY bytes should preserve source order"
+        );
+    }
 
     let health = runtime
         .ping(&session)
@@ -339,4 +460,78 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let protocol_source = include_str!("../src/contract/session_protocol.rs");
     assert!(!protocol_source.contains("FRAME_ATTACH"));
     assert!(!protocol_source.contains("FRAME_DETACH"));
+}
+
+#[test]
+fn dropping_parent_runtime_reaps_worker_and_pty_child() {
+    let session = session_id("worker-parent-drop-cleanup");
+    let (worker_pid, pty_child_pid) = {
+        let mut runtime = WorkerProcessRuntime::with_options(worker_options());
+        runtime
+            .spawn_session(shell_request(session.clone(), "cat"))
+            .expect("spawn long-lived worker session");
+        let metadata = runtime.metadata(&session).expect("worker metadata").clone();
+        let worker_pid = metadata
+            .recovery_identity
+            .as_ref()
+            .and_then(|identity| identity.get("worker_pid"))
+            .and_then(serde_json::Value::as_u64)
+            .expect("worker pid in recovery identity") as u32;
+        (worker_pid, metadata.pid)
+    };
+
+    assert!(
+        wait_until(|| !process_exists(worker_pid)),
+        "dropping parent runtime should reap worker process {worker_pid}"
+    );
+    assert!(
+        wait_until(|| !process_exists(pty_child_pid)),
+        "dropping parent runtime should clean worker PTY child {pty_child_pid}"
+    );
+}
+
+#[test]
+fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() {
+    let secret = "botster-secret-env-value";
+    let cwd = "botster-sensitive-working-directory";
+    let request = SessionSpawnRequest {
+        environment: SpawnEnvironment {
+            variables: vec![botster_core::SpawnEnvironmentVariable {
+                name: "BOTSTER_SECRET_TEST".to_string(),
+                value: secret.to_string(),
+            }],
+        },
+        working_directory: SpawnWorkingDirectory {
+            path: cwd.to_string(),
+        },
+        ..shell_request(session_id("argv-safety"), "cat")
+    };
+
+    let mut child = Command::new(worker_path())
+        .arg("--egress-capacity")
+        .arg("2")
+        .arg("--pty-reader-capacity")
+        .arg("2")
+        .arg("--shutdown-grace-ms")
+        .arg("80")
+        .arg("--poll-interval-ms")
+        .arg("5")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn worker directly");
+    let argv = process_argv(child.id());
+    assert!(!argv.contains(secret));
+    assert!(!argv.contains(cwd));
+
+    let mut stdin = child.stdin.take().expect("worker stdin");
+    botster_core::write_hello(&mut stdin).expect("write hello");
+    let spawn = botster_core::encode_json(botster_core::FRAME_SPAWN_SESSION, &request)
+        .expect("encode spawn frame");
+    use std::io::Write;
+    stdin.write_all(&spawn).expect("write spawn frame");
+    stdin.flush().expect("flush spawn frame");
+    drop(stdin);
+    let _ = child.wait();
 }
