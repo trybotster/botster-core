@@ -2,7 +2,8 @@
 
 use botster_core::{
     BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, ProcessIdentity,
-    ResizePayload, SessionId, SessionSpawnRequest, SubscriptionId, TransportEgress,
+    ResizePayload, SessionId, SessionSpawnRequest, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SubscriptionId, TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +115,21 @@ pub enum SessionAdoptionState {
     Terminal,
     /// Record is missing the restart-contract liveness/recovery evidence.
     MissingProtocolEvidence,
+    /// Record has protocol evidence but no matching live worker in this daemon supervisor.
+    StaleWorker {
+        /// Stable stale-worker classification.
+        reason: SessionWorkerStaleReason,
+    },
+    /// Worker is present but currently unhealthy.
+    UnhealthyWorker {
+        /// Stable unhealthy-worker classification.
+        reason: SessionWorkerHealthReason,
+    },
+    /// More than one live worker candidate claims the same session identity.
+    DuplicateWorker {
+        /// Number of live candidates found for this session.
+        candidates: usize,
+    },
 }
 
 /// Adoption scan result for one record.

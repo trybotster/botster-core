@@ -1,10 +1,14 @@
 //! Core daemon supervisor and typed API implementation.
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSession, DefaultBotsterEngine,
-    DefaultBotsterEngineError, QueueSource, ResizePayload, SessionId, SubscriptionId,
+    DefaultBotsterEngineError, QueueSource, ResizePayload, SessionId, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SubscriptionId,
 };
 use thiserror::Error;
 
@@ -16,6 +20,12 @@ use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWr
 use crate::registry::{
     command_label, RegistryRecord, RegistrySessionState, SessionRegistry, SessionRegistryError,
 };
+
+type SharedEngine = Rc<RefCell<DefaultBotsterEngine>>;
+
+thread_local! {
+    static LIVE_ENGINES: RefCell<HashMap<PathBuf, SharedEngine>> = RefCell::new(HashMap::new());
+}
 
 /// Daemon configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +68,7 @@ pub enum CoreDaemonError {
 pub struct CoreDaemon {
     config: CoreDaemonConfig,
     registry: SessionRegistry,
-    engine: DefaultBotsterEngine,
+    engine: SharedEngine,
     running: bool,
 }
 
@@ -67,10 +77,11 @@ impl CoreDaemon {
     #[must_use]
     pub fn new(config: CoreDaemonConfig) -> Self {
         let registry = SessionRegistry::new(&config.data_dir);
+        let engine = live_engine(&config.data_dir);
         Self {
             config,
             registry,
-            engine: DefaultBotsterEngine::new(),
+            engine,
             running: true,
         }
     }
@@ -97,6 +108,7 @@ impl CoreDaemon {
         let label = command_label(&request.request.executable);
         let spawn = self
             .engine
+            .borrow_mut()
             .spawn_session(request.request, request.metadata)?;
         let record = RegistryRecord::running(
             session_id,
@@ -129,7 +141,7 @@ impl CoreDaemon {
     ) -> Result<AttachedSession, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine.attach_client(
+        self.engine.borrow_mut().attach_client(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
@@ -152,8 +164,12 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine
-            .detach_client(client_id, session_id, subscription_id, now_seconds)?;
+        self.engine.borrow_mut().detach_client(
+            client_id,
+            session_id,
+            subscription_id,
+            now_seconds,
+        )?;
         Ok(())
     }
 
@@ -168,6 +184,7 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
         self.engine
+            .borrow_mut()
             .write_bytes(client_id, session_id, data.into(), now_seconds)?;
         Ok(())
     }
@@ -184,6 +201,7 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
         self.engine
+            .borrow_mut()
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.rows = rows;
@@ -202,7 +220,10 @@ impl CoreDaemon {
     ) -> Result<DrainResult, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
-        let outcome = self.engine.drain_runtime_once(session_id, last_output_at)?;
+        let outcome = self
+            .engine
+            .borrow_mut()
+            .drain_runtime_once(session_id, last_output_at)?;
         self.reconcile_lifecycle_observations(&outcome.observations, last_output_at)?;
         Ok(DrainResult {
             client_egress: outcome.client_egress,
@@ -235,7 +256,7 @@ impl CoreDaemon {
         request: GuardedWriteRequest,
     ) -> Result<GuardedWriteResult, CoreDaemonError> {
         self.ensure_running()?;
-        if self.engine.session(&request.session_id).is_none() {
+        if self.engine.borrow().session(&request.session_id).is_none() {
             return Ok(GuardedWriteResult {
                 decision: GuardedWriteDecision::Reject {
                     reason: "unknown session".to_string(),
@@ -251,7 +272,7 @@ impl CoreDaemon {
         let mut states = vec![GuardedWriteDeliveryState::Accepted];
         match &decision {
             GuardedWriteDecision::Write => {
-                self.engine.write_bytes(
+                self.engine.borrow_mut().write_bytes(
                     request.client_id,
                     request.session_id,
                     request.data,
@@ -274,7 +295,7 @@ impl CoreDaemon {
     pub fn health(&self) -> Result<DaemonHealth, CoreDaemonError> {
         Ok(DaemonHealth {
             running: self.running,
-            live_sessions: self.engine.list_sessions().len(),
+            live_sessions: self.engine.borrow().list_sessions().len(),
             registry_records: self.registry.load_all()?.len(),
             data_dir: self.config.data_dir.display().to_string(),
         })
@@ -295,6 +316,8 @@ impl CoreDaemon {
             .load_all()?
             .into_iter()
             .map(|record| {
+                let engine = self.engine.borrow();
+                let live_candidates = adoption_candidate_count(&engine, &record);
                 let state = if matches!(
                     record.state,
                     RegistrySessionState::Stopping
@@ -302,9 +325,31 @@ impl CoreDaemon {
                         | RegistrySessionState::Stale
                 ) {
                     SessionAdoptionState::Terminal
+                } else if live_candidates > 1 {
+                    SessionAdoptionState::DuplicateWorker {
+                        candidates: live_candidates,
+                    }
+                } else if record.protocol_version != botster_core::PROTOCOL_VERSION {
+                    SessionAdoptionState::StaleWorker {
+                        reason: SessionWorkerStaleReason::IncompatibleProtocol,
+                    }
                 } else if record.handshake_verified
                     && record.ping_pong_supported
-                    && record.protocol_version == botster_core::PROTOCOL_VERSION
+                    && record.recovery_identity.is_some()
+                    && engine.session(&record.session_id).is_none()
+                {
+                    SessionAdoptionState::StaleWorker {
+                        reason: stale_worker_reason(&record),
+                    }
+                } else if record.handshake_verified
+                    && record.recovery_identity.is_some()
+                    && !record.ping_pong_supported
+                {
+                    SessionAdoptionState::UnhealthyWorker {
+                        reason: SessionWorkerHealthReason::MissedHeartbeat,
+                    }
+                } else if record.handshake_verified
+                    && record.ping_pong_supported
                     && record.recovery_identity.is_some()
                 {
                     SessionAdoptionState::Adoptable
@@ -314,6 +359,19 @@ impl CoreDaemon {
                 SessionAdoptionReport { record, state }
             })
             .collect())
+    }
+
+    /// Explicitly mark a registry record stale after a read-only adoption scan.
+    pub fn mark_stale(
+        &self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        if let Some(mut record) = self.registry.load(session_id)? {
+            record.mark(RegistrySessionState::Stale, now_seconds);
+            self.registry.save(&record)?;
+        }
+        Ok(())
     }
 
     /// Shut down one session or all sessions when `session_id` is absent.
@@ -327,7 +385,7 @@ impl CoreDaemon {
             return Ok(());
         }
 
-        let sessions: Vec<_> = self.engine.list_sessions();
+        let sessions: Vec<_> = self.engine.borrow().list_sessions();
         for session in sessions {
             self.shutdown_session(session.session_id, now_seconds)?;
         }
@@ -341,8 +399,11 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
-        self.engine
-            .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        self.engine.borrow_mut().shutdown_session(
+            session_id.clone(),
+            "daemon shutdown",
+            now_seconds,
+        )?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
@@ -385,8 +446,45 @@ impl CoreDaemon {
 
     fn ensure_session(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
         self.engine
+            .borrow()
             .session(session_id)
             .map(|_| ())
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
+    }
+}
+
+fn live_engine(data_dir: &Path) -> SharedEngine {
+    LIVE_ENGINES.with(|engines| {
+        let mut engines = engines.borrow_mut();
+        engines
+            .entry(data_dir.to_path_buf())
+            .or_insert_with(|| Rc::new(RefCell::new(DefaultBotsterEngine::new())))
+            .clone()
+    })
+}
+
+fn live_session_count(engine: &DefaultBotsterEngine, session_id: &SessionId) -> usize {
+    engine
+        .list_sessions()
+        .into_iter()
+        .filter(|session| &session.session_id == session_id)
+        .count()
+}
+
+fn adoption_candidate_count(engine: &DefaultBotsterEngine, record: &RegistryRecord) -> usize {
+    let live_candidates = live_session_count(engine, &record.session_id);
+    let registry_candidate = usize::from(
+        record.handshake_verified
+            && record.recovery_identity.is_some()
+            && record.protocol_version == botster_core::PROTOCOL_VERSION,
+    );
+    live_candidates.max(registry_candidate) + record.duplicate_worker_candidates
+}
+
+fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {
+    if record.process.is_some() {
+        SessionWorkerStaleReason::WorkerDied
+    } else {
+        SessionWorkerStaleReason::ProcessMissing
     }
 }
