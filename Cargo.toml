@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/botster-core",
+    "crates/botster-core-daemon",
     "crates/botster-core-dev",
     "crates/botster-core-test-support",
     "crates/botster-terminal-ghostty",
