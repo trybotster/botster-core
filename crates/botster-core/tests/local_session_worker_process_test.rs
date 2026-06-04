@@ -90,6 +90,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         pty_reader_chunk_capacity: 8,
         shutdown_grace_ms: 80,
         poll_interval_ms: 5,
+        control_socket_dir: None,
     }
 }
 

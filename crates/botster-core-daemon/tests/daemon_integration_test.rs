@@ -1,6 +1,8 @@
 #![allow(missing_docs)]
 
 use std::fs;
+use std::process::Command;
+use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{
@@ -177,28 +179,37 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
     let subscription_id = SubscriptionId("daemon-restart-subscription".to_string());
 
     {
-        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
         daemon
             .spawn(spawn_request(&session_id), 10)
             .expect("first daemon should spawn live session");
-        let mut record = daemon
+        let record = daemon
             .registry()
             .load(&session_id)
             .expect("registry load should succeed")
-            .expect("spawn should persist record");
-        record.observe_restart_contract(serde_json::json!({"session": "daemon-restart"}), 11);
-        daemon
-            .registry()
-            .save(&record)
-            .expect("restart evidence should persist");
+            .expect("spawn should persist restart evidence");
+        assert!(
+            record
+                .recovery_identity
+                .as_ref()
+                .and_then(|identity| identity.get("worker_control_socket"))
+                .is_some(),
+            "worker-backed daemon should persist a reconnectable worker endpoint"
+        );
+        daemon.release_for_restart();
     }
 
-    let mut restarted = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
     let reports = restarted
         .adoption_scan()
         .expect("restarted daemon should scan registry");
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].state, SessionAdoptionState::Adoptable);
+    restarted
+        .adopt_session(&session_id, 12)
+        .expect("fresh daemon should adopt live worker process");
 
     let listed = restarted
         .list()
@@ -207,14 +218,14 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
     assert_eq!(listed[0].registry_state, RegistrySessionState::Running);
 
     restarted
-        .attach(client_id.clone(), session_id.clone(), subscription_id, 12)
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 13)
         .expect("restarted daemon should attach through live engine route");
     restarted
         .input(
             client_id.clone(),
             session_id.clone(),
             b"after-restart\n".to_vec(),
-            13,
+            14,
         )
         .expect("restarted daemon should send input through adopted route");
     let drained = drain_until(&mut restarted, &session_id, "echo:after-restart");
@@ -271,7 +282,12 @@ fn registry_records_are_durable_enough_for_adoption_scan() {
         .adoption_scan()
         .expect("adoption scan should read persisted records");
     assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].state, SessionAdoptionState::Adoptable);
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::StaleWorker {
+            reason: SessionWorkerStaleReason::WorkerDied
+        }
+    );
 
     daemon
         .shutdown(Some(SessionId("daemon-adoption-session".to_string())), 20)
@@ -533,4 +549,30 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .expect("system clock should be after unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("botster-core-daemon-{label}-{nanos}"))
+}
+
+fn worker_path() -> std::path::PathBuf {
+    static BUILD_WORKER: Once = Once::new();
+    BUILD_WORKER.call_once(|| {
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "botster-core",
+                "--bin",
+                "botster-session-worker",
+            ])
+            .status()
+            .expect("worker binary build command should run");
+        assert!(
+            status.success(),
+            "worker binary should build for daemon restart test"
+        );
+    });
+
+    let mut path = std::env::current_exe().expect("test executable path should resolve");
+    while path.file_name().and_then(|name| name.to_str()) != Some("debug") {
+        assert!(path.pop(), "test executable should live under target/debug");
+    }
+    path.join("botster-session-worker")
 }

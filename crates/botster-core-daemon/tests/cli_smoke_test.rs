@@ -1,12 +1,14 @@
 #![allow(missing_docs)]
 
 use std::process::Command;
+use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
 #[test]
 fn daemon_cli_smoke_starts_inspects_and_uses_session() {
     let data_dir = temp_data_dir("daemon-cli");
+    build_worker_binary();
     let binary = env!("CARGO_BIN_EXE_botster-core-daemon");
 
     let status = Command::new(binary)
@@ -40,6 +42,26 @@ fn daemon_cli_smoke_starts_inspects_and_uses_session() {
     assert!(stdout.contains("shutdown: true"));
 
     let _ = std::fs::remove_dir_all(data_dir);
+}
+
+fn build_worker_binary() {
+    static BUILD_WORKER: Once = Once::new();
+    BUILD_WORKER.call_once(|| {
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "botster-core",
+                "--bin",
+                "botster-session-worker",
+            ])
+            .status()
+            .expect("worker binary build command should run");
+        assert!(
+            status.success(),
+            "worker binary should build for daemon CLI smoke"
+        );
+    });
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
