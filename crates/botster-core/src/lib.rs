@@ -53,8 +53,9 @@ pub use runtime::{
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
-    DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, WorkerHealth,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    DEFAULT_WORKER_EGRESS_CAPACITY,
 };
 
 pub use actor::{
@@ -108,7 +109,10 @@ pub use engine::{
     TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
-pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand};
+pub use engine::{
+    DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand,
+    WorkerBackedBotsterEngine, WorkerBackedBotsterEngineError,
+};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
