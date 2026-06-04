@@ -73,7 +73,7 @@ fn daemon_spawns_lists_attaches_drains_inputs_resizes_and_shuts_down() {
     let listed = daemon
         .list()
         .expect("registry list should load after shutdown");
-    assert_eq!(listed[0].registry_state, RegistrySessionState::Stopping);
+    assert_eq!(listed[0].registry_state, RegistrySessionState::Exited);
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -182,9 +182,68 @@ fn registry_records_are_durable_enough_for_adoption_scan() {
         .expect("adoption scan should read persisted records");
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].record.session_id, session_id);
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::MissingProtocolEvidence
+    );
+
+    let mut record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("registry record should load")
+        .expect("spawn should persist a record");
+    record.observe_restart_contract(serde_json::json!({"session": "daemon-adoption"}), 11);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("observed restart-contract evidence should persist");
+
+    let restarted = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let reports = restarted
+        .adoption_scan()
+        .expect("adoption scan should read persisted records");
+    assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].state, SessionAdoptionState::Adoptable);
 
-    let _ = daemon.shutdown(Some(SessionId("daemon-adoption-session".to_string())), 20);
+    daemon
+        .shutdown(Some(SessionId("daemon-adoption-session".to_string())), 20)
+        .expect("shutdown should update registry lifecycle");
+    let restarted = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let reports = restarted
+        .adoption_scan()
+        .expect("adoption scan should read shut down records");
+    assert_eq!(reports[0].state, SessionAdoptionState::Terminal);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn registry_load_all_skips_malformed_records_without_blocking_good_records() {
+    let data_dir = temp_data_dir("daemon-corrupt-registry");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-good-record".to_string());
+    let mut record = botster_core_daemon::RegistryRecord::running(
+        session_id.clone(),
+        None,
+        ResizePayload { rows: 24, cols: 80 },
+        "sh".to_string(),
+        1,
+    );
+    record.observe_restart_contract(serde_json::json!({"session": "daemon-good-record"}), 2);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("good registry record should save");
+    fs::write(
+        data_dir.join("sessions").join("daemon-bad-record.json"),
+        b"not json",
+    )
+    .expect("malformed registry fixture should be written");
+
+    let listed = daemon.list().expect("bad record should not block listing");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].session_id, session_id);
+
     let _ = fs::remove_dir_all(data_dir);
 }
 
