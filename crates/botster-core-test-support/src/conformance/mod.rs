@@ -532,6 +532,8 @@ pub struct AdversarialHotPathReport {
     pub noisy_output_active_during_probes: bool,
     /// Timed hot-path command phases.
     pub phase_timings: Vec<HotPathPhaseTiming>,
+    /// Deterministic command-phase budget exercised by this run.
+    pub hot_path_budget_observation: String,
     /// Queue or backpressure observations exposed by the current public API.
     pub queue_backpressure_observations: Vec<String>,
     /// Number of synthetic sessions that either reached `Exited` or lost their runtime handle after shutdown.
@@ -725,6 +727,12 @@ pub fn run_adversarial_hot_path_load(
     )?;
     cleanup_adversarial_sessions(&mut harness, &control, &mut report, deadline)?;
     report.total_drain_rounds = drain_rounds.max(report.total_drain_rounds);
+    report.hot_path_budget_observation = hot_path_budget_observation(
+        report.phase_timings.len(),
+        report.drain_rounds_before_probes,
+        report.total_drain_rounds,
+        config.phase_budget,
+    );
     report.queue_backpressure_observations =
         dedupe_preserving_order(queue_backpressure_observations);
     if report.queue_backpressure_observations.is_empty() {
@@ -1219,6 +1227,13 @@ fn run_hot_path_probes(
         },
     )?;
 
+    let hot_path_budget_observation = hot_path_budget_observation(
+        phase_timings.len(),
+        drain_rounds_before_probes,
+        drain_rounds_before_probes,
+        config.phase_budget,
+    );
+
     Ok(AdversarialHotPathReport {
         session_count: config.load.session_count,
         noisy_session_id: noisy_session.session_id,
@@ -1229,6 +1244,7 @@ fn run_hot_path_probes(
         total_drain_rounds: drain_rounds_before_probes,
         noisy_output_active_during_probes,
         phase_timings,
+        hot_path_budget_observation,
         queue_backpressure_observations: Vec::new(),
         cleanup_exited_sessions: 0,
         live_sessions_after_cleanup: Vec::new(),
@@ -1236,6 +1252,36 @@ fn run_hot_path_probes(
             "DefaultBotsterEngine hot-path proof composes with focused subscription_multiplexer_engine_test and plugin_worker_engine_test for slow-client/plugin isolation; no combined slow-client/plugin counter is exposed by the public default engine."
                 .to_string(),
     })
+}
+
+#[cfg(feature = "local-runtime")]
+const EXPECTED_HOT_PATH_PHASES: &[&str] = &[
+    "list",
+    "inspect",
+    "attach",
+    "detach",
+    "resize",
+    "input",
+    "read-screen",
+    "capture-snapshot",
+    "shutdown-control",
+];
+
+#[cfg(feature = "local-runtime")]
+fn hot_path_budget_observation(
+    phase_count: usize,
+    drain_rounds_before_probes: usize,
+    total_drain_rounds: usize,
+    phase_budget: Duration,
+) -> String {
+    format!(
+        "phase_count={} expected_phases={} fair_drain_rounds_before_probes={} total_drain_rounds={} per_phase_regression_budget={:?}",
+        phase_count,
+        EXPECTED_HOT_PATH_PHASES.len(),
+        drain_rounds_before_probes,
+        total_drain_rounds,
+        phase_budget
+    )
 }
 
 #[cfg(feature = "local-runtime")]

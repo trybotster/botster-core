@@ -657,6 +657,18 @@ fn adversarial_hot_path_commands_remain_bounded_under_noisy_load() {
     }
 
     assert!(
+        report
+            .hot_path_budget_observation
+            .contains("phase_count=9 expected_phases=9")
+            && report
+                .hot_path_budget_observation
+                .contains("fair_drain_rounds_before_probes=")
+            && report
+                .hot_path_budget_observation
+                .contains("total_drain_rounds="),
+        "report should document deterministic phase/drain budgets, not only wall-clock timings; report={report:?}"
+    );
+    assert!(
         report.live_sessions_after_cleanup.is_empty(),
         "cleanup should leave no live synthetic PTY sessions; report={report:?}"
     );
