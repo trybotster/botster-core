@@ -452,30 +452,109 @@ fn slow_client_on_one_session_does_not_block_unrelated_session() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     let session_a = named_session_id("session-a");
     let session_b = named_session_id("session-b");
-    subscribe_to(&mut multiplexer, "client-a", session_a.clone(), "sub-a");
+    subscribe_to(
+        &mut multiplexer,
+        "client-a-slow",
+        session_a.clone(),
+        "sub-a-slow",
+    );
+    subscribe_to(
+        &mut multiplexer,
+        "client-a-fast",
+        session_a.clone(),
+        "sub-a-fast",
+    );
     subscribe_to(&mut multiplexer, "client-b", session_b.clone(), "sub-b");
 
-    let pressure = multiplexer.report_delivery_failure(
-        client_id("client-a"),
+    let lag = multiplexer.report_delivery_lag(
+        client_id("client-a-slow"),
         session_a.clone(),
-        subscription_id("sub-a"),
+        subscription_id("sub-a-slow"),
+        QueueSource::TransportAdapter,
+        4,
+        4,
+    );
+    let pressure = multiplexer.report_delivery_failure(
+        client_id("client-a-slow"),
+        session_a.clone(),
+        subscription_id("sub-a-slow"),
         QueueSource::ClientWorker,
         MailboxSendFailureReason::QueueFull,
     );
-    let output = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
-        session_id: session_b.clone(),
-        data: b"other-session".to_vec(),
+    let session_a_after_pressure =
+        multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+            session_id: session_a.clone(),
+            data: b"same-session-after-pressure".to_vec(),
+        });
+    let session_b_after_pressure =
+        multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+            session_id: session_b.clone(),
+            data: b"other-session".to_vec(),
+        });
+    let closed = multiplexer.report_delivery_failure(
+        client_id("client-a-slow"),
+        session_a.clone(),
+        subscription_id("sub-a-slow"),
+        QueueSource::ClientWorker,
+        MailboxSendFailureReason::QueueClosed,
+    );
+    let session_a_after_close = multiplexer.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_a.clone(),
+        data: b"same-session-after-close".to_vec(),
     });
 
+    assert!(lag.client_egress.is_empty());
     assert!(pressure.client_egress.is_empty());
     assert_eq!(
-        output.client_egress,
+        session_a_after_pressure.client_egress,
+        vec![
+            (
+                client_id("client-a-slow"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_a.clone(),
+                    subscription_id: subscription_id("sub-a-slow"),
+                    data: b"same-session-after-pressure".to_vec(),
+                },
+            ),
+            (
+                client_id("client-a-fast"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_a.clone(),
+                    subscription_id: subscription_id("sub-a-fast"),
+                    data: b"same-session-after-pressure".to_vec(),
+                },
+            ),
+        ]
+    );
+    assert_eq!(
+        session_b_after_pressure.client_egress,
         vec![(
             client_id("client-b"),
             TransportEgress::TerminalOutput {
-                session_id: session_b,
+                session_id: session_b.clone(),
                 subscription_id: subscription_id("sub-b"),
                 data: b"other-session".to_vec(),
+            },
+        )]
+    );
+    assert!(closed.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            SubscriptionMultiplexerObservation::DeliveryFailed { failure, .. }
+                if failure.reason == MailboxSendFailureReason::QueueClosed
+                    && failure.route.client_id == Some(client_id("client-a-slow"))
+                    && failure.route.session_id == Some(session_a.clone())
+                    && failure.route.subscription_id == Some(subscription_id("sub-a-slow"))
+        )
+    }));
+    assert_eq!(
+        session_a_after_close.client_egress,
+        vec![(
+            client_id("client-a-fast"),
+            TransportEgress::TerminalOutput {
+                session_id: session_a,
+                subscription_id: subscription_id("sub-a-fast"),
+                data: b"same-session-after-close".to_vec(),
             },
         )]
     );
