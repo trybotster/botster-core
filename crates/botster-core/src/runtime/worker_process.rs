@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,6 +18,7 @@ use crate::{
     SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, TimeoutPayload, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
+    FRAME_SPAWN_SESSION,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -108,8 +109,7 @@ impl WorkerProcessRuntime {
 
     /// Mark a parent-side consumer attached to worker egress.
     pub fn attach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        session.attached = true;
+        self.session_mut(session_id)?;
         Ok(())
     }
 
@@ -118,8 +118,7 @@ impl WorkerProcessRuntime {
     /// No attach/detach wire frames are sent; this is parent-side delivery
     /// registration around the worker egress stream.
     pub fn detach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        session.attached = false;
+        self.session_mut(session_id)?;
         Ok(())
     }
 
@@ -190,15 +189,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             ));
         }
 
-        let spawn_json = serde_json::to_string(&request).map_err(|error| {
-            SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SpawnFailed,
-                format!("encode worker spawn request failed: {error}"),
-            )
-        })?;
         let mut child = Command::new(&self.options.worker_path)
-            .arg("--spawn-json")
-            .arg(spawn_json)
             .arg("--egress-capacity")
             .arg(self.options.egress_capacity.to_string())
             .arg("--pty-reader-capacity")
@@ -230,6 +221,7 @@ impl SessionRuntime for WorkerProcessRuntime {
 
         write_hello(&mut stdin)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
+        write_json(&mut stdin, FRAME_SPAWN_SESSION, &request)?;
         let (_, metadata) = read_welcome(&mut stdout)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         let process = ProcessIdentity {
@@ -265,7 +257,6 @@ impl SessionRuntime for WorkerProcessRuntime {
                 overflow,
                 pong_count,
                 last_health,
-                attached: true,
                 egress_capacity: self.options.egress_capacity.max(1),
             },
         );
@@ -315,12 +306,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             }));
         }
 
-        loop {
-            match session.output.try_recv() {
-                Ok(event) if session.attached => output.push(event.into_runtime_output(session_id)),
-                Ok(_) => {}
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-            }
+        while let Ok(event) = session.output.try_recv() {
+            output.push(event.into_runtime_output(session_id));
         }
 
         if output
@@ -353,7 +340,6 @@ struct WorkerProcessSession {
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
-    attached: bool,
     egress_capacity: usize,
 }
 

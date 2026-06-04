@@ -103,9 +103,10 @@ or `ManagedSessionRuntime::with_worker_process(path)`. That path launches one
 `botster-session-worker` OS process per local session; the worker process owns
 the live PTY, child process, reader, writer, and cleanup state. The parent core
 runtime keeps only worker IPC handles and communicates through the
-`session_protocol` frames for input, resize, ping/pong health, shutdown, and
-`FRAME_SET_TIMEOUT`. Attach and detach remain parent-side consumer registration
-around worker egress fanout; there are no attach/detach protocol frames.
+`session_protocol` frames for the initial spawn request, input, resize,
+ping/pong health, shutdown, and `FRAME_SET_TIMEOUT`. Attach and detach remain
+parent-side consumer registration around worker egress fanout; there are no
+attach/detach protocol frames.
 
 Contract-only embedders can opt out of the local process dependency and keep the
 public contracts, `BotsterEngine`, runtime traits, package, identity, UI, entity,
