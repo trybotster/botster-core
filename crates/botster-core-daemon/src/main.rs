@@ -2,6 +2,7 @@
 
 use std::env;
 use std::error::Error;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use botster_core::{
@@ -25,10 +26,21 @@ fn run() -> Result<(), Box<dyn Error>> {
     let data_dir = data_dir_arg(&args)?;
     let command = command_arg(&args).unwrap_or("status");
 
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(data_dir).with_worker_path(worker_path()?));
     match command {
         "start" | "status" => print_json(&daemon.status()?)?,
-        "adopt" => print_json(&daemon.adoption_scan()?)?,
+        "adopt" => {
+            for report in daemon.adoption_scan()? {
+                if matches!(
+                    report.state,
+                    botster_core_daemon::SessionAdoptionState::Adoptable
+                ) {
+                    let _ = daemon.adopt_session(&report.record.session_id, 1);
+                }
+            }
+            print_json(&daemon.adoption_scan()?)?;
+        }
         "smoke" => run_smoke(&mut daemon)?,
         _ => {
             return Err(format!(
@@ -38,6 +50,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn worker_path() -> Result<PathBuf, Box<dyn Error>> {
+    let current = env::current_exe()?;
+    let dir = current
+        .parent()
+        .ok_or("daemon executable should have a parent directory")?;
+    Ok(dir.join("botster-session-worker"))
 }
 
 fn data_dir_arg(args: &[String]) -> Result<String, Box<dyn Error>> {
