@@ -1,0 +1,27 @@
+[package]
+name = "botster-core-daemon"
+version = "0.1.0"
+edition = "2021"
+authors = ["Botster contributors"]
+description = "Production core daemon supervisor and persistent session registry"
+license-file = "../../LICENSE"
+repository = "https://github.com/trybotster/botster-core"
+homepage = "https://github.com/trybotster/botster-core"
+publish = false
+
+[dependencies]
+botster-core = { path = "../botster-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+unwrap_used = "warn"
