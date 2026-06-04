@@ -29,9 +29,9 @@ use crate::engine::plugin_worker::{
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
-use crate::runtime::{SessionRuntime, SessionSpawnRequest};
+use crate::runtime::{ProcessIdentity, SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
-use crate::{ClientId, SubscriptionId};
+use crate::{ClientId, SessionMetadata, SubscriptionId};
 
 /// Facade-level error for ergonomic Botster engine operations.
 pub type BotsterEngineError = MultiplexerEngineError;
@@ -440,6 +440,29 @@ impl WorkerBackedBotsterEngine {
     /// Return the worker process runtime adapter mutably.
     pub const fn session_runtime_mut(&mut self) -> &mut WorkerProcessRuntime {
         self.runtime.session_runtime_mut()
+    }
+
+    /// Return worker welcome metadata captured after spawning a session.
+    #[must_use]
+    pub fn worker_metadata(&self, session_id: &SessionId) -> Option<&SessionMetadata> {
+        self.runtime.session_runtime().metadata(session_id)
+    }
+
+    /// Adopt a live worker process through its reconnectable control endpoint.
+    pub fn adopt_worker_process(
+        &mut self,
+        session_id: SessionId,
+        process: ProcessIdentity,
+        socket_path: impl Into<std::path::PathBuf>,
+        metadata: CoreSessionMetadata,
+    ) -> Result<BotsterSpawnOutcome, WorkerBackedBotsterEngineError> {
+        self.runtime
+            .adopt_worker_process(session_id, process, socket_path, metadata)
+    }
+
+    /// Release workers without sending shutdown frames for an intentional daemon restart.
+    pub fn release_workers_for_restart(&mut self) {
+        self.runtime.release_workers_for_restart();
     }
 
     /// Spawn a local session whose PTY is owned by a worker process.

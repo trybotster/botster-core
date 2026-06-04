@@ -1,14 +1,16 @@
 //! Core daemon supervisor and typed API implementation.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::path::PathBuf;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, QueueSource, ResizePayload, SessionId, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId,
+    SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
+    WorkerProcessRuntimeOptions,
 };
 use thiserror::Error;
 
@@ -21,12 +23,6 @@ use crate::registry::{
     command_label, RegistryRecord, RegistrySessionState, SessionRegistry, SessionRegistryError,
 };
 
-type SharedEngine = Rc<RefCell<DefaultBotsterEngine>>;
-
-thread_local! {
-    static LIVE_ENGINES: RefCell<HashMap<PathBuf, SharedEngine>> = RefCell::new(HashMap::new());
-}
-
 /// Daemon configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreDaemonConfig {
@@ -34,6 +30,8 @@ pub struct CoreDaemonConfig {
     pub data_dir: PathBuf,
     /// Logical daemon client queue capacity.
     pub client_queue_capacity: usize,
+    /// Optional worker process executable for worker-backed durable sessions.
+    pub worker_path: Option<PathBuf>,
 }
 
 impl CoreDaemonConfig {
@@ -43,7 +41,15 @@ impl CoreDaemonConfig {
         Self {
             data_dir: data_dir.into(),
             client_queue_capacity: QueueSource::ClientWorker.default_capacity(),
+            worker_path: None,
         }
+    }
+
+    /// Use worker process backed sessions through the supplied worker executable.
+    #[must_use]
+    pub fn with_worker_path(mut self, worker_path: impl Into<PathBuf>) -> Self {
+        self.worker_path = Some(worker_path.into());
+        self
     }
 }
 
@@ -68,8 +74,13 @@ pub enum CoreDaemonError {
 pub struct CoreDaemon {
     config: CoreDaemonConfig,
     registry: SessionRegistry,
-    engine: SharedEngine,
+    engine: DaemonEngine,
     running: bool,
+}
+
+enum DaemonEngine {
+    Local(DefaultBotsterEngine),
+    Worker(WorkerBackedBotsterEngine),
 }
 
 impl CoreDaemon {
@@ -77,7 +88,15 @@ impl CoreDaemon {
     #[must_use]
     pub fn new(config: CoreDaemonConfig) -> Self {
         let registry = SessionRegistry::new(&config.data_dir);
-        let engine = live_engine(&config.data_dir);
+        let engine = config
+            .worker_path
+            .as_ref()
+            .map(|worker_path| {
+                let mut options = WorkerProcessRuntimeOptions::new(worker_path);
+                options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
+                DaemonEngine::Worker(WorkerBackedBotsterEngine::with_options(options))
+            })
+            .unwrap_or_else(|| DaemonEngine::Local(DefaultBotsterEngine::new()));
         Self {
             config,
             registry,
@@ -108,15 +127,19 @@ impl CoreDaemon {
         let label = command_label(&request.request.executable);
         let spawn = self
             .engine
-            .borrow_mut()
             .spawn_session(request.request, request.metadata)?;
-        let record = RegistryRecord::running(
+        let mut record = RegistryRecord::running(
             session_id,
             Some(spawn.handle.process),
             size,
             label,
             now_seconds,
         );
+        if let Some(metadata) = self.engine.worker_metadata(&record.session_id) {
+            if let Some(identity) = metadata.recovery_identity.clone() {
+                record.observe_restart_contract(identity, now_seconds);
+            }
+        }
         self.registry.save(&record)?;
         Ok(spawn.session)
     }
@@ -141,7 +164,7 @@ impl CoreDaemon {
     ) -> Result<AttachedSession, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine.borrow_mut().attach_client(
+        self.engine.attach_client(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
@@ -164,12 +187,8 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine.borrow_mut().detach_client(
-            client_id,
-            session_id,
-            subscription_id,
-            now_seconds,
-        )?;
+        self.engine
+            .detach_client(client_id, session_id, subscription_id, now_seconds)?;
         Ok(())
     }
 
@@ -184,7 +203,6 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
         self.engine
-            .borrow_mut()
             .write_bytes(client_id, session_id, data.into(), now_seconds)?;
         Ok(())
     }
@@ -201,7 +219,6 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
         self.engine
-            .borrow_mut()
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.rows = rows;
@@ -220,10 +237,7 @@ impl CoreDaemon {
     ) -> Result<DrainResult, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
-        let outcome = self
-            .engine
-            .borrow_mut()
-            .drain_runtime_once(session_id, last_output_at)?;
+        let outcome = self.engine.drain_runtime_once(session_id, last_output_at)?;
         self.reconcile_lifecycle_observations(&outcome.observations, last_output_at)?;
         Ok(DrainResult {
             client_egress: outcome.client_egress,
@@ -256,7 +270,7 @@ impl CoreDaemon {
         request: GuardedWriteRequest,
     ) -> Result<GuardedWriteResult, CoreDaemonError> {
         self.ensure_running()?;
-        if self.engine.borrow().session(&request.session_id).is_none() {
+        if self.engine.session(&request.session_id).is_none() {
             return Ok(GuardedWriteResult {
                 decision: GuardedWriteDecision::Reject {
                     reason: "unknown session".to_string(),
@@ -272,7 +286,7 @@ impl CoreDaemon {
         let mut states = vec![GuardedWriteDeliveryState::Accepted];
         match &decision {
             GuardedWriteDecision::Write => {
-                self.engine.borrow_mut().write_bytes(
+                self.engine.write_bytes(
                     request.client_id,
                     request.session_id,
                     request.data,
@@ -295,7 +309,7 @@ impl CoreDaemon {
     pub fn health(&self) -> Result<DaemonHealth, CoreDaemonError> {
         Ok(DaemonHealth {
             running: self.running,
-            live_sessions: self.engine.borrow().list_sessions().len(),
+            live_sessions: self.engine.list_sessions().len(),
             registry_records: self.registry.load_all()?.len(),
             data_dir: self.config.data_dir.display().to_string(),
         })
@@ -316,8 +330,7 @@ impl CoreDaemon {
             .load_all()?
             .into_iter()
             .map(|record| {
-                let engine = self.engine.borrow();
-                let live_candidates = adoption_candidate_count(&engine, &record);
+                let live_candidates = adoption_candidate_count(&self.engine, &record);
                 let state = if matches!(
                     record.state,
                     RegistrySessionState::Stopping
@@ -336,7 +349,8 @@ impl CoreDaemon {
                 } else if record.handshake_verified
                     && record.ping_pong_supported
                     && record.recovery_identity.is_some()
-                    && engine.session(&record.session_id).is_none()
+                    && self.engine.session(&record.session_id).is_none()
+                    && !has_worker_control_socket(&record)
                 {
                     SessionAdoptionState::StaleWorker {
                         reason: stale_worker_reason(&record),
@@ -374,6 +388,41 @@ impl CoreDaemon {
         Ok(())
     }
 
+    /// Adopt a live worker-backed session from durable registry metadata.
+    pub fn adopt_session(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<CoreSession, CoreDaemonError> {
+        self.ensure_running()?;
+        let record = self
+            .registry
+            .load(session_id)?
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        let process = record
+            .process
+            .clone()
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        let socket_path = worker_control_socket(&record)
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        let session = self.engine.adopt_worker_process(
+            session_id.clone(),
+            process,
+            socket_path,
+            botster_core::CoreSessionMetadata::new(),
+        )?;
+        if let Some(mut record) = self.registry.load(session_id)? {
+            record.mark(RegistrySessionState::Running, now_seconds);
+            self.registry.save(&record)?;
+        }
+        Ok(session)
+    }
+
+    /// Release worker processes for an intentional daemon restart without shutting them down.
+    pub fn release_for_restart(&mut self) {
+        self.engine.release_workers_for_restart();
+    }
+
     /// Shut down one session or all sessions when `session_id` is absent.
     pub fn shutdown(
         &mut self,
@@ -385,7 +434,7 @@ impl CoreDaemon {
             return Ok(());
         }
 
-        let sessions: Vec<_> = self.engine.borrow().list_sessions();
+        let sessions: Vec<_> = self.engine.list_sessions();
         for session in sessions {
             self.shutdown_session(session.session_id, now_seconds)?;
         }
@@ -399,11 +448,8 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
-        self.engine.borrow_mut().shutdown_session(
-            session_id.clone(),
-            "daemon shutdown",
-            now_seconds,
-        )?;
+        self.engine
+            .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
@@ -446,24 +492,158 @@ impl CoreDaemon {
 
     fn ensure_session(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
         self.engine
-            .borrow()
             .session(session_id)
             .map(|_| ())
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
     }
 }
 
-fn live_engine(data_dir: &Path) -> SharedEngine {
-    LIVE_ENGINES.with(|engines| {
-        let mut engines = engines.borrow_mut();
-        engines
-            .entry(data_dir.to_path_buf())
-            .or_insert_with(|| Rc::new(RefCell::new(DefaultBotsterEngine::new())))
-            .clone()
-    })
+impl DaemonEngine {
+    fn session(&self, session_id: &SessionId) -> Option<&CoreSession> {
+        match self {
+            Self::Local(engine) => engine.session(session_id),
+            Self::Worker(engine) => engine.session(session_id),
+        }
+    }
+
+    fn list_sessions(&self) -> Vec<CoreSession> {
+        match self {
+            Self::Local(engine) => engine.list_sessions(),
+            Self::Worker(engine) => engine.list_sessions(),
+        }
+    }
+
+    fn worker_metadata(&self, session_id: &SessionId) -> Option<&botster_core::SessionMetadata> {
+        match self {
+            Self::Local(_) => None,
+            Self::Worker(engine) => engine.worker_metadata(session_id),
+        }
+    }
+
+    fn spawn_session(
+        &mut self,
+        request: botster_core::SessionSpawnRequest,
+        metadata: botster_core::CoreSessionMetadata,
+    ) -> Result<botster_core::BotsterSpawnOutcome, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.spawn_session(request, metadata),
+            Self::Worker(engine) => engine.spawn_session(request, metadata),
+        }
+    }
+
+    fn attach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => {
+                engine.attach_client(client_id, session_id, subscription_id, now_seconds)
+            }
+            Self::Worker(engine) => {
+                engine.attach_client(client_id, session_id, subscription_id, now_seconds)
+            }
+        }
+    }
+
+    fn detach_client(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => {
+                engine.detach_client(client_id, session_id, subscription_id, now_seconds)
+            }
+            Self::Worker(engine) => {
+                engine.detach_client(client_id, session_id, subscription_id, now_seconds)
+            }
+        }
+    }
+
+    fn write_bytes(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        data: Vec<u8>,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.write_bytes(client_id, session_id, data, now_seconds),
+            Self::Worker(engine) => engine.write_bytes(client_id, session_id, data, now_seconds),
+        }
+    }
+
+    fn resize(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.resize(client_id, session_id, rows, cols, now_seconds),
+            Self::Worker(engine) => engine.resize(client_id, session_id, rows, cols, now_seconds),
+        }
+    }
+
+    fn drain_runtime_once(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.drain_runtime_once(session_id, last_output_at),
+            Self::Worker(engine) => engine.drain_runtime_once(session_id, last_output_at),
+        }
+    }
+
+    fn shutdown_session(
+        &mut self,
+        session_id: SessionId,
+        reason: impl Into<String>,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        let reason = reason.into();
+        match self {
+            Self::Local(engine) => engine.shutdown_session(session_id, reason, now_seconds),
+            Self::Worker(engine) => engine.shutdown_session(session_id, reason, now_seconds),
+        }
+    }
+
+    fn adopt_worker_process(
+        &mut self,
+        session_id: SessionId,
+        process: botster_core::ProcessIdentity,
+        socket_path: PathBuf,
+        metadata: botster_core::CoreSessionMetadata,
+    ) -> Result<CoreSession, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(_) => Err(DefaultBotsterEngineError::Runtime(
+                botster_core::SessionRuntimeError::new(
+                    botster_core::SessionRuntimeErrorKind::SessionNotFound,
+                    "local daemon engine cannot adopt worker process",
+                ),
+            )),
+            Self::Worker(engine) => engine
+                .adopt_worker_process(session_id, process, socket_path, metadata)
+                .map(|outcome| outcome.session),
+        }
+    }
+
+    fn release_workers_for_restart(&mut self) {
+        if let Self::Worker(engine) = self {
+            engine.release_workers_for_restart();
+        }
+    }
 }
 
-fn live_session_count(engine: &DefaultBotsterEngine, session_id: &SessionId) -> usize {
+fn live_session_count(engine: &DaemonEngine, session_id: &SessionId) -> usize {
     engine
         .list_sessions()
         .into_iter()
@@ -471,7 +651,7 @@ fn live_session_count(engine: &DefaultBotsterEngine, session_id: &SessionId) -> 
         .count()
 }
 
-fn adoption_candidate_count(engine: &DefaultBotsterEngine, record: &RegistryRecord) -> usize {
+fn adoption_candidate_count(engine: &DaemonEngine, record: &RegistryRecord) -> usize {
     let live_candidates = live_session_count(engine, &record.session_id);
     let registry_candidate = usize::from(
         record.handshake_verified
@@ -479,6 +659,25 @@ fn adoption_candidate_count(engine: &DefaultBotsterEngine, record: &RegistryReco
             && record.protocol_version == botster_core::PROTOCOL_VERSION,
     );
     live_candidates.max(registry_candidate) + record.duplicate_worker_candidates
+}
+
+fn has_worker_control_socket(record: &RegistryRecord) -> bool {
+    worker_control_socket(record).is_some()
+}
+
+fn worker_control_socket(record: &RegistryRecord) -> Option<PathBuf> {
+    record
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_control_socket"))
+        .and_then(serde_json::Value::as_str)
+        .map(PathBuf::from)
+}
+
+fn worker_socket_dir(data_dir: &PathBuf) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    data_dir.hash(&mut hasher);
+    std::env::temp_dir().join(format!("bcd-{:x}", hasher.finish()))
 }
 
 fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {

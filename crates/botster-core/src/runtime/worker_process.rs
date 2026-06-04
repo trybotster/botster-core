@@ -10,6 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -40,6 +43,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub shutdown_grace_ms: u64,
     /// Worker-side shutdown poll interval in milliseconds.
     pub poll_interval_ms: u64,
+    /// Directory for reconnectable worker control sockets.
+    pub control_socket_dir: Option<PathBuf>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -52,6 +57,7 @@ impl WorkerProcessRuntimeOptions {
             pty_reader_chunk_capacity: crate::DEFAULT_PTY_READER_CHUNK_CAPACITY,
             shutdown_grace_ms: 500,
             poll_interval_ms: 10,
+            control_socket_dir: None,
         }
     }
 }
@@ -71,6 +77,7 @@ pub struct WorkerHealth {
 pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
+    release_on_drop: bool,
 }
 
 impl WorkerProcessRuntime {
@@ -86,6 +93,7 @@ impl WorkerProcessRuntime {
         Self {
             options,
             sessions: HashMap::new(),
+            release_on_drop: false,
         }
     }
 
@@ -102,7 +110,8 @@ impl WorkerProcessRuntime {
     pub fn is_worker_process(&mut self, session_id: &SessionId) -> bool {
         self.sessions
             .get_mut(session_id)
-            .and_then(|session| session.child.try_wait().ok().flatten())
+            .and_then(|session| session.child.as_mut())
+            .and_then(|child| child.try_wait().ok().flatten())
             .is_none()
             && self.sessions.contains_key(session_id)
     }
@@ -126,7 +135,7 @@ impl WorkerProcessRuntime {
     pub fn ping(&mut self, session_id: &SessionId) -> Result<WorkerHealth, SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
         let before = session.pong_count.load(Ordering::Acquire);
-        write_frame(&mut session.stdin, FRAME_PING, &[])?;
+        session.control.write_frame(FRAME_PING, &[])?;
         let deadline = Instant::now() + PING_WAIT;
         while Instant::now() < deadline {
             if session.pong_count.load(Ordering::Acquire) > before {
@@ -157,11 +166,95 @@ impl WorkerProcessRuntime {
         seconds: u64,
     ) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
-        write_json(
-            &mut session.stdin,
-            FRAME_SET_TIMEOUT,
-            &TimeoutPayload { seconds },
-        )
+        session
+            .control
+            .write_json(FRAME_SET_TIMEOUT, &TimeoutPayload { seconds })
+    }
+
+    /// Release worker processes without sending shutdown frames when the daemon is intentionally restarting.
+    pub fn release_for_restart(&mut self) {
+        self.release_on_drop = true;
+    }
+
+    /// Adopt an already-running worker process through its reconnectable control socket.
+    #[cfg(unix)]
+    pub fn adopt_session(
+        &mut self,
+        session_id: SessionId,
+        process: ProcessIdentity,
+        socket_path: impl Into<PathBuf>,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
+        if self.sessions.contains_key(&session_id) {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "worker process session already exists",
+            ));
+        }
+
+        let socket_path = socket_path.into();
+        let mut control = UnixStream::connect(&socket_path).map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("connect worker control socket failed: {error}"),
+            )
+        })?;
+        write_hello(&mut control)
+            .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
+        let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
+        let overflow = Arc::new(AtomicUsize::new(0));
+        let pong_count = Arc::new(AtomicUsize::new(0));
+        let last_health = Arc::new(Mutex::new(None));
+        spawn_stdout_reader(
+            control.try_clone().map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("clone worker control socket failed: {error}"),
+                )
+            })?,
+            sender,
+            Arc::clone(&overflow),
+            Arc::clone(&pong_count),
+            Arc::clone(&last_health),
+        );
+        let metadata = SessionMetadata {
+            session_uuid: session_id.0.clone(),
+            pid: process.pid.unwrap_or_default(),
+            rows: 24,
+            cols: 80,
+            last_output_at: 0,
+            title: None,
+            cwd: None,
+            port: None,
+            mode_flags: Default::default(),
+            recovery_identity: Some(serde_json::json!({
+                "session_uuid": session_id.0,
+                "runtime_id": process.runtime_id,
+                "worker_control_socket": socket_path,
+            })),
+        };
+
+        self.sessions.insert(
+            session_id.clone(),
+            WorkerProcessSession {
+                child: None,
+                control: WorkerControl::Socket {
+                    stream: control,
+                    path: socket_path,
+                },
+                metadata,
+                output: receiver,
+                overflow,
+                pong_count,
+                last_health,
+                egress_capacity: self.options.egress_capacity.max(1),
+            },
+        );
+
+        Ok(SessionRuntimeHandle {
+            request_id: crate::RequestId(format!("{}-adopt", session_id.0)),
+            session_id,
+            process,
+        })
     }
 
     fn session_mut(
@@ -189,7 +282,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             ));
         }
 
-        let mut child = Command::new(&self.options.worker_path)
+        let mut command = Command::new(&self.options.worker_path);
+        command
             .arg("--egress-capacity")
             .arg(self.options.egress_capacity.to_string())
             .arg("--pty-reader-capacity")
@@ -198,31 +292,74 @@ impl SessionRuntime for WorkerProcessRuntime {
             .arg(self.options.shutdown_grace_ms.to_string())
             .arg("--poll-interval-ms")
             .arg(self.options.poll_interval_ms.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| {
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::SpawnFailed,
-                    format!("spawn worker process failed: {error}"),
-                )
-            })?;
+            .stderr(Stdio::null());
 
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, "worker stdin missing")
-        })?;
-        let mut stdout = child.stdout.take().ok_or_else(|| {
+        #[cfg(unix)]
+        let socket_path = self
+            .options
+            .control_socket_dir
+            .as_ref()
+            .map(|dir| worker_socket_path(dir, &request.session_id));
+        #[cfg(not(unix))]
+        let socket_path: Option<PathBuf> = None;
+
+        if let Some(path) = &socket_path {
+            command
+                .arg("--control-socket")
+                .arg(path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null());
+        } else {
+            command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        }
+
+        let mut child = command.spawn().map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
-                "worker stdout missing",
+                format!("spawn worker process failed: {error}"),
             )
         })?;
 
-        write_hello(&mut stdin)
-            .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
-        write_json(&mut stdin, FRAME_SPAWN_SESSION, &request)?;
-        let (_, metadata) = read_welcome(&mut stdout)
+        let (mut control, mut reader): (WorkerControl, Box<dyn Read + Send>) =
+            if let Some(path) = socket_path {
+                #[cfg(unix)]
+                {
+                    let stream = connect_worker_socket(&path)?;
+                    let reader = stream.try_clone().map_err(|error| {
+                        SessionRuntimeError::new(
+                            SessionRuntimeErrorKind::SpawnFailed,
+                            format!("clone worker control socket failed: {error}"),
+                        )
+                    })?;
+                    (
+                        WorkerControl::Socket { stream, path },
+                        Box::new(reader) as Box<dyn Read + Send>,
+                    )
+                }
+                #[cfg(not(unix))]
+                unreachable!("socket_path is never set on non-unix targets");
+            } else {
+                let stdin = child.stdin.take().ok_or_else(|| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        "worker stdin missing",
+                    )
+                })?;
+                let stdout = child.stdout.take().ok_or_else(|| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        "worker stdout missing",
+                    )
+                })?;
+                (
+                    WorkerControl::Stdio(stdin),
+                    Box::new(stdout) as Box<dyn Read + Send>,
+                )
+            };
+
+        control.write_hello()?;
+        control.write_json(FRAME_SPAWN_SESSION, &request)?;
+        let (_, metadata) = read_welcome(&mut reader)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         let process = ProcessIdentity {
             pid: Some(metadata.pid),
@@ -240,7 +377,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         spawn_stdout_reader(
-            stdout,
+            reader,
             sender,
             Arc::clone(&overflow),
             Arc::clone(&pong_count),
@@ -250,8 +387,8 @@ impl SessionRuntime for WorkerProcessRuntime {
         self.sessions.insert(
             request.session_id.clone(),
             WorkerProcessSession {
-                child,
-                stdin,
+                child: Some(child),
+                control,
                 metadata,
                 output: receiver,
                 overflow,
@@ -272,15 +409,15 @@ impl SessionRuntime for WorkerProcessRuntime {
         match input {
             SessionRuntimeInput::PtyInput { session_id, data } => {
                 let session = self.session_mut(&session_id)?;
-                write_frame(&mut session.stdin, FRAME_PTY_INPUT, &data)
+                session.control.write_frame(FRAME_PTY_INPUT, &data)
             }
             SessionRuntimeInput::Resize { session_id, size } => {
                 let session = self.session_mut(&session_id)?;
-                write_json(&mut session.stdin, FRAME_RESIZE, &size)
+                session.control.write_json(FRAME_RESIZE, &size)
             }
             SessionRuntimeInput::Shutdown { session_id } => {
                 let session = self.session_mut(&session_id)?;
-                write_frame(&mut session.stdin, FRAME_SHUTDOWN, &[])
+                session.control.write_frame(FRAME_SHUTDOWN, &[])
             }
         }
     }
@@ -315,7 +452,10 @@ impl SessionRuntime for WorkerProcessRuntime {
             .any(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
         {
             if let Some(mut removed) = self.sessions.remove(session_id) {
-                let _ = removed.child.wait();
+                if let Some(mut child) = removed.child.take() {
+                    let _ = child.wait();
+                }
+                removed.control.cleanup();
             }
         }
 
@@ -325,22 +465,118 @@ impl SessionRuntime for WorkerProcessRuntime {
 
 impl Drop for WorkerProcessRuntime {
     fn drop(&mut self) {
+        if self.release_on_drop {
+            return;
+        }
         for (_, mut session) in self.sessions.drain() {
-            let _ = write_frame(&mut session.stdin, FRAME_SHUTDOWN, &[]);
-            let _ = session.child.wait();
+            let _ = session.control.write_frame(FRAME_SHUTDOWN, &[]);
+            if let Some(mut child) = session.child.take() {
+                let _ = child.wait();
+            }
+            session.control.cleanup();
         }
     }
 }
 
 struct WorkerProcessSession {
-    child: Child,
-    stdin: ChildStdin,
+    child: Option<Child>,
+    control: WorkerControl,
     metadata: SessionMetadata,
     output: Receiver<WorkerOutputEvent>,
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     egress_capacity: usize,
+}
+
+enum WorkerControl {
+    Stdio(ChildStdin),
+    #[cfg(unix)]
+    Socket {
+        stream: UnixStream,
+        path: PathBuf,
+    },
+}
+
+impl WorkerControl {
+    fn write_hello(&mut self) -> Result<(), SessionRuntimeError> {
+        match self {
+            Self::Stdio(stdin) => write_hello(stdin)
+                .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error)),
+            #[cfg(unix)]
+            Self::Socket { stream, .. } => write_hello(stream)
+                .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error)),
+        }
+    }
+
+    fn write_frame(&mut self, frame_type: u8, payload: &[u8]) -> Result<(), SessionRuntimeError> {
+        match self {
+            Self::Stdio(stdin) => write_frame(stdin, frame_type, payload),
+            #[cfg(unix)]
+            Self::Socket { stream, .. } => write_frame(stream, frame_type, payload),
+        }
+    }
+
+    fn write_json<T: Serialize>(
+        &mut self,
+        frame_type: u8,
+        payload: &T,
+    ) -> Result<(), SessionRuntimeError> {
+        match self {
+            Self::Stdio(stdin) => write_json(stdin, frame_type, payload),
+            #[cfg(unix)]
+            Self::Socket { stream, .. } => write_json(stream, frame_type, payload),
+        }
+    }
+
+    fn cleanup(&self) {
+        #[cfg(unix)]
+        if let Self::Socket { path, .. } = self {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn worker_socket_path(dir: &std::path::Path, session_id: &SessionId) -> PathBuf {
+    let safe: String = session_id
+        .0
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    dir.join(format!("{safe}.sock"))
+}
+
+#[cfg(unix)]
+fn connect_worker_socket(path: &std::path::Path) -> Result<UnixStream, SessionRuntimeError> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match UnixStream::connect(path) {
+            Ok(stream) => return Ok(stream),
+            Err(error) if Instant::now() < deadline => {
+                let last_error = error;
+                thread::sleep(Duration::from_millis(10));
+                if !matches!(
+                    last_error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) {
+                    continue;
+                }
+            }
+            Err(error) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("connect worker control socket failed: {error}"),
+                ));
+            }
+        }
+    }
 }
 
 enum WorkerOutputEvent {

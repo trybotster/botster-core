@@ -1,8 +1,12 @@
 //! Local session worker process entrypoint.
 
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -25,11 +29,12 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = WorkerArgs::parse(std::env::args().skip(1).collect())?;
-    let mut stdin = io::stdin();
-    let mut stdout = io::stdout();
+    let control = WorkerControl::open(&args)?;
+    let shutdown_on_disconnect = control.shutdown_on_disconnect();
+    let mut initial_control = control.accept_initial()?;
 
-    let _peer_version = read_hello(&mut stdin).map_err(|error| error.to_string())?;
-    let spawn_frame = read_frame(&mut stdin)?;
+    let _peer_version = read_hello(&mut initial_control).map_err(|error| error.to_string())?;
+    let spawn_frame = read_frame(&mut initial_control)?;
     if spawn_frame.frame_type != FRAME_SPAWN_SESSION {
         return Err("worker expected FRAME_SPAWN_SESSION after hello".to_string());
     }
@@ -60,15 +65,16 @@ fn run() -> Result<(), String> {
             "session_uuid": session_id.0,
             "runtime_id": handle.process.runtime_id,
             "worker_pid": process::id(),
+            "worker_control_socket": args.control_socket,
         })),
     };
-    write_welcome(&mut stdout, &metadata).map_err(|error| error.to_string())?;
+    write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
 
     let (frame_sender, frame_receiver) = mpsc::channel();
-    spawn_stdin_reader(stdin, frame_sender);
+    control.spawn_readers(initial_control, frame_sender);
 
     let (egress_sender, egress_receiver) = mpsc::sync_channel(args.egress_capacity.max(1));
-    let writer = thread::spawn(move || write_egress(stdout, egress_receiver));
+    let writer = control.spawn_writer(egress_receiver);
     let mut reconnect_timeout_seconds = None;
     let mut shutdown_requested = false;
 
@@ -117,12 +123,14 @@ fn run() -> Result<(), String> {
                 },
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    runtime
-                        .send_input(SessionRuntimeInput::Shutdown {
-                            session_id: handle.session_id.clone(),
-                        })
-                        .map_err(|error| error.to_string())?;
-                    shutdown_requested = true;
+                    if shutdown_on_disconnect {
+                        runtime
+                            .send_input(SessionRuntimeInput::Shutdown {
+                                session_id: handle.session_id.clone(),
+                            })
+                            .map_err(|error| error.to_string())?;
+                        shutdown_requested = true;
+                    }
                     break;
                 }
             }
@@ -154,9 +162,9 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn spawn_stdin_reader(mut stdin: impl Read + Send + 'static, sender: mpsc::Sender<Frame>) {
+fn spawn_control_reader(mut control: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
     thread::spawn(move || {
-        while let Ok(frame) = read_frame(&mut stdin) {
+        while let Ok(frame) = read_frame(&mut control) {
             if sender.send(frame).is_err() {
                 break;
             }
@@ -172,6 +180,136 @@ fn write_egress(mut stdout: impl Write, receiver: Receiver<Vec<u8>>) -> Result<(
         stdout.flush().map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+trait ReadWrite: Read + Write {}
+impl<T: Read + Write> ReadWrite for T {}
+
+struct StdioControl {
+    stdin: io::Stdin,
+    stdout: io::Stdout,
+}
+
+impl Read for StdioControl {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.stdin.read(buffer)
+    }
+}
+
+impl Write for StdioControl {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.stdout.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stdout.flush()
+    }
+}
+
+enum WorkerControl {
+    Stdio,
+    #[cfg(unix)]
+    Socket {
+        listener: UnixListener,
+        writer: Arc<Mutex<Option<UnixStream>>>,
+    },
+}
+
+impl WorkerControl {
+    fn open(args: &WorkerArgs) -> Result<Self, String> {
+        match &args.control_socket {
+            Some(path) => {
+                #[cfg(unix)]
+                {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+                    }
+                    let _ = std::fs::remove_file(path);
+                    let listener = UnixListener::bind(path).map_err(|error| error.to_string())?;
+                    Ok(Self::Socket {
+                        listener,
+                        writer: Arc::new(Mutex::new(None)),
+                    })
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = path;
+                    Err("control sockets are only supported on unix".to_string())
+                }
+            }
+            None => Ok(Self::Stdio),
+        }
+    }
+
+    fn accept_initial(&self) -> Result<Box<dyn ReadWrite + Send>, String> {
+        match self {
+            Self::Stdio => Ok(Box::new(StdioControl {
+                stdin: io::stdin(),
+                stdout: io::stdout(),
+            })),
+            #[cfg(unix)]
+            Self::Socket { listener, writer } => {
+                let stream = listener.accept().map_err(|error| error.to_string())?.0;
+                *writer
+                    .lock()
+                    .map_err(|_| "writer lock poisoned".to_string())? =
+                    Some(stream.try_clone().map_err(|error| error.to_string())?);
+                Ok(Box::new(stream))
+            }
+        }
+    }
+
+    fn spawn_readers(&self, initial: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
+        spawn_control_reader(initial, sender.clone());
+        #[cfg(unix)]
+        if let Self::Socket { listener, writer } = self {
+            let listener = listener.try_clone().expect("clone worker listener");
+            let writer = Arc::clone(writer);
+            thread::spawn(move || {
+                while let Ok((mut stream, _)) = listener.accept() {
+                    if read_hello(&mut stream).is_err() {
+                        continue;
+                    }
+                    if let Ok(clone) = stream.try_clone() {
+                        if let Ok(mut slot) = writer.lock() {
+                            *slot = Some(clone);
+                        }
+                    }
+                    spawn_control_reader(Box::new(stream), sender.clone());
+                }
+            });
+        }
+    }
+
+    fn spawn_writer(&self, receiver: Receiver<Vec<u8>>) -> thread::JoinHandle<Result<(), String>> {
+        match self {
+            Self::Stdio => thread::spawn(move || write_egress(io::stdout(), receiver)),
+            #[cfg(unix)]
+            Self::Socket { writer, .. } => {
+                let writer = Arc::clone(writer);
+                thread::spawn(move || {
+                    while let Ok(frame) = receiver.recv() {
+                        if let Ok(mut slot) = writer.lock() {
+                            if let Some(stream) = slot.as_mut() {
+                                if stream
+                                    .write_all(&frame)
+                                    .and_then(|_| stream.flush())
+                                    .is_err()
+                                {
+                                    *slot = None;
+                                }
+                            }
+                        }
+                    }
+                    Ok(())
+                })
+            }
+        }
+    }
+
+    fn shutdown_on_disconnect(&self) -> bool {
+        matches!(self, Self::Stdio)
+    }
 }
 
 fn send_frame(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: Vec<u8>) {
@@ -216,6 +354,7 @@ struct WorkerArgs {
     pty_reader_chunk_capacity: usize,
     shutdown_grace_ms: u64,
     poll_interval_ms: u64,
+    control_socket: Option<PathBuf>,
 }
 
 impl WorkerArgs {
@@ -224,6 +363,7 @@ impl WorkerArgs {
         let mut pty_reader_chunk_capacity = botster_core::DEFAULT_PTY_READER_CHUNK_CAPACITY;
         let mut shutdown_grace_ms = 500;
         let mut poll_interval_ms = 10;
+        let mut control_socket = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -244,6 +384,14 @@ impl WorkerArgs {
                     index += 1;
                     poll_interval_ms = parse_arg(&args, index, "--poll-interval-ms")?;
                 }
+                "--control-socket" => {
+                    index += 1;
+                    control_socket = Some(PathBuf::from(parse_string_arg(
+                        &args,
+                        index,
+                        "--control-socket",
+                    )?));
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -254,8 +402,15 @@ impl WorkerArgs {
             pty_reader_chunk_capacity,
             shutdown_grace_ms,
             poll_interval_ms,
+            control_socket,
         })
     }
+}
+
+fn parse_string_arg(args: &[String], index: usize, name: &str) -> Result<String, String> {
+    args.get(index)
+        .cloned()
+        .ok_or_else(|| format!("{name} requires a value"))
 }
 
 fn parse_arg<T>(args: &[String], index: usize, name: &str) -> Result<T, String>
