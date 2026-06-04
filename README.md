@@ -58,6 +58,15 @@ canonical command facade, keeps `MultiplexerEngine` as the lower-level assembled
 primitive, and maps supported commands to existing typed request, result, event,
 and error shapes.
 
+The durable session-worker north-star contract is specified in
+`docs/architecture/durable-session-worker-protocol.md` and exported through
+`botster_core::durable_session`. It defines typed daemon/session-worker
+contracts for spawn/adopt, attach/detach, heartbeat/health, output and snapshot
+handoff, guarded session-visible writes, restart survival, queue/backpressure,
+and the thin daemon CLI wrapper role. It is a public contract surface only; the
+current crate does not yet implement a durable daemon process, socket server, or
+worker adoption loop.
+
 For custom runtimes, translate host or hub intents into `EngineCommand<W>` and
 dispatch them with `BotsterEngine::execute_command(...)`. For the default local
 PTY-backed path, use `DefaultEngineCommand` with `DefaultBotsterEngine`:

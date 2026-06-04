@@ -17,8 +17,8 @@ pub mod package;
 pub mod runtime;
 
 pub use contract::{
-    actor, boundary, client, client_stream, entity, notification, session, session_protocol,
-    terminal_screen, transport, ui,
+    actor, boundary, client, client_stream, durable_session, entity, notification, session,
+    session_protocol, terminal_screen, transport, ui,
 };
 pub use engine::{
     botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
@@ -89,6 +89,19 @@ pub use crypto::{
 pub use device::{
     device_fingerprint, verify_device_fingerprint, DeviceFingerprint, DevicePublicMetadata,
     PublicSigningKeyBytes,
+};
+pub use durable_session::{
+    DaemonCliOperation, DaemonControlOperation, DaemonControlOutcome, DurableRestartSemantics,
+    DurableSessionProtocolVersion, GuardedSessionWriteDeferralReason, GuardedSessionWritePolicy,
+    GuardedSessionWritePrimitive, GuardedSessionWriteRejectionReason, GuardedSessionWriteRequest,
+    GuardedSessionWriteState, RestartBoundary, RestartSurvival, SessionReadinessEvidence,
+    SessionWorkerAdoptRequest, SessionWorkerAdoptionVerdict, SessionWorkerAttachRequest,
+    SessionWorkerCapability, SessionWorkerDetached, SessionWorkerFailure, SessionWorkerHealth,
+    SessionWorkerHealthReason, SessionWorkerHeartbeat, SessionWorkerId, SessionWorkerIdentity,
+    SessionWorkerOutputFrame, SessionWorkerProcessIdentity, SessionWorkerQueueLimits,
+    SessionWorkerShutdownMode, SessionWorkerShutdownRequest, SessionWorkerSpawnRequest,
+    SessionWorkerSpawned, SessionWorkerStaleReason, SlowConsumerBehavior, SnapshotHandoffStrategy,
+    DURABLE_SESSION_PROTOCOL_VERSION,
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
