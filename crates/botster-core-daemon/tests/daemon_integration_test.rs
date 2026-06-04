@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{
     ClientId, CoreSessionMetadata, ModeFlags, RequestId, ResizePayload, SessionId,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
 use botster_core_daemon::{
     CoreDaemon, CoreDaemonConfig, GuardedWriteDecision, GuardedWriteDeliveryState,
@@ -167,6 +168,73 @@ fn guarded_write_states_are_fail_closed_and_write_through_input_path() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn daemon_restart_adopts_live_worker_and_reattaches() {
+    let data_dir = temp_data_dir("daemon-restart-adopts-live-worker");
+    let session_id = SessionId("daemon-restart-session".to_string());
+    let client_id = ClientId("daemon-restart-client".to_string());
+    let subscription_id = SubscriptionId("daemon-restart-subscription".to_string());
+
+    {
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("first daemon should spawn live session");
+        let mut record = daemon
+            .registry()
+            .load(&session_id)
+            .expect("registry load should succeed")
+            .expect("spawn should persist record");
+        record.observe_restart_contract(serde_json::json!({"session": "daemon-restart"}), 11);
+        daemon
+            .registry()
+            .save(&record)
+            .expect("restart evidence should persist");
+    }
+
+    let mut restarted = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let reports = restarted
+        .adoption_scan()
+        .expect("restarted daemon should scan registry");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].state, SessionAdoptionState::Adoptable);
+
+    let listed = restarted
+        .list()
+        .expect("restarted daemon should list durable sessions");
+    assert_eq!(listed[0].session_id, session_id);
+    assert_eq!(listed[0].registry_state, RegistrySessionState::Running);
+
+    restarted
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 12)
+        .expect("restarted daemon should attach through live engine route");
+    restarted
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"after-restart\n".to_vec(),
+            13,
+        )
+        .expect("restarted daemon should send input through adopted route");
+    let drained = drain_until(&mut restarted, &session_id, "echo:after-restart");
+    let output = terminal_output(&drained.client_egress);
+    assert!(
+        output.contains("echo:after-restart"),
+        "reattached daemon should drain live worker output: {output:?}"
+    );
+
+    restarted
+        .shutdown(Some(session_id.clone()), 30)
+        .expect("restarted daemon should shut down adopted session");
+    let listed = restarted
+        .list()
+        .expect("registry list should load after adopted shutdown");
+    assert_eq!(listed[0].registry_state, RegistrySessionState::Exited);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn registry_records_are_durable_enough_for_adoption_scan() {
     let data_dir = temp_data_dir("daemon-adoption");
@@ -213,6 +281,142 @@ fn registry_records_are_durable_enough_for_adoption_scan() {
         .adoption_scan()
         .expect("adoption scan should read shut down records");
     assert_eq!(reports[0].state, SessionAdoptionState::Terminal);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn adoption_scan_reports_dead_worker_with_live_registry_record() {
+    let data_dir = temp_data_dir("daemon-dead-worker");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-dead-worker-session".to_string());
+    let record = adoptable_record(&session_id, 10);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("dead-worker fixture should save");
+
+    let reports = daemon
+        .adoption_scan()
+        .expect("adoption scan should classify dead worker");
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::StaleWorker {
+            reason: SessionWorkerStaleReason::WorkerDied
+        }
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn adoption_scan_reports_incompatible_protocol_version() {
+    let data_dir = temp_data_dir("daemon-incompatible-worker");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-incompatible-worker-session".to_string());
+    let mut record = adoptable_record(&session_id, 10);
+    record.protocol_version = botster_core::PROTOCOL_VERSION.saturating_add(1);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("incompatible fixture should save");
+
+    let reports = daemon
+        .adoption_scan()
+        .expect("adoption scan should classify incompatible protocol");
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::StaleWorker {
+            reason: SessionWorkerStaleReason::IncompatibleProtocol
+        }
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn adoption_scan_reports_missed_heartbeat() {
+    let data_dir = temp_data_dir("daemon-missed-heartbeat");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-missed-heartbeat-session".to_string());
+    let mut record = adoptable_record(&session_id, 10);
+    record.ping_pong_supported = false;
+    daemon
+        .registry()
+        .save(&record)
+        .expect("heartbeat fixture should save");
+
+    let reports = daemon
+        .adoption_scan()
+        .expect("adoption scan should classify heartbeat failure");
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::UnhealthyWorker {
+            reason: SessionWorkerHealthReason::MissedHeartbeat
+        }
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn adoption_scan_reports_duplicate_worker_for_session() {
+    let data_dir = temp_data_dir("daemon-duplicate-worker");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-duplicate-worker-session".to_string());
+    let mut record = adoptable_record(&session_id, 10);
+    record.duplicate_worker_candidates = 1;
+    daemon
+        .registry()
+        .save(&record)
+        .expect("duplicate fixture should save");
+
+    let reports = daemon
+        .adoption_scan()
+        .expect("adoption scan should classify duplicate candidates");
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::DuplicateWorker { candidates: 2 }
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn adoption_scan_is_read_only_until_explicit_mark_stale() {
+    let data_dir = temp_data_dir("daemon-adoption-read-only");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-adoption-read-only-session".to_string());
+    let record = adoptable_record(&session_id, 10);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("read-only fixture should save");
+    let record_path = data_dir
+        .join("sessions")
+        .join("daemon-adoption-read-only-session.json");
+    let before = fs::read(&record_path).expect("record bytes should load before scan");
+
+    let reports = daemon
+        .adoption_scan()
+        .expect("adoption scan should classify without mutation");
+    assert!(matches!(
+        reports[0].state,
+        SessionAdoptionState::StaleWorker { .. }
+    ));
+    let after_scan = fs::read(&record_path).expect("record bytes should load after scan");
+    assert_eq!(before, after_scan, "adoption_scan must be read-only");
+
+    daemon
+        .mark_stale(&session_id, 20)
+        .expect("explicit stale mark should persist");
+    let marked = daemon
+        .registry()
+        .load(&session_id)
+        .expect("marked record should load")
+        .expect("marked record should exist");
+    assert_eq!(marked.state, RegistrySessionState::Stale);
+    assert_eq!(marked.updated_at, 20);
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -266,6 +470,27 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
         },
         metadata: CoreSessionMetadata::new(),
     }
+}
+
+fn adoptable_record(
+    session_id: &SessionId,
+    now_seconds: u64,
+) -> botster_core_daemon::RegistryRecord {
+    let mut record = botster_core_daemon::RegistryRecord::running(
+        session_id.clone(),
+        Some(botster_core::ProcessIdentity {
+            pid: Some(42),
+            runtime_id: Some(format!("{}-runtime", session_id.0)),
+        }),
+        ResizePayload { rows: 24, cols: 80 },
+        "sh".to_string(),
+        now_seconds,
+    );
+    record.observe_restart_contract(
+        serde_json::json!({"session": session_id.0}),
+        now_seconds + 1,
+    );
+    record
 }
 
 fn drain_until(
