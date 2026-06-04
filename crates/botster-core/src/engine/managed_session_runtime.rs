@@ -106,7 +106,7 @@ impl ManagedSessionRuntime<WorkerProcessRuntime, PlainTerminalScreenRuntime> {
         Self::new(WorkerProcessRuntime::with_options(options))
     }
 
-    /// Adopt a live worker process through its reconnectable control endpoint.
+    /// Adopt a live worker process through its reopenable control endpoint.
     pub fn adopt_worker_process(
         &mut self,
         session_id: SessionId,
