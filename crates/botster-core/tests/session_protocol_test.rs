@@ -82,6 +82,7 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_PROMPT_MARK, 0x14);
     assert_eq!(FRAME_NOTIFICATION, 0x15);
     assert_eq!(FRAME_SET_COLOR_PROFILE, 0x16);
+    assert_eq!(FRAME_SPAWN_SESSION, 0x17);
 }
 
 #[test]

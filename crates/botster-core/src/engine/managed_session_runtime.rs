@@ -25,6 +25,8 @@ use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
     SessionRuntimeOutput, SessionSpawnRequest,
 };
+#[cfg(feature = "local-runtime")]
+use crate::runtime::{WorkerProcessRuntime, WorkerProcessRuntimeOptions};
 use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
 };
@@ -87,6 +89,21 @@ where
         Self::with_terminal_backend_factory(runtime, |size| {
             Ok::<_, std::convert::Infallible>(PlainTerminalScreenRuntime::new(size))
         })
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl ManagedSessionRuntime<WorkerProcessRuntime, PlainTerminalScreenRuntime> {
+    /// Build a managed runtime that owns local sessions through worker processes.
+    #[must_use]
+    pub fn with_worker_process(worker_path: impl Into<std::path::PathBuf>) -> Self {
+        Self::new(WorkerProcessRuntime::new(worker_path))
+    }
+
+    /// Build a worker-backed managed runtime with explicit process options.
+    #[must_use]
+    pub fn with_worker_process_options(options: WorkerProcessRuntimeOptions) -> Self {
+        Self::new(WorkerProcessRuntime::with_options(options))
     }
 }
 

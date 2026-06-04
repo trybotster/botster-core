@@ -74,6 +74,8 @@ pub const FRAME_PROMPT_MARK: u8 = 0x14;
 pub const FRAME_NOTIFICATION: u8 = 0x15;
 /// Data-plane peer to session: replace terminal color profile.
 pub const FRAME_SET_COLOR_PROFILE: u8 = 0x16;
+/// Data-plane peer to session process: initial spawn request.
+pub const FRAME_SPAWN_SESSION: u8 = 0x17;
 
 /// Session metadata sent in the welcome handshake.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -20,7 +20,10 @@ pub use botster::{
     BotsterSpawnOutcome,
 };
 #[cfg(feature = "local-runtime")]
-pub use botster::{DefaultBotsterEngine, DefaultBotsterEngineError};
+pub use botster::{
+    DefaultBotsterEngine, DefaultBotsterEngineError, WorkerBackedBotsterEngine,
+    WorkerBackedBotsterEngineError,
+};
 #[cfg(feature = "local-runtime")]
 pub use command::DefaultEngineCommand;
 pub use command::{

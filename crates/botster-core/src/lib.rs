@@ -53,8 +53,9 @@ pub use runtime::{
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
-    DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, WorkerHealth,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    DEFAULT_WORKER_EGRESS_CAPACITY,
 };
 
 pub use actor::{
@@ -121,7 +122,10 @@ pub use engine::{
     TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
-pub use engine::{DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand};
+pub use engine::{
+    DefaultBotsterEngine, DefaultBotsterEngineError, DefaultEngineCommand,
+    WorkerBackedBotsterEngine, WorkerBackedBotsterEngineError,
+};
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
     EntityStores,
@@ -154,8 +158,8 @@ pub use session_protocol::{
     FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_MODE_FLAGS,
     FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
-    MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
 };
 pub use terminal_screen::{
     TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
