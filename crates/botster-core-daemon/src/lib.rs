@@ -11,8 +11,12 @@ pub mod guarded_write;
 pub mod registry;
 
 pub use api::{
-    AttachedSession, DaemonHealth, DaemonSession, DaemonStatus, DrainResult, GuardedWriteRequest,
-    GuardedWriteResult, SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
+    DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult,
+    DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
+    GuardedWriteResult, NotificationStatusResult, PostNotificationRequest, PostNotificationResult,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, RoutedEnvelopeDeliveryStateResult,
+    SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
 };
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
 pub use guarded_write::{

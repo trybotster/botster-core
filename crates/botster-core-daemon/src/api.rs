@@ -1,9 +1,12 @@
 //! Typed daemon API contracts.
 
 use botster_core::{
-    BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, ProcessIdentity,
-    ResizePayload, SessionId, SessionSpawnRequest, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, TransportEgress,
+    BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, EnvelopeCursor,
+    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, NotificationDeliveryStatus, NotificationId,
+    NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity, ResizePayload,
+    RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopePublishOutcome, SessionId,
+    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId,
+    TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +58,90 @@ pub struct DrainResult {
     /// Backpressure summaries observed while draining.
     pub backpressure: Vec<BackpressureSummary>,
 }
+
+/// Host request to queue one generic notification inbox item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostNotificationRequest {
+    /// Core notification item to queue.
+    pub item: NotificationItem,
+}
+
+/// Result of queueing one notification inbox item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostNotificationResult {
+    /// Stable notification id returned by the inbox.
+    pub id: NotificationId,
+}
+
+/// Host request to drain deliverable notifications for one target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainNotificationsRequest {
+    /// Target whose inbox should be drained.
+    pub target: NotificationTarget,
+    /// Deterministic timestamp used for expiry checks.
+    pub now: NotificationTimestamp,
+}
+
+/// Result of draining notification inbox items.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainNotificationsResult {
+    /// Items delivered to the target.
+    pub items: Vec<NotificationItem>,
+}
+
+/// Host request to acknowledge one notification inbox item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcknowledgeNotificationRequest {
+    /// Notification id to acknowledge.
+    pub id: NotificationId,
+}
+
+/// Result of acknowledging or querying one notification inbox item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationStatusResult {
+    /// Current status when the notification id is known.
+    pub status: Option<NotificationDeliveryStatus>,
+}
+
+/// Host request to publish one routed envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublishRoutedEnvelopeRequest {
+    /// Core routed envelope to publish.
+    pub envelope: RoutedEnvelope,
+}
+
+/// Host request to drain routed envelopes for one target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainRoutedEnvelopesRequest {
+    /// Target queue to drain.
+    pub target: EnvelopeTarget,
+    /// Optional cursor the caller has already observed.
+    pub after: Option<EnvelopeCursor>,
+    /// Maximum number of envelopes to deliver.
+    pub limit: usize,
+}
+
+/// Host request to acknowledge one routed envelope for one target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcknowledgeRoutedEnvelopeRequest {
+    /// Target whose delivered copy should be acknowledged.
+    pub target: EnvelopeTarget,
+    /// Envelope id to acknowledge.
+    pub envelope_id: EnvelopeId,
+}
+
+/// Result of acknowledging or querying one routed envelope target copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutedEnvelopeDeliveryStateResult {
+    /// Current delivery state when the target/envelope pair is known.
+    pub state: Option<EnvelopeDeliveryState>,
+}
+
+/// Result of publishing one routed envelope.
+pub type PublishRoutedEnvelopeResult = RoutedEnvelopePublishOutcome;
+
+/// Result of draining routed envelopes.
+pub type DrainRoutedEnvelopesResult = RoutedEnvelopeDrainOutcome;
 
 /// Host request for readiness-gated PTY input or notification text.
 #[derive(Debug, Clone, PartialEq, Eq)]
