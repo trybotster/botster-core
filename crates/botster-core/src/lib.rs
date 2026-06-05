@@ -17,13 +17,13 @@ pub mod package;
 pub mod runtime;
 
 pub use contract::{
-    actor, boundary, client, client_stream, durable_session, entity, notification, session,
-    session_protocol, terminal_screen, transport, ui,
+    actor, boundary, client, client_stream, durable_session, entity, notification, routed_envelope,
+    session, session_protocol, terminal_screen, transport, ui,
 };
 pub use engine::{
     botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
-    plugin_worker, session_activity, session_worker, subscription_multiplexer,
-    terminal_screen as terminal_screen_engine,
+    plugin_worker, routed_envelope as routed_envelope_engine, session_activity, session_worker,
+    subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{capability, extension, host_profile, manifest};
@@ -116,10 +116,10 @@ pub use engine::{
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginHandlerRegistration, PluginInvocationOutcome, PluginTimerDrainOutcome,
     PluginTimerScheduleOutcome, PluginTimerScheduler, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerRegistration, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
-    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
-    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
-    TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
+    PluginWorkerRegistration, RoutedEnvelopeRouter, SessionWorkerEngine, SessionWorkerOutcome,
+    SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
+    TerminalScreenOutcome, TerminalScreenRuntime, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{
@@ -144,6 +144,11 @@ pub use package::{
     admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError,
     HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
     PackageSource,
+};
+pub use routed_envelope::{
+    EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,
+    EnvelopeTarget, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopeObservation,
+    RoutedEnvelopePayload, RoutedEnvelopePublishOutcome, RoutedEnvelopeQueueConfig,
 };
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
