@@ -6,13 +6,19 @@ use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{
-    ClientId, CoreSessionMetadata, ModeFlags, RequestId, ResizePayload, SessionId,
-    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor, EnvelopeDeliveryStatus, EnvelopeId,
+    EnvelopeTarget, ModeFlags, NotificationContent, NotificationDeliveryStatus, NotificationId,
+    NotificationItem, NotificationSeverity, NotificationSource, NotificationTarget,
+    NotificationTimestamp, RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeObservation,
+    RoutedEnvelopePayload, RoutedEnvelopeQueueConfig, SessionId, SessionSpawnRequest,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress,
 };
 use botster_core_daemon::{
-    CoreDaemon, CoreDaemonConfig, GuardedWriteDecision, GuardedWriteDeliveryState,
-    GuardedWriteRequest, ReadinessEvidence, RegistrySessionState, SafeWriteIndicator,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CoreDaemon, CoreDaemonConfig,
+    DrainNotificationsRequest, DrainRoutedEnvelopesRequest, GuardedWriteDecision,
+    GuardedWriteDeliveryState, GuardedWriteRequest, PostNotificationRequest,
+    PublishRoutedEnvelopeRequest, ReadinessEvidence, RegistrySessionState, SafeWriteIndicator,
     SessionAdoptionState, SpawnSessionRequest,
 };
 
@@ -165,6 +171,308 @@ fn guarded_write_states_are_fail_closed_and_write_through_input_path() {
             GuardedWriteDeliveryState::Accepted,
             GuardedWriteDeliveryState::Rejected
         ]
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_posts_drains_and_acknowledges_notifications() {
+    let data_dir = temp_data_dir("daemon-notification-ack");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let id = NotificationId("daemon-notification-1".to_string());
+    let target = notification_session_target("daemon-notification-session");
+
+    let posted = daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("daemon-notification-1", target.clone(), 10),
+        })
+        .expect("daemon should queue notification through CoreDaemon");
+    assert_eq!(posted.id, id);
+    assert_eq!(
+        daemon.notification_status(&id).status,
+        Some(NotificationDeliveryStatus::Queued)
+    );
+
+    let drained = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target,
+            now: NotificationTimestamp(12),
+        })
+        .expect("daemon should drain notification target");
+    assert_eq!(drained.items.len(), 1);
+    assert_eq!(drained.items[0].id, id);
+    assert_eq!(
+        daemon.notification_status(&id).status,
+        Some(NotificationDeliveryStatus::Delivered)
+    );
+
+    let acknowledged = daemon
+        .acknowledge_notification(AcknowledgeNotificationRequest { id: id.clone() })
+        .expect("daemon should acknowledge notification");
+    assert_eq!(
+        acknowledged.status,
+        Some(NotificationDeliveryStatus::Acknowledged)
+    );
+    assert_eq!(
+        daemon.notification_status(&id).status,
+        Some(NotificationDeliveryStatus::Acknowledged)
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_notification_drain_is_target_scoped_and_once_only() {
+    let data_dir = temp_data_dir("daemon-notification-target-scope");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_target = notification_session_target("target-scope-session");
+    let client_target = notification_client_target("target-scope-client");
+
+    daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("session-notification", session_target.clone(), 10),
+        })
+        .expect("session notification should queue");
+    daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("client-notification", client_target.clone(), 10),
+        })
+        .expect("client notification should queue");
+
+    let session_drain = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target: session_target.clone(),
+            now: NotificationTimestamp(12),
+        })
+        .expect("session target should drain");
+    let second_session_drain = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target: session_target,
+            now: NotificationTimestamp(12),
+        })
+        .expect("session target second drain should run");
+    let client_drain = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target: client_target,
+            now: NotificationTimestamp(12),
+        })
+        .expect("client target should drain independently");
+
+    assert_eq!(
+        session_drain
+            .items
+            .iter()
+            .map(|item| item.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["session-notification"]
+    );
+    assert!(
+        second_session_drain.items.is_empty(),
+        "notification drains are one-shot per target"
+    );
+    assert_eq!(
+        client_drain
+            .items
+            .iter()
+            .map(|item| item.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["client-notification"]
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_notification_expiry_matches_core_inbox() {
+    let data_dir = temp_data_dir("daemon-notification-expiry");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let target = notification_session_target("expiry-session");
+    let expired_id = NotificationId("expired-notification".to_string());
+    let live_id = NotificationId("live-notification".to_string());
+
+    daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("expired-notification", target.clone(), 10)
+                .with_expiry(NotificationTimestamp(20)),
+        })
+        .expect("expired fixture should queue");
+    daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("live-notification", target.clone(), 10)
+                .with_expiry(NotificationTimestamp(40)),
+        })
+        .expect("live fixture should queue");
+
+    let drained = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target,
+            now: NotificationTimestamp(30),
+        })
+        .expect("expiry drain should run");
+
+    assert_eq!(
+        drained
+            .items
+            .iter()
+            .map(|item| item.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["live-notification"]
+    );
+    assert_eq!(
+        daemon.notification_status(&expired_id).status,
+        Some(NotificationDeliveryStatus::Expired)
+    );
+    assert_eq!(
+        daemon.notification_status(&live_id).status,
+        Some(NotificationDeliveryStatus::Delivered)
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_routed_envelope_cursor_ack_and_backpressure_are_exposed_when_needed() {
+    let data_dir = temp_data_dir("daemon-routed-envelope");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_routed_envelope_queue(RoutedEnvelopeQueueConfig::new(1)),
+    );
+    let slow = envelope_endpoint("slow");
+    let fast = envelope_endpoint("fast");
+
+    let first = daemon
+        .publish_routed_envelope(PublishRoutedEnvelopeRequest {
+            envelope: envelope("env-1", vec![slow.clone(), fast.clone()]),
+        })
+        .expect("first envelope should publish");
+    assert_eq!(first.deliveries.len(), 2);
+
+    let fast_first = daemon
+        .drain_routed_envelopes(DrainRoutedEnvelopesRequest {
+            target: fast.clone(),
+            after: None,
+            limit: 1,
+        })
+        .expect("fast target should drain first envelope");
+    assert_eq!(fast_first.envelopes[0].id, EnvelopeId("env-1".to_string()));
+    assert_eq!(fast_first.next_cursor, Some(EnvelopeCursor(2)));
+
+    let second = daemon
+        .publish_routed_envelope(PublishRoutedEnvelopeRequest {
+            envelope: envelope("env-2", vec![slow.clone(), fast.clone()]),
+        })
+        .expect("second envelope should publish with slow pressure");
+    assert!(second.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            RoutedEnvelopeObservation::Backpressured {
+                envelope_id,
+                target,
+                capacity: 1,
+                depth: 1
+            } if envelope_id == &EnvelopeId("env-2".to_string()) && target == &slow
+        )
+    }));
+
+    let fast_second = daemon
+        .drain_routed_envelopes(DrainRoutedEnvelopesRequest {
+            target: fast.clone(),
+            after: fast_first.next_cursor,
+            limit: 1,
+        })
+        .expect("cursor drain should deliver second fast envelope");
+    assert_eq!(
+        fast_second
+            .envelopes
+            .iter()
+            .map(|envelope| envelope.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["env-2"]
+    );
+
+    let acknowledged = daemon
+        .acknowledge_routed_envelope(AcknowledgeRoutedEnvelopeRequest {
+            target: fast.clone(),
+            envelope_id: EnvelopeId("env-2".to_string()),
+        })
+        .expect("fast envelope should acknowledge");
+    assert_eq!(
+        acknowledged
+            .state
+            .expect("delivery state should exist")
+            .status,
+        EnvelopeDeliveryStatus::Acknowledged
+    );
+    assert_eq!(
+        daemon
+            .routed_envelope_delivery_state(&slow, &EnvelopeId("env-2".to_string()))
+            .state
+            .expect("slow delivery state should exist")
+            .status,
+        EnvelopeDeliveryStatus::Backpressured
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_notifications_work_for_worker_backed_daemon_without_worker_engine_notification_methods() {
+    let data_dir = temp_data_dir("daemon-worker-notification");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let id = NotificationId("worker-notification".to_string());
+    let target = notification_session_target("worker-notification-session");
+
+    daemon
+        .post_notification(PostNotificationRequest {
+            item: notification("worker-notification", target.clone(), 10),
+        })
+        .expect("worker-backed daemon should queue notification");
+    let drained = daemon
+        .drain_notifications(DrainNotificationsRequest {
+            target,
+            now: NotificationTimestamp(12),
+        })
+        .expect("worker-backed daemon should drain notification");
+    let acknowledged = daemon
+        .acknowledge_notification(AcknowledgeNotificationRequest { id: id.clone() })
+        .expect("worker-backed daemon should acknowledge notification");
+
+    assert_eq!(drained.items.len(), 1);
+    assert_eq!(drained.items[0].id, id);
+    assert_eq!(
+        acknowledged.status,
+        Some(NotificationDeliveryStatus::Acknowledged)
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn daemon_notification_state_is_not_restart_durable_today() {
+    let data_dir = temp_data_dir("daemon-notification-not-durable");
+    let target = notification_session_target("non-durable-session");
+    {
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        daemon
+            .post_notification(PostNotificationRequest {
+                item: notification("non-durable-notification", target.clone(), 10),
+            })
+            .expect("first daemon should queue in-memory notification");
+    }
+
+    let mut restarted = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let drained = restarted
+        .drain_notifications(DrainNotificationsRequest {
+            target,
+            now: NotificationTimestamp(12),
+        })
+        .expect("fresh daemon should have an empty in-memory inbox");
+
+    assert!(
+        drained.items.is_empty(),
+        "daemon notification/envelope state is in-memory and not restart durable today"
     );
 
     let _ = fs::remove_dir_all(data_dir);
@@ -486,6 +794,52 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
         },
         metadata: CoreSessionMetadata::new(),
     }
+}
+
+fn notification_session_target(id: &str) -> NotificationTarget {
+    NotificationTarget::Session(SessionId(id.to_string()))
+}
+
+fn notification_client_target(id: &str) -> NotificationTarget {
+    NotificationTarget::Client(ClientId(id.to_string()))
+}
+
+fn notification(id: &str, target: NotificationTarget, created_at: u64) -> NotificationItem {
+    NotificationItem::message(
+        NotificationId(id.to_string()),
+        target,
+        NotificationSeverity::Info,
+        NotificationSource {
+            label: "daemon-test".to_string(),
+            plugin_key: None,
+        },
+        NotificationContent {
+            title: format!("Notification {id}"),
+            body: Some("Synthetic daemon test notification.".to_string()),
+            extension: None,
+        },
+        NotificationTimestamp(created_at),
+    )
+}
+
+fn envelope_endpoint(id: &str) -> EnvelopeTarget {
+    EnvelopeTarget::Endpoint {
+        endpoint_id: EndpointId(id.to_string()),
+    }
+}
+
+fn envelope(id: &str, targets: Vec<EnvelopeTarget>) -> RoutedEnvelope {
+    RoutedEnvelope::new(
+        EnvelopeId(id.to_string()),
+        EndpointId("daemon-test-source".to_string()),
+        targets,
+        RoutedEnvelopePayload {
+            content_type: "application/octet-stream".to_string(),
+            body: format!("payload:{id}").into_bytes(),
+            extension: None,
+        },
+        10,
+    )
 }
 
 fn adoptable_record(
