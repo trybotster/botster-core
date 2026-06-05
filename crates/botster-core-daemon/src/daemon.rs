@@ -8,15 +8,20 @@ use std::{
 
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSession, DefaultBotsterEngine,
-    DefaultBotsterEngineError, QueueSource, ResizePayload, SessionId, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
+    DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
+    QueueSource, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, SessionId,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
     WorkerProcessRuntimeOptions,
 };
 use thiserror::Error;
 
 use crate::api::{
-    AttachedSession, DaemonHealth, DaemonSession, DaemonStatus, DrainResult, GuardedWriteRequest,
-    GuardedWriteResult, SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
+    DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult,
+    DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
+    GuardedWriteResult, NotificationStatusResult, PostNotificationRequest, PostNotificationResult,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, RoutedEnvelopeDeliveryStateResult,
+    SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -32,6 +37,8 @@ pub struct CoreDaemonConfig {
     pub client_queue_capacity: usize,
     /// Optional worker process executable for worker-backed durable sessions.
     pub worker_path: Option<PathBuf>,
+    /// Bounded per-target routed-envelope queue settings.
+    pub routed_envelope_queue: RoutedEnvelopeQueueConfig,
 }
 
 impl CoreDaemonConfig {
@@ -42,6 +49,7 @@ impl CoreDaemonConfig {
             data_dir: data_dir.into(),
             client_queue_capacity: QueueSource::ClientWorker.default_capacity(),
             worker_path: None,
+            routed_envelope_queue: RoutedEnvelopeQueueConfig::default(),
         }
     }
 
@@ -49,6 +57,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_worker_path(mut self, worker_path: impl Into<PathBuf>) -> Self {
         self.worker_path = Some(worker_path.into());
+        self
+    }
+
+    /// Use explicit per-target routed-envelope queue settings.
+    #[must_use]
+    pub const fn with_routed_envelope_queue(mut self, config: RoutedEnvelopeQueueConfig) -> Self {
+        self.routed_envelope_queue = config;
         self
     }
 }
@@ -75,6 +90,8 @@ pub struct CoreDaemon {
     config: CoreDaemonConfig,
     registry: SessionRegistry,
     engine: DaemonEngine,
+    notification_inbox: NotificationInbox,
+    envelope_router: RoutedEnvelopeRouter,
     running: bool,
 }
 
@@ -97,10 +114,13 @@ impl CoreDaemon {
                 DaemonEngine::Worker(WorkerBackedBotsterEngine::with_options(options))
             })
             .unwrap_or_else(|| DaemonEngine::Local(DefaultBotsterEngine::new()));
+        let envelope_queue = config.routed_envelope_queue.clone();
         Self {
             config,
             registry,
             engine,
+            notification_inbox: NotificationInbox::new(),
+            envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             running: true,
         }
     }
@@ -251,6 +271,92 @@ impl CoreDaemon {
                 })
                 .collect(),
         })
+    }
+
+    /// Queue one policy-free notification inbox item.
+    pub fn post_notification(
+        &mut self,
+        request: PostNotificationRequest,
+    ) -> Result<PostNotificationResult, CoreDaemonError> {
+        self.ensure_running()?;
+        let id = self.notification_inbox.post(request.item);
+        Ok(PostNotificationResult { id })
+    }
+
+    /// Drain deliverable notifications for one target exactly once.
+    pub fn drain_notifications(
+        &mut self,
+        request: DrainNotificationsRequest,
+    ) -> Result<DrainNotificationsResult, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(DrainNotificationsResult {
+            items: self.notification_inbox.drain(&request.target, request.now),
+        })
+    }
+
+    /// Acknowledge one notification inbox item.
+    pub fn acknowledge_notification(
+        &mut self,
+        request: AcknowledgeNotificationRequest,
+    ) -> Result<NotificationStatusResult, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(NotificationStatusResult {
+            status: self.notification_inbox.acknowledge(&request.id),
+        })
+    }
+
+    /// Return notification delivery status without changing daemon state.
+    pub fn notification_status(&self, id: &NotificationId) -> NotificationStatusResult {
+        NotificationStatusResult {
+            status: self.notification_inbox.status(id),
+        }
+    }
+
+    /// Publish one generic routed envelope through the daemon-owned router.
+    pub fn publish_routed_envelope(
+        &mut self,
+        request: PublishRoutedEnvelopeRequest,
+    ) -> Result<PublishRoutedEnvelopeResult, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(self.envelope_router.publish(request.envelope))
+    }
+
+    /// Drain routed envelopes for one target with cursor and limit semantics.
+    pub fn drain_routed_envelopes(
+        &mut self,
+        request: DrainRoutedEnvelopesRequest,
+    ) -> Result<DrainRoutedEnvelopesResult, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(self
+            .envelope_router
+            .drain(&request.target, request.after, request.limit))
+    }
+
+    /// Acknowledge one routed envelope target copy.
+    pub fn acknowledge_routed_envelope(
+        &mut self,
+        request: AcknowledgeRoutedEnvelopeRequest,
+    ) -> Result<RoutedEnvelopeDeliveryStateResult, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(RoutedEnvelopeDeliveryStateResult {
+            state: self
+                .envelope_router
+                .acknowledge(&request.target, &request.envelope_id),
+        })
+    }
+
+    /// Return one routed envelope delivery state without changing daemon state.
+    pub fn routed_envelope_delivery_state(
+        &self,
+        target: &EnvelopeTarget,
+        envelope_id: &EnvelopeId,
+    ) -> RoutedEnvelopeDeliveryStateResult {
+        RoutedEnvelopeDeliveryStateResult {
+            state: self
+                .envelope_router
+                .delivery_state(target, envelope_id)
+                .cloned(),
+        }
     }
 
     /// Subscribe output by attaching a client; embedders drain through [`Self::drain`].
