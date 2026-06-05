@@ -7,6 +7,7 @@ pub mod client_stream;
 pub mod durable_session;
 pub mod entity;
 pub mod notification;
+pub mod routed_envelope;
 pub mod session;
 pub mod session_protocol;
 pub mod terminal_screen;
@@ -58,6 +59,11 @@ pub use notification::{
     NotificationAction, NotificationContent, NotificationDeliveryStatus, NotificationId,
     NotificationInbox, NotificationItem, NotificationKind, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp,
+};
+pub use routed_envelope::{
+    EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,
+    EnvelopeTarget, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopeObservation,
+    RoutedEnvelopePayload, RoutedEnvelopePublishOutcome, RoutedEnvelopeQueueConfig,
 };
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,

@@ -15,6 +15,10 @@ use crate::contract::actor::{
 use crate::contract::notification::{
     NotificationId, NotificationInbox, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
+use crate::contract::routed_envelope::{
+    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, RoutedEnvelope, RoutedEnvelopeDrainOutcome,
+    RoutedEnvelopeObservation, RoutedEnvelopePublishOutcome,
+};
 use crate::contract::transport::{TransportEgress, TransportIngress};
 use crate::engine::plugin_timer::{
     PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler,
@@ -22,6 +26,7 @@ use crate::engine::plugin_timer::{
 use crate::engine::plugin_worker::{
     PluginInvocationOutcome, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
+use crate::engine::routed_envelope::RoutedEnvelopeRouter;
 use crate::engine::session_activity::{apply_session_activity_event, classify_session_activity};
 use crate::engine::session_worker::{
     SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
@@ -80,6 +85,8 @@ pub enum MultiplexerEngineObservation {
     },
     /// A lower-level subscription multiplexer observation was emitted.
     Subscription(SubscriptionMultiplexerObservation),
+    /// A routed envelope observation was emitted.
+    RoutedEnvelope(RoutedEnvelopeObservation),
     /// Runtime-originated bounded-queue pressure was observed.
     Backpressure(BackpressureSummary),
 }
@@ -154,6 +161,7 @@ pub struct MultiplexerEngine<R, W> {
     session_workers: HashMap<SessionId, SessionWorkerEngine<W>>,
     subscriptions: SubscriptionMultiplexer,
     notifications: NotificationInbox,
+    routed_envelopes: RoutedEnvelopeRouter,
     plugins: PluginWorkerEngine,
     timers: PluginTimerScheduler,
 }
@@ -177,6 +185,7 @@ where
             session_workers: HashMap::new(),
             subscriptions: SubscriptionMultiplexer::new(),
             notifications: NotificationInbox::new(),
+            routed_envelopes: RoutedEnvelopeRouter::new(),
             plugins: PluginWorkerEngine::with_config(plugin_config),
             timers: PluginTimerScheduler::new(),
         }
@@ -542,6 +551,52 @@ where
         now: NotificationTimestamp,
     ) -> Vec<NotificationItem> {
         self.notifications.drain(&target, now)
+    }
+
+    /// Subscribe a target to routed envelope fanout for a route.
+    pub fn subscribe_envelopes(
+        &mut self,
+        route: EnvelopeTarget,
+        subscriber: EnvelopeTarget,
+    ) -> MultiplexerEngineObservation {
+        MultiplexerEngineObservation::RoutedEnvelope(
+            self.routed_envelopes.subscribe(route, subscriber),
+        )
+    }
+
+    /// Remove a routed envelope fanout subscription.
+    pub fn unsubscribe_envelopes(
+        &mut self,
+        route: &EnvelopeTarget,
+        subscriber: &EnvelopeTarget,
+    ) -> MultiplexerEngineObservation {
+        MultiplexerEngineObservation::RoutedEnvelope(
+            self.routed_envelopes.unsubscribe(route, subscriber),
+        )
+    }
+
+    /// Publish one generic routed envelope through the assembled core facade.
+    pub fn publish_envelope(&mut self, envelope: RoutedEnvelope) -> RoutedEnvelopePublishOutcome {
+        self.routed_envelopes.publish(envelope)
+    }
+
+    /// Drain routed envelopes for one target through the assembled core facade.
+    pub fn drain_envelopes(
+        &mut self,
+        target: &EnvelopeTarget,
+        after: Option<crate::EnvelopeCursor>,
+        limit: usize,
+    ) -> RoutedEnvelopeDrainOutcome {
+        self.routed_envelopes.drain(target, after, limit)
+    }
+
+    /// Acknowledge one routed envelope for one target.
+    pub fn acknowledge_envelope(
+        &mut self,
+        target: &EnvelopeTarget,
+        envelope_id: &EnvelopeId,
+    ) -> Option<EnvelopeDeliveryState> {
+        self.routed_envelopes.acknowledge(target, envelope_id)
     }
 
     /// Classify one session's activity at the provided clock value.
