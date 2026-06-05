@@ -10,6 +10,7 @@ pub mod managed_session_runtime;
 pub mod multiplexer;
 pub mod plugin_timer;
 pub mod plugin_worker;
+pub mod routed_envelope;
 pub mod session_activity;
 pub mod session_worker;
 pub mod subscription_multiplexer;
@@ -44,6 +45,7 @@ pub use plugin_worker::{
     PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerEngine,
     PluginWorkerEngineConfig, PluginWorkerRegistration,
 };
+pub use routed_envelope::RoutedEnvelopeRouter;
 pub use session_activity::{apply_session_activity_event, classify_session_activity};
 pub use session_worker::{
     SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,

@@ -10,8 +10,9 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 use botster_core::{
-    ClientId, CoreSession, CoreSessionMetadata, LocalProcessRuntime, ManagedSessionRuntime,
-    ManagedSessionRuntimeError, MultiplexerEngineOutcome, ResizePayload, SessionId,
+    ClientId, CoreSession, CoreSessionMetadata, EndpointId, EnvelopeId, EnvelopeTarget,
+    LocalProcessRuntime, ManagedSessionRuntime, ManagedSessionRuntimeError,
+    MultiplexerEngineOutcome, ResizePayload, RoutedEnvelope, RoutedEnvelopePayload, SessionId,
     SessionRuntimeErrorKind, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
     SubscriptionId, TransportEgress, TransportIngress,
 };
@@ -49,6 +50,33 @@ pub fn require_local_pty() -> Result<(), SkipReason> {
             "local PTY conformance tests require a Unix host",
         ))
     }
+}
+
+/// Build a synthetic host-owned coordination envelope over the generic primitive.
+///
+/// The returned envelope intentionally keeps workflow meaning in the payload
+/// body. Core can route it by typed endpoint and topic metadata without knowing
+/// what the host will do with the payload.
+#[must_use]
+pub fn host_coordination_envelope_fixture(
+    id: impl Into<String>,
+    source: impl Into<String>,
+    topic: impl Into<String>,
+    body: impl Into<Vec<u8>>,
+) -> RoutedEnvelope {
+    RoutedEnvelope::new(
+        EnvelopeId(id.into()),
+        EndpointId(source.into()),
+        vec![EnvelopeTarget::Topic {
+            topic: topic.into(),
+        }],
+        RoutedEnvelopePayload {
+            content_type: "application/vnd.botster.host-coordination+json".to_string(),
+            body: body.into(),
+            extension: None,
+        },
+        1,
+    )
 }
 
 /// Error returned by managed local conformance helpers.
