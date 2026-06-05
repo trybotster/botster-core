@@ -62,6 +62,25 @@ the existing PTY input path. Delivered and acknowledged require downstream
 proof; plain PTY input does not currently provide that proof, so the daemon does
 not fabricate those states.
 
+The daemon also exposes policy-free notification inbox and routed-envelope
+mechanics through the typed Rust API. Notification methods queue, drain, query,
+and acknowledge `NotificationItem` values by `NotificationTarget`. Routed
+envelope methods publish, drain with cursor and limit semantics, acknowledge one
+target copy, and report delivery state for `RoutedEnvelope` values. These APIs
+are generic multiplexer coordination primitives; they do not define product
+workflow terms, message semantics, auth policy, retention policy, or UI
+presentation.
+
+`CoreDaemon` owns this notification and routed-envelope state directly instead
+of delegating it to the session engine. That keeps behavior identical for plain
+local daemons and worker-backed daemons: worker-backed PTY sessions may be
+restart-adoptable, but notification inbox and routed-envelope queues are
+in-memory daemon process state. A fresh daemon over the same `data_dir` starts
+with empty notification and envelope queues unless a future persistence layer is
+added. Embedders that use `DefaultBotsterEngine` directly still own that
+engine's separate notification inbox; hub-native coordination should use the
+sanctioned `CoreDaemon` API rather than creating a parallel hub-local inbox.
+
 Readiness evidence is currently a host-supplied composite over core-owned facts
 such as terminal mode flags, cursor visibility, prompt evidence,
 snapshot/screen availability, and safe-write indicators. The daemon validates
