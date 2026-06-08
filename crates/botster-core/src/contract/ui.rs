@@ -16,6 +16,10 @@ pub struct UiNodeId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UiActionId(pub String);
 
+/// Stable UI surface identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UiSurfaceId(pub String);
+
 /// UI action request identity reuses the core request correlation type.
 pub type UiActionRequestId = RequestId;
 
@@ -478,46 +482,119 @@ pub struct UiAction {
     pub disabled: bool,
 }
 
-/// Pending action request identity.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UiActionPending {
-    /// Request correlation id.
-    pub request_id: UiActionRequestId,
-    /// Semantic action id.
-    pub action_id: UiActionId,
-    /// Node that emitted the action.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_id: Option<UiNodeId>,
+/// Semantic UI action request kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiActionKind {
+    /// Submit form values or commit an action.
+    Submit,
+    /// Reset local or owner-managed form state.
+    Reset,
+    /// Ask the owner to validate current values without committing them.
+    Validate,
+    /// Cancel a pending interaction.
+    Cancel,
 }
 
-/// Action result identity and outcome.
+/// Transport-neutral form values keyed by field id.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UiFormValues(pub Map<String, Value>);
+
+/// Transport-neutral action request emitted by a UI client.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiActionRequest {
+    /// Request correlation id.
+    pub request_id: UiActionRequestId,
+    /// Surface that owns or routed the action.
+    pub surface_id: UiSurfaceId,
+    /// Semantic action id.
+    pub action_id: UiActionId,
+    /// Optional node that emitted the action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<UiNodeId>,
+    /// Semantic action request kind.
+    pub kind: UiActionKind,
+    /// Optional form values sent with submit or validate requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<UiFormValues>,
+    /// Optional non-form action metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
+}
+
+/// UI action result state authored by the action owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiActionResultState {
+    /// The owner accepted and applied the action.
+    Accepted,
+    /// The owner rejected the action, commonly with validation details.
+    Rejected,
+    /// The owner deferred completion and will resolve it asynchronously.
+    Deferred,
+    /// The owner failed to process the action.
+    Error,
+}
+
+/// Optional owner-authored UI tree update reference.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UiTreeUpdateRef {
+    /// Reference to a patch that clients may fetch or apply through their transport.
+    Patch {
+        /// Opaque patch reference id.
+        ref_id: String,
+    },
+    /// Reference to a replacement tree that clients may fetch or apply through their transport.
+    Replacement {
+        /// Opaque replacement reference id.
+        ref_id: String,
+    },
+}
+
+/// Field-level validation messages keyed by field id.
+pub type UiFieldErrors = BTreeMap<String, Vec<String>>;
+
+/// Action result identity, outcome, and owner-authored validation details.
+///
+/// Validation results are authoritative only when returned by the action owner,
+/// host, or plugin. Clients may use hints for preflight presentation, but must
+/// not treat normalized values or validation messages as client-side authority.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiActionResult {
     /// Request correlation id.
     pub request_id: UiActionRequestId,
+    /// Surface that owns or routed the action.
+    pub surface_id: UiSurfaceId,
     /// Semantic action id.
     pub action_id: UiActionId,
-    /// Node that emitted the action.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional node that emitted the action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<UiNodeId>,
-    /// Result status.
-    pub status: UiActionStatus,
-    /// Success payload.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Owner-authored action result state.
+    pub state: UiActionResultState,
+    /// Owner-authored field validation errors keyed by field id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub field_errors: UiFieldErrors,
+    /// Owner-authored form-level validation errors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_errors: Vec<String>,
+    /// Owner-authored warnings that do not reject the action.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Owner-authored normalized values returned after validation or submit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalized_values: Option<UiFormValues>,
+    /// Optional reference to an owner-authored UI tree update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_update: Option<UiTreeUpdateRef>,
+    /// Optional successful or deferred action payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload: Option<Value>,
-    /// Failure error.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional owner-authored error detail for rejected or failed actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-}
-
-/// UI action result status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UiActionStatus {
-    /// Action completed successfully.
-    Success,
-    /// Action failed.
-    Failure,
 }
 
 /// UI contract validation error.
