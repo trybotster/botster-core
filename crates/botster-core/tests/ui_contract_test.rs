@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 
 use botster_core::ui::{
-    validate_ui_node, UiActionId, UiActionPending, UiActionResult, UiActionStatus, UiBind,
-    UiBindIf, UiBindList, UiChild, UiCondition, UiConditional, UiHeightClass, UiNode, UiNodeId,
-    UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth,
+    validate_ui_node, UiActionId, UiActionKind, UiActionRequest, UiActionResult,
+    UiActionResultState, UiBind, UiBindIf, UiBindList, UiChild, UiCondition, UiConditional,
+    UiFieldErrors, UiFormValues, UiHeightClass, UiNode, UiNodeId, UiNodeKind, UiPointer,
+    UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSurfaceId, UiTreeUpdateRef,
     UiValidationError, UiWidthClass,
 };
 use botster_core::{RequestId, UiAction};
@@ -393,7 +394,7 @@ fn token_props_are_validated() {
 }
 
 #[test]
-fn action_pending_and_result_identity_is_representable() {
+fn ui_action_descriptor_serializes_semantic_id_and_payload() {
     let action = UiAction {
         id: UiActionId("project-pipelines.advance".to_string()),
         payload: Some(json!({ "ticket_id": "ticket_123" })),
@@ -407,67 +408,243 @@ fn action_pending_and_result_identity_is_representable() {
             "disabled": true
         })
     );
+}
 
-    let pending = UiActionPending {
+#[test]
+fn ui_action_submit_request_round_trips_form_values() {
+    let request = UiActionRequest {
         request_id: RequestId("req_123".to_string()),
-        action_id: UiActionId("project-pipelines.advance".to_string()),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
         node_id: Some(UiNodeId("advance-button".to_string())),
+        action_id: UiActionId("project-pipelines.ticket.submit".to_string()),
+        kind: UiActionKind::Submit,
+        values: Some(UiFormValues(Map::from_iter([
+            ("title".to_string(), json!("Fix checkout flow")),
+            ("notify".to_string(), json!(true)),
+            ("priority".to_string(), json!("high")),
+        ]))),
+        payload: Some(json!({ "ticket_id": "ticket_123" })),
     };
-    let value = serde_json::to_value(&pending).expect("serialize pending");
+    let value = serde_json::to_value(&request).expect("serialize submit request");
     assert_eq!(
         value,
         json!({
             "request_id": "req_123",
-            "action_id": "project-pipelines.advance",
-            "node_id": "advance-button"
+            "surface_id": "project-pipelines.ticket.form",
+            "action_id": "project-pipelines.ticket.submit",
+            "node_id": "advance-button",
+            "kind": "submit",
+            "values": {
+                "title": "Fix checkout flow",
+                "notify": true,
+                "priority": "high"
+            },
+            "payload": { "ticket_id": "ticket_123" }
         })
     );
     assert_eq!(
-        serde_json::from_value::<UiActionPending>(value).expect("deserialize pending"),
-        pending
+        serde_json::from_value::<UiActionRequest>(value).expect("deserialize submit request"),
+        request
+    );
+}
+
+#[test]
+fn ui_action_validate_round_trip_returns_field_and_form_errors() {
+    let request = UiActionRequest {
+        request_id: RequestId("req_123".to_string()),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+        node_id: Some(UiNodeId("ticket-form".to_string())),
+        action_id: UiActionId("project-pipelines.ticket.validate".to_string()),
+        kind: UiActionKind::Validate,
+        values: Some(UiFormValues(Map::from_iter([
+            ("title".to_string(), json!("")),
+            ("priority".to_string(), json!("unknown")),
+        ]))),
+        payload: None,
+    };
+    let request_value = serde_json::to_value(&request).expect("serialize validate request");
+    assert_eq!(
+        serde_json::from_value::<UiActionRequest>(request_value)
+            .expect("deserialize validate request"),
+        request
     );
 
-    let success = UiActionResult {
+    let mut field_errors = UiFieldErrors::new();
+    field_errors.insert("title".to_string(), vec!["Title is required".to_string()]);
+    field_errors.insert(
+        "priority".to_string(),
+        vec!["Priority is not selectable".to_string()],
+    );
+
+    let result = UiActionResult {
         request_id: RequestId("req_123".to_string()),
-        action_id: UiActionId("project-pipelines.advance".to_string()),
-        node_id: Some(UiNodeId("advance-button".to_string())),
-        status: UiActionStatus::Success,
-        payload: Some(json!({ "advanced": true })),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+        node_id: Some(UiNodeId("ticket-form".to_string())),
+        action_id: UiActionId("project-pipelines.ticket.validate".to_string()),
+        state: UiActionResultState::Rejected,
+        field_errors,
+        form_errors: vec!["Fix the highlighted fields".to_string()],
+        warnings: Vec::new(),
+        normalized_values: None,
+        tree_update: None,
+        payload: None,
+        error: None,
+    };
+    let value = serde_json::to_value(&result).expect("serialize validation result");
+    assert_eq!(
+        value,
+        json!({
+            "request_id": "req_123",
+            "surface_id": "project-pipelines.ticket.form",
+            "action_id": "project-pipelines.ticket.validate",
+            "node_id": "ticket-form",
+            "state": "rejected",
+            "field_errors": {
+                "priority": ["Priority is not selectable"],
+                "title": ["Title is required"]
+            },
+            "form_errors": ["Fix the highlighted fields"]
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<UiActionResult>(value).expect("deserialize validation result"),
+        result
+    );
+}
+
+#[test]
+fn ui_action_result_returns_normalized_values_and_warnings() {
+    let result = UiActionResult {
+        request_id: RequestId("req_125".to_string()),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+        node_id: Some(UiNodeId("ticket-form".to_string())),
+        action_id: UiActionId("project-pipelines.ticket.submit".to_string()),
+        state: UiActionResultState::Accepted,
+        field_errors: UiFieldErrors::new(),
+        form_errors: Vec::new(),
+        warnings: vec!["Title was trimmed".to_string()],
+        normalized_values: Some(UiFormValues(Map::from_iter([
+            ("title".to_string(), json!("Fix checkout flow")),
+            ("notify".to_string(), json!(true)),
+        ]))),
+        tree_update: None,
+        payload: Some(json!({ "ticket_id": "ticket_123" })),
         error: None,
     };
     assert_eq!(
-        serde_json::to_value(&success).expect("serialize success"),
+        serde_json::to_value(&result).expect("serialize accepted result"),
         json!({
-            "request_id": "req_123",
-            "action_id": "project-pipelines.advance",
-            "node_id": "advance-button",
-            "status": "success",
-            "payload": { "advanced": true }
+            "request_id": "req_125",
+            "surface_id": "project-pipelines.ticket.form",
+            "action_id": "project-pipelines.ticket.submit",
+            "node_id": "ticket-form",
+            "state": "accepted",
+            "warnings": ["Title was trimmed"],
+            "normalized_values": {
+                "notify": true,
+                "title": "Fix checkout flow"
+            },
+            "payload": { "ticket_id": "ticket_123" }
         })
     );
+}
 
-    let failure = UiActionResult {
+#[test]
+fn ui_action_rejected_result_preserves_request_correlation() {
+    let result = UiActionResult {
         request_id: RequestId("req_124".to_string()),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+        node_id: Some(UiNodeId("advance-button".to_string())),
         action_id: UiActionId("project-pipelines.advance".to_string()),
-        node_id: None,
-        status: UiActionStatus::Failure,
+        state: UiActionResultState::Rejected,
+        field_errors: UiFieldErrors::new(),
+        form_errors: Vec::new(),
+        warnings: Vec::new(),
+        normalized_values: None,
+        tree_update: None,
         payload: None,
         error: Some("gate unmet".to_string()),
     };
-    let value = serde_json::to_value(&failure).expect("serialize failure");
+    let value = serde_json::to_value(&result).expect("serialize rejected result");
+    let round_trip =
+        serde_json::from_value::<UiActionResult>(value).expect("deserialize rejected result");
+    assert_eq!(round_trip.request_id, RequestId("req_124".to_string()));
     assert_eq!(
-        value,
-        json!({
-            "request_id": "req_124",
-            "action_id": "project-pipelines.advance",
-            "status": "failure",
-            "error": "gate unmet"
-        })
+        round_trip.surface_id,
+        UiSurfaceId("project-pipelines.ticket.form".to_string())
     );
     assert_eq!(
-        serde_json::from_value::<UiActionResult>(value).expect("deserialize failure"),
-        failure
+        round_trip.action_id,
+        UiActionId("project-pipelines.advance".to_string())
     );
+    assert_eq!(
+        round_trip.node_id,
+        Some(UiNodeId("advance-button".to_string()))
+    );
+    assert_eq!(round_trip.state, UiActionResultState::Rejected);
+}
+
+#[test]
+fn ui_action_deferred_and_error_states_are_distinct() {
+    let deferred = UiActionResult {
+        request_id: RequestId("req_126".to_string()),
+        surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+        node_id: None,
+        action_id: UiActionId("project-pipelines.advance".to_string()),
+        state: UiActionResultState::Deferred,
+        field_errors: UiFieldErrors::new(),
+        form_errors: Vec::new(),
+        warnings: Vec::new(),
+        normalized_values: None,
+        tree_update: None,
+        payload: Some(json!({ "operation_id": "op_1" })),
+        error: None,
+    };
+    let errored = UiActionResult {
+        request_id: RequestId("req_127".to_string()),
+        state: UiActionResultState::Error,
+        error: Some("handler unavailable".to_string()),
+        ..deferred.clone()
+    };
+
+    let deferred_value = serde_json::to_value(&deferred).expect("serialize deferred");
+    let error_value = serde_json::to_value(&errored).expect("serialize error");
+    assert_eq!(deferred_value["state"], json!("deferred"));
+    assert!(deferred_value.get("error").is_none());
+    assert_eq!(error_value["state"], json!("error"));
+    assert_eq!(error_value["error"], json!("handler unavailable"));
+}
+
+#[test]
+fn ui_action_result_can_reference_ui_tree_patch_or_replacement() {
+    for tree_update in [
+        UiTreeUpdateRef::Patch {
+            ref_id: "patch_123".to_string(),
+        },
+        UiTreeUpdateRef::Replacement {
+            ref_id: "tree_456".to_string(),
+        },
+    ] {
+        let result = UiActionResult {
+            request_id: RequestId("req_128".to_string()),
+            surface_id: UiSurfaceId("project-pipelines.ticket.form".to_string()),
+            node_id: None,
+            action_id: UiActionId("project-pipelines.refresh".to_string()),
+            state: UiActionResultState::Accepted,
+            field_errors: UiFieldErrors::new(),
+            form_errors: Vec::new(),
+            warnings: Vec::new(),
+            normalized_values: None,
+            tree_update: Some(tree_update.clone()),
+            payload: None,
+            error: None,
+        };
+        let value = serde_json::to_value(&result).expect("serialize tree update result");
+        assert_eq!(
+            serde_json::from_value::<UiActionResult>(value).expect("deserialize tree update"),
+            result
+        );
+    }
 }
 
 #[test]
@@ -489,4 +666,24 @@ fn public_api_import_path_matches_runtime_contract() {
 
     validate_ui_node(&via_module).expect("module import should validate");
     assert_eq!(via_module, via_root);
+
+    let via_module_request = botster_core::ui::UiActionRequest {
+        request_id: RequestId("req_public".to_string()),
+        surface_id: botster_core::ui::UiSurfaceId("surface_public".to_string()),
+        node_id: None,
+        action_id: botster_core::ui::UiActionId("botster.public.test".to_string()),
+        kind: botster_core::ui::UiActionKind::Cancel,
+        values: None,
+        payload: None,
+    };
+    let via_root_request = botster_core::UiActionRequest {
+        request_id: RequestId("req_public".to_string()),
+        surface_id: botster_core::UiSurfaceId("surface_public".to_string()),
+        node_id: None,
+        action_id: botster_core::UiActionId("botster.public.test".to_string()),
+        kind: botster_core::UiActionKind::Cancel,
+        values: None,
+        payload: None,
+    };
+    assert_eq!(via_module_request, via_root_request);
 }
