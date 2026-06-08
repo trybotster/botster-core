@@ -1,13 +1,15 @@
 //! UI contract serialization and validation tests.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use botster_core::ui::{
-    validate_ui_node, UiActionId, UiActionKind, UiActionRequest, UiActionResult,
-    UiActionResultState, UiBind, UiBindIf, UiBindList, UiChild, UiCondition, UiConditional,
-    UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema, UiFieldValidationHints, UiFormValues,
-    UiHeightClass, UiNode, UiNodeId, UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue,
-    UiResponsiveWidth, UiSurfaceId, UiTreeUpdateRef, UiValidationError, UiWidthClass,
+    validate_ui_node, validate_ui_node_with_capabilities, UiActionId, UiActionKind,
+    UiActionRequest, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
+    UiCapabilityFallback, UiCapabilitySet, UiChild, UiCondition, UiConditional,
+    UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
+    UiFieldValidationHints, UiFormValues, UiHeightClass, UiKeyboardCapability, UiNode, UiNodeId,
+    UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSurfaceId,
+    UiTreeUpdateRef, UiValidationError, UiWidthClass,
 };
 use botster_core::{RequestId, UiAction};
 use serde_json::{json, Map, Value};
@@ -49,6 +51,47 @@ fn assert_error_contains(node: UiNode, expected: &str) {
         message.contains(expected),
         "expected `{message}` to contain `{expected}`"
     );
+}
+
+fn rich_capabilities() -> UiCapabilitySet {
+    UiCapabilitySet {
+        width_classes: BTreeMap::from([
+            (UiWidthClass::Compact, ()),
+            (UiWidthClass::Regular, ()),
+            (UiWidthClass::Expanded, ()),
+        ])
+        .into_keys()
+        .collect(),
+        height_classes: BTreeMap::from([
+            (UiHeightClass::Short, ()),
+            (UiHeightClass::Regular, ()),
+            (UiHeightClass::Tall, ()),
+        ])
+        .into_keys()
+        .collect(),
+        pointer: UiPointer::Fine,
+        keyboard: UiKeyboardCapability {
+            text_entry: true,
+            shortcuts: true,
+            focus_traversal: true,
+        },
+        hover: true,
+        clipboard: true,
+        context_menu: true,
+        dialog_presentations: BTreeMap::from([
+            (UiDialogPresentation::Inline, ()),
+            (UiDialogPresentation::Overlay, ()),
+            (UiDialogPresentation::Sheet, ()),
+            (UiDialogPresentation::Fullscreen, ()),
+        ])
+        .into_keys()
+        .collect(),
+        table: true,
+        terminal_selection: true,
+        qr_code: true,
+        rich_color: true,
+        fallbacks: BTreeSet::new(),
+    }
 }
 
 #[test]
@@ -889,6 +932,49 @@ fn bind_list_and_bind_if_wire_shapes_round_trip() {
 }
 
 #[test]
+fn bind_list_filters_are_exact_top_level_fields() {
+    let empty_field = UiBindList::BindList {
+        source: "/project-pipelines.ticket".to_string(),
+        r#where: BTreeMap::from([("".to_string(), json!("open"))]),
+        item_template: Box::new(node(
+            UiNodeKind::Text,
+            json!({ "text": { "$bind": "@/title" } }),
+        )),
+        empty_template: None,
+    };
+    let mut parent = node(UiNodeKind::Stack, json!({ "direction": "vertical" }));
+    parent.children.push(UiChild::BindList(empty_field));
+    assert_error_contains(parent, "field cannot be empty");
+
+    for field in ["ticket.status", "ticket/status"] {
+        let bind_list = UiBindList::BindList {
+            source: "/project-pipelines.ticket".to_string(),
+            r#where: BTreeMap::from([(field.to_string(), json!("open"))]),
+            item_template: Box::new(node(
+                UiNodeKind::Text,
+                json!({ "text": { "$bind": "@/title" } }),
+            )),
+            empty_template: None,
+        };
+        let mut parent = node(UiNodeKind::Stack, json!({ "direction": "vertical" }));
+        parent.children.push(UiChild::BindList(bind_list));
+
+        assert_error_contains(parent, "top-level");
+    }
+
+    let bind_list = UiBindList::BindList {
+        source: "@/children".to_string(),
+        r#where: BTreeMap::new(),
+        item_template: Box::new(text_node("Child")),
+        empty_template: None,
+    };
+    let mut parent = node(UiNodeKind::Stack, json!({ "direction": "vertical" }));
+    parent.children.push(UiChild::BindList(bind_list));
+
+    assert_error_contains(parent, "absolute entity family path");
+}
+
+#[test]
 fn responsive_and_conditionals_wire_shapes_round_trip() {
     let responsive = UiResponsiveValue::Responsive {
         width: Some(UiResponsiveWidth {
@@ -982,6 +1068,218 @@ fn responsive_and_conditionals_wire_shapes_round_trip() {
         "viewport": "regular"
     }));
     assert!(unknown_child.is_err());
+}
+
+#[test]
+fn ui_capability_set_serializes_renderer_neutral_wire_shape() {
+    let capabilities = UiCapabilitySet {
+        width_classes: BTreeMap::from([(UiWidthClass::Compact, ()), (UiWidthClass::Regular, ())])
+            .into_keys()
+            .collect(),
+        height_classes: BTreeMap::from([(UiHeightClass::Regular, ())])
+            .into_keys()
+            .collect(),
+        pointer: UiPointer::Coarse,
+        keyboard: UiKeyboardCapability {
+            text_entry: true,
+            shortcuts: false,
+            focus_traversal: true,
+        },
+        hover: false,
+        clipboard: true,
+        context_menu: false,
+        dialog_presentations: BTreeMap::from([(UiDialogPresentation::Inline, ())])
+            .into_keys()
+            .collect(),
+        table: false,
+        terminal_selection: false,
+        qr_code: false,
+        rich_color: false,
+        fallbacks: BTreeMap::from([
+            (UiCapabilityFallback::TableAsList, ()),
+            (UiCapabilityFallback::DialogInline, ()),
+            (UiCapabilityFallback::ConnectionCodeText, ()),
+        ])
+        .into_keys()
+        .collect(),
+    };
+    let value = serde_json::to_value(&capabilities).expect("serialize capabilities");
+
+    assert_eq!(
+        value,
+        json!({
+            "widthClasses": ["compact", "regular"],
+            "heightClasses": ["regular"],
+            "pointer": "coarse",
+            "keyboard": {
+                "textEntry": true,
+                "focusTraversal": true
+            },
+            "clipboard": true,
+            "dialogPresentations": ["inline"],
+            "fallbacks": ["table_as_list", "dialog_inline", "connection_code_text"]
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<UiCapabilitySet>(value).expect("deserialize capabilities"),
+        capabilities
+    );
+}
+
+#[test]
+fn capability_validation_accepts_supported_or_declared_downgrade_nodes() {
+    let mut table = node(UiNodeKind::Table, json!({ "columns": ["title", "status"] }));
+    table.children.push(text("Row"));
+    rich_capabilities()
+        .validate_node(&table)
+        .expect("rich renderer supports table directly");
+
+    let mut downgraded = rich_capabilities();
+    downgraded.table = false;
+    downgraded
+        .fallbacks
+        .insert(UiCapabilityFallback::TableAsList);
+    validate_ui_node_with_capabilities(&table, &downgraded)
+        .expect("declared table downgrade should pass");
+
+    downgraded
+        .fallbacks
+        .remove(&UiCapabilityFallback::TableAsList);
+    let err = validate_ui_node_with_capabilities(&table, &downgraded)
+        .expect_err("missing table fallback should fail");
+    assert!(matches!(
+        err,
+        UiValidationError::Node {
+            source,
+            ..
+        } if matches!(*source, UiValidationError::UnsupportedCapability { capability: "table", .. })
+    ));
+}
+
+#[test]
+fn capability_validation_pins_dialog_terminal_qr_and_color_downgrades() {
+    let mut capabilities = rich_capabilities();
+    capabilities.dialog_presentations.clear();
+    capabilities.terminal_selection = false;
+    capabilities.qr_code = false;
+    capabilities.rich_color = false;
+    capabilities.fallbacks = BTreeMap::from([
+        (UiCapabilityFallback::DialogInline, ()),
+        (UiCapabilityFallback::TerminalSelectionDisabled, ()),
+        (UiCapabilityFallback::ConnectionCodeText, ()),
+        (UiCapabilityFallback::RichColorMuted, ()),
+    ])
+    .into_keys()
+    .collect();
+
+    let mut root = node(UiNodeKind::Stack, json!({ "direction": "vertical" }));
+    let mut dialog = node(
+        UiNodeKind::Dialog,
+        json!({ "title": "Confirm", "presentation": "sheet" }),
+    );
+    dialog.slots.insert("body".to_string(), vec![text("Body")]);
+    root.children.push(UiChild::Node(Box::new(dialog)));
+    root.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::TerminalView,
+        json!({ "session_id": "sess_1" }),
+    ))));
+    root.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::ConnectionCodeView,
+        json!({ "code": "pairing-code" }),
+    ))));
+    root.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::Text,
+        json!({ "text": "Status", "tone": "success" }),
+    ))));
+
+    validate_ui_node_with_capabilities(&root, &capabilities)
+        .expect("declared downgrades should cover unsupported capabilities");
+
+    capabilities
+        .fallbacks
+        .remove(&UiCapabilityFallback::TerminalSelectionDisabled);
+    let err = validate_ui_node_with_capabilities(&root, &capabilities)
+        .expect_err("missing terminal-selection fallback should fail");
+    assert!(err.to_string().contains("terminalSelection"));
+}
+
+#[test]
+fn capability_validation_pins_shortcut_hover_clipboard_and_context_menu_downgrades() {
+    let mut capabilities = rich_capabilities();
+    capabilities.keyboard.shortcuts = false;
+    capabilities.hover = false;
+    capabilities.clipboard = false;
+    capabilities.context_menu = false;
+    capabilities.fallbacks = BTreeMap::from([
+        (UiCapabilityFallback::HoverPersistentHints, ()),
+        (UiCapabilityFallback::ClipboardManual, ()),
+        (UiCapabilityFallback::ContextMenuAsMenu, ()),
+    ])
+    .into_keys()
+    .collect();
+
+    let mut root = node(UiNodeKind::Stack, json!({ "direction": "vertical" }));
+    root.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::Text,
+        json!({
+            "text": "Pairing code",
+            "hover_label": "Visible hint when hover is unavailable",
+            "copy_value": "pair-fixture"
+        }),
+    ))));
+    root.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::Button,
+        json!({
+            "label": "More",
+            "action": { "id": "fixture.more" },
+            "context_menu": [{ "id": "fixture.inspect" }]
+        }),
+    ))));
+
+    validate_ui_node_with_capabilities(&root, &capabilities)
+        .expect("declared hover/clipboard/context-menu fallbacks should pass");
+
+    capabilities
+        .fallbacks
+        .remove(&UiCapabilityFallback::ContextMenuAsMenu);
+    let err = validate_ui_node_with_capabilities(&root, &capabilities)
+        .expect_err("missing context-menu fallback should fail");
+    assert!(err.to_string().contains("contextMenu"));
+
+    let shortcut = node(
+        UiNodeKind::Button,
+        json!({
+            "label": "Run",
+            "action": { "id": "fixture.run" },
+            "shortcut": "mod+enter"
+        }),
+    );
+    let err = validate_ui_node_with_capabilities(&shortcut, &capabilities)
+        .expect_err("missing shortcut capability should fail");
+    assert!(err.to_string().contains("keyboard.shortcuts"));
+
+    capabilities.keyboard.shortcuts = true;
+    validate_ui_node_with_capabilities(&shortcut, &capabilities)
+        .expect("shortcut capability should permit shortcut metadata");
+}
+
+#[test]
+fn capability_validation_keeps_controlled_and_renderer_local_state_expectations() {
+    let mut capabilities = rich_capabilities();
+    capabilities.keyboard.text_entry = false;
+
+    let input = node(
+        UiNodeKind::TextInput,
+        json!({ "name": "title", "label": "Title", "value": "Owner authored" }),
+    );
+
+    let err = validate_ui_node_with_capabilities(&input, &capabilities)
+        .expect_err("missing text-entry capability should fail");
+    assert!(err.to_string().contains("textEntry"));
+
+    capabilities.keyboard.text_entry = true;
+    validate_ui_node_with_capabilities(&input, &capabilities)
+        .expect("text entry capability should permit controlled text input");
 }
 
 #[test]
@@ -1338,4 +1636,50 @@ fn public_api_import_path_exposes_v1_form_schema_types() {
     };
 
     botster_core::ui::validate_ui_node(&field).expect("module import should validate form field");
+}
+
+#[test]
+fn public_api_import_path_exposes_ui_capability_types() {
+    let via_module = botster_core::ui::UiCapabilitySet {
+        width_classes: BTreeMap::from([(botster_core::ui::UiWidthClass::Regular, ())])
+            .into_keys()
+            .collect(),
+        height_classes: BTreeMap::from([(botster_core::ui::UiHeightClass::Regular, ())])
+            .into_keys()
+            .collect(),
+        pointer: botster_core::ui::UiPointer::Fine,
+        keyboard: botster_core::ui::UiKeyboardCapability {
+            text_entry: true,
+            shortcuts: true,
+            focus_traversal: true,
+        },
+        hover: true,
+        clipboard: true,
+        context_menu: true,
+        dialog_presentations: BTreeMap::from([(
+            botster_core::ui::UiDialogPresentation::Overlay,
+            (),
+        )])
+        .into_keys()
+        .collect(),
+        table: true,
+        terminal_selection: true,
+        qr_code: true,
+        rich_color: true,
+        fallbacks: BTreeSet::new(),
+    };
+    let via_root = botster_core::UiCapabilitySet {
+        pointer: botster_core::UiPointer::Fine,
+        keyboard: botster_core::UiKeyboardCapability {
+            text_entry: true,
+            shortcuts: true,
+            focus_traversal: true,
+        },
+        dialog_presentations: BTreeMap::from([(botster_core::UiDialogPresentation::Overlay, ())])
+            .into_keys()
+            .collect(),
+        ..via_module.clone()
+    };
+
+    assert_eq!(via_module, via_root);
 }
