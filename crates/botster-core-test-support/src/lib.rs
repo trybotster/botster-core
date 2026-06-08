@@ -9,3 +9,4 @@ pub mod assertions;
 pub mod conformance;
 pub mod fake;
 pub mod fixtures;
+pub mod ui_conformance;

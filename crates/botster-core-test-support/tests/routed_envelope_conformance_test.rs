@@ -1,8 +1,11 @@
 //! Routed envelope conformance helper tests.
 
+#[cfg(feature = "local-runtime")]
 use botster_core::{EnvelopeId, EnvelopeTarget};
+#[cfg(feature = "local-runtime")]
 use botster_core_test_support::conformance::host_coordination_envelope_fixture;
 
+#[cfg(feature = "local-runtime")]
 #[test]
 fn hub_facing_conformance_helper_builds_semantic_tool_payload_above_core() {
     let envelope = host_coordination_envelope_fixture(
