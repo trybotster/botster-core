@@ -24,13 +24,14 @@ Implement the `botster-core` UiNode v1 contract slice for semantic primitives, f
 
 In scope:
 
-- Define the public v1 primitive inventory in `UiNodeKind` and tests:
+- Confirm and lock the as-built v1 primitive inventory in `UiNodeKind`, adding only the two missing form-structure variants (`form_section`, `form_field`) and tests:
   - Layout: `stack`, `inline`, `panel`, `scroll_area`.
   - Content: `text`, `icon`, `badge`, `status_dot`, `empty_state`.
   - Collections: `list`, `list_item`, `tree`, `tree_item`, `table`.
   - Actions: `button`, `icon_button`, `menu`, `menu_item`, `dialog`.
-  - Forms/inputs: `form`, `form_section`, `form_field`, `text_input`, `textarea`, `checkbox`, `select`, `select_option`.
+  - Forms/inputs: existing `form`, `text_input`, `textarea`, `checkbox`, `select`, `select_option`, plus new `form_section`, `form_field`.
   - Botster-specialized placeholders already in core: `terminal_view`, `connection_code_view`.
+- Do not add `overlay`; it appears in older/full inventory notes but is not in the current `botster-core` enum or required by this ticket.
 - Add first-class `FormSection` and `FormField` semantics without introducing renderer-specific layout, CSS, Ionic, ratatui, Restty, or host policy.
 - Add typed field schema contracts for the narrow v1 field kinds: text input, textarea, checkbox, and select.
 - Add validation-hint metadata for fields. These are hints for renderers and plugin authors, not core-side business-rule enforcement.
@@ -39,7 +40,7 @@ In scope:
 - Require stable node ids where the runtime needs identity: action-emitting nodes, controlled fields, renderer-local/uncontrolled fields with defaults, `form`, `form_section`, and `form_field`.
 - Keep unknown primitive and unknown prop behavior fail-closed in `botster-core`: serde rejects unknown `type` values and `validate_ui_node` rejects unknown props.
 - Add tests that compare the intended v1 contract against the cross-client UI learnings listed above, without importing or copying old trybotster implementation code.
-- Update public exports from `contract/mod.rs` and `lib.rs` for new public schema/state types.
+- Update public exports from `contract/mod.rs` and `lib.rs` for new public field schema types.
 - Add concise rustdoc or README documentation only where needed to make the public contract discoverable.
 
 Non-scope:
@@ -61,12 +62,34 @@ Keep `UiNode` as the structural contract and add typed helpers for the pieces th
   - `UiFieldSchema`: field kind, name, label, optional description/help, optional placeholder, required flag, optional default value, optional validation hints, and select options.
   - `UiFieldOption`: string or JSON value plus label and optional disabled state.
   - `UiFieldValidationHints`: optional min/max length, pattern hint, min/max numeric hint, or one-of/options consistency where relevant.
-  - `UiFieldState` or equivalent node-level state representation for disabled/loading/error if a typed struct keeps validation cleaner than three independent raw props.
 - Prefer serde-compatible structs for schema validation, but keep field values as `serde_json::Value` where type flexibility is part of the renderer-neutral contract.
-- `Form` should remain a semantic container with a semantic `action`; it may accept semantic state props such as `disabled`, `loading`, and `error`.
-- `FormSection` should group related fields and use explicit semantic slots or children. Accept `title`, optional `description`, and state props only if needed.
-- `FormField` should carry the field schema and state. It should use a named slot for a custom control only if the implementation needs to preserve existing input primitives as explicit children; otherwise it can be schema-driven. Prefer the smallest model that still lets renderers map one field to one v1 control.
-- Existing input nodes (`text_input`, `textarea`, `checkbox`, `select`, `select_option`) should remain valid primitives and align with `UiFieldSchema` rather than drift into a second field vocabulary.
+- `Form` remains a semantic container with a semantic `action`; allow flat semantic state props `disabled`, `loading`, and `error`.
+- `FormSection` groups related fields. Allow `title`, optional `description`, and flat semantic state props `disabled`, `loading`, and `error`.
+- `FormField` is schema-driven by default: it carries a `schema` prop whose JSON value deserializes to `UiFieldSchema` during `validate_node`, mirroring the existing typed-prop validation path used for `$kind: responsive` values.
+- `FormField` should not require or introduce a `control` slot in v1. Add one only if implementation proves schema-driven fields cannot express a required ticket case; that would require updating this plan/review, not a silent implementation choice.
+- Existing input nodes (`text_input`, `textarea`, `checkbox`, `select`, `select_option`) remain flat-prop primitives. Keep them field-for-field consistent with `UiFieldSchema` instead of adding a second vocabulary.
+- Do not introduce `UiFieldState` in this slice. Follow the established `props` + `schema_for` table pattern: `disabled`, `loading`, and `error` are individual allowed props validated like other semantic props.
+
+## Concrete Schema Table Edits
+
+Implementation should make these explicit `schema_for` changes:
+
+- `Form`: allowed props `action`, `disabled`, `loading`, `error`; no required props beyond existing behavior unless tests prove form submission cannot be represented without `action`.
+- `FormSection`: allowed props `title`, `description`, `disabled`, `loading`, `error`; required prop `title`.
+- `FormField`: allowed props `schema`, `value`, `checked`, `selected`, `default`, `disabled`, `loading`, `error`; required prop `schema`.
+- `TextInput`: allowed props `name`, `label`, `description`, `value`, `default`, `placeholder`, `required`, `disabled`, `loading`, `error`, `validation`; required props `name`, `label`.
+- `Textarea`: allowed props `name`, `label`, `description`, `value`, `default`, `placeholder`, `required`, `disabled`, `loading`, `error`, `validation`; required props `name`, `label`.
+- `Checkbox`: allowed props `name`, `label`, `description`, `checked`, `default`, `required`, `disabled`, `loading`, `error`, `validation`; required props `name`, `label`.
+- `Select`: allowed props `name`, `label`, `description`, `value`, `selected`, `default`, `required`, `disabled`, `loading`, `error`, `validation`; required props `name`, `label`; existing `options` slot remains required.
+- `SelectOption`: keep allowed props `value`, `label`, `disabled`; required props `value`, `label`.
+
+Validation rules tied to those props:
+
+- `FormField.props["schema"]` must deserialize to `UiFieldSchema`; validation should reject malformed schema JSON with `UiValidationError::InvalidProp`.
+- `validation` props on existing input primitives must deserialize to `UiFieldValidationHints`; they are metadata only and must not execute regexes or enforce business constraints.
+- `default` is only for renderer-local initialization and must not appear with controlling state props on the same node: reject `default` plus `value`, `default` plus `checked`, or `default` plus `selected`.
+- `error` is a semantic display value, preferably string or structured JSON with a renderer-neutral message field; tests should pin the chosen wire shape.
+- `disabled` and `loading` are booleans.
 
 ## State Ownership Rules
 
@@ -74,8 +97,9 @@ Implementation should make these rules testable:
 
 - Controlled text-like and select fields: `value` present means plugin-owned state.
 - Controlled checkbox fields: `checked` present means plugin-owned state.
+- `selected` remains accepted as a controlled selection alias for compatibility with current collection/select vocabulary, but implementation should choose one canonical field for new form examples.
 - Renderer-local state: `value`/`checked`/`selected` absent, stable node id present, optional default value present.
-- Defaults initialize renderer-local state only; defaults must not be treated as authoritative updates after initial render.
+- Defaults initialize renderer-local state only; defaults must not be treated as authoritative updates after initial render and must not coexist with controlling state props.
 - A field with renderer-local state but no stable id should fail validation because renderers cannot preserve local state across tree refreshes.
 - Action pending/result correlation continues to use `UiActionPending.node_id` and `UiActionResult.node_id`; action-emitting nodes therefore need stable ids.
 
@@ -83,7 +107,7 @@ Implementation should make these rules testable:
 
 Expected:
 
-- `crates/botster-core/src/contract/ui.rs`: primitive enum additions, field schema/state types, schema table updates, recursive validation updates, stable-id checks, and rustdoc.
+- `crates/botster-core/src/contract/ui.rs`: primitive enum additions, field schema types, schema table updates, recursive validation updates, stable-id checks, and rustdoc.
 - `crates/botster-core/src/contract/mod.rs`: re-export new UI contract types.
 - `crates/botster-core/src/lib.rs`: root re-export new UI contract types.
 - `crates/botster-core/tests/ui_contract_test.rs`: acceptance tests for primitive inventory, forms, field schemas, state ownership, states, defaults, and unknown primitive/prop behavior.
@@ -111,6 +135,8 @@ Worktree/target assumptions:
 Assumptions:
 
 - The current `UiNode` raw `props` map is intentional for renderer-neutral wire compatibility; typed structs should validate field schemas rather than replace the node tree with a large typed AST.
+- `UiFieldSchema` lives inside the node tree as `FormField.props["schema"]`; it is not a standalone side channel and not a replacement for `UiNode`.
+- Existing input primitives remain prop-map based and gain concrete allowed props listed above.
 - Adding `form_section` and `form_field` is additive within the v1 contract and does not require a v2 bump.
 - Unknown primitive rejection is the correct core behavior. Renderer-safe fallback can be a downstream adapter concern after validation failure, not a permissive core parser.
 - Disabled/loading/error are semantic state, not renderer style. They may be accepted on form, field, and action nodes if validation keeps the meaning narrow.
@@ -119,10 +145,9 @@ Assumptions:
 
 Unknowns for implementation:
 
-- Whether `FormField` should be schema-driven only or require/allow a `control` slot containing one of the narrow v1 input primitives. Prefer schema-driven unless tests reveal a clearer cross-client contract with slots.
-- Whether default values belong only in `UiFieldSchema` or also as node props on individual input primitives for backward compatibility with existing `text_input`, `textarea`, `checkbox`, and `select`.
 - Whether validation hints should be one struct with optional fields or an enum list. Prefer the shape that produces the clearest JSON and least overfitting.
 - Whether stable id should become globally required for all `UiNode`s. Current contract allows id-less static nodes, so prefer requiring ids only where state or action correlation needs them.
+- Whether `error` should be a string or small structured object. Pin the chosen wire shape with tests and keep it renderer-neutral.
 
 No human question is blocking this plan. The plausible ambiguity around unknown primitives is resolved by choosing the existing core posture: fail-closed validation and serde rejection.
 
