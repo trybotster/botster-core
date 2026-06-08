@@ -36,6 +36,10 @@ use botster_core_test_support::conformance::{
 use botster_core_test_support::fake::{
     FakeCapabilityRuntime, FakePluginStoreBackend, FakeSessionTransport, FakeTerminalScreenRuntime,
 };
+use botster_core_test_support::ui_conformance::{
+    assert_ui_renderer_conformance_fixture, assert_ui_renderer_conformance_fixtures,
+    ui_renderer_conformance_fixtures,
+};
 
 fn session_id() -> SessionId {
     SessionId("session-consumer".to_string())
@@ -210,6 +214,35 @@ fn downstream_consumer_can_assert_initial_snapshot_before_live_output_contract()
         &events[1],
         SessionIoEvent::TerminalBytes { data, .. } if data == b"live-before-snapshot\xff"
     ));
+}
+
+#[test]
+fn downstream_consumer_can_import_ui_renderer_conformance_helpers() {
+    assert_ui_renderer_conformance_fixtures();
+
+    let fixtures = ui_renderer_conformance_fixtures();
+    assert!(
+        fixtures.iter().any(|fixture| fixture.name == "bindings"),
+        "fixture set should include binding grammar coverage"
+    );
+    assert!(
+        fixtures
+            .iter()
+            .any(|fixture| fixture.name == "responsive_fallbacks"),
+        "fixture set should include capability downgrade coverage"
+    );
+}
+
+#[test]
+fn downstream_consumer_can_run_one_ui_renderer_fixture() {
+    let fixture = ui_renderer_conformance_fixtures()
+        .into_iter()
+        .find(|fixture| fixture.name == "action_metadata")
+        .expect("action metadata fixture should exist");
+
+    assert_ui_renderer_conformance_fixture(&fixture);
+    assert_eq!(fixture.action_requests.len(), 1);
+    assert_eq!(fixture.action_results.len(), 1);
 }
 
 #[test]

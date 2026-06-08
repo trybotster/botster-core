@@ -151,6 +151,116 @@ pub struct UiViewport {
     pub keyboard_occluded: Option<bool>,
 }
 
+/// Renderer-supported keyboard behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiKeyboardCapability {
+    /// Renderer can accept ordinary text entry.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub text_entry: bool,
+    /// Renderer can expose keyboard shortcuts for semantic actions.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shortcuts: bool,
+    /// Renderer can move focus through interactive primitives.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub focus_traversal: bool,
+}
+
+/// Supported dialog presentation modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiDialogPresentation {
+    /// Renderer chooses the best available presentation.
+    Auto,
+    /// Present inline in normal layout flow.
+    Inline,
+    /// Present as an overlay.
+    Overlay,
+    /// Present as a sheet.
+    Sheet,
+    /// Present as a fullscreen panel.
+    Fullscreen,
+}
+
+/// Renderer-declared fallback when a primitive capability is unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiCapabilityFallback {
+    /// Render table content as a list-like structure.
+    TableAsList,
+    /// Present dialogs inline when richer presentation is unavailable.
+    DialogInline,
+    /// Render terminal views without selection affordances.
+    TerminalSelectionDisabled,
+    /// Render connection codes as text when QR rendering is unavailable.
+    ConnectionCodeText,
+    /// Collapse rich color into semantic monochrome or muted styling.
+    RichColorMuted,
+    /// Expose context-menu actions through ordinary menu/action controls.
+    ContextMenuAsMenu,
+    /// Expose clipboard actions through manual copy/paste affordances.
+    ClipboardManual,
+    /// Render hover-only metadata persistently or behind explicit actions.
+    HoverPersistentHints,
+}
+
+/// Renderer-neutral UI capability declaration.
+///
+/// This describes what a client renderer can support. Core validates contract
+/// shape and declared downgrade handling; it does not choose visual fallbacks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiCapabilitySet {
+    /// Supported semantic width classes.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub width_classes: BTreeSet<UiWidthClass>,
+    /// Supported semantic height classes.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub height_classes: BTreeSet<UiHeightClass>,
+    /// Supported pointer precision.
+    pub pointer: UiPointer,
+    /// Keyboard behavior the renderer can provide.
+    pub keyboard: UiKeyboardCapability,
+    /// Renderer can expose hover-only affordances.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hover: bool,
+    /// Renderer can perform clipboard actions.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub clipboard: bool,
+    /// Renderer can expose contextual action menus.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub context_menu: bool,
+    /// Supported dialog presentation modes.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dialog_presentations: BTreeSet<UiDialogPresentation>,
+    /// Renderer can present table structure directly.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub table: bool,
+    /// Renderer can support terminal text selection.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub terminal_selection: bool,
+    /// Renderer can display QR or connection-code graphics.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub qr_code: bool,
+    /// Renderer can apply semantic color tokens beyond monochrome defaults.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rich_color: bool,
+    /// Declared deterministic fallback behavior for unsupported capabilities.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub fallbacks: BTreeSet<UiCapabilityFallback>,
+}
+
+impl UiCapabilitySet {
+    /// Validate that a node can be rendered or downgraded by this capability set.
+    pub fn validate_node(&self, node: &UiNode) -> Result<(), UiValidationError> {
+        validate_ui_node_with_capabilities(node, self)
+    }
+
+    fn supports_fallback(&self, fallback: UiCapabilityFallback) -> bool {
+        self.fallbacks.contains(&fallback)
+    }
+}
+
 /// Semantic spacing token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -385,6 +495,20 @@ pub fn validate_ui_node(node: &UiNode) -> Result<(), UiValidationError> {
         kind: node.kind,
         source: Box::new(error),
     })
+}
+
+/// Validate one semantic UI node against renderer capabilities.
+pub fn validate_ui_node_with_capabilities(
+    node: &UiNode,
+    capabilities: &UiCapabilitySet,
+) -> Result<(), UiValidationError> {
+    validate_node(node)
+        .and_then(|()| validate_node_capabilities(node, capabilities))
+        .map_err(|error| UiValidationError::Node {
+            id: node.id.clone(),
+            kind: node.kind,
+            source: Box::new(error),
+        })
 }
 
 /// Narrow v1 field kinds shared by form fields and input primitives.
@@ -676,6 +800,16 @@ pub enum UiValidationError {
         /// Validation reason.
         reason: String,
     },
+    /// Renderer capability is unsupported and no fallback was declared.
+    #[error("{kind:?} requires unsupported renderer capability `{capability}`: {reason}")]
+    UnsupportedCapability {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Capability name.
+        capability: &'static str,
+        /// Validation reason.
+        reason: String,
+    },
     /// Recursive node context.
     #[error("invalid node {id:?} ({kind:?}): {source}")]
     Node {
@@ -763,11 +897,18 @@ fn validate_bind_list(bind_list: &UiBindList) -> Result<(), UiValidationError> {
     match bind_list {
         UiBindList::BindList {
             source,
+            r#where,
             item_template,
             empty_template,
-            ..
         } => {
             validate_bind_path(source)?;
+            if !source.starts_with('/') {
+                return Err(UiValidationError::InvalidBindPath {
+                    path: source.clone(),
+                    reason: "bind_list source must be an absolute entity family path".to_string(),
+                });
+            }
+            validate_bind_list_where(r#where)?;
             item_template.validate()?;
             if let Some(template) = empty_template {
                 template.validate()?;
@@ -867,6 +1008,15 @@ fn validate_prop_value(
             }
         }
         (_, "error") => validate_error_prop(kind, prop, value)?,
+        (UiNodeKind::Dialog, "presentation") => {
+            deserialize_prop::<UiDialogPresentation>(kind, prop, value)?;
+        }
+        (_, "shortcut" | "hover_label" | "copy_value") => {
+            validate_string_or_bind_prop(kind, prop, value)?;
+        }
+        (_, "context_menu") => {
+            deserialize_prop::<Vec<UiAction>>(kind, prop, value)?;
+        }
         _ => {}
     }
 
@@ -945,6 +1095,22 @@ fn validate_error_prop(
         kind,
         prop: prop.to_string(),
         reason: "error must be a string or object with a string message".to_string(),
+    })
+}
+
+fn validate_string_or_bind_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    if value.is_string() || value.get("$bind").is_some() {
+        return Ok(());
+    }
+
+    Err(UiValidationError::InvalidProp {
+        kind,
+        prop: prop.to_string(),
+        reason: "value must be a string or bind".to_string(),
     })
 }
 
@@ -1128,6 +1294,199 @@ fn validate_bind_path(path: &str) -> Result<(), UiValidationError> {
     })
 }
 
+fn validate_bind_list_where(r#where: &BTreeMap<String, Value>) -> Result<(), UiValidationError> {
+    for key in r#where.keys() {
+        if key.trim().is_empty() {
+            return Err(UiValidationError::InvalidBindPath {
+                path: key.clone(),
+                reason: "bind_list where field cannot be empty".to_string(),
+            });
+        }
+        if key.contains('/') || key.contains('.') {
+            return Err(UiValidationError::InvalidBindPath {
+                path: key.clone(),
+                reason: "bind_list where filters exact top-level fields only".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_node_capabilities(
+    node: &UiNode,
+    capabilities: &UiCapabilitySet,
+) -> Result<(), UiValidationError> {
+    validate_node_capability_requirements(node, capabilities)?;
+
+    for child in &node.children {
+        validate_child_capabilities(child, capabilities)?;
+    }
+    for children in node.slots.values() {
+        for child in children {
+            validate_child_capabilities(child, capabilities)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_child_capabilities(
+    child: &UiChild,
+    capabilities: &UiCapabilitySet,
+) -> Result<(), UiValidationError> {
+    match child {
+        UiChild::Conditional(UiConditional::When { node, .. })
+        | UiChild::Conditional(UiConditional::Hidden { node, .. })
+        | UiChild::Node(node)
+        | UiChild::BindIf(UiBindIf::BindIf { node, .. }) => {
+            validate_node_capabilities(node, capabilities)
+        }
+        UiChild::BindList(UiBindList::BindList {
+            item_template,
+            empty_template,
+            ..
+        }) => {
+            validate_node_capabilities(item_template, capabilities)?;
+            if let Some(template) = empty_template {
+                validate_node_capabilities(template, capabilities)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_node_capability_requirements(
+    node: &UiNode,
+    capabilities: &UiCapabilitySet,
+) -> Result<(), UiValidationError> {
+    if matches!(node.kind, UiNodeKind::TextInput | UiNodeKind::Textarea)
+        && !capabilities.keyboard.text_entry
+    {
+        return unsupported(node.kind, "keyboard.textEntry", "text entry is required");
+    }
+
+    if matches!(
+        node.kind,
+        UiNodeKind::Button | UiNodeKind::IconButton | UiNodeKind::MenuItem
+    ) && !capabilities.keyboard.focus_traversal
+    {
+        return unsupported(
+            node.kind,
+            "keyboard.focusTraversal",
+            "interactive action nodes require focus traversal",
+        );
+    }
+
+    if node.props.contains_key("shortcut") && !capabilities.keyboard.shortcuts {
+        return unsupported(
+            node.kind,
+            "keyboard.shortcuts",
+            "keyboard shortcut capability is required",
+        );
+    }
+
+    if node.props.contains_key("hover_label")
+        && !capabilities.hover
+        && !capabilities.supports_fallback(UiCapabilityFallback::HoverPersistentHints)
+    {
+        return unsupported(node.kind, "hover", "hover fallback was not declared");
+    }
+
+    if node.props.contains_key("copy_value")
+        && !capabilities.clipboard
+        && !capabilities.supports_fallback(UiCapabilityFallback::ClipboardManual)
+    {
+        return unsupported(
+            node.kind,
+            "clipboard",
+            "clipboard fallback was not declared",
+        );
+    }
+
+    if node.props.contains_key("context_menu")
+        && !capabilities.context_menu
+        && !capabilities.supports_fallback(UiCapabilityFallback::ContextMenuAsMenu)
+    {
+        return unsupported(
+            node.kind,
+            "contextMenu",
+            "context-menu fallback was not declared",
+        );
+    }
+
+    if node.kind == UiNodeKind::Table
+        && !capabilities.table
+        && !capabilities.supports_fallback(UiCapabilityFallback::TableAsList)
+    {
+        return unsupported(node.kind, "table", "table fallback was not declared");
+    }
+
+    if node.kind == UiNodeKind::TerminalView
+        && !capabilities.terminal_selection
+        && !capabilities.supports_fallback(UiCapabilityFallback::TerminalSelectionDisabled)
+    {
+        return unsupported(
+            node.kind,
+            "terminalSelection",
+            "terminal selection fallback was not declared",
+        );
+    }
+
+    if node.kind == UiNodeKind::ConnectionCodeView
+        && !capabilities.qr_code
+        && !capabilities.supports_fallback(UiCapabilityFallback::ConnectionCodeText)
+    {
+        return unsupported(
+            node.kind,
+            "qrCode",
+            "connection-code text fallback was not declared",
+        );
+    }
+
+    if node.props.contains_key("tone")
+        && !capabilities.rich_color
+        && !capabilities.supports_fallback(UiCapabilityFallback::RichColorMuted)
+    {
+        return unsupported(
+            node.kind,
+            "richColor",
+            "semantic color fallback was not declared",
+        );
+    }
+
+    if node.kind == UiNodeKind::Dialog {
+        let Some(presentation) = node.props.get("presentation") else {
+            return Ok(());
+        };
+        let presentation =
+            deserialize_prop::<UiDialogPresentation>(node.kind, "presentation", presentation)?;
+        if presentation != UiDialogPresentation::Auto
+            && !capabilities.dialog_presentations.contains(&presentation)
+            && !capabilities.supports_fallback(UiCapabilityFallback::DialogInline)
+        {
+            return unsupported(
+                node.kind,
+                "dialogPresentations",
+                "dialog presentation fallback was not declared",
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn unsupported<T>(
+    kind: UiNodeKind,
+    capability: &'static str,
+    reason: &str,
+) -> Result<T, UiValidationError> {
+    Err(UiValidationError::UnsupportedCapability {
+        kind,
+        capability,
+        reason: reason.to_string(),
+    })
+}
+
 fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
     match kind {
         UiNodeKind::Stack => schema(
@@ -1154,10 +1513,20 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
         ),
         UiNodeKind::Panel => schema(&["title", "tone"], &[], &[], &[]),
         UiNodeKind::ScrollArea => schema(&["height"], &[], &[], &[]),
-        UiNodeKind::Text => schema(&["text", "tone", "variant"], &["text"], &[], &[]),
-        UiNodeKind::Icon => schema(&["icon", "label", "tone"], &["icon"], &[], &[]),
-        UiNodeKind::Badge => schema(&["label", "tone"], &["label"], &[], &[]),
-        UiNodeKind::StatusDot => schema(&["label", "tone"], &["label"], &[], &[]),
+        UiNodeKind::Text => schema(
+            &["text", "tone", "variant", "hover_label", "copy_value"],
+            &["text"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Icon => schema(
+            &["icon", "label", "tone", "hover_label"],
+            &["icon"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Badge => schema(&["label", "tone", "hover_label"], &["label"], &[], &[]),
+        UiNodeKind::StatusDot => schema(&["label", "tone", "hover_label"], &["label"], &[], &[]),
         UiNodeKind::EmptyState => schema(
             &["title", "description", "icon", "action"],
             &["title"],
@@ -1166,28 +1535,68 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
         ),
         UiNodeKind::List => schema(&["aria_label"], &[], &[], &[]),
         UiNodeKind::ListItem => schema(
-            &["value", "selected"],
+            &["value", "selected", "hover_label", "context_menu"],
             &[],
             &["title", "subtitle", "meta", "actions"],
             &["title"],
         ),
         UiNodeKind::Tree => schema(&["aria_label"], &[], &[], &[]),
         UiNodeKind::TreeItem => schema(
-            &["value", "expanded", "selected"],
+            &[
+                "value",
+                "expanded",
+                "selected",
+                "hover_label",
+                "context_menu",
+            ],
             &[],
             &["title", "children", "actions"],
             &["title"],
         ),
         UiNodeKind::Table => schema(&["columns"], &["columns"], &[], &[]),
-        UiNodeKind::Button => schema(&["label", "action", "tone", "variant"], &[], &[], &[]),
+        UiNodeKind::Button => schema(
+            &[
+                "label",
+                "action",
+                "tone",
+                "variant",
+                "shortcut",
+                "hover_label",
+                "context_menu",
+            ],
+            &[],
+            &[],
+            &[],
+        ),
         UiNodeKind::IconButton => schema(
-            &["label", "icon", "action", "tone", "variant"],
+            &[
+                "label",
+                "icon",
+                "action",
+                "tone",
+                "variant",
+                "shortcut",
+                "hover_label",
+                "context_menu",
+            ],
             &["icon"],
             &[],
             &[],
         ),
         UiNodeKind::Menu => schema(&["label"], &[], &["items"], &["items"]),
-        UiNodeKind::MenuItem => schema(&["label", "action", "icon"], &[], &[], &[]),
+        UiNodeKind::MenuItem => schema(
+            &[
+                "label",
+                "action",
+                "icon",
+                "shortcut",
+                "hover_label",
+                "context_menu",
+            ],
+            &[],
+            &[],
+            &[],
+        ),
         UiNodeKind::Dialog => schema(
             &["title", "presentation"],
             &["title"],
@@ -1272,7 +1681,9 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &[],
         ),
         UiNodeKind::TerminalView => schema(&["session_id", "title"], &["session_id"], &[], &[]),
-        UiNodeKind::ConnectionCodeView => schema(&["code", "label"], &["code"], &[], &[]),
+        UiNodeKind::ConnectionCodeView => {
+            schema(&["code", "label", "copy_value"], &["code"], &[], &[])
+        }
     }
 }
 
