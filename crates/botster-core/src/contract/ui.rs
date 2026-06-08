@@ -33,6 +33,10 @@ pub enum UiNodeKind {
     Inline,
     /// Form container.
     Form,
+    /// Form section grouping.
+    FormSection,
+    /// Schema-driven form field.
+    FormField,
     /// Panel region.
     Panel,
     /// Scrollable region.
@@ -383,6 +387,88 @@ pub fn validate_ui_node(node: &UiNode) -> Result<(), UiValidationError> {
     })
 }
 
+/// Narrow v1 field kinds shared by form fields and input primitives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFieldKind {
+    /// Single-line text input.
+    Text,
+    /// Multi-line text input.
+    Textarea,
+    /// Boolean checkbox input.
+    Checkbox,
+    /// Select input backed by renderer-neutral options.
+    Select,
+}
+
+/// Renderer-neutral field schema for schema-driven form fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiFieldSchema {
+    /// Field primitive kind.
+    pub kind: UiFieldKind,
+    /// Submission/state name.
+    pub name: String,
+    /// User-facing label.
+    pub label: String,
+    /// Optional help or description text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional placeholder for text-like fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    /// Whether renderers should present the field as required.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+    /// Default value used to initialize renderer-local state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Value>,
+    /// Validation hints for renderers and plugin authors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<UiFieldValidationHints>,
+    /// Options for select fields.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<UiFieldOption>,
+}
+
+/// Renderer-neutral select option metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiFieldOption {
+    /// Submitted option value.
+    pub value: Value,
+    /// User-facing option label.
+    pub label: String,
+    /// Whether renderers should present the option as disabled.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
+}
+
+/// Field validation metadata. Core validates the shape only; renderers and
+/// plugins decide how to present or enforce these hints.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiFieldValidationHints {
+    /// Minimum string length hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u64>,
+    /// Maximum string length hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u64>,
+    /// Pattern hint string. Core does not compile or execute it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// Minimum numeric value hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    /// Maximum numeric value hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    /// Renderer-neutral allowed-value hints.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub one_of: Vec<Value>,
+}
+
 /// Semantic UI action descriptor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiAction {
@@ -574,6 +660,14 @@ pub enum UiValidationError {
         /// Node kind.
         kind: UiNodeKind,
     },
+    /// Stable node id is required.
+    #[error("{kind:?} missing required stable node id: {reason}")]
+    MissingId {
+        /// Node kind.
+        kind: UiNodeKind,
+        /// Requirement reason.
+        reason: &'static str,
+    },
     /// Binding path is invalid.
     #[error("invalid bind path `{path}`: {reason}")]
     InvalidBindPath {
@@ -616,6 +710,8 @@ fn validate_node(node: &UiNode) -> Result<(), UiValidationError> {
         validate_prop_value(node.kind, prop, value)?;
     }
 
+    validate_prop_combinations(node)?;
+    validate_stable_id(node)?;
     validate_required_action(node)?;
     validate_required_label(node)?;
 
@@ -747,6 +843,187 @@ fn validate_prop_value(
         validate_token_value(kind, prop, value)?;
     }
 
+    match (kind, prop) {
+        (UiNodeKind::FormField, "schema") => {
+            let schema = deserialize_prop::<UiFieldSchema>(kind, prop, value)?;
+            validate_field_schema(kind, prop, &schema)?;
+        }
+        (
+            UiNodeKind::TextInput
+            | UiNodeKind::Textarea
+            | UiNodeKind::Checkbox
+            | UiNodeKind::Select,
+            "validation",
+        ) => {
+            deserialize_prop::<UiFieldValidationHints>(kind, prop, value)?;
+        }
+        (_, "disabled" | "loading") => {
+            if !value.is_boolean() && value.get("$bind").is_none() {
+                return Err(UiValidationError::InvalidProp {
+                    kind,
+                    prop: prop.to_string(),
+                    reason: "value must be a boolean".to_string(),
+                });
+            }
+        }
+        (_, "error") => validate_error_prop(kind, prop, value)?,
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn deserialize_prop<T>(kind: UiNodeKind, prop: &str, value: &Value) -> Result<T, UiValidationError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_value::<T>(value.clone()).map_err(|error| UiValidationError::InvalidProp {
+        kind,
+        prop: prop.to_string(),
+        reason: error.to_string(),
+    })
+}
+
+fn validate_field_schema(
+    kind: UiNodeKind,
+    prop: &str,
+    schema: &UiFieldSchema,
+) -> Result<(), UiValidationError> {
+    if schema.name.trim().is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "schema name cannot be empty".to_string(),
+        });
+    }
+
+    if schema.label.trim().is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "schema label cannot be empty".to_string(),
+        });
+    }
+
+    if schema.kind == UiFieldKind::Select && schema.options.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "select schema requires options".to_string(),
+        });
+    }
+
+    if schema.kind != UiFieldKind::Select && !schema.options.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "only select schema may define options".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_error_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    if value.get("$bind").is_some() || value.is_string() || value.is_null() {
+        return Ok(());
+    }
+
+    if value
+        .as_object()
+        .and_then(|object| object.get("message"))
+        .is_some_and(Value::is_string)
+    {
+        return Ok(());
+    }
+
+    Err(UiValidationError::InvalidProp {
+        kind,
+        prop: prop.to_string(),
+        reason: "error must be a string or object with a string message".to_string(),
+    })
+}
+
+fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
+    if node.props.contains_key("default") {
+        for controlled_prop in ["value", "checked", "selected"] {
+            if node.props.contains_key(controlled_prop) {
+                return Err(UiValidationError::InvalidProp {
+                    kind: node.kind,
+                    prop: "default".to_string(),
+                    reason: format!("default cannot be used with `{controlled_prop}`"),
+                });
+            }
+        }
+    }
+
+    if node.kind == UiNodeKind::FormField {
+        let schema = node
+            .props
+            .get("schema")
+            .map(|value| deserialize_prop::<UiFieldSchema>(node.kind, "schema", value))
+            .transpose()?;
+        if let (Some(schema), Some(default)) = (schema, node.props.get("default")) {
+            match &schema.default {
+                Some(schema_default) if schema_default == default => {}
+                Some(_) => {
+                    return Err(UiValidationError::InvalidProp {
+                        kind: node.kind,
+                        prop: "default".to_string(),
+                        reason: "default must match schema default".to_string(),
+                    });
+                }
+                None => {
+                    return Err(UiValidationError::InvalidProp {
+                        kind: node.kind,
+                        prop: "default".to_string(),
+                        reason: "form_field default must be declared in schema".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_stable_id(node: &UiNode) -> Result<(), UiValidationError> {
+    let reason = if matches!(
+        node.kind,
+        UiNodeKind::Form | UiNodeKind::FormSection | UiNodeKind::FormField
+    ) {
+        Some("forms and form fields require stable identity")
+    } else if matches!(
+        node.kind,
+        UiNodeKind::Button | UiNodeKind::IconButton | UiNodeKind::MenuItem
+    ) {
+        Some("action feedback requires stable identity")
+    } else if matches!(
+        node.kind,
+        UiNodeKind::TextInput | UiNodeKind::Textarea | UiNodeKind::Checkbox | UiNodeKind::Select
+    ) && node
+        .props
+        .keys()
+        .any(|prop| matches!(prop.as_str(), "value" | "checked" | "selected" | "default"))
+    {
+        Some("field state requires stable identity")
+    } else {
+        None
+    };
+
+    if let Some(reason) = reason {
+        if node.id.as_ref().is_none_or(|id| id.0.trim().is_empty()) {
+            return Err(UiValidationError::MissingId {
+                kind: node.kind,
+                reason,
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -860,7 +1137,21 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &[],
         ),
         UiNodeKind::Inline => schema(&["gap", "align", "justify"], &[], &[], &[]),
-        UiNodeKind::Form => schema(&["action"], &[], &[], &[]),
+        UiNodeKind::Form => schema(&["action", "disabled", "loading", "error"], &[], &[], &[]),
+        UiNodeKind::FormSection => schema(
+            &["title", "description", "disabled", "loading", "error"],
+            &["title"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::FormField => schema(
+            &[
+                "schema", "value", "checked", "selected", "default", "disabled", "loading", "error",
+            ],
+            &["schema"],
+            &[],
+            &[],
+        ),
         UiNodeKind::Panel => schema(&["title", "tone"], &[], &[], &[]),
         UiNodeKind::ScrollArea => schema(&["height"], &[], &[], &[]),
         UiNodeKind::Text => schema(&["text", "tone", "variant"], &["text"], &[], &[]),
@@ -904,25 +1195,72 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &["body"],
         ),
         UiNodeKind::TextInput => schema(
-            &["name", "label", "value", "placeholder", "required"],
+            &[
+                "name",
+                "label",
+                "description",
+                "value",
+                "default",
+                "placeholder",
+                "required",
+                "disabled",
+                "loading",
+                "error",
+                "validation",
+            ],
             &["name", "label"],
             &[],
             &[],
         ),
         UiNodeKind::Textarea => schema(
-            &["name", "label", "value", "placeholder", "required"],
+            &[
+                "name",
+                "label",
+                "description",
+                "value",
+                "default",
+                "placeholder",
+                "required",
+                "disabled",
+                "loading",
+                "error",
+                "validation",
+            ],
             &["name", "label"],
             &[],
             &[],
         ),
         UiNodeKind::Checkbox => schema(
-            &["name", "label", "checked", "required"],
+            &[
+                "name",
+                "label",
+                "description",
+                "checked",
+                "default",
+                "required",
+                "disabled",
+                "loading",
+                "error",
+                "validation",
+            ],
             &["name", "label"],
             &[],
             &[],
         ),
         UiNodeKind::Select => schema(
-            &["name", "label", "value", "required"],
+            &[
+                "name",
+                "label",
+                "description",
+                "value",
+                "selected",
+                "default",
+                "required",
+                "disabled",
+                "loading",
+                "error",
+                "validation",
+            ],
             &["name", "label"],
             &["options"],
             &["options"],

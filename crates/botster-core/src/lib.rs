@@ -174,7 +174,8 @@ pub use transport::{TransportEgress, TransportIngress};
 pub use ui::{
     UiAction, UiActionId, UiActionKind, UiActionRequest, UiActionRequestId, UiActionResult,
     UiActionResultState, UiBind, UiBindIf, UiBindList, UiChild, UiColorToken, UiCondition,
-    UiConditional, UiFieldErrors, UiFormValues, UiHeightClass, UiNode, UiNodeId, UiNodeKind,
+    UiConditional, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
+    UiFieldValidationHints, UiFormValues, UiHeightClass, UiNode, UiNodeId, UiNodeKind,
     UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth,
     UiSpaceToken, UiSurfaceId, UiTreeUpdateRef, UiValidationError, UiViewport, UiWidthClass,
 };
