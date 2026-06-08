@@ -101,7 +101,7 @@ Implementation should make these rules testable:
 - Renderer-local state: `value`/`checked`/`selected` absent, stable node id present, optional default value present.
 - Defaults initialize renderer-local state only; defaults must not be treated as authoritative updates after initial render and must not coexist with controlling state props.
 - A field with renderer-local state but no stable id should fail validation because renderers cannot preserve local state across tree refreshes.
-- Action pending/result correlation continues to use `UiActionPending.node_id` and `UiActionResult.node_id`; action-emitting nodes therefore need stable ids.
+- Action request/result correlation uses `UiActionRequest.node_id` and `UiActionResult.node_id`; action-emitting nodes therefore need stable ids.
 
 ## Affected Surfaces / Files
 
