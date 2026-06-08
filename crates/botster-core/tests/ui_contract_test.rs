@@ -373,6 +373,64 @@ fn form_field_schema_round_trips_for_v1_field_kinds() {
 }
 
 #[test]
+fn form_field_schema_rejects_invalid_v1_field_shapes() {
+    for (schema, expected) in [
+        (
+            json!({
+                "kind": "text",
+                "name": "   ",
+                "label": "Title"
+            }),
+            "schema name cannot be empty",
+        ),
+        (
+            json!({
+                "kind": "text",
+                "name": "title",
+                "label": "   "
+            }),
+            "schema label cannot be empty",
+        ),
+        (
+            json!({
+                "kind": "select",
+                "name": "status",
+                "label": "Status"
+            }),
+            "select schema requires options",
+        ),
+        (
+            json!({
+                "kind": "text",
+                "name": "title",
+                "label": "Title",
+                "options": [{ "value": "draft", "label": "Draft" }]
+            }),
+            "only select schema may define options",
+        ),
+    ] {
+        assert_error_contains(
+            node(UiNodeKind::FormField, json!({ "schema": schema })),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn error_prop_rejects_non_renderer_neutral_shapes() {
+    for props in [
+        json!({ "error": 42 }),
+        json!({ "error": { "code": "failed" } }),
+        json!({ "error": { "message": false } }),
+    ] {
+        assert_error_contains(
+            node(UiNodeKind::Form, props),
+            "error must be a string or object with a string message",
+        );
+    }
+}
+
+#[test]
 fn field_schema_accepts_metadata_without_renderer_props() {
     for (kind, props) in [
         (
