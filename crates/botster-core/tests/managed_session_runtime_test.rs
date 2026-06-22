@@ -869,7 +869,6 @@ fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() 
 #[test]
 fn supervised_session_initial_snapshot_after_prior_output_reflects_shadow_state() {
     let mut runtime = managed_runtime();
-    subscribe(&mut runtime);
 
     runtime
         .session_runtime_mut()
@@ -877,6 +876,7 @@ fn supervised_session_initial_snapshot_after_prior_output_reflects_shadow_state(
     runtime
         .drain_runtime_once(&session_id(), 20)
         .expect("drain prior output");
+    subscribe(&mut runtime);
     runtime
         .handle_session_request(
             SessionIoRequest::SubscribeTerminal {
@@ -906,6 +906,32 @@ fn supervised_session_initial_snapshot_after_prior_output_reflects_shadow_state(
     assert!(matches!(
         outcome.session_events.get(1),
         Some(SessionIoEvent::TerminalBytes { data, .. }) if data == b"held live"
+    ));
+    assert!(matches!(
+        outcome.client_egress.first(),
+        Some((
+            received_client,
+            TransportEgress::Snapshot {
+                subscription_id: received_subscription_id,
+                data,
+                ..
+            }
+        )) if received_client == &client_id("client-a")
+            && received_subscription_id == &subscription_id("sub-a")
+            && data == b"prior output"
+    ));
+    assert!(matches!(
+        outcome.client_egress.get(1),
+        Some((
+            received_client,
+            TransportEgress::TerminalOutput {
+                subscription_id: received_subscription_id,
+                data,
+                ..
+            }
+        )) if received_client == &client_id("client-a")
+            && received_subscription_id == &subscription_id("sub-a")
+            && data == b"held live"
     ));
 }
 
