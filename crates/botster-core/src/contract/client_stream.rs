@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{
-    BackpressureSummary, ClientControlFrame, SendFileRequest, SessionIoEvent, SessionIoRequest,
-    SnapshotReady, TerminalAttachState,
+    BackpressureSummary, ClientControlFrame, InitialSnapshotReady, SendFileRequest, SessionIoEvent,
+    SessionIoRequest, SnapshotReady, TerminalAttachState,
 };
 use crate::client::ClientId;
 use crate::session::{SessionId, SubscriptionId};
@@ -313,6 +313,7 @@ impl ClientStreamHarness {
                 })
             }
             SessionIoEvent::SnapshotReady(snapshot) => self.route_snapshot(snapshot),
+            SessionIoEvent::InitialSnapshotReady(snapshot) => self.route_initial_snapshot(snapshot),
             SessionIoEvent::SendFileFailed(_) => ClientStreamOutcome::empty(),
             SessionIoEvent::ProcessExited {
                 session_id,
@@ -324,8 +325,7 @@ impl ClientStreamHarness {
                     code: payload.exit_code,
                 }
             }),
-            SessionIoEvent::InitialSnapshotReady(_)
-            | SessionIoEvent::SendFileWritten(_)
+            SessionIoEvent::SendFileWritten(_)
             | SessionIoEvent::PreparedSnapshotReady(_)
             | SessionIoEvent::ModeFlagsReady(_)
             | SessionIoEvent::ScreenReady(_)
@@ -500,6 +500,32 @@ impl ClientStreamHarness {
                 data: snapshot.data,
             }
         })
+    }
+
+    fn route_initial_snapshot(&self, snapshot: InitialSnapshotReady) -> ClientStreamOutcome {
+        if snapshot.snapshot.is_empty() {
+            return ClientStreamOutcome::empty();
+        }
+        if snapshot.client_id != self.client_id {
+            return ClientStreamOutcome::empty();
+        }
+        if self.subscriptions.get(&snapshot.session_id) != Some(&snapshot.subscription_id) {
+            let mut outcome = ClientStreamOutcome::empty();
+            outcome
+                .observations
+                .push(ClientStreamObservation::DroppedUnsubscribedDelivery {
+                    session_id: snapshot.session_id,
+                });
+            return outcome;
+        }
+
+        let mut outcome = ClientStreamOutcome::empty();
+        outcome.egress.push(TransportEgress::Snapshot {
+            session_id: snapshot.session_id,
+            subscription_id: snapshot.subscription_id,
+            data: snapshot.snapshot,
+        });
+        outcome
     }
 
     fn route_delivery(

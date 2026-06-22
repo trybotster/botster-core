@@ -167,7 +167,7 @@ impl SubscriptionMultiplexer {
             // These variants are intentionally matched one by one so adding a
             // new SessionIoEvent forces an explicit broadcast decision.
             SessionIoEvent::InitialSnapshotReady(snapshot) => {
-                Self::not_broadcast(snapshot.session_id, "initial_snapshot_ready")
+                self.route_initial_snapshot_ready(snapshot)
             }
             SessionIoEvent::SnapshotReady(snapshot) => {
                 Self::not_broadcast(snapshot.session_id, "snapshot_ready")
@@ -349,6 +349,20 @@ impl SubscriptionMultiplexer {
                 let outcome = harness.handle_session_event(build(session_id.clone()));
                 multiplexer_outcome.append_client_outcome(&client_id, outcome);
             }
+        }
+        multiplexer_outcome
+    }
+
+    fn route_initial_snapshot_ready(
+        &mut self,
+        snapshot: crate::InitialSnapshotReady,
+    ) -> SubscriptionMultiplexerOutcome {
+        let client_id = snapshot.client_id.clone();
+        let mut multiplexer_outcome = SubscriptionMultiplexerOutcome::empty();
+        if let Some(harness) = self.clients.get_mut(&client_id) {
+            let outcome =
+                harness.handle_session_event(SessionIoEvent::InitialSnapshotReady(snapshot));
+            multiplexer_outcome.append_client_outcome(&client_id, outcome);
         }
         multiplexer_outcome
     }
