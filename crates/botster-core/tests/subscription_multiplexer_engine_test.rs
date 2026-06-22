@@ -823,7 +823,7 @@ fn attach_state_fans_out_to_current_subscribers() {
 }
 
 #[test]
-fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
+fn snapshot_remains_not_broadcast_but_initial_snapshot_targets_named_client() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     subscribe(&mut multiplexer, "client-1", "sub-1");
     subscribe(&mut multiplexer, "client-2", "sub-2");
@@ -848,7 +848,17 @@ fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
     ));
 
     assert!(snapshot.client_egress.is_empty());
-    assert!(initial.client_egress.is_empty());
+    assert_eq!(
+        initial.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::Snapshot {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                data: b"initial".to_vec(),
+            },
+        )]
+    );
     assert_eq!(
         snapshot.observations,
         vec![
@@ -861,6 +871,36 @@ fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
 
     let source = include_str!("../src/engine/subscription_multiplexer.rs");
     assert!(!source.contains("Scrollback"));
+}
+
+#[test]
+fn initial_snapshot_for_replaced_subscription_does_not_leak_to_current_route() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-old");
+    subscribe(&mut multiplexer, "client-1", "sub-current");
+
+    let initial = multiplexer.handle_session_event(SessionIoEvent::InitialSnapshotReady(
+        InitialSnapshotReady {
+            request_id: request_id("initial"),
+            session_id: session_id(),
+            client_id: client_id("client-1"),
+            subscription_id: subscription_id("sub-old"),
+            snapshot: b"stale-history".to_vec(),
+            rows: 24,
+            cols: 80,
+        },
+    ));
+
+    assert!(initial.client_egress.is_empty());
+    assert_eq!(
+        initial.observations,
+        vec![SubscriptionMultiplexerObservation::ClientStream {
+            client_id: client_id("client-1"),
+            observation: ClientStreamObservation::DroppedUnsubscribedDelivery {
+                session_id: session_id(),
+            },
+        }]
+    );
 }
 
 #[test]

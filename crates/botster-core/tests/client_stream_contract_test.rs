@@ -1,8 +1,9 @@
 //! Client stream contract acceptance tests.
 
 use botster_core::actor::{
-    BackpressureRoute, BackpressureSummary, ClientControlFrame, QueueSource, SendFileErrorReason,
-    SendFileFailed, SendFileRequest, SessionIoEvent, SessionIoRequest, SnapshotReady,
+    BackpressureRoute, BackpressureSummary, ClientControlFrame, InitialSnapshotReady, QueueSource,
+    SendFileErrorReason, SendFileFailed, SendFileRequest, SessionIoEvent, SessionIoRequest,
+    SnapshotReady,
 };
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
@@ -16,6 +17,10 @@ use botster_core::ProcessExitedPayload;
 
 fn client_id() -> ClientId {
     ClientId("client-1".to_string())
+}
+
+fn named_client_id(id: &str) -> ClientId {
+    ClientId(id.to_string())
 }
 
 fn session_id() -> SessionId {
@@ -514,6 +519,102 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
             state: botster_core::actor::TerminalAttachState::Attached,
         }]
     );
+}
+
+#[test]
+fn initial_snapshot_replays_history_for_matching_subscription() {
+    let mut harness = ClientStreamHarness::new(client_id());
+    subscribe(&mut harness, subscription_id("sub-1"));
+
+    let outcome =
+        harness.handle_session_event(SessionIoEvent::InitialSnapshotReady(InitialSnapshotReady {
+            request_id: request_id(),
+            session_id: session_id(),
+            client_id: client_id(),
+            subscription_id: subscription_id("sub-1"),
+            snapshot: b"prior history".to_vec(),
+            rows: 24,
+            cols: 80,
+        }));
+
+    assert_eq!(
+        outcome.egress,
+        vec![TransportEgress::Snapshot {
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-1"),
+            data: b"prior history".to_vec(),
+        }]
+    );
+    assert!(outcome.observations.is_empty());
+}
+
+#[test]
+fn empty_initial_snapshot_does_not_fabricate_history() {
+    let mut harness = ClientStreamHarness::new(client_id());
+    subscribe(&mut harness, subscription_id("sub-1"));
+
+    let initial =
+        harness.handle_session_event(SessionIoEvent::InitialSnapshotReady(InitialSnapshotReady {
+            request_id: request_id(),
+            session_id: session_id(),
+            client_id: client_id(),
+            subscription_id: subscription_id("sub-1"),
+            snapshot: Vec::new(),
+            rows: 24,
+            cols: 80,
+        }));
+    let live = harness.handle_session_event(SessionIoEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"live".to_vec(),
+    });
+
+    assert!(initial.egress.is_empty());
+    assert!(initial.observations.is_empty());
+    assert_eq!(
+        live.egress,
+        vec![TransportEgress::TerminalOutput {
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-1"),
+            data: b"live".to_vec(),
+        }]
+    );
+}
+
+#[test]
+fn initial_snapshot_for_stale_or_unrelated_route_is_dropped() {
+    let mut harness = ClientStreamHarness::new(client_id());
+    subscribe(&mut harness, subscription_id("sub-current"));
+
+    let stale_subscription =
+        harness.handle_session_event(SessionIoEvent::InitialSnapshotReady(InitialSnapshotReady {
+            request_id: request_id(),
+            session_id: session_id(),
+            client_id: client_id(),
+            subscription_id: subscription_id("sub-old"),
+            snapshot: b"stale".to_vec(),
+            rows: 24,
+            cols: 80,
+        }));
+    let wrong_client =
+        harness.handle_session_event(SessionIoEvent::InitialSnapshotReady(InitialSnapshotReady {
+            request_id: request_id(),
+            session_id: session_id(),
+            client_id: named_client_id("other-client"),
+            subscription_id: subscription_id("sub-current"),
+            snapshot: b"wrong-client".to_vec(),
+            rows: 24,
+            cols: 80,
+        }));
+
+    assert!(stale_subscription.egress.is_empty());
+    assert_eq!(
+        stale_subscription.observations,
+        vec![ClientStreamObservation::DroppedUnsubscribedDelivery {
+            session_id: session_id(),
+        }]
+    );
+    assert!(wrong_client.egress.is_empty());
+    assert!(wrong_client.observations.is_empty());
 }
 
 #[test]
