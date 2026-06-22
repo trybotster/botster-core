@@ -296,6 +296,15 @@ Correlated delivery still uses the existing session-worker carriers such as
 `ScreenReady`. `TerminalSnapshotPayload` is only the reusable, correlation-free
 value a runtime adapter can convert into those carriers.
 
+Subscribe-time initial terminal snapshots use the same core-owned data-plane
+path. When a host requests an initial snapshot for a new subscription to a
+running session, `SessionIo` delivers `InitialSnapshotReady` to the named
+client/subscription and the client stream projects a non-empty payload as a
+renderable `Snapshot` before held live `TerminalOutput`. Empty snapshots do not
+fabricate history. This is a per-subscription terminal history delivery
+mechanism, not global client-state hydration; hub and host policy decide when to
+request or render it, and core does not keep a duplicate daemon or hub cache.
+
 ## Ownership Boundary
 
 This crate documents contracts the current code proves. It is not a parking
