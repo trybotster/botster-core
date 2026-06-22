@@ -21,6 +21,14 @@ The typed Rust API is the embedder and hub path. The CLI is intentionally thin
 operator/dev/debug tooling over that same API and requires `--data-dir` so
 smoke runs do not depend on ambient home directories.
 
+Attach output is part of the daemon output contract. `CoreDaemon::attach`
+routes subscription setup through the core engine, and that engine outcome can
+already contain initial history replay for the newly attached subscription.
+`CoreDaemon` retains that output and prepends it to the next `drain` result for
+the session so late subscribers see replay before later live terminal output.
+It must not re-route the returned session requests; those requests are an
+already-routed record from the engine, not daemon follow-up work.
+
 When configured with the `botster-session-worker` executable, `CoreDaemon`
 spawns worker-backed local sessions. Each worker owns its PTY in a separate
 process and exposes a reconnectable Unix control socket recorded in

@@ -431,10 +431,14 @@ fn managed_session_runtime_fair_drain_error_returns_typed_runtime_error() {
 fn supervised_session_reader_events_reach_subscription_multiplexer() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
-    assert!(
-        runtime.session_runtime().inputs().is_empty(),
-        "SubscribeSession establishes fanout only; it does not hydrate global state or touch the runtime"
-    );
+    let initial = runtime
+        .drain_runtime_once(&session_id(), 19)
+        .expect("drain subscribe-triggered initial snapshot");
+    assert!(matches!(
+        initial.session_events.first(),
+        Some(SessionIoEvent::InitialSnapshotReady(snapshot)) if snapshot.snapshot.is_empty()
+    ));
+    assert!(initial.client_egress.is_empty());
 
     runtime
         .session_runtime_mut()
@@ -829,6 +833,9 @@ fn supervised_session_request_snapshot_is_no_longer_unsupported() {
 fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
+    let _ = runtime
+        .drain_runtime_once(&session_id(), 19)
+        .expect("drain subscribe-triggered initial snapshot");
 
     runtime
         .handle_session_request(

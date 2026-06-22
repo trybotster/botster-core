@@ -89,6 +89,83 @@ fn daemon_spawns_lists_attaches_drains_inputs_resizes_and_shuts_down() {
 
 #[cfg(unix)]
 #[test]
+fn daemon_late_attach_drains_initial_history_before_later_live_output() {
+    let data_dir = temp_data_dir("daemon-late-attach-history");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("daemon-late-history-session".to_string());
+    let primary_client = ClientId("daemon-late-history-primary".to_string());
+    let primary_subscription =
+        SubscriptionId("daemon-late-history-primary-subscription".to_string());
+    let late_client = ClientId("daemon-late-history-late".to_string());
+    let late_subscription = SubscriptionId("daemon-late-history-late-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("daemon should spawn");
+    daemon
+        .attach(
+            primary_client.clone(),
+            session_id.clone(),
+            primary_subscription,
+            11,
+        )
+        .expect("initial attach should subscribe through CoreDaemon");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    daemon
+        .input(
+            primary_client,
+            session_id.clone(),
+            b"before-late-attach\n".to_vec(),
+            12,
+        )
+        .expect("prior marker should write through CoreDaemon input");
+    let primary_replay_source = drain_until(&mut daemon, &session_id, "echo:before-late-attach");
+    assert!(
+        renderable_output(&primary_replay_source.client_egress).contains("echo:before-late-attach"),
+        "fixture must prove prior marker reached core terminal state before late attach"
+    );
+
+    daemon
+        .attach(
+            late_client.clone(),
+            session_id.clone(),
+            late_subscription,
+            13,
+        )
+        .expect("late attach should retain engine output for daemon drain");
+    daemon
+        .input(
+            late_client.clone(),
+            session_id.clone(),
+            b"after-late-attach\n".to_vec(),
+            14,
+        )
+        .expect("later live marker should still write after late attach");
+
+    let late_drain = drain_until_for_client(
+        &mut daemon,
+        &session_id,
+        &late_client,
+        "echo:after-late-attach",
+    );
+    let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
+    let history_index = late_output
+        .find("echo:before-late-attach")
+        .unwrap_or_else(|| panic!("late attach should replay prior marker: {late_output:?}"));
+    let live_index = late_output
+        .find("echo:after-late-attach")
+        .unwrap_or_else(|| panic!("late client should receive later live output: {late_output:?}"));
+    assert!(
+        history_index < live_index,
+        "late replay should precede later live output for the subscription: {late_output:?}"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn guarded_write_states_are_fail_closed_and_write_through_input_path() {
     let data_dir = temp_data_dir("daemon-guarded");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
@@ -884,6 +961,28 @@ fn drain_until(
     aggregate
 }
 
+fn drain_until_for_client(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    client_id: &ClientId,
+    expected: &str,
+) -> botster_core_daemon::DrainResult {
+    let mut aggregate = botster_core_daemon::DrainResult::default();
+    for tick in 0..100 {
+        let drained = daemon
+            .drain(session_id, 20 + tick)
+            .expect("daemon drain should succeed");
+        aggregate.client_egress.extend(drained.client_egress);
+        aggregate.observations.extend(drained.observations);
+        aggregate.backpressure.extend(drained.backpressure);
+        if renderable_output_for_client(&aggregate.client_egress, client_id).contains(expected) {
+            return aggregate;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    aggregate
+}
+
 fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {
     frames
         .iter()
@@ -895,6 +994,37 @@ fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+fn renderable_output(frames: &[(ClientId, TransportEgress)]) -> String {
+    frames
+        .iter()
+        .filter_map(|(_, frame)| renderable_frame_data(frame))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn renderable_output_for_client(
+    frames: &[(ClientId, TransportEgress)],
+    client_id: &ClientId,
+) -> String {
+    frames
+        .iter()
+        .filter(|(frame_client_id, _)| frame_client_id == client_id)
+        .filter_map(|(_, frame)| renderable_frame_data(frame))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn renderable_frame_data(frame: &TransportEgress) -> Option<String> {
+    match frame {
+        TransportEgress::TerminalOutput { data, .. }
+        | TransportEgress::Snapshot { data, .. }
+        | TransportEgress::Scrollback { data, .. } => {
+            Some(String::from_utf8_lossy(data).to_string())
+        }
+        _ => None,
+    }
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {

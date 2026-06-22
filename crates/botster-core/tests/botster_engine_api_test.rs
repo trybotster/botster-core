@@ -11,16 +11,16 @@ use botster_core::{
     BotsterEngine, BotsterEngineObservation, BoundaryJson, Capability, CapabilitySurface,
     CoreSessionMetadata, EngineCommand, EngineCommandError, EngineCommandKind,
     EngineCommandOutcome, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
-    NotificationTarget, NotificationTimestamp, PackageManifest, PluginCleanupScope,
-    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
+    InitialSnapshotReady, NotificationContent, NotificationItem, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
+    PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
+    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
     PluginUnloadSpec, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
     QueueSource, RequestId, SessionActivityStatus, SessionId, SessionIoEvent, SessionIoRequest,
-    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
+    SessionLifecycleState, SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{DefaultBotsterEngine, DefaultEngineCommand, ResizePayload};
@@ -856,6 +856,33 @@ fn botster_engine_consumer_lifecycle_uses_public_api() {
             10,
         )
         .expect("client b attaches through public API");
+
+    engine
+        .handle_runtime_event(SessionWorkerRuntimeEvent::InitialSnapshotReady(
+            InitialSnapshotReady {
+                request_id: request_id("initial-a"),
+                session_id: session_id(),
+                client_id: client_id("client-a"),
+                subscription_id: subscription_id("sub-a"),
+                snapshot: Vec::new(),
+                rows: 24,
+                cols: 80,
+            },
+        ))
+        .expect("client a initial snapshot should release live output");
+    engine
+        .handle_runtime_event(SessionWorkerRuntimeEvent::InitialSnapshotReady(
+            InitialSnapshotReady {
+                request_id: request_id("initial-b"),
+                session_id: session_id(),
+                client_id: client_id("client-b"),
+                subscription_id: subscription_id("sub-b"),
+                snapshot: Vec::new(),
+                rows: 24,
+                cols: 80,
+            },
+        ))
+        .expect("client b initial snapshot should release live output");
 
     let input = engine
         .write_bytes(client_id("client-a"), session_id(), b"ls\n".to_vec(), 11)

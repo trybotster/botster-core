@@ -823,7 +823,7 @@ fn attach_state_fans_out_to_current_subscribers() {
 }
 
 #[test]
-fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
+fn snapshot_and_scrollback_are_not_broadcast_but_initial_snapshot_is_targeted() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     subscribe(&mut multiplexer, "client-1", "sub-1");
     subscribe(&mut multiplexer, "client-2", "sub-2");
@@ -848,7 +848,17 @@ fn snapshot_initial_snapshot_and_scrollback_are_not_broadcast() {
     ));
 
     assert!(snapshot.client_egress.is_empty());
-    assert!(initial.client_egress.is_empty());
+    assert_eq!(
+        initial.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::Snapshot {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                data: b"initial".to_vec(),
+            },
+        )]
+    );
     assert_eq!(
         snapshot.observations,
         vec![
