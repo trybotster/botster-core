@@ -599,13 +599,14 @@ impl Default for DefaultBotsterEngine {
 /// # use std::sync::Arc;
 /// # use botster_core::{
 /// #     BotsterEngine, BoundaryJson, ClientId, CoreSessionMetadata, ExtensionEntrypoint,
-/// #     ExtensionKind, ExtensionRuntime, NotificationContent, NotificationId,
-/// #     NotificationItem, NotificationSeverity, NotificationSource, NotificationTarget,
-/// #     NotificationTimestamp, PackageManifest, PluginHandlerKind, PluginHandlerRef,
-/// #     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationRequest,
-/// #     PluginInvocationResult, PluginKey, PluginLoadSpec, PluginWorkerRegistration,
-/// #     RequestId, SessionActivityStatus, SessionId, SessionSpawnRequest, SpawnEnvironment,
-/// #     SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+/// #     ExtensionKind, ExtensionRuntime, InitialSnapshotReady, NotificationContent,
+/// #     NotificationId, NotificationItem, NotificationSeverity, NotificationSource,
+/// #     NotificationTarget, NotificationTimestamp, PackageManifest, PluginHandlerKind,
+/// #     PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+/// #     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
+/// #     PluginWorkerRegistration, RequestId, SessionActivityStatus, SessionId,
+/// #     SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory,
+/// #     SubscriptionId, TransportEgress,
 /// # };
 /// # use botster_core_test_support::fake::{
 /// #     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -634,6 +635,17 @@ impl Default for DefaultBotsterEngine {
 /// )?;
 ///
 /// engine.attach_client(client_id.clone(), session_id.clone(), subscription_id.clone(), 1)?;
+/// engine.handle_runtime_event(SessionWorkerRuntimeEvent::InitialSnapshotReady(
+///     InitialSnapshotReady {
+///         request_id: RequestId("docs-initial".to_string()),
+///         session_id: session_id.clone(),
+///         client_id: client_id.clone(),
+///         subscription_id: subscription_id.clone(),
+///         snapshot: Vec::new(),
+///         rows: 24,
+///         cols: 80,
+///     },
+/// ))?;
 /// engine.write_bytes(client_id.clone(), session_id.clone(), b"echo docs\n".to_vec(), 2)?;
 /// engine.resize(client_id.clone(), session_id.clone(), 40, 120, 3)?;
 ///
