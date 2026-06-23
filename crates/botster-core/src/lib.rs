@@ -26,7 +26,7 @@ pub use engine::{
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
-pub use package::{capability, extension, host_profile, manifest};
+pub use package::{capability, configuration, extension, host_profile, manifest};
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
     CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
@@ -142,8 +142,10 @@ pub use notification::{
 };
 pub use package::{
     admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError,
-    HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
-    PackageSource,
+    HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection,
+    PackageConfigurationField, PackageConfigurationFieldType, PackageConfigurationGroup,
+    PackageConfigurationOption, PackageConfigurationSchema, PackageConfigurationSecretValue,
+    PackageConfigurationValidationHints, PackageConfigurationValue, PackageManifest, PackageSource,
 };
 pub use routed_envelope::{
     EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,

@@ -374,6 +374,7 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
                 bootstrap: false,
             }],
             host_profile: None,
+            configuration: None,
         },
         runtime: Arc::new(runtime),
         handlers: vec![botster_core::PluginHandlerRegistration {

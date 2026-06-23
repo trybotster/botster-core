@@ -232,6 +232,7 @@ fn manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageMan
             bootstrap: false,
         }],
         host_profile: None,
+        configuration: None,
     }
 }
 

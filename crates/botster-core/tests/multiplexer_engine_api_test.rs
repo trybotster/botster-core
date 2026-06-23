@@ -87,6 +87,7 @@ fn plugin_manifest(plugin_key: &PluginKey) -> PackageManifest {
             bootstrap: false,
         }],
         host_profile: None,
+        configuration: None,
     }
 }
 
