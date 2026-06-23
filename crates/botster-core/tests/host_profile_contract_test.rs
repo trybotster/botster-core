@@ -49,6 +49,7 @@ fn provider_manifest() -> PackageManifest {
             bootstrap: true,
         }],
         host_profile: Some(host_profile_metadata(vec![capability])),
+        configuration: None,
     }
 }
 
