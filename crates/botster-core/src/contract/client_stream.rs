@@ -373,29 +373,6 @@ impl ClientStreamHarness {
         })
     }
 
-    /// Deliver the targeted initial history replay for an active subscription.
-    pub fn handle_initial_snapshot(&self, snapshot: InitialSnapshotReady) -> ClientStreamOutcome {
-        if self.closed {
-            return Self::closed_outcome();
-        }
-
-        if self.client_id != snapshot.client_id
-            || self.subscriptions.get(&snapshot.session_id) != Some(&snapshot.subscription_id)
-        {
-            return ClientStreamOutcome::empty();
-        }
-
-        let mut outcome = ClientStreamOutcome::empty();
-        if !snapshot.snapshot.is_empty() {
-            outcome.egress.push(TransportEgress::Snapshot {
-                session_id: snapshot.session_id,
-                subscription_id: snapshot.subscription_id,
-                data: snapshot.snapshot,
-            });
-        }
-        outcome
-    }
-
     /// Surface a client-side backpressure report.
     pub fn report_backpressure(&self, summary: BackpressureSummary) -> ClientStreamOutcome {
         if self.closed {

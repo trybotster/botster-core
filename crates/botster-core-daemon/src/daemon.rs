@@ -566,6 +566,7 @@ impl CoreDaemon {
         self.ensure_session(&session_id)?;
         self.engine
             .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        self.drop_pending_drain(&session_id);
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
@@ -625,6 +626,11 @@ impl CoreDaemon {
         }
         self.pending_drain = retained;
         result
+    }
+
+    fn drop_pending_drain(&mut self, session_id: &SessionId) {
+        self.pending_drain
+            .retain(|pending| &pending.session_id != session_id);
     }
 }
 
