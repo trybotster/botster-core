@@ -688,6 +688,7 @@ fn trusted_host_profile_manifest() -> PackageManifest {
                 HostProfilePolicySection::ClientAdmission,
             ],
         }),
+        configuration: None,
     }
 }
 
@@ -762,6 +763,7 @@ fn plugin_manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> Pac
             bootstrap: false,
         }],
         host_profile: None,
+        configuration: None,
     }
 }
 
