@@ -7,7 +7,7 @@ use std::{
 };
 
 use botster_core::{
-    BotsterEngineObservation, ClientId, CoreSession, DefaultBotsterEngine,
+    BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
     QueueSource, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, SessionId,
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
@@ -92,12 +92,18 @@ pub struct CoreDaemon {
     engine: DaemonEngine,
     notification_inbox: NotificationInbox,
     envelope_router: RoutedEnvelopeRouter,
+    pending_drain: Vec<PendingDrainResult>,
     running: bool,
 }
 
 enum DaemonEngine {
     Local(DefaultBotsterEngine),
     Worker(WorkerBackedBotsterEngine),
+}
+
+struct PendingDrainResult {
+    session_id: SessionId,
+    result: DrainResult,
 }
 
 impl CoreDaemon {
@@ -121,6 +127,7 @@ impl CoreDaemon {
             engine,
             notification_inbox: NotificationInbox::new(),
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
+            pending_drain: Vec::new(),
             running: true,
         }
     }
@@ -175,6 +182,11 @@ impl CoreDaemon {
     }
 
     /// Attach a client through the existing subscription path.
+    ///
+    /// The engine's attach output carries subscription setup and initial
+    /// history replay for late subscribers. Daemon embedders observe that
+    /// output through [`Self::drain`], so attach must retain it instead of
+    /// dropping the returned engine outcome.
     pub fn attach(
         &mut self,
         client_id: ClientId,
@@ -184,12 +196,19 @@ impl CoreDaemon {
     ) -> Result<AttachedSession, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine.attach_client(
+        let output = self.engine.attach_client(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
             now_seconds,
         )?;
+        let pending = drain_result_from_engine_output(output);
+        if !drain_result_is_empty(&pending) {
+            self.pending_drain.push(PendingDrainResult {
+                session_id: session_id.clone(),
+                result: pending,
+            });
+        }
         Ok(AttachedSession {
             client_id,
             session_id,
@@ -258,19 +277,10 @@ impl CoreDaemon {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
         let outcome = self.engine.drain_runtime_once(session_id, last_output_at)?;
-        self.reconcile_lifecycle_observations(&outcome.observations, last_output_at)?;
-        Ok(DrainResult {
-            client_egress: outcome.client_egress,
-            observations: outcome.observations.clone(),
-            backpressure: outcome
-                .observations
-                .into_iter()
-                .filter_map(|observation| match observation {
-                    BotsterEngineObservation::Backpressure(summary) => Some(summary),
-                    _ => None,
-                })
-                .collect(),
-        })
+        let mut result = self.take_pending_drain(session_id);
+        merge_drain_result(&mut result, drain_result_from_engine_output(outcome));
+        self.reconcile_lifecycle_observations(&result.observations, last_output_at)?;
+        Ok(result)
     }
 
     /// Queue one policy-free notification inbox item.
@@ -556,6 +566,7 @@ impl CoreDaemon {
         self.ensure_session(&session_id)?;
         self.engine
             .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        self.drop_pending_drain(&session_id);
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
@@ -602,6 +613,52 @@ impl CoreDaemon {
             .map(|_| ())
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
     }
+
+    fn take_pending_drain(&mut self, session_id: &SessionId) -> DrainResult {
+        let mut result = DrainResult::default();
+        let mut retained = Vec::new();
+        for pending in self.pending_drain.drain(..) {
+            if &pending.session_id == session_id {
+                merge_drain_result(&mut result, pending.result);
+            } else {
+                retained.push(pending);
+            }
+        }
+        self.pending_drain = retained;
+        result
+    }
+
+    fn drop_pending_drain(&mut self, session_id: &SessionId) {
+        self.pending_drain
+            .retain(|pending| &pending.session_id != session_id);
+    }
+}
+
+fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {
+    DrainResult {
+        client_egress: output.client_egress,
+        observations: output.observations.clone(),
+        backpressure: output
+            .observations
+            .into_iter()
+            .filter_map(|observation| match observation {
+                BotsterEngineObservation::Backpressure(summary) => Some(summary),
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
+fn merge_drain_result(target: &mut DrainResult, source: DrainResult) {
+    target.client_egress.extend(source.client_egress);
+    target.observations.extend(source.observations);
+    target.backpressure.extend(source.backpressure);
+}
+
+fn drain_result_is_empty(result: &DrainResult) -> bool {
+    result.client_egress.is_empty()
+        && result.observations.is_empty()
+        && result.backpressure.is_empty()
 }
 
 impl DaemonEngine {

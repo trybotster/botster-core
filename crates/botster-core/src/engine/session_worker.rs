@@ -20,7 +20,9 @@ pub trait SessionWorkerRuntime {
     /// Produce a terminal snapshot for a request.
     fn snapshot(&mut self, request_id: crate::RequestId, session_id: SessionId) -> SnapshotReady;
 
-    /// Request an authoritative initial snapshot.
+    /// Request an authoritative initial snapshot of the current terminal state.
+    ///
+    /// Callers that need a resized snapshot must resize before this request.
     fn request_initial_snapshot(&mut self, request: crate::InitialSnapshotRequest);
 
     /// Prepare send-file payload storage.
@@ -167,15 +169,20 @@ where
                 rows,
                 cols,
             } => {
-                let request = crate::InitialSnapshotRequest {
-                    request_id,
-                    session_id,
-                    client_id,
-                    subscription_id,
-                    rows,
-                    cols,
-                };
-                self.handle_request(SessionIoRequest::GetInitialSnapshot(request))
+                self.initial_snapshot_barrier = Some(InitialSnapshotBarrier::new());
+                self.runtime
+                    .request_initial_snapshot(crate::InitialSnapshotRequest {
+                        request_id,
+                        session_id,
+                        client_id,
+                        subscription_id,
+                        rows,
+                        cols,
+                    });
+                Ok(SessionWorkerOutcome::from_events(
+                    Vec::new(),
+                    self.last_output_at,
+                ))
             }
             SessionIoRequest::UnsubscribeTerminal { .. } => Ok(SessionWorkerOutcome::from_events(
                 Vec::new(),

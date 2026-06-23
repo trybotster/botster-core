@@ -52,6 +52,11 @@ pub struct AttachedSession {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DrainResult {
     /// Egress frames routed to clients.
+    ///
+    /// Attach may produce initial subscription history immediately inside the
+    /// core engine. The daemon retains that attach output and exposes it here
+    /// so embedders can observe history replay through the same drain surface
+    /// as live runtime output.
     pub client_egress: Vec<(ClientId, TransportEgress)>,
     /// Core observations from the drain.
     pub observations: Vec<BotsterEngineObservation>,

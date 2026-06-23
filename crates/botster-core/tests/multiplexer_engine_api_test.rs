@@ -4,15 +4,16 @@ use std::sync::Arc;
 
 use botster_core::{
     BotsterEngine, BoundaryJson, CoreSessionMetadata, ExtensionEntrypoint, ExtensionKind,
-    ExtensionRuntime, MailboxSendFailureReason, MultiplexerEngine, MultiplexerEngineObservation,
-    NotificationContent, NotificationItem, NotificationSeverity, NotificationSource,
-    NotificationTarget, NotificationTimestamp, PackageManifest, PluginDescriptorKind,
-    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
-    PluginInvocationContext, PluginInvocationFailureKind, PluginInvocationRequest,
-    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginOwnedDescriptor, PluginWorkerEvent,
-    PluginWorkerRegistration, QueueSource, RequestId, SessionActivityStatus, SessionId,
-    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
+    ExtensionRuntime, InitialSnapshotReady, MailboxSendFailureReason, MultiplexerEngine,
+    MultiplexerEngineObservation, NotificationContent, NotificationItem, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
+    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
+    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
+    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, QueueSource, RequestId,
+    SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest,
+    SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+    SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -32,6 +33,18 @@ fn client_id(value: &str) -> botster_core::ClientId {
 
 fn subscription_id(value: &str) -> SubscriptionId {
     SubscriptionId(value.to_string())
+}
+
+fn initial_snapshot_ready(client: &str, subscription: &str) -> SessionWorkerRuntimeEvent {
+    SessionWorkerRuntimeEvent::InitialSnapshotReady(InitialSnapshotReady {
+        request_id: request_id(&format!("initial-{client}")),
+        session_id: session_id(),
+        client_id: client_id(client),
+        subscription_id: subscription_id(subscription),
+        snapshot: Vec::new(),
+        rows: 24,
+        cols: 80,
+    })
 }
 
 fn spawn_request() -> SessionSpawnRequest {
@@ -252,6 +265,12 @@ fn multiplexer_engine_drives_spawn_attach_output_notification_plugin_activity_an
             10,
         )
         .expect("client b subscribes");
+    engine
+        .handle_runtime_event(initial_snapshot_ready("client-a", "sub-a"))
+        .expect("client a initial snapshot should release live output");
+    engine
+        .handle_runtime_event(initial_snapshot_ready("client-b", "sub-b"))
+        .expect("client b initial snapshot should release live output");
 
     let output = engine
         .handle_runtime_event(botster_core::SessionWorkerRuntimeEvent::TerminalBytes {
@@ -484,6 +503,12 @@ fn botster_engine_facade_reports_route_pressure_and_preserves_healthy_fanout() {
             10,
         )
         .expect("client b subscribes");
+    engine
+        .handle_runtime_event(initial_snapshot_ready("client-a", "sub-a"))
+        .expect("client a initial snapshot should release live output");
+    engine
+        .handle_runtime_event(initial_snapshot_ready("client-b", "sub-b"))
+        .expect("client b initial snapshot should release live output");
 
     let pressure = engine
         .report_backpressure(

@@ -9,8 +9,11 @@ use crate::actor::{
     SessionIoRequest, SnapshotReady, TerminalAttachState,
 };
 use crate::client::ClientId;
-use crate::session::{SessionId, SubscriptionId};
+use crate::session::{RequestId, SessionId, SubscriptionId};
 use crate::transport::{TransportEgress, TransportIngress};
+
+const DEFAULT_ATTACH_ROWS: u16 = 24;
+const DEFAULT_ATTACH_COLS: u16 = 80;
 
 /// Monotonic client stream generation used to reject stale reconnect deliveries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -421,6 +424,14 @@ impl ClientStreamHarness {
                 let old_subscription_id = existing.clone();
                 self.subscriptions
                     .insert(session_id.clone(), subscription_id.clone());
+                outcome.session_requests.push((
+                    session_id.clone(),
+                    subscribe_terminal_request(
+                        self.client_id.clone(),
+                        session_id.clone(),
+                        subscription_id.clone(),
+                    ),
+                ));
                 outcome
                     .observations
                     .push(ClientStreamObservation::ReplacedSubscription {
@@ -432,6 +443,14 @@ impl ClientStreamHarness {
             None => {
                 self.subscriptions
                     .insert(session_id.clone(), subscription_id.clone());
+                outcome.session_requests.push((
+                    session_id.clone(),
+                    subscribe_terminal_request(
+                        self.client_id.clone(),
+                        session_id.clone(),
+                        subscription_id.clone(),
+                    ),
+                ));
                 outcome
                     .observations
                     .push(ClientStreamObservation::Subscribed {
@@ -570,5 +589,23 @@ impl ClientStreamHarness {
         let mut outcome = ClientStreamOutcome::empty();
         outcome.observations.push(ClientStreamObservation::Closed);
         outcome
+    }
+}
+
+fn subscribe_terminal_request(
+    client_id: ClientId,
+    session_id: SessionId,
+    subscription_id: SubscriptionId,
+) -> SessionIoRequest {
+    SessionIoRequest::SubscribeTerminal {
+        request_id: RequestId(format!(
+            "initial-snapshot:{}:{}:{}",
+            client_id.0, session_id.0, subscription_id.0
+        )),
+        session_id,
+        client_id,
+        subscription_id,
+        rows: DEFAULT_ATTACH_ROWS,
+        cols: DEFAULT_ATTACH_COLS,
     }
 }
