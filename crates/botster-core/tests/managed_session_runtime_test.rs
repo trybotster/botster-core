@@ -431,10 +431,14 @@ fn managed_session_runtime_fair_drain_error_returns_typed_runtime_error() {
 fn supervised_session_reader_events_reach_subscription_multiplexer() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
-    assert!(
-        runtime.session_runtime().inputs().is_empty(),
-        "SubscribeSession establishes fanout only; it does not hydrate global state or touch the runtime"
-    );
+    let initial = runtime
+        .drain_runtime_once(&session_id(), 19)
+        .expect("drain subscribe-triggered initial snapshot");
+    assert!(matches!(
+        initial.session_events.first(),
+        Some(SessionIoEvent::InitialSnapshotReady(snapshot)) if snapshot.snapshot.is_empty()
+    ));
+    assert!(initial.client_egress.is_empty());
 
     runtime
         .session_runtime_mut()
@@ -703,6 +707,68 @@ fn supervised_session_resize_forwarding_reaches_runtime_before_snapshot() {
 }
 
 #[test]
+fn supervised_session_subscribe_snapshot_preserves_existing_terminal_size() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let _ = runtime
+        .drain_runtime_once(&session_id(), 10)
+        .expect("drain initial subscription snapshot");
+
+    runtime
+        .handle_client_ingress(
+            client_id("client-a"),
+            TransportIngress::Resize {
+                session_id: session_id(),
+                rows: 40,
+                cols: 120,
+            },
+            11,
+        )
+        .expect("primary client resize");
+    runtime
+        .handle_client_ingress(
+            client_id("client-b"),
+            TransportIngress::SubscribeSession {
+                client_id: client_id("client-b"),
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-b"),
+            },
+            12,
+        )
+        .expect("late subscribe should not resize shared terminal");
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 13)
+        .expect("drain late subscribe snapshot");
+
+    let resize_inputs = runtime
+        .session_runtime()
+        .inputs()
+        .iter()
+        .filter(|input| matches!(input, SessionRuntimeInput::Resize { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        resize_inputs,
+        vec![&SessionRuntimeInput::Resize {
+            session_id: session_id(),
+            size: ResizePayload {
+                rows: 40,
+                cols: 120
+            },
+        }],
+        "late subscribe must snapshot current state without forcing a second resize"
+    );
+    assert!(matches!(
+        outcome.session_events.first(),
+        Some(SessionIoEvent::InitialSnapshotReady(snapshot))
+            if snapshot.client_id == client_id("client-b")
+                && snapshot.subscription_id == subscription_id("sub-b")
+                && snapshot.rows == 40
+                && snapshot.cols == 120
+    ));
+}
+
+#[test]
 fn supervised_session_live_output_fanout_still_emits_original_bytes() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
@@ -829,6 +895,9 @@ fn supervised_session_request_snapshot_is_no_longer_unsupported() {
 fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
+    let _ = runtime
+        .drain_runtime_once(&session_id(), 19)
+        .expect("drain subscribe-triggered initial snapshot");
 
     runtime
         .handle_session_request(
@@ -853,7 +922,7 @@ fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() 
     assert!(matches!(
         outcome.session_events.first(),
         Some(SessionIoEvent::InitialSnapshotReady(snapshot))
-            if snapshot.snapshot.is_empty() && snapshot.rows == 30 && snapshot.cols == 100
+            if snapshot.snapshot.is_empty() && snapshot.rows == 24 && snapshot.cols == 80
     ));
     assert!(matches!(
         outcome.session_events.get(1),
