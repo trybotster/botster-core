@@ -17,6 +17,9 @@ pub struct PackageResolutionInput {
     /// Provider ids known to the host.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub providers: Vec<String>,
+    /// Capability grants known to the host outside a specific dependency package.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<Capability>,
     /// Auth handles known to the host.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub auth: Vec<PackageAuthState>,
@@ -186,6 +189,7 @@ pub fn resolve_package_dependencies(
 struct ResolutionContext {
     packages: BTreeMap<String, PackageResolutionPackage>,
     providers: BTreeSet<String>,
+    capabilities: BTreeSet<Capability>,
     configured_auth: BTreeSet<String>,
     configured_config: BTreeSet<String>,
 }
@@ -200,6 +204,10 @@ impl ResolutionContext {
         let mut providers = input.providers.iter().cloned().collect::<BTreeSet<_>>();
         for package in input.packages.iter().filter(|package| package.enabled) {
             providers.extend(package.providers.iter().cloned());
+        }
+        let mut capabilities = input.capabilities.iter().cloned().collect::<BTreeSet<_>>();
+        for package in input.packages.iter().filter(|package| package.enabled) {
+            capabilities.extend(package.capabilities.iter().cloned());
         }
         let configured_auth = input
             .auth
@@ -217,6 +225,7 @@ impl ResolutionContext {
         Self {
             packages,
             providers,
+            capabilities,
             configured_auth,
             configured_config,
         }
@@ -307,7 +316,7 @@ fn append_requirement_reasons(
                 let provided_by_package = package
                     .map(|package| package.capabilities.contains(capability))
                     .unwrap_or(false);
-                if !provided_by_package {
+                if !provided_by_package && !context.capabilities.contains(capability) {
                     blocked_reasons.push(PackageBlockedReason::MissingCapability {
                         package: package_name.cloned(),
                         capability: capability.clone(),

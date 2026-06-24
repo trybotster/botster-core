@@ -88,6 +88,31 @@ fn enabled_package(name: &str) -> PackageResolutionPackage {
     }
 }
 
+fn capability_feature_manifest() -> PackageManifest {
+    PackageManifest {
+        name: "capability-feature-plugin".to_string(),
+        version: "0.1.0".to_string(),
+        kind: ExtensionKind::Plugin,
+        botster: ">=0.1.0".to_string(),
+        source: None,
+        capabilities: Vec::new(),
+        entrypoints: Vec::new(),
+        dependencies: Vec::new(),
+        features: vec![PackageFeatureGate {
+            id: "network_sync".to_string(),
+            label: "Network sync".to_string(),
+            description: None,
+            dependencies: Vec::new(),
+            requirements: vec![PackageRequirement::Capability {
+                capability: network_capability(),
+            }],
+        }],
+        host_profile: None,
+        configuration: None,
+        surfaces: Vec::new(),
+    }
+}
+
 #[test]
 fn package_manifest_without_dependencies_keeps_serde_compatibility() {
     let json = serde_json::json!({
@@ -148,6 +173,7 @@ fn hard_dependency_blocks_when_required_package_is_missing() {
         &PackageResolutionInput {
             packages: Vec::new(),
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: Vec::new(),
             config: Vec::new(),
         },
@@ -173,6 +199,7 @@ fn optional_provider_feature_blocks_when_dependency_package_is_missing() {
         &PackageResolutionInput {
             packages: vec![enabled_package("storage-provider")],
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: Vec::new(),
             config: Vec::new(),
         },
@@ -203,6 +230,7 @@ fn optional_provider_feature_blocks_when_dependency_package_is_disabled() {
                 },
             ],
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: Vec::new(),
             config: Vec::new(),
         },
@@ -213,6 +241,31 @@ fn optional_provider_feature_blocks_when_dependency_package_is_disabled() {
         matrix.features[0].blocked_reasons,
         vec![PackageBlockedReason::DisabledPackage {
             package: "issue-provider".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn optional_provider_feature_blocks_when_enabled_dependency_lacks_provider() {
+    let matrix = resolve_package_dependencies(
+        &marketplace_manifest(),
+        &PackageResolutionInput {
+            packages: vec![
+                enabled_package("storage-provider"),
+                enabled_package("issue-provider"),
+            ],
+            providers: Vec::new(),
+            capabilities: Vec::new(),
+            auth: Vec::new(),
+            config: Vec::new(),
+        },
+    );
+
+    assert_eq!(matrix.features[0].state, PackageResolutionState::Blocked);
+    assert_eq!(
+        matrix.features[0].blocked_reasons,
+        vec![PackageBlockedReason::MissingProvider {
+            provider: "issues".to_string(),
         }]
     );
 }
@@ -232,6 +285,7 @@ fn feature_blocks_when_auth_or_config_is_missing() {
                 },
             ],
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: vec![PackageAuthState {
                 key: "api_token".to_string(),
                 status: PackageRequirementStatus::Missing,
@@ -259,6 +313,46 @@ fn feature_blocks_when_auth_or_config_is_missing() {
 }
 
 #[test]
+fn feature_capability_requirement_blocks_and_resolves_from_host_capabilities() {
+    let blocked = resolve_package_dependencies(
+        &capability_feature_manifest(),
+        &PackageResolutionInput {
+            packages: Vec::new(),
+            providers: Vec::new(),
+            capabilities: Vec::new(),
+            auth: Vec::new(),
+            config: Vec::new(),
+        },
+    );
+
+    assert_eq!(blocked.features[0].state, PackageResolutionState::Blocked);
+    assert_eq!(
+        blocked.features[0].blocked_reasons,
+        vec![PackageBlockedReason::MissingCapability {
+            package: None,
+            capability: network_capability(),
+        }]
+    );
+
+    let available = resolve_package_dependencies(
+        &capability_feature_manifest(),
+        &PackageResolutionInput {
+            packages: Vec::new(),
+            providers: Vec::new(),
+            capabilities: vec![network_capability()],
+            auth: Vec::new(),
+            config: Vec::new(),
+        },
+    );
+
+    assert_eq!(
+        available.features[0].state,
+        PackageResolutionState::Available
+    );
+    assert!(available.features[0].blocked_reasons.is_empty());
+}
+
+#[test]
 fn dependency_and_feature_are_available_once_requirements_are_met() {
     let matrix = resolve_package_dependencies(
         &marketplace_manifest(),
@@ -279,6 +373,7 @@ fn dependency_and_feature_are_available_once_requirements_are_met() {
                 },
             ],
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: vec![PackageAuthState {
                 key: "api_token".to_string(),
                 status: PackageRequirementStatus::Configured,
@@ -310,6 +405,7 @@ fn package_dependency_example_deserializes_and_resolves_deterministically() {
         &PackageResolutionInput {
             packages: vec![enabled_package("storage-provider")],
             providers: Vec::new(),
+            capabilities: Vec::new(),
             auth: Vec::new(),
             config: Vec::new(),
         },
