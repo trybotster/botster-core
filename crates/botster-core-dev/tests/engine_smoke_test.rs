@@ -19,9 +19,9 @@ fn dev_harness_exercises_non_hub_host_profile_engine_path() {
     assert!(report.admitted_capability_drove_plugin_handler);
     assert_eq!(
         report.engine_surface,
-        "BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>"
+        "DefaultBotsterEngine session runtime + BotsterEngine plugin facade"
     );
-    assert!(report.single_engine_session_and_plugin);
+    assert!(!report.single_engine_session_and_plugin);
     assert_eq!(report.spawned_session_id.0, "real-embedder-session");
     assert_eq!(report.attached_client_id.0, "real-embedder-client");
     assert_eq!(report.executable, "sh");
@@ -36,11 +36,14 @@ fn dev_harness_exercises_non_hub_host_profile_engine_path() {
         "input should reach the local command and echo through client egress"
     );
     assert_eq!(report.resized_to, Some((30, 100)));
-    assert_eq!(
-        report.screen_text, "",
-        "generic local worker path exposes ScreenReady but does not own a shadow terminal parser"
+    assert!(
+        report.screen_text.contains("echo:ping-embedder"),
+        "default engine should expose the managed terminal screen path"
     );
-    assert_eq!(report.snapshot_bytes, 0);
+    assert!(
+        report.snapshot_bytes > 0,
+        "default engine should expose a managed terminal snapshot"
+    );
     assert_eq!(report.snapshot_size, Some((30, 100)));
     assert_eq!(
         report.activity_status,
