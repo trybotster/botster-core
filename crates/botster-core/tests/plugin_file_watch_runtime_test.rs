@@ -373,6 +373,8 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
                 path: "plugin.lua".to_string(),
                 bootstrap: false,
             }],
+            dependencies: Vec::new(),
+            features: Vec::new(),
             host_profile: None,
             configuration: None,
             surfaces: Vec::new(),

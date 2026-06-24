@@ -21,9 +21,11 @@ use crate::engine::session_worker::SessionWorkerRuntime;
 use crate::engine::terminal_screen::{
     PlainTerminalScreenRuntime, TerminalScreenEngine, TerminalScreenRuntime,
 };
+#[cfg(feature = "local-runtime")]
+use crate::runtime::ProcessIdentity;
 use crate::runtime::{
-    ProcessIdentity, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
-    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest,
 };
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{WorkerProcessRuntime, WorkerProcessRuntimeOptions};

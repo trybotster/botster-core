@@ -231,6 +231,8 @@ fn manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageMan
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: None,
         surfaces: Vec::new(),

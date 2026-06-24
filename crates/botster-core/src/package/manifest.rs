@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::configuration::PackageConfigurationSchema;
+use super::dependency::{PackageDependency, PackageFeatureGate};
 use super::host_profile::HostProfileMetadata;
 use super::surface::PackageSurfaceDescriptor;
 use crate::capability::Capability;
@@ -43,6 +44,12 @@ pub struct PackageManifest {
     pub capabilities: Vec<Capability>,
     /// Entrypoints supplied by this package.
     pub entrypoints: Vec<ExtensionEntrypoint>,
+    /// Package dependency declarations inspected by hosts without running plugin code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<PackageDependency>,
+    /// Named feature gates resolved from dependency and requirement state.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<PackageFeatureGate>,
     /// Host-profile metadata for privileged provider packages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_profile: Option<HostProfileMetadata>,
