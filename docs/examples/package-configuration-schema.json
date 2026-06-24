@@ -1,0 +1,50 @@
+{
+  "name": "example-package",
+  "version": "0.1.0",
+  "kind": "plugin",
+  "botster": ">=0.1.0",
+  "source": null,
+  "capabilities": [],
+  "entrypoints": [],
+  "configuration": {
+    "groups": [
+      {
+        "id": "connection",
+        "label": "Connection",
+        "description": "Connection settings inspected by the host.",
+        "order": 1
+      }
+    ],
+    "fields": [
+      {
+        "key": "endpoint",
+        "type": "url",
+        "label": "Endpoint URL",
+        "description": "Base URL for outbound requests.",
+        "required": true,
+        "group": "connection",
+        "order": 1,
+        "default": {
+          "type": "url",
+          "value": "https://api.example.invalid"
+        },
+        "validation": {
+          "pattern": "^https://"
+        }
+      },
+      {
+        "key": "api_token",
+        "type": "secret",
+        "label": "API token",
+        "description": "Stored and redacted by the host.",
+        "required": true,
+        "group": "connection",
+        "order": 2,
+        "default": {
+          "type": "secret",
+          "state": "unset"
+        }
+      }
+    ]
+  }
+}

@@ -96,6 +96,18 @@ admission helper, and plugin-worker capability checks continue to use only
 `PackageManifest.capabilities`; `host_profile.required_capabilities` is never a
 handler grant.
 
+Package configuration schemas are another package manifest contract. A package
+may declare an optional `configuration` section with groups, ordered fields,
+labels, descriptions, defaults, required flags, select options, field types
+(`string`, `number`, `integer`, `boolean`, `select`, `path`, `url`,
+`multiline_text`, and `secret`), and validation hints. `botster-core` only
+defines the schema and value shapes so a host can inspect package metadata
+without executing plugin code. Hubs own validation, persistence, secret
+redaction policy, and the DTOs clients render. Secret configuration values use
+redacted/write-only marker states; raw secret material is not part of the core
+serialized value shape. See `docs/examples/package-configuration-schema.json`
+for a manifest example.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current
