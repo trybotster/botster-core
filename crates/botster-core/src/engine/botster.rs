@@ -702,6 +702,7 @@ impl Default for DefaultBotsterEngine {
 ///             bootstrap: false,
 ///         }],
 ///         host_profile: None,
+///         configuration: None,
 ///     },
 ///     runtime: Arc::new(FakePluginRuntime::success("ok")),
 ///     handlers: vec![PluginHandlerRegistration {

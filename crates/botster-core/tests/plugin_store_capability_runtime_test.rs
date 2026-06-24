@@ -693,6 +693,7 @@ fn registration(plugin_key: &PluginKey, handler: PluginHandlerRef) -> PluginWork
                 bootstrap: false,
             }],
             host_profile: None,
+            configuration: None,
         },
         runtime: Arc::new(FakePluginRuntime::new(FakePluginBehavior::Success(
             BoundaryJson(serde_json::json!({ "value": "ok" })),

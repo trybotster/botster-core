@@ -91,6 +91,7 @@ fn provider_is_a_privileged_extension_package() {
             bootstrap: true,
         }],
         host_profile: None,
+        configuration: None,
     };
 
     assert_eq!(manifest.kind, ExtensionKind::Provider);
