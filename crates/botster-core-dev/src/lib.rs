@@ -13,14 +13,15 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use botster_core::{
     admit_host_profile, BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
-    EngineCommand, EngineCommandOutcome, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    HostProfilePolicySection, LocalProcessRuntime, LocalProcessWorkerRuntime, PackageManifest,
-    PackageSource, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
+    DefaultBotsterEngine, DefaultEngineCommand, EngineCommand, EngineCommandOutcome,
+    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, HostProfilePolicySection,
+    LocalProcessRuntime, LocalProcessWorkerRuntime, PackageManifest, PackageSource,
+    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
     PluginOwnedDescriptor, PluginWorkerRegistration, RequestId, ResizePayload, SessionIoEvent,
-    SessionLifecycleState, SessionRuntime, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TransportEgress,
 };
 use botster_core::{Capability, CapabilitySurface, ClientId, SessionActivityStatus, SessionId};
 #[cfg(unix)]
@@ -184,22 +185,17 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
             EngineSmokeError::new("admitted host profile did not declare a required capability")
         })?;
 
-    let runtime = LocalProcessRuntime::new();
-    let worker_runtime = runtime.worker_runtime();
-    let mut drain_runtime = runtime.clone();
-    let mut engine: BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime> =
-        BotsterEngine::new(runtime);
+    let mut session_engine = DefaultBotsterEngine::new();
     let request = real_embedder_spawn_request();
     let session_id = request.session_id.clone();
     let client_id = ClientId("real-embedder-client".to_string());
     let subscription_id = SubscriptionId("real-embedder-subscription".to_string());
     let mut logical_clock = 20;
 
-    let spawn = engine
-        .execute_command(EngineCommand::SpawnSession {
+    let spawn = session_engine
+        .execute_command(DefaultEngineCommand::SpawnSession {
             request: request.clone(),
             metadata: CoreSessionMetadata::new(),
-            worker_runtime,
         })
         .map_err(|error| EngineSmokeError::new(format!("spawn failed: {error}")))?;
     let EngineCommandOutcome::SpawnSession(spawn) = spawn else {
@@ -212,8 +208,7 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     }
 
     let smoke_result = run_spawned_embedder_smoke(
-        &mut engine,
-        &mut drain_runtime,
+        &mut session_engine,
         request.clone(),
         session_id.clone(),
         client_id,
@@ -221,13 +216,15 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         &mut logical_clock,
     );
     if let Err(error) = smoke_result {
-        let _ = shutdown_session(&mut engine, &session_id, logical_clock);
+        let _ = shutdown_session(&mut session_engine, &session_id, logical_clock);
         return Err(error);
     }
 
     let mut report = smoke_result.expect("error branch returned above");
-    let plugin_proof = run_plugin_proof(&mut engine, &admitted_capability)?;
-    let shutdown = shutdown_session(&mut engine, &session_id, logical_clock)?;
+    let mut plugin_engine: BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime> =
+        BotsterEngine::new(LocalProcessRuntime::new());
+    let plugin_proof = run_plugin_proof(&mut plugin_engine, &admitted_capability)?;
+    let shutdown = shutdown_session(&mut session_engine, &session_id, logical_clock)?;
     report.shutdown_observed = shutdown.session_events.iter().any(|event| {
         matches!(
             event,
@@ -248,8 +245,8 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     report.admitted_capability_drove_plugin_handler =
         plugin_proof.handler_required_admitted_capability;
     report.engine_surface =
-        "BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>".to_string();
-    report.single_engine_session_and_plugin = true;
+        "DefaultBotsterEngine session runtime + BotsterEngine plugin facade".to_string();
+    report.single_engine_session_and_plugin = false;
     report.plugin_invocation_completed = plugin_proof.allowed_completed;
     report.plugin_invocation_value = plugin_proof.allowed_value;
     report.plugin_missing_capability_rejected = plugin_proof.denied_rejected;
@@ -262,8 +259,7 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
 #[cfg(unix)]
 fn run_spawned_embedder_smoke(
-    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
-    drain_runtime: &mut LocalProcessRuntime,
+    engine: &mut DefaultBotsterEngine,
     request: SessionSpawnRequest,
     session_id: SessionId,
     client_id: ClientId,
@@ -271,7 +267,7 @@ fn run_spawned_embedder_smoke(
     logical_clock: &mut u64,
 ) -> Result<EngineSmokeReport, EngineSmokeError> {
     engine
-        .execute_command(EngineCommand::AttachClient {
+        .execute_command(DefaultEngineCommand::AttachClient {
             client_id: client_id.clone(),
             session_id: session_id.clone(),
             subscription_id,
@@ -280,12 +276,11 @@ fn run_spawned_embedder_smoke(
         .map_err(|error| EngineSmokeError::new(format!("attach failed: {error}")))?;
     *logical_clock += 1;
 
-    let startup_output =
-        drain_until_text(engine, drain_runtime, &session_id, b"ready", logical_clock)?;
+    let startup_output = drain_until_text(engine, &session_id, b"ready", logical_clock)?;
 
     let input = "ping-embedder\n";
     engine
-        .execute_command(EngineCommand::SendInput {
+        .execute_command(DefaultEngineCommand::SendInput {
             client_id: client_id.clone(),
             session_id: session_id.clone(),
             data: input.as_bytes().to_vec(),
@@ -294,17 +289,12 @@ fn run_spawned_embedder_smoke(
         .map_err(|error| EngineSmokeError::new(format!("input failed: {error}")))?;
     *logical_clock += 1;
 
-    let echoed_output = drain_until_text(
-        engine,
-        drain_runtime,
-        &session_id,
-        b"echo:ping-embedder",
-        logical_clock,
-    )?;
+    let echoed_output =
+        drain_until_text(engine, &session_id, b"echo:ping-embedder", logical_clock)?;
 
     let resized_to = (30, 100);
     engine
-        .execute_command(EngineCommand::Resize {
+        .execute_command(DefaultEngineCommand::Resize {
             client_id,
             session_id: session_id.clone(),
             rows: resized_to.0,
@@ -404,8 +394,7 @@ fn real_embedder_spawn_request() -> SessionSpawnRequest {
 
 #[cfg(unix)]
 fn drain_until_text(
-    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
-    drain_runtime: &mut LocalProcessRuntime,
+    engine: &mut DefaultBotsterEngine,
     session_id: &SessionId,
     needle: &[u8],
     logical_clock: &mut u64,
@@ -414,24 +403,14 @@ fn drain_until_text(
     let mut observed = Vec::new();
 
     while Instant::now() < deadline {
-        for output in drain_runtime
-            .drain_output(session_id)
-            .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?
-        {
-            let SessionRuntimeOutput::PtyOutput { data, .. } = output else {
-                continue;
-            };
-            let output = engine
-                .receive_output(session_id.clone(), data, *logical_clock)
-                .map_err(|error| {
-                    EngineSmokeError::new(format!("receive output failed: {error}"))
-                })?;
-            *logical_clock += 1;
+        let output = engine
+            .drain_runtime_once(session_id, *logical_clock)
+            .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?;
+        *logical_clock += 1;
 
-            for (_, frame) in output.client_egress {
-                if let TransportEgress::TerminalOutput { data, .. } = frame {
-                    observed.extend(data);
-                }
+        for (_, frame) in output.client_egress {
+            if let TransportEgress::TerminalOutput { data, .. } = frame {
+                observed.extend(data);
             }
         }
 
@@ -455,12 +434,12 @@ fn drain_until_text(
 
 #[cfg(unix)]
 fn read_screen(
-    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    engine: &mut DefaultBotsterEngine,
     session_id: &SessionId,
     logical_clock: &mut u64,
 ) -> Result<String, EngineSmokeError> {
     let output = engine
-        .execute_command(EngineCommand::ReadScreen {
+        .execute_command(DefaultEngineCommand::ReadScreen {
             request_id: request_id("read-screen"),
             session_id: session_id.clone(),
             now_seconds: *logical_clock,
@@ -492,12 +471,12 @@ struct SnapshotEvidence {
 
 #[cfg(unix)]
 fn capture_snapshot(
-    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    engine: &mut DefaultBotsterEngine,
     session_id: &SessionId,
     logical_clock: &mut u64,
 ) -> Result<SnapshotEvidence, EngineSmokeError> {
     let output = engine
-        .execute_command(EngineCommand::CaptureSnapshot {
+        .execute_command(DefaultEngineCommand::CaptureSnapshot {
             request_id: request_id("capture-snapshot"),
             session_id: session_id.clone(),
             now_seconds: *logical_clock,
@@ -525,12 +504,12 @@ fn capture_snapshot(
 
 #[cfg(unix)]
 fn shutdown_session(
-    engine: &mut BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime>,
+    engine: &mut DefaultBotsterEngine,
     session_id: &SessionId,
     logical_clock: u64,
 ) -> Result<botster_core::BotsterEngineOutput, EngineSmokeError> {
     let shutdown = engine
-        .execute_command(EngineCommand::Shutdown {
+        .execute_command(DefaultEngineCommand::Shutdown {
             session_id: session_id.clone(),
             reason: "real embedder smoke complete".to_string(),
             now_seconds: logical_clock,
