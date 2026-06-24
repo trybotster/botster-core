@@ -92,6 +92,7 @@ fn provider_is_a_privileged_extension_package() {
         }],
         host_profile: None,
         configuration: None,
+        surfaces: Vec::new(),
     };
 
     assert_eq!(manifest.kind, ExtensionKind::Provider);

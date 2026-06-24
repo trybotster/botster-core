@@ -5,6 +5,7 @@ pub mod configuration;
 pub mod extension;
 pub mod host_profile;
 pub mod manifest;
+pub mod surface;
 
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
 pub use configuration::{
@@ -18,3 +19,4 @@ pub use host_profile::{
     HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection,
 };
 pub use manifest::{PackageManifest, PackageSource};
+pub use surface::{PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation};

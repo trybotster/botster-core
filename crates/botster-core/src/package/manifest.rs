@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::configuration::PackageConfigurationSchema;
 use super::host_profile::HostProfileMetadata;
+use super::surface::PackageSurfaceDescriptor;
 use crate::capability::Capability;
 use crate::extension::{ExtensionEntrypoint, ExtensionKind};
 
@@ -48,4 +49,7 @@ pub struct PackageManifest {
     /// Configuration metadata clients and hubs can inspect without running plugin code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configuration: Option<PackageConfigurationSchema>,
+    /// UI surface descriptors clients and hubs can inspect without running plugin code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<PackageSurfaceDescriptor>,
 }
