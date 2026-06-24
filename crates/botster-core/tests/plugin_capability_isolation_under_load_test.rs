@@ -215,6 +215,7 @@ fn manifest(plugin: &PluginKey) -> PackageManifest {
         }],
         host_profile: None,
         configuration: None,
+        surfaces: Vec::new(),
     }
 }
 

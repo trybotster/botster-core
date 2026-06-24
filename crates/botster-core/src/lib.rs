@@ -26,7 +26,7 @@ pub use engine::{
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
-pub use package::{capability, configuration, extension, host_profile, manifest};
+pub use package::{capability, configuration, extension, host_profile, manifest, surface};
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
     CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
@@ -146,6 +146,7 @@ pub use package::{
     PackageConfigurationField, PackageConfigurationFieldType, PackageConfigurationGroup,
     PackageConfigurationOption, PackageConfigurationSchema, PackageConfigurationSecretValue,
     PackageConfigurationValidationHints, PackageConfigurationValue, PackageManifest, PackageSource,
+    PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation,
 };
 pub use routed_envelope::{
     EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,

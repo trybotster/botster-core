@@ -233,6 +233,7 @@ fn manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageMan
         }],
         host_profile: None,
         configuration: None,
+        surfaces: Vec::new(),
     }
 }
 

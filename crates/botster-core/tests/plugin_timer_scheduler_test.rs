@@ -59,6 +59,7 @@ fn manifest(plugin_key: &PluginKey) -> PackageManifest {
         }],
         host_profile: None,
         configuration: None,
+        surfaces: Vec::new(),
     }
 }
 
