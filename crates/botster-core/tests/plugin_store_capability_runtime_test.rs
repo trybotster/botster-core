@@ -692,6 +692,8 @@ fn registration(plugin_key: &PluginKey, handler: PluginHandlerRef) -> PluginWork
                 path: "plugin.lua".to_string(),
                 bootstrap: false,
             }],
+            dependencies: Vec::new(),
+            features: Vec::new(),
             host_profile: None,
             configuration: None,
             surfaces: Vec::new(),

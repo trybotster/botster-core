@@ -48,6 +48,8 @@ fn provider_manifest() -> PackageManifest {
             path: "profile.lua".to_string(),
             bootstrap: true,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: Some(host_profile_metadata(vec![capability])),
         configuration: None,
         surfaces: Vec::new(),

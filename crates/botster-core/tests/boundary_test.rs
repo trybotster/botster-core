@@ -90,6 +90,8 @@ fn provider_is_a_privileged_extension_package() {
             path: "bootstrap.lua".to_string(),
             bootstrap: true,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: None,
         surfaces: Vec::new(),

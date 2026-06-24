@@ -28,10 +28,14 @@ use crate::engine::plugin_worker::{
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
+use crate::runtime::ProcessIdentity;
+#[cfg(feature = "local-runtime")]
 use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
-use crate::runtime::{ProcessIdentity, SessionRuntime, SessionSpawnRequest};
+use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
-use crate::{ClientId, SessionMetadata, SubscriptionId};
+#[cfg(feature = "local-runtime")]
+use crate::SessionMetadata;
+use crate::{ClientId, SubscriptionId};
 
 /// Facade-level error for ergonomic Botster engine operations.
 pub type BotsterEngineError = MultiplexerEngineError;
@@ -701,6 +705,8 @@ impl Default for DefaultBotsterEngine {
 ///             path: "plugin.lua".to_string(),
 ///             bootstrap: false,
 ///         }],
+///         dependencies: Vec::new(),
+///         features: Vec::new(),
 ///         host_profile: None,
 ///         configuration: None,
 ///         surfaces: Vec::new(),
