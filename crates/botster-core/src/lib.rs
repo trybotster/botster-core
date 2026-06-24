@@ -26,7 +26,9 @@ pub use engine::{
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 pub use identity::{crypto, device, keyring};
-pub use package::{capability, configuration, extension, host_profile, manifest, surface};
+pub use package::{
+    capability, configuration, dependency, extension, host_profile, manifest, resolution, surface,
+};
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
     CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
@@ -141,12 +143,17 @@ pub use notification::{
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use package::{
-    admit_host_profile, AdmittedHostProfile, HostProfileAdmissionError,
-    HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection,
+    admit_host_profile, resolve_package_dependencies, AdmittedHostProfile,
+    HostProfileAdmissionError, HostProfileCompatibilityField, HostProfileMetadata,
+    HostProfilePolicySection, PackageAuthState, PackageBlockedReason, PackageConfigState,
     PackageConfigurationField, PackageConfigurationFieldType, PackageConfigurationGroup,
     PackageConfigurationOption, PackageConfigurationSchema, PackageConfigurationSecretValue,
-    PackageConfigurationValidationHints, PackageConfigurationValue, PackageManifest, PackageSource,
-    PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation,
+    PackageConfigurationValidationHints, PackageConfigurationValue, PackageDependency,
+    PackageDependencyKind, PackageDependencyResolution, PackageFeatureGate,
+    PackageFeatureResolution, PackageManifest, PackageRequirement, PackageRequirementStatus,
+    PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
+    PackageResolutionState, PackageSource, PackageSurfaceDescriptor, PackageSurfaceKind,
+    PackageSurfaceOperation,
 };
 pub use routed_envelope::{
     EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,

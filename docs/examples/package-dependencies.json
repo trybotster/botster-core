@@ -1,0 +1,46 @@
+{
+  "name": "workflow-plugin",
+  "version": "0.1.0",
+  "kind": "plugin",
+  "botster": ">=0.1.0",
+  "source": null,
+  "capabilities": [],
+  "entrypoints": [],
+  "dependencies": [
+    {
+      "id": "storage",
+      "package": "storage-provider",
+      "kind": "required"
+    },
+    {
+      "id": "issue-provider",
+      "package": "issue-provider",
+      "kind": "optional",
+      "feature": "issues",
+      "requirements": [
+        {
+          "type": "provider",
+          "provider": "issues"
+        }
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "issues",
+      "label": "Issues",
+      "description": "Issue integration",
+      "dependencies": ["issue-provider"],
+      "requirements": [
+        {
+          "type": "auth",
+          "key": "issue_token"
+        },
+        {
+          "type": "config",
+          "key": "issue_endpoint"
+        }
+      ]
+    }
+  ]
+}

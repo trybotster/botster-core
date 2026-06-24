@@ -83,6 +83,8 @@ fn plugin_manifest(plugin_key: &PluginKey) -> PackageManifest {
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: None,
         surfaces: Vec::new(),

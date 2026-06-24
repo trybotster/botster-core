@@ -654,6 +654,8 @@ fn trusted_host_profile_manifest() -> PackageManifest {
             path: "bootstrap.lua".to_string(),
             bootstrap: true,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: Some(botster_core::HostProfileMetadata {
             profile_id: "minimal-test-host".to_string(),
             compatibility: ">=0.1.0".to_string(),
@@ -742,6 +744,8 @@ fn plugin_manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> Pac
             path: "plugin.lua".to_string(),
             bootstrap: false,
         }],
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: None,
         surfaces: Vec::new(),
