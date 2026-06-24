@@ -108,6 +108,16 @@ redacted/write-only marker states; raw secret material is not part of the core
 serialized value shape. See `docs/examples/package-configuration-schema.json`
 for a manifest example.
 
+Package UI surface descriptors are package manifest metadata too. A package may
+declare a `surfaces` list with semantic ids, kinds (`app`, `settings`,
+`dashboard_widget`, or `diagnostics`), titles, optional descriptions, icon
+tokens, order/category hints, and supported operations (`render` and `action`).
+Hubs expose these descriptors as package metadata; clients decide how to present
+or launch them through the `PluginSurfaceRender` and `PluginSurfaceAction` path.
+Core does not define renderer components, dashboard placement policy, or host
+admission policy for surfaces. See `docs/examples/package-surfaces.json` for a
+manifest example.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current
