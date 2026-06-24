@@ -25,6 +25,8 @@ fn configured_manifest() -> PackageManifest {
         source: None,
         capabilities: Vec::new(),
         entrypoints: Vec::new(),
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: Some(PackageConfigurationSchema {
             groups: vec![PackageConfigurationGroup {

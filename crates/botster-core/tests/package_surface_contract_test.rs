@@ -14,6 +14,8 @@ fn surface_manifest() -> PackageManifest {
         source: None,
         capabilities: Vec::new(),
         entrypoints: Vec::new(),
+        dependencies: Vec::new(),
+        features: Vec::new(),
         host_profile: None,
         configuration: None,
         surfaces: vec![

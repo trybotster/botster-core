@@ -118,6 +118,24 @@ Core does not define renderer components, dashboard placement policy, or host
 admission policy for surfaces. See `docs/examples/package-surfaces.json` for a
 manifest example.
 
+Package dependency and feature-gate descriptors are policy-free manifest
+metadata as well. A package may declare `dependencies` for required packages,
+optional integrations, and feature-scoped packages, plus named `features` with
+provider, capability, auth, and configuration requirements. `botster-core`
+exposes `resolve_package_dependencies(manifest, input)` so a host can turn those
+declarations plus caller-supplied package/provider/auth/config state into a
+deterministic resolved matrix. Matrix rows are `available` or `blocked` and carry
+structured reasons such as missing package, disabled package, missing auth, and
+missing config.
+
+Core does not fetch packages, choose marketplace indexes, persist lockfiles,
+enable or disable packages, inspect credential stores, read configuration files,
+or decide update policy. The hub or another host owns that policy and supplies
+the observed state. Clients consume the resolved matrix to present package and
+feature availability without learning where packages, auth handles, or config
+values came from. See `docs/examples/package-dependencies.json` for a synthetic
+manifest example.
+
 `DefaultBotsterEngine` is available through the default `local-runtime` feature
 for embedders that want the policy-free local PTY/process path without writing
 their own `SessionRuntime`. The feature is default-on to preserve the current
