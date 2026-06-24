@@ -101,6 +101,7 @@ fn configured_manifest() -> PackageManifest {
                 },
             ],
         }),
+        surfaces: Vec::new(),
     }
 }
 

@@ -50,6 +50,7 @@ fn provider_manifest() -> PackageManifest {
         }],
         host_profile: Some(host_profile_metadata(vec![capability])),
         configuration: None,
+        surfaces: Vec::new(),
     }
 }
 
