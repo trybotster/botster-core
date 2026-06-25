@@ -7,6 +7,7 @@ pub mod extension;
 pub mod host_profile;
 pub mod manifest;
 pub mod resolution;
+pub mod runnable_entrypoint;
 pub mod surface;
 
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
@@ -29,5 +30,13 @@ pub use resolution::{
     PackageDependencyResolution, PackageFeatureResolution, PackageRequirementStatus,
     PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
     PackageResolutionState,
+};
+pub use runnable_entrypoint::{
+    validate_package_runnable_entrypoints, RunnableEntrypoint,
+    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointInjection,
+    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
+    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
+    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    RunnableEntrypointWorkingDirectory,
 };
 pub use surface::{PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation};
