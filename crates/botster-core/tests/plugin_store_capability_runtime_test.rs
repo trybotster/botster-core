@@ -696,6 +696,7 @@ fn registration(plugin_key: &PluginKey, handler: PluginHandlerRef) -> PluginWork
             features: Vec::new(),
             host_profile: None,
             configuration: None,
+            runnable_entrypoints: Vec::new(),
             surfaces: Vec::new(),
         },
         runtime: Arc::new(FakePluginRuntime::new(FakePluginBehavior::Success(
