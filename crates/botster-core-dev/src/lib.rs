@@ -670,6 +670,7 @@ fn trusted_host_profile_manifest() -> PackageManifest {
             ],
         }),
         configuration: None,
+        runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
     }
 }
@@ -748,6 +749,7 @@ fn plugin_manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> Pac
         features: Vec::new(),
         host_profile: None,
         configuration: None,
+        runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
     }
 }

@@ -1,0 +1,102 @@
+{
+  "name": "runnable-demo",
+  "version": "0.1.0",
+  "kind": "plugin",
+  "botster": ">=0.1.0",
+  "source": null,
+  "capabilities": [],
+  "entrypoints": [
+    {
+      "runtime": "lua",
+      "path": "plugin.lua",
+      "bootstrap": false
+    }
+  ],
+  "runnable_entrypoints": [
+    {
+      "id": "web",
+      "kind": "web_app",
+      "launch_mode": "background",
+      "command": "bin/web",
+      "args": ["--port", "0"],
+      "working_directory": {
+        "policy": "package_root"
+      },
+      "injections": [
+        {
+          "kind": "hub_connection",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_HUB_CONNECTION"
+          },
+          "required": true,
+          "description": "Hub connection descriptor supplied by the host."
+        },
+        {
+          "kind": "data_dir",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_PACKAGE_DATA_DIR"
+          },
+          "required": true,
+          "description": "Package data directory supplied by the host."
+        },
+        {
+          "kind": "hub_socket",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_HUB_SOCKET"
+          },
+          "required": true,
+          "description": "Hub socket supplied by the host."
+        }
+      ],
+      "environment": [
+        {
+          "name": "RUST_LOG",
+          "required": false,
+          "default": "info",
+          "description": "Package logging level."
+        }
+      ],
+      "readiness": {
+        "result_fields": ["local_url"]
+      }
+    },
+    {
+      "id": "terminal",
+      "kind": "terminal_app",
+      "launch_mode": "foreground_stdio",
+      "command": "bin/tui",
+      "working_directory": {
+        "policy": "entrypoint_dir"
+      },
+      "injections": [
+        {
+          "kind": "hub_connection",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_HUB_CONNECTION"
+          },
+          "required": true
+        },
+        {
+          "kind": "data_dir",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_PACKAGE_DATA_DIR"
+          },
+          "required": true
+        },
+        {
+          "kind": "hub_socket",
+          "target": {
+            "type": "environment",
+            "name": "BOTSTER_HUB_SOCKET"
+          },
+          "required": true
+        }
+      ]
+    }
+  ]
+}

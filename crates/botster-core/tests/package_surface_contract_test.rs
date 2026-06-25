@@ -18,6 +18,7 @@ fn surface_manifest() -> PackageManifest {
         features: Vec::new(),
         host_profile: None,
         configuration: None,
+        runnable_entrypoints: Vec::new(),
         surfaces: vec![
             PackageSurfaceDescriptor {
                 id: "main".to_string(),

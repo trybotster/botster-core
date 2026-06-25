@@ -94,6 +94,7 @@ fn provider_is_a_privileged_extension_package() {
         features: Vec::new(),
         host_profile: None,
         configuration: None,
+        runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
     };
 

@@ -27,7 +27,8 @@ pub use engine::{
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{
-    capability, configuration, dependency, extension, host_profile, manifest, resolution, surface,
+    capability, configuration, dependency, extension, host_profile, manifest, resolution,
+    runnable_entrypoint, surface,
 };
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
@@ -143,17 +144,22 @@ pub use notification::{
     NotificationSource, NotificationTarget, NotificationTimestamp,
 };
 pub use package::{
-    admit_host_profile, resolve_package_dependencies, AdmittedHostProfile,
-    HostProfileAdmissionError, HostProfileCompatibilityField, HostProfileMetadata,
-    HostProfilePolicySection, PackageAuthState, PackageBlockedReason, PackageConfigState,
-    PackageConfigurationField, PackageConfigurationFieldType, PackageConfigurationGroup,
-    PackageConfigurationOption, PackageConfigurationSchema, PackageConfigurationSecretValue,
-    PackageConfigurationValidationHints, PackageConfigurationValue, PackageDependency,
-    PackageDependencyKind, PackageDependencyResolution, PackageFeatureGate,
-    PackageFeatureResolution, PackageManifest, PackageRequirement, PackageRequirementStatus,
-    PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
-    PackageResolutionState, PackageSource, PackageSurfaceDescriptor, PackageSurfaceKind,
-    PackageSurfaceOperation,
+    admit_host_profile, resolve_package_dependencies, validate_package_runnable_entrypoints,
+    AdmittedHostProfile, HostProfileAdmissionError, HostProfileCompatibilityField,
+    HostProfileMetadata, HostProfilePolicySection, PackageAuthState, PackageBlockedReason,
+    PackageConfigState, PackageConfigurationField, PackageConfigurationFieldType,
+    PackageConfigurationGroup, PackageConfigurationOption, PackageConfigurationSchema,
+    PackageConfigurationSecretValue, PackageConfigurationValidationHints,
+    PackageConfigurationValue, PackageDependency, PackageDependencyKind,
+    PackageDependencyResolution, PackageFeatureGate, PackageFeatureResolution, PackageManifest,
+    PackageRequirement, PackageRequirementStatus, PackageResolutionInput, PackageResolutionMatrix,
+    PackageResolutionPackage, PackageResolutionState, PackageSource, PackageSurfaceDescriptor,
+    PackageSurfaceKind, PackageSurfaceOperation, RunnableEntrypoint,
+    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointInjection,
+    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
+    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
+    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    RunnableEntrypointWorkingDirectory,
 };
 pub use routed_envelope::{
     EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,
