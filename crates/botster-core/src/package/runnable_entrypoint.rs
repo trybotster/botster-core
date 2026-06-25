@@ -33,12 +33,6 @@ pub struct RunnableEntrypoint {
     /// Readiness metadata a host may use to interpret structured launch output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<RunnableEntrypointReadiness>,
-    /// Current launch state DTO. This is not durable supervisor state.
-    #[serde(
-        default,
-        skip_serializing_if = "RunnableEntrypointProcessState::is_not_started"
-    )]
-    pub process_state: RunnableEntrypointProcessState,
 }
 
 /// Semantic runnable entrypoint kinds.
@@ -157,6 +151,7 @@ pub struct RunnableEntrypointLaunchResult {
     /// Runnable entrypoint id this result belongs to.
     pub entrypoint_id: String,
     /// Observed process state.
+    #[serde(default)]
     pub process_state: RunnableEntrypointProcessState,
     /// Optional local URL produced by the launched entrypoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,12 +286,6 @@ impl RunnableEntrypoint {
         }
 
         Ok(())
-    }
-}
-
-impl RunnableEntrypointProcessState {
-    fn is_not_started(&self) -> bool {
-        matches!(self, Self::NotStarted)
     }
 }
 
