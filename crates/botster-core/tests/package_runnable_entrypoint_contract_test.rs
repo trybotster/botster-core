@@ -69,7 +69,6 @@ fn runnable_manifest() -> PackageManifest {
                 readiness: Some(RunnableEntrypointReadiness {
                     result_fields: vec![RunnableEntrypointResultField::LocalUrl],
                 }),
-                process_state: RunnableEntrypointProcessState::NotStarted,
             },
             RunnableEntrypoint {
                 id: "terminal".to_string(),
@@ -81,7 +80,6 @@ fn runnable_manifest() -> PackageManifest {
                 injections: required_injections(),
                 environment: Vec::new(),
                 readiness: None,
-                process_state: RunnableEntrypointProcessState::NotStarted,
             },
         ],
         surfaces: Vec::new(),
@@ -143,12 +141,43 @@ fn package_runnable_entrypoints_round_trip_through_package_manifest() {
         json["runnable_entrypoints"][1]["launch_mode"],
         "foreground_stdio"
     );
-    assert!(json["runnable_entrypoints"][0]
-        .get("process_state")
-        .is_none());
 
     let decoded: PackageManifest = serde_json::from_value(json).expect("deserialize manifest");
     assert_eq!(decoded, manifest);
+}
+
+#[test]
+fn package_runnable_entrypoints_round_trip_relative_workdir_and_argument_injection() {
+    let mut manifest = runnable_manifest();
+    manifest.runnable_entrypoints[0].working_directory =
+        Some(RunnableEntrypointWorkingDirectory::Relative {
+            path: "apps/web".to_string(),
+        });
+    manifest.runnable_entrypoints[0].injections[0].target =
+        RunnableEntrypointInjectionTarget::Argument {
+            value: "{{hub_connection}}".to_string(),
+        };
+
+    let json = serde_json::to_value(&manifest).expect("serialize runnable manifest");
+
+    assert_eq!(
+        json["runnable_entrypoints"][0]["working_directory"],
+        serde_json::json!({
+            "policy": "relative",
+            "path": "apps/web"
+        })
+    );
+    assert_eq!(
+        json["runnable_entrypoints"][0]["injections"][0]["target"],
+        serde_json::json!({
+            "type": "argument",
+            "value": "{{hub_connection}}"
+        })
+    );
+
+    let decoded: PackageManifest = serde_json::from_value(json).expect("deserialize manifest");
+    assert_eq!(decoded, manifest);
+    assert_eq!(validate_package_runnable_entrypoints(&decoded), Ok(()));
 }
 
 #[test]
@@ -181,7 +210,7 @@ fn runnable_entrypoint_vocabulary_covers_required_inventory() {
 }
 
 #[test]
-fn package_runnable_entrypoint_validation_rejects_contract_violations() {
+fn package_runnable_entrypoint_validation_rejects_missing_ids_commands_and_injections() {
     let mut manifest = runnable_manifest();
 
     assert_eq!(validate_package_runnable_entrypoints(&manifest), Ok(()));
@@ -224,6 +253,48 @@ fn package_runnable_entrypoint_validation_rejects_contract_violations() {
 }
 
 #[test]
+fn package_runnable_entrypoint_validation_rejects_blank_metadata_values() {
+    let mut manifest = runnable_manifest();
+    manifest.runnable_entrypoints[0].working_directory =
+        Some(RunnableEntrypointWorkingDirectory::Relative {
+            path: " ".to_string(),
+        });
+    assert_eq!(
+        validate_package_runnable_entrypoints(&manifest),
+        Err(RunnableEntrypointValidationError::BlankRelativeWorkingDirectory("web".to_string()))
+    );
+
+    let mut manifest = runnable_manifest();
+    manifest.runnable_entrypoints[0].injections[0].target =
+        RunnableEntrypointInjectionTarget::Environment {
+            name: " ".to_string(),
+        };
+    assert_eq!(
+        validate_package_runnable_entrypoints(&manifest),
+        Err(RunnableEntrypointValidationError::BlankInjectionEnvironment("web".to_string()))
+    );
+
+    let mut manifest = runnable_manifest();
+    manifest.runnable_entrypoints[0].injections[0].target =
+        RunnableEntrypointInjectionTarget::Argument {
+            value: " ".to_string(),
+        };
+    assert_eq!(
+        validate_package_runnable_entrypoints(&manifest),
+        Err(RunnableEntrypointValidationError::BlankInjectionArgument(
+            "web".to_string()
+        ))
+    );
+
+    let mut manifest = runnable_manifest();
+    manifest.runnable_entrypoints[0].environment[0].name = " ".to_string();
+    assert_eq!(
+        validate_package_runnable_entrypoints(&manifest),
+        Err(RunnableEntrypointValidationError::BlankEnvironmentRequirement("web".to_string()))
+    );
+}
+
+#[test]
 fn runnable_entrypoint_launch_result_carries_structured_output_without_policy() {
     let result = RunnableEntrypointLaunchResult {
         entrypoint_id: "web".to_string(),
@@ -239,6 +310,21 @@ fn runnable_entrypoint_launch_result_carries_structured_output_without_policy() 
             "local_url": "http://127.0.0.1:49152"
         })
     );
+}
+
+#[test]
+fn runnable_entrypoint_launch_result_process_state_defaults_to_not_started() {
+    let result: RunnableEntrypointLaunchResult = serde_json::from_value(serde_json::json!({
+        "entrypoint_id": "web"
+    }))
+    .expect("deserialize launch result without process state");
+
+    assert_eq!(result.entrypoint_id, "web");
+    assert_eq!(
+        result.process_state,
+        RunnableEntrypointProcessState::NotStarted
+    );
+    assert_eq!(result.local_url, None);
 }
 
 #[test]
