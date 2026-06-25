@@ -118,6 +118,21 @@ Core does not define renderer components, dashboard placement policy, or host
 admission policy for surfaces. See `docs/examples/package-surfaces.json` for a
 manifest example.
 
+Runnable entrypoints are package manifest metadata for first-party/client app
+launch contracts. A package may declare `runnable_entrypoints` with stable ids,
+semantic kinds (`web_app` or `terminal_app`), launch modes (`background` or
+`foreground_stdio`), a command and arguments, declarative working-directory
+policy, host injection requirements for hub connection, package data directory,
+and hub socket values, environment requirements, and optional readiness metadata
+for structured launch output such as `local_url`. `botster-core` owns this
+portable vocabulary and validation shape only. The hub or another host owns
+launch policy, URL serving, OS open behavior, foreground process supervision,
+data-dir and socket resolution, client UI, and any persisted process state.
+The launch result DTO is a structured output shape; it is not durable supervisor
+truth in core. Local packages that declare `runnable_entrypoints` may still need
+ordinary core code-load `entrypoints` for current enable/prepare behavior. See
+`docs/examples/package-runnable-entrypoints.json` for a manifest example.
+
 Package dependency and feature-gate descriptors are policy-free manifest
 metadata as well. A package may declare `dependencies` for required packages,
 optional integrations, and feature-scoped packages, plus named `features` with

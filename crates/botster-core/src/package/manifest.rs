@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::configuration::PackageConfigurationSchema;
 use super::dependency::{PackageDependency, PackageFeatureGate};
 use super::host_profile::HostProfileMetadata;
+use super::runnable_entrypoint::RunnableEntrypoint;
 use super::surface::PackageSurfaceDescriptor;
 use crate::capability::Capability;
 use crate::extension::{ExtensionEntrypoint, ExtensionKind};
@@ -56,6 +57,9 @@ pub struct PackageManifest {
     /// Configuration metadata clients and hubs can inspect without running plugin code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configuration: Option<PackageConfigurationSchema>,
+    /// Runnable app/process descriptors clients and hubs can inspect without running plugin code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runnable_entrypoints: Vec<RunnableEntrypoint>,
     /// UI surface descriptors clients and hubs can inspect without running plugin code.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<PackageSurfaceDescriptor>,

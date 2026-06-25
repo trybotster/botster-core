@@ -377,6 +377,7 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
             features: Vec::new(),
             host_profile: None,
             configuration: None,
+            runnable_entrypoints: Vec::new(),
             surfaces: Vec::new(),
         },
         runtime: Arc::new(runtime),

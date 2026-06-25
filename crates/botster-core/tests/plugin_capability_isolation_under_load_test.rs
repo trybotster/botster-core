@@ -217,6 +217,7 @@ fn manifest(plugin: &PluginKey) -> PackageManifest {
         features: Vec::new(),
         host_profile: None,
         configuration: None,
+        runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
     }
 }
