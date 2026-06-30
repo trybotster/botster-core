@@ -17,8 +17,8 @@ pub mod package;
 pub mod runtime;
 
 pub use contract::{
-    actor, boundary, client, client_stream, durable_session, entity, notification, routed_envelope,
-    session, session_protocol, terminal_screen, transport, ui,
+    actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
+    notification, routed_envelope, session, session_protocol, terminal_screen, transport, ui,
 };
 pub use engine::{
     botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
@@ -106,6 +106,16 @@ pub use durable_session::{
     SessionWorkerShutdownMode, SessionWorkerShutdownRequest, SessionWorkerSpawnRequest,
     SessionWorkerSpawned, SessionWorkerStaleReason, SlowConsumerBehavior, SnapshotHandoffStrategy,
     DURABLE_SESSION_PROTOCOL_VERSION,
+};
+pub use encrypted_stream::{
+    EncryptedStreamBackpressure, EncryptedStreamClose, EncryptedStreamCloseReason,
+    EncryptedStreamControlFrame, EncryptedStreamDropReason, EncryptedStreamError,
+    EncryptedStreamFrame, EncryptedStreamFrameHeader, EncryptedStreamKeyId, EncryptedStreamLane,
+    EncryptedStreamLaneCounters, EncryptedStreamLaneDiscipline, EncryptedStreamMetadataFrame,
+    EncryptedStreamPairingState, EncryptedStreamPayload, EncryptedStreamPayloadKind,
+    EncryptedStreamPeerId, EncryptedStreamRejectionReason, EncryptedStreamSequence,
+    EncryptedStreamSequenceValidator, EncryptedStreamStorageKeyId, EncryptedStreamTranscriptId,
+    EncryptedStreamValidation, ENCRYPTED_STREAM_CONTRACT_VERSION,
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
