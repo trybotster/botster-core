@@ -5,6 +5,7 @@ pub mod boundary;
 pub mod client;
 pub mod client_stream;
 pub mod durable_session;
+pub mod encrypted_stream;
 pub mod entity;
 pub mod notification;
 pub mod routed_envelope;
@@ -50,6 +51,16 @@ pub use durable_session::{
     SessionWorkerShutdownMode, SessionWorkerShutdownRequest, SessionWorkerSpawnRequest,
     SessionWorkerSpawned, SessionWorkerStaleReason, SlowConsumerBehavior, SnapshotHandoffStrategy,
     DURABLE_SESSION_PROTOCOL_VERSION,
+};
+pub use encrypted_stream::{
+    EncryptedStreamBackpressure, EncryptedStreamClose, EncryptedStreamCloseReason,
+    EncryptedStreamControlFrame, EncryptedStreamDropReason, EncryptedStreamError,
+    EncryptedStreamFrame, EncryptedStreamFrameHeader, EncryptedStreamKeyId, EncryptedStreamLane,
+    EncryptedStreamLaneCounters, EncryptedStreamLaneDiscipline, EncryptedStreamMetadataFrame,
+    EncryptedStreamPairingState, EncryptedStreamPayload, EncryptedStreamPayloadKind,
+    EncryptedStreamPeerId, EncryptedStreamRejectionReason, EncryptedStreamSequence,
+    EncryptedStreamSequenceValidator, EncryptedStreamStorageKeyId, EncryptedStreamTranscriptId,
+    EncryptedStreamValidation, ENCRYPTED_STREAM_CONTRACT_VERSION,
 };
 pub use entity::{
     EntityApplyStatus, EntityContract, EntityError, EntityFrame, EntityId, EntityKind, EntityStore,
