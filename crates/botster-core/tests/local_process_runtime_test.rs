@@ -159,7 +159,8 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
             | SessionRuntimeOutput::PromptMark { .. }
             | SessionRuntimeOutput::Bell { .. }
             | SessionRuntimeOutput::Notification { .. }
-            | SessionRuntimeOutput::Backpressure(_) => None,
+            | SessionRuntimeOutput::Backpressure(_)
+            | SessionRuntimeOutput::MetadataShaping(_) => None,
         })
         .flatten()
         .copied()

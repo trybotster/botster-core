@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
 use crate::{
     BackpressureSummary, NotificationPayload, ProcessExitedPayload, PromptMarkPayload, RequestId,
-    ResizePayload, SessionId,
+    ResizePayload, SessionId, TerminalMetadataShapingObservation,
 };
 
 pub use capability::{
@@ -228,6 +228,8 @@ pub enum SessionRuntimeOutput {
     },
     /// Runtime-originated bounded-queue pressure.
     Backpressure(BackpressureSummary),
+    /// Runtime-originated terminal metadata lane shaping observation.
+    MetadataShaping(TerminalMetadataShapingObservation),
 }
 
 /// Stable category for a session runtime error.
