@@ -351,6 +351,29 @@ where
                     session_id,
                     payload,
                 },
+                SessionRuntimeOutput::TitleChanged { session_id, title } => {
+                    crate::SessionWorkerRuntimeEvent::TitleChanged { session_id, title }
+                }
+                SessionRuntimeOutput::CwdChanged { session_id, cwd } => {
+                    crate::SessionWorkerRuntimeEvent::CwdChanged { session_id, cwd }
+                }
+                SessionRuntimeOutput::PromptMark {
+                    session_id,
+                    payload,
+                } => crate::SessionWorkerRuntimeEvent::PromptMark {
+                    session_id,
+                    payload,
+                },
+                SessionRuntimeOutput::Bell { session_id } => {
+                    crate::SessionWorkerRuntimeEvent::Bell { session_id }
+                }
+                SessionRuntimeOutput::Notification {
+                    session_id,
+                    payload,
+                } => crate::SessionWorkerRuntimeEvent::Notification {
+                    session_id,
+                    payload,
+                },
                 SessionRuntimeOutput::Backpressure(summary) => {
                     outcome
                         .observations

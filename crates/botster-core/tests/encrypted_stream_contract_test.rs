@@ -326,6 +326,21 @@ fn metadata_and_terminal_payloads_recommend_distinct_lanes(
         EncryptedStreamPayloadKind::Metadata
     );
 
+    for frame in [
+        EncryptedStreamMetadataFrame::Title,
+        EncryptedStreamMetadataFrame::Cwd,
+        EncryptedStreamMetadataFrame::PromptMark,
+        EncryptedStreamMetadataFrame::Bell,
+        EncryptedStreamMetadataFrame::Notification,
+        EncryptedStreamMetadataFrame::ModeFlags,
+        EncryptedStreamMetadataFrame::ScreenReady,
+    ] {
+        assert_eq!(
+            EncryptedStreamPayload::Metadata(frame).recommended_lane(),
+            EncryptedStreamLane::TerminalMetadata
+        );
+    }
+
     Ok(())
 }
 

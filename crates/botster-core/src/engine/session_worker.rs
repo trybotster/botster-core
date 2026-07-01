@@ -73,6 +73,39 @@ pub enum SessionWorkerRuntimeEvent {
     },
     /// The authoritative initial snapshot is ready.
     InitialSnapshotReady(InitialSnapshotReady),
+    /// Terminal title changed.
+    TitleChanged {
+        /// Session that emitted the title.
+        session_id: SessionId,
+        /// Current terminal title.
+        title: String,
+    },
+    /// Terminal working directory changed.
+    CwdChanged {
+        /// Session that emitted the cwd.
+        session_id: SessionId,
+        /// Current terminal working directory.
+        cwd: String,
+    },
+    /// Semantic prompt mark detected.
+    PromptMark {
+        /// Session that emitted the prompt mark.
+        session_id: SessionId,
+        /// Prompt mark payload.
+        payload: crate::PromptMarkPayload,
+    },
+    /// Bell character received.
+    Bell {
+        /// Session that emitted the bell.
+        session_id: SessionId,
+    },
+    /// OSC notification detected.
+    Notification {
+        /// Session that emitted the notification.
+        session_id: SessionId,
+        /// Notification payload.
+        payload: crate::NotificationPayload,
+    },
     /// The child process exited.
     ProcessExited {
         /// Session that exited.
@@ -343,6 +376,43 @@ where
                 };
                 events.extend(self.flush_initial_output_events(&session_id));
                 self.initial_snapshot_barrier = None;
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::TitleChanged { session_id, title } => {
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::TitleChanged { session_id, title });
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::CwdChanged { session_id, cwd } => {
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::CwdChanged { session_id, cwd });
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::PromptMark {
+                session_id,
+                payload,
+            } => {
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::PromptMark {
+                    session_id,
+                    payload,
+                });
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::Bell { session_id } => {
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::Bell { session_id });
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::Notification {
+                session_id,
+                payload,
+            } => {
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::Notification {
+                    session_id,
+                    payload,
+                });
                 SessionWorkerOutcome::from_events(events, self.last_output_at)
             }
             SessionWorkerRuntimeEvent::ProcessExited {

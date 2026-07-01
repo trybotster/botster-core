@@ -739,6 +739,8 @@ where
             | SessionIoEvent::PreparedSnapshotReady(_)
             | SessionIoEvent::ModeFlagsReady(_)
             | SessionIoEvent::ScreenReady(_)
+            | SessionIoEvent::TitleChanged { .. }
+            | SessionIoEvent::CwdChanged { .. }
             | SessionIoEvent::PromptMark { .. }
             | SessionIoEvent::Bell { .. }
             | SessionIoEvent::Notification { .. } => Ok(()),
@@ -835,6 +837,11 @@ fn ingress_session_id(ingress: &TransportIngress) -> Option<SessionId> {
 fn runtime_event_session_id(event: &SessionWorkerRuntimeEvent) -> SessionId {
     match event {
         SessionWorkerRuntimeEvent::TerminalBytes { session_id, .. }
+        | SessionWorkerRuntimeEvent::TitleChanged { session_id, .. }
+        | SessionWorkerRuntimeEvent::CwdChanged { session_id, .. }
+        | SessionWorkerRuntimeEvent::PromptMark { session_id, .. }
+        | SessionWorkerRuntimeEvent::Bell { session_id }
+        | SessionWorkerRuntimeEvent::Notification { session_id, .. }
         | SessionWorkerRuntimeEvent::ProcessExited { session_id, .. } => session_id.clone(),
         SessionWorkerRuntimeEvent::InitialSnapshotReady(snapshot) => snapshot.session_id.clone(),
     }

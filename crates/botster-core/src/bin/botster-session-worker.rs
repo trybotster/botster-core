@@ -13,9 +13,10 @@ use std::time::Duration;
 use botster_core::{
     read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions,
     ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, TimeoutPayload, WorkerHealth, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
-    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION,
+    SessionSpawnRequest, TerminalMetadataObservation, TerminalMetadataProducer, TimeoutPayload,
+    WorkerHealth, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
+    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 const LOOP_SLEEP: Duration = Duration::from_millis(10);
@@ -75,6 +76,7 @@ fn run() -> Result<(), String> {
 
     let (egress_sender, egress_receiver) = mpsc::sync_channel(args.egress_capacity.max(1));
     let writer = control.spawn_writer(egress_receiver);
+    let mut metadata_producer = TerminalMetadataProducer::new();
     let mut reconnect_timeout_seconds = None;
     let mut shutdown_requested = false;
 
@@ -142,13 +144,22 @@ fn run() -> Result<(), String> {
         {
             match output {
                 SessionRuntimeOutput::PtyOutput { data, .. } => {
+                    let observations = metadata_producer.observe(&data);
                     send_frame(&egress_sender, FRAME_PTY_OUTPUT, data);
+                    for observation in observations {
+                        send_metadata_observation(&egress_sender, observation);
+                    }
                 }
                 SessionRuntimeOutput::ProcessExited { payload, .. } => {
                     send_json(&egress_sender, FRAME_PROCESS_EXITED, &payload);
                     shutdown_requested = true;
                 }
                 SessionRuntimeOutput::Backpressure(_) => {}
+                SessionRuntimeOutput::TitleChanged { .. }
+                | SessionRuntimeOutput::CwdChanged { .. }
+                | SessionRuntimeOutput::PromptMark { .. }
+                | SessionRuntimeOutput::Bell { .. }
+                | SessionRuntimeOutput::Notification { .. } => {}
             }
         }
 
@@ -160,6 +171,29 @@ fn run() -> Result<(), String> {
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
     Ok(())
+}
+
+fn send_metadata_observation(
+    sender: &SyncSender<Vec<u8>>,
+    observation: TerminalMetadataObservation,
+) {
+    match observation {
+        TerminalMetadataObservation::TitleChanged(title) => {
+            send_string(sender, FRAME_TITLE_CHANGED, &title);
+        }
+        TerminalMetadataObservation::CwdChanged(cwd) => {
+            send_string(sender, FRAME_CWD_CHANGED, &cwd);
+        }
+        TerminalMetadataObservation::PromptMark(payload) => {
+            send_json(sender, FRAME_PROMPT_MARK, &payload);
+        }
+        TerminalMetadataObservation::Bell => {
+            send_frame(sender, FRAME_BELL, Vec::new());
+        }
+        TerminalMetadataObservation::Notification(payload) => {
+            send_json(sender, FRAME_NOTIFICATION, &payload);
+        }
+    }
 }
 
 fn spawn_control_reader(mut control: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
@@ -323,6 +357,15 @@ fn send_frame(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: Vec<u8>) {
 
 fn send_json<T: serde::Serialize>(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: &T) {
     if let Ok(frame) = botster_core::encode_json(frame_type, payload) {
+        let _ = sender.try_send(frame).or_else(|error| match error {
+            TrySendError::Full(_) => Ok(()),
+            TrySendError::Disconnected(_) => Err(()),
+        });
+    }
+}
+
+fn send_string(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: &str) {
+    if let Ok(frame) = botster_core::encode_string(frame_type, payload) {
         let _ = sender.try_send(frame).or_else(|error| match error {
             TrySendError::Full(_) => Ok(()),
             TrySendError::Disconnected(_) => Err(()),

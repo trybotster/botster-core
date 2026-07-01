@@ -332,6 +332,8 @@ impl ClientStreamHarness {
             | SessionIoEvent::PreparedSnapshotReady(_)
             | SessionIoEvent::ModeFlagsReady(_)
             | SessionIoEvent::ScreenReady(_)
+            | SessionIoEvent::TitleChanged { .. }
+            | SessionIoEvent::CwdChanged { .. }
             | SessionIoEvent::PromptMark { .. }
             | SessionIoEvent::Bell { .. }
             | SessionIoEvent::Notification { .. }
