@@ -130,10 +130,9 @@ fn parse_osc(text: &str) -> Option<TerminalMetadataObservation> {
         "0" | "2" => Some(TerminalMetadataObservation::TitleChanged(
             parts.collect::<Vec<_>>().join(";"),
         )),
-        "7" => Some(TerminalMetadataObservation::CwdChanged(normalize_osc7_cwd(
-            &parts.collect::<Vec<_>>().join(";"),
-        ))),
-        "9" => notification_from_parts(parts.collect()),
+        "7" => normalize_osc7_cwd(&parts.collect::<Vec<_>>().join(";"))
+            .map(TerminalMetadataObservation::CwdChanged),
+        "9" => parse_osc9(parts.collect()),
         "133" => parts.next().map(|mark| {
             TerminalMetadataObservation::PromptMark(PromptMarkPayload {
                 mark: mark.to_string(),
@@ -162,6 +161,14 @@ fn notification_from_parts(parts: Vec<&str>) -> Option<TerminalMetadataObservati
     }
 }
 
+fn parse_osc9(parts: Vec<&str>) -> Option<TerminalMetadataObservation> {
+    match parts.as_slice() {
+        // OSC 9;4 is a progress-reporting form, not a notification.
+        ["4", ..] => None,
+        _ => notification_from_parts(parts),
+    }
+}
+
 fn parse_osc777(parts: Vec<&str>) -> Option<TerminalMetadataObservation> {
     match parts.as_slice() {
         ["notify", title, rest @ ..] => Some(TerminalMetadataObservation::Notification(
@@ -174,11 +181,12 @@ fn parse_osc777(parts: Vec<&str>) -> Option<TerminalMetadataObservation> {
     }
 }
 
-fn normalize_osc7_cwd(value: &str) -> String {
+fn normalize_osc7_cwd(value: &str) -> Option<String> {
     if let Some(rest) = value.strip_prefix("file://") {
         if let Some(path_index) = rest.find('/') {
-            return rest[path_index..].to_string();
+            return Some(rest[path_index..].to_string());
         }
+        return None;
     }
-    value.to_string()
+    Some(value.to_string())
 }

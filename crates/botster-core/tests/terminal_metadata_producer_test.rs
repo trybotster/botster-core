@@ -57,3 +57,17 @@ fn unterminated_osc_state_is_bounded() {
         "retained partial OSC state should remain bounded"
     );
 }
+
+#[test]
+fn ignores_non_notification_osc9_progress() {
+    let mut producer = TerminalMetadataProducer::new();
+
+    assert!(producer.observe(b"\x1b]9;4;1;50\x07").is_empty());
+}
+
+#[test]
+fn ignores_osc7_file_uri_without_path_segment() {
+    let mut producer = TerminalMetadataProducer::new();
+
+    assert!(producer.observe(b"\x1b]7;file://host\x07").is_empty());
+}
