@@ -9,8 +9,9 @@ use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
     PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionRuntime,
     SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
-    WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalMetadataShapingObservation,
+    TerminalMetadataShapingOutcome, TransportEgress, WorkerBackedBotsterEngine,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
 
 extern "C" {
@@ -131,7 +132,8 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
             | SessionRuntimeOutput::PromptMark { .. }
             | SessionRuntimeOutput::Bell { .. }
             | SessionRuntimeOutput::Notification { .. }
-            | SessionRuntimeOutput::Backpressure(_) => None,
+            | SessionRuntimeOutput::Backpressure(_)
+            | SessionRuntimeOutput::MetadataShaping(_) => None,
         })
         .flatten()
         .copied()
@@ -155,6 +157,16 @@ fn backpressure(output: &[SessionRuntimeOutput]) -> Vec<BackpressureSummary> {
         .collect()
 }
 
+fn metadata_shaping(output: &[SessionRuntimeOutput]) -> Vec<TerminalMetadataShapingObservation> {
+    output
+        .iter()
+        .filter_map(|event| match event {
+            SessionRuntimeOutput::MetadataShaping(observation) => Some(observation.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
     output
         .iter()
@@ -168,7 +180,8 @@ fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
             | SessionRuntimeOutput::PromptMark { .. }
             | SessionRuntimeOutput::Bell { .. }
             | SessionRuntimeOutput::Notification { .. }
-            | SessionRuntimeOutput::Backpressure(_) => None,
+            | SessionRuntimeOutput::Backpressure(_)
+            | SessionRuntimeOutput::MetadataShaping(_) => None,
         })
         .collect()
 }
@@ -352,46 +365,156 @@ fn worker_process_runtime_emits_semantic_metadata_from_session_worker_output() {
 }
 
 #[test]
-fn rapid_metadata_updates_report_bounded_worker_egress_pressure() {
+fn metadata_flood_reports_shaping_without_blocking_terminal_or_control_paths() {
     let mut options = worker_options();
-    options.egress_capacity = 2;
-    options.pty_reader_chunk_capacity = 16;
-    let capacity = options.egress_capacity;
+    options.egress_capacity = 4;
+    options.pty_reader_chunk_capacity = 4096;
     let mut runtime = WorkerProcessRuntime::with_options(options);
-    let session = session_id("worker-metadata-pressure");
-    let script =
-        "i=0; while [ $i -lt 2000 ]; do printf '\\033]2;title-'$i'\\007'; i=$((i+1)); done; sleep 0.1";
+    let session = session_id("worker-metadata-shaping");
+    let titles = (0..40)
+        .map(|index| format!("\\033]2;title-{index}\\007"))
+        .collect::<String>();
+    let script = format!("printf 'protected-ready\\n{titles}'; cat");
+
+    runtime
+        .spawn_session(shell_request(session.clone(), &script))
+        .expect("spawn metadata flood worker session");
+
+    let output = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("protected-ready")
+            && metadata_shaping(output).iter().any(|observation| {
+                matches!(
+                    observation.outcome,
+                    TerminalMetadataShapingOutcome::Accepted
+                        | TerminalMetadataShapingOutcome::LatestWin
+                ) && observation.count > 0
+            })
+    });
+    let text = output_text(&output);
+    assert!(
+        text.contains("protected-ready"),
+        "PTY output should still cross the worker path during metadata flood"
+    );
+    assert!(
+        metadata_shaping(&output).iter().any(|observation| {
+            matches!(
+                observation.outcome,
+                TerminalMetadataShapingOutcome::Accepted
+                    | TerminalMetadataShapingOutcome::LatestWin
+            ) && observation.count > 0
+        }),
+        "metadata flood should emit typed accepted/latest-win shaping observations"
+    );
+
+    let health = runtime
+        .ping(&session)
+        .expect("ping should not be blocked by metadata flood");
+    assert_eq!(health.session_id, session);
+
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"after-flood\n".to_vec(),
+        })
+        .expect("send input after metadata flood");
+    let after_flood = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("after-flood")
+    });
+    assert!(
+        output_text(&after_flood).contains("after-flood"),
+        "future PTY traffic should still flow after metadata shaping"
+    );
+}
+
+#[test]
+fn metadata_overflow_reports_typed_drop_without_starving_worker_paths() {
+    let mut options = worker_options();
+    options.egress_capacity = 8;
+    options.pty_reader_chunk_capacity = 4096;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-metadata-drop");
+    let prompts = (0..20)
+        .map(|index| format!("\\033]133;P{index}\\007"))
+        .collect::<String>();
+    let script = format!("printf 'drop-ready\\n{prompts}'; cat");
+
+    runtime
+        .spawn_session(shell_request(session.clone(), &script))
+        .expect("spawn metadata drop worker session");
+
+    let output = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("drop-ready")
+            && metadata_shaping(output).iter().any(|observation| {
+                observation.outcome == TerminalMetadataShapingOutcome::Dropped
+                    && observation.count > 0
+            })
+    });
+    assert!(
+        output_text(&output).contains("drop-ready"),
+        "PTY output should cross the worker path while metadata is dropped"
+    );
+    assert!(
+        metadata_shaping(&output).iter().any(|observation| {
+            observation.outcome == TerminalMetadataShapingOutcome::Dropped && observation.count > 0
+        }),
+        "bounded metadata overflow should emit typed dropped observations"
+    );
+
+    let health = runtime
+        .ping(&session)
+        .expect("ping should survive metadata overflow");
+    assert_eq!(health.session_id, session);
+}
+
+#[test]
+fn ordering_significant_metadata_flushes_before_later_pty_output() {
+    let mut options = worker_options();
+    options.pty_reader_chunk_capacity = 16;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-metadata-order");
+    let script = "printf '\\033]133;A\\007'; sleep 0.1; printf 'after-prompt\\n'; cat";
 
     runtime
         .spawn_session(shell_request(session.clone(), script))
-        .expect("spawn noisy metadata worker session");
-    thread::sleep(Duration::from_millis(500));
+        .expect("spawn metadata ordering worker session");
 
-    let output = runtime
-        .drain_output(&session)
-        .expect("drain noisy metadata worker session");
-    assert!(
-        backpressure(&output)
-            .iter()
-            .any(|summary| summary.source == QueueSource::SessionIo),
-        "rapid metadata churn should feed bounded worker egress pressure"
-    );
-    assert!(
-        output
-            .iter()
-            .filter(|event| !matches!(event, SessionRuntimeOutput::Backpressure(_)))
-            .count()
-            <= capacity,
-        "worker egress should retain no more events than its configured capacity"
-    );
-    assert!(
+    let output = collect_until(&mut runtime, &session, |output| {
         output.iter().any(|event| {
             matches!(
                 event,
-                SessionRuntimeOutput::TitleChanged { title, .. } if title.starts_with("title-")
+                SessionRuntimeOutput::PromptMark {
+                    payload: PromptMarkPayload { mark },
+                    ..
+                } if mark == "A"
             )
-        }),
-        "bounded retained egress should still prove metadata frames enter the shaped path"
+        }) && output_text(output).contains("after-prompt")
+    });
+
+    let prompt_index = output
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::PromptMark {
+                    payload: PromptMarkPayload { mark },
+                    ..
+                } if mark == "A"
+            )
+        })
+        .expect("prompt mark metadata event");
+    let later_output_index = output
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::PtyOutput { data, .. }
+                    if String::from_utf8_lossy(data).contains("after-prompt")
+            )
+        })
+        .expect("later PTY output event");
+    assert!(
+        prompt_index < later_output_index,
+        "ordering-significant side-band metadata should flush before later PTY output"
     );
 }
 

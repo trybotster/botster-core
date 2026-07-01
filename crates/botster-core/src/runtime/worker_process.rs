@@ -20,9 +20,10 @@ use crate::{
     ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource, SessionId,
     SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    TimeoutPayload, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    TerminalMetadataShapingObservation, TimeoutPayload, FRAME_BELL, FRAME_CWD_CHANGED,
+    FRAME_METADATA_SHAPING, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
+    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
+    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -588,6 +589,7 @@ enum WorkerOutputEvent {
     PromptMark(PromptMarkPayload),
     Bell,
     Notification(NotificationPayload),
+    MetadataShaping(TerminalMetadataShapingObservation),
 }
 
 impl WorkerOutputEvent {
@@ -620,6 +622,9 @@ impl WorkerOutputEvent {
                 session_id: session_id.clone(),
                 payload,
             },
+            Self::MetadataShaping(observation) => {
+                SessionRuntimeOutput::MetadataShaping(observation)
+            }
         }
     }
 }
@@ -680,6 +685,15 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             WorkerOutputEvent::Notification(payload),
+                        );
+                    }
+                }
+                FRAME_METADATA_SHAPING => {
+                    if let Ok(observation) = serde_json::from_slice(&frame.payload) {
+                        send_worker_output(
+                            &sender,
+                            &overflow,
+                            WorkerOutputEvent::MetadataShaping(observation),
                         );
                     }
                 }

@@ -87,10 +87,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-core-daemon"
+version = "0.1.0"
+dependencies = [
+ "botster-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "botster-core-dev"
 version = "0.1.0"
 dependencies = [
  "botster-core",
+ "botster-core-test-support",
+ "serde_json",
 ]
 
 [[package]]

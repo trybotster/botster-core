@@ -165,6 +165,7 @@ impl SessionRuntime for FakeSessionRuntime {
                 SessionRuntimeOutput::Backpressure(summary) => {
                     summary.route.session_id.as_ref().unwrap_or(session_id)
                 }
+                SessionRuntimeOutput::MetadataShaping(_) => session_id,
             };
 
             if output_session_id == session_id {

@@ -187,13 +187,17 @@ pub use session_protocol::{
     FrameDecoder, ModeFlags, NotificationPayload, ProcessExitedPayload, PromptMarkPayload,
     ProtocolError, ResizePayload, Rgb, SessionMetadata, TeePayload, TerminalColorProfile,
     TimeoutPayload, DESYNC_THRESHOLD, FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED,
-    FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_MODE_FLAGS,
-    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
-    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
-    HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
+    FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
+    FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
+    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN,
+    FRAME_SET_COLOR_PROFILE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
+    FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN,
+    PROTOCOL_VERSION, WELCOME_MAGIC,
 };
-pub use terminal_metadata::{TerminalMetadataObservation, TerminalMetadataProducer};
+pub use terminal_metadata::{
+    TerminalMetadataKind, TerminalMetadataLaneShaper, TerminalMetadataObservation,
+    TerminalMetadataProducer, TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome,
+};
 pub use terminal_screen::{
     TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
     TerminalSnapshotPayload,
