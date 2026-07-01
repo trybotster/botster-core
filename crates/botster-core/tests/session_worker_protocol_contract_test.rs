@@ -17,8 +17,9 @@ use botster_core::{
     SessionWorkerIdentity, SessionWorkerOutputFrame, SessionWorkerProcessIdentity,
     SessionWorkerQueueLimits, SessionWorkerShutdownMode, SessionWorkerShutdownRequest,
     SessionWorkerSpawnRequest, SessionWorkerSpawned, SessionWorkerStaleReason,
-    SlowConsumerBehavior, SnapshotHandoffStrategy, SubscriptionId, TerminalScreenSize,
-    TerminalSnapshotPayload, DURABLE_SESSION_PROTOCOL_VERSION,
+    SlowConsumerBehavior, SnapshotHandoffStrategy, SubscriptionId, TerminalMetadataKind,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalScreenSize,
+    TerminalSnapshotPayload, DURABLE_SESSION_PROTOCOL_VERSION, FRAME_METADATA_SHAPING,
 };
 
 fn round_trip<T>(value: &T) -> T
@@ -344,6 +345,22 @@ fn bounded_output_contract_preserves_pressure_and_slow_consumer_semantics() {
         limits.slow_consumer,
         SlowConsumerBehavior::PreserveOrderAndBackpressure
     );
+}
+
+#[test]
+fn terminal_metadata_shaping_contract_is_typed_and_payload_free() {
+    let observation = TerminalMetadataShapingObservation {
+        kind: Some(TerminalMetadataKind::Title),
+        outcome: TerminalMetadataShapingOutcome::LatestWin,
+        count: 42,
+    };
+
+    assert_eq!(FRAME_METADATA_SHAPING, 0x18);
+    assert_eq!(observation, round_trip(&observation));
+    let encoded = serde_json::to_string(&observation).expect("metadata shaping json");
+    assert!(encoded.contains("latest_win"));
+    assert!(!encoded.contains("secret-title"));
+    assert!(!encoded.contains("/Users/"));
 }
 
 #[test]

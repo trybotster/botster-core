@@ -380,6 +380,9 @@ where
                         .push(MultiplexerEngineObservation::Backpressure(summary));
                     continue;
                 }
+                SessionRuntimeOutput::MetadataShaping(_) => {
+                    continue;
+                }
             };
             let step = self.engine.handle_runtime_event(runtime_event)?;
             append_outcome(&mut outcome, step);
