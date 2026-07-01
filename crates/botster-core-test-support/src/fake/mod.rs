@@ -156,7 +156,12 @@ impl SessionRuntime for FakeSessionRuntime {
         for output in self.outputs.drain(..) {
             let output_session_id = match &output {
                 SessionRuntimeOutput::PtyOutput { session_id, .. }
-                | SessionRuntimeOutput::ProcessExited { session_id, .. } => session_id,
+                | SessionRuntimeOutput::ProcessExited { session_id, .. }
+                | SessionRuntimeOutput::TitleChanged { session_id, .. }
+                | SessionRuntimeOutput::CwdChanged { session_id, .. }
+                | SessionRuntimeOutput::PromptMark { session_id, .. }
+                | SessionRuntimeOutput::Bell { session_id }
+                | SessionRuntimeOutput::Notification { session_id, .. } => session_id,
                 SessionRuntimeOutput::Backpressure(summary) => {
                     summary.route.session_id.as_ref().unwrap_or(session_id)
                 }

@@ -153,9 +153,13 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .iter()
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
-            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::Backpressure(_) => {
-                None
-            }
+            SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::TitleChanged { .. }
+            | SessionRuntimeOutput::CwdChanged { .. }
+            | SessionRuntimeOutput::PromptMark { .. }
+            | SessionRuntimeOutput::Bell { .. }
+            | SessionRuntimeOutput::Notification { .. }
+            | SessionRuntimeOutput::Backpressure(_) => None,
         })
         .flatten()
         .copied()

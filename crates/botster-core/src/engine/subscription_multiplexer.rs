@@ -189,6 +189,12 @@ impl SubscriptionMultiplexer {
             SessionIoEvent::ScreenReady(screen) => {
                 Self::not_broadcast(screen.session_id, "screen_ready")
             }
+            SessionIoEvent::TitleChanged { session_id, .. } => {
+                Self::not_broadcast(session_id, "title_changed")
+            }
+            SessionIoEvent::CwdChanged { session_id, .. } => {
+                Self::not_broadcast(session_id, "cwd_changed")
+            }
             SessionIoEvent::PromptMark { session_id, .. } => {
                 Self::not_broadcast(session_id, "prompt_mark")
             }

@@ -11,6 +11,7 @@ pub mod notification;
 pub mod routed_envelope;
 pub mod session;
 pub mod session_protocol;
+pub mod terminal_metadata;
 pub mod terminal_screen;
 pub mod transport;
 pub mod ui;
@@ -92,6 +93,7 @@ pub use session_protocol::{
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
     MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
 };
+pub use terminal_metadata::{TerminalMetadataObservation, TerminalMetadataProducer};
 pub use terminal_screen::{
     TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
     TerminalSnapshotPayload,
