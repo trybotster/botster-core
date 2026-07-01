@@ -1,5 +1,6 @@
 //! Local session worker process entrypoint.
 
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -13,10 +14,12 @@ use std::time::Duration;
 use botster_core::{
     read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions,
     ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, TerminalMetadataObservation, TerminalMetadataProducer, TimeoutPayload,
-    WorkerHealth, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
+    TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
+    TerminalMetadataShapingOutcome, TimeoutPayload, WorkerHealth, FRAME_BELL, FRAME_CWD_CHANGED,
+    FRAME_METADATA_SHAPING, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
+    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
+    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 const LOOP_SLEEP: Duration = Duration::from_millis(10);
@@ -74,9 +77,14 @@ fn run() -> Result<(), String> {
     let (frame_sender, frame_receiver) = mpsc::channel();
     control.spawn_readers(initial_control, frame_sender);
 
-    let (egress_sender, egress_receiver) = mpsc::sync_channel(args.egress_capacity.max(1));
-    let writer = control.spawn_writer(egress_receiver);
+    let (egress, protected_receiver, metadata_receiver) =
+        WorkerEgress::new(args.egress_capacity.max(1));
+    let writer = control.spawn_writer(protected_receiver, metadata_receiver);
     let mut metadata_producer = TerminalMetadataProducer::new();
+    let mut metadata_shaper = TerminalMetadataLaneShaper::new(
+        (args.egress_capacity / 2).max(1),
+        args.egress_capacity.saturating_mul(4).max(1),
+    );
     let mut reconnect_timeout_seconds = None;
     let mut shutdown_requested = false;
 
@@ -106,7 +114,7 @@ fn run() -> Result<(), String> {
                             worker_pid: process::id(),
                             reconnect_timeout_seconds,
                         };
-                        send_json(&egress_sender, FRAME_PONG, &health);
+                        egress.send_protected_json(FRAME_PONG, &health);
                     }
                     FRAME_SET_TIMEOUT => {
                         let timeout: TimeoutPayload = serde_json::from_slice(&frame.payload)
@@ -145,13 +153,22 @@ fn run() -> Result<(), String> {
             match output {
                 SessionRuntimeOutput::PtyOutput { data, .. } => {
                     let observations = metadata_producer.observe(&data);
-                    send_frame(&egress_sender, FRAME_PTY_OUTPUT, data);
+                    egress.send_protected_frame(FRAME_PTY_OUTPUT, data);
+                    let mut shaping_reports = MetadataShapingReportAccumulator::default();
                     for observation in observations {
-                        send_metadata_observation(&egress_sender, observation);
+                        for shaping in metadata_shaper.push(observation) {
+                            shaping_reports.record(shaping);
+                        }
+                    }
+                    for observation in metadata_shaper.drain() {
+                        send_metadata_observation(&egress, observation);
+                    }
+                    for shaping in shaping_reports.into_reports() {
+                        egress.send_protected_json(FRAME_METADATA_SHAPING, &shaping);
                     }
                 }
                 SessionRuntimeOutput::ProcessExited { payload, .. } => {
-                    send_json(&egress_sender, FRAME_PROCESS_EXITED, &payload);
+                    egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
                     shutdown_requested = true;
                 }
                 SessionRuntimeOutput::Backpressure(_) => {}
@@ -159,39 +176,45 @@ fn run() -> Result<(), String> {
                 | SessionRuntimeOutput::CwdChanged { .. }
                 | SessionRuntimeOutput::PromptMark { .. }
                 | SessionRuntimeOutput::Bell { .. }
-                | SessionRuntimeOutput::Notification { .. } => {}
+                | SessionRuntimeOutput::Notification { .. }
+                | SessionRuntimeOutput::MetadataShaping(_) => {}
             }
         }
 
         thread::sleep(LOOP_SLEEP);
     }
 
-    drop(egress_sender);
+    drop(egress);
     writer
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
     Ok(())
 }
 
-fn send_metadata_observation(
-    sender: &SyncSender<Vec<u8>>,
-    observation: TerminalMetadataObservation,
-) {
+fn send_metadata_observation(egress: &WorkerEgress, observation: TerminalMetadataObservation) {
     match observation {
         TerminalMetadataObservation::TitleChanged(title) => {
-            send_string(sender, FRAME_TITLE_CHANGED, &title);
+            egress.send_metadata_string(FRAME_TITLE_CHANGED, &title, TerminalMetadataKind::Title);
         }
         TerminalMetadataObservation::CwdChanged(cwd) => {
-            send_string(sender, FRAME_CWD_CHANGED, &cwd);
+            egress.send_metadata_string(FRAME_CWD_CHANGED, &cwd, TerminalMetadataKind::Cwd);
         }
         TerminalMetadataObservation::PromptMark(payload) => {
-            send_json(sender, FRAME_PROMPT_MARK, &payload);
+            egress.send_metadata_json(
+                FRAME_PROMPT_MARK,
+                &payload,
+                TerminalMetadataKind::PromptMark,
+            );
         }
         TerminalMetadataObservation::Bell => {
-            send_frame(sender, FRAME_BELL, Vec::new());
+            egress.send_metadata_frame(FRAME_BELL, Vec::new(), TerminalMetadataKind::Bell);
         }
         TerminalMetadataObservation::Notification(payload) => {
-            send_json(sender, FRAME_NOTIFICATION, &payload);
+            egress.send_metadata_json(
+                FRAME_NOTIFICATION,
+                &payload,
+                TerminalMetadataKind::Notification,
+            );
         }
     }
 }
@@ -206,12 +229,34 @@ fn spawn_control_reader(mut control: Box<dyn ReadWrite + Send>, sender: mpsc::Se
     });
 }
 
-fn write_egress(mut stdout: impl Write, receiver: Receiver<Vec<u8>>) -> Result<(), String> {
-    while let Ok(frame) = receiver.recv() {
+fn write_egress(
+    mut stdout: impl Write,
+    protected: Receiver<Vec<u8>>,
+    metadata: Receiver<Vec<u8>>,
+) -> Result<(), String> {
+    while let Ok(frame) = protected.recv() {
         stdout
             .write_all(&frame)
             .map_err(|error| error.to_string())?;
         stdout.flush().map_err(|error| error.to_string())?;
+        while let Ok(frame) = metadata.try_recv() {
+            stdout
+                .write_all(&frame)
+                .map_err(|error| error.to_string())?;
+            stdout.flush().map_err(|error| error.to_string())?;
+        }
+        while let Ok(frame) = protected.try_recv() {
+            stdout
+                .write_all(&frame)
+                .map_err(|error| error.to_string())?;
+            stdout.flush().map_err(|error| error.to_string())?;
+            while let Ok(frame) = metadata.try_recv() {
+                stdout
+                    .write_all(&frame)
+                    .map_err(|error| error.to_string())?;
+                stdout.flush().map_err(|error| error.to_string())?;
+            }
+        }
     }
     Ok(())
 }
@@ -315,14 +360,18 @@ impl WorkerControl {
         }
     }
 
-    fn spawn_writer(&self, receiver: Receiver<Vec<u8>>) -> thread::JoinHandle<Result<(), String>> {
+    fn spawn_writer(
+        &self,
+        protected: Receiver<Vec<u8>>,
+        metadata: Receiver<Vec<u8>>,
+    ) -> thread::JoinHandle<Result<(), String>> {
         match self {
-            Self::Stdio => thread::spawn(move || write_egress(io::stdout(), receiver)),
+            Self::Stdio => thread::spawn(move || write_egress(io::stdout(), protected, metadata)),
             #[cfg(unix)]
             Self::Socket { writer, .. } => {
                 let writer = Arc::clone(writer);
                 thread::spawn(move || {
-                    while let Ok(frame) = receiver.recv() {
+                    while let Ok(frame) = protected.recv() {
                         if let Ok(mut slot) = writer.lock() {
                             if let Some(stream) = slot.as_mut() {
                                 if stream
@@ -331,6 +380,45 @@ impl WorkerControl {
                                     .is_err()
                                 {
                                     *slot = None;
+                                }
+                            }
+                        }
+                        while let Ok(frame) = metadata.try_recv() {
+                            if let Ok(mut slot) = writer.lock() {
+                                if let Some(stream) = slot.as_mut() {
+                                    if stream
+                                        .write_all(&frame)
+                                        .and_then(|_| stream.flush())
+                                        .is_err()
+                                    {
+                                        *slot = None;
+                                    }
+                                }
+                            }
+                        }
+                        while let Ok(frame) = protected.try_recv() {
+                            if let Ok(mut slot) = writer.lock() {
+                                if let Some(stream) = slot.as_mut() {
+                                    if stream
+                                        .write_all(&frame)
+                                        .and_then(|_| stream.flush())
+                                        .is_err()
+                                    {
+                                        *slot = None;
+                                    }
+                                }
+                            }
+                            while let Ok(frame) = metadata.try_recv() {
+                                if let Ok(mut slot) = writer.lock() {
+                                    if let Some(stream) = slot.as_mut() {
+                                        if stream
+                                            .write_all(&frame)
+                                            .and_then(|_| stream.flush())
+                                            .is_err()
+                                        {
+                                            *slot = None;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -346,30 +434,102 @@ impl WorkerControl {
     }
 }
 
-fn send_frame(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: Vec<u8>) {
-    if let Ok(frame) = botster_core::encode_frame(frame_type, &payload) {
-        let _ = sender.try_send(frame).or_else(|error| match error {
-            TrySendError::Full(_) => Ok(()),
-            TrySendError::Disconnected(_) => Err(()),
-        });
+struct WorkerEgress {
+    protected_sender: SyncSender<Vec<u8>>,
+    metadata_sender: SyncSender<Vec<u8>>,
+}
+
+#[derive(Default)]
+struct MetadataShapingReportAccumulator {
+    counts: HashMap<(Option<TerminalMetadataKind>, TerminalMetadataShapingOutcome), usize>,
+}
+
+impl MetadataShapingReportAccumulator {
+    fn record(&mut self, observation: TerminalMetadataShapingObservation) {
+        *self
+            .counts
+            .entry((observation.kind, observation.outcome))
+            .or_insert(0) += observation.count;
+    }
+
+    fn into_reports(self) -> Vec<TerminalMetadataShapingObservation> {
+        self.counts
+            .into_iter()
+            .map(
+                |((kind, outcome), count)| TerminalMetadataShapingObservation {
+                    kind,
+                    outcome,
+                    count,
+                },
+            )
+            .collect()
     }
 }
 
-fn send_json<T: serde::Serialize>(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: &T) {
-    if let Ok(frame) = botster_core::encode_json(frame_type, payload) {
-        let _ = sender.try_send(frame).or_else(|error| match error {
-            TrySendError::Full(_) => Ok(()),
-            TrySendError::Disconnected(_) => Err(()),
-        });
+impl WorkerEgress {
+    fn new(capacity: usize) -> (Self, Receiver<Vec<u8>>, Receiver<Vec<u8>>) {
+        let (protected_sender, protected_receiver) = mpsc::sync_channel(capacity.max(1));
+        let (metadata_sender, metadata_receiver) = mpsc::sync_channel(capacity.max(1));
+        (
+            Self {
+                protected_sender,
+                metadata_sender,
+            },
+            protected_receiver,
+            metadata_receiver,
+        )
     }
-}
 
-fn send_string(sender: &SyncSender<Vec<u8>>, frame_type: u8, payload: &str) {
-    if let Ok(frame) = botster_core::encode_string(frame_type, payload) {
-        let _ = sender.try_send(frame).or_else(|error| match error {
-            TrySendError::Full(_) => Ok(()),
-            TrySendError::Disconnected(_) => Err(()),
-        });
+    fn send_protected_frame(&self, frame_type: u8, payload: Vec<u8>) {
+        if let Ok(frame) = botster_core::encode_frame(frame_type, &payload) {
+            let _ = self.protected_sender.send(frame);
+        }
+    }
+
+    fn send_protected_json<T: serde::Serialize>(&self, frame_type: u8, payload: &T) {
+        if let Ok(frame) = botster_core::encode_json(frame_type, payload) {
+            let _ = self.protected_sender.send(frame);
+        }
+    }
+
+    fn send_metadata_frame(&self, frame_type: u8, payload: Vec<u8>, kind: TerminalMetadataKind) {
+        if let Ok(frame) = botster_core::encode_frame(frame_type, &payload) {
+            self.try_send_metadata(frame, kind);
+        }
+    }
+
+    fn send_metadata_json<T: serde::Serialize>(
+        &self,
+        frame_type: u8,
+        payload: &T,
+        kind: TerminalMetadataKind,
+    ) {
+        if let Ok(frame) = botster_core::encode_json(frame_type, payload) {
+            self.try_send_metadata(frame, kind);
+        }
+    }
+
+    fn send_metadata_string(&self, frame_type: u8, payload: &str, kind: TerminalMetadataKind) {
+        if let Ok(frame) = botster_core::encode_string(frame_type, payload) {
+            self.try_send_metadata(frame, kind);
+        }
+    }
+
+    fn try_send_metadata(&self, frame: Vec<u8>, kind: TerminalMetadataKind) {
+        match self.metadata_sender.try_send(frame) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                self.send_protected_json(
+                    FRAME_METADATA_SHAPING,
+                    &TerminalMetadataShapingObservation {
+                        kind: Some(kind),
+                        outcome: TerminalMetadataShapingOutcome::Dropped,
+                        count: 1,
+                    },
+                );
+            }
+            Err(TrySendError::Disconnected(_)) => {}
+        }
     }
 }
 

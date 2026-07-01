@@ -3,6 +3,10 @@
 //! This parser observes a narrow set of OSC/control sequences while leaving
 //! raw PTY bytes untouched for the authoritative terminal stream.
 
+use std::collections::VecDeque;
+
+use serde::{Deserialize, Serialize};
+
 use crate::session_protocol::{NotificationPayload, PromptMarkPayload};
 
 const ESC: u8 = 0x1b;
@@ -22,6 +26,168 @@ pub enum TerminalMetadataObservation {
     Bell,
     /// OSC 9/777 notification.
     Notification(NotificationPayload),
+}
+
+impl TerminalMetadataObservation {
+    /// Payload-free metadata category for diagnostics.
+    #[must_use]
+    pub const fn kind(&self) -> TerminalMetadataKind {
+        match self {
+            Self::TitleChanged(_) => TerminalMetadataKind::Title,
+            Self::CwdChanged(_) => TerminalMetadataKind::Cwd,
+            Self::PromptMark(_) => TerminalMetadataKind::PromptMark,
+            Self::Bell => TerminalMetadataKind::Bell,
+            Self::Notification(_) => TerminalMetadataKind::Notification,
+        }
+    }
+}
+
+/// Payload-free terminal metadata lane category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalMetadataKind {
+    /// OSC 0/2 terminal title.
+    Title,
+    /// OSC 7 current working directory.
+    Cwd,
+    /// OSC 133 semantic prompt mark.
+    PromptMark,
+    /// Terminal bell.
+    Bell,
+    /// OSC notification.
+    Notification,
+}
+
+/// Typed terminal metadata shaping decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalMetadataShapingOutcome {
+    /// Metadata was accepted for delivery.
+    Accepted,
+    /// A pending high-churn metadata value was replaced by the latest value.
+    LatestWin,
+    /// Metadata repeated an already retained value and was suppressed.
+    Deduplicated,
+    /// Metadata exceeded the explicit per-drain admission limit.
+    RateLimited,
+    /// Metadata could not be retained in the bounded lane.
+    Dropped,
+}
+
+/// Payload-free terminal metadata shaping observation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalMetadataShapingObservation {
+    /// Metadata category affected by the outcome, when category-scoped.
+    pub kind: Option<TerminalMetadataKind>,
+    /// Typed shaping decision.
+    pub outcome: TerminalMetadataShapingOutcome,
+    /// Number of metadata observations covered by this report.
+    pub count: usize,
+}
+
+impl TerminalMetadataShapingObservation {
+    /// Build one category-scoped shaping observation.
+    #[must_use]
+    pub const fn one(kind: TerminalMetadataKind, outcome: TerminalMetadataShapingOutcome) -> Self {
+        Self {
+            kind: Some(kind),
+            outcome,
+            count: 1,
+        }
+    }
+}
+
+/// Bounded shaper for lossy terminal metadata lanes.
+#[derive(Debug, Clone)]
+pub struct TerminalMetadataLaneShaper {
+    pending: VecDeque<TerminalMetadataObservation>,
+    capacity: usize,
+    per_drain_limit: usize,
+    accepted_this_drain: usize,
+}
+
+impl TerminalMetadataLaneShaper {
+    /// Build a bounded shaper. Capacity and limit are clamped to at least one.
+    #[must_use]
+    pub fn new(capacity: usize, per_drain_limit: usize) -> Self {
+        Self {
+            pending: VecDeque::new(),
+            capacity: capacity.max(1),
+            per_drain_limit: per_drain_limit.max(1),
+            accepted_this_drain: 0,
+        }
+    }
+
+    /// Admit one observation, returning payload-free shaping observations.
+    pub fn push(
+        &mut self,
+        observation: TerminalMetadataObservation,
+    ) -> Vec<TerminalMetadataShapingObservation> {
+        let kind = observation.kind();
+
+        if self.accepted_this_drain >= self.per_drain_limit {
+            return vec![TerminalMetadataShapingObservation::one(
+                kind,
+                TerminalMetadataShapingOutcome::RateLimited,
+            )];
+        }
+
+        if self.pending.iter().any(|pending| pending == &observation) {
+            return vec![TerminalMetadataShapingObservation::one(
+                kind,
+                TerminalMetadataShapingOutcome::Deduplicated,
+            )];
+        }
+
+        if matches!(
+            kind,
+            TerminalMetadataKind::Title | TerminalMetadataKind::Cwd
+        ) {
+            if let Some(pending) = self
+                .pending
+                .iter_mut()
+                .find(|pending| pending.kind() == kind)
+            {
+                *pending = observation;
+                return vec![TerminalMetadataShapingObservation::one(
+                    kind,
+                    TerminalMetadataShapingOutcome::LatestWin,
+                )];
+            }
+        }
+
+        if self.pending.len() >= self.capacity {
+            return vec![TerminalMetadataShapingObservation::one(
+                kind,
+                TerminalMetadataShapingOutcome::Dropped,
+            )];
+        }
+
+        self.pending.push_back(observation);
+        self.accepted_this_drain += 1;
+        vec![TerminalMetadataShapingObservation::one(
+            kind,
+            TerminalMetadataShapingOutcome::Accepted,
+        )]
+    }
+
+    /// Drain retained metadata in source order after shaping.
+    pub fn drain(&mut self) -> Vec<TerminalMetadataObservation> {
+        self.accepted_this_drain = 0;
+        self.pending.drain(..).collect()
+    }
+
+    /// Retained metadata count for boundedness checks.
+    #[must_use]
+    pub fn retained_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Configured retained metadata capacity.
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        self.capacity
+    }
 }
 
 /// Stateful producer for semantic terminal metadata.

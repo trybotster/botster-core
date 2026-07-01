@@ -76,6 +76,8 @@ pub const FRAME_NOTIFICATION: u8 = 0x15;
 pub const FRAME_SET_COLOR_PROFILE: u8 = 0x16;
 /// Data-plane peer to session process: initial spawn request.
 pub const FRAME_SPAWN_SESSION: u8 = 0x17;
+/// Session to daemon data plane: payload-free terminal metadata shaping report.
+pub const FRAME_METADATA_SHAPING: u8 = 0x18;
 
 /// Session metadata sent in the welcome handshake.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
