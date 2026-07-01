@@ -263,6 +263,14 @@ fn ordered_flush_helper_flushes_before_prompt_bell_notification_and_process_exit
 
 #[test]
 fn metadata_ordered_events_are_typed() {
+    let title = SessionIoEvent::TitleChanged {
+        session_id: session_id(),
+        title: "Build".to_string(),
+    };
+    let cwd = SessionIoEvent::CwdChanged {
+        session_id: session_id(),
+        cwd: "/work/repo".to_string(),
+    };
     let prompt = SessionIoEvent::PromptMark {
         session_id: session_id(),
         payload: PromptMarkPayload {
@@ -280,6 +288,8 @@ fn metadata_ordered_events_are_typed() {
         },
     };
 
+    assert!(matches!(title, SessionIoEvent::TitleChanged { .. }));
+    assert!(matches!(cwd, SessionIoEvent::CwdChanged { .. }));
     assert!(matches!(prompt, SessionIoEvent::PromptMark { .. }));
     assert!(matches!(bell, SessionIoEvent::Bell { .. }));
     assert!(matches!(notification, SessionIoEvent::Notification { .. }));

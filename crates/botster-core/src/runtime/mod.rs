@@ -21,7 +21,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::actor::{PluginInvocationRequest, PluginInvocationResult, PluginKey};
-use crate::{BackpressureSummary, ProcessExitedPayload, RequestId, ResizePayload, SessionId};
+use crate::{
+    BackpressureSummary, NotificationPayload, ProcessExitedPayload, PromptMarkPayload, RequestId,
+    ResizePayload, SessionId,
+};
 
 pub use capability::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
@@ -189,6 +192,39 @@ pub enum SessionRuntimeOutput {
         session_id: SessionId,
         /// Process exit payload reused from the session protocol.
         payload: ProcessExitedPayload,
+    },
+    /// Terminal title changed.
+    TitleChanged {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Current terminal title.
+        title: String,
+    },
+    /// Terminal working directory changed.
+    CwdChanged {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Current terminal working directory.
+        cwd: String,
+    },
+    /// Semantic prompt mark detected.
+    PromptMark {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Prompt mark payload.
+        payload: PromptMarkPayload,
+    },
+    /// Bell character received.
+    Bell {
+        /// Source session identifier.
+        session_id: SessionId,
+    },
+    /// OSC notification detected.
+    Notification {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Notification payload.
+        payload: NotificationPayload,
     },
     /// Runtime-originated bounded-queue pressure.
     Backpressure(BackpressureSummary),

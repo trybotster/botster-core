@@ -16,12 +16,13 @@ use std::os::unix::net::UnixStream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, ProcessExitedPayload,
-    ProcessIdentity, QueueSource, SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, TimeoutPayload, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
-    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
-    FRAME_SPAWN_SESSION,
+    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, NotificationPayload,
+    ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource, SessionId,
+    SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    TimeoutPayload, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
+    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -582,6 +583,11 @@ fn connect_worker_socket(path: &std::path::Path) -> Result<UnixStream, SessionRu
 enum WorkerOutputEvent {
     PtyOutput(Vec<u8>),
     ProcessExited(ProcessExitedPayload),
+    TitleChanged(String),
+    CwdChanged(String),
+    PromptMark(PromptMarkPayload),
+    Bell,
+    Notification(NotificationPayload),
 }
 
 impl WorkerOutputEvent {
@@ -592,6 +598,25 @@ impl WorkerOutputEvent {
                 data,
             },
             Self::ProcessExited(payload) => SessionRuntimeOutput::ProcessExited {
+                session_id: session_id.clone(),
+                payload,
+            },
+            Self::TitleChanged(title) => SessionRuntimeOutput::TitleChanged {
+                session_id: session_id.clone(),
+                title,
+            },
+            Self::CwdChanged(cwd) => SessionRuntimeOutput::CwdChanged {
+                session_id: session_id.clone(),
+                cwd,
+            },
+            Self::PromptMark(payload) => SessionRuntimeOutput::PromptMark {
+                session_id: session_id.clone(),
+                payload,
+            },
+            Self::Bell => SessionRuntimeOutput::Bell {
+                session_id: session_id.clone(),
+            },
+            Self::Notification(payload) => SessionRuntimeOutput::Notification {
                 session_id: session_id.clone(),
                 payload,
             },
@@ -620,6 +645,41 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             WorkerOutputEvent::ProcessExited(payload),
+                        );
+                    }
+                }
+                FRAME_TITLE_CHANGED => {
+                    if let Ok(title) = String::from_utf8(frame.payload) {
+                        send_worker_output(
+                            &sender,
+                            &overflow,
+                            WorkerOutputEvent::TitleChanged(title),
+                        );
+                    }
+                }
+                FRAME_CWD_CHANGED => {
+                    if let Ok(cwd) = String::from_utf8(frame.payload) {
+                        send_worker_output(&sender, &overflow, WorkerOutputEvent::CwdChanged(cwd));
+                    }
+                }
+                FRAME_PROMPT_MARK => {
+                    if let Ok(payload) = serde_json::from_slice(&frame.payload) {
+                        send_worker_output(
+                            &sender,
+                            &overflow,
+                            WorkerOutputEvent::PromptMark(payload),
+                        );
+                    }
+                }
+                FRAME_BELL => {
+                    send_worker_output(&sender, &overflow, WorkerOutputEvent::Bell);
+                }
+                FRAME_NOTIFICATION => {
+                    if let Ok(payload) = serde_json::from_slice(&frame.payload) {
+                        send_worker_output(
+                            &sender,
+                            &overflow,
+                            WorkerOutputEvent::Notification(payload),
                         );
                     }
                 }

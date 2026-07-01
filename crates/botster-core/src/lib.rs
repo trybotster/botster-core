@@ -18,7 +18,8 @@ pub mod runtime;
 
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
-    notification, routed_envelope, session, session_protocol, terminal_screen, transport, ui,
+    notification, routed_envelope, session, session_protocol, terminal_metadata, terminal_screen,
+    transport, ui,
 };
 pub use engine::{
     botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
@@ -192,6 +193,7 @@ pub use session_protocol::{
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
     HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
 };
+pub use terminal_metadata::{TerminalMetadataObservation, TerminalMetadataProducer};
 pub use terminal_screen::{
     TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
     TerminalSnapshotPayload,

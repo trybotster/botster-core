@@ -6,11 +6,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::{
-    BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, QueueSource, RequestId,
-    ResizePayload, SessionId, SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime,
-    WorkerProcessRuntimeOptions,
+    BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
+    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionRuntime,
+    SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
 
 extern "C" {
@@ -125,9 +125,13 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .iter()
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
-            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::Backpressure(_) => {
-                None
-            }
+            SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::TitleChanged { .. }
+            | SessionRuntimeOutput::CwdChanged { .. }
+            | SessionRuntimeOutput::PromptMark { .. }
+            | SessionRuntimeOutput::Bell { .. }
+            | SessionRuntimeOutput::Notification { .. }
+            | SessionRuntimeOutput::Backpressure(_) => None,
         })
         .flatten()
         .copied()
@@ -158,9 +162,13 @@ fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
             SessionRuntimeOutput::PtyOutput { data, .. } => {
                 Some(String::from_utf8_lossy(data).into_owned())
             }
-            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::Backpressure(_) => {
-                None
-            }
+            SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::TitleChanged { .. }
+            | SessionRuntimeOutput::CwdChanged { .. }
+            | SessionRuntimeOutput::PromptMark { .. }
+            | SessionRuntimeOutput::Bell { .. }
+            | SessionRuntimeOutput::Notification { .. }
+            | SessionRuntimeOutput::Backpressure(_) => None,
         })
         .collect()
 }
@@ -287,6 +295,107 @@ fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_comma
 }
 
 #[test]
+fn worker_process_runtime_emits_semantic_metadata_from_session_worker_output() {
+    let mut options = worker_options();
+    options.pty_reader_chunk_capacity = 8;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-semantic-metadata");
+    let script =
+        "printf '\\033]2;Build\\007\\033]7;file://host/work/repo\\007\\033]133;A\\007\\007\\033]9;Notice;Body\\007'; sleep 0.1";
+
+    runtime
+        .spawn_session(shell_request(session.clone(), script))
+        .expect("spawn metadata worker session");
+
+    let output = collect_until(&mut runtime, &session, |output| {
+        output.iter().any(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::TitleChanged { title, .. } if title == "Build"
+            )
+        }) && output.iter().any(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::CwdChanged { cwd, .. } if cwd == "/work/repo"
+            )
+        }) && output.iter().any(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::PromptMark {
+                    payload: PromptMarkPayload { mark },
+                    ..
+                } if mark == "A"
+            )
+        }) && output
+            .iter()
+            .any(|event| matches!(event, SessionRuntimeOutput::Bell { .. }))
+            && output.iter().any(|event| {
+                matches!(
+                    event,
+                    SessionRuntimeOutput::Notification {
+                        payload: NotificationPayload { title, body },
+                        ..
+                    } if title == "Notice" && body == "Body"
+                )
+            })
+    });
+
+    let raw = output_text(&output);
+    assert!(
+        raw.contains("\u{1b}]2;Build\u{7}"),
+        "raw PTY output should retain OSC title bytes"
+    );
+    assert!(
+        raw.contains("\u{1b}]7;file://host/work/repo\u{7}"),
+        "raw PTY output should retain OSC cwd bytes"
+    );
+}
+
+#[test]
+fn rapid_metadata_updates_report_bounded_worker_egress_pressure() {
+    let mut options = worker_options();
+    options.egress_capacity = 2;
+    options.pty_reader_chunk_capacity = 16;
+    let capacity = options.egress_capacity;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-metadata-pressure");
+    let script =
+        "i=0; while [ $i -lt 2000 ]; do printf '\\033]2;title-'$i'\\007'; i=$((i+1)); done; sleep 0.1";
+
+    runtime
+        .spawn_session(shell_request(session.clone(), script))
+        .expect("spawn noisy metadata worker session");
+    thread::sleep(Duration::from_millis(500));
+
+    let output = runtime
+        .drain_output(&session)
+        .expect("drain noisy metadata worker session");
+    assert!(
+        backpressure(&output)
+            .iter()
+            .any(|summary| summary.source == QueueSource::SessionIo),
+        "rapid metadata churn should feed bounded worker egress pressure"
+    );
+    assert!(
+        output
+            .iter()
+            .filter(|event| !matches!(event, SessionRuntimeOutput::Backpressure(_)))
+            .count()
+            <= capacity,
+        "worker egress should retain no more events than its configured capacity"
+    );
+    assert!(
+        output.iter().any(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::TitleChanged { title, .. } if title.starts_with("title-")
+            )
+        }),
+        "bounded retained egress should still prove metadata frames enter the shaped path"
+    );
+}
+
+#[test]
 fn worker_backed_public_engine_path_routes_spawn_input_resize_output_and_shutdown() {
     let mut engine = DefaultBotsterEngine::worker_backed(worker_path());
     let session = session_id("worker-public-path");
@@ -406,14 +515,14 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     runtime
         .spawn_session(shell_request(
             session.clone(),
-            "i=0; while [ $i -lt 200 ]; do printf \"tick:$i\\n\"; i=$((i+1)); done; cat",
+            "i=0; while [ $i -lt 2000 ]; do printf \"tick:$i\\n\"; i=$((i+1)); done; cat",
         ))
         .expect("spawn noisy worker session");
 
     runtime
         .detach_consumer(&session)
         .expect("detach parent-side consumer without protocol frame");
-    thread::sleep(Duration::from_millis(250));
+    thread::sleep(Duration::from_millis(500));
     let detached = runtime
         .drain_output(&session)
         .expect("detached drain should not block worker");
