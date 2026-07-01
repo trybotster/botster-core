@@ -688,6 +688,20 @@ pub enum SessionIoEvent {
     ModeFlagsReady(ModeFlagsReady),
     /// Plain terminal screen response.
     ScreenReady(ScreenReady),
+    /// Terminal title changed.
+    TitleChanged {
+        /// Session that emitted the title.
+        session_id: SessionId,
+        /// Current terminal title.
+        title: String,
+    },
+    /// Terminal working directory changed.
+    CwdChanged {
+        /// Session that emitted the cwd.
+        session_id: SessionId,
+        /// Current terminal working directory.
+        cwd: String,
+    },
     /// Semantic prompt action detected.
     PromptMark {
         /// Session that emitted the prompt mark.
@@ -785,6 +799,10 @@ impl SessionIoCoalescingPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionIoOrderedEvent {
+    /// Terminal title changed.
+    TitleChanged,
+    /// Terminal working directory changed.
+    CwdChanged,
     /// Semantic prompt action detected.
     PromptMark,
     /// Bell character received.
@@ -807,7 +825,9 @@ impl SessionIoOrderedEvent {
     pub const fn requires_output_flush(self) -> bool {
         matches!(
             self,
-            Self::PromptMark
+            Self::TitleChanged
+                | Self::CwdChanged
+                | Self::PromptMark
                 | Self::Bell
                 | Self::Notification
                 | Self::ProcessExited

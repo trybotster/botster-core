@@ -144,6 +144,10 @@ pub enum EncryptedStreamControlFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptedStreamMetadataFrame {
+    /// Terminal title metadata.
+    Title,
+    /// Terminal working-directory metadata.
+    Cwd,
     /// Prompt position or prompt lifecycle metadata.
     PromptMark,
     /// Terminal bell metadata.

@@ -3,9 +3,9 @@
 use botster_core::client::ClientId;
 use botster_core::{
     BackpressureRoute, InitialSnapshotReady, InitialSnapshotRequest, MailboxSendFailureReason,
-    PreparedSnapshotRequest, ProcessExitedPayload, QueueSource, RequestId, SendFileRequest,
-    SessionId, SessionIoEvent, SessionIoRequest, SessionWorkerEngine, SessionWorkerRuntimeEvent,
-    SubscriptionId,
+    NotificationPayload, PreparedSnapshotRequest, ProcessExitedPayload, PromptMarkPayload,
+    QueueSource, RequestId, SendFileRequest, SessionId, SessionIoEvent, SessionIoRequest,
+    SessionWorkerEngine, SessionWorkerRuntimeEvent, SubscriptionId,
 };
 use botster_core_test_support::fake::{
     FakeSessionIoMailbox, FakeSessionWorkerRuntime, RuntimeCommand,
@@ -196,6 +196,72 @@ fn initial_snapshot_precedes_live_output_through_engine() {
             },
         ]
     );
+}
+
+#[test]
+fn runtime_metadata_events_become_session_io_events() {
+    let mut engine = engine();
+
+    assert!(matches!(
+        engine
+            .handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
+                session_id: session_id(),
+                data: b"live".to_vec(),
+                last_output_at: 10,
+            })
+            .events[0],
+        SessionIoEvent::TerminalBytes { .. }
+    ));
+    let title = engine.handle_runtime_event(SessionWorkerRuntimeEvent::TitleChanged {
+        session_id: session_id(),
+        title: "Build".to_string(),
+    });
+
+    assert!(matches!(
+        title.events[0],
+        SessionIoEvent::TitleChanged { .. }
+    ));
+
+    assert!(matches!(
+        engine
+            .handle_runtime_event(SessionWorkerRuntimeEvent::CwdChanged {
+                session_id: session_id(),
+                cwd: "/work/repo".to_string(),
+            })
+            .events[0],
+        SessionIoEvent::CwdChanged { .. }
+    ));
+    assert!(matches!(
+        engine
+            .handle_runtime_event(SessionWorkerRuntimeEvent::PromptMark {
+                session_id: session_id(),
+                payload: PromptMarkPayload {
+                    mark: "A".to_string(),
+                },
+            })
+            .events[0],
+        SessionIoEvent::PromptMark { .. }
+    ));
+    assert!(matches!(
+        engine
+            .handle_runtime_event(SessionWorkerRuntimeEvent::Bell {
+                session_id: session_id(),
+            })
+            .events[0],
+        SessionIoEvent::Bell { .. }
+    ));
+    assert!(matches!(
+        engine
+            .handle_runtime_event(SessionWorkerRuntimeEvent::Notification {
+                session_id: session_id(),
+                payload: NotificationPayload {
+                    title: "Notice".to_string(),
+                    body: "Body".to_string(),
+                },
+            })
+            .events[0],
+        SessionIoEvent::Notification { .. }
+    ));
 }
 
 #[test]
