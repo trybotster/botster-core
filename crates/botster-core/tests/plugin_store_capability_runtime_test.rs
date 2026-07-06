@@ -698,6 +698,7 @@ fn registration(plugin_key: &PluginKey, handler: PluginHandlerRef) -> PluginWork
             configuration: None,
             runnable_entrypoints: Vec::new(),
             surfaces: Vec::new(),
+            navigation: Vec::new(),
         },
         runtime: Arc::new(FakePluginRuntime::new(FakePluginBehavior::Success(
             BoundaryJson(serde_json::json!({ "value": "ok" })),

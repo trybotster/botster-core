@@ -6,6 +6,7 @@ pub mod dependency;
 pub mod extension;
 pub mod host_profile;
 pub mod manifest;
+pub mod navigation;
 pub mod resolution;
 pub mod runnable_entrypoint;
 pub mod surface;
@@ -25,6 +26,7 @@ pub use host_profile::{
     HostProfileCompatibilityField, HostProfileMetadata, HostProfilePolicySection,
 };
 pub use manifest::{PackageManifest, PackageSource};
+pub use navigation::{PackageNavigationEntry, PackageNavigationTarget};
 pub use resolution::{
     resolve_package_dependencies, PackageAuthState, PackageBlockedReason, PackageConfigState,
     PackageDependencyResolution, PackageFeatureResolution, PackageRequirementStatus,

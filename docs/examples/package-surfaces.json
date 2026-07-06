@@ -6,6 +6,15 @@
   "source": null,
   "capabilities": [],
   "entrypoints": [],
+  "navigation": [
+    {
+      "id": "workbench",
+      "label": "Workbench",
+      "icon": "workspace",
+      "description": "Open the package workbench",
+      "target": { "kind": "surface", "surface_id": "workbench" }
+    }
+  ],
   "surfaces": [
     {
       "id": "workbench",

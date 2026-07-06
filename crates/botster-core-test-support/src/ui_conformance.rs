@@ -376,6 +376,7 @@ fn rich_capabilities() -> UiCapabilitySet {
         table: true,
         terminal_selection: true,
         qr_code: true,
+        iframe: true,
         rich_color: true,
         fallbacks: BTreeSet::new(),
     }

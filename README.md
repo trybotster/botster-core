@@ -111,12 +111,38 @@ for a manifest example.
 Package UI surface descriptors are package manifest metadata too. A package may
 declare a `surfaces` list with semantic ids, kinds (`app`, `settings`,
 `dashboard_widget`, or `diagnostics`), titles, optional descriptions, icon
-tokens, order/category hints, and supported operations (`render` and `action`).
+tokens, legacy non-authoritative order/category compatibility hints, and
+supported operations (`render` and `action`).
 Hubs expose these descriptors as package metadata; clients decide how to present
 or launch them through the `PluginSurfaceRender` and `PluginSurfaceAction` path.
 Core does not define renderer components, dashboard placement policy, or host
 admission policy for surfaces. See `docs/examples/package-surfaces.json` for a
 manifest example.
+
+Packages may also declare a top-level `navigation` list. Navigation entries are
+plugin-authored intent only: stable ids, labels, optional icon tokens and
+descriptions, and targets such as `{ "kind": "surface", "surface_id": "..." }`
+that point at package surfaces. `kind: "app"` remains the surface and route
+kind; navigation is not a replacement surface kind. The hub admits and
+normalizes navigation entries, clients render them, and hub, user, or client
+preferences own ordering, pinning, hiding, placement, and presentation. The core
+navigation contract intentionally has no `order`, `priority`, `pinned`,
+`hidden`, `placement`, `layout`, `sidebar`, or local-navigation fields.
+
+Custom generated HTML, such as a vault graph or package-authored report, must be
+modeled as a `UiNodeKind::Iframe` (`"type": "iframe"`) with a `src` and
+accessibility `title`. Botster clients should render that as a sandboxed
+iframe/webview when admitted, or use the declared `iframe_as_link` capability
+fallback for clients that cannot embed web content. Do not inject raw HTML,
+`srcdoc`, or parent-app DOM into Botster UI trees. Omitted or empty iframe
+`sandbox`, `allow`, and `bridge` metadata means the restrictive default: no
+sandbox allowances, no passive iframe permissions, and no host-mediated
+Botster action/message bridge unless a host explicitly admits and wires one.
+Core records this portable shape only; hosts and clients own origin policy,
+runtime sandbox flags, bridge admission, and renderer implementation. Core also
+does not define route layout, padding, local navigation, sidebar replacement, or
+shell placement primitives; a surface root `UiNode` owns page layout within the
+already-admitted surface.
 
 Runnable entrypoints are package manifest metadata for first-party/client app
 launch contracts. A package may declare `runnable_entrypoints` with stable ids,

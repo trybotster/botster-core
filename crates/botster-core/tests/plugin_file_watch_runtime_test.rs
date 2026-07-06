@@ -379,6 +379,7 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
             configuration: None,
             runnable_entrypoints: Vec::new(),
             surfaces: Vec::new(),
+            navigation: Vec::new(),
         },
         runtime: Arc::new(runtime),
         handlers: vec![botster_core::PluginHandlerRegistration {

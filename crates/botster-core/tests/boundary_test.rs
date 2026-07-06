@@ -96,6 +96,7 @@ fn provider_is_a_privileged_extension_package() {
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     };
 
     assert_eq!(manifest.kind, ExtensionKind::Provider);
