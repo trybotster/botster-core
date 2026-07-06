@@ -28,8 +28,8 @@ pub use engine::{
 };
 pub use identity::{crypto, device, keyring};
 pub use package::{
-    capability, configuration, dependency, extension, host_profile, manifest, resolution,
-    runnable_entrypoint, surface,
+    capability, configuration, dependency, extension, host_profile, manifest, navigation,
+    resolution, runnable_entrypoint, surface,
 };
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
@@ -163,13 +163,14 @@ pub use package::{
     PackageConfigurationSecretValue, PackageConfigurationValidationHints,
     PackageConfigurationValue, PackageDependency, PackageDependencyKind,
     PackageDependencyResolution, PackageFeatureGate, PackageFeatureResolution, PackageManifest,
-    PackageRequirement, PackageRequirementStatus, PackageResolutionInput, PackageResolutionMatrix,
-    PackageResolutionPackage, PackageResolutionState, PackageSource, PackageSurfaceDescriptor,
-    PackageSurfaceKind, PackageSurfaceOperation, RunnableEntrypoint,
-    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointInjection,
-    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
-    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
-    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    PackageNavigationEntry, PackageNavigationTarget, PackageRequirement, PackageRequirementStatus,
+    PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
+    PackageResolutionState, PackageSource, PackageSurfaceDescriptor, PackageSurfaceKind,
+    PackageSurfaceOperation, RunnableEntrypoint, RunnableEntrypointEnvironmentRequirement,
+    RunnableEntrypointInjection, RunnableEntrypointInjectionKind,
+    RunnableEntrypointInjectionTarget, RunnableEntrypointKind, RunnableEntrypointLaunchMode,
+    RunnableEntrypointLaunchResult, RunnableEntrypointProcessState, RunnableEntrypointReadiness,
+    RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
 pub use routed_envelope::{
@@ -208,7 +209,8 @@ pub use ui::{
     UiActionRequestId, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
     UiCapabilityFallback, UiCapabilitySet, UiChild, UiColorToken, UiCondition, UiConditional,
     UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
-    UiFieldValidationHints, UiFormValues, UiHeightClass, UiKeyboardCapability, UiNode, UiNodeId,
-    UiNodeKind, UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth,
-    UiSpaceToken, UiSurfaceId, UiTreeUpdateRef, UiValidationError, UiViewport, UiWidthClass,
+    UiFieldValidationHints, UiFormValues, UiHeightClass, UiIframeBridge, UiIframePermission,
+    UiIframeSandboxToken, UiKeyboardCapability, UiNode, UiNodeId, UiNodeKind, UiOrientation,
+    UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSpaceToken, UiSurfaceId,
+    UiTreeUpdateRef, UiValidationError, UiViewport, UiWidthClass,
 };

@@ -63,6 +63,7 @@ fn manifest(plugin_key: &PluginKey) -> PackageManifest {
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 

@@ -1,8 +1,8 @@
 //! Package UI surface descriptor contract acceptance tests.
 
 use botster_core::{
-    ExtensionKind, PackageManifest, PackageSurfaceDescriptor, PackageSurfaceKind,
-    PackageSurfaceOperation,
+    ExtensionKind, PackageManifest, PackageNavigationEntry, PackageNavigationTarget,
+    PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation,
 };
 
 fn surface_manifest() -> PackageManifest {
@@ -44,6 +44,7 @@ fn surface_manifest() -> PackageManifest {
                 supports: vec![PackageSurfaceOperation::Render],
             },
         ],
+        navigation: Vec::new(),
     }
 }
 
@@ -63,6 +64,7 @@ fn package_manifest_without_surfaces_keeps_serde_compatibility() {
         serde_json::from_value(json).expect("deserialize manifest without surfaces");
 
     assert_eq!(decoded.surfaces, Vec::new());
+    assert_eq!(decoded.navigation, Vec::new());
     assert_eq!(
         serde_json::to_value(decoded).expect("serialize manifest without surfaces"),
         serde_json::json!({
@@ -75,6 +77,79 @@ fn package_manifest_without_surfaces_keeps_serde_compatibility() {
             "entrypoints": []
         })
     );
+}
+
+#[test]
+fn package_navigation_entries_round_trip_without_ordering_authority() {
+    let mut manifest = surface_manifest();
+    manifest.navigation = vec![PackageNavigationEntry {
+        id: "workbench".to_string(),
+        label: "Workbench".to_string(),
+        icon: Some("workspace".to_string()),
+        description: Some("Open the package workbench".to_string()),
+        target: PackageNavigationTarget::Surface {
+            surface_id: "main".to_string(),
+        },
+    }];
+
+    let json = serde_json::to_value(&manifest).expect("serialize manifest with navigation");
+    assert_eq!(json["navigation"][0]["id"], "workbench");
+    assert_eq!(json["navigation"][0]["label"], "Workbench");
+    assert_eq!(json["navigation"][0]["icon"], "workspace");
+    assert_eq!(json["navigation"][0]["target"]["kind"], "surface");
+    assert_eq!(json["navigation"][0]["target"]["surface_id"], "main");
+    assert_eq!(json["surfaces"][0]["kind"], "app");
+    assert!(json["navigation"][0].get("order").is_none());
+    assert!(json["navigation"][0].get("priority").is_none());
+    assert!(json["navigation"][0].get("pinned").is_none());
+    assert!(json["navigation"][0].get("hidden").is_none());
+    assert!(json["navigation"][0].get("placement").is_none());
+    assert!(json["navigation"][0].get("layout").is_none());
+    assert!(json["navigation"][0].get("sidebar").is_none());
+
+    let decoded: PackageManifest = serde_json::from_value(json).expect("deserialize manifest");
+    assert_eq!(decoded, manifest);
+}
+
+#[test]
+fn package_navigation_rejects_plugin_ordering_or_shell_authority_fields() {
+    for forbidden in [
+        "order",
+        "priority",
+        "pinned",
+        "hidden",
+        "placement",
+        "layout",
+        "sidebar",
+    ] {
+        let mut json = serde_json::json!({
+            "name": "nav-plugin",
+            "version": "0.1.0",
+            "kind": "plugin",
+            "botster": ">=0.1.0",
+            "source": null,
+            "capabilities": [],
+            "entrypoints": [],
+            "surfaces": [{
+                "id": "main",
+                "kind": "app",
+                "title": "Workbench"
+            }],
+            "navigation": [{
+                "id": "workbench",
+                "label": "Workbench",
+                "target": { "kind": "surface", "surface_id": "main" }
+            }]
+        });
+        json["navigation"][0][forbidden] = serde_json::json!(true);
+
+        let err = serde_json::from_value::<PackageManifest>(json)
+            .expect_err("navigation authority field should be rejected");
+        assert!(
+            err.to_string().contains(forbidden),
+            "expected `{err}` to mention forbidden field `{forbidden}`"
+        );
+    }
 }
 
 #[test]
