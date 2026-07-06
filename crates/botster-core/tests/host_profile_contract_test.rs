@@ -54,6 +54,7 @@ fn provider_manifest() -> PackageManifest {
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 

@@ -77,6 +77,7 @@ fn marketplace_manifest() -> PackageManifest {
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 
@@ -112,6 +113,7 @@ fn capability_feature_manifest() -> PackageManifest {
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 

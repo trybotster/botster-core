@@ -711,6 +711,7 @@ impl Default for DefaultBotsterEngine {
 ///         configuration: None,
 ///         runnable_entrypoints: Vec::new(),
 ///         surfaces: Vec::new(),
+///         navigation: Vec::new(),
 ///     },
 ///     runtime: Arc::new(FakePluginRuntime::success("ok")),
 ///     handlers: vec![PluginHandlerRegistration {

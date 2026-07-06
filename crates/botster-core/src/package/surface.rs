@@ -17,7 +17,8 @@ pub struct PackageSurfaceDescriptor {
     /// Optional renderer-neutral icon or token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// Host-owned ordering hint.
+    /// Legacy non-authoritative ordering hint kept for manifest compatibility.
+    /// Hosts, users, and clients own actual navigation ordering policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<i64>,
     /// Optional host-readable category.

@@ -237,6 +237,7 @@ fn manifest(plugin_key: &PluginKey, capabilities: Vec<Capability>) -> PackageMan
         configuration: None,
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 
