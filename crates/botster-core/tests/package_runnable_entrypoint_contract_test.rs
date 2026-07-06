@@ -83,6 +83,7 @@ fn runnable_manifest() -> PackageManifest {
             },
         ],
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 

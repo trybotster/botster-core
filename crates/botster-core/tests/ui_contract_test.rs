@@ -7,9 +7,10 @@ use botster_core::ui::{
     UiActionRequest, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
     UiCapabilityFallback, UiCapabilitySet, UiChild, UiCondition, UiConditional,
     UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
-    UiFieldValidationHints, UiFormValues, UiHeightClass, UiKeyboardCapability, UiNode, UiNodeId,
-    UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSurfaceId,
-    UiTreeUpdateRef, UiValidationError, UiWidthClass,
+    UiFieldValidationHints, UiFormValues, UiHeightClass, UiIframeBridge, UiIframePermission,
+    UiIframeSandboxToken, UiKeyboardCapability, UiNode, UiNodeId, UiNodeKind, UiPointer,
+    UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSurfaceId, UiTreeUpdateRef,
+    UiValidationError, UiWidthClass,
 };
 use botster_core::{RequestId, UiAction};
 use serde_json::{json, Map, Value};
@@ -89,6 +90,7 @@ fn rich_capabilities() -> UiCapabilitySet {
         table: true,
         terminal_selection: true,
         qr_code: true,
+        iframe: true,
         rich_color: true,
         fallbacks: BTreeSet::new(),
     }
@@ -218,6 +220,177 @@ fn renderer_specific_props_are_rejected() {
 }
 
 #[test]
+fn iframe_node_validates_sandboxed_webview_contract() {
+    let iframe = node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/plugin-assets/vault/graph.html",
+            "title": "Vault graph",
+            "sandbox": ["allow_scripts"],
+            "allow": ["fullscreen"],
+            "bridge": {
+                "actions": ["vault.graph.open_note"],
+                "messages": ["vault.graph.ready"]
+            }
+        }),
+    );
+
+    iframe
+        .validate()
+        .expect("safe iframe contract should validate");
+    assert_eq!(
+        serde_json::to_value(&iframe).expect("serialize iframe")["props"]["sandbox"],
+        json!(["allow_scripts"])
+    );
+    assert_eq!(
+        serde_json::from_value::<UiNode>(
+            serde_json::to_value(&iframe).expect("serialize iframe for round trip"),
+        )
+        .expect("deserialize iframe"),
+        iframe
+    );
+}
+
+#[test]
+fn iframe_omitted_sandbox_and_bridge_mean_restrictive_defaults() {
+    let iframe = node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/plugin-assets/vault/graph.html",
+            "title": "Vault graph"
+        }),
+    );
+
+    iframe
+        .validate()
+        .expect("omitted sandbox/allow/bridge should be a valid deny-by-default declaration");
+
+    let empty_policy = node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/plugin-assets/vault/graph.html",
+            "title": "Vault graph",
+            "sandbox": [],
+            "allow": [],
+            "bridge": {}
+        }),
+    );
+    empty_policy
+        .validate()
+        .expect("empty sandbox/allow/bridge should remain restrictive");
+}
+
+#[test]
+fn iframe_requires_nonblank_src_and_title() {
+    assert_error_contains(node(UiNodeKind::Iframe, json!({ "title": "Graph" })), "src");
+    assert_error_contains(
+        node(UiNodeKind::Iframe, json!({ "src": "/graph.html" })),
+        "title",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Iframe,
+            json!({ "src": "   ", "title": "Graph" }),
+        ),
+        "value cannot be empty",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Iframe,
+            json!({ "src": "/graph.html", "title": "   " }),
+        ),
+        "value cannot be empty",
+    );
+
+    node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": { "$bind": "/vault.graph.src" },
+            "title": { "$bind": "/vault.graph.title" }
+        }),
+    )
+    .validate()
+    .expect("bound iframe src/title should validate");
+}
+
+#[test]
+fn iframe_rejects_raw_html_and_route_layout_props() {
+    for forbidden in [
+        "html",
+        "raw_html",
+        "inner_html",
+        "srcdoc",
+        "dangerouslySetInnerHTML",
+        "className",
+        "style",
+        "layout",
+        "padding",
+        "sidebar",
+        "local_navigation",
+    ] {
+        let mut props = json!({
+            "src": "/plugin-assets/vault/graph.html",
+            "title": "Vault graph"
+        });
+        props[forbidden] = json!("<strong>unsafe</strong>");
+        assert_error_contains(node(UiNodeKind::Iframe, props), forbidden);
+    }
+}
+
+#[test]
+fn iframe_policy_props_use_typed_non_overlapping_vocabularies() {
+    node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/graph.html",
+            "title": "Graph",
+            "sandbox": ["allow_scripts", "allow_same_origin"],
+            "allow": ["fullscreen", "clipboard_write"],
+            "bridge": {
+                "actions": ["vault.graph.refresh"],
+                "messages": ["vault.graph.ready"]
+            }
+        }),
+    )
+    .validate()
+    .expect("typed iframe policy metadata should validate");
+
+    assert_error_contains(
+        node(
+            UiNodeKind::Iframe,
+            json!({
+                "src": "/graph.html",
+                "title": "Graph",
+                "sandbox": ["scripts"]
+            }),
+        ),
+        "sandbox",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Iframe,
+            json!({
+                "src": "/graph.html",
+                "title": "Graph",
+                "allow": ["botster_action"]
+            }),
+        ),
+        "allow",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Iframe,
+            json!({
+                "src": "/graph.html",
+                "title": "Graph",
+                "bridge": { "actions": [" "] }
+            }),
+        ),
+        "bridge action ids cannot be empty",
+    );
+}
+
+#[test]
 fn ui_node_v1_primitive_inventory_is_explicit() {
     let primitives = [
         UiNodeKind::Stack,
@@ -249,6 +422,7 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
         UiNodeKind::SelectOption,
         UiNodeKind::TerminalView,
         UiNodeKind::ConnectionCodeView,
+        UiNodeKind::Iframe,
     ];
 
     let wire_names: Vec<_> = primitives
@@ -288,6 +462,7 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
             json!("select_option"),
             json!("terminal_view"),
             json!("connection_code_view"),
+            json!("iframe"),
         ]
     );
 }
@@ -1094,6 +1269,7 @@ fn ui_capability_set_serializes_renderer_neutral_wire_shape() {
         table: false,
         terminal_selection: false,
         qr_code: false,
+        iframe: false,
         rich_color: false,
         fallbacks: BTreeMap::from([
             (UiCapabilityFallback::TableAsList, ()),
@@ -1201,6 +1377,33 @@ fn capability_validation_pins_dialog_terminal_qr_and_color_downgrades() {
     let err = validate_ui_node_with_capabilities(&root, &capabilities)
         .expect_err("missing terminal-selection fallback should fail");
     assert!(err.to_string().contains("terminalSelection"));
+}
+
+#[test]
+fn capability_validation_requires_iframe_support_or_link_fallback() {
+    let iframe = node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/plugin-assets/vault/graph.html",
+            "title": "Vault graph"
+        }),
+    );
+
+    rich_capabilities()
+        .validate_node(&iframe)
+        .expect("rich renderer supports iframe directly");
+
+    let mut downgraded = rich_capabilities();
+    downgraded.iframe = false;
+    let err = validate_ui_node_with_capabilities(&iframe, &downgraded)
+        .expect_err("iframe without renderer support or fallback should fail");
+    assert!(err.to_string().contains("iframe"));
+
+    downgraded
+        .fallbacks
+        .insert(UiCapabilityFallback::IframeAsLink);
+    validate_ui_node_with_capabilities(&iframe, &downgraded)
+        .expect("declared iframe link fallback should pass");
 }
 
 #[test]
@@ -1639,6 +1842,36 @@ fn public_api_import_path_exposes_v1_form_schema_types() {
 }
 
 #[test]
+fn public_api_import_path_exposes_iframe_policy_types() {
+    let via_module_bridge = UiIframeBridge {
+        actions: vec![UiActionId("vault.graph.open_note".to_string())],
+        messages: vec!["vault.graph.ready".to_string()],
+    };
+    let via_root_bridge = botster_core::UiIframeBridge {
+        actions: vec![botster_core::UiActionId(
+            "vault.graph.open_note".to_string(),
+        )],
+        messages: vec!["vault.graph.ready".to_string()],
+    };
+    assert_eq!(via_module_bridge, via_root_bridge);
+    assert_eq!(
+        serde_json::to_value(UiIframeSandboxToken::AllowScripts)
+            .expect("serialize iframe sandbox token"),
+        json!("allow_scripts")
+    );
+    assert_eq!(
+        serde_json::to_value(botster_core::UiIframePermission::ClipboardWrite)
+            .expect("serialize iframe permission"),
+        json!("clipboard_write")
+    );
+    assert_eq!(
+        serde_json::from_value::<UiIframePermission>(json!("fullscreen"))
+            .expect("deserialize iframe permission"),
+        botster_core::UiIframePermission::Fullscreen
+    );
+}
+
+#[test]
 fn public_api_import_path_exposes_ui_capability_types() {
     let via_module = botster_core::ui::UiCapabilitySet {
         width_classes: BTreeMap::from([(botster_core::ui::UiWidthClass::Regular, ())])
@@ -1665,6 +1898,7 @@ fn public_api_import_path_exposes_ui_capability_types() {
         table: true,
         terminal_selection: true,
         qr_code: true,
+        iframe: true,
         rich_color: true,
         fallbacks: BTreeSet::new(),
     };

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::configuration::PackageConfigurationSchema;
 use super::dependency::{PackageDependency, PackageFeatureGate};
 use super::host_profile::HostProfileMetadata;
+use super::navigation::PackageNavigationEntry;
 use super::runnable_entrypoint::RunnableEntrypoint;
 use super::surface::PackageSurfaceDescriptor;
 use crate::capability::Capability;
@@ -63,4 +64,7 @@ pub struct PackageManifest {
     /// UI surface descriptors clients and hubs can inspect without running plugin code.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<PackageSurfaceDescriptor>,
+    /// Optional package-authored navigation intent. Hosts own admission and presentation policy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub navigation: Vec<PackageNavigationEntry>,
 }

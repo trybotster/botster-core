@@ -105,6 +105,7 @@ fn configured_manifest() -> PackageManifest {
         }),
         runnable_entrypoints: Vec::new(),
         surfaces: Vec::new(),
+        navigation: Vec::new(),
     }
 }
 

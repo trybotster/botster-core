@@ -85,6 +85,8 @@ pub enum UiNodeKind {
     TerminalView,
     /// Connection-code view placeholder.
     ConnectionCodeView,
+    /// Sandboxed iframe or webview placeholder for generated HTML surfaces.
+    Iframe,
 }
 
 /// Semantic width class.
@@ -194,6 +196,8 @@ pub enum UiCapabilityFallback {
     TerminalSelectionDisabled,
     /// Render connection codes as text when QR rendering is unavailable.
     ConnectionCodeText,
+    /// Render iframe/webview sources as links or text when embedded browsing is unavailable.
+    IframeAsLink,
     /// Collapse rich color into semantic monochrome or muted styling.
     RichColorMuted,
     /// Expose context-menu actions through ordinary menu/action controls.
@@ -242,6 +246,9 @@ pub struct UiCapabilitySet {
     /// Renderer can display QR or connection-code graphics.
     #[serde(default, skip_serializing_if = "is_false")]
     pub qr_code: bool,
+    /// Renderer can embed sandboxed iframe/webview content.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub iframe: bool,
     /// Renderer can apply semantic color tokens beyond monochrome defaults.
     #[serde(default, skip_serializing_if = "is_false")]
     pub rich_color: bool,
@@ -591,6 +598,64 @@ pub struct UiFieldValidationHints {
     /// Renderer-neutral allowed-value hints.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub one_of: Vec<Value>,
+}
+
+/// Sandboxed iframe/webview sandbox token.
+///
+/// Omitted or empty sandbox tokens mean the host should apply the most
+/// restrictive sandbox posture. Core records intent only; hosts and clients
+/// decide the runtime browser/webview policy they are willing to admit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiIframeSandboxToken {
+    /// Permit form submission inside the embedded document.
+    AllowForms,
+    /// Permit modal dialogs inside the embedded document.
+    AllowModals,
+    /// Permit popups from the embedded document.
+    AllowPopups,
+    /// Permit treating the embedded document as same-origin.
+    AllowSameOrigin,
+    /// Permit scripts inside the embedded document.
+    AllowScripts,
+    /// Permit downloads initiated by the embedded document.
+    AllowDownloads,
+}
+
+/// Passive iframe/webview permission metadata.
+///
+/// These entries describe browser/webview feature policy intent only. Host
+/// mediated Botster actions or message channels belong in [`UiIframeBridge`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiIframePermission {
+    /// Permit fullscreen presentation.
+    Fullscreen,
+    /// Permit clipboard writes.
+    ClipboardWrite,
+    /// Permit camera access if the host admits it.
+    Camera,
+    /// Permit microphone access if the host admits it.
+    Microphone,
+    /// Permit geolocation access if the host admits it.
+    Geolocation,
+    /// Permit payment APIs if the host admits them.
+    Payment,
+}
+
+/// Host-mediated bridge metadata for iframe/webview content.
+///
+/// Omitted or empty bridge metadata means no Botster action or message bridge is
+/// declared. Hosts still own admission and runtime wiring.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiIframeBridge {
+    /// Botster action ids that iframe content may request through the host.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<UiActionId>,
+    /// Host-defined message channel names the iframe may request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<String>,
 }
 
 /// Semantic UI action descriptor.
@@ -1017,6 +1082,19 @@ fn validate_prop_value(
         (_, "context_menu") => {
             deserialize_prop::<Vec<UiAction>>(kind, prop, value)?;
         }
+        (UiNodeKind::Iframe, "src" | "title") => {
+            validate_nonblank_string_or_bind_prop(kind, prop, value)?;
+        }
+        (UiNodeKind::Iframe, "sandbox") => {
+            deserialize_prop::<Vec<UiIframeSandboxToken>>(kind, prop, value)?;
+        }
+        (UiNodeKind::Iframe, "allow") => {
+            deserialize_prop::<Vec<UiIframePermission>>(kind, prop, value)?;
+        }
+        (UiNodeKind::Iframe, "bridge") => {
+            let bridge = deserialize_prop::<UiIframeBridge>(kind, prop, value)?;
+            validate_iframe_bridge(kind, prop, &bridge)?;
+        }
         _ => {}
     }
 
@@ -1112,6 +1190,55 @@ fn validate_string_or_bind_prop(
         prop: prop.to_string(),
         reason: "value must be a string or bind".to_string(),
     })
+}
+
+fn validate_nonblank_string_or_bind_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    match value.as_str() {
+        Some(value) if !value.trim().is_empty() => Ok(()),
+        Some(_) => Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value cannot be empty".to_string(),
+        }),
+        None if value.get("$bind").is_some() => Ok(()),
+        None => Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value must be a non-empty string or bind".to_string(),
+        }),
+    }
+}
+
+fn validate_iframe_bridge(
+    kind: UiNodeKind,
+    prop: &str,
+    bridge: &UiIframeBridge,
+) -> Result<(), UiValidationError> {
+    for action in &bridge.actions {
+        if action.0.trim().is_empty() {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bridge action ids cannot be empty".to_string(),
+            });
+        }
+    }
+
+    for message in &bridge.messages {
+        if message.trim().is_empty() {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bridge messages cannot be empty".to_string(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
@@ -1443,6 +1570,13 @@ fn validate_node_capability_requirements(
         );
     }
 
+    if node.kind == UiNodeKind::Iframe
+        && !capabilities.iframe
+        && !capabilities.supports_fallback(UiCapabilityFallback::IframeAsLink)
+    {
+        return unsupported(node.kind, "iframe", "iframe link fallback was not declared");
+    }
+
     if node.props.contains_key("tone")
         && !capabilities.rich_color
         && !capabilities.supports_fallback(UiCapabilityFallback::RichColorMuted)
@@ -1684,6 +1818,12 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
         UiNodeKind::ConnectionCodeView => {
             schema(&["code", "label", "copy_value"], &["code"], &[], &[])
         }
+        UiNodeKind::Iframe => schema(
+            &["src", "title", "sandbox", "allow", "bridge"],
+            &["src", "title"],
+            &[],
+            &[],
+        ),
     }
 }
 
