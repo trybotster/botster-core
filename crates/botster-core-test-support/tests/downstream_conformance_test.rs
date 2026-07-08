@@ -231,6 +231,12 @@ fn downstream_consumer_can_import_ui_renderer_conformance_helpers() {
             .any(|fixture| fixture.name == "responsive_fallbacks"),
         "fixture set should include capability downgrade coverage"
     );
+    assert!(
+        fixtures
+            .iter()
+            .any(|fixture| fixture.name == "application_dashboard"),
+        "fixture set should include application dashboard coverage"
+    );
 }
 
 #[test]

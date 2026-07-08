@@ -35,6 +35,7 @@ pub fn ui_renderer_conformance_fixtures() -> Vec<UiRendererConformanceFixture> {
         binding_fixture(),
         responsive_fallback_fixture(),
         action_metadata_fixture(),
+        application_dashboard_fixture(),
     ]
 }
 
@@ -320,6 +321,155 @@ fn action_metadata_fixture() -> UiRendererConformanceFixture {
     fixture.action_requests.push(request);
     fixture.action_results.push(result);
     fixture
+}
+
+fn application_dashboard_fixture() -> UiRendererConformanceFixture {
+    let mut root = node(
+        UiNodeKind::Section,
+        "dashboard-section",
+        json!({
+            "title": "Project dashboard",
+            "description": "Operator status and queue",
+            "density": "regular",
+            "variant": "plain"
+        }),
+    );
+
+    root.slots.insert(
+        "toolbar".to_string(),
+        vec![child({
+            let mut toolbar = node(
+                UiNodeKind::Toolbar,
+                "dashboard-toolbar",
+                json!({ "label": "Dashboard tools", "density": "compact" }),
+            );
+            toolbar.slots.insert(
+                "commands".to_string(),
+                vec![child(node(
+                    UiNodeKind::Button,
+                    "refresh-dashboard",
+                    json!({
+                        "label": "Refresh",
+                        "action": { "id": "project-pipelines.dashboard.refresh" }
+                    }),
+                ))],
+            );
+            toolbar.slots.insert(
+                "filters".to_string(),
+                vec![child(node(
+                    UiNodeKind::Badge,
+                    "open-filter",
+                    json!({ "label": "Open", "tone": "accent" }),
+                ))],
+            );
+            toolbar.slots.insert(
+                "search".to_string(),
+                vec![child(node(
+                    UiNodeKind::TextInput,
+                    "ticket-search",
+                    json!({
+                        "name": "query",
+                        "label": "Search",
+                        "placeholder": "Ticket or run"
+                    }),
+                ))],
+            );
+            toolbar
+        })],
+    );
+
+    root.slots.insert(
+        "body".to_string(),
+        vec![
+            child({
+                let mut grid = node(
+                    UiNodeKind::MetricGrid,
+                    "dashboard-metrics",
+                    json!({ "density": "compact", "compact": true }),
+                );
+                grid.children.push(child(node(
+                    UiNodeKind::Metric,
+                    "metric-active-runs",
+                    json!({
+                        "label": "Active runs",
+                        "value": 3,
+                        "caption": "Across projects",
+                        "tone": "success",
+                        "status": "healthy",
+                        "trend": { "direction": "up", "value": "+1", "label": "One more than yesterday" },
+                        "action": { "id": "project-pipelines.runs.open" }
+                    }),
+                )));
+                grid.children.push(child(node(
+                    UiNodeKind::Metric,
+                    "metric-blocked",
+                    json!({
+                        "label": "Blocked",
+                        "value": 1,
+                        "caption": "Needs attention",
+                        "tone": "warning",
+                        "status": "blocked"
+                    }),
+                )));
+                grid
+            }),
+            child(node(
+                UiNodeKind::Table,
+                "dashboard-table",
+                json!({
+                    "columns": [
+                        { "id": "title", "label": "Title", "align": "start" },
+                        { "id": "status", "label": "Status", "align": "start" }
+                    ],
+                    "rows": [{
+                        "id": "ticket_1",
+                        "cells": {
+                            "title": "Add renderer fixtures",
+                            "status": {
+                                "type": "status_badge",
+                                "id": "ticket_1_status",
+                                "props": {
+                                    "label": "Review",
+                                    "status": "review",
+                                    "tone": "warning"
+                                }
+                            }
+                        },
+                        "action": {
+                            "id": "project-pipelines.ticket.open",
+                            "payload": { "ticket_id": "ticket_1" }
+                        }
+                    }],
+                    "empty_state": {
+                        "type": "empty_state",
+                        "id": "dashboard-empty",
+                        "props": {
+                            "title": "No work queued",
+                            "description": "New tickets will appear here.",
+                            "primary_action": { "id": "project-pipelines.ticket.new" },
+                            "secondary_action": { "id": "project-pipelines.docs.open" }
+                        }
+                    },
+                    "selection": { "mode": "single", "selected": ["ticket_1"] },
+                    "row_action": { "id": "project-pipelines.ticket.open" }
+                }),
+            )),
+        ],
+    );
+
+    root.slots.insert(
+        "empty".to_string(),
+        vec![child(node(
+            UiNodeKind::EmptyState,
+            "dashboard-section-empty",
+            json!({
+                "title": "No dashboard data",
+                "primary_action": { "id": "project-pipelines.dashboard.refresh" }
+            }),
+        ))],
+    );
+
+    fixture("application_dashboard", rich_capabilities(), vec![root])
 }
 
 fn fixture(

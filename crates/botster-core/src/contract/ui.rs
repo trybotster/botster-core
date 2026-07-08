@@ -39,6 +39,16 @@ pub enum UiNodeKind {
     FormField,
     /// Panel region.
     Panel,
+    /// Application metric.
+    Metric,
+    /// Responsive metric collection.
+    MetricGrid,
+    /// Semantic command/filter/search/action container.
+    Toolbar,
+    /// Compact status display with state semantics.
+    StatusBadge,
+    /// Lightweight content grouping.
+    Section,
     /// Scrollable region.
     ScrollArea,
     /// Text node.
@@ -671,6 +681,139 @@ pub struct UiAction {
     pub disabled: bool,
 }
 
+/// Shared density intent for renderer-neutral application primitives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiDensity {
+    /// Compact presentation.
+    Compact,
+    /// Standard presentation.
+    Regular,
+    /// Roomier presentation.
+    Spacious,
+}
+
+/// Shared variant intent for renderer-neutral application primitives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiVariant {
+    /// Plain grouping with no framing requirement.
+    Plain,
+    /// Subtle grouping or low-emphasis treatment.
+    Subtle,
+    /// Emphasized grouping or primary treatment.
+    Emphasized,
+}
+
+/// Directional trend metadata for metric primitives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiMetricTrend {
+    /// Trend direction.
+    pub direction: UiMetricTrendDirection,
+    /// Optional renderer-neutral trend value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+    /// Optional accessible label for the trend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Directional metric trend token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiMetricTrendDirection {
+    /// Positive or increasing trend.
+    Up,
+    /// Negative or decreasing trend.
+    Down,
+    /// Flat or unchanged trend.
+    Flat,
+}
+
+/// Selection behavior shared by list and table primitives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiSelection {
+    /// Selection mode.
+    pub mode: UiSelectionMode,
+    /// Owner-controlled selected item or row ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<String>,
+}
+
+/// Selection mode shared by list and table primitives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiSelectionMode {
+    /// Selection is not supported.
+    None,
+    /// One row or item may be selected.
+    Single,
+    /// Multiple rows or items may be selected.
+    Multiple,
+}
+
+/// Table column descriptor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UiTableColumn {
+    /// Existing simple column id shape.
+    Id(String),
+    /// Typed column descriptor.
+    Descriptor(UiTableColumnDescriptor),
+}
+
+/// Typed table column descriptor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiTableColumnDescriptor {
+    /// Stable column id.
+    pub id: String,
+    /// Optional display label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Optional semantic alignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<UiTableColumnAlign>,
+}
+
+/// Semantic table column alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiTableColumnAlign {
+    /// Start-aligned content.
+    Start,
+    /// Center-aligned content.
+    Center,
+    /// End-aligned content.
+    End,
+}
+
+/// Table row descriptor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiTableRow {
+    /// Stable row id.
+    pub id: String,
+    /// Cells keyed by column id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cells: BTreeMap<String, UiTableCell>,
+    /// Optional row-specific action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<UiAction>,
+}
+
+/// Table cell content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UiTableCell {
+    /// Nested UI node cell.
+    Node(UiNode),
+    /// Primitive JSON cell value.
+    Value(Value),
+}
+
 /// Semantic UI action request kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1082,6 +1225,51 @@ fn validate_prop_value(
         (_, "context_menu") => {
             deserialize_prop::<Vec<UiAction>>(kind, prop, value)?;
         }
+        (_, "action" | "primary_action" | "secondary_action" | "row_action" | "activation") => {
+            let action = deserialize_prop::<UiAction>(kind, prop, value)?;
+            validate_action(kind, prop, &action)?;
+        }
+        (_, "density") => {
+            deserialize_prop::<UiDensity>(kind, prop, value)?;
+        }
+        (
+            UiNodeKind::Panel | UiNodeKind::MetricGrid | UiNodeKind::Toolbar | UiNodeKind::Section,
+            "variant",
+        ) => {
+            deserialize_prop::<UiVariant>(kind, prop, value)?;
+        }
+        (_, "selection") => {
+            let selection = deserialize_prop::<UiSelection>(kind, prop, value)?;
+            validate_selection(kind, prop, &selection)?;
+        }
+        (_, "selected") if matches!(kind, UiNodeKind::Table | UiNodeKind::List) => {
+            deserialize_prop::<Vec<String>>(kind, prop, value)?;
+        }
+        (UiNodeKind::Metric, "trend") => {
+            let trend = deserialize_prop::<UiMetricTrend>(kind, prop, value)?;
+            validate_metric_trend(kind, prop, &trend)?;
+        }
+        (UiNodeKind::MetricGrid, "compact") => {
+            if !value.is_boolean() && value.get("$bind").is_none() {
+                return Err(UiValidationError::InvalidProp {
+                    kind,
+                    prop: prop.to_string(),
+                    reason: "value must be a boolean".to_string(),
+                });
+            }
+        }
+        (UiNodeKind::Table, "columns") => {
+            let columns = deserialize_prop::<Vec<UiTableColumn>>(kind, prop, value)?;
+            validate_table_columns(kind, prop, &columns)?;
+        }
+        (UiNodeKind::Table, "rows") => {
+            let rows = deserialize_prop::<Vec<UiTableRow>>(kind, prop, value)?;
+            validate_table_rows(kind, prop, &rows)?;
+        }
+        (UiNodeKind::Table, "empty_state") => {
+            let empty_state = deserialize_prop::<UiNode>(kind, prop, value)?;
+            empty_state.validate()?;
+        }
         (UiNodeKind::Iframe, "src" | "title") => {
             validate_nonblank_string_or_bind_prop(kind, prop, value)?;
         }
@@ -1096,6 +1284,148 @@ fn validate_prop_value(
             validate_iframe_bridge(kind, prop, &bridge)?;
         }
         _ => {}
+    }
+
+    Ok(())
+}
+
+fn validate_action(
+    kind: UiNodeKind,
+    prop: &str,
+    action: &UiAction,
+) -> Result<(), UiValidationError> {
+    if action.id.0.trim().is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "action id cannot be empty".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_selection(
+    kind: UiNodeKind,
+    prop: &str,
+    selection: &UiSelection,
+) -> Result<(), UiValidationError> {
+    if selection.mode == UiSelectionMode::None && !selection.selected.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "selection mode none cannot include selected ids".to_string(),
+        });
+    }
+    if selection.mode == UiSelectionMode::Single && selection.selected.len() > 1 {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "single selection cannot include multiple selected ids".to_string(),
+        });
+    }
+    if selection.selected.iter().any(|id| id.trim().is_empty()) {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "selected ids cannot be empty".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_metric_trend(
+    kind: UiNodeKind,
+    prop: &str,
+    trend: &UiMetricTrend,
+) -> Result<(), UiValidationError> {
+    if trend
+        .label
+        .as_deref()
+        .is_some_and(|label| label.trim().is_empty())
+    {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "trend label cannot be empty".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_table_columns(
+    kind: UiNodeKind,
+    prop: &str,
+    columns: &[UiTableColumn],
+) -> Result<(), UiValidationError> {
+    if columns.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "columns cannot be empty".to_string(),
+        });
+    }
+
+    let mut ids = BTreeSet::new();
+    for column in columns {
+        let id = match column {
+            UiTableColumn::Id(id) => id,
+            UiTableColumn::Descriptor(descriptor) => &descriptor.id,
+        };
+        if id.trim().is_empty() {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "column ids cannot be empty".to_string(),
+            });
+        }
+        if !ids.insert(id.clone()) {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: format!("duplicate column id `{id}`"),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_table_rows(
+    kind: UiNodeKind,
+    prop: &str,
+    rows: &[UiTableRow],
+) -> Result<(), UiValidationError> {
+    let mut ids = BTreeSet::new();
+    for row in rows {
+        if row.id.trim().is_empty() {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "row ids cannot be empty".to_string(),
+            });
+        }
+        if !ids.insert(row.id.clone()) {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: format!("duplicate row id `{}`", row.id),
+            });
+        }
+        if let Some(action) = &row.action {
+            validate_action(kind, prop, action)?;
+        }
+        for (column_id, cell) in &row.cells {
+            if column_id.trim().is_empty() {
+                return Err(UiValidationError::InvalidProp {
+                    kind,
+                    prop: prop.to_string(),
+                    reason: "cell column ids cannot be empty".to_string(),
+                });
+            }
+            if let UiTableCell::Node(node) = cell {
+                node.validate()?;
+            }
+        }
     }
 
     Ok(())
@@ -1279,6 +1609,16 @@ fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
                 }
             }
         }
+    }
+
+    if node.kind == UiNodeKind::Section
+        && !node.props.contains_key("title")
+        && !node.slots.contains_key("header")
+    {
+        return Err(UiValidationError::MissingProp {
+            kind: node.kind,
+            prop: "title",
+        });
     }
 
     Ok(())
@@ -1645,7 +1985,39 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &[],
             &[],
         ),
-        UiNodeKind::Panel => schema(&["title", "tone"], &[], &[], &[]),
+        UiNodeKind::Panel => schema(
+            &["title", "tone", "density", "variant"],
+            &[],
+            &["header", "toolbar", "body", "footer", "empty", "actions"],
+            &[],
+        ),
+        UiNodeKind::Metric => schema(
+            &[
+                "label", "value", "caption", "tone", "status", "trend", "delta", "action", "ref",
+            ],
+            &["label", "value"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::MetricGrid => schema(&["density", "variant", "compact"], &[], &[], &[]),
+        UiNodeKind::Toolbar => schema(
+            &["label", "density", "variant"],
+            &[],
+            &["commands", "filters", "search", "actions"],
+            &[],
+        ),
+        UiNodeKind::StatusBadge => schema(
+            &["label", "status", "tone", "hover_label", "action"],
+            &["label"],
+            &[],
+            &[],
+        ),
+        UiNodeKind::Section => schema(
+            &["title", "description", "density", "variant"],
+            &[],
+            &["header", "toolbar", "body", "footer", "empty", "actions"],
+            &[],
+        ),
         UiNodeKind::ScrollArea => schema(&["height"], &[], &[], &[]),
         UiNodeKind::Text => schema(
             &["text", "tone", "variant", "hover_label", "copy_value"],
@@ -1662,14 +2034,28 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
         UiNodeKind::Badge => schema(&["label", "tone", "hover_label"], &["label"], &[], &[]),
         UiNodeKind::StatusDot => schema(&["label", "tone", "hover_label"], &["label"], &[], &[]),
         UiNodeKind::EmptyState => schema(
-            &["title", "description", "icon", "action"],
+            &[
+                "title",
+                "description",
+                "icon",
+                "action",
+                "primary_action",
+                "secondary_action",
+            ],
             &["title"],
             &[],
             &[],
         ),
-        UiNodeKind::List => schema(&["aria_label"], &[], &[], &[]),
+        UiNodeKind::List => schema(&["aria_label", "selection", "selected"], &[], &[], &[]),
         UiNodeKind::ListItem => schema(
-            &["value", "selected", "hover_label", "context_menu"],
+            &[
+                "value",
+                "selected",
+                "action",
+                "activation",
+                "hover_label",
+                "context_menu",
+            ],
             &[],
             &["title", "subtitle", "meta", "actions"],
             &["title"],
@@ -1687,7 +2073,20 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &["title", "children", "actions"],
             &["title"],
         ),
-        UiNodeKind::Table => schema(&["columns"], &["columns"], &[], &[]),
+        UiNodeKind::Table => schema(
+            &[
+                "columns",
+                "rows",
+                "empty_state",
+                "selection",
+                "selected",
+                "row_action",
+                "activation",
+            ],
+            &["columns"],
+            &[],
+            &[],
+        ),
         UiNodeKind::Button => schema(
             &[
                 "label",
