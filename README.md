@@ -144,6 +144,32 @@ does not define route layout, padding, local navigation, sidebar replacement, or
 shell placement primitives; a surface root `UiNode` owns page layout within the
 already-admitted surface.
 
+Application surfaces can describe operator dashboards with semantic UiNode
+primitives without naming a browser or TUI implementation. `metric` carries a
+label, value, optional caption, status/tone, trend/delta, and semantic action or
+reference. `metric_grid` groups metrics with density/variant/compact rendering
+intent. `toolbar` is the command, filter, search, and action container; there is
+no duplicate `action_bar` alias. `table` remains the workhorse data primitive:
+columns may be simple ids or typed descriptors, rows have stable ids, cells may
+be primitive values or nested UiNodes, and row action, activation, empty state,
+and selection semantics are explicit. `list` and `list_item` share the same
+selection/action vocabulary where list rows are a better presentation. `section`
+is lightweight content grouping with title/description/actions and named
+regions; `panel` keeps framed content semantics and now also accepts
+density/variant plus `header`, `toolbar`, `body`, `footer`, `empty`, and
+`actions` slots. `status_badge` is compact state display; generic `badge` stays
+for labels and `status_dot` stays for dot-like presence/status indicators.
+
+These contracts are renderer-neutral. Core validates names, prop shape, and
+declared fallback requirements; clients choose how to render them. High-level
+domain views such as `kanban`, `timeline`, `graph`, and `data_grid` are
+deliberately deferred until table/list/section primitives prove insufficient.
+Browser and TUI adapters must adopt these new kinds in follow-up renderer work;
+this core crate only provides the canonical schema and conformance fixture.
+All semantic action props deserialize through the shared `UiAction` contract and
+must include a non-empty action id; loosely-shaped action objects are rejected so
+owners and renderers agree on the interaction target.
+
 Runnable entrypoints are package manifest metadata for first-party/client app
 launch contracts. A package may declare `runnable_entrypoints` with stable ids,
 semantic kinds (`web_app` or `terminal_app`), launch modes (`background` or
