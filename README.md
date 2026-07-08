@@ -166,6 +166,9 @@ domain views such as `kanban`, `timeline`, `graph`, and `data_grid` are
 deliberately deferred until table/list/section primitives prove insufficient.
 Browser and TUI adapters must adopt these new kinds in follow-up renderer work;
 this core crate only provides the canonical schema and conformance fixture.
+All semantic action props deserialize through the shared `UiAction` contract and
+must include a non-empty action id; loosely-shaped action objects are rejected so
+owners and renderers agree on the interaction target.
 
 Runnable entrypoints are package manifest metadata for first-party/client app
 launch contracts. A package may declare `runnable_entrypoints` with stable ids,
