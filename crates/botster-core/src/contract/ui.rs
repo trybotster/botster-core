@@ -1242,9 +1242,6 @@ fn validate_prop_value(
             let selection = deserialize_prop::<UiSelection>(kind, prop, value)?;
             validate_selection(kind, prop, &selection)?;
         }
-        (_, "selected") if matches!(kind, UiNodeKind::Table | UiNodeKind::List) => {
-            deserialize_prop::<Vec<String>>(kind, prop, value)?;
-        }
         (UiNodeKind::Metric, "trend") => {
             let trend = deserialize_prop::<UiMetricTrend>(kind, prop, value)?;
             validate_metric_trend(kind, prop, &trend)?;
@@ -2046,7 +2043,7 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &[],
             &[],
         ),
-        UiNodeKind::List => schema(&["aria_label", "selection", "selected"], &[], &[], &[]),
+        UiNodeKind::List => schema(&["aria_label", "selection"], &[], &[], &[]),
         UiNodeKind::ListItem => schema(
             &[
                 "value",
@@ -2079,7 +2076,6 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
                 "rows",
                 "empty_state",
                 "selection",
-                "selected",
                 "row_action",
                 "activation",
             ],

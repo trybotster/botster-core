@@ -169,6 +169,17 @@ fn required_props_fail_clearly() {
 }
 
 #[test]
+fn existing_action_nodes_reject_empty_action_ids() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Button,
+            json!({ "label": "Run", "action": { "id": "" } }),
+        ),
+        "action id cannot be empty",
+    );
+}
+
+#[test]
 fn required_slots_fail_clearly() {
     assert_error_contains(node(UiNodeKind::ListItem, json!({})), "title");
     assert_error_contains(node(UiNodeKind::TreeItem, json!({})), "title");
@@ -687,8 +698,7 @@ fn table_round_trips_columns_rows_stable_ids_and_node_cells() {
                 "props": { "title": "No tickets" }
             },
             "row_action": { "id": "project-pipelines.ticket.open" },
-            "selection": { "mode": "multiple", "selected": ["ticket_123"] },
-            "selected": ["ticket_123"]
+            "selection": { "mode": "multiple", "selected": ["ticket_123"] }
         }),
     );
 
@@ -750,13 +760,27 @@ fn table_selection_and_row_activation_are_semantic() {
 }
 
 #[test]
+fn table_and_list_reject_bare_selected_selection_state() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Table,
+            json!({ "columns": ["title"], "selected": ["ticket_1"] }),
+        ),
+        "selected",
+    );
+    assert_error_contains(
+        node(UiNodeKind::List, json!({ "selected": ["ticket_1"] })),
+        "selected",
+    );
+}
+
+#[test]
 fn list_selection_and_item_actions_match_table_semantics() {
     let mut list = node(
         UiNodeKind::List,
         json!({
             "aria_label": "Tickets",
-            "selection": { "mode": "single", "selected": ["ticket_1"] },
-            "selected": ["ticket_1"]
+            "selection": { "mode": "single", "selected": ["ticket_1"] }
         }),
     );
     let mut item = node(
