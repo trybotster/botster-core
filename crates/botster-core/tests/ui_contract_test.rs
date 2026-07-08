@@ -5,12 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use botster_core::ui::{
     validate_ui_node, validate_ui_node_with_capabilities, UiActionId, UiActionKind,
     UiActionRequest, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
-    UiCapabilityFallback, UiCapabilitySet, UiChild, UiCondition, UiConditional,
+    UiCapabilityFallback, UiCapabilitySet, UiChild, UiCondition, UiConditional, UiDensity,
     UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
     UiFieldValidationHints, UiFormValues, UiHeightClass, UiIframeBridge, UiIframePermission,
-    UiIframeSandboxToken, UiKeyboardCapability, UiNode, UiNodeId, UiNodeKind, UiPointer,
-    UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSurfaceId, UiTreeUpdateRef,
-    UiValidationError, UiWidthClass,
+    UiIframeSandboxToken, UiKeyboardCapability, UiMetricTrend, UiMetricTrendDirection, UiNode,
+    UiNodeId, UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth,
+    UiSelection, UiSelectionMode, UiSurfaceId, UiTableCell, UiTableColumn, UiTableColumnDescriptor,
+    UiTableRow, UiTreeUpdateRef, UiValidationError, UiVariant, UiWidthClass,
 };
 use botster_core::{RequestId, UiAction};
 use serde_json::{json, Map, Value};
@@ -164,6 +165,17 @@ fn required_props_fail_clearly() {
     assert_error_contains(
         node(UiNodeKind::SelectOption, json!({ "value": "open" })),
         "label",
+    );
+}
+
+#[test]
+fn existing_action_nodes_reject_empty_action_ids() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Button,
+            json!({ "label": "Run", "action": { "id": "" } }),
+        ),
+        "action id cannot be empty",
     );
 }
 
@@ -396,6 +408,11 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
         UiNodeKind::Stack,
         UiNodeKind::Inline,
         UiNodeKind::Panel,
+        UiNodeKind::Metric,
+        UiNodeKind::MetricGrid,
+        UiNodeKind::Toolbar,
+        UiNodeKind::StatusBadge,
+        UiNodeKind::Section,
         UiNodeKind::ScrollArea,
         UiNodeKind::Text,
         UiNodeKind::Icon,
@@ -436,6 +453,11 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
             json!("stack"),
             json!("inline"),
             json!("panel"),
+            json!("metric"),
+            json!("metric_grid"),
+            json!("toolbar"),
+            json!("status_badge"),
+            json!("section"),
             json!("scroll_area"),
             json!("text"),
             json!("icon"),
@@ -465,6 +487,385 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
             json!("iframe"),
         ]
     );
+}
+
+#[test]
+fn metric_and_metric_grid_round_trip_semantic_values() {
+    let trend = UiMetricTrend {
+        direction: UiMetricTrendDirection::Up,
+        value: Some(json!("12%")),
+        label: Some("Up 12 percent this week".to_string()),
+    };
+    let mut grid = node(
+        UiNodeKind::MetricGrid,
+        json!({ "density": "compact", "variant": "subtle", "compact": true }),
+    );
+    grid.children.push(UiChild::Node(Box::new(node(
+        UiNodeKind::Metric,
+        json!({
+            "label": "Active runs",
+            "value": 7,
+            "caption": "Across assigned projects",
+            "tone": "success",
+            "status": "healthy",
+            "trend": trend,
+            "delta": "+2",
+            "action": { "id": "project-pipelines.runs.open" },
+            "ref": "/project-pipelines.run"
+        }),
+    ))));
+
+    let value = serde_json::to_value(&grid).expect("serialize metric grid");
+    let decoded = serde_json::from_value::<UiNode>(value).expect("deserialize metric grid");
+    assert_eq!(decoded, grid);
+    decoded.validate().expect("metric grid should validate");
+}
+
+#[test]
+fn toolbar_declares_commands_filters_search_and_actions_without_renderer_props() {
+    let mut toolbar = node(
+        UiNodeKind::Toolbar,
+        json!({ "label": "Ticket tools", "density": "regular", "variant": "plain" }),
+    );
+    toolbar
+        .slots
+        .insert("commands".to_string(), vec![text("Commands")]);
+    toolbar
+        .slots
+        .insert("filters".to_string(), vec![text("Filters")]);
+    toolbar
+        .slots
+        .insert("search".to_string(), vec![text("Search")]);
+    toolbar.slots.insert(
+        "actions".to_string(),
+        vec![UiChild::Node(Box::new(node(
+            UiNodeKind::Button,
+            json!({ "label": "Refresh", "action": { "id": "project-pipelines.refresh" } }),
+        )))],
+    );
+
+    toolbar.validate().expect("toolbar should validate");
+    assert_error_contains(
+        node(
+            UiNodeKind::Toolbar,
+            json!({ "label": "Tools", "className": "ion-padding" }),
+        ),
+        "className",
+    );
+}
+
+#[test]
+fn status_badge_carries_status_without_reusing_renderer_style() {
+    let badge = node(
+        UiNodeKind::StatusBadge,
+        json!({
+            "label": "Review",
+            "status": "waiting",
+            "tone": "warning",
+            "hover_label": "Waiting for plan review",
+            "action": { "id": "project-pipelines.review.open" }
+        }),
+    );
+    badge.validate().expect("status badge should validate");
+
+    let plain_badge = node(
+        UiNodeKind::Badge,
+        json!({ "label": "Beta", "tone": "accent" }),
+    );
+    plain_badge
+        .validate()
+        .expect("generic badge should still validate");
+
+    let status_dot = node(
+        UiNodeKind::StatusDot,
+        json!({ "label": "Online", "tone": "success" }),
+    );
+    status_dot
+        .validate()
+        .expect("status dot should still validate");
+
+    assert_error_contains(
+        node(
+            UiNodeKind::Badge,
+            json!({ "label": "Review", "status": "waiting" }),
+        ),
+        "status",
+    );
+}
+
+#[test]
+fn section_and_panel_named_slots_validate() {
+    let mut section = node(
+        UiNodeKind::Section,
+        json!({
+            "title": "Work queue",
+            "description": "Operator-facing queue",
+            "density": "spacious",
+            "variant": "emphasized"
+        }),
+    );
+    section
+        .slots
+        .insert("toolbar".to_string(), vec![text("Tools")]);
+    section.slots.insert("body".to_string(), vec![text("Body")]);
+    section
+        .slots
+        .insert("footer".to_string(), vec![text("Footer")]);
+    section.validate().expect("section should validate");
+
+    let mut header_only = node(
+        UiNodeKind::Section,
+        json!({ "density": "regular", "variant": "plain" }),
+    );
+    header_only
+        .slots
+        .insert("header".to_string(), vec![text("Header")]);
+    header_only
+        .validate()
+        .expect("header slot should satisfy section identity");
+
+    let mut panel = node(
+        UiNodeKind::Panel,
+        json!({ "title": "Frame", "tone": "accent", "density": "compact", "variant": "subtle" }),
+    );
+    panel
+        .slots
+        .insert("header".to_string(), vec![text("Panel")]);
+    panel
+        .slots
+        .insert("toolbar".to_string(), vec![text("Tools")]);
+    panel.slots.insert("body".to_string(), vec![text("Body")]);
+    panel.slots.insert("empty".to_string(), vec![text("Empty")]);
+    panel
+        .slots
+        .insert("actions".to_string(), vec![text("Actions")]);
+    panel.validate().expect("panel slots should validate");
+
+    assert_error_contains(node(UiNodeKind::Section, json!({})), "title");
+    assert_error_contains(
+        {
+            let mut node = node(UiNodeKind::Panel, json!({ "title": "Panel" }));
+            node.slots
+                .insert("sidebar".to_string(), vec![text("Sidebar")]);
+            node
+        },
+        "sidebar",
+    );
+}
+
+#[test]
+fn empty_state_accepts_primary_and_secondary_actions() {
+    let empty = node(
+        UiNodeKind::EmptyState,
+        json!({
+            "title": "No tickets",
+            "description": "Create one to start the queue.",
+            "icon": "inbox",
+            "primary_action": { "id": "project-pipelines.ticket.new" },
+            "secondary_action": { "id": "project-pipelines.docs.open" }
+        }),
+    );
+
+    empty
+        .validate()
+        .expect("empty state actions should validate");
+}
+
+#[test]
+fn table_round_trips_columns_rows_stable_ids_and_node_cells() {
+    let table = node(
+        UiNodeKind::Table,
+        json!({
+            "columns": [
+                { "id": "title", "label": "Title", "align": "start" },
+                "status"
+            ],
+            "rows": [{
+                "id": "ticket_123",
+                "cells": {
+                    "title": "Fix pipeline",
+                    "status": {
+                        "type": "status_badge",
+                        "id": "ticket_123_status",
+                        "props": { "label": "Open", "status": "open", "tone": "success" }
+                    }
+                },
+                "action": { "id": "project-pipelines.ticket.open", "payload": { "id": "ticket_123" } }
+            }],
+            "empty_state": {
+                "type": "empty_state",
+                "id": "tickets_empty",
+                "props": { "title": "No tickets" }
+            },
+            "row_action": { "id": "project-pipelines.ticket.open" },
+            "selection": { "mode": "multiple", "selected": ["ticket_123"] }
+        }),
+    );
+
+    let value = serde_json::to_value(&table).expect("serialize table");
+    let decoded = serde_json::from_value::<UiNode>(value).expect("deserialize table");
+    decoded.validate().expect("typed table should validate");
+
+    let columns = serde_json::from_value::<Vec<UiTableColumn>>(
+        decoded.props.get("columns").expect("columns").clone(),
+    )
+    .expect("typed columns");
+    assert!(matches!(
+        &columns[0],
+        UiTableColumn::Descriptor(UiTableColumnDescriptor { id, .. }) if id == "title"
+    ));
+    let rows =
+        serde_json::from_value::<Vec<UiTableRow>>(decoded.props.get("rows").expect("rows").clone())
+            .expect("typed rows");
+    assert!(matches!(
+        rows[0].cells.get("status").expect("status cell"),
+        UiTableCell::Node(node) if node.kind == UiNodeKind::StatusBadge
+    ));
+}
+
+#[test]
+fn table_rejects_rows_without_stable_ids() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Table,
+            json!({ "columns": ["title"], "rows": [{ "id": "", "cells": { "title": "Missing id" } }] }),
+        ),
+        "row ids cannot be empty",
+    );
+}
+
+#[test]
+fn table_selection_and_row_activation_are_semantic() {
+    let table = node(
+        UiNodeKind::Table,
+        json!({
+            "columns": ["title"],
+            "rows": [{ "id": "ticket_1", "cells": { "title": "One" } }],
+            "selection": { "mode": "single", "selected": ["ticket_1"] },
+            "activation": { "id": "project-pipelines.ticket.activate" }
+        }),
+    );
+    table.validate().expect("table selection should validate");
+
+    assert_error_contains(
+        node(
+            UiNodeKind::Table,
+            json!({
+                "columns": ["title"],
+                "selection": { "mode": "single", "selected": ["ticket_1", "ticket_2"] }
+            }),
+        ),
+        "single selection cannot include multiple selected ids",
+    );
+}
+
+#[test]
+fn table_and_list_reject_bare_selected_selection_state() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Table,
+            json!({ "columns": ["title"], "selected": ["ticket_1"] }),
+        ),
+        "selected",
+    );
+    assert_error_contains(
+        node(UiNodeKind::List, json!({ "selected": ["ticket_1"] })),
+        "selected",
+    );
+}
+
+#[test]
+fn list_selection_and_item_actions_match_table_semantics() {
+    let mut list = node(
+        UiNodeKind::List,
+        json!({
+            "aria_label": "Tickets",
+            "selection": { "mode": "single", "selected": ["ticket_1"] }
+        }),
+    );
+    let mut item = node(
+        UiNodeKind::ListItem,
+        json!({
+            "value": "ticket_1",
+            "selected": true,
+            "action": { "id": "project-pipelines.ticket.open" },
+            "activation": { "id": "project-pipelines.ticket.activate" }
+        }),
+    );
+    item.slots
+        .insert("title".to_string(), vec![text("Ticket 1")]);
+    list.children.push(UiChild::Node(Box::new(item)));
+
+    list.validate().expect("list selection should validate");
+}
+
+#[test]
+fn renderer_specific_application_props_are_rejected() {
+    for (kind, props, expected) in [
+        (
+            UiNodeKind::Metric,
+            json!({ "label": "Runs", "value": 3, "className": "ion-card" }),
+            "className",
+        ),
+        (UiNodeKind::MetricGrid, json!({ "columns": 3 }), "columns"),
+        (
+            UiNodeKind::Toolbar,
+            json!({ "ionSlot": "fixed" }),
+            "ionSlot",
+        ),
+        (
+            UiNodeKind::StatusBadge,
+            json!({ "label": "Open", "css": "green" }),
+            "css",
+        ),
+        (
+            UiNodeKind::Section,
+            json!({ "title": "Work", "padding": "lg" }),
+            "padding",
+        ),
+    ] {
+        assert_error_contains(node(kind, props), expected);
+    }
+}
+
+#[test]
+fn deferred_high_level_views_are_rejected_as_unknown_node_kinds() {
+    for kind in ["data_grid", "kanban", "timeline", "graph", "action_bar"] {
+        let error = serde_json::from_value::<UiNode>(json!({
+            "type": kind,
+            "id": "deferred"
+        }))
+        .expect_err("deferred primitive should not deserialize");
+        assert!(
+            error.to_string().contains("unknown variant"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[test]
+fn public_api_import_path_exposes_application_ui_contract_types() {
+    let _density = UiDensity::Compact;
+    let _variant = UiVariant::Plain;
+    let _selection = UiSelection {
+        mode: UiSelectionMode::None,
+        selected: Vec::new(),
+    };
+    let _trend = UiMetricTrend {
+        direction: UiMetricTrendDirection::Flat,
+        value: None,
+        label: None,
+    };
+    let _column = UiTableColumn::Descriptor(UiTableColumnDescriptor {
+        id: "title".to_string(),
+        label: Some("Title".to_string()),
+        align: None,
+    });
+    let _row = UiTableRow {
+        id: "ticket_1".to_string(),
+        cells: BTreeMap::from([("title".to_string(), UiTableCell::Value(json!("One")))]),
+        action: None,
+    };
 }
 
 #[test]
