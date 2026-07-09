@@ -203,6 +203,8 @@ pub struct DaemonStatus {
 pub enum SessionAdoptionState {
     /// Record has enough protocol metadata to attempt live worker adoption.
     Adoptable,
+    /// Record has restart evidence, but this daemon has no session-worker path.
+    InProcessDaemonNotRestartDurable,
     /// Record is terminal and should not be adopted.
     Terminal,
     /// Record is missing the restart-contract liveness/recovery evidence.
