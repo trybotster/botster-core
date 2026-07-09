@@ -2,7 +2,7 @@
 
 Ticket: Audit trybotster Ghostty fork API for Rust shadow-terminal adapter
 
-Status: accepted for future adapter implementation
+Status: accepted; adapter implemented in `botster-terminal-ghostty`
 
 ## Decision
 
@@ -17,7 +17,7 @@ then converge the CLI onto that shared adapter. The current CLI subsystem
 should coexist as production evidence until the replacement is implemented and
 verified.
 
-The future adapter should:
+The adapter should:
 
 - vendor or otherwise pin the trybotster Ghostty fork commit in the adapter
   crate, not in `botster-core`;
@@ -115,7 +115,7 @@ tag discovery.
 
 `cli/build_support.rs` requires Zig `0.15.2` and resolves candidates from
 `BOTSTER_ZIG`, `ZIG`, a mise-managed Zig install, `zig` from `PATH`, and
-`mise exec -- zig`. The future adapter should preserve this explicit tool
+`mise exec -- zig`. The adapter preserves this explicit tool
 selection model, while avoiding machine-specific paths in docs and errors.
 
 `cli/src/ghostty_vt.rs` uses handwritten FFI and a safe wrapper, not broad
@@ -195,7 +195,7 @@ snapshots, page memory portability, and restore invariants. They should be
 treated as historical design rationale and gotcha inventory, not the API to use
 for the next Rust adapter.
 
-Recommendation: implement the future adapter against
+Recommendation: implement the adapter against
 `ghostty_terminal_snapshot_export` and `ghostty_terminal_snapshot_import`. Treat
 the returned buffer as the bytes for `TerminalSnapshotPayload.bytes`, set
 `TerminalSnapshotPayload.size` from the current terminal dimensions, and set
@@ -229,11 +229,14 @@ plain screen reads before replacing any production CLI behavior.
 
 ## Build And Dependency Strategy
 
-Recommended crate shape:
+Current crate shape:
 
 - `botster-core`: no Ghostty dependency, no Zig dependency, no build script.
 - `botster-terminal-ghostty`: optional adapter crate that owns the Ghostty fork
   pin, Zig build, static link, FFI, and safe wrapper.
+- `botster-core-daemon`: first-party production host profile that enables the
+  sibling adapter by default through `ghostty-terminal =
+  ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/libghostty-vt"]`.
 - CLI integration: keep the existing subsystem until the adapter proves parity,
   then migrate the CLI to the adapter and remove duplication in one deliberate
   step.
@@ -250,6 +253,15 @@ Build constraints to preserve:
 - keep static-vs-shared distribution policy inside the adapter crate;
 - document platform-specific link handling such as macOS archive repacking if
   the adapter repeats the current CLI approach.
+
+The no-native opt-out is `botster-core-daemon --no-default-features`; that lane
+uses the plain fallback backend and must keep executing tests for
+`plain-opaque-v1`. `botster-core` remains backend-neutral and must not gain a
+`botster-terminal-ghostty`, `libghostty`, Zig, or build-script edge.
+The default daemon host profile uses a 10 MB Ghostty scrollback byte budget
+instead of the adapter crate's zero-scrollback default. Ghostty quantizes that
+budget into terminal pages, so effective retained lines depend on terminal
+width.
 
 ## Callback Strategy
 
@@ -300,7 +312,7 @@ the fork commit, why the fork is needed, and what local patches are relied on.
 
 ## Assumptions
 
-- The future adapter is allowed to pin the trybotster Ghostty fork until the
+- The adapter is allowed to pin the trybotster Ghostty fork until the
   required snapshot and callback APIs are upstream-stable.
 - The first adapter does not need a broad generated C binding surface.
 - `TerminalSnapshotPayload.format` is sufficient for a host-owned snapshot
@@ -311,10 +323,10 @@ the fork commit, why the fork is needed, and what local patches are relied on.
 
 ## Verification
 
-This ticket is intentionally documentation-only. Production runtime behavior is
-unchanged. The production path that a future implementation will change is a
-host `SessionWorkerRuntime` that owns a `TerminalScreenRuntime` implementation
-and returns the existing Botster session-worker carriers.
+This ADR began as documentation-only. Current production daemon defaults now
+wire `botster-terminal-ghostty` through `botster-core-daemon`'s
+`ghostty-terminal` feature while the no-default feature lane keeps the plain
+fallback backend.
 
 Verification performed for this ADR:
 
@@ -325,4 +337,4 @@ Verification performed for this ADR:
   parser ownership, and callback wiring;
 - reconciled older Botster page/state snapshot notes against the current
   terminal-level C API;
-- kept the recommendation to documentation and future adapter shape only.
+- kept the initial recommendation to documentation and adapter shape only.

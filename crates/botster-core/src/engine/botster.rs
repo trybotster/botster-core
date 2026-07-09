@@ -28,11 +28,16 @@ use crate::engine::plugin_worker::{
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
+use crate::engine::terminal_screen::TerminalScreenRuntime;
+#[cfg(feature = "local-runtime")]
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
+#[cfg(feature = "local-runtime")]
+use crate::terminal_screen::TerminalScreenSize;
+#[cfg(feature = "local-runtime")]
 use crate::terminal_screen::TerminalSnapshotPayload;
 #[cfg(feature = "local-runtime")]
 use crate::SessionMetadata;
@@ -66,13 +71,43 @@ pub type WorkerBackedBotsterEngineError = ManagedSessionRuntimeError;
 /// through the managed session worker and subscription fanout path.
 #[cfg(feature = "local-runtime")]
 pub struct DefaultBotsterEngine {
-    runtime: ManagedSessionRuntime<LocalProcessRuntime>,
+    runtime: ManagedSessionRuntime<LocalProcessRuntime, Box<dyn TerminalScreenRuntime>>,
 }
 
 /// Public local PTY-backed engine facade whose live PTY is owned by a worker process.
 #[cfg(feature = "local-runtime")]
 pub struct WorkerBackedBotsterEngine {
-    runtime: ManagedSessionRuntime<WorkerProcessRuntime>,
+    runtime: ManagedSessionRuntime<WorkerProcessRuntime, Box<dyn TerminalScreenRuntime>>,
+}
+
+#[cfg(feature = "local-runtime")]
+fn runtime_with_plain_terminal_backend<R>(
+    runtime: R,
+) -> ManagedSessionRuntime<R, Box<dyn TerminalScreenRuntime>>
+where
+    R: SessionRuntime,
+{
+    ManagedSessionRuntime::with_terminal_backend_factory(runtime, |size| {
+        Ok::<_, std::convert::Infallible>(Box::new(
+            crate::engine::terminal_screen::PlainTerminalScreenRuntime::new(size),
+        ) as Box<dyn TerminalScreenRuntime>)
+    })
+}
+
+#[cfg(feature = "local-runtime")]
+fn runtime_with_boxed_terminal_backend<E, T, F, R>(
+    runtime: R,
+    factory: F,
+) -> ManagedSessionRuntime<R, Box<dyn TerminalScreenRuntime>>
+where
+    E: std::error::Error + Send + Sync + 'static,
+    T: TerminalScreenRuntime + 'static,
+    F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
+    R: SessionRuntime,
+{
+    ManagedSessionRuntime::with_terminal_backend_factory(runtime, move |size| {
+        factory(size).map(|terminal| Box::new(terminal) as Box<dyn TerminalScreenRuntime>)
+    })
 }
 
 #[cfg(feature = "local-runtime")]
@@ -81,7 +116,22 @@ impl DefaultBotsterEngine {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            runtime: ManagedSessionRuntime::new(LocalProcessRuntime::new()),
+            runtime: runtime_with_plain_terminal_backend(LocalProcessRuntime::new()),
+        }
+    }
+
+    /// Build an empty local PTY-backed engine with a host-supplied terminal backend.
+    ///
+    /// This keeps the facade monomorphic while letting first-party host
+    /// profiles install a concrete terminal parser/snapshot backend.
+    pub fn with_terminal_backend_factory<E, T, F>(factory: F) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+        T: TerminalScreenRuntime + 'static,
+        F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
+    {
+        Self {
+            runtime: runtime_with_boxed_terminal_backend(LocalProcessRuntime::new(), factory),
         }
     }
 
@@ -420,7 +470,7 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn new(worker_path: impl Into<std::path::PathBuf>) -> Self {
         Self {
-            runtime: ManagedSessionRuntime::with_worker_process(worker_path),
+            runtime: runtime_with_plain_terminal_backend(WorkerProcessRuntime::new(worker_path)),
         }
     }
 
@@ -428,7 +478,28 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn with_options(options: WorkerProcessRuntimeOptions) -> Self {
         Self {
-            runtime: ManagedSessionRuntime::with_worker_process_options(options),
+            runtime: runtime_with_plain_terminal_backend(WorkerProcessRuntime::with_options(
+                options,
+            )),
+        }
+    }
+
+    /// Build an empty worker-backed local PTY engine with explicit options and
+    /// a host-supplied terminal backend.
+    pub fn with_options_and_terminal_backend_factory<E, T, F>(
+        options: WorkerProcessRuntimeOptions,
+        factory: F,
+    ) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+        T: TerminalScreenRuntime + 'static,
+        F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
+    {
+        Self {
+            runtime: runtime_with_boxed_terminal_backend(
+                WorkerProcessRuntime::with_options(options),
+                factory,
+            ),
         }
     }
 

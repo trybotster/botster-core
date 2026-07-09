@@ -52,9 +52,33 @@ Snapshot payloads are backend-neutral opaque terminal state. The current plain
 fallback runtime returns raw retained PTY bytes with format
 `plain-opaque-v1`, terminal dimensions, and a 1 MiB retained-tail bound; older
 bytes are truncated from the head. The plain fallback runtime does not parse VT
-sequences. `ScreenReady.text` is a lossy UTF-8 view of the same retained byte
-tail the snapshot returns: raw PTY bytes including escape sequences, not a
-rows-by-columns rendered screen. A rendered screen requires a parsing backend.
+sequences. It is retained for `botster-core-daemon --no-default-features`
+contract-only embeds.
+
+The default `botster-core-daemon` feature set enables `ghostty-terminal`, which
+uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
+feature as the production terminal backend. On that path,
+`CoreDaemon::read_screen` returns Ghostty-formatted plain text and
+`CoreDaemon::capture_snapshot` returns opaque bytes labeled
+`ghostty-terminal-snapshot-v1`. The daemon configures Ghostty with a 10 MB
+retained scrollback byte budget. Ghostty stores parsed terminal pages instead
+of a raw byte tail, so the effective retained line count is page-quantized and
+depends on terminal width. At 24x80 today the daemon test fixture with 12,000
+generated lines retains more than 4,000 generated markers while dropping the
+oldest marker. Ghostty snapshots serialize native terminal state: a fresh 24x80
+terminal is roughly 578 KiB, while a warm session at the 10 MB default measured
+roughly 9.0 MiB for a 24x80 terminal after scrollback saturation. That cost is
+per attaching client because `CoreDaemon` emits one
+`TransportEgress::Snapshot` frame to each subscriber. Snapshot size converges on
+the retained scrollback byte budget plus the roughly 578 KiB base. Daemon tests
+enforce a 16 MiB ceiling for the reviewed scrollback fixture. Attach/recovery
+paths should treat those frames as large opaque state, not renderable text;
+payload cost scales with retained scrollback. Follow-up
+`ticket_1783631884_479370` owns host-configurable scrollback budget and any
+chunking or backpressure changes for multi-MiB snapshot frames. Default daemon
+and workspace builds therefore require Zig `0.15.2` and an initialized
+`crates/botster-terminal-ghostty/vendor/ghostty` submodule. Disable daemon
+default features for pure contract builds that must avoid Ghostty and Zig.
 
 When configured with the `botster-session-worker` executable, `CoreDaemon`
 spawns worker-backed local sessions. Each worker owns its PTY in a separate

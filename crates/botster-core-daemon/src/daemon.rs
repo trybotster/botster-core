@@ -6,6 +6,8 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+#[cfg(feature = "ghostty-terminal")]
+use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
@@ -14,6 +16,8 @@ use botster_core::{
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
     WorkerProcessRuntimeOptions,
 };
+#[cfg(feature = "ghostty-terminal")]
+use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
 
 use crate::api::{
@@ -134,9 +138,9 @@ impl CoreDaemon {
             .map(|worker_path| {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
-                DaemonEngine::Worker(WorkerBackedBotsterEngine::with_options(options))
+                DaemonEngine::Worker(worker_engine(options))
             })
-            .unwrap_or_else(|| DaemonEngine::Local(DefaultBotsterEngine::new()));
+            .unwrap_or_else(|| DaemonEngine::Local(local_engine()));
         let envelope_queue = config.routed_envelope_queue.clone();
         Self {
             config,
@@ -771,6 +775,48 @@ impl CoreDaemon {
             });
         }
     }
+}
+
+#[cfg(feature = "ghostty-terminal")]
+/// Default Ghostty scrollback page-allocation byte budget for daemon sessions.
+///
+/// Ghostty quantizes this budget into terminal pages, so effective retained
+/// lines depend on terminal width. At this 10 MB budget, warm 24x80 sessions
+/// currently converge near a 9.0 MiB opaque snapshot frame per attaching client
+/// after scrollback saturation.
+pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
+
+#[cfg(feature = "ghostty-terminal")]
+fn local_engine() -> DefaultBotsterEngine {
+    DefaultBotsterEngine::with_terminal_backend_factory(default_ghostty_terminal)
+}
+
+#[cfg(not(feature = "ghostty-terminal"))]
+fn local_engine() -> DefaultBotsterEngine {
+    DefaultBotsterEngine::new()
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn worker_engine(options: WorkerProcessRuntimeOptions) -> WorkerBackedBotsterEngine {
+    WorkerBackedBotsterEngine::with_options_and_terminal_backend_factory(
+        options,
+        default_ghostty_terminal,
+    )
+}
+
+#[cfg(not(feature = "ghostty-terminal"))]
+fn worker_engine(options: WorkerProcessRuntimeOptions) -> WorkerBackedBotsterEngine {
+    WorkerBackedBotsterEngine::with_options(options)
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn default_ghostty_terminal(
+    size: TerminalScreenSize,
+) -> Result<GhosttyTerminal, GhosttyTerminalError> {
+    GhosttyTerminal::with_config(
+        size,
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    )
 }
 
 fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {
