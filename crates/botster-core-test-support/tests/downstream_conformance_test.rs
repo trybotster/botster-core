@@ -269,7 +269,11 @@ fn downstream_consumer_can_run_custom_fallback_ui_fixture() {
     assert_eq!(custom.kind, botster_core::ui::UiNodeKind::Custom);
     assert_eq!(
         custom.custom_fallback().expect("custom fallback").kind,
-        botster_core::ui::UiNodeKind::EmptyState
+        botster_core::ui::UiNodeKind::Stack
+    );
+    assert_eq!(
+        custom.props.get("ticket_id"),
+        Some(&serde_json::json!("ticket_1"))
     );
 }
 

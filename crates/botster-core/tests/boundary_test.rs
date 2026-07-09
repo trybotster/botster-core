@@ -161,6 +161,8 @@ fn readme_documents_ui_kernel_app_custom_escape_hatch_boundaries() {
         "component",
         "reason",
         "fallback",
+        "package-owned props",
+        "non-recognizing clients ignore those props",
         "Custom promotion rule",
         "repeated multi-client need",
         "consumer/conformance proof",
@@ -169,6 +171,11 @@ fn readme_documents_ui_kernel_app_custom_escape_hatch_boundaries() {
         "### Custom UI escape hatch",
         "not a runtime plugin mechanism",
         "plugin-worker supervisor",
+        "Node-valued props such as",
+        "not capability-walked",
+        "No first-party renderer consumes `custom` yet",
+        "botster-web",
+        "downstream exhaustive matches must add a",
     ] {
         assert!(
             readme.contains(anchor),
