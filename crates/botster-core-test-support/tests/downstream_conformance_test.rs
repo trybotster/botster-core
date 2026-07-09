@@ -237,6 +237,12 @@ fn downstream_consumer_can_import_ui_renderer_conformance_helpers() {
             .any(|fixture| fixture.name == "application_dashboard"),
         "fixture set should include application dashboard coverage"
     );
+    assert!(
+        fixtures
+            .iter()
+            .any(|fixture| fixture.name == "custom_fallback"),
+        "fixture set should include custom fallback coverage"
+    );
 }
 
 #[test]
@@ -249,6 +255,22 @@ fn downstream_consumer_can_run_one_ui_renderer_fixture() {
     assert_ui_renderer_conformance_fixture(&fixture);
     assert_eq!(fixture.action_requests.len(), 1);
     assert_eq!(fixture.action_results.len(), 1);
+}
+
+#[test]
+fn downstream_consumer_can_run_custom_fallback_ui_fixture() {
+    let fixture = ui_renderer_conformance_fixtures()
+        .into_iter()
+        .find(|fixture| fixture.name == "custom_fallback")
+        .expect("custom fallback fixture should exist");
+
+    assert_ui_renderer_conformance_fixture(&fixture);
+    let custom = fixture.nodes.first().expect("custom node fixture");
+    assert_eq!(custom.kind, botster_core::ui::UiNodeKind::Custom);
+    assert_eq!(
+        custom.custom_fallback().expect("custom fallback").kind,
+        botster_core::ui::UiNodeKind::EmptyState
+    );
 }
 
 #[test]

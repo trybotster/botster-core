@@ -36,6 +36,7 @@ pub fn ui_renderer_conformance_fixtures() -> Vec<UiRendererConformanceFixture> {
         responsive_fallback_fixture(),
         action_metadata_fixture(),
         application_dashboard_fixture(),
+        custom_fallback_fixture(),
     ]
 }
 
@@ -49,6 +50,7 @@ pub fn assert_ui_renderer_conformance_fixture(fixture: &UiRendererConformanceFix
         let decoded: UiNode =
             serde_json::from_value(value).expect("fixture node should deserialize");
         assert_eq!(decoded, *node);
+        assert_custom_fallbacks_resolve(&decoded);
     }
 
     for request in &fixture.action_requests {
@@ -472,6 +474,32 @@ fn application_dashboard_fixture() -> UiRendererConformanceFixture {
     fixture("application_dashboard", rich_capabilities(), vec![root])
 }
 
+fn custom_fallback_fixture() -> UiRendererConformanceFixture {
+    let mut custom = node(
+        UiNodeKind::Custom,
+        "custom-ticket-card",
+        json!({
+            "namespace": "project-pipelines",
+            "component": "ticket-card",
+            "reason": "package-local experiment before shared vocabulary promotion"
+        }),
+    );
+    custom.slots.insert(
+        "fallback".to_string(),
+        vec![child(node(
+            UiNodeKind::EmptyState,
+            "custom-ticket-card-fallback",
+            json!({
+                "title": "Ticket card unavailable",
+                "description": "Open the ticket list for the portable view.",
+                "primary_action": { "id": "project-pipelines.tickets.open" }
+            }),
+        ))],
+    );
+
+    fixture("custom_fallback", rich_capabilities(), vec![custom])
+}
+
 fn fixture(
     name: &'static str,
     capabilities: UiCapabilitySet,
@@ -498,6 +526,49 @@ fn node(kind: UiNodeKind, id: &str, props: Value) -> UiNode {
 
 fn child(node: UiNode) -> UiChild {
     UiChild::Node(Box::new(node))
+}
+
+fn assert_custom_fallbacks_resolve(node: &UiNode) {
+    if node.kind == UiNodeKind::Custom {
+        let fallback = node
+            .custom_fallback()
+            .expect("custom fixture node should expose a static fallback");
+        fallback
+            .validate()
+            .expect("custom fallback should validate independently");
+        let value = serde_json::to_value(fallback).expect("custom fallback should serialize");
+        let decoded: UiNode =
+            serde_json::from_value(value).expect("custom fallback should deserialize");
+        assert_eq!(decoded, *fallback);
+    }
+
+    for child in &node.children {
+        assert_custom_fallbacks_resolve_in_child(child);
+    }
+    for children in node.slots.values() {
+        for child in children {
+            assert_custom_fallbacks_resolve_in_child(child);
+        }
+    }
+}
+
+fn assert_custom_fallbacks_resolve_in_child(child: &UiChild) {
+    match child {
+        UiChild::Conditional(UiConditional::When { node, .. })
+        | UiChild::Conditional(UiConditional::Hidden { node, .. })
+        | UiChild::Node(node)
+        | UiChild::BindIf(UiBindIf::BindIf { node, .. }) => assert_custom_fallbacks_resolve(node),
+        UiChild::BindList(UiBindList::BindList {
+            item_template,
+            empty_template,
+            ..
+        }) => {
+            assert_custom_fallbacks_resolve(item_template);
+            if let Some(template) = empty_template {
+                assert_custom_fallbacks_resolve(template);
+            }
+        }
+    }
 }
 
 fn rich_capabilities() -> UiCapabilitySet {

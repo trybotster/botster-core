@@ -34,6 +34,22 @@ fn text(value: &str) -> UiChild {
     UiChild::Node(Box::new(text_node(value)))
 }
 
+fn custom_node(fallback: UiNode) -> UiNode {
+    let mut custom = node(
+        UiNodeKind::Custom,
+        json!({
+            "namespace": "project-pipelines",
+            "component": "ticket-card",
+            "reason": "first-party package experiment before shared vocabulary promotion"
+        }),
+    );
+    custom.slots.insert(
+        "fallback".to_string(),
+        vec![UiChild::Node(Box::new(fallback))],
+    );
+    custom
+}
+
 fn idless_node(kind: UiNodeKind, props: Value) -> UiNode {
     UiNode {
         kind,
@@ -403,6 +419,196 @@ fn iframe_policy_props_use_typed_non_overlapping_vocabularies() {
 }
 
 #[test]
+fn custom_node_validates_namespaced_escape_hatch_with_static_fallback_slot() {
+    let custom = custom_node(node(
+        UiNodeKind::EmptyState,
+        json!({ "title": "Ticket unavailable" }),
+    ));
+
+    custom
+        .validate()
+        .expect("custom node with fallback should validate");
+    assert_eq!(
+        serde_json::to_value(&custom).expect("serialize custom")["type"],
+        json!("custom")
+    );
+    assert_eq!(
+        custom.custom_fallback().expect("custom fallback").kind,
+        UiNodeKind::EmptyState
+    );
+    assert!(node(UiNodeKind::Text, json!({ "text": "Plain" }))
+        .custom_fallback()
+        .is_none());
+    assert_eq!(
+        serde_json::from_value::<UiNode>(
+            serde_json::to_value(&custom).expect("serialize custom for round trip"),
+        )
+        .expect("deserialize custom"),
+        custom
+    );
+}
+
+#[test]
+fn custom_node_requires_namespace_component_reason_and_fallback_slot() {
+    assert_error_contains(
+        node(
+            UiNodeKind::Custom,
+            json!({
+                "component": "ticket-card",
+                "reason": "package experiment"
+            }),
+        ),
+        "namespace",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Custom,
+            json!({
+                "namespace": "project-pipelines",
+                "reason": "package experiment"
+            }),
+        ),
+        "component",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Custom,
+            json!({
+                "namespace": "project-pipelines",
+                "component": "ticket-card"
+            }),
+        ),
+        "reason",
+    );
+    assert_error_contains(
+        node(
+            UiNodeKind::Custom,
+            json!({
+                "namespace": "project-pipelines",
+                "component": "ticket-card",
+                "reason": "package experiment"
+            }),
+        ),
+        "fallback",
+    );
+}
+
+#[test]
+fn custom_node_rejects_invalid_owner_component_and_reason_values() {
+    for (prop, value, expected) in [
+        ("namespace", json!("Project Pipelines"), "lowercase ASCII"),
+        ("namespace", json!(".project-pipelines"), "separator"),
+        ("namespace", json!("project//pipelines"), "lowercase ASCII"),
+        ("component", json!("ticket--card"), "adjacent separators"),
+        ("component", json!(""), "cannot be empty"),
+        ("reason", json!("   "), "cannot be empty"),
+        ("reason", json!({ "$bind": "/reason" }), "must be a string"),
+    ] {
+        let mut custom = custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })));
+        custom.props.insert(prop.to_string(), value);
+        assert_error_contains(custom, expected);
+    }
+}
+
+#[test]
+fn custom_node_rejects_positional_and_non_static_fallback_shapes() {
+    let mut custom = custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })));
+    custom.children.push(text("not allowed"));
+    assert_error_contains(custom, "custom nodes must put their fallback");
+
+    let mut empty_fallback = custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })));
+    empty_fallback
+        .slots
+        .insert("fallback".to_string(), Vec::new());
+    assert_error_contains(empty_fallback, "exactly one static node");
+
+    let mut multi_fallback = custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })));
+    multi_fallback.slots.insert(
+        "fallback".to_string(),
+        vec![
+            text("first"),
+            UiChild::Node(Box::new(node(
+                UiNodeKind::Badge,
+                json!({ "label": "second" }),
+            ))),
+        ],
+    );
+    assert_error_contains(multi_fallback, "exactly one static node");
+
+    let mut bound_fallback = custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })));
+    bound_fallback.slots.insert(
+        "fallback".to_string(),
+        vec![UiChild::BindIf(UiBindIf::BindIf {
+            path: "/project-pipelines.ticket/1/visible".to_string(),
+            node: Box::new(node(UiNodeKind::Text, json!({ "text": "Fallback" }))),
+        })],
+    );
+    assert_error_contains(bound_fallback.clone(), "exactly one static node");
+    assert!(bound_fallback.custom_fallback().is_none());
+}
+
+#[test]
+fn custom_node_fallback_is_limited_to_kernel_primitives_or_iframe() {
+    custom_node(node(UiNodeKind::Text, json!({ "text": "Fallback" })))
+        .validate()
+        .expect("kernel primitive fallback should validate");
+    custom_node(node(
+        UiNodeKind::Iframe,
+        json!({ "src": "/plugin-assets/custom.html", "title": "Custom app" }),
+    ))
+    .validate()
+    .expect("iframe fallback should validate as the full custom-app escape");
+
+    for app_kind in [
+        UiNodeKind::Metric,
+        UiNodeKind::MetricGrid,
+        UiNodeKind::Toolbar,
+        UiNodeKind::StatusBadge,
+        UiNodeKind::Section,
+        UiNodeKind::Panel,
+        UiNodeKind::TerminalView,
+        UiNodeKind::ConnectionCodeView,
+        UiNodeKind::Custom,
+    ] {
+        let fallback = match app_kind {
+            UiNodeKind::Metric => node(app_kind, json!({ "label": "Open", "value": 2 })),
+            UiNodeKind::Toolbar => node(app_kind, json!({ "label": "Actions" })),
+            UiNodeKind::StatusBadge => node(app_kind, json!({ "label": "Open" })),
+            UiNodeKind::Section => node(app_kind, json!({ "title": "Section" })),
+            UiNodeKind::Panel => node(app_kind, json!({ "title": "Panel" })),
+            UiNodeKind::TerminalView => node(app_kind, json!({ "session_id": "sess_1" })),
+            UiNodeKind::ConnectionCodeView => node(app_kind, json!({ "code": "pair" })),
+            UiNodeKind::Custom => custom_node(node(UiNodeKind::Text, json!({ "text": "Nested" }))),
+            _ => node(app_kind, json!({})),
+        };
+        assert_error_contains(custom_node(fallback), "not allowed as a custom fallback");
+    }
+}
+
+#[test]
+fn custom_fallback_slot_is_capability_validated() {
+    let custom = custom_node(node(
+        UiNodeKind::Iframe,
+        json!({
+            "src": "/plugin-assets/custom.html",
+            "title": "Custom app"
+        }),
+    ));
+    let mut capabilities = rich_capabilities();
+    capabilities.iframe = false;
+
+    let err = validate_ui_node_with_capabilities(&custom, &capabilities)
+        .expect_err("iframe fallback should require iframe capability or fallback");
+    assert!(err.to_string().contains("iframe"));
+
+    capabilities
+        .fallbacks
+        .insert(UiCapabilityFallback::IframeAsLink);
+    validate_ui_node_with_capabilities(&custom, &capabilities)
+        .expect("slot-based custom fallback should be walked by capability validation");
+}
+
+#[test]
 fn ui_node_v1_primitive_inventory_is_explicit() {
     let primitives = [
         UiNodeKind::Stack,
@@ -440,6 +646,7 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
         UiNodeKind::TerminalView,
         UiNodeKind::ConnectionCodeView,
         UiNodeKind::Iframe,
+        UiNodeKind::Custom,
     ];
 
     let wire_names: Vec<_> = primitives
@@ -485,6 +692,7 @@ fn ui_node_v1_primitive_inventory_is_explicit() {
             json!("terminal_view"),
             json!("connection_code_view"),
             json!("iframe"),
+            json!("custom"),
         ]
     );
 }
