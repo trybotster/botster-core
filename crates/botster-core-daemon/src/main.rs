@@ -31,22 +31,24 @@ fn run() -> Result<(), Box<dyn Error>> {
     match command {
         "start" | "status" => print_json(&daemon.status()?)?,
         "adopt" => {
+            let mut adoption_errors = Vec::new();
             for report in daemon.adoption_scan()? {
                 if matches!(
                     report.state,
                     botster_core_daemon::SessionAdoptionState::Adoptable
                 ) {
-                    daemon
-                        .adopt_session(&report.record.session_id, 1)
-                        .map_err(|error| {
-                            format!(
-                                "failed to adopt session {:?}: {error}",
-                                report.record.session_id
-                            )
-                        })?;
+                    if let Err(error) = daemon.adopt_session(&report.record.session_id, 1) {
+                        adoption_errors.push(format!(
+                            "failed to adopt session {:?}: {error}",
+                            report.record.session_id
+                        ));
+                    }
                 }
             }
             print_json(&daemon.adoption_scan()?)?;
+            if !adoption_errors.is_empty() {
+                return Err(adoption_errors.join("\n").into());
+            }
         }
         "smoke" => run_smoke(&mut daemon)?,
         _ => {

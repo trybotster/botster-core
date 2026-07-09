@@ -677,6 +677,15 @@ fn worker_backed_registry_reopened_without_worker_path_is_not_restart_durable() 
         "expected MissingWorkerPath, got {error:?}"
     );
 
+    let mut cleanup =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    cleanup
+        .adopt_session(&session_id, 13)
+        .expect("cleanup daemon should adopt released worker");
+    cleanup
+        .shutdown(Some(session_id.clone()), 14)
+        .expect("cleanup daemon should shut down released worker");
+
     let _ = fs::remove_dir_all(data_dir);
 }
 
