@@ -1017,6 +1017,71 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn worker_backed_registry_reopened_without_worker_path_is_not_restart_durable() {
+    let data_dir = temp_data_dir("local-reopen");
+    let session_id = SessionId("local-reopen-session".to_string());
+
+    {
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("worker-backed daemon should spawn live session");
+        let record = daemon
+            .registry()
+            .load(&session_id)
+            .expect("registry load should succeed")
+            .expect("spawn should persist restart evidence");
+        assert!(
+            record
+                .recovery_identity
+                .as_ref()
+                .and_then(|identity| identity.get("worker_control_socket"))
+                .is_some(),
+            "worker-backed daemon should persist worker control socket evidence"
+        );
+        daemon.release_for_restart();
+    }
+
+    let mut local = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let reports = local
+        .adoption_scan()
+        .expect("local daemon should scan worker-created registry");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].state,
+        SessionAdoptionState::InProcessDaemonNotRestartDurable
+    );
+
+    let error = local
+        .adopt_session(&session_id, 12)
+        .expect_err("local daemon should fail loudly before registry adoption");
+    assert!(
+        matches!(error, CoreDaemonError::MissingWorkerPath),
+        "expected MissingWorkerPath, got {error:?}"
+    );
+
+    let mut cleanup =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    cleanup
+        .adopt_session(&session_id, 13)
+        .expect("cleanup daemon should adopt released worker");
+    cleanup
+        .shutdown(Some(session_id.clone()), 14)
+        .expect("cleanup daemon should shut down released worker");
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn in_process_non_restart_durable_adoption_state_has_stable_json_tag() {
+    let json = serde_json::to_string(&SessionAdoptionState::InProcessDaemonNotRestartDurable)
+        .expect("adoption state should serialize");
+    assert_eq!(json, "\"in_process_daemon_not_restart_durable\"");
+}
+
 #[test]
 fn registry_records_are_durable_enough_for_adoption_scan() {
     let data_dir = temp_data_dir("daemon-adoption");
