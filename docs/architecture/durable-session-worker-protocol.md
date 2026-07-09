@@ -1,9 +1,25 @@
 # Durable Session Worker Protocol
 
-This document defines the public core contract for Botster's durable local
-session-worker model. It is a north-star contract, not a claim that the current
-crate already starts a durable daemon, owns a Unix socket, or adopts live worker
-processes after restart.
+This document defines the public **protocol vocabulary** for Botster's durable
+local session-worker model. Types live in `botster_core::durable_session` and are
+spoken by the production daemon and session worker; they do not by themselves
+start processes or open sockets.
+
+## Runtime ownership (workspace truth)
+
+| Layer | Crate / binary | Role today |
+| --- | --- | --- |
+| Protocol vocabulary | `botster-core` (`durable_session`) | Shared typed shapes for spawn/adopt, health, guarded writes, queues, daemon control ops |
+| Session worker process | `botster-session-worker` (binary in `botster-core`) | Owns one PTY and child process; reconnectable control socket for adoption |
+| Production daemon | `botster-core-daemon` (`CoreDaemon`) | Registry metadata, adoption scan, guarded-write delivery states, typed host API |
+| Library engine | `DefaultBotsterEngine` / `worker_backed` | In-process or worker-backed embed path without the full supervisor |
+
+Do **not** treat this module as “unimplemented durable daemon.” The durable
+supervisor exists in `botster-core-daemon`. Embedding `CoreDaemon` without
+`with_worker_path` still uses in-process PTYs that are not restart-adoptable.
+
+See also [`core-daemon.md`](core-daemon.md) and the workspace README production
+path.
 
 ## Topology
 
@@ -16,9 +32,9 @@ The durable model has three layers:
 | Session worker | Owns one PTY and child process, emits output/snapshots/health, accepts PTY input, resize, shutdown, and guarded session-visible write commands | Host policy for when writes are allowed |
 
 The data plane remains session/client-worker owned. The durable worker contract
-sits above `contract::session_protocol`, which keeps the byte-frame constants
-for PTY input/output, resize, snapshot, ping/pong, shutdown, mode flags, screen
-reads, prompt marks, and notifications.
+sits above `contract::session_protocol` (advanced byte-frame constants) for PTY
+input/output, resize, snapshot, ping/pong, shutdown, mode flags, screen reads,
+prompt marks, and notifications.
 
 ## Public Contracts
 
@@ -146,7 +162,16 @@ titles.
 
 ## Current Runtime Proof
 
-This ticket changes the public runtime path only by exporting typed
-`botster_core` contracts and exercising them through serialization tests. It
-does not change production hub restart, daemon restart, socket, process
-supervision, or worker adoption behavior.
+`botster_core::durable_session` remains a serializable vocabulary layer (plus
+serialization/conformance tests). Production runtime proof for supervision and
+adoption lives in `botster-core-daemon` and the `botster-session-worker` path:
+
+- worker-backed local sessions with control sockets recorded as
+  `SessionMetadata.recovery_identity`
+- intentional daemon restart via `release_for_restart` and re-adoption over the
+  same `data_dir`
+- guarded-write delivery states and readiness fail-closed behavior
+
+Hosts that need durable local sessions should use `CoreDaemon` with
+`with_worker_path`, not only import these contract types. Hub product restart
+policy remains outside core.

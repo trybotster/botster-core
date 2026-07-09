@@ -1,8 +1,15 @@
-//! Reusable Botster runtime contracts and transport-neutral primitives.
+//! Reusable Botster runtime contracts and the embeddable local session engine.
 //!
-//! `botster-core` is the shared substrate for Botster hosts and clients. It
-//! defines stable data shapes and low-level contracts, while `botster-hub`
-//! owns Botster policy and orchestration.
+//! `botster-core` is the shared substrate for Botster hosts and clients: typed
+//! contracts plus the policy-free library path centered on
+//! [`DefaultBotsterEngine`] (and [`BotsterEngine`] for custom runtimes).
+//! Production durable supervision lives in the sibling `botster-core-daemon`
+//! crate (`CoreDaemon` + `botster-session-worker`). Product policy stays in
+//! hosts such as `botster-hub`.
+//!
+//! Start here for embeds: spawn → attach → drain → input → shutdown. Prefer the
+//! engine facades over assembling [`MultiplexerEngine`] or speaking raw
+//! [`session_protocol`] frames directly.
 //!
 //! The default feature set includes `local-runtime`, which exposes the
 //! policy-free local PTY/process adapter and `DefaultBotsterEngine`. Embedders
