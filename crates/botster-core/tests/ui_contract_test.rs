@@ -542,11 +542,16 @@ fn custom_payload_props_do_not_inherit_schema_owned_capability_rules() {
     custom
         .props
         .insert("copy_value".to_string(), json!("ticket_123"));
+    custom.props.insert(
+        "context_menu".to_string(),
+        json!({ "packageSpecific": true }),
+    );
 
     let mut capabilities = rich_capabilities();
     capabilities.keyboard.shortcuts = false;
     capabilities.hover = false;
     capabilities.clipboard = false;
+    capabilities.context_menu = false;
 
     validate_ui_node_with_capabilities(&custom, &capabilities)
         .expect("custom payload prop names should not trigger shared capability gates");
