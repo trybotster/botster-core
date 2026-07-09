@@ -1,4 +1,26 @@
 //! Renderer-neutral UI node, binding, viewport, and action contracts.
+//!
+//! The UI contract is split by stability, not by crate boundary:
+//!
+//! - **Kernel primitives** are renderer-portable nodes suitable for shared
+//!   fallback paths: layout, text/content, actions, forms, collections, tables,
+//!   dialogs, and shared field controls.
+//! - **Application vocabulary** captures useful product-shaped semantics such
+//!   as metrics, toolbars, panels, sections, and status badges. These remain
+//!   shared vocabulary, but they are not the mandatory substrate for unknown
+//!   custom components.
+//! - **Host surface placeholders** such as terminal, connection-code, and
+//!   iframe nodes identify host/client-owned rendering surfaces. `iframe` is
+//!   the sanctioned full custom-app escape when sandboxed web content is the
+//!   correct shape.
+//! - **Custom** is a declarative, owner-classified escape hatch. It never loads
+//!   renderer code or invokes plugin behavior; plugin-owned execution remains
+//!   behind plugin worker/runtime boundaries. Unknown custom components degrade
+//!   through their required kernel-or-iframe fallback slot. Recognizing
+//!   renderers may consume component-specific custom props; non-recognizing
+//!   clients must ignore those props and render the fallback. Core validates
+//!   top-level `$bind` payload sentinels and treats nested custom payload data
+//!   as package-owned.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -97,6 +119,8 @@ pub enum UiNodeKind {
     ConnectionCodeView,
     /// Sandboxed iframe or webview placeholder for generated HTML surfaces.
     Iframe,
+    /// Owner-namespaced custom component with a validated renderer fallback.
+    Custom,
 }
 
 /// Semantic width class.
@@ -502,6 +526,25 @@ impl UiNode {
     /// Validate the semantic UI contract recursively.
     pub fn validate(&self) -> Result<(), UiValidationError> {
         validate_ui_node(self)
+    }
+
+    /// Return the declared fallback for a validated custom component node.
+    ///
+    /// This is an accessor over the core contract shape only. Renderers still
+    /// own presentation; core only exposes the validated static fallback node
+    /// an unknown custom component should degrade to. Callers should validate
+    /// the node, or its containing tree, before resolving the fallback. On a
+    /// validated tree `None` means this is not a custom node; on an unvalidated
+    /// tree `None` can also mean a malformed fallback slot.
+    pub fn custom_fallback(&self) -> Option<&UiNode> {
+        if self.kind != UiNodeKind::Custom {
+            return None;
+        }
+
+        match self.slots.get("fallback")?.as_slice() {
+            [UiChild::Node(node)] => Some(node),
+            _ => None,
+        }
     }
 }
 
@@ -1043,16 +1086,21 @@ fn validate_node(node: &UiNode) -> Result<(), UiValidationError> {
     }
 
     for (prop, value) in &node.props {
-        if !schema.allowed_props.contains(prop.as_str()) {
+        if !schema.allowed_props.contains(prop.as_str()) && node.kind != UiNodeKind::Custom {
             return Err(UiValidationError::UnknownProp {
                 kind: node.kind,
                 prop: prop.clone(),
             });
         }
-        validate_prop_value(node.kind, prop, value)?;
+        if schema.allowed_props.contains(prop.as_str()) {
+            validate_prop_value(node.kind, prop, value)?;
+        } else {
+            validate_custom_payload_prop(node.kind, prop, value)?;
+        }
     }
 
     validate_prop_combinations(node)?;
+    validate_custom_node(node)?;
     validate_stable_id(node)?;
     validate_required_action(node)?;
     validate_required_label(node)?;
@@ -1279,6 +1327,12 @@ fn validate_prop_value(
         (UiNodeKind::Iframe, "bridge") => {
             let bridge = deserialize_prop::<UiIframeBridge>(kind, prop, value)?;
             validate_iframe_bridge(kind, prop, &bridge)?;
+        }
+        (UiNodeKind::Custom, "namespace" | "component") => {
+            validate_custom_identifier_prop(kind, prop, value)?;
+        }
+        (UiNodeKind::Custom, "reason") => {
+            validate_custom_reason_prop(kind, prop, value)?;
         }
         _ => {}
     }
@@ -1568,10 +1622,128 @@ fn validate_iframe_bridge(
     Ok(())
 }
 
+fn validate_custom_identifier_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    let value = value
+        .as_str()
+        .ok_or_else(|| UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value must be a string".to_string(),
+        })?;
+
+    if value.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value cannot be empty".to_string(),
+        });
+    }
+
+    if value.starts_with(['.', '-', '_']) || value.ends_with(['.', '-', '_']) {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value cannot start or end with a separator".to_string(),
+        });
+    }
+
+    let mut previous_was_separator = false;
+    for character in value.chars() {
+        let is_separator = matches!(character, '.' | '-' | '_');
+        if !(character.is_ascii_lowercase() || character.is_ascii_digit() || is_separator) {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "value must use lowercase ASCII letters, digits, '.', '-', or '_'"
+                    .to_string(),
+            });
+        }
+        if is_separator && previous_was_separator {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "value cannot contain adjacent separators".to_string(),
+            });
+        }
+        previous_was_separator = is_separator;
+    }
+
+    Ok(())
+}
+
+fn validate_custom_reason_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    match value.as_str() {
+        Some(value) if !value.trim().is_empty() => Ok(()),
+        Some(_) => Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value cannot be empty".to_string(),
+        }),
+        None => Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "value must be a string".to_string(),
+        }),
+    }
+}
+
+fn validate_custom_payload_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    if prop == "fallback" {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "fallback must be declared in the `fallback` slot".to_string(),
+        });
+    }
+
+    if value.get("$bind").is_some() {
+        let object = value
+            .as_object()
+            .ok_or_else(|| UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value must be an object".to_string(),
+            })?;
+        if object.len() != 1 {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value may only contain $bind".to_string(),
+            });
+        }
+        let path = object.get("$bind").and_then(Value::as_str).ok_or_else(|| {
+            UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "$bind value must be a string".to_string(),
+            }
+        })?;
+        validate_bind_path(path)?;
+    }
+
+    Ok(())
+}
+
 fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
-    if node.props.contains_key("default") {
+    let schema = schema_for(node.kind);
+
+    if schema.allowed_props.contains("default") && node.props.contains_key("default") {
         for controlled_prop in ["value", "checked", "selected"] {
-            if node.props.contains_key(controlled_prop) {
+            if schema.allowed_props.contains(controlled_prop)
+                && node.props.contains_key(controlled_prop)
+            {
                 return Err(UiValidationError::InvalidProp {
                     kind: node.kind,
                     prop: "default".to_string(),
@@ -1619,6 +1791,76 @@ fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
     }
 
     Ok(())
+}
+
+fn validate_custom_node(node: &UiNode) -> Result<(), UiValidationError> {
+    if node.kind != UiNodeKind::Custom {
+        return Ok(());
+    }
+
+    if !node.children.is_empty() {
+        return Err(UiValidationError::InvalidProp {
+            kind: node.kind,
+            prop: "children".to_string(),
+            reason: "custom nodes must put their fallback in the `fallback` slot".to_string(),
+        });
+    }
+
+    let fallback = node
+        .slots
+        .get("fallback")
+        .ok_or(UiValidationError::MissingSlot {
+            kind: node.kind,
+            slot: "fallback",
+        })?;
+
+    let [UiChild::Node(fallback)] = fallback.as_slice() else {
+        return Err(UiValidationError::InvalidProp {
+            kind: node.kind,
+            prop: "fallback".to_string(),
+            reason: "fallback slot must contain exactly one static node".to_string(),
+        });
+    };
+
+    if !is_custom_fallback_kind(fallback.kind) {
+        return Err(UiValidationError::InvalidProp {
+            kind: node.kind,
+            prop: "fallback".to_string(),
+            reason: format!(
+                "{:?} is not allowed as a custom fallback; use kernel primitives or iframe",
+                fallback.kind
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn is_custom_fallback_kind(kind: UiNodeKind) -> bool {
+    matches!(
+        kind,
+        UiNodeKind::Stack
+            | UiNodeKind::Inline
+            | UiNodeKind::Form
+            | UiNodeKind::ScrollArea
+            | UiNodeKind::Text
+            | UiNodeKind::Icon
+            | UiNodeKind::Badge
+            | UiNodeKind::StatusDot
+            | UiNodeKind::EmptyState
+            | UiNodeKind::List
+            | UiNodeKind::Tree
+            | UiNodeKind::Table
+            | UiNodeKind::Button
+            | UiNodeKind::IconButton
+            | UiNodeKind::Menu
+            | UiNodeKind::Dialog
+            | UiNodeKind::TextInput
+            | UiNodeKind::Textarea
+            | UiNodeKind::Checkbox
+            | UiNodeKind::Select
+            | UiNodeKind::Iframe
+    )
 }
 
 fn validate_stable_id(node: &UiNode) -> Result<(), UiValidationError> {
@@ -1823,6 +2065,8 @@ fn validate_node_capability_requirements(
     node: &UiNode,
     capabilities: &UiCapabilitySet,
 ) -> Result<(), UiValidationError> {
+    let schema = schema_for(node.kind);
+
     if matches!(node.kind, UiNodeKind::TextInput | UiNodeKind::Textarea)
         && !capabilities.keyboard.text_entry
     {
@@ -1841,7 +2085,10 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("shortcut") && !capabilities.keyboard.shortcuts {
+    if schema.allowed_props.contains("shortcut")
+        && node.props.contains_key("shortcut")
+        && !capabilities.keyboard.shortcuts
+    {
         return unsupported(
             node.kind,
             "keyboard.shortcuts",
@@ -1849,14 +2096,16 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("hover_label")
+    if schema.allowed_props.contains("hover_label")
+        && node.props.contains_key("hover_label")
         && !capabilities.hover
         && !capabilities.supports_fallback(UiCapabilityFallback::HoverPersistentHints)
     {
         return unsupported(node.kind, "hover", "hover fallback was not declared");
     }
 
-    if node.props.contains_key("copy_value")
+    if schema.allowed_props.contains("copy_value")
+        && node.props.contains_key("copy_value")
         && !capabilities.clipboard
         && !capabilities.supports_fallback(UiCapabilityFallback::ClipboardManual)
     {
@@ -1867,7 +2116,8 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("context_menu")
+    if schema.allowed_props.contains("context_menu")
+        && node.props.contains_key("context_menu")
         && !capabilities.context_menu
         && !capabilities.supports_fallback(UiCapabilityFallback::ContextMenuAsMenu)
     {
@@ -1914,7 +2164,8 @@ fn validate_node_capability_requirements(
         return unsupported(node.kind, "iframe", "iframe link fallback was not declared");
     }
 
-    if node.props.contains_key("tone")
+    if schema.allowed_props.contains("tone")
+        && node.props.contains_key("tone")
         && !capabilities.rich_color
         && !capabilities.supports_fallback(UiCapabilityFallback::RichColorMuted)
     {
@@ -2218,6 +2469,12 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
             &["src", "title"],
             &[],
             &[],
+        ),
+        UiNodeKind::Custom => schema(
+            &["namespace", "component", "reason"],
+            &["namespace", "component", "reason"],
+            &["fallback"],
+            &["fallback"],
         ),
     }
 }
