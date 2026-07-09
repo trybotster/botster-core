@@ -91,6 +91,7 @@ name = "botster-core-daemon"
 version = "0.1.0"
 dependencies = [
  "botster-core",
+ "botster-terminal-ghostty",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

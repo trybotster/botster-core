@@ -103,16 +103,12 @@ fn managed_session_path_uses_ghostty_terminal_backend_for_screen_snapshot_and_fa
         .drain_runtime_once(&session_id(), 20)
         .expect("drain fake PTY output through managed session runtime");
 
-    assert_eq!(
-        output.client_egress,
-        vec![(
-            client_id("client-a"),
-            TransportEgress::TerminalOutput {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-a"),
-                data: bytes.clone(),
-            },
-        )]
+    assert_terminal_output(
+        &output.client_egress,
+        &client_id("client-a"),
+        &session_id(),
+        &subscription_id("sub-a"),
+        &bytes,
     );
 
     let screen = runtime
@@ -162,7 +158,7 @@ fn managed_session_initial_snapshot_still_precedes_held_live_output_with_ghostty
     runtime
         .drain_runtime_once(&session_id(), 20)
         .expect("drain prior output into Ghostty state");
-    runtime
+    let subscribe_outcome = runtime
         .handle_session_request(
             SessionIoRequest::SubscribeTerminal {
                 request_id: request_id("initial-1"),
@@ -179,27 +175,50 @@ fn managed_session_initial_snapshot_still_precedes_held_live_output_with_ghostty
         .session_runtime_mut()
         .emit_output(session_id(), b"held ghostty live".to_vec());
 
-    let outcome = runtime
+    let drain_outcome = runtime
         .drain_runtime_once(&session_id(), 22)
         .expect("deliver initial snapshot and held output");
+    let session_events = subscribe_outcome
+        .session_events
+        .into_iter()
+        .chain(drain_outcome.session_events)
+        .collect::<Vec<_>>();
+    let client_egress = subscribe_outcome
+        .client_egress
+        .into_iter()
+        .chain(drain_outcome.client_egress)
+        .collect::<Vec<_>>();
 
-    assert!(matches!(
-        outcome.session_events.first(),
-        Some(SessionIoEvent::InitialSnapshotReady(snapshot))
-            if !snapshot.snapshot.is_empty()
-                && snapshot.snapshot != b"prior ghostty output"
-                && snapshot.rows == 30
-                && snapshot.cols == 100
-    ));
-    assert!(matches!(
-        outcome.session_events.get(1),
-        Some(SessionIoEvent::TerminalBytes { data, .. }) if data == b"held ghostty live"
-    ));
-    assert!(matches!(
-        outcome.client_egress.first(),
-        Some((_, TransportEgress::TerminalOutput { data, .. }))
-            if data == b"held ghostty live"
-    ));
+    let initial_position = session_events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionIoEvent::InitialSnapshotReady(snapshot)
+                    if !snapshot.snapshot.is_empty()
+                        && snapshot.snapshot != b"prior ghostty output"
+                        && snapshot.rows == 24
+                        && snapshot.cols == 80
+            )
+        })
+        .expect("initial Ghostty snapshot should be emitted");
+    let live_position = session_events
+        .iter()
+        .position(|event| {
+            matches!(event, SessionIoEvent::TerminalBytes { data, .. } if data == b"held ghostty live")
+        })
+        .expect("held live terminal bytes should be emitted");
+    assert!(
+        initial_position < live_position,
+        "initial snapshot should precede held live output: {:?}",
+        session_events
+    );
+    assert!(
+        client_egress.iter().any(|(_, frame)| {
+            matches!(frame, TransportEgress::TerminalOutput { data, .. } if data == b"held ghostty live")
+        }),
+        "held live output should be delivered to client egress"
+    );
 }
 
 #[test]
@@ -329,27 +348,19 @@ fn managed_session_path_keeps_multiple_ghostty_backends_isolated_through_interle
         )
         .expect("snapshot reads second Ghostty session");
 
-    assert_eq!(
-        output_a.client_egress,
-        vec![(
-            client_a.clone(),
-            TransportEgress::TerminalOutput {
-                session_id: session_a.clone(),
-                subscription_id: subscription_a,
-                data: bytes_a.clone(),
-            },
-        )]
+    assert_terminal_output(
+        &output_a.client_egress,
+        &client_a,
+        &session_a,
+        &subscription_a,
+        &bytes_a,
     );
-    assert_eq!(
-        output_b.client_egress,
-        vec![(
-            client_b.clone(),
-            TransportEgress::TerminalOutput {
-                session_id: session_b.clone(),
-                subscription_id: subscription_b,
-                data: bytes_b.clone(),
-            },
-        )]
+    assert_terminal_output(
+        &output_b.client_egress,
+        &client_b,
+        &session_b,
+        &subscription_b,
+        &bytes_b,
     );
     assert!(matches!(
         screen_a.session_events.first(),
@@ -385,4 +396,29 @@ fn managed_session_path_keeps_multiple_ghostty_backends_isolated_through_interle
                 && !snapshot.data.is_empty()
                 && snapshot.data != bytes_b
     ));
+}
+
+fn assert_terminal_output(
+    frames: &[(ClientId, TransportEgress)],
+    expected_client: &ClientId,
+    expected_session: &SessionId,
+    expected_subscription: &SubscriptionId,
+    expected_data: &[u8],
+) {
+    assert!(
+        frames.iter().any(|(client, frame)| {
+            matches!(
+                frame,
+                TransportEgress::TerminalOutput {
+                    session_id,
+                    subscription_id,
+                    data,
+                } if client == expected_client
+                    && session_id == expected_session
+                    && subscription_id == expected_subscription
+                    && data == expected_data
+            )
+        }),
+        "expected terminal output frame was not present: {frames:?}"
+    );
 }

@@ -22,7 +22,7 @@ pub(crate) struct GhosttyTerminalOptions {
     pub(crate) cols: u16,
     /// Terminal height in cells.
     pub(crate) rows: u16,
-    /// Maximum scrollback lines retained by Ghostty.
+    /// Maximum scrollback page-allocation bytes retained by Ghostty.
     pub(crate) max_scrollback: usize,
 }
 

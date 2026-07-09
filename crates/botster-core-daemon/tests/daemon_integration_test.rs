@@ -5,6 +5,8 @@ use std::process::Command;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "ghostty-terminal")]
+use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
     EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags, NotificationContent,
@@ -15,6 +17,8 @@ use botster_core::{
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TransportEgress,
 };
+#[cfg(feature = "ghostty-terminal")]
+use botster_core_daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
@@ -23,6 +27,19 @@ use botster_core_daemon::{
     ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
     SpawnSessionRequest,
 };
+#[cfg(feature = "ghostty-terminal")]
+use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
+
+#[cfg(feature = "ghostty-terminal")]
+const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
+#[cfg(not(feature = "ghostty-terminal"))]
+const EXPECTED_SNAPSHOT_FORMAT: &str = "plain-opaque-v1";
+#[cfg(feature = "ghostty-terminal")]
+const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
+#[cfg(feature = "ghostty-terminal")]
+const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
+#[cfg(feature = "ghostty-terminal")]
+const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 
 #[cfg(unix)]
 #[test]
@@ -151,17 +168,40 @@ fn daemon_late_attach_drains_initial_history_before_later_live_output() {
         &late_client,
         "echo:after-late-attach",
     );
-    let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
-    let history_index = late_output
-        .find("echo:before-late-attach")
-        .unwrap_or_else(|| panic!("late attach should replay prior marker: {late_output:?}"));
-    let live_index = late_output
-        .find("echo:after-late-attach")
-        .unwrap_or_else(|| panic!("late client should receive later live output: {late_output:?}"));
-    assert!(
-        history_index < live_index,
-        "late replay should precede later live output for the subscription: {late_output:?}"
-    );
+    #[cfg(feature = "ghostty-terminal")]
+    {
+        let (snapshot_index, snapshot) =
+            first_snapshot_for_client(&late_drain.client_egress, &late_client)
+                .expect("late Ghostty attach should deliver an opaque snapshot replay");
+        assert_ghostty_snapshot_replays_marker(&snapshot, "echo:before-late-attach");
+        let live_index = first_terminal_output_index_for_client_containing(
+            &late_drain.client_egress,
+            &late_client,
+            "echo:after-late-attach",
+        )
+        .expect("late client should receive later live output");
+        assert!(
+            snapshot_index < live_index,
+            "late Ghostty snapshot replay should precede later live output: {:?}",
+            late_drain.client_egress
+        );
+    }
+    #[cfg(not(feature = "ghostty-terminal"))]
+    {
+        let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
+        let history_index = late_output
+            .find("echo:before-late-attach")
+            .unwrap_or_else(|| panic!("late attach should replay prior marker: {late_output:?}"));
+        let live_index = late_output
+            .find("echo:after-late-attach")
+            .unwrap_or_else(|| {
+                panic!("late client should receive later live output: {late_output:?}")
+            });
+        assert!(
+            history_index < live_index,
+            "late replay should precede later live output for the subscription: {late_output:?}"
+        );
+    }
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -605,22 +645,31 @@ fn worker_backed_capture_snapshot_drains_before_capture_and_preserves_client_egr
         )
         .expect("marker input should write");
 
+    #[cfg(feature = "ghostty-terminal")]
+    let (captured, output) = capture_snapshot_and_retained_output_until(
+        &mut daemon,
+        &session_id,
+        "echo:snapshot-marker",
+        13,
+    );
+    #[cfg(not(feature = "ghostty-terminal"))]
     let captured = capture_snapshot_until(&mut daemon, &session_id, "echo:snapshot-marker", 13);
     assert_eq!(
         captured.snapshot.request_id,
         RequestId("capture-snapshot-marker".to_string())
     );
     assert_eq!(captured.snapshot.session_id, session_id);
-    assert_eq!(captured.payload.format.as_deref(), Some("plain-opaque-v1"));
+    assert_snapshot_format(&captured.payload);
     assert_eq!(captured.snapshot.data, captured.payload.bytes);
-    assert!(
-        String::from_utf8_lossy(&captured.payload.bytes).contains("echo:snapshot-marker"),
-        "capture_snapshot should internally drain before capturing"
-    );
+    assert_snapshot_payload_observed_marker_when_plain(&captured.payload, "echo:snapshot-marker");
+    #[cfg(feature = "ghostty-terminal")]
+    assert_ghostty_snapshot_replays_marker(&captured.payload, "echo:snapshot-marker");
 
+    #[cfg(not(feature = "ghostty-terminal"))]
     let drained = daemon
         .drain(&session_id, 30)
         .expect("drain after capture_snapshot should succeed");
+    #[cfg(not(feature = "ghostty-terminal"))]
     let output = terminal_output(&drained.client_egress);
     assert_eq!(
         count_occurrences(&output, "echo:snapshot-marker"),
@@ -633,7 +682,7 @@ fn worker_backed_capture_snapshot_drains_before_capture_and_preserves_client_egr
 
 #[cfg(unix)]
 #[test]
-fn local_daemon_read_screen_and_capture_snapshot_use_in_process_engine_path() {
+fn local_daemon_read_screen_and_capture_snapshot_use_configured_terminal_backend() {
     let data_dir = temp_data_dir("dlrs");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("dlrs-session".to_string());
@@ -660,19 +709,178 @@ fn local_daemon_read_screen_and_capture_snapshot_use_in_process_engine_path() {
     assert_eq!(screen.screen.session_id, session_id);
     assert!(
         screen.screen.text.contains("echo:local-marker"),
-        "local daemon read_screen should use the in-process engine path"
+        "local daemon read_screen should use the configured terminal backend"
     );
 
     let captured = capture_snapshot_until(&mut daemon, &session_id, "echo:local-marker", 14);
     assert_eq!(captured.snapshot.session_id, session_id);
-    assert_eq!(captured.payload.format.as_deref(), Some("plain-opaque-v1"));
+    assert_snapshot_format(&captured.payload);
     assert_eq!(captured.snapshot.data, captured.payload.bytes);
+    assert_snapshot_payload_observed_marker_when_plain(&captured.payload, "echo:local-marker");
+    #[cfg(feature = "ghostty-terminal")]
+    assert_ghostty_snapshot_replays_marker(&captured.payload, "echo:local-marker");
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
+fn worker_backed_daemon_default_path_uses_ghostty_terminal_fidelity() {
+    let data_dir = temp_data_dir("dwgf");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwgf-session".to_string());
+    let client_id = ClientId("dwgf-client".to_string());
+    let subscription_id = SubscriptionId("dwgf-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 11)
+        .expect("worker-backed daemon should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id,
+            session_id.clone(),
+            b"\x1b[31mghostty-red\x1b[0m\n".to_vec(),
+            12,
+        )
+        .expect("styled marker input should write");
+
+    let screen = read_screen_until(&mut daemon, &session_id, "echo:ghostty-red", 13);
     assert!(
-        String::from_utf8_lossy(&captured.payload.bytes).contains("echo:local-marker"),
-        "local daemon capture_snapshot should use the in-process engine path"
+        !screen.screen.text.contains("\x1b["),
+        "Ghostty screen reads should format terminal state as plain text, not raw VT bytes: {:?}",
+        screen.screen.text
+    );
+
+    let captured = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("ghostty-fidelity-snapshot".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 14,
+        })
+        .expect("Ghostty-backed daemon should capture snapshot");
+    assert_snapshot_format(&captured.payload);
+    assert_ghostty_snapshot_replays_marker(&captured.payload, "echo:ghostty-red");
+    assert!(
+        captured.payload.bytes.len() < EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING,
+        "Ghostty snapshot payload should remain under the reviewed ceiling: {} bytes",
+        captured.payload.bytes.len()
     );
 
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
+fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_window() {
+    let data_dir = temp_data_dir("dwgs");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwgs-session".to_string());
+    let primary_client = ClientId("dwgs-primary-client".to_string());
+    let late_client = ClientId("dwgs-late-client".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(
+            primary_client.clone(),
+            session_id.clone(),
+            SubscriptionId("dwgs-primary-subscription".to_string()),
+            11,
+        )
+        .expect("primary attach should succeed");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    let mut scrollback_input = Vec::new();
+    for line in 0..80 {
+        scrollback_input.extend_from_slice(format!("scrollback-line-{line:04}\n").as_bytes());
+    }
+    daemon
+        .input(
+            primary_client.clone(),
+            session_id.clone(),
+            scrollback_input,
+            12,
+        )
+        .expect("scrollback generator should write");
+    let _ = drain_until(&mut daemon, &session_id, "echo:scrollback-line-0079");
+
+    let visible = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("visible-scrollback-check".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 100,
+        })
+        .expect("daemon read_screen should succeed");
+    assert!(
+        visible.screen.text.contains("echo:scrollback-line-0000"),
+        "default Ghostty read_screen should retain scrollback history beyond visible rows: {:?}",
+        visible.screen.text
+    );
+
+    daemon
+        .attach(
+            late_client.clone(),
+            session_id.clone(),
+            SubscriptionId("dwgs-late-subscription".to_string()),
+            101,
+        )
+        .expect("late attach should receive a scrollback snapshot");
+    let late_drain = daemon
+        .drain(&session_id, 102)
+        .expect("late attach drain should succeed");
+    let (_, snapshot) = first_snapshot_for_client(&late_drain.client_egress, &late_client)
+        .expect("late Ghostty attach should include a snapshot frame");
+    assert_ghostty_snapshot_replays_marker(&snapshot, "echo:scrollback-line-0000");
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
+fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
+    let mut terminal = GhosttyTerminal::with_config(
+        TerminalScreenSize::new(24, 80),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    )
+    .expect("test should construct Ghostty terminal with daemon default config");
+    let mut output = Vec::new();
+    for line in 0..12_000 {
+        output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
+    }
+    terminal.write_output_bytes(&output);
+
+    let plain_text = terminal
+        .plain_text()
+        .expect("test should format Ghostty terminal text");
+    let retained_markers = retained_ghostty_scrollback_markers(&plain_text, 12_000);
+    assert!(
+        retained_markers.len() >= EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS,
+        "default Ghostty byte budget should retain a material history window at 24x80; retained markers: {}; text length: {}",
+        retained_markers.len(),
+        plain_text.len()
+    );
+    assert!(
+        !plain_text.contains(EXPECTED_GHOSTTY_DROPPED_MARKER),
+        "default Ghostty byte budget should drop history beyond the configured window at 24x80; text length: {}",
+        plain_text.len()
+    );
+
+    let snapshot = terminal
+        .export_snapshot()
+        .expect("test should export Ghostty snapshot");
+    assert_ghostty_snapshot_replays_minimum_markers(
+        &snapshot,
+        12_000,
+        EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS,
+    );
+    assert_ghostty_snapshot_does_not_replay_marker(&snapshot, EXPECTED_GHOSTTY_DROPPED_MARKER);
 }
 
 #[cfg(unix)]
@@ -733,19 +941,42 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
         &late_client,
         "echo:worker-after-read",
     );
-    let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
-    let history_index = late_output
-        .find("echo:worker-before-late")
-        .unwrap_or_else(|| panic!("late attach history should remain pending: {late_output:?}"));
-    let live_index = late_output
-        .find("echo:worker-after-read")
-        .unwrap_or_else(|| {
-            panic!("read_screen internal drain should remain pending: {late_output:?}")
-        });
-    assert!(
-        history_index < live_index,
-        "attach pending drain should merge before read_screen pending drain: {late_output:?}"
-    );
+    #[cfg(feature = "ghostty-terminal")]
+    {
+        let (snapshot_index, snapshot) =
+            first_snapshot_for_client(&late_drain.client_egress, &late_client)
+                .expect("late Ghostty attach should keep an opaque snapshot replay pending");
+        assert_ghostty_snapshot_replays_marker(&snapshot, "echo:worker-before-late");
+        let live_index = first_terminal_output_index_for_client_containing(
+            &late_drain.client_egress,
+            &late_client,
+            "echo:worker-after-read",
+        )
+        .expect("read_screen internal drain should remain pending");
+        assert!(
+            snapshot_index < live_index,
+            "attach snapshot replay should merge before read_screen pending drain: {:?}",
+            late_drain.client_egress
+        );
+    }
+    #[cfg(not(feature = "ghostty-terminal"))]
+    {
+        let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
+        let history_index = late_output
+            .find("echo:worker-before-late")
+            .unwrap_or_else(|| {
+                panic!("late attach history should remain pending: {late_output:?}")
+            });
+        let live_index = late_output
+            .find("echo:worker-after-read")
+            .unwrap_or_else(|| {
+                panic!("read_screen internal drain should remain pending: {late_output:?}")
+            });
+        assert!(
+            history_index < live_index,
+            "attach pending drain should merge before read_screen pending drain: {late_output:?}"
+        );
+    }
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -795,7 +1026,7 @@ fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
         })
         .expect("spawned never explicitly drained session should still capture snapshot");
     assert_eq!(snapshot.snapshot.session_id, session_id);
-    assert_eq!(snapshot.payload.format.as_deref(), Some("plain-opaque-v1"));
+    assert_snapshot_format(&snapshot.payload);
 
     daemon
         .shutdown(Some(session_id.clone()), 20)
@@ -1499,6 +1730,11 @@ fn capture_snapshot_until(
                 now_seconds: start_tick + tick,
             })
             .expect("daemon capture_snapshot should succeed");
+        #[cfg(feature = "ghostty-terminal")]
+        if ghostty_snapshot_replays_marker(&captured.payload, expected) {
+            return captured;
+        }
+        #[cfg(not(feature = "ghostty-terminal"))]
         if String::from_utf8_lossy(&captured.payload.bytes).contains(expected) {
             return captured;
         }
@@ -1509,6 +1745,147 @@ fn capture_snapshot_until(
         "capture_snapshot never observed {expected:?}; last bytes: {:?}",
         last.map(|captured| String::from_utf8_lossy(&captured.payload.bytes).to_string())
     )
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn capture_snapshot_and_retained_output_until(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    expected: &str,
+    start_tick: u64,
+) -> (botster_core_daemon::CaptureSnapshotResult, String) {
+    let request_id = RequestId("capture-snapshot-marker".to_string());
+    let mut aggregate_output = String::new();
+    let mut last = None;
+    for tick in 0..100 {
+        let captured = daemon
+            .capture_snapshot(CaptureSnapshotRequest {
+                request_id: request_id.clone(),
+                session_id: session_id.clone(),
+                now_seconds: start_tick + tick,
+            })
+            .expect("daemon capture_snapshot should succeed");
+        let drained = daemon
+            .drain(session_id, start_tick + tick + 100)
+            .expect("drain after capture_snapshot should succeed");
+        aggregate_output.push_str(&terminal_output(&drained.client_egress));
+        if aggregate_output.contains(expected)
+            && ghostty_snapshot_replays_marker(&captured.payload, expected)
+        {
+            return (captured, aggregate_output);
+        }
+        last = Some(captured);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!(
+        "capture_snapshot never retained {expected:?}; last format: {:?}; output: {:?}",
+        last.and_then(|captured| captured.payload.format),
+        aggregate_output
+    )
+}
+
+fn assert_snapshot_format(payload: &botster_core::TerminalSnapshotPayload) {
+    assert_eq!(
+        payload.format.as_deref(),
+        Some(EXPECTED_SNAPSHOT_FORMAT),
+        "snapshot format should match the active daemon terminal backend"
+    );
+}
+
+fn assert_snapshot_payload_observed_marker_when_plain(
+    payload: &botster_core::TerminalSnapshotPayload,
+    expected: &str,
+) {
+    #[cfg(not(feature = "ghostty-terminal"))]
+    assert!(
+        String::from_utf8_lossy(&payload.bytes).contains(expected),
+        "plain fallback snapshot should retain raw marker bytes"
+    );
+    #[cfg(feature = "ghostty-terminal")]
+    let _ = (payload, expected);
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn assert_ghostty_snapshot_replays_marker(
+    payload: &botster_core::TerminalSnapshotPayload,
+    expected: &str,
+) {
+    let plain_text = ghostty_snapshot_plain_text(payload);
+    assert!(
+        plain_text.contains(expected),
+        "Ghostty snapshot replay should contain {expected:?}; replayed text length: {}",
+        plain_text.len()
+    );
+    assert!(
+        payload.bytes.len() < EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING,
+        "Ghostty snapshot payload should remain under the reviewed ceiling: {} bytes",
+        payload.bytes.len()
+    );
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn assert_ghostty_snapshot_replays_minimum_markers(
+    payload: &botster_core::TerminalSnapshotPayload,
+    marker_count: usize,
+    minimum: usize,
+) {
+    let plain_text = ghostty_snapshot_plain_text(payload);
+    let retained_markers = retained_ghostty_scrollback_markers(&plain_text, marker_count);
+    assert!(
+        retained_markers.len() >= minimum,
+        "Ghostty snapshot replay should retain at least {minimum} generated markers; retained markers: {}; replayed text length: {}",
+        retained_markers.len(),
+        plain_text.len()
+    );
+    assert!(
+        payload.bytes.len() < EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING,
+        "Ghostty snapshot payload should remain under the reviewed ceiling: {} bytes",
+        payload.bytes.len()
+    );
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn assert_ghostty_snapshot_does_not_replay_marker(
+    payload: &botster_core::TerminalSnapshotPayload,
+    unexpected: &str,
+) {
+    let plain_text = ghostty_snapshot_plain_text(payload);
+    assert!(
+        !plain_text.contains(unexpected),
+        "Ghostty snapshot replay should not contain {unexpected:?}; replayed text length: {}",
+        plain_text.len()
+    );
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn ghostty_snapshot_replays_marker(
+    payload: &botster_core::TerminalSnapshotPayload,
+    expected: &str,
+) -> bool {
+    ghostty_snapshot_plain_text(payload).contains(expected)
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn ghostty_snapshot_plain_text(payload: &botster_core::TerminalSnapshotPayload) -> String {
+    assert_snapshot_format(payload);
+    let mut terminal = GhosttyTerminal::with_config(
+        payload.size,
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    )
+    .expect("test should construct Ghostty replay terminal");
+    terminal
+        .import_snapshot(payload)
+        .expect("test should import daemon Ghostty snapshot");
+    terminal
+        .plain_text()
+        .expect("test should format replayed Ghostty snapshot")
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn retained_ghostty_scrollback_markers(plain_text: &str, marker_count: usize) -> Vec<usize> {
+    (0..marker_count)
+        .filter(|line| plain_text.contains(&format!("echo:scrollback-line-{line:05}")))
+        .collect()
 }
 
 fn count_occurrences(haystack: &str, needle: &str) -> usize {
@@ -1552,6 +1929,48 @@ fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn first_snapshot_for_client(
+    frames: &[(ClientId, TransportEgress)],
+    client_id: &ClientId,
+) -> Option<(usize, botster_core::TerminalSnapshotPayload)> {
+    frames
+        .iter()
+        .enumerate()
+        .find_map(|(index, (frame_client_id, frame))| {
+            if frame_client_id != client_id {
+                return None;
+            }
+            match frame {
+                TransportEgress::Snapshot { data, .. } => Some((
+                    index,
+                    botster_core::TerminalSnapshotPayload::new(
+                        data.clone(),
+                        TerminalScreenSize::new(24, 80),
+                        Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
+                    ),
+                )),
+                _ => None,
+            }
+        })
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn first_terminal_output_index_for_client_containing(
+    frames: &[(ClientId, TransportEgress)],
+    client_id: &ClientId,
+    expected: &str,
+) -> Option<usize> {
+    frames
+        .iter()
+        .position(|(frame_client_id, frame)| match frame {
+            TransportEgress::TerminalOutput { data, .. } if frame_client_id == client_id => {
+                String::from_utf8_lossy(data).contains(expected)
+            }
+            _ => false,
+        })
 }
 
 fn renderable_output(frames: &[(ClientId, TransportEgress)]) -> String {

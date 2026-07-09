@@ -120,6 +120,20 @@ fn repack_static_library(zig_lib_path: &Path, repacked_lib: &Path) {
     let zig_lib_abs = fs::canonicalize(zig_lib_path)
         .unwrap_or_else(|_| panic!("zig-out/lib/libghostty-vt.a not found"));
 
+    if is_thin_archive(&zig_lib_abs) {
+        let objects = external_archive_objects(&zig_lib_abs)
+            .unwrap_or_else(|| panic!("thin libghostty-vt.a members were not found"));
+        archive_objects(repacked_lib, &objects);
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return;
+    }
+
+    if let Some(objects) = external_archive_objects(&zig_lib_abs) {
+        archive_objects(repacked_lib, &objects);
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return;
+    }
+
     let status = Command::new("ar")
         .args(["x", &zig_lib_abs.to_string_lossy()])
         .current_dir(&tmp_dir)
@@ -142,15 +156,69 @@ fn repack_static_library(zig_lib_path: &Path, repacked_lib: &Path) {
         .collect();
     objects.sort();
 
+    archive_objects(repacked_lib, &objects);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+fn is_thin_archive(archive: &Path) -> bool {
+    fs::read(archive)
+        .map(|bytes| bytes.starts_with(b"!<thin>\n"))
+        .unwrap_or(false)
+}
+
+fn external_archive_objects(archive: &Path) -> Option<Vec<PathBuf>> {
+    let output = Command::new("ar")
+        .arg("t")
+        .arg(archive)
+        .output()
+        .expect("failed to run `ar t`");
+    assert!(output.status.success(), "ar t failed for libghostty-vt.a");
+
+    let ghostty_dir = archive
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .expect("zig-out/lib archive lives under Ghostty source root");
+    let archive_dir = archive.parent().expect("archive has parent");
+
+    let member_output = String::from_utf8_lossy(&output.stdout);
+    let members: Vec<_> = member_output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let objects: Option<Vec<_>> = members
+        .iter()
+        .map(|member| resolve_archive_member(ghostty_dir, archive_dir, member))
+        .collect();
+    let mut objects = objects?;
+    objects.sort();
+    Some(objects)
+}
+
+fn resolve_archive_member(ghostty_dir: &Path, archive_dir: &Path, member: &str) -> Option<PathBuf> {
+    let member_path = Path::new(member);
+    let candidates = if member_path.is_absolute() {
+        vec![member_path.to_path_buf()]
+    } else {
+        vec![ghostty_dir.join(member_path), archive_dir.join(member_path)]
+    };
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn archive_objects(repacked_lib: &Path, objects: &[PathBuf]) {
+    assert!(
+        !objects.is_empty(),
+        "libghostty-vt.a did not contain object files"
+    );
     let mut ar_cmd = Command::new("ar");
     ar_cmd.args(["rcs"]).arg(repacked_lib);
-    for object in &objects {
+    for object in objects {
         ar_cmd.arg(object);
     }
     let status = ar_cmd.status().expect("failed to run `ar rcs`");
     assert!(status.success(), "ar rcs failed for libghostty-vt.a");
-
-    let _ = fs::remove_dir_all(&tmp_dir);
 }
 
 fn emit_link_directives(out_dir: &str) {

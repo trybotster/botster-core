@@ -3,7 +3,7 @@
 `botster-terminal-ghostty` owns Botster's concrete Ghostty shadow-terminal
 adapter boundary. `botster-core` keeps the backend-neutral
 `TerminalScreenRuntime` seam; this crate owns Ghostty-specific source pinning,
-Zig build policy, static linking, FFI, and future runtime wiring.
+Zig build policy, static linking, FFI, and runtime wiring.
 
 The default crate build does not require Ghostty or Zig. Native libghostty-vt
 work is behind the `libghostty-vt` feature:

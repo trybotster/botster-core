@@ -2,17 +2,17 @@
 //!
 //! `botster-core` intentionally keeps the reusable terminal screen contract
 //! backend-neutral. This crate is the home for Botster's blessed core-side
-//! Ghostty shadow-terminal path: the future concrete adapter that owns
-//! authoritative terminal screen and snapshot truth for tmux-like attach,
-//! detach, recovery, and replay behavior.
+//! Ghostty shadow-terminal path: the concrete adapter that owns authoritative
+//! terminal screen and snapshot truth for tmux-like attach, detach, recovery,
+//! and replay behavior.
 //!
 //! The default public surface documents the crate boundary without requiring
 //! Ghostty or Zig. Enabling `libghostty-vt` exposes the safe native runtime.
 //!
 //! Enabling the `libghostty-vt` feature builds the pinned trybotster Ghostty
 //! fork from `vendor/ghostty` and links its static `libghostty-vt` archive.
-//! Default builds leave that native path disabled so workspace tests do not
-//! require Ghostty or Zig.
+//! Default builds of this crate leave that native path disabled. First-party
+//! host profiles may enable it as part of their default production feature set.
 //!
 //! restty remains a web/client rendering path. Clients may consume terminal
 //! state and streams, but restty must not become core shadow-terminal
@@ -65,7 +65,7 @@ mod sys;
 /// Snapshot format label reserved for Ghostty-owned opaque snapshot payloads.
 pub const GHOSTTY_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 
-/// Configuration for a future Ghostty-backed terminal screen adapter.
+/// Configuration for a Ghostty-backed terminal screen adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GhosttyAdapterConfig {
     snapshot_format: &'static str,
@@ -82,13 +82,26 @@ impl GhosttyAdapterConfig {
         }
     }
 
+    /// Build a Ghostty adapter configuration with explicit scrollback bytes.
+    ///
+    /// Ghostty interprets this as a byte budget for retained scrollback page
+    /// allocation. The effective line count is page-quantized and depends on
+    /// terminal width; `0` disables scrollback beyond the visible screen.
+    #[must_use]
+    pub const fn with_max_scrollback_bytes(max_scrollback: usize) -> Self {
+        Self {
+            snapshot_format: GHOSTTY_SNAPSHOT_FORMAT,
+            max_scrollback,
+        }
+    }
+
     /// Return the host-owned snapshot format label for Ghostty payloads.
     #[must_use]
     pub const fn snapshot_format(self) -> &'static str {
         self.snapshot_format
     }
 
-    /// Return the maximum scrollback lines retained by Ghostty.
+    /// Return the maximum scrollback page-allocation bytes retained by Ghostty.
     #[must_use]
     pub const fn max_scrollback(self) -> usize {
         self.max_scrollback
@@ -383,6 +396,10 @@ mod native {
                     TerminalScreenState::new(self.size, String::new())
                 }
             }
+        }
+
+        fn last_error(&self) -> Option<String> {
+            GhosttyTerminal::last_error(self).map(|error| error.to_string())
         }
     }
 
