@@ -18,7 +18,9 @@
 //!   behind plugin worker/runtime boundaries. Unknown custom components degrade
 //!   through their required kernel-or-iframe fallback slot. Recognizing
 //!   renderers may consume component-specific custom props; non-recognizing
-//!   clients must ignore those props and render the fallback.
+//!   clients must ignore those props and render the fallback. Core validates
+//!   top-level `$bind` payload sentinels and treats nested custom payload data
+//!   as package-owned.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1735,9 +1737,13 @@ fn validate_custom_payload_prop(
 }
 
 fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
-    if node.props.contains_key("default") {
+    let schema = schema_for(node.kind);
+
+    if schema.allowed_props.contains("default") && node.props.contains_key("default") {
         for controlled_prop in ["value", "checked", "selected"] {
-            if node.props.contains_key(controlled_prop) {
+            if schema.allowed_props.contains(controlled_prop)
+                && node.props.contains_key(controlled_prop)
+            {
                 return Err(UiValidationError::InvalidProp {
                     kind: node.kind,
                     prop: "default".to_string(),
@@ -2059,6 +2065,8 @@ fn validate_node_capability_requirements(
     node: &UiNode,
     capabilities: &UiCapabilitySet,
 ) -> Result<(), UiValidationError> {
+    let schema = schema_for(node.kind);
+
     if matches!(node.kind, UiNodeKind::TextInput | UiNodeKind::Textarea)
         && !capabilities.keyboard.text_entry
     {
@@ -2077,7 +2085,10 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("shortcut") && !capabilities.keyboard.shortcuts {
+    if schema.allowed_props.contains("shortcut")
+        && node.props.contains_key("shortcut")
+        && !capabilities.keyboard.shortcuts
+    {
         return unsupported(
             node.kind,
             "keyboard.shortcuts",
@@ -2085,14 +2096,16 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("hover_label")
+    if schema.allowed_props.contains("hover_label")
+        && node.props.contains_key("hover_label")
         && !capabilities.hover
         && !capabilities.supports_fallback(UiCapabilityFallback::HoverPersistentHints)
     {
         return unsupported(node.kind, "hover", "hover fallback was not declared");
     }
 
-    if node.props.contains_key("copy_value")
+    if schema.allowed_props.contains("copy_value")
+        && node.props.contains_key("copy_value")
         && !capabilities.clipboard
         && !capabilities.supports_fallback(UiCapabilityFallback::ClipboardManual)
     {
@@ -2103,7 +2116,8 @@ fn validate_node_capability_requirements(
         );
     }
 
-    if node.props.contains_key("context_menu")
+    if schema.allowed_props.contains("context_menu")
+        && node.props.contains_key("context_menu")
         && !capabilities.context_menu
         && !capabilities.supports_fallback(UiCapabilityFallback::ContextMenuAsMenu)
     {
