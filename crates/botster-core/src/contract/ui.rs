@@ -2164,7 +2164,8 @@ fn validate_node_capability_requirements(
         return unsupported(node.kind, "iframe", "iframe link fallback was not declared");
     }
 
-    if node.props.contains_key("tone")
+    if schema.allowed_props.contains("tone")
+        && node.props.contains_key("tone")
         && !capabilities.rich_color
         && !capabilities.supports_fallback(UiCapabilityFallback::RichColorMuted)
     {
