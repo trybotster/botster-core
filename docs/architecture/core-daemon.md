@@ -29,6 +29,33 @@ the session so late subscribers see replay before later live terminal output.
 It must not re-route the returned session requests; those requests are an
 already-routed record from the engine, not daemon follow-up work.
 
+Screen reads and snapshot captures are also part of the typed production daemon
+API. `CoreDaemon::read_screen` and `CoreDaemon::capture_snapshot` internally
+drain the target session before reading terminal state because worker-backed
+terminal truth advances on the drain path. Any client egress or observations
+produced by that internal drain are retained and prepended to the next explicit
+`CoreDaemon::drain` result for the session, matching the attach retention
+contract. Lifecycle observations from the internal readback drain are
+retained for the next explicit `CoreDaemon::drain`. The internal readback
+drain advances the engine's session lifecycle, so a process that has already
+exited is observed on that same call and the readback returns
+`SessionNotReadable` rather than stale terminal state.
+Readback requires a live readable session: `read_screen` and
+`capture_snapshot` return `SessionNotReadable` once the engine lifecycle is
+stopping, exited, or failed, or when the registry record has been marked
+stopping, exited, or stale. `CoreDaemon::drain` intentionally remains
+available for those sessions so hosts can flush retained egress and lifecycle
+observations after readback has stopped, even when the runtime handle has
+already been reaped.
+
+Snapshot payloads are backend-neutral opaque terminal state. The current plain
+fallback runtime returns raw retained PTY bytes with format
+`plain-opaque-v1`, terminal dimensions, and a 1 MiB retained-tail bound; older
+bytes are truncated from the head. The plain fallback runtime does not parse VT
+sequences. `ScreenReady.text` is a lossy UTF-8 view of the same retained byte
+tail the snapshot returns: raw PTY bytes including escape sequences, not a
+rows-by-columns rendered screen. A rendered screen requires a parsing backend.
+
 When configured with the `botster-session-worker` executable, `CoreDaemon`
 spawns worker-backed local sessions. Each worker owns its PTY in a separate
 process and exposes a reconnectable Unix control socket recorded in

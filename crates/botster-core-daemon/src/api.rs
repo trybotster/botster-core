@@ -3,9 +3,10 @@
 use botster_core::{
     BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, EnvelopeCursor,
     EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, NotificationDeliveryStatus, NotificationId,
-    NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity, ResizePayload,
-    RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopePublishOutcome, SessionId,
-    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId,
+    NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity, RequestId,
+    ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopePublishOutcome,
+    ScreenReady, SessionId, SessionSpawnRequest, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SnapshotReady, SubscriptionId, TerminalSnapshotPayload,
     TransportEgress,
 };
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,44 @@ pub struct DrainResult {
     pub observations: Vec<BotsterEngineObservation>,
     /// Backpressure summaries observed while draining.
     pub backpressure: Vec<BackpressureSummary>,
+}
+
+/// Result of reading the current daemon-owned terminal screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadScreenResult {
+    /// Correlated screen response from the core session contract.
+    pub screen: ScreenReady,
+}
+
+/// Result of capturing the current daemon-owned terminal snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureSnapshotResult {
+    /// Correlated snapshot response from the core session contract.
+    pub snapshot: SnapshotReady,
+    /// Backend-neutral reusable payload, including the runtime-owned format label.
+    pub payload: TerminalSnapshotPayload,
+}
+
+/// Host request to read the current terminal screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadScreenRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to read.
+    pub session_id: SessionId,
+    /// Logical timestamp used for the internal drain-before-read step.
+    pub now_seconds: u64,
+}
+
+/// Host request to capture the current terminal snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureSnapshotRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to snapshot.
+    pub session_id: SessionId,
+    /// Logical timestamp used for the internal drain-before-read step.
+    pub now_seconds: u64,
 }
 
 /// Host request to queue one generic notification inbox item.

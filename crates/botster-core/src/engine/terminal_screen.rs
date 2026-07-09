@@ -204,3 +204,32 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        PlainTerminalScreenRuntime, TerminalScreenEngine, TerminalScreenSize,
+        PLAIN_TERMINAL_SCREEN_MAX_BYTES,
+    };
+
+    #[test]
+    fn plain_terminal_snapshot_retains_bounded_tail_with_format_label() {
+        let mut engine = TerminalScreenEngine::new(PlainTerminalScreenRuntime::new(
+            TerminalScreenSize::new(24, 80),
+        ));
+        let excess = b"discarded-prefix";
+        let retained = vec![b'x'; PLAIN_TERMINAL_SCREEN_MAX_BYTES];
+        let mut output = excess.to_vec();
+        output.extend_from_slice(&retained);
+
+        engine.normalize_output(&output);
+        let snapshot = engine
+            .capture_snapshot()
+            .snapshot
+            .expect("plain runtime should capture a snapshot");
+
+        assert_eq!(snapshot.bytes.len(), PLAIN_TERMINAL_SCREEN_MAX_BYTES);
+        assert_eq!(snapshot.bytes, retained);
+        assert_eq!(snapshot.format.as_deref(), Some("plain-opaque-v1"));
+    }
+}
