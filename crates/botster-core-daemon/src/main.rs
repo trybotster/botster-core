@@ -36,7 +36,14 @@ fn run() -> Result<(), Box<dyn Error>> {
                     report.state,
                     botster_core_daemon::SessionAdoptionState::Adoptable
                 ) {
-                    let _ = daemon.adopt_session(&report.record.session_id, 1);
+                    daemon
+                        .adopt_session(&report.record.session_id, 1)
+                        .map_err(|error| {
+                            format!(
+                                "failed to adopt session {:?}: {error}",
+                                report.record.session_id
+                            )
+                        })?;
                 }
             }
             print_json(&daemon.adoption_scan()?)?;
