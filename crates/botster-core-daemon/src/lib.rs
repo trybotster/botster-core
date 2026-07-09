@@ -12,11 +12,13 @@ pub mod registry;
 
 pub use api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
-    DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult,
-    DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
-    GuardedWriteResult, NotificationStatusResult, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
+    CaptureSnapshotRequest, CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus,
+    DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
+    DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
+    PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
+    PublishRoutedEnvelopeResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SpawnSessionRequest,
 };
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
 pub use guarded_write::{

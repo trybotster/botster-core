@@ -33,7 +33,7 @@ use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
 };
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
-use crate::terminal_screen::TerminalScreenSize;
+use crate::terminal_screen::{TerminalScreenSize, TerminalSnapshotPayload};
 use crate::transport::TransportIngress;
 use crate::ClientId;
 
@@ -459,6 +459,20 @@ where
         )
     }
 
+    /// Capture the reusable opaque terminal snapshot payload for one session.
+    pub fn capture_snapshot_payload(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<TerminalSnapshotPayload, ManagedSessionRuntimeError> {
+        let worker = self
+            .engine
+            .session_worker_runtime_mut(session_id)
+            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            })?;
+        Ok(worker.capture_snapshot_payload())
+    }
+
     /// Replay or prepare a snapshot through the existing worker path.
     pub fn replay_snapshot(
         &mut self,
@@ -596,6 +610,15 @@ where
             .pending_runtime_events
             .drain(..)
             .collect()
+    }
+
+    pub(crate) fn capture_snapshot_payload(&mut self) -> TerminalSnapshotPayload {
+        self.state
+            .borrow_mut()
+            .terminal
+            .capture_snapshot()
+            .snapshot
+            .expect("terminal screen engine captures a snapshot")
     }
 }
 
