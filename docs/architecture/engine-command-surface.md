@@ -1,8 +1,12 @@
 # Botster Core Engine Command Surface
 
-`BotsterEngine` is the canonical policy-free command facade for embedders, tests, hub adapters, and future plugin/provider layers. `DefaultBotsterEngine` is the local PTY-backed instance of that facade. `MultiplexerEngine` stays the lower-level assembled primitive that the facades delegate to.
+`BotsterEngine` is the canonical policy-free command facade for embedders, tests, hub adapters, and future plugin/provider layers. `DefaultBotsterEngine` is the local PTY-backed instance of that facade (use `DefaultBotsterEngine::worker_backed` when sessions should be owned by `botster-session-worker` processes).
+
+**Start here for hosts:** spawn → attach → drain → input → shutdown via `botster_core::prelude` (see the workspace README and rustdoc on that module). Prefer `DefaultBotsterEngine` for the library path and `botster_core_daemon::CoreDaemon` (with `with_worker_path`) for the production durable path. `MultiplexerEngine` and raw `session_protocol` framing are advanced/internal surfaces that the facades already compose.
 
 Core commands are mechanisms, not product actions. Hosts provide explicit ids, commands, working directories, environment, timestamps, subscription ids, and request ids. Hosts also own executors, queues, transport delivery, persistence, config discovery, auth, cloud/WebRTC/signaling, marketplace/update policy, CLI UX, Rails relay behavior, TUI/browser rendering, provider policy, and Project Pipelines workflow policy.
+
+Related: [`core-daemon.md`](core-daemon.md), [`durable-session-worker-protocol.md`](durable-session-worker-protocol.md).
 
 ## Commands
 
@@ -25,7 +29,7 @@ Core commands are mechanisms, not product actions. Hosts provide explicit ids, c
 | Unload plugin | `PluginUnloadSpec` | `PluginCleanupResult` | `BotsterEngine::unload_plugin` | Trusted host owns unload policy; core removes worker-owned state |
 | Invoke plugin | `PluginInvocationRequest` | `PluginInvocationOutcome` with typed worker events | `BotsterEngine::invoke_plugin` | Trusted host chooses handler/payload; core enforces capability checks, timeout, and queue pressure |
 
-The compile-checked command API lives in `botster_core::engine_command` and is re-exported at the crate root:
+The compile-checked command API lives in `botster_core::engine_command`, is re-exported at the crate root for compatibility, and is included in `botster_core::prelude`:
 
 - `EngineCommand<W>` is the typed request enum for `BotsterEngine<R, W>`. Its spawn variant carries the host-supplied worker runtime because custom embedders own worker construction. Its notification variants are thin inbox delegates over `BotsterEngine::post_notification` and `BotsterEngine::drain_notifications`. Its plugin lifecycle variants delegate to the existing plugin-worker facade methods rather than adding a second runtime path.
 - `DefaultEngineCommand` is the typed request enum for `DefaultBotsterEngine` when the `local-runtime` feature is enabled. It covers the local PTY-backed session/client/screen/snapshot/shutdown commands, but intentionally omits notifications and plugin lifecycle because `DefaultBotsterEngine` does not currently expose those methods.
@@ -51,6 +55,16 @@ Unsupported work is explicit. Core should return typed unsupported errors or omi
 The core surface is synchronous and deterministic. A method call mutates in-memory core state and returns typed outcomes that the caller delivers to clients, session workers, or runtime adapters.
 
 Hosts may wrap these calls in actors, async tasks, queues, retry loops, transports, or persistent stores. Those scheduling choices are outside `botster-core`.
+
+### Host event-loop expectations
+
+Embedders own the loop:
+
+1. Supply host clocks (`now_seconds`) on attach, drain, input, inspect, and shutdown.
+2. Call `drain_runtime_once` / `drain_runtime_all_once` (or `CoreDaemon::drain`) regularly while sessions are live so output and lifecycle observations are delivered.
+3. Route returned client egress to transports; do not re-dispatch already-routed session requests as new engine work.
+4. Honor backpressure summaries and report slow-client lag through the public report helpers when the host observes delivery lag.
+5. Drain notification/envelope APIs separately when using those coordination planes (daemon-owned queues are process memory, not registry-durable).
 
 ## Explicit Exclusions
 
