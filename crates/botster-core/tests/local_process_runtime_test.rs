@@ -867,10 +867,10 @@ fn local_runtime_docs_and_tests_do_not_embed_private_paths_or_pii() {
     files.push(PathBuf::from("tests/local_process_runtime_test.rs"));
     files.push(PathBuf::from("../../README.md"));
     files.push(PathBuf::from(
-        "../../docs/plans/default-local-pty-process-runtime.md",
+        "../../docs/archive/plans/default-local-pty-process-runtime.md",
     ));
     files.push(PathBuf::from(
-        "../../docs/plans/process-group-cleanup-shutdown-guarantees.md",
+        "../../docs/archive/plans/process-group-cleanup-shutdown-guarantees.md",
     ));
 
     for source_file in files {

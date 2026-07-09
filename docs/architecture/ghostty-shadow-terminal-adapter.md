@@ -37,7 +37,7 @@ Botster core evidence:
 
 - `crates/botster-core/src/engine/terminal_screen.rs`
 - `crates/botster-core/src/contract/terminal_screen.rs`
-- `docs/plans/terminal-screen-snapshot-boundary.md`
+- `docs/archive/plans/terminal-screen-snapshot-boundary.md`
 - `README.md`
 
 Current Ghostty fork evidence:

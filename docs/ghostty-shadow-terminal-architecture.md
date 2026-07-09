@@ -21,7 +21,7 @@ core shadow-terminal infrastructure and must not own authoritative terminal
 truth.
 
 This note reconciles the Ghostty direction with
-`docs/plans/terminal-screen-snapshot-boundary.md`: that earlier boundary remains
+`docs/archive/plans/terminal-screen-snapshot-boundary.md`: that earlier boundary remains
 correct for `botster-core`. The later architecture decision is placement of the
 blessed concrete backend path in the sibling Ghostty crate, not a rewrite of the
 core crate's neutrality.
