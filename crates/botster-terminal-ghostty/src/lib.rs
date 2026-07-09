@@ -397,6 +397,10 @@ mod native {
                 }
             }
         }
+
+        fn last_error(&self) -> Option<String> {
+            self.last_error().map(|error| error.to_string())
+        }
     }
 
     impl Drop for GhosttyTerminal {

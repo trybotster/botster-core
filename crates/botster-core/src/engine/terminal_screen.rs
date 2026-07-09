@@ -21,6 +21,11 @@ pub trait TerminalScreenRuntime {
 
     /// Read current screen state.
     fn screen_state(&self) -> TerminalScreenState;
+
+    /// Return the most recent backend operation error, if the runtime records one.
+    fn last_error(&self) -> Option<String> {
+        None
+    }
 }
 
 impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
@@ -42,6 +47,10 @@ impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
 
     fn screen_state(&self) -> TerminalScreenState {
         self.as_ref().screen_state()
+    }
+
+    fn last_error(&self) -> Option<String> {
+        self.as_ref().last_error()
     }
 }
 

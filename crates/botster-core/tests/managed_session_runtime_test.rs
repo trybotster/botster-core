@@ -193,6 +193,44 @@ impl TerminalScreenRuntime for SpyTerminalRuntime {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FailingTerminalRuntime {
+    size: TerminalScreenSize,
+    message: &'static str,
+}
+
+impl FailingTerminalRuntime {
+    const fn new(size: TerminalScreenSize, message: &'static str) -> Self {
+        Self { size, message }
+    }
+}
+
+impl TerminalScreenRuntime for FailingTerminalRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        TerminalOutputChunk::new(bytes.to_vec())
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.size = size;
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        TerminalSnapshotPayload::new(Vec::new(), self.size, Some("failing-opaque-v1".to_string()))
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.size = payload.size;
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        TerminalScreenState::new(self.size, String::new())
+    }
+
+    fn last_error(&self) -> Option<String> {
+        Some(self.message.to_string())
+    }
+}
+
 #[test]
 fn managed_session_runtime_fair_drain_visits_each_active_session_once_per_tick() {
     let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
@@ -580,6 +618,65 @@ fn supervised_session_backend_factory_error_surfaces_as_typed_error() {
         runtime.session(&session_id()).is_none(),
         "failed backend construction must not register the session"
     );
+}
+
+#[test]
+fn supervised_session_screen_read_fails_loudly_when_terminal_backend_records_error() {
+    let mut runtime =
+        ManagedSessionRuntime::with_terminal_backend_factory(FakeSessionRuntime::new(), |size| {
+            Ok::<_, std::convert::Infallible>(FailingTerminalRuntime::new(size, "formatter failed"))
+        });
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session with failing terminal backend");
+
+    let error = runtime
+        .read_screen(request_id("screen-error"), session_id(), 21)
+        .expect_err("screen read should surface terminal backend error");
+
+    match error {
+        ManagedSessionRuntimeError::TerminalBackendOperation { operation, message } => {
+            assert_eq!(operation, "screen_state");
+            assert_eq!(message, "formatter failed");
+        }
+        other => panic!("expected terminal backend operation error, got {other:?}"),
+    }
+}
+
+#[test]
+fn supervised_session_snapshot_fails_loudly_when_terminal_backend_records_error() {
+    let mut runtime =
+        ManagedSessionRuntime::with_terminal_backend_factory(FakeSessionRuntime::new(), |size| {
+            Ok::<_, std::convert::Infallible>(FailingTerminalRuntime::new(
+                size,
+                "snapshot export failed",
+            ))
+        });
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session with failing terminal backend");
+
+    let request_error = runtime
+        .capture_snapshot(request_id("snapshot-error"), session_id(), 21)
+        .expect_err("snapshot request should surface terminal backend error");
+    match request_error {
+        ManagedSessionRuntimeError::TerminalBackendOperation { operation, message } => {
+            assert_eq!(operation, "capture_snapshot");
+            assert_eq!(message, "snapshot export failed");
+        }
+        other => panic!("expected terminal backend operation error, got {other:?}"),
+    }
+
+    let payload_error = runtime
+        .capture_snapshot_payload(&session_id())
+        .expect_err("direct snapshot payload should surface terminal backend error");
+    match payload_error {
+        ManagedSessionRuntimeError::TerminalBackendOperation { operation, message } => {
+            assert_eq!(operation, "capture_snapshot");
+            assert_eq!(message, "snapshot export failed");
+        }
+        other => panic!("expected terminal backend operation error, got {other:?}"),
+    }
 }
 
 #[test]
