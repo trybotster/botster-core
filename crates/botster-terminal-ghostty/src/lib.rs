@@ -399,7 +399,7 @@ mod native {
         }
 
         fn last_error(&self) -> Option<String> {
-            self.last_error().map(|error| error.to_string())
+            GhosttyTerminal::last_error(self).map(|error| error.to_string())
         }
     }
 
