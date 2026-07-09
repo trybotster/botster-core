@@ -1,7 +1,12 @@
 //! Durable session-worker protocol and restart contract shapes.
 //!
-//! These contracts describe the production topology where a local core daemon
-//! supervises independent session workers that own PTYs and child processes.
+//! This module is **protocol vocabulary** spoken by the production daemon and
+//! session-worker path. Types alone do not start a daemon, open sockets, or
+//! adopt workers. Runtime supervision and adoption are implemented in the
+//! sibling `botster-core-daemon` crate (`CoreDaemon` with a configured
+//! `botster-session-worker`); worker-backed library embeds use
+//! `DefaultBotsterEngine::worker_backed`.
+//!
 //! The types are intentionally policy-free and sit above the byte-frame
 //! [`session_protocol`](crate::session_protocol) layer and the current
 //! [`SessionIoRequest`](crate::SessionIoRequest) / [`SessionIoEvent`](crate::SessionIoEvent)
