@@ -260,9 +260,24 @@ Core owns portable package **shapes**, not product policy.
   `docs/examples/package-surfaces.json`.
 - **Navigation** — top-level `navigation` entries targeting surfaces; no
   order/pin/placement fields (hub/client own presentation).
-- **UiNode application primitives** — renderer-neutral `metric`, `metric_grid`,
-  `toolbar`, `table`, `list` / `list_item`, `section`, `panel`, `status_badge`,
-  plus `iframe` with restrictive defaults. No raw HTML injection.
+- **UiNode UI kernel primitives** — renderer-neutral fallback substrate:
+  `stack`, `inline`, form and field nodes, `scroll_area`, text/content nodes,
+  `empty_state`, `list` / `list_item`, `tree` / `tree_item`, `table`, actions,
+  menus, dialogs, and narrow input primitives. These are the stable UI kernel.
+- **UiNode app UI vocabulary** — shared product-shaped vocabulary:
+  `metric`, `metric_grid`, `toolbar`, `status_badge`, `section`, and `panel`.
+  These are portable contract shapes, but they are not the required fallback
+  substrate for unknown components.
+- **UiNode custom UI escape hatch** — `custom` declares a package-owned
+  component with `namespace`, `component`, and `reason`, plus exactly one
+  static `fallback` slot. Unknown custom components render through that
+  fallback, which must be a UI kernel primitive or sandboxed `iframe`.
+- **Custom promotion rule** — promote custom → shared vocabulary only after
+  repeated multi-client need and consumer/conformance proof; do not promote
+  one package experiment because it is convenient.
+- **Iframe / runnable app escape** — `iframe` and `web_app` / `terminal_app`
+  runnable entrypoints remain the full custom-app escape when a package needs a
+  separate app surface. No raw HTML injection.
 - **Runnable entrypoints** — `web_app` / `terminal_app` launch vocabulary; hub
   owns launch policy. See `docs/examples/package-runnable-entrypoints.json`.
 - **Dependencies / features** —
@@ -332,6 +347,8 @@ The following behavior does not belong in `botster-core`:
 - Rails/cloud/Auth implementation
 - concrete WebRTC negotiation policy
 - React/TUI rendering
+- UI contract is not a runtime plugin; `custom` is declarative data, not
+  renderer code loading or plugin callback execution
 - Project Pipelines/GitHub/Cloudflare product logic
 - legacy compatibility paths
 - device config files, OS keychain or file-fallback persistence, operator
@@ -349,6 +366,21 @@ focus, terminal input, resize, snapshot requests, scrollback, process exit,
 client health/state, session lifecycle, and backpressure. Every public
 actor/transport `BoundaryJson` use is classified with owner and reason metadata
 in `tests/actor_contract_test.rs`.
+
+### Custom UI escape hatch
+
+`UiNodeKind::Custom` is the UI-contract equivalent of an owner/reason-classified
+escape hatch. The owner is the `namespace`, the local component identity is
+`component`, and `reason` records why the node escaped the shared vocabulary.
+The fallback is a required named slot, not a JSON prop, so ordinary UiNode
+validation and renderer capability validation walk the exact node a renderer
+uses when it does not recognize the custom component.
+
+The custom node is not a runtime plugin mechanism. It does not load component
+code, execute package callbacks, or bypass the plugin-worker supervisor
+boundary. Plugin-owned behavior continues to run behind package entrypoints,
+plugin workers, iframes, or runnable apps; the core UI contract only carries
+declarative structure and a portable fallback.
 
 ## Crypto and identity surface
 
@@ -456,6 +488,7 @@ clients; workflows in plugins or providers.
 | Direct snapshot helpers | translate | Session/client-worker owned snapshot frames only |
 | Hub-owned PTY relays | drop | Hub owns attach policy, not terminal byte delivery |
 | Product-specific UI refresh behavior | drop | Clients/plugins/hub policy |
+| Future `botster-ui-contract` extraction | translate | Only split on churn and consumer pressure, not ideology |
 
 ## License
 

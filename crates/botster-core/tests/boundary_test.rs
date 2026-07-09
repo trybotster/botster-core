@@ -138,12 +138,41 @@ fn readme_keeps_core_ban_list_explicit() {
         "Rails/cloud/Auth implementation",
         "concrete WebRTC negotiation policy",
         "React/TUI rendering",
+        "UI contract is not a runtime plugin",
         "Project Pipelines/GitHub/Cloudflare product logic",
         "legacy compatibility paths",
     ] {
         assert!(
             readme.contains(banned_surface),
             "README.md must explicitly ban {banned_surface} from botster-core"
+        );
+    }
+}
+
+#[test]
+fn readme_documents_ui_kernel_app_custom_escape_hatch_boundaries() {
+    let readme = readme();
+
+    for anchor in [
+        "UiNode UI kernel primitives",
+        "UiNode app UI vocabulary",
+        "UiNode custom UI escape hatch",
+        "namespace",
+        "component",
+        "reason",
+        "fallback",
+        "Custom promotion rule",
+        "repeated multi-client need",
+        "consumer/conformance proof",
+        "Iframe / runnable app escape",
+        "No raw HTML injection",
+        "### Custom UI escape hatch",
+        "not a runtime plugin mechanism",
+        "plugin-worker supervisor",
+    ] {
+        assert!(
+            readme.contains(anchor),
+            "README.md must document UI contract boundary anchor: {anchor}"
         );
     }
 }
@@ -182,6 +211,9 @@ fn readme_documents_extraction_compatibility_decision_rules() {
     // Migration guidance (paired with the policy table) forbids deferral.
     assert!(readme.contains("there is no defer category."));
     assert!(policy.contains("reusable core surface"));
+    assert!(policy.contains("botster-ui-contract"));
+    assert!(policy.contains("churn and consumer pressure"));
+    assert!(policy.contains("not ideology"));
 }
 
 #[test]
