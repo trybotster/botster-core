@@ -6,20 +6,22 @@ use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{
-    ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor, EnvelopeDeliveryStatus, EnvelopeId,
-    EnvelopeTarget, ModeFlags, NotificationContent, NotificationDeliveryStatus, NotificationId,
-    NotificationItem, NotificationSeverity, NotificationSource, NotificationTarget,
-    NotificationTimestamp, RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeObservation,
-    RoutedEnvelopePayload, RoutedEnvelopeQueueConfig, SessionId, SessionSpawnRequest,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress,
+    BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
+    EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags, NotificationContent,
+    NotificationDeliveryStatus, NotificationId, NotificationItem, NotificationSeverity,
+    NotificationSource, NotificationTarget, NotificationTimestamp, RequestId, ResizePayload,
+    RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
+    SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+    TransportEgress,
 };
 use botster_core_daemon::{
-    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CoreDaemon, CoreDaemonConfig,
-    CoreDaemonError, DrainNotificationsRequest, DrainRoutedEnvelopesRequest, GuardedWriteDecision,
-    GuardedWriteDeliveryState, GuardedWriteRequest, PostNotificationRequest,
-    PublishRoutedEnvelopeRequest, ReadinessEvidence, RegistrySessionState, SafeWriteIndicator,
-    SessionAdoptionState, SpawnSessionRequest,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
+    CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
+    DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
+    GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadScreenRequest,
+    ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
+    SpawnSessionRequest,
 };
 
 #[cfg(unix)]
@@ -526,6 +528,390 @@ fn daemon_notifications_work_for_worker_backed_daemon_without_worker_engine_noti
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn worker_backed_read_screen_drains_before_read_and_preserves_client_egress_once() {
+    let data_dir = temp_data_dir("dwrs");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwrs-session".to_string());
+    let client_id = ClientId("dwrs-client".to_string());
+    let subscription_id = SubscriptionId("dwrs-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 11)
+        .expect("worker-backed daemon should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"screen-marker\n".to_vec(),
+            12,
+        )
+        .expect("marker input should write");
+
+    let screen = read_screen_until(&mut daemon, &session_id, "echo:screen-marker", 13);
+    assert_eq!(
+        screen.screen.request_id,
+        RequestId("read-screen-marker".to_string())
+    );
+    assert_eq!(screen.screen.session_id, session_id);
+    assert!(
+        screen.screen.text.contains("echo:screen-marker"),
+        "read_screen should internally drain before reading: {:?}",
+        screen.screen.text
+    );
+
+    let drained = daemon
+        .drain(&session_id, 30)
+        .expect("drain after read_screen should succeed");
+    let output = terminal_output(&drained.client_egress);
+    assert_eq!(
+        count_occurrences(&output, "echo:screen-marker"),
+        1,
+        "internal read_screen drain must retain client egress exactly once: {output:?}"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_capture_snapshot_drains_before_capture_and_preserves_client_egress_once() {
+    let data_dir = temp_data_dir("dwcs");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwcs-session".to_string());
+    let client_id = ClientId("dwcs-client".to_string());
+    let subscription_id = SubscriptionId("dwcs-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 11)
+        .expect("worker-backed daemon should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"snapshot-marker\n".to_vec(),
+            12,
+        )
+        .expect("marker input should write");
+
+    let captured = capture_snapshot_until(&mut daemon, &session_id, "echo:snapshot-marker", 13);
+    assert_eq!(
+        captured.snapshot.request_id,
+        RequestId("capture-snapshot-marker".to_string())
+    );
+    assert_eq!(captured.snapshot.session_id, session_id);
+    assert_eq!(captured.payload.format.as_deref(), Some("plain-opaque-v1"));
+    assert_eq!(captured.snapshot.data, captured.payload.bytes);
+    assert!(
+        String::from_utf8_lossy(&captured.payload.bytes).contains("echo:snapshot-marker"),
+        "capture_snapshot should internally drain before capturing"
+    );
+
+    let drained = daemon
+        .drain(&session_id, 30)
+        .expect("drain after capture_snapshot should succeed");
+    let output = terminal_output(&drained.client_egress);
+    assert_eq!(
+        count_occurrences(&output, "echo:snapshot-marker"),
+        1,
+        "internal capture_snapshot drain must retain client egress exactly once: {output:?}"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn local_daemon_read_screen_and_capture_snapshot_use_in_process_engine_path() {
+    let data_dir = temp_data_dir("dlrs");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("dlrs-session".to_string());
+    let client_id = ClientId("dlrs-client".to_string());
+    let subscription_id = SubscriptionId("dlrs-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("local daemon should spawn");
+    daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 11)
+        .expect("local daemon should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"local-marker\n".to_vec(),
+            12,
+        )
+        .expect("local marker input should write");
+
+    let screen = read_screen_until(&mut daemon, &session_id, "echo:local-marker", 13);
+    assert_eq!(screen.screen.session_id, session_id);
+    assert!(
+        screen.screen.text.contains("echo:local-marker"),
+        "local daemon read_screen should use the in-process engine path"
+    );
+
+    let captured = capture_snapshot_until(&mut daemon, &session_id, "echo:local-marker", 14);
+    assert_eq!(captured.snapshot.session_id, session_id);
+    assert_eq!(captured.payload.format.as_deref(), Some("plain-opaque-v1"));
+    assert_eq!(captured.snapshot.data, captured.payload.bytes);
+    assert!(
+        String::from_utf8_lossy(&captured.payload.bytes).contains("echo:local-marker"),
+        "local daemon capture_snapshot should use the in-process engine path"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
+    let data_dir = temp_data_dir("dwrsl");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwrsl-session".to_string());
+    let primary_client = ClientId("dwrsl-primary".to_string());
+    let primary_subscription = SubscriptionId("dwrsl-primary-sub".to_string());
+    let late_client = ClientId("dwrsl-late".to_string());
+    let late_subscription = SubscriptionId("dwrsl-late-sub".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(
+            primary_client.clone(),
+            session_id.clone(),
+            primary_subscription,
+            11,
+        )
+        .expect("primary attach should subscribe");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            primary_client,
+            session_id.clone(),
+            b"worker-before-late\n".to_vec(),
+            12,
+        )
+        .expect("history marker should write");
+    let _ = drain_until(&mut daemon, &session_id, "echo:worker-before-late");
+
+    daemon
+        .attach(
+            late_client.clone(),
+            session_id.clone(),
+            late_subscription,
+            13,
+        )
+        .expect("late attach should retain initial history");
+    daemon
+        .input(
+            late_client.clone(),
+            session_id.clone(),
+            b"worker-after-read\n".to_vec(),
+            14,
+        )
+        .expect("post-read marker should write");
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:worker-after-read", 15);
+
+    let late_drain = drain_until_for_client(
+        &mut daemon,
+        &session_id,
+        &late_client,
+        "echo:worker-after-read",
+    );
+    let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
+    let history_index = late_output
+        .find("echo:worker-before-late")
+        .unwrap_or_else(|| panic!("late attach history should remain pending: {late_output:?}"));
+    let live_index = late_output
+        .find("echo:worker-after-read")
+        .unwrap_or_else(|| {
+            panic!("read_screen internal drain should remain pending: {late_output:?}")
+        });
+    assert!(
+        history_index < live_index,
+        "attach pending drain should merge before read_screen pending drain: {late_output:?}"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
+    let data_dir = temp_data_dir("dssn");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let missing_session = SessionId("missing-rb-session".to_string());
+
+    assert!(matches!(
+        daemon.read_screen(ReadScreenRequest {
+            request_id: RequestId("missing-screen".to_string()),
+            session_id: missing_session.clone(),
+            now_seconds: 10,
+        }),
+        Err(CoreDaemonError::UnknownSession(session)) if session == missing_session
+    ));
+    assert!(matches!(
+        daemon.capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("missing-snapshot".to_string()),
+            session_id: missing_session.clone(),
+            now_seconds: 10,
+        }),
+        Err(CoreDaemonError::UnknownSession(session)) if session == missing_session
+    ));
+
+    let session_id = SessionId("dssn-empty-session".to_string());
+    daemon
+        .spawn(spawn_request(&session_id), 11)
+        .expect("worker-backed daemon should spawn");
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("empty-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("spawned never explicitly drained session should still read screen");
+    assert_eq!(screen.screen.session_id, session_id);
+    let snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("empty-snapshot".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 13,
+        })
+        .expect("spawned never explicitly drained session should still capture snapshot");
+    assert_eq!(snapshot.snapshot.session_id, session_id);
+    assert_eq!(snapshot.payload.format.as_deref(), Some("plain-opaque-v1"));
+
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown should succeed");
+    assert!(matches!(
+        daemon.read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 21,
+        }),
+        Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
+    ));
+    assert!(matches!(
+        daemon.capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("shutdown-snapshot".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        }),
+        Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
+    ));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn natural_exit_read_screen_and_capture_snapshot_error_on_first_readback() {
+    let data_dir = temp_data_dir("dnex");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+
+    let screen_session = SessionId("dnex-screen-session".to_string());
+    daemon
+        .spawn(self_exit_spawn_request(&screen_session), 10)
+        .expect("screen self-exit session should spawn");
+    daemon
+        .attach(
+            ClientId("dnex-screen-client".to_string()),
+            screen_session.clone(),
+            SubscriptionId("dnex-screen-subscription".to_string()),
+            11,
+        )
+        .expect("screen self-exit session should attach");
+    let _ = drain_until(&mut daemon, &screen_session, "ready");
+    daemon
+        .input(
+            ClientId("dnex-screen-client".to_string()),
+            screen_session.clone(),
+            b"screen-exit\n".to_vec(),
+            12,
+        )
+        .expect("screen self-exit input should write");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let screen_result = daemon.read_screen(ReadScreenRequest {
+        request_id: RequestId("natural-exit-screen".to_string()),
+        session_id: screen_session.clone(),
+        now_seconds: 13,
+    });
+    assert!(
+        matches!(
+            screen_result,
+            Err(CoreDaemonError::SessionNotReadable(ref session)) if session == &screen_session
+        ),
+        "first natural-exit read_screen should fail; got {screen_result:?}; sessions: {:?}",
+        daemon.list()
+    );
+    let screen_drain = daemon
+        .drain(&screen_session, 14)
+        .expect("drain after refused read_screen should return retained final output");
+    assert_retained_exit_output(&screen_drain, &screen_session, "echo:screen-exit");
+
+    let snapshot_session = SessionId("dnex-snapshot-session".to_string());
+    daemon
+        .spawn(self_exit_spawn_request(&snapshot_session), 20)
+        .expect("snapshot self-exit session should spawn");
+    daemon
+        .attach(
+            ClientId("dnex-snapshot-client".to_string()),
+            snapshot_session.clone(),
+            SubscriptionId("dnex-snapshot-subscription".to_string()),
+            21,
+        )
+        .expect("snapshot self-exit session should attach");
+    let _ = drain_until(&mut daemon, &snapshot_session, "ready");
+    daemon
+        .input(
+            ClientId("dnex-snapshot-client".to_string()),
+            snapshot_session.clone(),
+            b"snapshot-exit\n".to_vec(),
+            22,
+        )
+        .expect("snapshot self-exit input should write");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let snapshot_result = daemon.capture_snapshot(CaptureSnapshotRequest {
+        request_id: RequestId("natural-exit-snapshot".to_string()),
+        session_id: snapshot_session.clone(),
+        now_seconds: 23,
+    });
+    assert!(
+        matches!(
+            snapshot_result,
+            Err(CoreDaemonError::SessionNotReadable(ref session)) if session == &snapshot_session
+        ),
+        "first natural-exit capture_snapshot should fail; got {snapshot_result:?}; sessions: {:?}",
+        daemon.list()
+    );
+    let snapshot_drain = daemon
+        .drain(&snapshot_session, 24)
+        .expect("drain after refused capture_snapshot should return retained final output");
+    assert_retained_exit_output(&snapshot_drain, &snapshot_session, "echo:snapshot-exit");
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn daemon_notification_state_is_not_restart_durable_today() {
     let data_dir = temp_data_dir("daemon-notification-not-durable");
@@ -938,6 +1324,27 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     }
 }
 
+fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+    SpawnSessionRequest {
+        request: SessionSpawnRequest {
+            request_id: RequestId(format!("{}-spawn", session_id.0)),
+            session_id: session_id.clone(),
+            executable: "sh".to_string(),
+            arguments: vec![
+                "-c".to_string(),
+                "printf ready; IFS= read -r line; printf \"echo:%s\\n\" \"$line\"; exit 0"
+                    .to_string(),
+            ],
+            working_directory: SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: SpawnEnvironment::default(),
+            initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+        },
+        metadata: CoreSessionMetadata::new(),
+    }
+}
+
 fn notification_session_target(id: &str) -> NotificationTarget {
     NotificationTarget::Session(SessionId(id.to_string()))
 }
@@ -1046,6 +1453,92 @@ fn drain_until_for_client(
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     aggregate
+}
+
+fn read_screen_until(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    expected: &str,
+    start_tick: u64,
+) -> botster_core_daemon::ReadScreenResult {
+    let request_id = RequestId("read-screen-marker".to_string());
+    let mut last = None;
+    for tick in 0..100 {
+        let read = daemon
+            .read_screen(ReadScreenRequest {
+                request_id: request_id.clone(),
+                session_id: session_id.clone(),
+                now_seconds: start_tick + tick,
+            })
+            .expect("daemon read_screen should succeed");
+        if read.screen.text.contains(expected) {
+            return read;
+        }
+        last = Some(read);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!(
+        "read_screen never observed {expected:?}; last text: {:?}",
+        last.map(|read| read.screen.text)
+    )
+}
+
+fn capture_snapshot_until(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    expected: &str,
+    start_tick: u64,
+) -> botster_core_daemon::CaptureSnapshotResult {
+    let request_id = RequestId("capture-snapshot-marker".to_string());
+    let mut last = None;
+    for tick in 0..100 {
+        let captured = daemon
+            .capture_snapshot(CaptureSnapshotRequest {
+                request_id: request_id.clone(),
+                session_id: session_id.clone(),
+                now_seconds: start_tick + tick,
+            })
+            .expect("daemon capture_snapshot should succeed");
+        if String::from_utf8_lossy(&captured.payload.bytes).contains(expected) {
+            return captured;
+        }
+        last = Some(captured);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!(
+        "capture_snapshot never observed {expected:?}; last bytes: {:?}",
+        last.map(|captured| String::from_utf8_lossy(&captured.payload.bytes).to_string())
+    )
+}
+
+fn count_occurrences(haystack: &str, needle: &str) -> usize {
+    haystack.match_indices(needle).count()
+}
+
+fn assert_retained_exit_output(
+    drained: &botster_core_daemon::DrainResult,
+    session_id: &SessionId,
+    expected: &str,
+) {
+    let output = terminal_output(&drained.client_egress);
+    assert_eq!(
+        count_occurrences(&output, expected),
+        1,
+        "retained final terminal output should be delivered exactly once: {output:?}"
+    );
+    assert!(
+        drained.observations.iter().any(|observation| {
+            matches!(
+                observation,
+                BotsterEngineObservation::SessionLifecycle {
+                    session_id: observed_session,
+                    state: SessionLifecycleState::Exited { .. },
+                } if observed_session == session_id
+            )
+        }),
+        "retained drain should include the process-exit lifecycle observation: {:?}",
+        drained.observations
+    );
 }
 
 fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {

@@ -9,7 +9,8 @@ use std::{
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
-    QueueSource, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, SessionId,
+    QueueSource, RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter,
+    ScreenReady, SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeErrorKind,
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
     WorkerProcessRuntimeOptions,
 };
@@ -17,11 +18,13 @@ use thiserror::Error;
 
 use crate::api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
-    DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult,
-    DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
-    GuardedWriteResult, NotificationStatusResult, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SpawnSessionRequest,
+    CaptureSnapshotRequest, CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus,
+    DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
+    DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
+    PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
+    PublishRoutedEnvelopeResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -80,6 +83,9 @@ pub enum CoreDaemonError {
     /// Session id was not found.
     #[error("unknown session: {0:?}")]
     UnknownSession(SessionId),
+    /// Session exists but no longer accepts terminal readback.
+    #[error("session is not readable: {0:?}")]
+    SessionNotReadable(SessionId),
     /// Adoption requires a configured session-worker executable.
     #[error(
         "missing worker path: restart-durable adoption requires CoreDaemonConfig::with_worker_path(...) pointing at botster-session-worker"
@@ -88,6 +94,12 @@ pub enum CoreDaemonError {
     /// Daemon has shut down.
     #[error("daemon is shut down")]
     Shutdown,
+    /// Core did not return the expected screen response.
+    ///
+    /// This is a defensive guard for future session-event routing changes after
+    /// daemon readability checks have accepted the request.
+    #[error("screen response missing for request: {0:?}")]
+    MissingScreenResponse(RequestId),
 }
 
 /// Production core daemon supervisor.
@@ -281,11 +293,68 @@ impl CoreDaemon {
     ) -> Result<DrainResult, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
-        let outcome = self.engine.drain_runtime_once(session_id, last_output_at)?;
         let mut result = self.take_pending_drain(session_id);
-        merge_drain_result(&mut result, drain_result_from_engine_output(outcome));
+        match self.engine.drain_runtime_once(session_id, last_output_at) {
+            Ok(outcome) => {
+                merge_drain_result(&mut result, drain_result_from_engine_output(outcome))
+            }
+            Err(error)
+                if is_session_not_found(&error) && self.engine_session_exited(session_id) => {}
+            Err(error) => {
+                self.retain_pending_drain_result(session_id, result);
+                return Err(error.into());
+            }
+        }
         self.reconcile_lifecycle_observations(&result.observations, last_output_at)?;
         Ok(result)
+    }
+
+    /// Read the current terminal screen through the production daemon path.
+    ///
+    /// Worker-backed sessions update the daemon-owned terminal shadow while
+    /// runtime output is drained. This method drains before reading so callers
+    /// do not need an explicit pre-read drain. Any client egress or
+    /// observations produced by that internal drain are retained for the next
+    /// explicit [`Self::drain`] call.
+    pub fn read_screen(
+        &mut self,
+        request: ReadScreenRequest,
+    ) -> Result<ReadScreenResult, CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session_readable(&request.session_id)?;
+        self.drain_runtime_for_readback(&request.session_id, request.now_seconds)?;
+        self.ensure_session_readable(&request.session_id)?;
+        let mut output = self.engine.read_screen(
+            request.request_id.clone(),
+            request.session_id.clone(),
+            request.now_seconds,
+        )?;
+        let screen = take_screen_ready(&mut output, &request.request_id)?;
+        self.retain_pending_drain_result(
+            &request.session_id,
+            drain_result_from_engine_output(output),
+        );
+        Ok(ReadScreenResult { screen })
+    }
+
+    /// Capture the current terminal snapshot through the production daemon path.
+    ///
+    /// The payload is backend-neutral opaque terminal state. The plain fallback
+    /// runtime currently labels it `plain-opaque-v1` and retains at most the
+    /// most recent 1 MiB of PTY bytes.
+    pub fn capture_snapshot(
+        &mut self,
+        request: CaptureSnapshotRequest,
+    ) -> Result<CaptureSnapshotResult, CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session_readable(&request.session_id)?;
+        self.drain_runtime_for_readback(&request.session_id, request.now_seconds)?;
+        self.ensure_session_readable(&request.session_id)?;
+        let payload = self.engine.capture_snapshot_payload(&request.session_id)?;
+        let snapshot = payload
+            .clone()
+            .into_snapshot_ready(request.request_id, request.session_id);
+        Ok(CaptureSnapshotResult { snapshot, payload })
     }
 
     /// Queue one policy-free notification inbox item.
@@ -626,6 +695,44 @@ impl CoreDaemon {
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
     }
 
+    fn ensure_session_readable(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
+        let session = self
+            .engine
+            .session(session_id)
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        if matches!(
+            session.lifecycle,
+            SessionLifecycleState::Stopping
+                | SessionLifecycleState::Exited { .. }
+                | SessionLifecycleState::Failed { .. }
+        ) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+        // Keep this registry read explicit on the readback hot path. The
+        // engine lifecycle is not authoritative after an operator marks an
+        // otherwise-live registry record stale.
+        if matches!(
+            self.registry.load(session_id)?.map(|record| record.state),
+            Some(
+                RegistrySessionState::Stopping
+                    | RegistrySessionState::Exited
+                    | RegistrySessionState::Stale
+            )
+        ) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+        Ok(())
+    }
+
+    fn engine_session_exited(&self, session_id: &SessionId) -> bool {
+        matches!(
+            self.engine
+                .session(session_id)
+                .map(|session| &session.lifecycle),
+            Some(SessionLifecycleState::Exited { .. })
+        )
+    }
+
     fn take_pending_drain(&mut self, session_id: &SessionId) -> DrainResult {
         let mut result = DrainResult::default();
         let mut retained = Vec::new();
@@ -644,20 +751,57 @@ impl CoreDaemon {
         self.pending_drain
             .retain(|pending| &pending.session_id != session_id);
     }
+
+    fn drain_runtime_for_readback(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<(), CoreDaemonError> {
+        let output = self.engine.drain_runtime_once(session_id, last_output_at)?;
+        let pending = drain_result_from_engine_output(output);
+        self.retain_pending_drain_result(session_id, pending);
+        Ok(())
+    }
+
+    fn retain_pending_drain_result(&mut self, session_id: &SessionId, pending: DrainResult) {
+        if !drain_result_is_empty(&pending) {
+            self.pending_drain.push(PendingDrainResult {
+                session_id: session_id.clone(),
+                result: pending,
+            });
+        }
+    }
 }
 
 fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {
+    let mut observations = output.observations;
+    observations.extend(
+        output
+            .session_events
+            .iter()
+            .filter_map(|event| match event {
+                SessionIoEvent::ProcessExited {
+                    session_id,
+                    payload,
+                } => Some(BotsterEngineObservation::SessionLifecycle {
+                    session_id: session_id.clone(),
+                    state: SessionLifecycleState::Exited {
+                        code: payload.exit_code,
+                    },
+                }),
+                _ => None,
+            }),
+    );
     DrainResult {
         client_egress: output.client_egress,
-        observations: output.observations.clone(),
-        backpressure: output
-            .observations
-            .into_iter()
+        backpressure: observations
+            .iter()
             .filter_map(|observation| match observation {
-                BotsterEngineObservation::Backpressure(summary) => Some(summary),
+                BotsterEngineObservation::Backpressure(summary) => Some(summary.clone()),
                 _ => None,
             })
             .collect(),
+        observations,
     }
 }
 
@@ -671,6 +815,32 @@ fn drain_result_is_empty(result: &DrainResult) -> bool {
     result.client_egress.is_empty()
         && result.observations.is_empty()
         && result.backpressure.is_empty()
+}
+
+fn take_screen_ready(
+    output: &mut BotsterEngineOutput,
+    request_id: &RequestId,
+) -> Result<ScreenReady, CoreDaemonError> {
+    let position = output
+        .session_events
+        .iter()
+        .position(|event| match event {
+            SessionIoEvent::ScreenReady(screen) => &screen.request_id == request_id,
+            _ => false,
+        })
+        .ok_or_else(|| CoreDaemonError::MissingScreenResponse(request_id.clone()))?;
+    match output.session_events.remove(position) {
+        SessionIoEvent::ScreenReady(screen) => Ok(screen),
+        _ => unreachable!("position was selected from a ScreenReady event"),
+    }
+}
+
+fn is_session_not_found(error: &DefaultBotsterEngineError) -> bool {
+    matches!(
+        error,
+        DefaultBotsterEngineError::Runtime(error)
+            if error.kind == SessionRuntimeErrorKind::SessionNotFound
+    )
 }
 
 impl DaemonEngine {
@@ -775,6 +945,28 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.drain_runtime_once(session_id, last_output_at),
             Self::Worker(engine) => engine.drain_runtime_once(session_id, last_output_at),
+        }
+    }
+
+    fn read_screen(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.read_screen(request_id, session_id, now_seconds),
+            Self::Worker(engine) => engine.read_screen(request_id, session_id, now_seconds),
+        }
+    }
+
+    fn capture_snapshot_payload(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<botster_core::TerminalSnapshotPayload, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.capture_snapshot_payload(session_id),
+            Self::Worker(engine) => engine.capture_snapshot_payload(session_id),
         }
     }
 
