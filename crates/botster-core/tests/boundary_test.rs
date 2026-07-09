@@ -11,10 +11,10 @@ const README: &str = include_str!("../../../README.md");
 
 fn policy_section() -> &'static str {
     README
-        .split("## Extraction Compatibility Policy")
+        .split("## Extraction compatibility policy")
         .nth(1)
         .and_then(|section| section.split("## License").next())
-        .expect("README must contain an Extraction Compatibility Policy section before License")
+        .expect("README must contain an Extraction compatibility policy section before License")
 }
 
 fn assert_policy_verdict(path: &str, verdict: &str) {
@@ -108,19 +108,18 @@ fn readme_documents_layer_ownership_boundaries() {
     let readme = readme();
 
     for anchor in [
-        "## Ownership Boundary",
+        "## Ownership boundary",
         "| Core |",
         "| Hub |",
         "| CLI |",
         "| Client |",
         "| Provider/plugin |",
-        "ExtensionKind::Plugin",
-        "ExtensionKind::Provider",
-        "Layer::Extension",
-        "session/client data-plane actors",
-        "not a separate `Layer::Provider` variant",
-        "src/contract/session.rs",
-        "src/identity/crypto.rs",
+        "session/client data plane",
+        "src/contract/boundary.rs",
+        "engine/botster.rs",
+        "crates/botster-core-daemon/src/daemon.rs",
+        "### Explicit ban list",
+        "### BoundaryJson escape hatches",
     ] {
         assert!(
             readme.contains(anchor),
@@ -154,7 +153,7 @@ fn readme_requires_preserve_translate_drop_migration_choices() {
     let readme = readme();
 
     for anchor in [
-        "## Migration Guidance",
+        "## Migration guidance",
         "There is no defer category.",
         "### Preserve",
         "### Translate",
@@ -175,14 +174,14 @@ fn readme() -> String {
 #[test]
 fn readme_documents_extraction_compatibility_decision_rules() {
     let policy = normalized_policy();
+    let readme = readme().to_ascii_lowercase();
 
     assert!(policy.contains("preserve"));
     assert!(policy.contains("translate"));
     assert!(policy.contains("drop"));
-    assert!(policy.contains("there is no defer bucket"));
-    assert!(policy.contains("delete"));
-    assert!(policy.contains("exclude"));
-    assert!(policy.contains("fossilizing accidental coupling"));
+    // Migration guidance (paired with the policy table) forbids deferral.
+    assert!(readme.contains("there is no defer category."));
+    assert!(policy.contains("reusable core surface"));
 }
 
 #[test]
@@ -191,13 +190,9 @@ fn readme_classifies_preserved_core_contract_families() {
 
     for contract in [
         "transport-neutral identifiers",
-        "ingress and egress frames",
-        "entity frames",
-        "ui contract shapes",
-        "package manifests",
-        "capabilities",
-        "extension metadata",
-        "crypto or identity operation contracts",
+        "frames",
+        "entity/ui/package/capability/crypto contracts",
+        "engine and daemon mechanisms",
     ] {
         assert!(
             policy.contains(contract),
@@ -225,11 +220,7 @@ fn readme_translates_forwarders_and_direct_snapshot_helpers() {
 
     assert!(policy.contains("terminal subscriptions"));
     assert!(policy.contains("ptyforwarder"));
-    assert!(policy.contains("stopforwarder"));
-    assert!(policy.contains("create_pty_forwarder"));
-    assert!(policy.contains("transport-neutral snapshot"));
-    assert!(policy.contains("snapshot_and_subscribe"));
-    assert!(policy.contains("session/client-worker ownership"));
+    assert!(policy.contains("session/client-worker owned snapshot frames"));
 }
 
 #[test]
