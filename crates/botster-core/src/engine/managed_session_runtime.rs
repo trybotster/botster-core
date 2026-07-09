@@ -59,6 +59,14 @@ pub enum ManagedSessionRuntimeError {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
+    /// A host-supplied terminal backend reported an operation failure.
+    #[error("managed session terminal backend failed during {operation}: {message}")]
+    TerminalBackendOperation {
+        /// Backend operation that reported the failure.
+        operation: &'static str,
+        /// Backend-owned error message.
+        message: String,
+    },
 }
 
 type TerminalBackendFactory<T> =
@@ -96,13 +104,22 @@ where
 
 #[cfg(feature = "local-runtime")]
 impl ManagedSessionRuntime<WorkerProcessRuntime, PlainTerminalScreenRuntime> {
-    /// Build a managed runtime that owns local sessions through worker processes.
+    /// Build a worker-process managed runtime with the plain terminal backend.
+    ///
+    /// First-party production hosts that want a concrete terminal backend should use
+    /// a host profile such as `botster-core-daemon`'s default feature path or call
+    /// [`ManagedSessionRuntime::with_terminal_backend_factory`] directly.
     #[must_use]
     pub fn with_worker_process(worker_path: impl Into<std::path::PathBuf>) -> Self {
         Self::new(WorkerProcessRuntime::new(worker_path))
     }
 
-    /// Build a worker-backed managed runtime with explicit process options.
+    /// Build a worker-process managed runtime with explicit options and the plain
+    /// terminal backend.
+    ///
+    /// First-party production hosts that want a concrete terminal backend should use
+    /// a host profile such as `botster-core-daemon`'s default feature path or call
+    /// [`ManagedSessionRuntime::with_terminal_backend_factory`] directly.
     #[must_use]
     pub fn with_worker_process_options(options: WorkerProcessRuntimeOptions) -> Self {
         Self::new(WorkerProcessRuntime::with_options(options))
@@ -440,13 +457,15 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.handle_session_request(
+        let output = self.handle_session_request(
             SessionIoRequest::GetScreen {
                 request_id,
-                session_id,
+                session_id: session_id.clone(),
             },
             now_seconds,
-        )
+        )?;
+        self.ensure_terminal_backend_ok(&session_id, "screen_state")?;
+        Ok(output)
     }
 
     /// Capture a session snapshot through the existing worker path.
@@ -456,13 +475,15 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.handle_session_request(
+        let output = self.handle_session_request(
             SessionIoRequest::GetSnapshot {
                 request_id,
-                session_id,
+                session_id: session_id.clone(),
             },
             now_seconds,
-        )
+        )?;
+        self.ensure_terminal_backend_ok(&session_id, "capture_snapshot")?;
+        Ok(output)
     }
 
     /// Capture the reusable opaque terminal snapshot payload for one session.
@@ -476,7 +497,7 @@ where
             .ok_or_else(|| MultiplexerEngineError::UnknownSession {
                 session_id: session_id.clone(),
             })?;
-        Ok(worker.capture_snapshot_payload())
+        worker.capture_snapshot_payload()
     }
 
     /// Replay or prepare a snapshot through the existing worker path.
@@ -551,6 +572,23 @@ where
             Some(SessionLifecycleState::Exited { .. })
         )
     }
+
+    fn ensure_terminal_backend_ok(
+        &mut self,
+        session_id: &SessionId,
+        operation: &'static str,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        if let Some(message) = self
+            .engine_worker(session_id)
+            .and_then(|worker| worker.last_terminal_error())
+        {
+            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation,
+                message,
+            });
+        }
+        Ok(())
+    }
 }
 
 fn append_outcome(target: &mut MultiplexerEngineOutcome, source: MultiplexerEngineOutcome) {
@@ -618,13 +656,26 @@ where
             .collect()
     }
 
-    pub(crate) fn capture_snapshot_payload(&mut self) -> TerminalSnapshotPayload {
-        self.state
-            .borrow_mut()
+    pub(crate) fn capture_snapshot_payload(
+        &mut self,
+    ) -> Result<TerminalSnapshotPayload, ManagedSessionRuntimeError> {
+        let mut state = self.state.borrow_mut();
+        let snapshot = state
             .terminal
             .capture_snapshot()
             .snapshot
-            .expect("terminal screen engine captures a snapshot")
+            .expect("terminal screen engine captures a snapshot");
+        if let Some(message) = state.terminal.runtime().last_error() {
+            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "capture_snapshot",
+                message,
+            });
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn last_terminal_error(&self) -> Option<String> {
+        self.state.borrow().terminal.runtime().last_error()
     }
 }
 

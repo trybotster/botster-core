@@ -781,7 +781,9 @@ impl CoreDaemon {
 /// Default Ghostty scrollback page-allocation byte budget for daemon sessions.
 ///
 /// Ghostty quantizes this budget into terminal pages, so effective retained
-/// lines depend on terminal width.
+/// lines depend on terminal width. At this 10 MB budget, warm 24x80 sessions
+/// currently converge near a 9.0 MiB opaque snapshot frame per attaching client
+/// after scrollback saturation.
 pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
 
 #[cfg(feature = "ghostty-terminal")]
