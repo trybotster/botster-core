@@ -13,7 +13,7 @@ plugin runtime must agree on.
 | Crate | Role |
 | --- | --- |
 | `botster-core` | Production contracts, engine facades, local PTY/process runtime, and the `botster-session-worker` binary |
-| `botster-core-daemon` | Production supervisor: registry, adoption, guarded writes, typed daemon API over core |
+| `botster-core-daemon` | Production supervisor: registry, adoption, guarded writes, typed daemon API over core; default features use the sibling Ghostty terminal backend |
 | `botster-core-test-support` | Dev-dependency fixtures, fakes, and conformance helpers for consumers pinned to the same core version |
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
 | `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); may stay outside the core crate |
@@ -77,8 +77,20 @@ Workers own PTYs and control sockets. Intentional daemon restart can call
 `data_dir` can adopt them. See [`docs/architecture/core-daemon.md`](docs/architecture/core-daemon.md).
 
 Terminal history and authoritative screen/snapshot intent go through core’s
-opaque terminal seams; Botster’s blessed shadow-terminal backend is Ghostty in
-the sibling `botster-terminal-ghostty` crate (not required for basic spawn/I/O).
+opaque terminal seams. Botster’s blessed shadow-terminal backend is Ghostty in
+the sibling `botster-terminal-ghostty` crate. `botster-core-daemon` enables it
+on the default production path through its default `ghostty-terminal` feature.
+Default daemon and workspace builds therefore require Zig `0.15.2` plus the
+initialized `crates/botster-terminal-ghostty/vendor/ghostty` submodule.
+Contract-only daemon embedders can opt out with:
+
+```toml
+botster-core-daemon = { path = "crates/botster-core-daemon", default-features = false }
+```
+
+That opt-out uses the plain fallback terminal state and avoids the Ghostty/Zig
+dependency. The default daemon profile configures Ghostty with 10,000 retained
+scrollback lines. `botster-core` itself still has no Ghostty dependency.
 
 Full command vocabulary (including typed `execute_command`):
 [`docs/architecture/engine-command-surface.md`](docs/architecture/engine-command-surface.md).

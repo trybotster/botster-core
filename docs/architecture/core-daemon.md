@@ -52,9 +52,24 @@ Snapshot payloads are backend-neutral opaque terminal state. The current plain
 fallback runtime returns raw retained PTY bytes with format
 `plain-opaque-v1`, terminal dimensions, and a 1 MiB retained-tail bound; older
 bytes are truncated from the head. The plain fallback runtime does not parse VT
-sequences. `ScreenReady.text` is a lossy UTF-8 view of the same retained byte
-tail the snapshot returns: raw PTY bytes including escape sequences, not a
-rows-by-columns rendered screen. A rendered screen requires a parsing backend.
+sequences. It is retained for `botster-core-daemon --no-default-features`
+contract-only embeds.
+
+The default `botster-core-daemon` feature set enables `ghostty-terminal`, which
+uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
+feature as the production terminal backend. On that path,
+`CoreDaemon::read_screen` returns Ghostty-formatted plain text and
+`CoreDaemon::capture_snapshot` returns opaque bytes labeled
+`ghostty-terminal-snapshot-v1`. The daemon configures Ghostty with 10,000
+retained scrollback lines so late attach and snapshot replay carry history
+beyond the visible rows. This is line-bounded retention, not the plain
+fallback's 1 MiB raw byte-tail retention. Current Ghostty snapshots serialize a
+fixed native state payload of roughly 578 KiB for a fresh 24x80 terminal, so
+client attach/recovery paths should treat snapshot frames as large opaque
+state, not as renderable text. Default daemon and workspace builds therefore
+require Zig `0.15.2` and an initialized
+`crates/botster-terminal-ghostty/vendor/ghostty` submodule. Disable daemon
+default features for pure contract builds that must avoid Ghostty and Zig.
 
 When configured with the `botster-session-worker` executable, `CoreDaemon`
 spawns worker-backed local sessions. Each worker owns its PTY in a separate

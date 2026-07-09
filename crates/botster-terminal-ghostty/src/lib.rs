@@ -82,6 +82,15 @@ impl GhosttyAdapterConfig {
         }
     }
 
+    /// Build a Ghostty adapter configuration with explicit retained scrollback.
+    #[must_use]
+    pub const fn with_max_scrollback(max_scrollback: usize) -> Self {
+        Self {
+            snapshot_format: GHOSTTY_SNAPSHOT_FORMAT,
+            max_scrollback,
+        }
+    }
+
     /// Return the host-owned snapshot format label for Ghostty payloads.
     #[must_use]
     pub const fn snapshot_format(self) -> &'static str {

@@ -9,8 +9,16 @@ repository = "https://github.com/trybotster/botster-core"
 homepage = "https://github.com/trybotster/botster-core"
 publish = false
 
+[features]
+default = ["ghostty-terminal"]
+ghostty-terminal = [
+    "dep:botster-terminal-ghostty",
+    "botster-terminal-ghostty/libghostty-vt",
+]
+
 [dependencies]
 botster-core = { path = "../botster-core" }
+botster-terminal-ghostty = { path = "../botster-terminal-ghostty", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

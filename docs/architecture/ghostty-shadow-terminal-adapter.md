@@ -229,11 +229,14 @@ plain screen reads before replacing any production CLI behavior.
 
 ## Build And Dependency Strategy
 
-Recommended crate shape:
+Current crate shape:
 
 - `botster-core`: no Ghostty dependency, no Zig dependency, no build script.
 - `botster-terminal-ghostty`: optional adapter crate that owns the Ghostty fork
   pin, Zig build, static link, FFI, and safe wrapper.
+- `botster-core-daemon`: first-party production host profile that enables the
+  sibling adapter by default through `ghostty-terminal =
+  ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/libghostty-vt"]`.
 - CLI integration: keep the existing subsystem until the adapter proves parity,
   then migrate the CLI to the adapter and remove duplication in one deliberate
   step.
@@ -250,6 +253,13 @@ Build constraints to preserve:
 - keep static-vs-shared distribution policy inside the adapter crate;
 - document platform-specific link handling such as macOS archive repacking if
   the adapter repeats the current CLI approach.
+
+The no-native opt-out is `botster-core-daemon --no-default-features`; that lane
+uses the plain fallback backend and must keep executing tests for
+`plain-opaque-v1`. `botster-core` remains backend-neutral and must not gain a
+`botster-terminal-ghostty`, `libghostty`, Zig, or build-script edge.
+The default daemon host profile uses a 10,000-line Ghostty scrollback bound
+instead of the adapter crate's zero-scrollback default.
 
 ## Callback Strategy
 

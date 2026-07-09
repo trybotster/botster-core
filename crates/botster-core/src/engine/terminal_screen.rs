@@ -23,6 +23,28 @@ pub trait TerminalScreenRuntime {
     fn screen_state(&self) -> TerminalScreenState;
 }
 
+impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        self.as_mut().write_output(bytes)
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.as_mut().resize(size);
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        self.as_mut().capture_snapshot()
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.as_mut().replay_snapshot(payload);
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        self.as_ref().screen_state()
+    }
+}
+
 /// Maximum retained bytes for the plain fallback terminal state.
 ///
 /// Live output chunks are returned unchanged; this cap only constrains the

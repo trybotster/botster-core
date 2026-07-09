@@ -17,11 +17,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Install Zig 0.15.2
+        run: |
+          curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz -o zig.tar.xz
+          tar -xJf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.15.2" >> "$GITHUB_PATH"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -31,6 +39,9 @@ jobs:
 
       - name: Test workspace
         run: cargo test --workspace
+
+      - name: Test daemon plain fallback
+        run: cargo test -p botster-core-daemon --no-default-features
 
       - name: Test docs
         run: cargo test --doc --workspace
@@ -50,9 +61,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Zig 0.15.2
+        run: |
+          curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz -o zig.tar.xz
+          tar -xJf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.15.2" >> "$GITHUB_PATH"
 
       - name: Build release workspace
         run: cargo build --workspace --release
