@@ -44,19 +44,25 @@ Adoption scan is read-only. It reports deterministic follow-up state and leaves
 registry files untouched until a caller performs an explicit operation such as
 `mark_stale`. Terminal registry states (`stopping`, `exited`, `stale`) report
 `terminal`. Running records with complete restart-contract evidence report
-`adoptable` when a single candidate exists. Records with a protocol mismatch
-report `stale_worker` with `incompatible_protocol`. Records whose protocol
-evidence exists but whose worker route is gone report `stale_worker` with
-`worker_died` when prior process identity is known, or `process_missing` when
-it is not. Records with handshake and recovery identity but missing ping/pong
-support report `unhealthy_worker` with `missed_heartbeat`. If more than one
-candidate claims the same session identity, the scan reports `duplicate_worker`
-with the candidate count; operators should treat that as non-adoptable until
-one candidate is chosen or the extras are cleaned up explicitly.
+`adoptable` when a single candidate exists and the daemon is configured with a
+session-worker path. If the same restart evidence is scanned by a daemon
+without `CoreDaemonConfig::with_worker_path(...)`, the record reports
+`in_process_daemon_not_restart_durable` instead of claiming it can be adopted.
+Records with a protocol mismatch report `stale_worker` with
+`incompatible_protocol`. Records whose protocol evidence exists but whose
+worker route is gone report `stale_worker` with `worker_died` when prior
+process identity is known, or `process_missing` when it is not. Records with
+handshake and recovery identity but missing ping/pong support report
+`unhealthy_worker` with `missed_heartbeat`. If more than one candidate claims
+the same session identity, the scan reports `duplicate_worker` with the
+candidate count; operators should treat that as non-adoptable until one
+candidate is chosen or the extras are cleaned up explicitly.
 
 The restart guarantee depends on the worker-backed runtime and its durable
 control socket. Plain local in-process runtimes remain registry-visible but are
 not restart-adoptable because their PTY handles die with the daemon process.
+`CoreDaemon::adopt_session` returns `MissingWorkerPath` on a daemon with no
+configured worker executable rather than attempting registry-based adoption.
 Unexpected daemon crashes can leave workers running; they remain adoptable only
 while their control sockets and PTYs are alive. Operators should treat missing
 control sockets, incompatible protocol versions, duplicate candidates, and
