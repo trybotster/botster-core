@@ -107,7 +107,13 @@ impl ManagedSessionRuntime<WorkerProcessRuntime, PlainTerminalScreenRuntime> {
     pub fn with_worker_process_options(options: WorkerProcessRuntimeOptions) -> Self {
         Self::new(WorkerProcessRuntime::with_options(options))
     }
+}
 
+#[cfg(feature = "local-runtime")]
+impl<T> ManagedSessionRuntime<WorkerProcessRuntime, T>
+where
+    T: TerminalScreenRuntime + 'static,
+{
     /// Adopt a live worker process through its reopenable control endpoint.
     pub fn adopt_worker_process(
         &mut self,
