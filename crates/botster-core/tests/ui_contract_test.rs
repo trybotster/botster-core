@@ -50,6 +50,40 @@ fn custom_node(fallback: UiNode) -> UiNode {
     custom
 }
 
+fn valid_standalone_node(kind: UiNodeKind) -> UiNode {
+    match kind {
+        UiNodeKind::Metric => node(kind, json!({ "label": "Open", "value": 2 })),
+        UiNodeKind::Toolbar => node(kind, json!({ "label": "Actions" })),
+        UiNodeKind::StatusBadge => node(kind, json!({ "label": "Open" })),
+        UiNodeKind::Section => node(kind, json!({ "title": "Section" })),
+        UiNodeKind::Panel => node(kind, json!({ "title": "Panel" })),
+        UiNodeKind::TerminalView => node(kind, json!({ "session_id": "sess_1" })),
+        UiNodeKind::ConnectionCodeView => node(kind, json!({ "code": "pair" })),
+        UiNodeKind::ListItem => {
+            let mut item = node(kind, json!({ "value": "ticket_1" }));
+            item.slots.insert("title".to_string(), vec![text("Ticket")]);
+            item
+        }
+        UiNodeKind::TreeItem => {
+            let mut item = node(kind, json!({ "value": "ticket_1" }));
+            item.slots.insert("title".to_string(), vec![text("Ticket")]);
+            item
+        }
+        UiNodeKind::MenuItem => node(
+            kind,
+            json!({ "label": "Open", "action": { "id": "ticket.open" } }),
+        ),
+        UiNodeKind::SelectOption => node(kind, json!({ "label": "Open", "value": "open" })),
+        UiNodeKind::FormSection => node(kind, json!({ "title": "Details" })),
+        UiNodeKind::FormField => node(
+            kind,
+            json!({ "schema": { "kind": "text", "name": "title", "label": "Title" } }),
+        ),
+        UiNodeKind::Custom => custom_node(node(UiNodeKind::Text, json!({ "text": "Nested" }))),
+        _ => node(kind, json!({})),
+    }
+}
+
 fn idless_node(kind: UiNodeKind, props: Value) -> UiNode {
     UiNode {
         kind,
@@ -449,6 +483,51 @@ fn custom_node_validates_namespaced_escape_hatch_with_static_fallback_slot() {
 }
 
 #[test]
+fn custom_node_allows_freeform_component_payload_props() {
+    let mut custom = custom_node(node(
+        UiNodeKind::EmptyState,
+        json!({ "title": "Ticket unavailable" }),
+    ));
+    custom
+        .props
+        .insert("ticket_id".to_string(), json!("ticket_123"));
+    custom.props.insert(
+        "data".to_string(),
+        json!({ "$bind": "/project-pipelines.ticket/ticket_123" }),
+    );
+    custom.props.insert(
+        "action".to_string(),
+        json!({ "packageSpecific": true, "id": 123 }),
+    );
+    custom.props.insert(
+        "hover_label".to_string(),
+        json!({ "packageSpecific": true }),
+    );
+
+    custom
+        .validate()
+        .expect("custom payload props should remain package-owned");
+    let value = serde_json::to_value(&custom).expect("serialize custom");
+    assert_eq!(value["props"]["ticket_id"], json!("ticket_123"));
+    assert_eq!(
+        serde_json::from_value::<UiNode>(value).expect("deserialize custom"),
+        custom
+    );
+
+    let mut invalid_bind = custom.clone();
+    invalid_bind
+        .props
+        .insert("data".to_string(), json!({ "$bind": "relative.path" }));
+    assert_error_contains(invalid_bind, "path must start");
+
+    let mut fallback_prop = custom;
+    fallback_prop
+        .props
+        .insert("fallback".to_string(), json!({ "type": "text" }));
+    assert_error_contains(fallback_prop, "fallback must be declared");
+}
+
+#[test]
 fn custom_node_requires_namespace_component_reason_and_fallback_slot() {
     assert_error_contains(
         node(
@@ -568,21 +647,45 @@ fn custom_node_fallback_is_limited_to_kernel_primitives_or_iframe() {
         UiNodeKind::Panel,
         UiNodeKind::TerminalView,
         UiNodeKind::ConnectionCodeView,
+        UiNodeKind::ListItem,
+        UiNodeKind::TreeItem,
+        UiNodeKind::MenuItem,
+        UiNodeKind::SelectOption,
+        UiNodeKind::FormSection,
+        UiNodeKind::FormField,
         UiNodeKind::Custom,
     ] {
-        let fallback = match app_kind {
-            UiNodeKind::Metric => node(app_kind, json!({ "label": "Open", "value": 2 })),
-            UiNodeKind::Toolbar => node(app_kind, json!({ "label": "Actions" })),
-            UiNodeKind::StatusBadge => node(app_kind, json!({ "label": "Open" })),
-            UiNodeKind::Section => node(app_kind, json!({ "title": "Section" })),
-            UiNodeKind::Panel => node(app_kind, json!({ "title": "Panel" })),
-            UiNodeKind::TerminalView => node(app_kind, json!({ "session_id": "sess_1" })),
-            UiNodeKind::ConnectionCodeView => node(app_kind, json!({ "code": "pair" })),
-            UiNodeKind::Custom => custom_node(node(UiNodeKind::Text, json!({ "text": "Nested" }))),
-            _ => node(app_kind, json!({})),
-        };
-        assert_error_contains(custom_node(fallback), "not allowed as a custom fallback");
+        assert_error_contains(
+            custom_node(valid_standalone_node(app_kind)),
+            "not allowed as a custom fallback",
+        );
     }
+}
+
+#[test]
+fn custom_node_is_the_hatch_for_deferred_high_level_views() {
+    let err = serde_json::from_value::<UiNode>(json!({
+        "type": "chart",
+        "props": { "title": "Tickets" }
+    }))
+    .expect_err("bare chart must remain outside the shared UiNode vocabulary")
+    .to_string();
+    assert!(err.contains("unknown variant"));
+
+    let mut custom_chart = custom_node(node(
+        UiNodeKind::EmptyState,
+        json!({ "title": "Chart unavailable" }),
+    ));
+    custom_chart
+        .props
+        .insert("component".to_string(), json!("chart"));
+    custom_chart.props.insert(
+        "series".to_string(),
+        json!({ "$bind": "/project-pipelines.chart/tickets" }),
+    );
+    custom_chart
+        .validate()
+        .expect("custom chart with fallback is the sanctioned hatch");
 }
 
 #[test]

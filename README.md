@@ -270,8 +270,10 @@ Core owns portable package **shapes**, not product policy.
   substrate for unknown components.
 - **UiNode custom UI escape hatch** — `custom` declares a package-owned
   component with `namespace`, `component`, and `reason`, plus exactly one
-  static `fallback` slot. Unknown custom components render through that
-  fallback, which must be a UI kernel primitive or sandboxed `iframe`.
+  static `fallback` slot. Recognizing renderers may consume package-owned
+  custom props; non-recognizing clients ignore those props and render the
+  fallback, which must be a standalone UI kernel primitive or sandboxed
+  `iframe`.
 - **Custom promotion rule** — promote custom → shared vocabulary only after
   repeated multi-client need and consumer/conformance proof; do not promote
   one package experiment because it is convenient.
@@ -371,16 +373,31 @@ in `tests/actor_contract_test.rs`.
 
 `UiNodeKind::Custom` is the UI-contract equivalent of an owner/reason-classified
 escape hatch. The owner is the `namespace`, the local component identity is
-`component`, and `reason` records why the node escaped the shared vocabulary.
+`component`, and `reason` records why the node escaped the shared vocabulary. A
+recognizing renderer may consume additional package-owned props, including
+bindings. A non-recognizing renderer ignores those custom props and uses the
+fallback.
+
 The fallback is a required named slot, not a JSON prop, so ordinary UiNode
-validation and renderer capability validation walk the exact node a renderer
-uses when it does not recognize the custom component.
+validation and renderer capability validation walk it wherever the custom node
+itself is reached through children or slots. Node-valued props such as
+`Table.empty_state` are structurally validated but not capability-walked; prefer
+slots over node-valued props for new node-containing semantics.
 
 The custom node is not a runtime plugin mechanism. It does not load component
 code, execute package callbacks, or bypass the plugin-worker supervisor
 boundary. Plugin-owned behavior continues to run behind package entrypoints,
 plugin workers, iframes, or runnable apps; the core UI contract only carries
 declarative structure and a portable fallback.
+
+No first-party renderer consumes `custom` yet; the current proof is the
+core-owned conformance fixture and downstream conformance helper. `botster-web`
+should be the first renderer to consume recognized custom components when
+package UI custom components are wired.
+
+`Custom` is a preserved core UI node kind. Public enums are not marked
+`#[non_exhaustive]` in this release, so downstream exhaustive matches must add a
+`Custom` arm when upgrading.
 
 ## Crypto and identity surface
 

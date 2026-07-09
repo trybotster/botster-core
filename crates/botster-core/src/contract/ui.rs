@@ -16,7 +16,9 @@
 //! - **Custom** is a declarative, owner-classified escape hatch. It never loads
 //!   renderer code or invokes plugin behavior; plugin-owned execution remains
 //!   behind plugin worker/runtime boundaries. Unknown custom components degrade
-//!   through their required kernel-or-iframe fallback slot.
+//!   through their required kernel-or-iframe fallback slot. Recognizing
+//!   renderers may consume component-specific custom props; non-recognizing
+//!   clients must ignore those props and render the fallback.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -524,11 +526,14 @@ impl UiNode {
         validate_ui_node(self)
     }
 
-    /// Return the declared fallback for a custom component node.
+    /// Return the declared fallback for a validated custom component node.
     ///
     /// This is an accessor over the core contract shape only. Renderers still
     /// own presentation; core only exposes the validated static fallback node
-    /// an unknown custom component should degrade to.
+    /// an unknown custom component should degrade to. Callers should validate
+    /// the node, or its containing tree, before resolving the fallback. On a
+    /// validated tree `None` means this is not a custom node; on an unvalidated
+    /// tree `None` can also mean a malformed fallback slot.
     pub fn custom_fallback(&self) -> Option<&UiNode> {
         if self.kind != UiNodeKind::Custom {
             return None;
@@ -1016,24 +1021,6 @@ pub enum UiValidationError {
         /// Slot name.
         slot: String,
     },
-    /// Slot contents are invalid.
-    #[error("{kind:?} has invalid slot `{slot}`: {reason}")]
-    InvalidSlot {
-        /// Node kind.
-        kind: UiNodeKind,
-        /// Slot name.
-        slot: String,
-        /// Validation reason.
-        reason: String,
-    },
-    /// Positional children are invalid for this node.
-    #[error("{kind:?} has invalid children: {reason}")]
-    InvalidChildren {
-        /// Node kind.
-        kind: UiNodeKind,
-        /// Validation reason.
-        reason: String,
-    },
     /// Required action is missing.
     #[error("{kind:?} missing required action")]
     MissingAction {
@@ -1097,13 +1084,17 @@ fn validate_node(node: &UiNode) -> Result<(), UiValidationError> {
     }
 
     for (prop, value) in &node.props {
-        if !schema.allowed_props.contains(prop.as_str()) {
+        if !schema.allowed_props.contains(prop.as_str()) && node.kind != UiNodeKind::Custom {
             return Err(UiValidationError::UnknownProp {
                 kind: node.kind,
                 prop: prop.clone(),
             });
         }
-        validate_prop_value(node.kind, prop, value)?;
+        if schema.allowed_props.contains(prop.as_str()) {
+            validate_prop_value(node.kind, prop, value)?;
+        } else {
+            validate_custom_payload_prop(node.kind, prop, value)?;
+        }
     }
 
     validate_prop_combinations(node)?;
@@ -1702,6 +1693,47 @@ fn validate_custom_reason_prop(
     }
 }
 
+fn validate_custom_payload_prop(
+    kind: UiNodeKind,
+    prop: &str,
+    value: &Value,
+) -> Result<(), UiValidationError> {
+    if prop == "fallback" {
+        return Err(UiValidationError::InvalidProp {
+            kind,
+            prop: prop.to_string(),
+            reason: "fallback must be declared in the `fallback` slot".to_string(),
+        });
+    }
+
+    if value.get("$bind").is_some() {
+        let object = value
+            .as_object()
+            .ok_or_else(|| UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value must be an object".to_string(),
+            })?;
+        if object.len() != 1 {
+            return Err(UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "bind value may only contain $bind".to_string(),
+            });
+        }
+        let path = object.get("$bind").and_then(Value::as_str).ok_or_else(|| {
+            UiValidationError::InvalidProp {
+                kind,
+                prop: prop.to_string(),
+                reason: "$bind value must be a string".to_string(),
+            }
+        })?;
+        validate_bind_path(path)?;
+    }
+
+    Ok(())
+}
+
 fn validate_prop_combinations(node: &UiNode) -> Result<(), UiValidationError> {
     if node.props.contains_key("default") {
         for controlled_prop in ["value", "checked", "selected"] {
@@ -1761,8 +1793,9 @@ fn validate_custom_node(node: &UiNode) -> Result<(), UiValidationError> {
     }
 
     if !node.children.is_empty() {
-        return Err(UiValidationError::InvalidChildren {
+        return Err(UiValidationError::InvalidProp {
             kind: node.kind,
+            prop: "children".to_string(),
             reason: "custom nodes must put their fallback in the `fallback` slot".to_string(),
         });
     }
@@ -1776,17 +1809,17 @@ fn validate_custom_node(node: &UiNode) -> Result<(), UiValidationError> {
         })?;
 
     let [UiChild::Node(fallback)] = fallback.as_slice() else {
-        return Err(UiValidationError::InvalidSlot {
+        return Err(UiValidationError::InvalidProp {
             kind: node.kind,
-            slot: "fallback".to_string(),
+            prop: "fallback".to_string(),
             reason: "fallback slot must contain exactly one static node".to_string(),
         });
     };
 
     if !is_custom_fallback_kind(fallback.kind) {
-        return Err(UiValidationError::InvalidSlot {
+        return Err(UiValidationError::InvalidProp {
             kind: node.kind,
-            slot: "fallback".to_string(),
+            prop: "fallback".to_string(),
             reason: format!(
                 "{:?} is not allowed as a custom fallback; use kernel primitives or iframe",
                 fallback.kind
@@ -1803,8 +1836,6 @@ fn is_custom_fallback_kind(kind: UiNodeKind) -> bool {
         UiNodeKind::Stack
             | UiNodeKind::Inline
             | UiNodeKind::Form
-            | UiNodeKind::FormSection
-            | UiNodeKind::FormField
             | UiNodeKind::ScrollArea
             | UiNodeKind::Text
             | UiNodeKind::Icon
@@ -1812,20 +1843,16 @@ fn is_custom_fallback_kind(kind: UiNodeKind) -> bool {
             | UiNodeKind::StatusDot
             | UiNodeKind::EmptyState
             | UiNodeKind::List
-            | UiNodeKind::ListItem
             | UiNodeKind::Tree
-            | UiNodeKind::TreeItem
             | UiNodeKind::Table
             | UiNodeKind::Button
             | UiNodeKind::IconButton
             | UiNodeKind::Menu
-            | UiNodeKind::MenuItem
             | UiNodeKind::Dialog
             | UiNodeKind::TextInput
             | UiNodeKind::Textarea
             | UiNodeKind::Checkbox
             | UiNodeKind::Select
-            | UiNodeKind::SelectOption
             | UiNodeKind::Iframe
     )
 }
