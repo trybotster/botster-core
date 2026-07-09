@@ -1,4 +1,8 @@
 //! Stable contracts shared by Botster hosts, clients, providers, and plugins.
+//!
+//! Prefer importing through `botster_core::contract::<module>` (or
+//! [`crate::prelude`] for session lifecycle essentials). Crate-root flat
+//! re-exports of these types remain for compatibility.
 
 pub mod actor;
 pub mod boundary;

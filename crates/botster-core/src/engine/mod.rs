@@ -3,6 +3,13 @@
 //! Engine code owns reusable state machines and routing behavior. Concrete host
 //! policy, auth, persistence, cloud federation, and product UI stay outside
 //! `botster-core`.
+//!
+//! # Start here
+//!
+//! Prefer [`crate::prelude`] and the facade types re-exported from this module
+//! (`BotsterEngine`, and with default features `DefaultBotsterEngine`). Lower
+//! modules such as [`multiplexer`], [`session_worker`], and
+//! [`subscription_multiplexer`] are advanced assembly pieces under the facade.
 
 pub mod botster;
 pub mod command;
