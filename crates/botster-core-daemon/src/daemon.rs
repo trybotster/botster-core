@@ -80,6 +80,11 @@ pub enum CoreDaemonError {
     /// Session id was not found.
     #[error("unknown session: {0:?}")]
     UnknownSession(SessionId),
+    /// Adoption requires a configured session-worker executable.
+    #[error(
+        "missing worker path: restart-durable adoption requires CoreDaemonConfig::with_worker_path(...) pointing at botster-session-worker"
+    )]
+    MissingWorkerPath,
     /// Daemon has shut down.
     #[error("daemon is shut down")]
     Shutdown,
@@ -482,7 +487,11 @@ impl CoreDaemon {
                     && record.ping_pong_supported
                     && record.recovery_identity.is_some()
                 {
-                    SessionAdoptionState::Adoptable
+                    if self.config.worker_path.is_none() {
+                        SessionAdoptionState::InProcessDaemonNotRestartDurable
+                    } else {
+                        SessionAdoptionState::Adoptable
+                    }
                 } else {
                     SessionAdoptionState::MissingProtocolEvidence
                 };
@@ -511,6 +520,9 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<CoreSession, CoreDaemonError> {
         self.ensure_running()?;
+        if self.config.worker_path.is_none() {
+            return Err(CoreDaemonError::MissingWorkerPath);
+        }
         let record = self
             .registry
             .load(session_id)?
@@ -789,8 +801,8 @@ impl DaemonEngine {
         match self {
             Self::Local(_) => Err(DefaultBotsterEngineError::Runtime(
                 botster_core::SessionRuntimeError::new(
-                    botster_core::SessionRuntimeErrorKind::SessionNotFound,
-                    "local daemon engine cannot adopt worker process",
+                    botster_core::SessionRuntimeErrorKind::SpawnFailed,
+                    "missing worker path: local daemon engine cannot adopt worker process",
                 ),
             )),
             Self::Worker(engine) => engine
