@@ -20,6 +20,8 @@ pub use api::{
     RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
     SpawnSessionRequest,
 };
+#[cfg(feature = "ghostty-terminal")]
+pub use daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
 pub use guarded_write::{
     GuardedWriteDecision, GuardedWriteDeliveryState, PromptEvidence, ReadinessEvidence,

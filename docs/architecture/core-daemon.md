@@ -60,14 +60,18 @@ uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
 feature as the production terminal backend. On that path,
 `CoreDaemon::read_screen` returns Ghostty-formatted plain text and
 `CoreDaemon::capture_snapshot` returns opaque bytes labeled
-`ghostty-terminal-snapshot-v1`. The daemon configures Ghostty with 10,000
-retained scrollback lines so late attach and snapshot replay carry history
-beyond the visible rows. This is line-bounded retention, not the plain
-fallback's 1 MiB raw byte-tail retention. Current Ghostty snapshots serialize a
-fixed native state payload of roughly 578 KiB for a fresh 24x80 terminal, so
-client attach/recovery paths should treat snapshot frames as large opaque
-state, not as renderable text. Default daemon and workspace builds therefore
-require Zig `0.15.2` and an initialized
+`ghostty-terminal-snapshot-v1`. The daemon configures Ghostty with a 10 MB
+retained scrollback byte budget. Ghostty stores parsed terminal pages instead
+of a raw byte tail, so the effective retained line count is page-quantized and
+depends on terminal width. At 24x80 today the daemon test fixture with 12,000
+generated lines retains more than 4,000 generated markers while dropping the
+oldest marker. Ghostty snapshots serialize native terminal state: a fresh 24x80
+terminal is roughly 578 KiB, and a scrolled session grows with retained content.
+Daemon tests enforce a 16 MiB ceiling for the reviewed scrollback fixture.
+Attach/recovery paths should treat those frames as large opaque state, not
+renderable text; payload cost scales with retained scrollback. Default daemon
+and workspace builds therefore require Zig `0.15.2`
+and an initialized
 `crates/botster-terminal-ghostty/vendor/ghostty` submodule. Disable daemon
 default features for pure contract builds that must avoid Ghostty and Zig.
 

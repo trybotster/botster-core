@@ -16,7 +16,7 @@ plugin runtime must agree on.
 | `botster-core-daemon` | Production supervisor: registry, adoption, guarded writes, typed daemon API over core; default features use the sibling Ghostty terminal backend |
 | `botster-core-test-support` | Dev-dependency fixtures, fakes, and conformance helpers for consumers pinned to the same core version |
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
-| `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); may stay outside the core crate |
+| `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); stays outside the core crate |
 
 Hubs and product hosts still own auth, persistence policy, config locations,
 cloud federation, marketplace and install/update policy, WebRTC/signaling/API
@@ -89,8 +89,10 @@ botster-core-daemon = { path = "crates/botster-core-daemon", default-features = 
 ```
 
 That opt-out uses the plain fallback terminal state and avoids the Ghostty/Zig
-dependency. The default daemon profile configures Ghostty with 10,000 retained
-scrollback lines. `botster-core` itself still has no Ghostty dependency.
+dependency. The default daemon profile configures Ghostty with a 10 MB retained
+scrollback byte budget; the effective line count is determined by Ghostty's
+page allocator and terminal width.
+`botster-core` itself still has no Ghostty dependency.
 
 Full command vocabulary (including typed `execute_command`):
 [`docs/architecture/engine-command-surface.md`](docs/architecture/engine-command-surface.md).

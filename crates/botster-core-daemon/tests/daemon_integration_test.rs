@@ -17,6 +17,8 @@ use botster_core::{
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TransportEgress,
 };
+#[cfg(feature = "ghostty-terminal")]
+use botster_core_daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
@@ -33,9 +35,11 @@ const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 #[cfg(not(feature = "ghostty-terminal"))]
 const EXPECTED_SNAPSHOT_FORMAT: &str = "plain-opaque-v1";
 #[cfg(feature = "ghostty-terminal")]
-const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 2 * 1024 * 1024;
+const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
 #[cfg(feature = "ghostty-terminal")]
-const EXPECTED_DAEMON_GHOSTTY_SCROLLBACK_LINES: usize = 10_000;
+const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
+#[cfg(feature = "ghostty-terminal")]
+const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 
 #[cfg(unix)]
 #[test]
@@ -772,7 +776,7 @@ fn worker_backed_daemon_default_path_uses_ghostty_terminal_fidelity() {
 
 #[cfg(all(unix, feature = "ghostty-terminal"))]
 #[test]
-fn worker_backed_daemon_default_ghostty_path_replays_scrollback_beyond_visible_rows() {
+fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_window() {
     let data_dir = temp_data_dir("dwgs");
     let mut daemon =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
@@ -793,17 +797,19 @@ fn worker_backed_daemon_default_ghostty_path_replays_scrollback_beyond_visible_r
         .expect("primary attach should succeed");
     let _ = drain_until(&mut daemon, &session_id, "ready");
 
+    let mut scrollback_input = Vec::new();
     for line in 0..80 {
-        daemon
-            .input(
-                primary_client.clone(),
-                session_id.clone(),
-                format!("scrollback-line-{line:02}\n").into_bytes(),
-                12 + line,
-            )
-            .expect("scrollback marker should write");
+        scrollback_input.extend_from_slice(format!("scrollback-line-{line:04}\n").as_bytes());
     }
-    let _ = drain_until(&mut daemon, &session_id, "echo:scrollback-line-79");
+    daemon
+        .input(
+            primary_client.clone(),
+            session_id.clone(),
+            scrollback_input,
+            12,
+        )
+        .expect("scrollback generator should write");
+    let _ = drain_until(&mut daemon, &session_id, "echo:scrollback-line-0079");
 
     let visible = daemon
         .read_screen(ReadScreenRequest {
@@ -813,7 +819,7 @@ fn worker_backed_daemon_default_ghostty_path_replays_scrollback_beyond_visible_r
         })
         .expect("daemon read_screen should succeed");
     assert!(
-        visible.screen.text.contains("echo:scrollback-line-00"),
+        visible.screen.text.contains("echo:scrollback-line-0000"),
         "default Ghostty read_screen should retain scrollback history beyond visible rows: {:?}",
         visible.screen.text
     );
@@ -831,9 +837,50 @@ fn worker_backed_daemon_default_ghostty_path_replays_scrollback_beyond_visible_r
         .expect("late attach drain should succeed");
     let (_, snapshot) = first_snapshot_for_client(&late_drain.client_egress, &late_client)
         .expect("late Ghostty attach should include a snapshot frame");
-    assert_ghostty_snapshot_replays_marker(&snapshot, "echo:scrollback-line-00");
+    assert_ghostty_snapshot_replays_marker(&snapshot, "echo:scrollback-line-0000");
 
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
+fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
+    let mut terminal = GhosttyTerminal::with_config(
+        TerminalScreenSize::new(24, 80),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    )
+    .expect("test should construct Ghostty terminal with daemon default config");
+    let mut output = Vec::new();
+    for line in 0..12_000 {
+        output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
+    }
+    terminal.write_output_bytes(&output);
+
+    let plain_text = terminal
+        .plain_text()
+        .expect("test should format Ghostty terminal text");
+    let retained_markers = retained_ghostty_scrollback_markers(&plain_text, 12_000);
+    assert!(
+        retained_markers.len() >= EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS,
+        "default Ghostty byte budget should retain a material history window at 24x80; retained markers: {}; text length: {}",
+        retained_markers.len(),
+        plain_text.len()
+    );
+    assert!(
+        !plain_text.contains(EXPECTED_GHOSTTY_DROPPED_MARKER),
+        "default Ghostty byte budget should drop history beyond the configured window at 24x80; text length: {}",
+        plain_text.len()
+    );
+
+    let snapshot = terminal
+        .export_snapshot()
+        .expect("test should export Ghostty snapshot");
+    assert_ghostty_snapshot_replays_minimum_markers(
+        &snapshot,
+        12_000,
+        EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS,
+    );
+    assert_ghostty_snapshot_does_not_replay_marker(&snapshot, EXPECTED_GHOSTTY_DROPPED_MARKER);
 }
 
 #[cfg(unix)]
@@ -1766,12 +1813,47 @@ fn assert_ghostty_snapshot_replays_marker(
     let plain_text = ghostty_snapshot_plain_text(payload);
     assert!(
         plain_text.contains(expected),
-        "Ghostty snapshot replay should contain {expected:?}; replayed text: {plain_text:?}"
+        "Ghostty snapshot replay should contain {expected:?}; replayed text length: {}",
+        plain_text.len()
     );
     assert!(
         payload.bytes.len() < EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING,
         "Ghostty snapshot payload should remain under the reviewed ceiling: {} bytes",
         payload.bytes.len()
+    );
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn assert_ghostty_snapshot_replays_minimum_markers(
+    payload: &botster_core::TerminalSnapshotPayload,
+    marker_count: usize,
+    minimum: usize,
+) {
+    let plain_text = ghostty_snapshot_plain_text(payload);
+    let retained_markers = retained_ghostty_scrollback_markers(&plain_text, marker_count);
+    assert!(
+        retained_markers.len() >= minimum,
+        "Ghostty snapshot replay should retain at least {minimum} generated markers; retained markers: {}; replayed text length: {}",
+        retained_markers.len(),
+        plain_text.len()
+    );
+    assert!(
+        payload.bytes.len() < EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING,
+        "Ghostty snapshot payload should remain under the reviewed ceiling: {} bytes",
+        payload.bytes.len()
+    );
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn assert_ghostty_snapshot_does_not_replay_marker(
+    payload: &botster_core::TerminalSnapshotPayload,
+    unexpected: &str,
+) {
+    let plain_text = ghostty_snapshot_plain_text(payload);
+    assert!(
+        !plain_text.contains(unexpected),
+        "Ghostty snapshot replay should not contain {unexpected:?}; replayed text length: {}",
+        plain_text.len()
     );
 }
 
@@ -1788,7 +1870,7 @@ fn ghostty_snapshot_plain_text(payload: &botster_core::TerminalSnapshotPayload) 
     assert_snapshot_format(payload);
     let mut terminal = GhosttyTerminal::with_config(
         payload.size,
-        GhosttyAdapterConfig::with_max_scrollback(EXPECTED_DAEMON_GHOSTTY_SCROLLBACK_LINES),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
     )
     .expect("test should construct Ghostty replay terminal");
     terminal
@@ -1797,6 +1879,13 @@ fn ghostty_snapshot_plain_text(payload: &botster_core::TerminalSnapshotPayload) 
     terminal
         .plain_text()
         .expect("test should format replayed Ghostty snapshot")
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn retained_ghostty_scrollback_markers(plain_text: &str, marker_count: usize) -> Vec<usize> {
+    (0..marker_count)
+        .filter(|line| plain_text.contains(&format!("echo:scrollback-line-{line:05}")))
+        .collect()
 }
 
 fn count_occurrences(haystack: &str, needle: &str) -> usize {
