@@ -88,13 +88,16 @@ Full command vocabulary (including typed `execute_command`):
 Core is **synchronous and policy-free**. The host supplies executable, cwd, env,
 ids, and clocks (`now_seconds`). The host also runs the event loop (see below).
 
+**Rust import path:** use `botster_core::prelude` for the library lifecycle types
+(engine facade, ids, spawn request, transport outcomes). Full rustdoc for that
+module is the compile-checked start-here surface. Prefer module paths
+`contract::*`, `engine`, `package`, `runtime`, and `identity` over treating every
+crate-root re-export as equally primary.
+
 ### Library sketch
 
 ```rust
-use botster_core::{
-    ClientId, CoreSessionMetadata, DefaultBotsterEngine, RequestId, SessionId,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-};
+use botster_core::prelude::*;
 
 let mut engine = DefaultBotsterEngine::new();
 // Or: DefaultBotsterEngine::worker_backed("/path/to/botster-session-worker");
@@ -207,11 +210,26 @@ Most embedders should not start here:
 
 | Surface | Role |
 | --- | --- |
-| `BotsterEngine<R, W>` | Generic facade when you supply a custom `SessionRuntime` / worker |
+| `BotsterEngine<R, W>` | Generic facade when you supply a custom `SessionRuntime` / worker (still prefer `prelude` for imports) |
 | `MultiplexerEngine` | Assembled lower-level primitive (session worker + subscription fanout + plugins + notifications). Used internally by facades; direct use is advanced |
 | `session_protocol` | Byte-frame constants and length-prefixed framing for process wire protocol |
 | Capability runtime modules | Plugin HTTP/filesystem/store/timer/watch mechanics — separate plane from session I/O |
-| Package / UI contracts | Portable manifest and UiNode shapes; hosts own policy and renderers |
+| Package / UI contracts | Portable manifest and UiNode shapes via `package` / `contract::ui`; hosts own policy and renderers |
+| Flat crate-root re-exports | Compatibility imports for every public type; not the discovery path — use `prelude` or modules |
+
+## Public surface migration notes
+
+Introducing `botster_core::prelude` does **not** remove existing crate-root
+re-exports. Existing `use botster_core::{Type, ...}` code keeps compiling.
+
+For new code and gradual cleanups:
+
+1. Lifecycle embeds: `use botster_core::prelude::*;`
+2. Contracts: `botster_core::contract::<module>` (or short aliases that already
+   re-export those modules)
+3. Engine / runtime / package / identity: module paths on the crate root
+4. If a future minor release narrows flat re-exports, migrate by the same
+   steps — types remain reachable through modules and the prelude
 
 ## What core proves today
 

@@ -2,7 +2,7 @@
 
 `BotsterEngine` is the canonical policy-free command facade for embedders, tests, hub adapters, and future plugin/provider layers. `DefaultBotsterEngine` is the local PTY-backed instance of that facade (use `DefaultBotsterEngine::worker_backed` when sessions should be owned by `botster-session-worker` processes).
 
-**Start here for hosts:** spawn → attach → drain → input → shutdown (see the workspace README). Prefer `DefaultBotsterEngine` for the library path and `botster_core_daemon::CoreDaemon` (with `with_worker_path`) for the production durable path. `MultiplexerEngine` and raw `session_protocol` framing are advanced/internal surfaces that the facades already compose.
+**Start here for hosts:** spawn → attach → drain → input → shutdown via `botster_core::prelude` (see the workspace README and rustdoc on that module). Prefer `DefaultBotsterEngine` for the library path and `botster_core_daemon::CoreDaemon` (with `with_worker_path`) for the production durable path. `MultiplexerEngine` and raw `session_protocol` framing are advanced/internal surfaces that the facades already compose.
 
 Core commands are mechanisms, not product actions. Hosts provide explicit ids, commands, working directories, environment, timestamps, subscription ids, and request ids. Hosts also own executors, queues, transport delivery, persistence, config discovery, auth, cloud/WebRTC/signaling, marketplace/update policy, CLI UX, Rails relay behavior, TUI/browser rendering, provider policy, and Project Pipelines workflow policy.
 
@@ -29,7 +29,7 @@ Related: [`core-daemon.md`](core-daemon.md), [`durable-session-worker-protocol.m
 | Unload plugin | `PluginUnloadSpec` | `PluginCleanupResult` | `BotsterEngine::unload_plugin` | Trusted host owns unload policy; core removes worker-owned state |
 | Invoke plugin | `PluginInvocationRequest` | `PluginInvocationOutcome` with typed worker events | `BotsterEngine::invoke_plugin` | Trusted host chooses handler/payload; core enforces capability checks, timeout, and queue pressure |
 
-The compile-checked command API lives in `botster_core::engine_command` and is re-exported at the crate root:
+The compile-checked command API lives in `botster_core::engine_command`, is re-exported at the crate root for compatibility, and is included in `botster_core::prelude`:
 
 - `EngineCommand<W>` is the typed request enum for `BotsterEngine<R, W>`. Its spawn variant carries the host-supplied worker runtime because custom embedders own worker construction. Its notification variants are thin inbox delegates over `BotsterEngine::post_notification` and `BotsterEngine::drain_notifications`. Its plugin lifecycle variants delegate to the existing plugin-worker facade methods rather than adding a second runtime path.
 - `DefaultEngineCommand` is the typed request enum for `DefaultBotsterEngine` when the `local-runtime` feature is enabled. It covers the local PTY-backed session/client/screen/snapshot/shutdown commands, but intentionally omits notifications and plugin lifecycle because `DefaultBotsterEngine` does not currently expose those methods.

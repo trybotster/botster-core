@@ -1,21 +1,66 @@
 //! Reusable Botster runtime contracts and the embeddable local session engine.
 //!
 //! `botster-core` is the shared substrate for Botster hosts and clients: typed
-//! contracts plus the policy-free library path centered on
-//! [`DefaultBotsterEngine`] (and [`BotsterEngine`] for custom runtimes).
-//! Production durable supervision lives in the sibling `botster-core-daemon`
-//! crate (`CoreDaemon` + `botster-session-worker`). Product policy stays in
-//! hosts such as `botster-hub`.
+//! contracts plus a policy-free library path. Production durable supervision
+//! lives in the sibling `botster-core-daemon` crate (`CoreDaemon` +
+//! `botster-session-worker`). Product policy stays in hosts such as
+//! `botster-hub`.
 //!
-//! Start here for embeds: spawn → attach → drain → input → shutdown. Prefer the
-//! engine facades over assembling [`MultiplexerEngine`] or speaking raw
-//! [`session_protocol`] frames directly.
+//! # Start here
+//!
+//! Import the curated surface and follow spawn → attach → drain → input →
+//! shutdown:
+//!
+//! ```rust
+//! use botster_core::prelude::*;
+//! ```
+//!
+//! Full lifecycle docs and a compile-checked sketch live on [`prelude`]. Prefer
+//! that module over scanning every crate-root re-export.
+//!
+//! | Host path | Entry |
+//! | --- | --- |
+//! | Library (default features) | `DefaultBotsterEngine` / `DefaultEngineCommand` via [`prelude`] |
+//! | Library (custom runtime) | [`BotsterEngine`] + host `SessionRuntime` via [`prelude`] / [`engine`] |
+//! | Production | `botster_core_daemon::CoreDaemon` (sibling crate) + session worker |
+//!
+//! Do **not** start by assembling [`MultiplexerEngine`] or speaking raw
+//! `session_protocol` frames. Those remain available as advanced modules.
+//!
+//! # Module map (preferred discovery)
+//!
+//! | Module | Role |
+//! | --- | --- |
+//! | [`prelude`] | Embedder start-here re-exports for the session lifecycle |
+//! | [`contract`] | Stable wire/UI/session/transport/entity contracts (`contract::*`) |
+//! | [`engine`] | `BotsterEngine` facade and lower-level engines (advanced below the facade) |
+//! | [`runtime`] | `SessionRuntime` traits, spawn requests, optional local PTY adapters |
+//! | [`package`] | Package manifest, surfaces, host-profile admission helpers |
+//! | [`identity`] | Crypto, device fingerprint, keyring primitives |
+//!
+//! # Features
 //!
 //! The default feature set includes `local-runtime`, which exposes the
 //! policy-free local PTY/process adapter and `DefaultBotsterEngine`. Embedders
 //! that only need contracts and custom host adapters can disable default
 //! features and keep [`BotsterEngine`], runtime traits, and transport contracts
 //! without the local process dependency.
+//!
+//! # Compatibility re-exports
+//!
+//! Flat crate-root type re-exports below are retained so existing
+//! `use botster_core::{Type, ...}` imports keep compiling. New code should
+//! prefer [`prelude`] or the module paths in the map above. See
+//! [`prelude`] migration notes if a future release narrows flat re-exports.
+//!
+//! Advanced surfaces that stay exported but should not look like start-here
+//! peers: `MultiplexerEngine`, `session_protocol`, capability runtime types,
+//! and the short root aliases for lower-level engine submodules
+//! (`multiplexer`, `session_worker`, `subscription_multiplexer`, …). Prefer
+//! [`prelude`] and the facade for ordinary embeds.
+
+/// Curated start-here re-exports for spawn/attach/drain/input/shutdown embeds.
+pub mod prelude;
 
 pub mod contract;
 pub mod engine;
@@ -23,21 +68,40 @@ pub mod identity;
 pub mod package;
 pub mod runtime;
 
+// ---------------------------------------------------------------------------
+// Preferred module paths (also re-exported as short names for compatibility)
+// ---------------------------------------------------------------------------
+
+/// Contract submodules (`botster_core::contract::*`). Prefer these paths for
+/// stable wire shapes; for session lifecycle start with [`prelude`].
+///
+/// `session_protocol` is advanced process wire framing — prefer engine facades
+/// for ordinary session I/O.
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
     notification, routed_envelope, session, session_protocol, terminal_metadata, terminal_screen,
     transport, ui,
 };
+
+/// Engine submodules. Prefer [`engine::BotsterEngine`] / `DefaultBotsterEngine`
+/// over assembling lower-level engines (`multiplexer`, `session_worker`,
+/// `subscription_multiplexer`, `managed_session_runtime`) directly.
 pub use engine::{
     botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
     plugin_worker, routed_envelope as routed_envelope_engine, session_activity, session_worker,
     subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
+
 pub use identity::{crypto, device, keyring};
 pub use package::{
     capability, configuration, dependency, extension, host_profile, manifest, navigation,
     resolution, runnable_entrypoint, surface,
 };
+
+// ---------------------------------------------------------------------------
+// Flat type re-exports (compatibility). Prefer prelude / modules for new code.
+// ---------------------------------------------------------------------------
+
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityOperation,
     CapabilityOperationCompleted, CapabilityOperationFailure, CapabilityOperationId,
