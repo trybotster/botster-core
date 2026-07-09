@@ -500,7 +500,7 @@ fn custom_node_allows_freeform_component_payload_props() {
         json!({ "packageSpecific": true, "id": 123 }),
     );
     custom.props.insert(
-        "hover_label".to_string(),
+        "render_hint".to_string(),
         json!({ "packageSpecific": true }),
     );
 
@@ -525,6 +525,50 @@ fn custom_node_allows_freeform_component_payload_props() {
         .props
         .insert("fallback".to_string(), json!({ "type": "text" }));
     assert_error_contains(fallback_prop, "fallback must be declared");
+}
+
+#[test]
+fn custom_payload_props_do_not_inherit_schema_owned_capability_rules() {
+    let mut custom = custom_node(node(
+        UiNodeKind::EmptyState,
+        json!({ "title": "Ticket unavailable" }),
+    ));
+    custom
+        .props
+        .insert("shortcut".to_string(), json!("mod+shift+p"));
+    custom
+        .props
+        .insert("hover_label".to_string(), json!("Hover copy"));
+    custom
+        .props
+        .insert("copy_value".to_string(), json!("ticket_123"));
+
+    let mut capabilities = rich_capabilities();
+    capabilities.keyboard.shortcuts = false;
+    capabilities.hover = false;
+    capabilities.clipboard = false;
+
+    validate_ui_node_with_capabilities(&custom, &capabilities)
+        .expect("custom payload prop names should not trigger shared capability gates");
+}
+
+#[test]
+fn custom_payload_props_do_not_inherit_default_controlled_prop_combination_rules() {
+    for controlled_prop in ["value", "checked", "selected"] {
+        let mut custom = custom_node(node(
+            UiNodeKind::EmptyState,
+            json!({ "title": "Ticket unavailable" }),
+        ));
+        custom
+            .props
+            .insert("default".to_string(), json!({ "packageDefault": true }));
+        custom
+            .props
+            .insert(controlled_prop.to_string(), json!({ "packageValue": true }));
+
+        validate_ui_node_with_capabilities(&custom, &rich_capabilities())
+            .expect("custom payload default/value names should remain package-owned");
+    }
 }
 
 #[test]

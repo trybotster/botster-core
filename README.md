@@ -376,7 +376,9 @@ escape hatch. The owner is the `namespace`, the local component identity is
 `component`, and `reason` records why the node escaped the shared vocabulary. A
 recognizing renderer may consume additional package-owned props, including
 bindings. A non-recognizing renderer ignores those custom props and uses the
-fallback.
+fallback. Core validates the shape and path of a top-level `$bind` sentinel on
+a custom payload prop; nested values inside custom payloads are package-owned
+and must be kept well-formed by recognizing renderers.
 
 The fallback is a required named slot, not a JSON prop, so ordinary UiNode
 validation and renderer capability validation walk it wherever the custom node
