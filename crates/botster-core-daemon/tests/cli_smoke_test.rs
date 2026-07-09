@@ -54,28 +54,16 @@ fn daemon_cli_adopt_exits_nonzero_when_worker_adoption_fails() {
     build_worker_binary();
     let binary = env!("CARGO_BIN_EXE_botster-core-daemon");
     let session_id = SessionId("daemon-cli-adopt-failure-session".to_string());
+    let later_session_id = SessionId("daemon-cli-adopt-later-failure-session".to_string());
     let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-    let mut record = RegistryRecord::running(
-        session_id.clone(),
-        Some(ProcessIdentity {
-            pid: Some(42),
-            runtime_id: Some("daemon-cli-adopt-failure-runtime".to_string()),
-        }),
-        ResizePayload { rows: 24, cols: 80 },
-        "sh".to_string(),
-        10,
-    );
-    record.observe_restart_contract(
-        serde_json::json!({
-            "session": session_id.0,
-            "worker_control_socket": data_dir.join("missing-worker.sock"),
-        }),
-        11,
-    );
     daemon
         .registry()
-        .save(&record)
-        .expect("adopt failure fixture should save");
+        .save(&dead_worker_record(&session_id, &data_dir, 10))
+        .expect("first adopt failure fixture should save");
+    daemon
+        .registry()
+        .save(&dead_worker_record(&later_session_id, &data_dir, 12))
+        .expect("later adopt failure fixture should save");
 
     let adopt = Command::new(binary)
         .arg("--data-dir")
@@ -96,8 +84,42 @@ fn daemon_cli_adopt_exits_nonzero_when_worker_adoption_fails() {
         stderr.contains("daemon-cli-adopt-failure-session"),
         "stderr should name the failed session: {stderr}"
     );
+    assert!(
+        stderr.contains("daemon-cli-adopt-later-failure-session"),
+        "stderr should aggregate later adoption failures: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&adopt.stdout);
+    assert!(
+        stdout.contains("\"state\": \"adoptable\""),
+        "adopt should still print the post-attempt scan JSON: {stdout}"
+    );
 
     let _ = std::fs::remove_dir_all(data_dir);
+}
+
+fn dead_worker_record(
+    session_id: &SessionId,
+    data_dir: &std::path::Path,
+    now_seconds: u64,
+) -> RegistryRecord {
+    let mut record = RegistryRecord::running(
+        session_id.clone(),
+        Some(ProcessIdentity {
+            pid: Some(42),
+            runtime_id: Some(format!("{}-runtime", session_id.0)),
+        }),
+        ResizePayload { rows: 24, cols: 80 },
+        "sh".to_string(),
+        now_seconds,
+    );
+    record.observe_restart_contract(
+        serde_json::json!({
+            "session": session_id.0.clone(),
+            "worker_control_socket": data_dir.join(format!("missing-{}.sock", session_id.0)),
+        }),
+        now_seconds + 1,
+    );
+    record
 }
 
 fn build_worker_binary() {
