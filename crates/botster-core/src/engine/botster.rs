@@ -33,6 +33,7 @@ use crate::runtime::ProcessIdentity;
 use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
+use crate::terminal_screen::TerminalSnapshotPayload;
 #[cfg(feature = "local-runtime")]
 use crate::SessionMetadata;
 use crate::{ClientId, SubscriptionId};
@@ -384,6 +385,14 @@ impl DefaultBotsterEngine {
             .capture_snapshot(request_id, session_id, now_seconds)
     }
 
+    /// Capture a reusable opaque snapshot payload for one session.
+    pub fn capture_snapshot_payload(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<TerminalSnapshotPayload, DefaultBotsterEngineError> {
+        self.runtime.capture_snapshot_payload(session_id)
+    }
+
     /// Replay or prepare a snapshot where the managed runtime supports it.
     pub fn replay_snapshot(
         &mut self,
@@ -567,6 +576,25 @@ impl WorkerBackedBotsterEngine {
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         self.runtime.drain_runtime_once(session_id, last_output_at)
+    }
+
+    /// Read a session's plain screen state through the worker-backed managed runtime.
+    pub fn read_screen(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime
+            .read_screen(request_id, session_id, now_seconds)
+    }
+
+    /// Capture a reusable opaque snapshot payload for one worker-backed session.
+    pub fn capture_snapshot_payload(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<TerminalSnapshotPayload, WorkerBackedBotsterEngineError> {
+        self.runtime.capture_snapshot_payload(session_id)
     }
 
     /// Shut down a worker-owned session.
