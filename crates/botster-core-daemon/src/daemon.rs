@@ -778,7 +778,11 @@ impl CoreDaemon {
 }
 
 #[cfg(feature = "ghostty-terminal")]
-const DEFAULT_GHOSTTY_MAX_SCROLLBACK_LINES: usize = 10_000;
+/// Default Ghostty scrollback page-allocation byte budget for daemon sessions.
+///
+/// Ghostty quantizes this budget into terminal pages, so effective retained
+/// lines depend on terminal width.
+pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
 
 #[cfg(feature = "ghostty-terminal")]
 fn local_engine() -> DefaultBotsterEngine {
@@ -809,7 +813,7 @@ fn default_ghostty_terminal(
 ) -> Result<GhosttyTerminal, GhosttyTerminalError> {
     GhosttyTerminal::with_config(
         size,
-        GhosttyAdapterConfig::with_max_scrollback(DEFAULT_GHOSTTY_MAX_SCROLLBACK_LINES),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
     )
 }
 
