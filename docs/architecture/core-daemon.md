@@ -22,12 +22,21 @@ operator/dev/debug tooling over that same API and requires `--data-dir` so
 smoke runs do not depend on ambient home directories.
 
 Attach output is part of the daemon output contract. `CoreDaemon::attach`
-routes subscription setup through the core engine, and that engine outcome can
-already contain initial history replay for the newly attached subscription.
-`CoreDaemon` retains that output and prepends it to the next `drain` result for
-the session so late subscribers see replay before later live terminal output.
-It must not re-route the returned session requests; those requests are an
-already-routed record from the engine, not daemon follow-up work.
+routes subscription setup through the core engine, which emits `Attaching` only
+when a new or replacement subscription requests its initial snapshot.
+`InitialSnapshotReady` for that exact client and subscription then produces an
+optional non-empty `Snapshot` followed by `Attached`; empty history produces
+`Attached` without a fabricated `Snapshot` or `Scrollback`. The session worker
+holds live output behind that initial-snapshot barrier, so the production order
+is `Attaching` -> `Snapshot` (when non-empty) -> `Attached` ->
+`TerminalOutput`. Stale or replaced snapshot deliveries produce neither history
+nor readiness. Core currently has no production `Detached` emitter.
+
+`CoreDaemon` retains attach output and prepends it to the next `drain` result
+for the session so late subscribers see readiness and replay before later live
+terminal output. It must not re-route the returned session requests; those
+requests are an already-routed record from the engine, not daemon follow-up
+work.
 
 Screen reads and snapshot captures are also part of the typed production daemon
 API. `CoreDaemon::read_screen` and `CoreDaemon::capture_snapshot` internally

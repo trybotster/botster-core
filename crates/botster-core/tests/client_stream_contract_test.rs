@@ -3,7 +3,7 @@
 use botster_core::actor::{
     BackpressureRoute, BackpressureSummary, ClientControlFrame, InitialSnapshotReady, QueueSource,
     SendFileErrorReason, SendFileFailed, SendFileRequest, SessionIoEvent, SessionIoRequest,
-    SnapshotReady,
+    SnapshotReady, TerminalAttachState,
 };
 use botster_core::boundary::BoundaryJson;
 use botster_core::client::ClientId;
@@ -236,7 +236,11 @@ fn unsubscribed_focus_is_dropped_with_observation() {
 #[test]
 fn duplicate_subscriptions_are_idempotent() {
     let mut harness = ClientStreamHarness::new(client_id());
-    subscribe(&mut harness, subscription_id("sub-1"));
+    let initial = harness.handle_ingress(TransportIngress::SubscribeSession {
+        client_id: client_id(),
+        session_id: session_id(),
+        subscription_id: subscription_id("sub-1"),
+    });
 
     let duplicate = harness.handle_ingress(TransportIngress::SubscribeSession {
         client_id: client_id(),
@@ -248,6 +252,16 @@ fn duplicate_subscriptions_are_idempotent() {
         data: b"one".to_vec(),
     });
 
+    assert_eq!(
+        initial.egress,
+        vec![TransportEgress::AttachState {
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-1"),
+            state: TerminalAttachState::Attaching,
+        }]
+    );
+    assert!(duplicate.egress.is_empty());
+    assert!(duplicate.session_requests.is_empty());
     assert_eq!(
         duplicate.observations,
         vec![ClientStreamObservation::DuplicateSubscription {
@@ -282,6 +296,14 @@ fn changed_subscription_ids_replace_old_routes() {
         subscription_id: subscription_id("sub-old"),
     });
 
+    assert_eq!(
+        replacement.egress,
+        vec![TransportEgress::AttachState {
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-new"),
+            state: TerminalAttachState::Attaching,
+        }]
+    );
     assert_eq!(
         replacement.observations,
         vec![ClientStreamObservation::ReplacedSubscription {
@@ -478,7 +500,7 @@ fn backpressure_is_observable_with_route_context() {
 }
 
 #[test]
-fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
+fn routed_snapshot_scrollback_and_focus_carry_subscription_id() {
     let mut harness = ClientStreamHarness::new(client_id());
     subscribe(&mut harness, subscription_id("sub-1"));
 
@@ -490,10 +512,6 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
         cols: 80,
     }));
     let scrollback = harness.handle_scrollback(session_id(), b"history".to_vec());
-    let attach = harness.handle_attach_state(
-        session_id(),
-        botster_core::actor::TerminalAttachState::Attached,
-    );
 
     assert_eq!(
         snapshot.egress,
@@ -509,14 +527,6 @@ fn routed_snapshot_scrollback_attach_and_focus_carry_subscription_id() {
             session_id: session_id(),
             subscription_id: subscription_id("sub-1"),
             data: b"history".to_vec(),
-        }]
-    );
-    assert_eq!(
-        attach.egress,
-        vec![TransportEgress::AttachState {
-            session_id: session_id(),
-            subscription_id: subscription_id("sub-1"),
-            state: botster_core::actor::TerminalAttachState::Attached,
         }]
     );
 }
@@ -539,11 +549,18 @@ fn initial_snapshot_replays_history_for_matching_subscription() {
 
     assert_eq!(
         outcome.egress,
-        vec![TransportEgress::Snapshot {
-            session_id: session_id(),
-            subscription_id: subscription_id("sub-1"),
-            data: b"prior history".to_vec(),
-        }]
+        vec![
+            TransportEgress::Snapshot {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                data: b"prior history".to_vec(),
+            },
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                state: TerminalAttachState::Attached,
+            },
+        ]
     );
     assert!(outcome.observations.is_empty());
 }
@@ -568,7 +585,14 @@ fn empty_initial_snapshot_does_not_fabricate_history() {
         data: b"live".to_vec(),
     });
 
-    assert!(initial.egress.is_empty());
+    assert_eq!(
+        initial.egress,
+        vec![TransportEgress::AttachState {
+            session_id: session_id(),
+            subscription_id: subscription_id("sub-1"),
+            state: TerminalAttachState::Attached,
+        }]
+    );
     assert!(initial.observations.is_empty());
     assert_eq!(
         live.egress,
@@ -591,7 +615,7 @@ fn initial_snapshot_for_stale_or_unrelated_route_is_dropped() {
             session_id: session_id(),
             client_id: client_id(),
             subscription_id: subscription_id("sub-old"),
-            snapshot: b"stale".to_vec(),
+            snapshot: Vec::new(),
             rows: 24,
             cols: 80,
         }));
@@ -601,7 +625,7 @@ fn initial_snapshot_for_stale_or_unrelated_route_is_dropped() {
             session_id: session_id(),
             client_id: named_client_id("other-client"),
             subscription_id: subscription_id("sub-current"),
-            snapshot: b"wrong-client".to_vec(),
+            snapshot: Vec::new(),
             rows: 24,
             cols: 80,
         }));

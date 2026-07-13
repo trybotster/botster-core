@@ -341,25 +341,6 @@ impl ClientStreamHarness {
         }
     }
 
-    /// Report attach state for a subscribed session.
-    pub fn handle_attach_state(
-        &self,
-        session_id: SessionId,
-        state: TerminalAttachState,
-    ) -> ClientStreamOutcome {
-        if self.closed {
-            return Self::closed_outcome();
-        }
-
-        self.route_delivery(session_id, |session_id, subscription_id| {
-            TransportEgress::AttachState {
-                session_id,
-                subscription_id,
-                state,
-            }
-        })
-    }
-
     /// Report scrollback for a subscribed session.
     pub fn handle_scrollback(&self, session_id: SessionId, data: Vec<u8>) -> ClientStreamOutcome {
         if self.closed {
@@ -413,7 +394,7 @@ impl ClientStreamHarness {
         subscription_id: SubscriptionId,
     ) -> ClientStreamOutcome {
         let mut outcome = ClientStreamOutcome::empty();
-        match self.subscriptions.get(&session_id) {
+        let observation = match self.subscriptions.get(&session_id) {
             Some(existing) if existing == &subscription_id => {
                 outcome
                     .observations
@@ -421,46 +402,33 @@ impl ClientStreamHarness {
                         session_id,
                         subscription_id,
                     });
+                return outcome;
             }
             Some(existing) => {
                 let old_subscription_id = existing.clone();
-                self.subscriptions
-                    .insert(session_id.clone(), subscription_id.clone());
-                outcome.session_requests.push((
-                    session_id.clone(),
-                    subscribe_terminal_request(
-                        self.client_id.clone(),
-                        session_id.clone(),
-                        subscription_id.clone(),
-                    ),
-                ));
-                outcome
-                    .observations
-                    .push(ClientStreamObservation::ReplacedSubscription {
-                        session_id,
-                        old_subscription_id,
-                        new_subscription_id: subscription_id,
-                    });
+                ClientStreamObservation::ReplacedSubscription {
+                    session_id: session_id.clone(),
+                    old_subscription_id,
+                    new_subscription_id: subscription_id.clone(),
+                }
             }
-            None => {
-                self.subscriptions
-                    .insert(session_id.clone(), subscription_id.clone());
-                outcome.session_requests.push((
-                    session_id.clone(),
-                    subscribe_terminal_request(
-                        self.client_id.clone(),
-                        session_id.clone(),
-                        subscription_id.clone(),
-                    ),
-                ));
-                outcome
-                    .observations
-                    .push(ClientStreamObservation::Subscribed {
-                        session_id,
-                        subscription_id,
-                    });
-            }
-        }
+            None => ClientStreamObservation::Subscribed {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            },
+        };
+        self.subscriptions
+            .insert(session_id.clone(), subscription_id.clone());
+        outcome.egress.push(TransportEgress::AttachState {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            state: TerminalAttachState::Attaching,
+        });
+        outcome.session_requests.push((
+            session_id.clone(),
+            subscribe_terminal_request(self.client_id.clone(), session_id, subscription_id),
+        ));
+        outcome.observations.push(observation);
         outcome
     }
 
@@ -524,9 +492,6 @@ impl ClientStreamHarness {
     }
 
     fn route_initial_snapshot(&self, snapshot: InitialSnapshotReady) -> ClientStreamOutcome {
-        if snapshot.snapshot.is_empty() {
-            return ClientStreamOutcome::empty();
-        }
         if snapshot.client_id != self.client_id {
             return ClientStreamOutcome::empty();
         }
@@ -541,10 +506,17 @@ impl ClientStreamHarness {
         }
 
         let mut outcome = ClientStreamOutcome::empty();
-        outcome.egress.push(TransportEgress::Snapshot {
+        if !snapshot.snapshot.is_empty() {
+            outcome.egress.push(TransportEgress::Snapshot {
+                session_id: snapshot.session_id.clone(),
+                subscription_id: snapshot.subscription_id.clone(),
+                data: snapshot.snapshot,
+            });
+        }
+        outcome.egress.push(TransportEgress::AttachState {
             session_id: snapshot.session_id,
             subscription_id: snapshot.subscription_id,
-            data: snapshot.snapshot,
+            state: TerminalAttachState::Attached,
         });
         outcome
     }
