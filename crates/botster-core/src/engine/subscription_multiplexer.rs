@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::actor::{
     BackpressureRoute, BackpressureSummary, ClientControlFrame, DeliveryLag, MailboxSendFailure,
-    MailboxSendFailureReason, QueueSource, SessionIoEvent, SessionIoRequest, TerminalAttachState,
+    MailboxSendFailureReason, QueueSource, SessionIoEvent, SessionIoRequest,
 };
 use crate::client::ClientId;
 use crate::client_stream::{ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome};
@@ -206,23 +206,6 @@ impl SubscriptionMultiplexer {
                 Self::not_broadcast(session_id, "shutdown")
             }
         }
-    }
-
-    /// Fan out session attach state to current subscribers.
-    pub fn handle_attach_state(
-        &mut self,
-        session_id: SessionId,
-        state: TerminalAttachState,
-    ) -> SubscriptionMultiplexerOutcome {
-        let subscribers = self.subscribers_for(&session_id);
-        let mut multiplexer_outcome = SubscriptionMultiplexerOutcome::empty();
-        for client_id in subscribers {
-            if let Some(harness) = self.clients.get_mut(&client_id) {
-                let outcome = harness.handle_attach_state(session_id.clone(), state.clone());
-                multiplexer_outcome.append_client_outcome(&client_id, outcome);
-            }
-        }
-        multiplexer_outcome
     }
 
     /// Report client-side backpressure for an active subscription route.

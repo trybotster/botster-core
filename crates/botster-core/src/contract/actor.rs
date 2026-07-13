@@ -344,7 +344,7 @@ pub enum ClientConnectionHealth {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalAttachState {
-    /// No terminal stream is attached.
+    /// No terminal stream is attached; core does not currently produce this state.
     Detached,
     /// Attach has been requested but initial data has not arrived.
     Attaching,
