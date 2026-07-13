@@ -122,6 +122,17 @@ fn one_client_can_switch_subscriptions() {
     });
 
     assert_eq!(
+        replacement.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-new"),
+                state: TerminalAttachState::Attaching,
+            },
+        )]
+    );
+    assert_eq!(
         replacement.observations,
         vec![SubscriptionMultiplexerObservation::ClientStream {
             client_id: client_id("client-1"),
@@ -174,6 +185,11 @@ fn duplicate_subscriptions_are_idempotent() {
         data: b"one".to_vec(),
     });
 
+    assert_eq!(
+        duplicate.client_egress,
+        Vec::<(ClientId, TransportEgress)>::new()
+    );
+    assert!(duplicate.session_requests.is_empty());
     assert_eq!(
         duplicate.observations,
         vec![SubscriptionMultiplexerObservation::ClientStream {
@@ -733,96 +749,6 @@ fn replacement_subscription_pressure_does_not_revive_old_route() {
 }
 
 #[test]
-fn process_exit_and_attach_state_use_independent_delivery_routes() {
-    let mut multiplexer = SubscriptionMultiplexer::new();
-    subscribe(&mut multiplexer, "client-1", "sub-1");
-    subscribe(&mut multiplexer, "client-2", "sub-2");
-
-    multiplexer.report_delivery_failure(
-        client_id("client-1"),
-        session_id(),
-        subscription_id("sub-1"),
-        QueueSource::ClientWorker,
-        MailboxSendFailureReason::QueueClosed,
-    );
-    let exit = multiplexer.handle_session_event(SessionIoEvent::ProcessExited {
-        session_id: session_id(),
-        payload: ProcessExitedPayload {
-            exit_code: Some(2),
-            signal: None,
-        },
-    });
-    let attach = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Detached);
-
-    assert_eq!(
-        exit.client_egress,
-        vec![(
-            client_id("client-2"),
-            TransportEgress::ProcessExit {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-2"),
-                code: Some(2),
-            },
-        )]
-    );
-    assert_eq!(
-        attach.client_egress,
-        vec![(
-            client_id("client-2"),
-            TransportEgress::AttachState {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-2"),
-                state: TerminalAttachState::Detached,
-            },
-        )]
-    );
-}
-
-#[test]
-fn attach_state_fans_out_to_current_subscribers() {
-    let mut multiplexer = SubscriptionMultiplexer::new();
-    subscribe(&mut multiplexer, "client-1", "sub-1");
-    subscribe(&mut multiplexer, "client-2", "sub-2");
-
-    let attached = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Attached);
-    unsubscribe(&mut multiplexer, "client-1", "sub-1");
-    let detached = multiplexer.handle_attach_state(session_id(), TerminalAttachState::Detached);
-
-    assert_eq!(
-        attached.client_egress,
-        vec![
-            (
-                client_id("client-1"),
-                TransportEgress::AttachState {
-                    session_id: session_id(),
-                    subscription_id: subscription_id("sub-1"),
-                    state: TerminalAttachState::Attached,
-                },
-            ),
-            (
-                client_id("client-2"),
-                TransportEgress::AttachState {
-                    session_id: session_id(),
-                    subscription_id: subscription_id("sub-2"),
-                    state: TerminalAttachState::Attached,
-                },
-            ),
-        ]
-    );
-    assert_eq!(
-        detached.client_egress,
-        vec![(
-            client_id("client-2"),
-            TransportEgress::AttachState {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-2"),
-                state: TerminalAttachState::Detached,
-            },
-        )]
-    );
-}
-
-#[test]
 fn snapshot_remains_not_broadcast_but_initial_snapshot_targets_named_client() {
     let mut multiplexer = SubscriptionMultiplexer::new();
     subscribe(&mut multiplexer, "client-1", "sub-1");
@@ -850,14 +776,24 @@ fn snapshot_remains_not_broadcast_but_initial_snapshot_targets_named_client() {
     assert!(snapshot.client_egress.is_empty());
     assert_eq!(
         initial.client_egress,
-        vec![(
-            client_id("client-1"),
-            TransportEgress::Snapshot {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-1"),
-                data: b"initial".to_vec(),
-            },
-        )]
+        vec![
+            (
+                client_id("client-1"),
+                TransportEgress::Snapshot {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-1"),
+                    data: b"initial".to_vec(),
+                },
+            ),
+            (
+                client_id("client-1"),
+                TransportEgress::AttachState {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-1"),
+                    state: TerminalAttachState::Attached,
+                },
+            ),
+        ]
     );
     assert_eq!(
         snapshot.observations,
@@ -871,6 +807,37 @@ fn snapshot_remains_not_broadcast_but_initial_snapshot_targets_named_client() {
 
     let source = include_str!("../src/engine/subscription_multiplexer.rs");
     assert!(!source.contains("Scrollback"));
+}
+
+#[test]
+fn empty_initial_snapshot_targets_named_client_with_attached_only() {
+    let mut multiplexer = SubscriptionMultiplexer::new();
+    subscribe(&mut multiplexer, "client-1", "sub-1");
+    subscribe(&mut multiplexer, "client-2", "sub-2");
+
+    let initial = multiplexer.handle_session_event(SessionIoEvent::InitialSnapshotReady(
+        InitialSnapshotReady {
+            request_id: request_id("initial-empty"),
+            session_id: session_id(),
+            client_id: client_id("client-1"),
+            subscription_id: subscription_id("sub-1"),
+            snapshot: Vec::new(),
+            rows: 24,
+            cols: 80,
+        },
+    ));
+
+    assert_eq!(
+        initial.client_egress,
+        vec![(
+            client_id("client-1"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-1"),
+                state: TerminalAttachState::Attached,
+            },
+        )]
+    );
 }
 
 #[test]

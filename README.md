@@ -332,10 +332,15 @@ include it.
 
 Subscribe-time initial terminal snapshots use the core data-plane path. When a
 host requests an initial snapshot for a new subscription to a running session,
-`SessionIo` delivers `InitialSnapshotReady` and the client stream can project a
-non-empty payload as a renderable `Snapshot` before live `TerminalOutput`. Empty
-snapshots do not fabricate history. Hub/host policy decides when to request it;
-core does not keep a duplicate product cache.
+the client stream emits subscription-scoped `Attaching`, then `SessionIo`
+delivers `InitialSnapshotReady` for that exact client and subscription. The
+client stream projects a non-empty payload as a renderable `Snapshot`, then
+emits `Attached`; live `TerminalOutput` follows. For empty initial history it
+emits `Attaching`, then `Attached`, without fabricating `Snapshot` or
+`Scrollback`. Stale or replaced subscription deliveries emit neither history
+nor `Attached`. Core currently produces `Attaching` and `Attached`; it does not
+yet produce `Detached`. Hub/host policy decides when to subscribe; core does not
+keep a duplicate product cache.
 
 ## Ownership boundary
 
