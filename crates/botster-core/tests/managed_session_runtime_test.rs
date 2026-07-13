@@ -10,9 +10,9 @@ use botster_core::{
     ProcessExitedPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionIoEvent,
     SessionIoRequest, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalColorProfile, TerminalOutputChunk, TerminalScreenRuntime,
-    TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload, TransportEgress,
-    TransportIngress,
+    SubscriptionId, TerminalAttachState, TerminalColorProfile, TerminalOutputChunk,
+    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+    TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -476,7 +476,17 @@ fn supervised_session_reader_events_reach_subscription_multiplexer() {
         initial.session_events.first(),
         Some(SessionIoEvent::InitialSnapshotReady(snapshot)) if snapshot.snapshot.is_empty()
     ));
-    assert!(initial.client_egress.is_empty());
+    assert_eq!(
+        initial.client_egress,
+        vec![(
+            client_id("client-a"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-a"),
+                state: TerminalAttachState::Attached,
+            },
+        )]
+    );
 
     runtime
         .session_runtime_mut()
@@ -889,14 +899,24 @@ fn supervised_session_live_output_fanout_still_emits_original_bytes() {
 
     assert_eq!(
         output.client_egress,
-        vec![(
-            client_id("client-a"),
-            TransportEgress::TerminalOutput {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-a"),
-                data: bytes.clone(),
-            },
-        )]
+        vec![
+            (
+                client_id("client-a"),
+                TransportEgress::AttachState {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-a"),
+                    state: TerminalAttachState::Attached,
+                },
+            ),
+            (
+                client_id("client-a"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-a"),
+                    data: bytes.clone(),
+                },
+            ),
+        ]
     );
     assert!(matches!(
         snapshot.session_events.first(),
@@ -937,14 +957,24 @@ fn supervised_session_default_plain_backend_bounds_retained_state_without_trunca
 
     assert_eq!(
         output.client_egress,
-        vec![(
-            client_id("client-a"),
-            TransportEgress::TerminalOutput {
-                session_id: session_id(),
-                subscription_id: subscription_id("sub-a"),
-                data: bytes.clone(),
-            },
-        )]
+        vec![
+            (
+                client_id("client-a"),
+                TransportEgress::AttachState {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-a"),
+                    state: TerminalAttachState::Attached,
+                },
+            ),
+            (
+                client_id("client-a"),
+                TransportEgress::TerminalOutput {
+                    session_id: session_id(),
+                    subscription_id: subscription_id("sub-a"),
+                    data: bytes.clone(),
+                },
+            ),
+        ]
     );
     assert!(matches!(
         snapshot.session_events.first(),
@@ -1027,6 +1057,11 @@ fn supervised_session_initial_snapshot_precedes_live_output_from_shadow_state() 
     ));
     assert!(matches!(
         outcome.client_egress.first(),
+        Some((_, TransportEgress::AttachState { state, .. }))
+            if state == &TerminalAttachState::Attached
+    ));
+    assert!(matches!(
+        outcome.client_egress.get(1),
         Some((_, TransportEgress::TerminalOutput { data, .. }))
             if data == b"live after request"
     ));
@@ -1088,6 +1123,18 @@ fn supervised_session_initial_snapshot_after_prior_output_reflects_shadow_state(
     ));
     assert!(matches!(
         outcome.client_egress.get(1),
+        Some((
+            received_client,
+            TransportEgress::AttachState {
+                subscription_id: received_subscription_id,
+                state: TerminalAttachState::Attached,
+                ..
+            }
+        )) if received_client == &client_id("client-a")
+            && received_subscription_id == &subscription_id("sub-a")
+    ));
+    assert!(matches!(
+        outcome.client_egress.get(2),
         Some((
             received_client,
             TransportEgress::TerminalOutput {

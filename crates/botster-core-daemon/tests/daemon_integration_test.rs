@@ -15,7 +15,7 @@ use botster_core::{
     RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
     SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TransportEgress,
+    TerminalAttachState, TransportEgress,
 };
 #[cfg(feature = "ghostty-terminal")]
 use botster_core_daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
@@ -921,7 +921,7 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
         .attach(
             late_client.clone(),
             session_id.clone(),
-            late_subscription,
+            late_subscription.clone(),
             13,
         )
         .expect("late attach should retain initial history");
@@ -940,6 +940,73 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
         &session_id,
         &late_client,
         "echo:worker-after-read",
+    );
+    let attaching_index = late_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &late_client
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id,
+                        state: TerminalAttachState::Attaching,
+                        ..
+                    } if subscription_id == &late_subscription
+                )
+        })
+        .expect("late worker-backed attach should emit Attaching");
+    let snapshot_index = late_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &late_client
+                && matches!(
+                    frame,
+                    TransportEgress::Snapshot {
+                        subscription_id,
+                        ..
+                    } if subscription_id == &late_subscription
+                )
+        })
+        .expect("late worker-backed attach should deliver initial history");
+    let attached_index = late_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &late_client
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id,
+                        state: TerminalAttachState::Attached,
+                        ..
+                    } if subscription_id == &late_subscription
+                )
+        })
+        .expect("late worker-backed attach should emit Attached after history");
+    let live_index = late_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &late_client
+                && matches!(
+                    frame,
+                    TransportEgress::TerminalOutput {
+                        subscription_id,
+                        data,
+                        ..
+                    } if subscription_id == &late_subscription
+                        && String::from_utf8_lossy(data).contains("echo:worker-after-read")
+                )
+        })
+        .expect("late worker-backed client should receive later live output");
+    assert!(
+        attaching_index < snapshot_index
+            && snapshot_index < attached_index
+            && attached_index < live_index,
+        "worker-backed readiness must order Attaching before history before Attached before live output: {:?}",
+        late_drain.client_egress
     );
     #[cfg(feature = "ghostty-terminal")]
     {
@@ -977,6 +1044,100 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
             "attach pending drain should merge before read_screen pending drain: {late_output:?}"
         );
     }
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, not(feature = "ghostty-terminal")))]
+#[test]
+fn worker_backed_empty_initial_snapshot_attaches_before_live_output_without_history() {
+    let data_dir = temp_data_dir("worker-empty-initial-snapshot");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-empty-session".to_string());
+    let client_id = ClientId("worker-empty-client".to_string());
+    let subscription_id = SubscriptionId("worker-empty-subscription".to_string());
+
+    daemon
+        .spawn(silent_spawn_request(&session_id), 10)
+        .expect("silent worker-backed daemon should spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("silent worker-backed attach should subscribe");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"after-empty-snapshot\n".to_vec(),
+            12,
+        )
+        .expect("live marker should write after empty snapshot request");
+
+    let drained = drain_until_for_client(
+        &mut daemon,
+        &session_id,
+        &client_id,
+        "echo:after-empty-snapshot",
+    );
+    let client_frames = drained
+        .client_egress
+        .iter()
+        .filter(|(frame_client_id, _)| frame_client_id == &client_id)
+        .map(|(_, frame)| frame)
+        .collect::<Vec<_>>();
+    assert!(client_frames.iter().all(|frame| !matches!(
+        frame,
+        TransportEgress::Snapshot { .. } | TransportEgress::Scrollback { .. }
+    )));
+    let attaching_index = client_frames
+        .iter()
+        .position(|frame| {
+            matches!(
+                frame,
+                TransportEgress::AttachState {
+                    subscription_id: frame_subscription_id,
+                    state: TerminalAttachState::Attaching,
+                    ..
+                } if frame_subscription_id == &subscription_id
+            )
+        })
+        .expect("empty worker-backed attach should emit Attaching");
+    let attached_index = client_frames
+        .iter()
+        .position(|frame| {
+            matches!(
+                frame,
+                TransportEgress::AttachState {
+                    subscription_id: frame_subscription_id,
+                    state: TerminalAttachState::Attached,
+                    ..
+                } if frame_subscription_id == &subscription_id
+            )
+        })
+        .expect("empty InitialSnapshotReady should emit Attached");
+    let live_index = client_frames
+        .iter()
+        .position(|frame| {
+            matches!(
+                frame,
+                TransportEgress::TerminalOutput {
+                    subscription_id: frame_subscription_id,
+                    data,
+                    ..
+                } if frame_subscription_id == &subscription_id
+                    && String::from_utf8_lossy(data).contains("echo:after-empty-snapshot")
+            )
+        })
+        .expect("live output should flow after empty snapshot readiness");
+    assert!(
+        attaching_index < attached_index && attached_index < live_index,
+        "empty worker-backed readiness must order Attaching before Attached before live output: {client_frames:?}"
+    );
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -1565,6 +1726,27 @@ fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
                 "-c".to_string(),
                 "printf ready; IFS= read -r line; printf \"echo:%s\\n\" \"$line\"; exit 0"
                     .to_string(),
+            ],
+            working_directory: SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: SpawnEnvironment::default(),
+            initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+        },
+        metadata: CoreSessionMetadata::new(),
+    }
+}
+
+#[cfg(not(feature = "ghostty-terminal"))]
+fn silent_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+    SpawnSessionRequest {
+        request: SessionSpawnRequest {
+            request_id: RequestId(format!("{}-spawn", session_id.0)),
+            session_id: session_id.clone(),
+            executable: "sh".to_string(),
+            arguments: vec![
+                "-c".to_string(),
+                "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string(),
             ],
             working_directory: SpawnWorkingDirectory {
                 path: ".".to_string(),
