@@ -776,6 +776,176 @@ fn worker_backed_daemon_default_path_uses_ghostty_terminal_fidelity() {
 
 #[cfg(all(unix, feature = "ghostty-terminal"))]
 #[test]
+fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
+    let data_dir = temp_data_dir("dwgrh");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("dwgrh-session".to_string());
+    let original_client = ClientId("dwgrh-original-client".to_string());
+    let original_subscription = SubscriptionId("dwgrh-original-subscription".to_string());
+    let reattached_client = ClientId("dwgrh-reattached-client".to_string());
+    let reattached_subscription = SubscriptionId("dwgrh-reattached-subscription".to_string());
+    let prior_marker = "echo:dwgrh-prior-marker";
+    let visible_marker = "echo:dwgrh-visible-marker";
+    let live_marker = "echo:dwgrh-live-marker";
+
+    daemon
+        .spawn(retained_history_spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    let authoritative = read_screen_until(&mut daemon, &session_id, prior_marker, 11);
+    assert!(
+        authoritative.screen.text.contains(prior_marker),
+        "authoritative terminal state must contain the startup marker before attach: {:?}",
+        authoritative.screen.text
+    );
+    daemon
+        .attach(
+            original_client.clone(),
+            session_id.clone(),
+            original_subscription.clone(),
+            12,
+        )
+        .expect("original client should attach");
+    let _ = daemon
+        .drain(&session_id, 13)
+        .expect("original attach bootstrap should drain");
+    daemon
+        .input(
+            original_client.clone(),
+            session_id.clone(),
+            b"dwgrh-visible-marker\n".to_vec(),
+            14,
+        )
+        .expect("second visible marker should write");
+    let _ = drain_until(&mut daemon, &session_id, visible_marker);
+
+    let authoritative = read_screen_until(&mut daemon, &session_id, visible_marker, 15);
+    assert!(
+        authoritative.screen.text.contains(prior_marker),
+        "authoritative terminal state must contain the prior marker before detach: {:?}",
+        authoritative.screen.text
+    );
+
+    daemon
+        .detach(
+            original_client.clone(),
+            session_id.clone(),
+            original_subscription.clone(),
+            16,
+        )
+        .expect("original client should detach");
+    daemon
+        .attach(
+            reattached_client.clone(),
+            session_id.clone(),
+            reattached_subscription.clone(),
+            17,
+        )
+        .expect("fresh client and subscription should reattach the running session");
+
+    let reattach_drain = daemon
+        .drain(&session_id, 18)
+        .expect("reattach bootstrap should drain");
+    let (snapshot_index, snapshot) =
+        first_snapshot_for_client(&reattach_drain.client_egress, &reattached_client)
+            .expect("reattach should deliver the authoritative Ghostty snapshot");
+    let snapshot_subscription = match &reattach_drain.client_egress[snapshot_index] {
+        (
+            _,
+            TransportEgress::Snapshot {
+                subscription_id, ..
+            },
+        ) => subscription_id,
+        _ => unreachable!("snapshot helper returned a non-snapshot frame"),
+    };
+    assert_eq!(
+        snapshot_subscription, &reattached_subscription,
+        "retained snapshot must target the fresh reattach subscription"
+    );
+    let replayed = ghostty_snapshot_plain_text(&snapshot);
+    assert_eq!(
+        count_occurrences(&replayed, prior_marker),
+        1,
+        "reattached snapshot should replay the prior marker exactly once: {replayed:?}"
+    );
+    assert_eq!(
+        count_occurrences(&replayed, visible_marker),
+        1,
+        "reattached snapshot should replay the second visible marker exactly once: {replayed:?}"
+    );
+    assert!(
+        replayed.find(prior_marker) < replayed.find(visible_marker),
+        "reattached snapshot should preserve marker order: {replayed:?}"
+    );
+
+    let attaching_index = reattach_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &reattached_client
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id,
+                        state: TerminalAttachState::Attaching,
+                        ..
+                    } if subscription_id == &reattached_subscription
+                )
+        })
+        .expect("fresh subscription should receive Attaching");
+    let attached_index = reattach_drain
+        .client_egress
+        .iter()
+        .position(|(client_id, frame)| {
+            client_id == &reattached_client
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id,
+                        state: TerminalAttachState::Attached,
+                        ..
+                    } if subscription_id == &reattached_subscription
+                )
+        })
+        .expect("fresh subscription should receive Attached");
+    assert!(
+        attaching_index < snapshot_index && snapshot_index < attached_index,
+        "reattach bootstrap must order Attaching, retained snapshot, then Attached: {:?}",
+        reattach_drain.client_egress
+    );
+    assert!(
+        reattach_drain
+            .client_egress
+            .iter()
+            .all(|(client_id, _)| client_id != &original_client),
+        "detached client must not receive reattach-only delivery: {:?}",
+        reattach_drain.client_egress
+    );
+
+    daemon
+        .input(
+            reattached_client.clone(),
+            session_id.clone(),
+            b"dwgrh-live-marker\n".to_vec(),
+            19,
+        )
+        .expect("post-attach live marker should write");
+    let live_drain =
+        drain_until_for_client(&mut daemon, &session_id, &reattached_client, live_marker);
+    assert_eq!(
+        count_occurrences(
+            &renderable_output_for_client(&live_drain.client_egress, &reattached_client),
+            live_marker,
+        ),
+        1,
+        "post-attach live marker should be delivered exactly once"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
 fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_window() {
     let data_dir = temp_data_dir("dwgs");
     let mut daemon =
@@ -1714,6 +1884,13 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
         },
         metadata: CoreSessionMetadata::new(),
     }
+}
+
+#[cfg(feature = "ghostty-terminal")]
+fn retained_history_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+    let mut request = spawn_request(session_id);
+    request.request.arguments[1] = "printf 'echo:dwgrh-prior-marker\nready'; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string();
+    request
 }
 
 fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
