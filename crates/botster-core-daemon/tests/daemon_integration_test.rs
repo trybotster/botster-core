@@ -849,6 +849,19 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
     let (snapshot_index, snapshot) =
         first_snapshot_for_client(&reattach_drain.client_egress, &reattached_client)
             .expect("reattach should deliver the authoritative Ghostty snapshot");
+    let snapshot_subscription = match &reattach_drain.client_egress[snapshot_index] {
+        (
+            _,
+            TransportEgress::Snapshot {
+                subscription_id, ..
+            },
+        ) => subscription_id,
+        _ => unreachable!("snapshot helper returned a non-snapshot frame"),
+    };
+    assert_eq!(
+        snapshot_subscription, &reattached_subscription,
+        "retained snapshot must target the fresh reattach subscription"
+    );
     let replayed = ghostty_snapshot_plain_text(&snapshot);
     assert_eq!(
         count_occurrences(&replayed, prior_marker),
