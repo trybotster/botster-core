@@ -1,7 +1,16 @@
 # Restore Retained Ghostty History On Same-Session Reattach
 
-Ticket: `ticket_1784057849_665844`  
+Ticket: `ticket_1784057849_665844`
+
 Run: `run_1784057878_843792`
+
+## Outcome
+
+Implementation found no missing Core producer behavior at the exact reported coordinate, Core `db69456` including `1ef5418`. The shipped Core change is therefore the missing regression lock only: a worker-backed real-Ghostty test proves retained semantic history on explicit detach followed by reattach to the same running session with a fresh client and fresh subscription identity.
+
+Durable product clarification `question_1784059027_949092` supersedes the plan's conditional producer-fix steps: every supported Attach/reconnect uses a fresh `SubscriptionId`; same-ID reconnect is not a Core compatibility contract. Hub socket-loss stale-route cleanup remains owned by `ticket_1784052230_812754`, and TUI subscription rotation remains owned by `ticket_1783965015_654184`.
+
+The regression is ablation-sensitive at the existing targeted initial-Snapshot delivery site. No Core production, protocol, Hub, TUI, or client workaround was added.
 
 ## Context Loaded
 
