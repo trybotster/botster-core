@@ -98,7 +98,12 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
         });
     }
 
-    fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16) {
+    fn resize(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), SessionRuntimeError> {
         self.rows = rows;
         self.cols = cols;
         self.commands.push(RuntimeCommand::Resize {
@@ -106,6 +111,7 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
             rows,
             cols,
         });
+        Ok(())
     }
 
     fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
@@ -118,13 +124,17 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
         }
     }
 
-    fn request_initial_snapshot(&mut self, request: botster_core::InitialSnapshotRequest) {
+    fn request_initial_snapshot(
+        &mut self,
+        request: botster_core::InitialSnapshotRequest,
+    ) -> Result<(), SessionRuntimeError> {
         self.commands.push(RuntimeCommand::RequestInitialSnapshot {
             request_id: request.request_id,
             session_id: request.session_id,
             rows: request.rows,
             cols: request.cols,
         });
+        Ok(())
     }
 
     fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {

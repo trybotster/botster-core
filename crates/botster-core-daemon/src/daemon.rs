@@ -1056,6 +1056,252 @@ impl DaemonEngine {
     }
 }
 
+#[cfg(all(test, feature = "ghostty-terminal", unix))]
+mod terminal_backend_failure_tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use botster_core::{
+        CoreSessionMetadata, ManagedSessionRuntimeError, SpawnEnvironment, SpawnWorkingDirectory,
+        TerminalAttachState, TerminalOutputChunk, TerminalScreenRuntime, TerminalScreenState,
+        TerminalSnapshotPayload, TransportEgress,
+    };
+
+    use super::*;
+
+    struct ControlledGhosttyTerminal {
+        inner: GhosttyTerminal,
+        fail_resize: Rc<Cell<bool>>,
+        fail_snapshot: Rc<Cell<bool>>,
+        forced_error: Option<String>,
+    }
+
+    impl TerminalScreenRuntime for ControlledGhosttyTerminal {
+        fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+            self.inner.write_output(bytes)
+        }
+
+        fn resize(&mut self, size: TerminalScreenSize) {
+            if self.fail_resize.get() {
+                self.forced_error = Some("forced Ghostty resize failure".to_string());
+            } else {
+                self.inner.resize(size);
+                self.forced_error = self.inner.last_error().map(|error| error.to_string());
+            }
+        }
+
+        fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+            if self.fail_snapshot.get() {
+                self.forced_error = Some("forced Ghostty snapshot_export failure".to_string());
+                TerminalSnapshotPayload::new(
+                    Vec::new(),
+                    self.inner.size(),
+                    Some("ghostty-terminal-snapshot-v1".to_string()),
+                )
+            } else {
+                let snapshot = self.inner.capture_snapshot();
+                self.forced_error = self.inner.last_error().map(|error| error.to_string());
+                snapshot
+            }
+        }
+
+        fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+            self.inner.replay_snapshot(payload);
+            self.forced_error = self.inner.last_error().map(|error| error.to_string());
+        }
+
+        fn screen_state(&self) -> TerminalScreenState {
+            self.inner.screen_state()
+        }
+
+        fn last_error(&self) -> Option<String> {
+            self.forced_error
+                .clone()
+                .or_else(|| self.inner.last_error().map(|error| error.to_string()))
+        }
+    }
+
+    #[test]
+    fn core_daemon_resize_surfaces_ghostty_error_without_persisting_geometry() {
+        let fail_resize = Rc::new(Cell::new(false));
+        let fail_snapshot = Rc::new(Cell::new(false));
+        let mut daemon = daemon_with_controlled_ghostty(
+            "resize-failure",
+            Rc::clone(&fail_resize),
+            fail_snapshot,
+        );
+        let session_id = SessionId("daemon-resize-failure-session".to_string());
+        let client_id = ClientId("daemon-resize-failure-client".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("spawn session");
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                SubscriptionId("daemon-resize-failure-subscription".to_string()),
+                11,
+            )
+            .expect("attach session");
+
+        fail_resize.set(true);
+        let error = daemon
+            .resize(client_id, session_id.clone(), 40, 120, 12)
+            .expect_err("resize backend failure should reach CoreDaemon");
+        assert!(matches!(
+            error,
+            CoreDaemonError::Engine(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "resize",
+                ref message,
+            }) if message == "forced Ghostty resize failure"
+        ));
+        let session = daemon
+            .list()
+            .expect("load registry")
+            .into_iter()
+            .find(|session| session.session_id == session_id)
+            .expect("registry session");
+        assert_eq!(session.size, ResizePayload { rows: 24, cols: 80 });
+
+        fail_resize.set(false);
+        daemon
+            .resize(
+                ClientId("daemon-resize-failure-client".to_string()),
+                session_id.clone(),
+                30,
+                100,
+                13,
+            )
+            .expect("successful Ghostty resize should recover after the failure");
+        let session = daemon
+            .list()
+            .expect("load registry after successful retry")
+            .into_iter()
+            .find(|session| session.session_id == session_id)
+            .expect("registry session after successful retry");
+        assert_eq!(
+            session.size,
+            ResizePayload {
+                rows: 30,
+                cols: 100
+            }
+        );
+        let _ = daemon.shutdown(Some(session_id), 14);
+        let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
+    }
+
+    #[test]
+    fn core_daemon_attach_snapshot_failure_is_atomic_and_retryable() {
+        let fail_resize = Rc::new(Cell::new(false));
+        let fail_snapshot = Rc::new(Cell::new(true));
+        let mut daemon = daemon_with_controlled_ghostty(
+            "attach-failure",
+            fail_resize,
+            Rc::clone(&fail_snapshot),
+        );
+        let session_id = SessionId("daemon-attach-failure-session".to_string());
+        let client_id = ClientId("daemon-attach-failure-client".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 20)
+            .expect("spawn session");
+
+        let error = daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                SubscriptionId("failed-subscription".to_string()),
+                21,
+            )
+            .expect_err("snapshot export failure should fail attach");
+        assert!(matches!(
+            error,
+            CoreDaemonError::Engine(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "capture_snapshot",
+                ref message,
+            }) if message == "forced Ghostty snapshot_export failure"
+        ));
+        assert!(daemon.pending_drain.is_empty());
+
+        fail_snapshot.set(false);
+        daemon
+            .attach(
+                client_id,
+                session_id.clone(),
+                SubscriptionId("fresh-subscription".to_string()),
+                22,
+            )
+            .expect("fresh subscription should attach after recovery");
+        let drained = daemon.drain(&session_id, 23).expect("drain attach events");
+        assert!(drained.client_egress.iter().all(|(_, frame)| !matches!(
+            frame,
+            TransportEgress::AttachState { subscription_id, .. }
+                if subscription_id.0 == "failed-subscription"
+        )));
+        assert!(drained.client_egress.iter().any(|(_, frame)| matches!(
+            frame,
+            TransportEgress::AttachState {
+                subscription_id,
+                state: TerminalAttachState::Attached,
+                ..
+            } if subscription_id.0 == "fresh-subscription"
+        )));
+        let _ = daemon.shutdown(Some(session_id), 24);
+        let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
+    }
+
+    fn daemon_with_controlled_ghostty(
+        label: &str,
+        fail_resize: Rc<Cell<bool>>,
+        fail_snapshot: Rc<Cell<bool>>,
+    ) -> CoreDaemon {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-core-daemon-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let config = CoreDaemonConfig::new(&data_dir);
+        let factory_fail_resize = Rc::clone(&fail_resize);
+        let factory_fail_snapshot = Rc::clone(&fail_snapshot);
+        let engine = DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
+            Ok::<_, GhosttyTerminalError>(ControlledGhosttyTerminal {
+                inner: default_ghostty_terminal(size)?,
+                fail_resize: Rc::clone(&factory_fail_resize),
+                fail_snapshot: Rc::clone(&factory_fail_snapshot),
+                forced_error: None,
+            })
+        });
+        CoreDaemon {
+            registry: SessionRegistry::new(&data_dir),
+            engine: DaemonEngine::Local(engine),
+            config,
+            notification_inbox: NotificationInbox::new(),
+            envelope_router: RoutedEnvelopeRouter::new(),
+            pending_drain: Vec::new(),
+            running: true,
+        }
+    }
+
+    fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+        SpawnSessionRequest {
+            request: botster_core::SessionSpawnRequest {
+                request_id: RequestId(format!("spawn-{}", session_id.0)),
+                session_id: session_id.clone(),
+                executable: "sh".to_string(),
+                arguments: vec!["-c".to_string(), "while :; do sleep 1; done".to_string()],
+                working_directory: SpawnWorkingDirectory {
+                    path: ".".to_string(),
+                },
+                environment: SpawnEnvironment::default(),
+                initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+            },
+            metadata: CoreSessionMetadata::new(),
+        }
+    }
+}
+
 fn live_session_count(engine: &DaemonEngine, session_id: &SessionId) -> usize {
     engine
         .list_sessions()
