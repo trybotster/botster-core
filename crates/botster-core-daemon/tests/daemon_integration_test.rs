@@ -17,7 +17,6 @@ use botster_core::{
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TerminalAttachState, TransportEgress,
 };
-#[cfg(feature = "ghostty-terminal")]
 use botster_core_daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
@@ -40,6 +39,18 @@ const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
 const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 #[cfg(feature = "ghostty-terminal")]
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
+#[cfg(feature = "ghostty-terminal")]
+const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
+
+#[test]
+fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
+    let config = CoreDaemonConfig::new("daemon-config-default");
+
+    assert_eq!(
+        config.ghostty_max_scrollback_bytes,
+        DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES
+    );
+}
 
 #[cfg(unix)]
 #[test]
@@ -1010,6 +1021,97 @@ fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_windo
     assert_ghostty_snapshot_replays_marker(&snapshot, "echo:scrollback-line-0000");
 
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[test]
+fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
+    let data_dir = temp_data_dir("dwgs-override");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(LOW_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    );
+    let session_id = SessionId("dwgs-override-session".to_string());
+    let primary_client = ClientId("dwgs-override-primary-client".to_string());
+    let late_client = ClientId("dwgs-override-late-client".to_string());
+    let marker_count = 4_500;
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("worker-backed daemon should spawn");
+    daemon
+        .attach(
+            primary_client.clone(),
+            session_id.clone(),
+            SubscriptionId("dwgs-override-primary-subscription".to_string()),
+            11,
+        )
+        .expect("primary attach should succeed");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    for chunk_start in (0..marker_count).step_by(50) {
+        let chunk_end = (chunk_start + 50).min(marker_count);
+        let mut scrollback_input = Vec::new();
+        for line in chunk_start..chunk_end {
+            scrollback_input.extend_from_slice(format!("scrollback-line-{line:05}\n").as_bytes());
+        }
+        daemon
+            .input(
+                primary_client.clone(),
+                session_id.clone(),
+                scrollback_input,
+                12 + chunk_start as u64,
+            )
+            .expect("scrollback generator chunk should write");
+        let chunk_marker = format!("echo:scrollback-line-{:05}", chunk_end - 1);
+        let _ = read_screen_until(
+            &mut daemon,
+            &session_id,
+            &chunk_marker,
+            20 + chunk_start as u64,
+        );
+    }
+    let newest_marker = format!("echo:scrollback-line-{:05}", marker_count - 1);
+
+    daemon
+        .attach(
+            late_client.clone(),
+            session_id.clone(),
+            SubscriptionId("dwgs-override-late-subscription".to_string()),
+            101,
+        )
+        .expect("late attach should receive a scrollback snapshot");
+    let late_drain = daemon
+        .drain(&session_id, 102)
+        .expect("late attach drain should succeed");
+    let (_, snapshot) = first_snapshot_for_client(&late_drain.client_egress, &late_client)
+        .expect("late Ghostty attach should include a snapshot frame");
+    let plain_text = ghostty_snapshot_plain_text(&snapshot);
+    let retained_markers = retained_ghostty_scrollback_markers(&plain_text, marker_count);
+    let retained_marker_count = retained_markers.len();
+    let replayed_text_length = plain_text.len();
+    let retains_newest_marker = plain_text.contains(&newest_marker);
+
+    daemon
+        .shutdown(Some(session_id), 103)
+        .expect("worker-backed daemon should shut down");
+    let _ = fs::remove_dir_all(data_dir);
+
+    assert!(
+        retained_marker_count > 0,
+        "low Ghostty byte budget should remain above the page-allocation floor"
+    );
+    assert!(
+        retained_marker_count < EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS,
+        "host override should retain fewer markers than the default budget's pinned minimum; retained markers: {}; replayed text length: {}",
+        retained_marker_count,
+        replayed_text_length
+    );
+    assert!(
+        retains_newest_marker,
+        "low Ghostty byte budget should retain the newest marker"
+    );
 }
 
 #[cfg(all(unix, feature = "ghostty-terminal"))]

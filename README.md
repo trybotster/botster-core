@@ -90,8 +90,19 @@ botster-core-daemon = { path = "crates/botster-core-daemon", default-features = 
 
 That opt-out uses the plain fallback terminal state and avoids the Ghostty/Zig
 dependency. The default daemon profile configures Ghostty with a 10 MB retained
-scrollback byte budget; the effective line count is determined by Ghostty's
-page allocator and terminal width.
+scrollback byte budget. Hosts can tune it without rebuilding:
+
+```rust
+let config = CoreDaemonConfig::new(data_dir)
+    .with_worker_path(session_worker_path)
+    .with_ghostty_max_scrollback_bytes(2_000_000);
+```
+
+The effective retained line count is determined by Ghostty's page allocator and
+terminal width. At the 10 MB default, a saturated 24x80 warm session currently
+produces about 9.0 MiB of opaque Snapshot payload per attaching client. Lower
+budgets reduce that per-client snapshot egress at the cost of less history for
+late attaches and reattaches; they do not change attach or snapshot semantics.
 `botster-core` itself still has no Ghostty dependency.
 
 Full command vocabulary (including typed `execute_command`):

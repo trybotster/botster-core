@@ -35,6 +35,14 @@ use crate::registry::{
     command_label, RegistryRecord, RegistrySessionState, SessionRegistry, SessionRegistryError,
 };
 
+/// Default Ghostty scrollback page-allocation byte budget for daemon sessions.
+///
+/// Ghostty quantizes this budget into terminal pages, so effective retained
+/// lines depend on terminal width. At this 10 MB budget, warm 24x80 sessions
+/// currently converge near a 9.0 MiB opaque snapshot frame per attaching client
+/// after scrollback saturation.
+pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
+
 /// Daemon configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreDaemonConfig {
@@ -46,6 +54,10 @@ pub struct CoreDaemonConfig {
     pub worker_path: Option<PathBuf>,
     /// Bounded per-target routed-envelope queue settings.
     pub routed_envelope_queue: RoutedEnvelopeQueueConfig,
+    /// Ghostty scrollback page-allocation byte budget for each daemon session.
+    ///
+    /// This setting is unused when the `ghostty-terminal` feature is disabled.
+    pub ghostty_max_scrollback_bytes: usize,
 }
 
 impl CoreDaemonConfig {
@@ -57,6 +69,7 @@ impl CoreDaemonConfig {
             client_queue_capacity: QueueSource::ClientWorker.default_capacity(),
             worker_path: None,
             routed_envelope_queue: RoutedEnvelopeQueueConfig::default(),
+            ghostty_max_scrollback_bytes: DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES,
         }
     }
 
@@ -71,6 +84,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_routed_envelope_queue(mut self, config: RoutedEnvelopeQueueConfig) -> Self {
         self.routed_envelope_queue = config;
+        self
+    }
+
+    /// Use an explicit Ghostty scrollback page-allocation byte budget.
+    #[must_use]
+    pub const fn with_ghostty_max_scrollback_bytes(mut self, max_bytes: usize) -> Self {
+        self.ghostty_max_scrollback_bytes = max_bytes;
         self
     }
 }
@@ -132,15 +152,16 @@ impl CoreDaemon {
     #[must_use]
     pub fn new(config: CoreDaemonConfig) -> Self {
         let registry = SessionRegistry::new(&config.data_dir);
+        let ghostty_max_scrollback_bytes = config.ghostty_max_scrollback_bytes;
         let engine = config
             .worker_path
             .as_ref()
             .map(|worker_path| {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
-                DaemonEngine::Worker(worker_engine(options))
+                DaemonEngine::Worker(worker_engine(options, ghostty_max_scrollback_bytes))
             })
-            .unwrap_or_else(|| DaemonEngine::Local(local_engine()));
+            .unwrap_or_else(|| DaemonEngine::Local(local_engine(ghostty_max_scrollback_bytes)));
         let envelope_queue = config.routed_envelope_queue.clone();
         Self {
             config,
@@ -778,44 +799,43 @@ impl CoreDaemon {
 }
 
 #[cfg(feature = "ghostty-terminal")]
-/// Default Ghostty scrollback page-allocation byte budget for daemon sessions.
-///
-/// Ghostty quantizes this budget into terminal pages, so effective retained
-/// lines depend on terminal width. At this 10 MB budget, warm 24x80 sessions
-/// currently converge near a 9.0 MiB opaque snapshot frame per attaching client
-/// after scrollback saturation.
-pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
-
-#[cfg(feature = "ghostty-terminal")]
-fn local_engine() -> DefaultBotsterEngine {
-    DefaultBotsterEngine::with_terminal_backend_factory(default_ghostty_terminal)
+fn local_engine(max_scrollback_bytes: usize) -> DefaultBotsterEngine {
+    DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
+        default_ghostty_terminal(size, max_scrollback_bytes)
+    })
 }
 
 #[cfg(not(feature = "ghostty-terminal"))]
-fn local_engine() -> DefaultBotsterEngine {
+fn local_engine(_max_scrollback_bytes: usize) -> DefaultBotsterEngine {
     DefaultBotsterEngine::new()
 }
 
 #[cfg(feature = "ghostty-terminal")]
-fn worker_engine(options: WorkerProcessRuntimeOptions) -> WorkerBackedBotsterEngine {
-    WorkerBackedBotsterEngine::with_options_and_terminal_backend_factory(
-        options,
-        default_ghostty_terminal,
-    )
+fn worker_engine(
+    options: WorkerProcessRuntimeOptions,
+    max_scrollback_bytes: usize,
+) -> WorkerBackedBotsterEngine {
+    WorkerBackedBotsterEngine::with_options_and_terminal_backend_factory(options, move |size| {
+        default_ghostty_terminal(size, max_scrollback_bytes)
+    })
 }
 
 #[cfg(not(feature = "ghostty-terminal"))]
-fn worker_engine(options: WorkerProcessRuntimeOptions) -> WorkerBackedBotsterEngine {
+fn worker_engine(
+    options: WorkerProcessRuntimeOptions,
+    _max_scrollback_bytes: usize,
+) -> WorkerBackedBotsterEngine {
     WorkerBackedBotsterEngine::with_options(options)
 }
 
 #[cfg(feature = "ghostty-terminal")]
 fn default_ghostty_terminal(
     size: TerminalScreenSize,
+    max_scrollback_bytes: usize,
 ) -> Result<GhosttyTerminal, GhosttyTerminalError> {
     GhosttyTerminal::with_config(
         size,
-        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(max_scrollback_bytes),
     )
 }
 
@@ -1267,7 +1287,7 @@ mod terminal_backend_failure_tests {
         let factory_fail_snapshot = Rc::clone(&fail_snapshot);
         let engine = DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
             Ok::<_, GhosttyTerminalError>(ControlledGhosttyTerminal {
-                inner: default_ghostty_terminal(size)?,
+                inner: default_ghostty_terminal(size, DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES)?,
                 fail_resize: Rc::clone(&factory_fail_resize),
                 fail_snapshot: Rc::clone(&factory_fail_snapshot),
                 forced_error: None,
