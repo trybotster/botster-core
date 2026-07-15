@@ -443,6 +443,14 @@ impl DefaultBotsterEngine {
         self.runtime.capture_snapshot_payload(session_id)
     }
 
+    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    pub fn capture_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(String, TerminalSnapshotPayload), DefaultBotsterEngineError> {
+        self.runtime.capture_terminal_state(session_id)
+    }
+
     /// Replay or prepare a snapshot where the managed runtime supports it.
     pub fn replay_snapshot(
         &mut self,
@@ -666,6 +674,14 @@ impl WorkerBackedBotsterEngine {
         session_id: &SessionId,
     ) -> Result<TerminalSnapshotPayload, WorkerBackedBotsterEngineError> {
         self.runtime.capture_snapshot_payload(session_id)
+    }
+
+    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    pub fn capture_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(String, TerminalSnapshotPayload), WorkerBackedBotsterEngineError> {
+        self.runtime.capture_terminal_state(session_id)
     }
 
     /// Shut down a worker-owned session.

@@ -1,9 +1,10 @@
 //! Core daemon supervisor and typed API implementation.
 
-use std::path::PathBuf;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
+    path::PathBuf,
+    time::{Duration, Instant},
 };
 
 #[cfg(feature = "ghostty-terminal")]
@@ -13,8 +14,8 @@ use botster_core::{
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
     QueueSource, RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter,
     ScreenReady, SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeErrorKind,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, WorkerBackedBotsterEngine,
-    WorkerProcessRuntimeOptions,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalSnapshotPayload,
+    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
 #[cfg(feature = "ghostty-terminal")]
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
@@ -134,6 +135,7 @@ pub struct CoreDaemon {
     notification_inbox: NotificationInbox,
     envelope_router: RoutedEnvelopeRouter,
     pending_drain: Vec<PendingDrainResult>,
+    retained_terminal: HashMap<SessionId, RetainedTerminalState>,
     running: bool,
 }
 
@@ -145,6 +147,17 @@ enum DaemonEngine {
 struct PendingDrainResult {
     session_id: SessionId,
     result: DrainResult,
+}
+
+#[derive(Clone)]
+struct RetainedTerminalState {
+    screen_text: String,
+    snapshot: TerminalSnapshotPayload,
+}
+
+enum ReadbackResolution {
+    Live,
+    Retained(RetainedTerminalState),
 }
 
 impl CoreDaemon {
@@ -170,6 +183,7 @@ impl CoreDaemon {
             notification_inbox: NotificationInbox::new(),
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             pending_drain: Vec::new(),
+            retained_terminal: HashMap::new(),
             running: true,
         }
     }
@@ -237,7 +251,7 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<AttachedSession, CoreDaemonError> {
         self.ensure_running()?;
-        self.ensure_session(&session_id)?;
+        self.ensure_session_mutable(&session_id)?;
         let output = self.engine.attach_client(
             client_id.clone(),
             session_id.clone(),
@@ -282,7 +296,7 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
-        self.ensure_session(&session_id)?;
+        self.ensure_session_mutable(&session_id)?;
         self.engine
             .write_bytes(client_id, session_id, data.into(), now_seconds)?;
         Ok(())
@@ -298,7 +312,7 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
-        self.ensure_session(&session_id)?;
+        self.ensure_session_mutable(&session_id)?;
         self.engine
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
@@ -331,6 +345,14 @@ impl CoreDaemon {
             }
         }
         self.reconcile_lifecycle_observations(&result.observations, last_output_at)?;
+        if self.engine_session_exited(session_id)
+            && !self.retained_terminal.contains_key(session_id)
+        {
+            if let Err(error) = self.retain_final_terminal_state(session_id) {
+                self.retain_pending_drain_result(session_id, result);
+                return Err(error);
+            }
+        }
         Ok(result)
     }
 
@@ -346,9 +368,17 @@ impl CoreDaemon {
         request: ReadScreenRequest,
     ) -> Result<ReadScreenResult, CoreDaemonError> {
         self.ensure_running()?;
-        self.ensure_session_readable(&request.session_id)?;
-        self.drain_runtime_for_readback(&request.session_id, request.now_seconds)?;
-        self.ensure_session_readable(&request.session_id)?;
+        if let ReadbackResolution::Retained(retained) =
+            self.resolve_readback(&request.session_id, request.now_seconds)?
+        {
+            return Ok(ReadScreenResult {
+                screen: ScreenReady {
+                    request_id: request.request_id,
+                    session_id: request.session_id,
+                    text: retained.screen_text,
+                },
+            });
+        }
         let mut output = self.engine.read_screen(
             request.request_id.clone(),
             request.session_id.clone(),
@@ -372,9 +402,15 @@ impl CoreDaemon {
         request: CaptureSnapshotRequest,
     ) -> Result<CaptureSnapshotResult, CoreDaemonError> {
         self.ensure_running()?;
-        self.ensure_session_readable(&request.session_id)?;
-        self.drain_runtime_for_readback(&request.session_id, request.now_seconds)?;
-        self.ensure_session_readable(&request.session_id)?;
+        if let ReadbackResolution::Retained(retained) =
+            self.resolve_readback(&request.session_id, request.now_seconds)?
+        {
+            let payload = retained.snapshot;
+            let snapshot = payload
+                .clone()
+                .into_snapshot_ready(request.request_id, request.session_id);
+            return Ok(CaptureSnapshotResult { snapshot, payload });
+        }
         let payload = self.engine.capture_snapshot_payload(&request.session_id)?;
         let snapshot = payload
             .clone()
@@ -496,6 +532,7 @@ impl CoreDaemon {
                 ],
             });
         }
+        self.ensure_session_mutable(&request.session_id)?;
 
         let decision = decide_guarded_write(&request.readiness);
         let mut states = vec![GuardedWriteDeliveryState::Accepted];
@@ -660,6 +697,7 @@ impl CoreDaemon {
         for session in sessions {
             self.shutdown_session(session.session_id, now_seconds)?;
         }
+        self.retained_terminal.clear();
         self.running = false;
         Ok(())
     }
@@ -672,7 +710,25 @@ impl CoreDaemon {
         self.ensure_session(&session_id)?;
         self.engine
             .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut final_output_drained = self.engine_session_exited(&session_id);
+        while !final_output_drained && Instant::now() < deadline {
+            match self.engine.drain_runtime_once(&session_id, now_seconds) {
+                Ok(_) => final_output_drained = self.engine_session_exited(&session_id),
+                Err(error) if is_session_not_found(&error) => {
+                    final_output_drained = true;
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            }
+            if !final_output_drained {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
         self.drop_pending_drain(&session_id);
+        if final_output_drained {
+            self.retain_final_terminal_state(&session_id)?;
+        }
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;
@@ -720,7 +776,7 @@ impl CoreDaemon {
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
     }
 
-    fn ensure_session_readable(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
+    fn ensure_session_mutable(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
         let session = self
             .engine
             .session(session_id)
@@ -730,13 +786,7 @@ impl CoreDaemon {
             SessionLifecycleState::Stopping
                 | SessionLifecycleState::Exited { .. }
                 | SessionLifecycleState::Failed { .. }
-        ) {
-            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
-        }
-        // Keep this registry read explicit on the readback hot path. The
-        // engine lifecycle is not authoritative after an operator marks an
-        // otherwise-live registry record stale.
-        if matches!(
+        ) || matches!(
             self.registry.load(session_id)?.map(|record| record.state),
             Some(
                 RegistrySessionState::Stopping
@@ -746,6 +796,94 @@ impl CoreDaemon {
         ) {
             return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
         }
+        Ok(())
+    }
+
+    fn resolve_readback(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<ReadbackResolution, CoreDaemonError> {
+        let registry_state = self.registry.load(session_id)?.map(|record| record.state);
+        if matches!(registry_state, Some(RegistrySessionState::Stale)) {
+            self.retained_terminal.remove(session_id);
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+
+        let lifecycle = self
+            .engine
+            .session(session_id)
+            .map(|session| session.lifecycle.clone());
+        if let Some(retained) = self.retained_terminal.get(session_id) {
+            if matches!(registry_state, Some(RegistrySessionState::Exited))
+                || matches!(lifecycle, Some(SessionLifecycleState::Exited { .. }))
+            {
+                return Ok(ReadbackResolution::Retained(retained.clone()));
+            }
+        }
+
+        let Some(lifecycle) = lifecycle else {
+            return if matches!(
+                registry_state,
+                Some(
+                    RegistrySessionState::Stopping
+                        | RegistrySessionState::Exited
+                        | RegistrySessionState::Stale
+                )
+            ) {
+                Err(CoreDaemonError::SessionNotReadable(session_id.clone()))
+            } else {
+                Err(CoreDaemonError::UnknownSession(session_id.clone()))
+            };
+        };
+        if matches!(
+            lifecycle,
+            SessionLifecycleState::Stopping
+                | SessionLifecycleState::Exited { .. }
+                | SessionLifecycleState::Failed { .. }
+        ) || matches!(
+            registry_state,
+            Some(RegistrySessionState::Stopping | RegistrySessionState::Exited)
+        ) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+
+        self.drain_runtime_for_readback(session_id, now_seconds)?;
+        if self.engine_session_exited(session_id) {
+            self.retain_final_terminal_state(session_id)?;
+            return Ok(ReadbackResolution::Retained(
+                self.retained_terminal
+                    .get(session_id)
+                    .expect("final terminal state was just retained")
+                    .clone(),
+            ));
+        }
+        if matches!(
+            self.engine
+                .session(session_id)
+                .map(|session| &session.lifecycle),
+            Some(SessionLifecycleState::Stopping | SessionLifecycleState::Failed { .. })
+        ) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+        Ok(ReadbackResolution::Live)
+    }
+
+    fn retain_final_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), CoreDaemonError> {
+        if self.retained_terminal.contains_key(session_id) {
+            return Ok(());
+        }
+        let (screen_text, snapshot) = self.engine.capture_terminal_state(session_id)?;
+        self.retained_terminal.insert(
+            session_id.clone(),
+            RetainedTerminalState {
+                screen_text,
+                snapshot,
+            },
+        );
         Ok(())
     }
 
@@ -1036,6 +1174,16 @@ impl DaemonEngine {
         }
     }
 
+    fn capture_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(String, TerminalSnapshotPayload), DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.capture_terminal_state(session_id),
+            Self::Worker(engine) => engine.capture_terminal_state(session_id),
+        }
+    }
+
     fn shutdown_session(
         &mut self,
         session_id: SessionId,
@@ -1270,6 +1418,44 @@ mod terminal_backend_failure_tests {
         let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
     }
 
+    #[test]
+    fn failed_final_capture_installs_no_retained_terminal_state() {
+        let fail_resize = Rc::new(Cell::new(false));
+        let fail_snapshot = Rc::new(Cell::new(false));
+        let mut daemon = daemon_with_controlled_ghostty(
+            "final-capture-failure",
+            fail_resize,
+            Rc::clone(&fail_snapshot),
+        );
+        let session_id = SessionId("daemon-final-capture-failure-session".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 30)
+            .expect("spawn session");
+
+        fail_snapshot.set(true);
+        let error = daemon
+            .shutdown(Some(session_id.clone()), 31)
+            .expect_err("failed paired final capture should fail shutdown finalization");
+        assert!(matches!(
+            error,
+            CoreDaemonError::Engine(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "capture_snapshot",
+                ref message,
+            }) if message == "forced Ghostty snapshot_export failure"
+        ));
+        assert!(!daemon.retained_terminal.contains_key(&session_id));
+        assert!(matches!(
+            daemon.read_screen(ReadScreenRequest {
+                request_id: RequestId("failed-final-screen".to_string()),
+                session_id: session_id.clone(),
+                now_seconds: 32,
+            }),
+            Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
+        ));
+
+        let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
+    }
+
     fn daemon_with_controlled_ghostty(
         label: &str,
         fail_resize: Rc<Cell<bool>>,
@@ -1300,6 +1486,7 @@ mod terminal_backend_failure_tests {
             notification_inbox: NotificationInbox::new(),
             envelope_router: RoutedEnvelopeRouter::new(),
             pending_drain: Vec::new(),
+            retained_terminal: HashMap::new(),
             running: true,
         }
     }
