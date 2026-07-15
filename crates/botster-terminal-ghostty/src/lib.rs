@@ -225,7 +225,6 @@ mod native {
                 };
             }
 
-            self.clear_last_error();
             TerminalOutputChunk::new(bytes.to_vec())
         }
 

@@ -105,11 +105,17 @@ fn successful_operations_clear_prior_last_error() {
     assert!(runtime.last_error().is_some());
 
     runtime.write_output(b"ok");
+    assert!(runtime.last_error().is_some());
+
+    runtime.write_output(b"");
+    assert!(runtime.last_error().is_some());
+
+    assert!(runtime.screen_state().plain_text.contains("ok"));
     assert_eq!(runtime.last_error(), None);
 
     runtime.replay_snapshot(invalid);
     assert!(runtime.last_error().is_some());
 
-    assert!(runtime.screen_state().plain_text.contains("ok"));
+    runtime.resize(TerminalScreenSize::new(30, 100));
     assert_eq!(runtime.last_error(), None);
 }

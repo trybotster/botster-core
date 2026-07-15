@@ -212,10 +212,14 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         let _ = self.registry.write_input(session_id, data);
     }
 
-    fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16) {
-        let _ = self
-            .registry
-            .resize(session_id, ResizePayload { rows, cols });
+    fn resize(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), SessionRuntimeError> {
+        self.registry
+            .resize(session_id, ResizePayload { rows, cols })
     }
 
     fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
@@ -229,7 +233,12 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         }
     }
 
-    fn request_initial_snapshot(&mut self, _request: InitialSnapshotRequest) {}
+    fn request_initial_snapshot(
+        &mut self,
+        _request: InitialSnapshotRequest,
+    ) -> Result<(), SessionRuntimeError> {
+        Ok(())
+    }
 
     fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {
         Ok(SendFileWritten {

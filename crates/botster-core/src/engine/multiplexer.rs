@@ -349,18 +349,42 @@ where
             self.ensure_session(&session_id)?;
         }
 
-        let multiplexer_outcome = self.subscriptions.handle_client_ingress(client_id, ingress);
+        let subscription_rollback = match &ingress {
+            TransportIngress::SubscribeSession { session_id, .. } => Some((
+                session_id.clone(),
+                self.subscriptions
+                    .active_subscription(&client_id, session_id),
+            )),
+            _ => None,
+        };
+        let multiplexer_outcome = self
+            .subscriptions
+            .handle_client_ingress(client_id.clone(), ingress);
         let session_requests = multiplexer_outcome.session_requests.clone();
         let mut outcome = MultiplexerEngineOutcome::empty();
         outcome.append_multiplexer(multiplexer_outcome);
 
         for (session_id, request) in session_requests {
             let worker_was_closed = self.session_worker_is_closed(&session_id)?;
-            let worker_outcome = self.handle_session_request_inner(
+            let worker_outcome = match self.handle_session_request_inner(
                 session_id.clone(),
                 request.clone(),
                 now_seconds,
-            )?;
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    if let Some((rollback_session_id, subscription_id)) =
+                        subscription_rollback.clone()
+                    {
+                        self.subscriptions.restore_subscription(
+                            &client_id,
+                            rollback_session_id,
+                            subscription_id,
+                        );
+                    }
+                    return Err(error);
+                }
+            };
             outcome.append_worker(worker_outcome.clone());
             self.route_worker_events(worker_outcome, &mut outcome)?;
             if !worker_was_closed {
