@@ -15,7 +15,12 @@ pub trait SessionWorkerRuntime {
     fn write_input(&mut self, session_id: &SessionId, data: &[u8]);
 
     /// Resize the terminal runtime.
-    fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16);
+    fn resize(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), SessionRuntimeError>;
 
     /// Produce a terminal snapshot for a request.
     fn snapshot(&mut self, request_id: crate::RequestId, session_id: SessionId) -> SnapshotReady;
@@ -23,7 +28,10 @@ pub trait SessionWorkerRuntime {
     /// Request an authoritative initial snapshot of the current terminal state.
     ///
     /// Callers that need a resized snapshot must resize before this request.
-    fn request_initial_snapshot(&mut self, request: crate::InitialSnapshotRequest);
+    fn request_initial_snapshot(
+        &mut self,
+        request: crate::InitialSnapshotRequest,
+    ) -> Result<(), SessionRuntimeError>;
 
     /// Prepare send-file payload storage.
     fn send_file(
@@ -202,7 +210,6 @@ where
                 rows,
                 cols,
             } => {
-                self.initial_snapshot_barrier = Some(InitialSnapshotBarrier::new());
                 self.runtime
                     .request_initial_snapshot(crate::InitialSnapshotRequest {
                         request_id,
@@ -211,7 +218,8 @@ where
                         subscription_id,
                         rows,
                         cols,
-                    });
+                    })?;
+                self.initial_snapshot_barrier = Some(InitialSnapshotBarrier::new());
                 Ok(SessionWorkerOutcome::from_events(
                     Vec::new(),
                     self.last_output_at,
@@ -233,7 +241,7 @@ where
                 rows,
                 cols,
             } => {
-                self.runtime.resize(&session_id, rows, cols);
+                self.runtime.resize(&session_id, rows, cols)?;
                 Ok(SessionWorkerOutcome::from_events(
                     Vec::new(),
                     self.last_output_at,
@@ -252,9 +260,9 @@ where
             }
             SessionIoRequest::GetInitialSnapshot(request) => {
                 self.runtime
-                    .resize(&request.session_id, request.rows, request.cols);
+                    .resize(&request.session_id, request.rows, request.cols)?;
+                self.runtime.request_initial_snapshot(request)?;
                 self.initial_snapshot_barrier = Some(InitialSnapshotBarrier::new());
-                self.runtime.request_initial_snapshot(request);
                 Ok(SessionWorkerOutcome::from_events(
                     Vec::new(),
                     self.last_output_at,

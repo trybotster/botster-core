@@ -274,8 +274,14 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
         self.engine.normalize_output(data);
     }
 
-    fn resize(&mut self, _session_id: &SessionId, rows: u16, cols: u16) {
+    fn resize(
+        &mut self,
+        _session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), botster_core::SessionRuntimeError> {
         self.engine.resize(TerminalScreenSize::new(rows, cols));
+        Ok(())
     }
 
     fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
@@ -286,7 +292,12 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
         }
     }
 
-    fn request_initial_snapshot(&mut self, _request: botster_core::InitialSnapshotRequest) {}
+    fn request_initial_snapshot(
+        &mut self,
+        _request: botster_core::InitialSnapshotRequest,
+    ) -> Result<(), botster_core::SessionRuntimeError> {
+        Ok(())
+    }
 
     fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {
         Ok(SendFileWritten {

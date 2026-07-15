@@ -232,9 +232,19 @@ where
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_ingress(&ingress)?;
-        let outcome = self
+        let backend_operation = terminal_backend_ingress_operation(&ingress);
+        let outcome = match self
             .engine
-            .handle_client_ingress(client_id, ingress, now_seconds)?;
+            .handle_client_ingress(client_id, ingress, now_seconds)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if let Some((session_id, operation)) = backend_operation {
+                    self.ensure_terminal_backend_ok(&session_id, operation)?;
+                }
+                return Err(error.into());
+            }
+        };
         self.flush_runtime_inputs()?;
         Ok(outcome)
     }
@@ -703,13 +713,25 @@ where
             });
     }
 
-    fn resize(&mut self, session_id: &SessionId, rows: u16, cols: u16) {
+    fn resize(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), SessionRuntimeError> {
         let mut state = self.state.borrow_mut();
         state.terminal.resize(TerminalScreenSize::new(rows, cols));
+        if let Some(message) = state.terminal.runtime().last_error() {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                message,
+            ));
+        }
         state.inputs.push(SessionRuntimeInput::Resize {
             session_id: session_id.clone(),
             size: ResizePayload { rows, cols },
         });
+        Ok(())
     }
 
     fn snapshot(&mut self, request_id: RequestId, session_id: SessionId) -> SnapshotReady {
@@ -723,7 +745,10 @@ where
         snapshot.into_snapshot_ready(request_id, session_id)
     }
 
-    fn request_initial_snapshot(&mut self, request: crate::InitialSnapshotRequest) {
+    fn request_initial_snapshot(
+        &mut self,
+        request: crate::InitialSnapshotRequest,
+    ) -> Result<(), SessionRuntimeError> {
         let snapshot = self
             .state
             .borrow_mut()
@@ -731,6 +756,12 @@ where
             .capture_snapshot()
             .snapshot
             .expect("terminal screen engine captures a snapshot");
+        if let Some(message) = self.state.borrow().terminal.runtime().last_error() {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                message,
+            ));
+        }
         self.state.borrow_mut().pending_runtime_events.push(
             crate::SessionWorkerRuntimeEvent::InitialSnapshotReady(crate::InitialSnapshotReady {
                 request_id: request.request_id,
@@ -742,6 +773,7 @@ where
                 cols: snapshot.size.cols,
             }),
         );
+        Ok(())
     }
 
     fn send_file(&mut self, request: SendFileRequest) -> Result<SendFileWritten, SendFileFailed> {
@@ -822,6 +854,18 @@ fn reject_unsupported_ingress(
         | TransportIngress::BoundaryPayload { .. }
         | TransportIngress::ClientState { .. }
         | TransportIngress::Ping { .. } => Ok(()),
+    }
+}
+
+fn terminal_backend_ingress_operation(
+    ingress: &TransportIngress,
+) -> Option<(SessionId, &'static str)> {
+    match ingress {
+        TransportIngress::Resize { session_id, .. } => Some((session_id.clone(), "resize")),
+        TransportIngress::SubscribeSession { session_id, .. } => {
+            Some((session_id.clone(), "capture_snapshot"))
+        }
+        _ => None,
     }
 }
 
