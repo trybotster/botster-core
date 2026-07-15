@@ -1314,7 +1314,7 @@ fn worker_backed_empty_initial_snapshot_attaches_before_live_output_without_hist
 
 #[cfg(unix)]
 #[test]
-fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
+fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
     let data_dir = temp_data_dir("dssn");
     let mut daemon =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
@@ -1338,22 +1338,34 @@ fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
     ));
 
     let session_id = SessionId("dssn-empty-session".to_string());
+    let client_id = ClientId("dssn-client".to_string());
     daemon
         .spawn(spawn_request(&session_id), 11)
         .expect("worker-backed daemon should spawn");
-    let screen = daemon
-        .read_screen(ReadScreenRequest {
-            request_id: RequestId("empty-screen".to_string()),
-            session_id: session_id.clone(),
-            now_seconds: 12,
-        })
-        .expect("spawned never explicitly drained session should still read screen");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("dssn-subscription".to_string()),
+            12,
+        )
+        .expect("worker-backed daemon should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"shutdown-final\n".to_vec(),
+            13,
+        )
+        .expect("shutdown marker input should write");
+    let screen = read_screen_until(&mut daemon, &session_id, "echo:shutdown-final", 14);
     assert_eq!(screen.screen.session_id, session_id);
     let snapshot = daemon
         .capture_snapshot(CaptureSnapshotRequest {
             request_id: RequestId("empty-snapshot".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 13,
+            now_seconds: 15,
         })
         .expect("spawned never explicitly drained session should still capture snapshot");
     assert_eq!(snapshot.snapshot.session_id, session_id);
@@ -1362,19 +1374,83 @@ fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
     daemon
         .shutdown(Some(session_id.clone()), 20)
         .expect("shutdown should succeed");
-    assert!(matches!(
-        daemon.read_screen(ReadScreenRequest {
-            request_id: RequestId("shutdown-screen".to_string()),
+    let first_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-screen-1".to_string()),
             session_id: session_id.clone(),
             now_seconds: 21,
-        }),
-        Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
-    ));
-    assert!(matches!(
-        daemon.capture_snapshot(CaptureSnapshotRequest {
-            request_id: RequestId("shutdown-snapshot".to_string()),
+        })
+        .expect("shutdown screen should serve retained terminal truth");
+    let first_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("shutdown-snapshot-1".to_string()),
             session_id: session_id.clone(),
             now_seconds: 22,
+        })
+        .expect("shutdown snapshot should serve retained terminal truth");
+    let second_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-screen-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 23,
+        })
+        .expect("shutdown screen should be repeatable");
+    let second_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("shutdown-snapshot-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 24,
+        })
+        .expect("shutdown snapshot should be repeatable");
+
+    assert!(first_screen.screen.text.contains("echo:shutdown-final"));
+    assert_eq!(first_screen.screen.text, second_screen.screen.text);
+    assert_ne!(
+        first_screen.screen.request_id,
+        second_screen.screen.request_id
+    );
+    assert_eq!(first_snapshot.payload, second_snapshot.payload);
+    assert_ne!(
+        first_snapshot.snapshot.request_id,
+        second_snapshot.snapshot.request_id
+    );
+
+    assert!(daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"late-input\n".to_vec(),
+            25,
+        )
+        .is_err());
+    assert!(daemon
+        .resize(client_id.clone(), session_id.clone(), 40, 120, 26)
+        .is_err());
+    assert!(daemon
+        .attach(
+            client_id,
+            session_id.clone(),
+            SubscriptionId("dssn-late-subscription".to_string()),
+            27,
+        )
+        .is_err());
+    let unchanged = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-screen-unchanged".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 28,
+        })
+        .expect("failed mutation attempts must not change retained truth");
+    assert_eq!(unchanged.screen.text, first_screen.screen.text);
+
+    daemon
+        .mark_stale(&session_id, 29)
+        .expect("test should mark retained registry record stale");
+    assert!(matches!(
+        daemon.read_screen(ReadScreenRequest {
+            request_id: RequestId("stale-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 30,
         }),
         Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
     ));
@@ -1384,7 +1460,7 @@ fn daemon_screen_and_snapshot_negative_paths_return_errors_without_panics() {
 
 #[cfg(unix)]
 #[test]
-fn natural_exit_read_screen_and_capture_snapshot_error_on_first_readback() {
+fn natural_exit_read_screen_and_capture_snapshot_freeze_repeatable_truth() {
     let data_dir = temp_data_dir("dnex");
     let mut daemon =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
@@ -1412,23 +1488,53 @@ fn natural_exit_read_screen_and_capture_snapshot_error_on_first_readback() {
         .expect("screen self-exit input should write");
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    let screen_result = daemon.read_screen(ReadScreenRequest {
-        request_id: RequestId("natural-exit-screen".to_string()),
-        session_id: screen_session.clone(),
-        now_seconds: 13,
-    });
-    assert!(
-        matches!(
-            screen_result,
-            Err(CoreDaemonError::SessionNotReadable(ref session)) if session == &screen_session
-        ),
-        "first natural-exit read_screen should fail; got {screen_result:?}; sessions: {:?}",
-        daemon.list()
+    let first_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("natural-exit-screen-1".to_string()),
+            session_id: screen_session.clone(),
+            now_seconds: 13,
+        })
+        .expect("first natural-exit read_screen should freeze and serve terminal truth");
+    let first_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-screen-snapshot-1".to_string()),
+            session_id: screen_session.clone(),
+            now_seconds: 14,
+        })
+        .expect("natural-exit snapshot should reuse retained truth");
+    let second_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("natural-exit-screen-2".to_string()),
+            session_id: screen_session.clone(),
+            now_seconds: 15,
+        })
+        .expect("natural-exit screen should be repeatable");
+    let second_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-screen-snapshot-2".to_string()),
+            session_id: screen_session.clone(),
+            now_seconds: 16,
+        })
+        .expect("natural-exit snapshot should be repeatable");
+    assert!(first_screen.screen.text.contains("echo:screen-exit"));
+    assert_eq!(first_screen.screen.text, second_screen.screen.text);
+    assert_eq!(first_snapshot.payload, second_snapshot.payload);
+    assert_ne!(
+        first_screen.screen.request_id,
+        second_screen.screen.request_id
+    );
+    assert_ne!(
+        first_snapshot.snapshot.request_id,
+        second_snapshot.snapshot.request_id
     );
     let screen_drain = daemon
-        .drain(&screen_session, 14)
-        .expect("drain after refused read_screen should return retained final output");
+        .drain(&screen_session, 17)
+        .expect("drain after retained read_screen should return final output");
     assert_retained_exit_output(&screen_drain, &screen_session, "echo:screen-exit");
+    let second_screen_drain = daemon
+        .drain(&screen_session, 18)
+        .expect("second drain after retained readback should succeed");
+    assert_no_duplicate_exit_output(&second_screen_drain, "echo:screen-exit");
 
     let snapshot_session = SessionId("dnex-snapshot-session".to_string());
     daemon
@@ -1453,23 +1559,57 @@ fn natural_exit_read_screen_and_capture_snapshot_error_on_first_readback() {
         .expect("snapshot self-exit input should write");
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    let snapshot_result = daemon.capture_snapshot(CaptureSnapshotRequest {
-        request_id: RequestId("natural-exit-snapshot".to_string()),
-        session_id: snapshot_session.clone(),
-        now_seconds: 23,
-    });
-    assert!(
-        matches!(
-            snapshot_result,
-            Err(CoreDaemonError::SessionNotReadable(ref session)) if session == &snapshot_session
-        ),
-        "first natural-exit capture_snapshot should fail; got {snapshot_result:?}; sessions: {:?}",
-        daemon.list()
+    let snapshot_result = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-snapshot-1".to_string()),
+            session_id: snapshot_session.clone(),
+            now_seconds: 23,
+        })
+        .expect("first natural-exit capture_snapshot should freeze and serve terminal truth");
+    let snapshot_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("natural-exit-snapshot-screen".to_string()),
+            session_id: snapshot_session.clone(),
+            now_seconds: 24,
+        })
+        .expect("screen should share snapshot-triggered retained truth");
+    let repeated_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-snapshot-2".to_string()),
+            session_id: snapshot_session.clone(),
+            now_seconds: 25,
+        })
+        .expect("snapshot-triggered retained truth should be repeatable");
+    assert!(snapshot_screen.screen.text.contains("echo:snapshot-exit"));
+    assert_eq!(snapshot_result.payload, repeated_snapshot.payload);
+    assert_ne!(
+        snapshot_result.snapshot.request_id,
+        repeated_snapshot.snapshot.request_id
     );
     let snapshot_drain = daemon
-        .drain(&snapshot_session, 24)
-        .expect("drain after refused capture_snapshot should return retained final output");
+        .drain(&snapshot_session, 26)
+        .expect("drain after retained capture_snapshot should return final output");
     assert_retained_exit_output(&snapshot_drain, &snapshot_session, "echo:snapshot-exit");
+    let second_snapshot_drain = daemon
+        .drain(&snapshot_session, 27)
+        .expect("second drain after retained snapshot should succeed");
+    assert_no_duplicate_exit_output(&second_snapshot_drain, "echo:snapshot-exit");
+
+    let registry_json =
+        fs::read_to_string(data_dir.join("sessions").join("dnex-snapshot-session.json"))
+            .expect("registry JSON should remain readable");
+    assert!(!registry_json.contains("echo:snapshot-exit"));
+    drop(daemon);
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    assert!(matches!(
+        restarted.read_screen(ReadScreenRequest {
+            request_id: RequestId("restart-screen".to_string()),
+            session_id: snapshot_session.clone(),
+            now_seconds: 28,
+        }),
+        Err(CoreDaemonError::SessionNotReadable(session)) if session == snapshot_session
+    ));
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -2275,6 +2415,18 @@ fn assert_retained_exit_output(
         "retained drain should include the process-exit lifecycle observation: {:?}",
         drained.observations
     );
+}
+
+fn assert_no_duplicate_exit_output(drained: &botster_core_daemon::DrainResult, expected: &str) {
+    let output = terminal_output(&drained.client_egress);
+    assert_eq!(count_occurrences(&output, expected), 0);
+    assert!(drained.observations.iter().all(|observation| !matches!(
+        observation,
+        BotsterEngineObservation::SessionLifecycle {
+            state: SessionLifecycleState::Exited { .. },
+            ..
+        }
+    )));
 }
 
 fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {
