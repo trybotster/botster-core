@@ -44,18 +44,22 @@ drain the target session before reading terminal state because worker-backed
 terminal truth advances on the drain path. Any client egress or observations
 produced by that internal drain are retained and prepended to the next explicit
 `CoreDaemon::drain` result for the session, matching the attach retention
-contract. Lifecycle observations from the internal readback drain are
-retained for the next explicit `CoreDaemon::drain`. The internal readback
-drain advances the engine's session lifecycle, so a process that has already
-exited is observed on that same call and the readback returns
-`SessionNotReadable` rather than stale terminal state.
-Readback requires a live readable session: `read_screen` and
-`capture_snapshot` return `SessionNotReadable` once the engine lifecycle is
-stopping, exited, or failed, or when the registry record has been marked
-stopping, exited, or stale. `CoreDaemon::drain` intentionally remains
-available for those sessions so hosts can flush retained egress and lifecycle
-observations after readback has stopped, even when the runtime handle has
-already been reaped.
+contract. Natural-exit readback retention does not consume the host's pending
+`CoreDaemon::drain` obligation: final egress remains available exactly once.
+
+After final PTY output is drained, natural exit and per-session shutdown freeze
+one immutable paired screen/snapshot record. `read_screen` and
+`capture_snapshot` serve that same record symmetrically, repeatedly, and
+idempotently without polling the dead runtime. The exited session stays
+read-only and cannot be resized, written, attached for reactivation, or resumed
+through this record. No valid paired final capture yields
+`SessionNotReadable`; blank or opaque bytes are never invented as fallback
+truth. Registry-stale and failed sessions remain unreadable.
+
+Retention is daemon-memory-only and clears on explicit in-memory session
+clear/removal or daemon exit; today daemon exit is the concrete expiry because
+no public in-memory removal API exists. There is no TTL or one-consumer budget,
+and durable registry records still contain no terminal bytes.
 
 Snapshot payloads are backend-neutral opaque terminal state. The current plain
 fallback runtime returns raw retained PTY bytes with format

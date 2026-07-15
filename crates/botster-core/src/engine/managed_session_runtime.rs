@@ -510,6 +510,20 @@ where
         worker.capture_snapshot_payload()
     }
 
+    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    pub fn capture_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(String, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+        let worker = self
+            .engine
+            .session_worker_runtime_mut(session_id)
+            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            })?;
+        worker.capture_terminal_state()
+    }
+
     /// Replay or prepare a snapshot through the existing worker path.
     pub fn replay_snapshot(
         &mut self,
@@ -682,6 +696,30 @@ where
             });
         }
         Ok(snapshot)
+    }
+
+    pub(crate) fn capture_terminal_state(
+        &mut self,
+    ) -> Result<(String, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+        let mut state = self.state.borrow_mut();
+        let screen = state
+            .terminal
+            .screen_state()
+            .screen
+            .expect("terminal screen engine reads screen state")
+            .plain_text;
+        let snapshot = state
+            .terminal
+            .capture_snapshot()
+            .snapshot
+            .expect("terminal screen engine captures a snapshot");
+        if let Some(message) = state.terminal.runtime().last_error() {
+            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "capture_snapshot",
+                message,
+            });
+        }
+        Ok((screen, snapshot))
     }
 
     pub(crate) fn last_terminal_error(&self) -> Option<String> {
