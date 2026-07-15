@@ -1,6 +1,6 @@
 //! Managed session runtime acceptance tests.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::rc::Rc;
 
@@ -197,6 +197,75 @@ impl TerminalScreenRuntime for SpyTerminalRuntime {
 struct FailingTerminalRuntime {
     size: TerminalScreenSize,
     message: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct ControlledFailingTerminalRuntime {
+    size: TerminalScreenSize,
+    fail_resize: Rc<Cell<bool>>,
+    fail_snapshot: Rc<Cell<bool>>,
+    last_error: Option<String>,
+}
+
+impl ControlledFailingTerminalRuntime {
+    fn new(
+        size: TerminalScreenSize,
+        fail_resize: Rc<Cell<bool>>,
+        fail_snapshot: Rc<Cell<bool>>,
+    ) -> Self {
+        Self {
+            size,
+            fail_resize,
+            fail_snapshot,
+            last_error: None,
+        }
+    }
+}
+
+impl TerminalScreenRuntime for ControlledFailingTerminalRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        TerminalOutputChunk::new(bytes.to_vec())
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        if self.fail_resize.get() {
+            self.last_error = Some("controlled resize failure".to_string());
+        } else {
+            self.size = size;
+            self.last_error = None;
+        }
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        if self.fail_snapshot.get() {
+            self.last_error = Some("controlled snapshot_export failure".to_string());
+            TerminalSnapshotPayload::new(
+                Vec::new(),
+                self.size,
+                Some("controlled-opaque-v1".to_string()),
+            )
+        } else {
+            self.last_error = None;
+            TerminalSnapshotPayload::new(
+                b"controlled snapshot".to_vec(),
+                self.size,
+                Some("controlled-opaque-v1".to_string()),
+            )
+        }
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.size = payload.size;
+        self.last_error = None;
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        TerminalScreenState::new(self.size, String::new())
+    }
+
+    fn last_error(&self) -> Option<String> {
+        self.last_error.clone()
+    }
 }
 
 impl FailingTerminalRuntime {
@@ -687,6 +756,197 @@ fn supervised_session_snapshot_fails_loudly_when_terminal_backend_records_error(
         }
         other => panic!("expected terminal backend operation error, got {other:?}"),
     }
+}
+
+#[test]
+fn supervised_session_resize_failure_surfaces_before_runtime_resize_is_queued() {
+    let fail_resize = Rc::new(Cell::new(false));
+    let fail_snapshot = Rc::new(Cell::new(false));
+    let factory_fail_resize = Rc::clone(&fail_resize);
+    let factory_fail_snapshot = Rc::clone(&fail_snapshot);
+    let mut runtime = ManagedSessionRuntime::with_terminal_backend_factory(
+        FakeSessionRuntime::new(),
+        move |size| {
+            Ok::<_, std::convert::Infallible>(ControlledFailingTerminalRuntime::new(
+                size,
+                Rc::clone(&factory_fail_resize),
+                Rc::clone(&factory_fail_snapshot),
+            ))
+        },
+    );
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session");
+    runtime
+        .handle_client_ingress(
+            client_id("resize-client"),
+            TransportIngress::SubscribeSession {
+                client_id: client_id("resize-client"),
+                session_id: session_id(),
+                subscription_id: subscription_id("resize-subscription"),
+            },
+            10,
+        )
+        .expect("subscribe client");
+
+    fail_resize.set(true);
+    let error = runtime
+        .handle_client_ingress(
+            client_id("resize-client"),
+            TransportIngress::Resize {
+                session_id: session_id(),
+                rows: 40,
+                cols: 120,
+            },
+            20,
+        )
+        .expect_err("resize failure should surface");
+
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::TerminalBackendOperation {
+            operation: "resize",
+            ref message,
+        } if message == "controlled resize failure"
+    ));
+    assert!(
+        runtime.session_runtime_mut().inputs().is_empty(),
+        "failed shadow resize must not enqueue a PTY resize"
+    );
+
+    fail_resize.set(false);
+    runtime
+        .handle_client_ingress(
+            client_id("resize-client"),
+            TransportIngress::Resize {
+                session_id: session_id(),
+                rows: 40,
+                cols: 120,
+            },
+            21,
+        )
+        .expect("successful retry should clear the backend error");
+}
+
+#[test]
+fn supervised_session_failed_initial_snapshot_rolls_back_route_and_allows_fresh_retry() {
+    let fail_resize = Rc::new(Cell::new(false));
+    let fail_snapshot = Rc::new(Cell::new(false));
+    let factory_fail_resize = Rc::clone(&fail_resize);
+    let factory_fail_snapshot = Rc::clone(&fail_snapshot);
+    let mut runtime = ManagedSessionRuntime::with_terminal_backend_factory(
+        FakeSessionRuntime::new(),
+        move |size| {
+            Ok::<_, std::convert::Infallible>(ControlledFailingTerminalRuntime::new(
+                size,
+                Rc::clone(&factory_fail_resize),
+                Rc::clone(&factory_fail_snapshot),
+            ))
+        },
+    );
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session");
+
+    fail_snapshot.set(true);
+    let error = runtime
+        .handle_client_ingress(
+            client_id("attach-client"),
+            TransportIngress::SubscribeSession {
+                client_id: client_id("attach-client"),
+                session_id: session_id(),
+                subscription_id: subscription_id("failed-subscription"),
+            },
+            20,
+        )
+        .expect_err("snapshot export failure should fail attach");
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::TerminalBackendOperation {
+            operation: "capture_snapshot",
+            ref message,
+        } if message == "controlled snapshot_export failure"
+    ));
+    assert!(matches!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(SessionLifecycleState::Running)
+    ));
+
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"held while unattached".to_vec());
+    let unattached = runtime
+        .drain_runtime_once(&session_id(), 21)
+        .expect("terminal session remains live after failed attach");
+    assert!(unattached.client_egress.is_empty());
+    assert!(unattached.session_events.iter().any(
+        |event| matches!(event, SessionIoEvent::TerminalBytes { data, .. } if data == b"held while unattached")
+    ));
+
+    fail_snapshot.set(false);
+    let retry = runtime
+        .handle_client_ingress(
+            client_id("attach-client"),
+            TransportIngress::SubscribeSession {
+                client_id: client_id("attach-client"),
+                session_id: session_id(),
+                subscription_id: subscription_id("fresh-subscription"),
+            },
+            22,
+        )
+        .expect("fresh subscription should attach after recovery");
+    assert_eq!(
+        retry.client_egress,
+        vec![(
+            client_id("attach-client"),
+            TransportEgress::AttachState {
+                session_id: session_id(),
+                subscription_id: subscription_id("fresh-subscription"),
+                state: TerminalAttachState::Attaching,
+            },
+        )]
+    );
+    let attached = runtime
+        .drain_runtime_once(&session_id(), 23)
+        .expect("route recovered initial snapshot");
+    assert!(attached.client_egress.iter().any(|(_, frame)| matches!(
+        frame,
+        TransportEgress::AttachState {
+            subscription_id: received_subscription_id,
+            state: TerminalAttachState::Attached,
+            ..
+        } if received_subscription_id == &subscription_id("fresh-subscription")
+    )));
+
+    fail_snapshot.set(true);
+    runtime
+        .handle_client_ingress(
+            client_id("attach-client"),
+            TransportIngress::SubscribeSession {
+                client_id: client_id("attach-client"),
+                session_id: session_id(),
+                subscription_id: subscription_id("failed-replacement"),
+            },
+            24,
+        )
+        .expect_err("failed replacement attach should restore the prior route");
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"still on prior route".to_vec());
+    let restored = runtime
+        .drain_runtime_once(&session_id(), 25)
+        .expect("prior subscription remains usable");
+    assert!(restored.client_egress.iter().any(|(_, frame)| matches!(
+        frame,
+        TransportEgress::TerminalOutput {
+            subscription_id: received_subscription_id,
+            data,
+            ..
+        } if received_subscription_id == &subscription_id("fresh-subscription")
+            && data == b"still on prior route"
+    )));
 }
 
 #[test]

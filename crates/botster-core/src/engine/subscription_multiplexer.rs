@@ -143,6 +143,29 @@ impl SubscriptionMultiplexer {
         multiplexer_outcome
     }
 
+    pub(crate) fn active_subscription(
+        &self,
+        client_id: &ClientId,
+        session_id: &SessionId,
+    ) -> Option<SubscriptionId> {
+        self.clients
+            .get(client_id)
+            .and_then(|harness| harness.active_subscription(session_id))
+            .cloned()
+    }
+
+    pub(crate) fn restore_subscription(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: Option<SubscriptionId>,
+    ) {
+        if let Some(harness) = self.clients.get_mut(client_id) {
+            harness.restore_subscription(session_id.clone(), subscription_id);
+            self.sync_client_subscription(client_id, &session_id);
+        }
+    }
+
     /// Fan out a session-wide pushed event to current subscribers.
     pub fn handle_session_event(
         &mut self,

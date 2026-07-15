@@ -185,6 +185,21 @@ impl ClientStreamHarness {
         self.subscriptions.get(session_id)
     }
 
+    pub(crate) fn restore_subscription(
+        &mut self,
+        session_id: SessionId,
+        subscription_id: Option<SubscriptionId>,
+    ) {
+        match subscription_id {
+            Some(subscription_id) => {
+                self.subscriptions.insert(session_id, subscription_id);
+            }
+            None => {
+                self.subscriptions.remove(&session_id);
+            }
+        }
+    }
+
     /// Handle client ingress for the current generation.
     pub fn handle_ingress(&mut self, ingress: TransportIngress) -> ClientStreamOutcome {
         self.handle_ingress_for_generation(self.generation, ingress)
