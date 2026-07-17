@@ -86,9 +86,9 @@ fn run() -> Result<(), String> {
         args.egress_capacity.saturating_mul(4).max(1),
     );
     let mut reconnect_timeout_seconds = None;
-    let mut shutdown_requested = false;
+    let mut lifecycle = WorkerLifecycle::default();
 
-    while !shutdown_requested {
+    while lifecycle.should_continue() {
         loop {
             match frame_receiver.try_recv() {
                 Ok(frame) => match frame.frame_type {
@@ -127,7 +127,7 @@ fn run() -> Result<(), String> {
                                 session_id: handle.session_id.clone(),
                             })
                             .map_err(|error| error.to_string())?;
-                        shutdown_requested = true;
+                        lifecycle.request_shutdown();
                     }
                     _ => {}
                 },
@@ -139,7 +139,7 @@ fn run() -> Result<(), String> {
                                 session_id: handle.session_id.clone(),
                             })
                             .map_err(|error| error.to_string())?;
-                        shutdown_requested = true;
+                        lifecycle.request_shutdown();
                     }
                     break;
                 }
@@ -169,7 +169,7 @@ fn run() -> Result<(), String> {
                 }
                 SessionRuntimeOutput::ProcessExited { payload, .. } => {
                     egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
-                    shutdown_requested = true;
+                    lifecycle.observe_process_exit();
                 }
                 SessionRuntimeOutput::Backpressure(_) => {}
                 SessionRuntimeOutput::TitleChanged { .. }
@@ -189,6 +189,30 @@ fn run() -> Result<(), String> {
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
     Ok(())
+}
+
+#[derive(Default)]
+enum WorkerLifecycle {
+    #[default]
+    Running,
+    Stopping,
+    Exited,
+}
+
+impl WorkerLifecycle {
+    fn request_shutdown(&mut self) {
+        if matches!(self, Self::Running) {
+            *self = Self::Stopping;
+        }
+    }
+
+    fn observe_process_exit(&mut self) {
+        *self = Self::Exited;
+    }
+
+    fn should_continue(&self) -> bool {
+        !matches!(self, Self::Exited)
+    }
 }
 
 fn send_metadata_observation(egress: &WorkerEgress, observation: TerminalMetadataObservation) {
@@ -625,4 +649,20 @@ where
         .ok_or_else(|| format!("{name} requires a value"))?
         .parse()
         .map_err(|error| format!("parse {name}: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkerLifecycle;
+
+    #[test]
+    fn shutdown_keeps_worker_loop_alive_until_process_exit_is_observed() {
+        let mut lifecycle = WorkerLifecycle::default();
+
+        lifecycle.request_shutdown();
+        assert!(lifecycle.should_continue());
+
+        lifecycle.observe_process_exit();
+        assert!(!lifecycle.should_continue());
+    }
 }

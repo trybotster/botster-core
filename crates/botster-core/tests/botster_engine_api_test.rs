@@ -18,9 +18,9 @@ use botster_core::{
     PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
     PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
     PluginUnloadSpec, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
-    QueueSource, RequestId, SessionActivityStatus, SessionId, SessionIoEvent, SessionIoRequest,
-    SessionLifecycleState, SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
+    ProcessExitedPayload, QueueSource, RequestId, SessionActivityStatus, SessionId, SessionIoEvent,
+    SessionIoRequest, SessionLifecycleState, SessionSpawnRequest, SessionWorkerRuntimeEvent,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{DefaultBotsterEngine, DefaultEngineCommand, ResizePayload};
@@ -1035,14 +1035,38 @@ fn botster_engine_consumer_lifecycle_uses_public_api() {
 
     let post_shutdown = engine
         .receive_output(session_id(), b"late".to_vec(), 42)
-        .expect("closed worker ignores late output");
-    assert!(post_shutdown.client_egress.is_empty());
+        .expect("stopping worker routes final output");
+    assert_eq!(
+        post_shutdown.client_egress,
+        vec![(
+            client_id("client-a"),
+            TransportEgress::TerminalOutput {
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-a"),
+                data: b"late".to_vec(),
+            },
+        )]
+    );
     assert_eq!(
         engine
             .classify_activity(&session_id(), 43, 5)
-            .expect("late closed output does not refresh activity"),
-        SessionActivityStatus::Idle
+            .expect("final stopping output refreshes activity"),
+        SessionActivityStatus::Active
     );
+
+    engine
+        .handle_runtime_event(SessionWorkerRuntimeEvent::ProcessExited {
+            session_id: session_id(),
+            payload: ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            },
+        })
+        .expect("reader completion releases process exit");
+    let after_exit = engine
+        .receive_output(session_id(), b"too late".to_vec(), 44)
+        .expect("closed worker ignores output after process exit");
+    assert!(after_exit.client_egress.is_empty());
 }
 
 #[test]
