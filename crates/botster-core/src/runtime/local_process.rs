@@ -167,6 +167,9 @@ impl SessionRuntime for LocalProcessRuntime {
                 exit_payload: None,
                 outputs: Vec::new(),
                 exit_output_queued: false,
+                process_group_cleanup_requested: false,
+                reader_disconnected: false,
+                pending_reader_error: None,
             },
         )?;
 
@@ -187,7 +190,7 @@ impl SessionRuntime for LocalProcessRuntime {
             }
             SessionRuntimeInput::Shutdown { session_id } => self
                 .registry
-                .shutdown_and_queue_output(&session_id, self.options)
+                .shutdown_session(&session_id, self.options)
                 .map(|_| ()),
         }
     }
@@ -283,17 +286,8 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         session_id: &SessionId,
         _reason: &str,
     ) -> Result<Vec<SessionWorkerRuntimeEvent>, SessionRuntimeError> {
-        let payload = self
-            .registry
-            .shutdown_and_queue_output(session_id, self.options)?;
-
-        Ok(payload
-            .into_iter()
-            .map(|payload| SessionWorkerRuntimeEvent::ProcessExited {
-                session_id: session_id.clone(),
-                payload,
-            })
-            .collect())
+        self.registry.shutdown_session(session_id, self.options)?;
+        Ok(Vec::new())
     }
 }
 
@@ -382,16 +376,14 @@ impl LocalProcessRegistry {
         Ok((size.rows, size.cols))
     }
 
-    fn shutdown_and_queue_output(
+    fn shutdown_session(
         &self,
         session_id: &SessionId,
         options: LocalProcessRuntimeOptions,
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
-        let observed = terminate_session(&mut session, options)?;
-        queue_exit_output(&mut session, session_id, observed.clone());
-        Ok(observed)
+        terminate_session(&mut session, options)
     }
 
     fn drain_output(
@@ -400,9 +392,23 @@ impl LocalProcessRegistry {
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
+
+        if let Some(message) = session.pending_reader_error.take() {
+            return Err(reader_error(message));
+        }
+
         let mut output = drain_reader_output(&mut session, session_id)?;
         harvest_session(&mut session)?;
-        queue_exit_output(&mut session, session_id, None);
+        if session.exit_payload.is_some() {
+            request_process_group_cleanup(&mut session)?;
+        }
+
+        if reader_finalization_complete(
+            session.reader_disconnected,
+            session.pending_reader_error.as_deref(),
+        ) {
+            queue_exit_output(&mut session, session_id, None);
+        }
         let mut queued_output = session.outputs.drain(..).collect();
         output.append(&mut queued_output);
 
@@ -455,6 +461,9 @@ struct LocalSession {
     exit_payload: Option<ProcessExitedPayload>,
     outputs: Vec<SessionRuntimeOutput>,
     exit_output_queued: bool,
+    process_group_cleanup_requested: bool,
+    reader_disconnected: bool,
+    pending_reader_error: Option<String>,
 }
 
 enum ReaderEvent {
@@ -484,23 +493,23 @@ fn terminate_session(
     options: LocalProcessRuntimeOptions,
 ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
     if session.exit_payload.is_some() {
-        send_forced_signal(session)?;
+        request_process_group_cleanup(session)?;
         return Ok(None);
     }
 
     harvest_session(session)?;
     if session.exit_payload.is_some() {
-        send_forced_signal(session)?;
+        request_process_group_cleanup(session)?;
         return Ok(session.exit_payload.clone());
     }
 
     send_graceful_signal(session)?;
     if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
-        send_forced_signal(session)?;
+        request_process_group_cleanup(session)?;
         return Ok(session.exit_payload.clone());
     }
 
-    send_forced_signal(session)?;
+    request_process_group_cleanup(session)?;
     if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
         return Ok(session.exit_payload.clone());
     }
@@ -509,6 +518,17 @@ fn terminate_session(
         SessionRuntimeErrorKind::CleanupFailed,
         "local process did not exit after forced cleanup",
     ))
+}
+
+fn request_process_group_cleanup(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
+    if session.process_group_cleanup_requested {
+        return Ok(());
+    }
+
+    // Record ownership before signaling so later drain ticks never signal a
+    // re-used process-group id a second time.
+    session.process_group_cleanup_requested = true;
+    send_forced_signal(session)
 }
 
 fn harvest_session(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
@@ -576,20 +596,30 @@ fn drain_reader_output(
     session: &mut LocalSession,
     session_id: &SessionId,
 ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+    drain_reader_events(
+        &session.output,
+        &session.output_pressure,
+        session.output_capacity,
+        &mut session.reader_disconnected,
+        &mut session.pending_reader_error,
+        session_id,
+    )
+}
+
+fn drain_reader_events(
+    receiver: &Receiver<ReaderEvent>,
+    pressure: &ReaderPressure,
+    capacity: usize,
+    reader_disconnected: &mut bool,
+    pending_reader_error: &mut Option<String>,
+    session_id: &SessionId,
+) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
     let mut output = Vec::new();
-    if session
-        .output_pressure
-        .pressured
-        .swap(false, Ordering::AcqRel)
-    {
+    if pressure.pressured.swap(false, Ordering::AcqRel) {
         output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
             source: QueueSource::SessionIo,
-            capacity: session.output_capacity,
-            depth: session
-                .output_pressure
-                .depth
-                .load(Ordering::Acquire)
-                .min(session.output_capacity),
+            capacity,
+            depth: pressure.depth.load(Ordering::Acquire).min(capacity),
             route: BackpressureRoute {
                 session_id: Some(session_id.clone()),
                 client_id: None,
@@ -599,25 +629,44 @@ fn drain_reader_output(
         }));
     }
     loop {
-        match session.output.try_recv() {
+        match receiver.try_recv() {
             Ok(ReaderEvent::Output(data)) => {
-                decrement_reader_depth(&session.output_pressure);
+                decrement_reader_depth(pressure);
                 output.push(SessionRuntimeOutput::PtyOutput {
                     session_id: session_id.clone(),
                     data,
                 });
             }
             Ok(ReaderEvent::Failed(message)) => {
-                decrement_reader_depth(&session.output_pressure);
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    message,
-                ));
+                decrement_reader_depth(pressure);
+                *pending_reader_error = Some(message);
             }
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                *reader_disconnected = true;
+                break;
+            }
         }
     }
+
+    if output.is_empty() {
+        if let Some(message) = pending_reader_error.take() {
+            return Err(reader_error(message));
+        }
+    }
+
     Ok(output)
+}
+
+fn reader_error(message: String) -> SessionRuntimeError {
+    SessionRuntimeError::new(SessionRuntimeErrorKind::OutputFailed, message)
+}
+
+fn reader_finalization_complete(
+    reader_disconnected: bool,
+    pending_reader_error: Option<&str>,
+) -> bool {
+    reader_disconnected && pending_reader_error.is_none()
 }
 
 fn pty_size(size: Option<&ResizePayload>) -> PtySize {
@@ -807,5 +856,143 @@ fn signal_number(signal: Option<&str>) -> Option<i32> {
         Some(signal) if signal.contains("Killed") || signal.contains("9") => Some(9),
         Some(signal) if signal.contains("Terminated") || signal.contains("15") => Some(15),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_session_id() -> SessionId {
+        SessionId("reader-finalization-test".to_string())
+    }
+
+    #[test]
+    fn reader_disconnection_is_completion_only_after_queued_output_is_drained() {
+        let pressure = Arc::new(ReaderPressure::default());
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let mut reader_disconnected = false;
+        let mut pending_reader_error = None;
+
+        assert!(drain_reader_events(
+            &receiver,
+            &pressure,
+            2,
+            &mut reader_disconnected,
+            &mut pending_reader_error,
+            &test_session_id(),
+        )
+        .expect("empty live reader drain")
+        .is_empty());
+        assert!(!reader_disconnected);
+        assert!(!reader_finalization_complete(
+            reader_disconnected,
+            pending_reader_error.as_deref()
+        ));
+
+        send_reader_event(
+            &sender,
+            &pressure,
+            ReaderEvent::Output(b"final-reader-output".to_vec()),
+        )
+        .expect("queue final reader output");
+        let output = drain_reader_events(
+            &receiver,
+            &pressure,
+            2,
+            &mut reader_disconnected,
+            &mut pending_reader_error,
+            &test_session_id(),
+        )
+        .expect("drain queued final reader output");
+        assert!(matches!(
+            output.as_slice(),
+            [SessionRuntimeOutput::PtyOutput { data, .. }]
+                if data == b"final-reader-output"
+        ));
+        assert!(!reader_disconnected);
+        assert!(!reader_finalization_complete(
+            reader_disconnected,
+            pending_reader_error.as_deref()
+        ));
+
+        drop(sender);
+        assert!(drain_reader_events(
+            &receiver,
+            &pressure,
+            2,
+            &mut reader_disconnected,
+            &mut pending_reader_error,
+            &test_session_id(),
+        )
+        .expect("drain disconnected reader")
+        .is_empty());
+        assert!(reader_disconnected);
+        assert!(reader_finalization_complete(
+            reader_disconnected,
+            pending_reader_error.as_deref()
+        ));
+    }
+
+    #[test]
+    fn reader_failure_is_deferred_until_preceding_output_is_returned() {
+        let pressure = Arc::new(ReaderPressure::default());
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let mut reader_disconnected = false;
+        let mut pending_reader_error = None;
+
+        send_reader_event(
+            &sender,
+            &pressure,
+            ReaderEvent::Output(b"bytes-before-failure".to_vec()),
+        )
+        .expect("queue reader output");
+        send_reader_event(
+            &sender,
+            &pressure,
+            ReaderEvent::Failed("controlled reader failure".to_string()),
+        )
+        .expect("queue reader failure");
+        drop(sender);
+
+        let output = drain_reader_events(
+            &receiver,
+            &pressure,
+            2,
+            &mut reader_disconnected,
+            &mut pending_reader_error,
+            &test_session_id(),
+        )
+        .expect("preceding output is returned before failure");
+        assert!(matches!(
+            output.as_slice(),
+            [SessionRuntimeOutput::PtyOutput { data, .. }]
+                if data == b"bytes-before-failure"
+        ));
+        assert_eq!(
+            pending_reader_error.as_deref(),
+            Some("controlled reader failure")
+        );
+        assert!(reader_disconnected);
+        assert!(!reader_finalization_complete(
+            reader_disconnected,
+            pending_reader_error.as_deref()
+        ));
+
+        let error = drain_reader_events(
+            &receiver,
+            &pressure,
+            2,
+            &mut reader_disconnected,
+            &mut pending_reader_error,
+            &test_session_id(),
+        )
+        .expect_err("reader failure is surfaced after preceding output");
+        assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
+        assert_eq!(error.message, "controlled reader failure");
+        assert!(reader_finalization_complete(
+            reader_disconnected,
+            pending_reader_error.as_deref()
+        ));
     }
 }
