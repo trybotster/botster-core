@@ -150,6 +150,7 @@ pub struct SessionWorkerEngine<R> {
     runtime: R,
     initial_snapshot_barrier: Option<InitialSnapshotBarrier>,
     pending_initial_output: Vec<Vec<u8>>,
+    shutdown_requested: bool,
     closed: bool,
     last_output_at: Option<u64>,
 }
@@ -164,6 +165,7 @@ where
             runtime,
             initial_snapshot_barrier: None,
             pending_initial_output: Vec::new(),
+            shutdown_requested: false,
             closed: false,
             last_output_at: None,
         }
@@ -194,7 +196,7 @@ where
         &mut self,
         request: SessionIoRequest,
     ) -> Result<SessionWorkerOutcome, SessionRuntimeError> {
-        if self.closed {
+        if self.closed || self.shutdown_requested {
             return Ok(SessionWorkerOutcome::from_events(
                 Vec::new(),
                 self.last_output_at,
@@ -319,8 +321,10 @@ where
                 ))
             }
             SessionIoRequest::Shutdown { session_id, reason } => {
+                // LocalProcessWorkerRuntime completes shutdown asynchronously;
+                // its ProcessExited event arrives through handle_runtime_event.
                 let runtime_events = self.runtime.shutdown(&session_id, &reason)?;
-                self.closed = true;
+                self.shutdown_requested = true;
                 let mut events = self.flush_initial_output_events(&session_id);
                 for runtime_event in runtime_events {
                     if let SessionWorkerRuntimeEvent::ProcessExited {
@@ -328,6 +332,7 @@ where
                         payload,
                     } = runtime_event
                     {
+                        self.closed = true;
                         events.push(SessionIoEvent::ProcessExited {
                             session_id,
                             payload,
@@ -427,6 +432,7 @@ where
                 session_id,
                 payload,
             } => {
+                self.closed = true;
                 let mut events = self.flush_initial_output_events(&session_id);
                 events.push(SessionIoEvent::ProcessExited {
                     session_id,

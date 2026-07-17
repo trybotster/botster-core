@@ -374,7 +374,7 @@ fn process_exit_flushes_pre_snapshot_output_before_exit_event() {
 }
 
 #[test]
-fn shutdown_closes_engine() {
+fn shutdown_waits_for_final_runtime_output_and_process_exit_before_closing() {
     let mut engine = engine();
 
     let shutdown = engine
@@ -394,9 +394,33 @@ fn shutdown_closes_engine() {
         shutdown.events[0],
         SessionIoEvent::Shutdown { .. }
     ));
-    assert!(engine.is_closed());
+    assert!(!engine.is_closed());
     assert!(later.events.is_empty());
     assert_eq!(engine.runtime().commands().len(), 1);
+
+    let final_output = engine.handle_runtime_event(SessionWorkerRuntimeEvent::TerminalBytes {
+        session_id: session_id(),
+        data: b"final".to_vec(),
+        last_output_at: 9,
+    });
+    assert!(matches!(
+        final_output.events.as_slice(),
+        [SessionIoEvent::TerminalBytes { data, .. }] if data == b"final"
+    ));
+    assert!(!engine.is_closed());
+
+    let exit = engine.handle_runtime_event(SessionWorkerRuntimeEvent::ProcessExited {
+        session_id: session_id(),
+        payload: ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    });
+    assert!(matches!(
+        exit.events.as_slice(),
+        [SessionIoEvent::ProcessExited { .. }]
+    ));
+    assert!(engine.is_closed());
 }
 
 #[test]
