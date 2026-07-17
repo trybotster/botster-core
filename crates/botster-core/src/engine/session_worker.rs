@@ -321,6 +321,8 @@ where
                 ))
             }
             SessionIoRequest::Shutdown { session_id, reason } => {
+                // LocalProcessWorkerRuntime completes shutdown asynchronously;
+                // its ProcessExited event arrives through handle_runtime_event.
                 let runtime_events = self.runtime.shutdown(&session_id, &reason)?;
                 self.shutdown_requested = true;
                 let mut events = self.flush_initial_output_events(&session_id);
