@@ -8,10 +8,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
-    CoreSessionMetadata, LocalProcessRuntime, LocalProcessRuntimeOptions, MultiplexerEngine,
-    ProcessExitedPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionLifecycleState,
-    SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+    ClientId, CoreSessionMetadata, DefaultBotsterEngine, LocalProcessRuntime,
+    LocalProcessRuntimeOptions, MultiplexerEngine, ProcessExitedPayload, QueueSource, RequestId,
+    ResizePayload, SessionId, SessionLifecycleState, SessionRuntime, SessionRuntimeErrorKind,
+    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment,
+    SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
     DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 
@@ -48,6 +49,14 @@ fn session_id(value: &str) -> SessionId {
 
 fn request_id(value: &str) -> RequestId {
     RequestId(value.to_string())
+}
+
+fn client_id(value: &str) -> ClientId {
+    ClientId(value.to_string())
+}
+
+fn subscription_id(value: &str) -> SubscriptionId {
+    SubscriptionId(value.to_string())
 }
 
 fn local_process_test_lock() -> MutexGuard<'static, ()> {
@@ -298,6 +307,145 @@ fn local_process_runtime_spawns_and_captures_process_exit_status() {
                 },
             }
     }));
+}
+
+#[test]
+fn local_process_runtime_drains_final_output_before_exit_and_removal() {
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let session = session_id("local-final-reader-egress");
+    let ready_file = unique_temp_path("final-reader-ready");
+    let child_pid_file = unique_temp_path("final-reader-child-pid");
+    let environment = SpawnEnvironment {
+        variables: vec![
+            env_var("READY_FILE", ready_file.display().to_string()),
+            env_var("CHILD_PID_FILE", child_pid_file.display().to_string()),
+        ],
+    };
+    let script = "sh -c 'trap \"\" TERM; printf ready > \"$READY_FILE\"; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; while [ ! -s \"$READY_FILE\" ]; do :; done; printf 'final-reader-marker\\n'; exit 7";
+
+    runtime
+        .spawn_session(shell_request_with_env(session.clone(), script, environment))
+        .expect("spawn leader with PTY-holding descendant");
+    let descendant_pid = wait_for_child_pid(&child_pid_file);
+    assert!(ready_file.exists(), "descendant should confirm readiness");
+
+    let output = collect_until(&mut runtime, &session, has_exit);
+    let marker_index = output
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionRuntimeOutput::PtyOutput { data, .. }
+                    if String::from_utf8_lossy(data).contains("final-reader-marker")
+            )
+        })
+        .expect("final PTY marker should be published");
+    let exit_index = output
+        .iter()
+        .position(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
+        .expect("process exit should be published");
+
+    assert!(
+        marker_index < exit_index,
+        "final PTY marker must precede exit"
+    );
+    assert!(output.iter().any(|event| {
+        event
+            == &SessionRuntimeOutput::ProcessExited {
+                session_id: session.clone(),
+                payload: ProcessExitedPayload {
+                    exit_code: Some(7),
+                    signal: None,
+                },
+            }
+    }));
+    assert!(wait_until(|| !process_exists(descendant_pid)));
+    let error = runtime
+        .drain_output(&session)
+        .expect_err("session should be removed only after final egress");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
+
+    let _ = fs::remove_file(ready_file);
+    let _ = fs::remove_file(child_pid_file);
+}
+
+#[test]
+fn default_engine_subscription_publishes_final_terminal_output_before_process_exit() {
+    let _guard = local_process_test_lock();
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session_id("default-engine-final-egress");
+    let client = client_id("default-engine-final-client");
+    let subscription = subscription_id("default-engine-final-subscription");
+
+    engine
+        .spawn_session(
+            shell_request(
+                session.clone(),
+                "printf 'default-engine-final-marker\\n'; exit 9",
+            ),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn default-engine local session");
+    engine
+        .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+        .expect("attach default-engine subscription");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut egress = Vec::new();
+    while Instant::now() < deadline {
+        let outcome = engine
+            .drain_runtime_once(&session, 2)
+            .expect("drain default-engine runtime");
+        egress.extend(
+            outcome
+                .client_egress
+                .into_iter()
+                .filter_map(|(received_client, event)| {
+                    (received_client == client).then_some(event)
+                }),
+        );
+        if egress
+            .iter()
+            .any(|event| matches!(event, TransportEgress::ProcessExit { .. }))
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let marker_index = egress
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                TransportEgress::TerminalOutput {
+                    session_id,
+                    subscription_id,
+                    data,
+                } if session_id == &session
+                    && subscription_id == &subscription
+                    && String::from_utf8_lossy(data).contains("default-engine-final-marker")
+            )
+        })
+        .expect("subscription should receive the final terminal marker");
+    let exit_index = egress
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                TransportEgress::ProcessExit {
+                    session_id,
+                    subscription_id,
+                    code: Some(9),
+                } if session_id == &session && subscription_id == &subscription
+            )
+        })
+        .expect("subscription should receive the leader exit");
+    assert!(
+        marker_index < exit_index,
+        "terminal egress must precede exit"
+    );
 }
 
 #[test]
@@ -724,30 +872,77 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         .spawn_session(
             shell_request(
                 session.clone(),
-                "trap 'exit 0' TERM; while true; do sleep 1; done",
+                "trap 'printf \"shutdown-final-marker\\n\"; exit 0' TERM; printf 'shutdown-ready\\n'; while true; do sleep 1; done",
             ),
             CoreSessionMetadata::new(),
             worker_runtime,
         )
         .expect("spawn local process through engine");
     let pid = spawn.handle.process.pid.expect("local process exposes pid");
+    let ready = collect_until(engine.session_runtime_mut(), &session, |output| {
+        output_text(output).contains("shutdown-ready")
+    });
+    assert!(output_text(&ready).contains("shutdown-ready"));
 
     let shutdown = engine
         .shutdown_session(session.clone(), "engine shutdown", 10)
         .expect("shutdown through public engine path");
 
     assert!(
-        shutdown.session_events.iter().any(|event| {
+        !shutdown
+            .session_events
+            .iter()
+            .any(|event| matches!(event, botster_core::SessionIoEvent::ProcessExited { .. })),
+        "engine shutdown must withhold ProcessExited until reader completion"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut routed_exit = false;
+    let mut final_output = Vec::new();
+    while Instant::now() < deadline && !routed_exit {
+        let output = engine
+            .session_runtime_mut()
+            .drain_output(&session)
+            .expect("drain final local runtime output");
+        final_output.extend(output.iter().cloned());
+        for event in output {
+            if let SessionRuntimeOutput::ProcessExited {
+                session_id,
+                payload,
+            } = event
+            {
+                let outcome = engine
+                    .handle_runtime_event(botster_core::SessionWorkerRuntimeEvent::ProcessExited {
+                        session_id,
+                        payload,
+                    })
+                    .expect("route delayed process exit");
+                routed_exit = outcome.session_events.iter().any(|event| {
+                    matches!(event, botster_core::SessionIoEvent::ProcessExited { .. })
+                });
+            }
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        routed_exit,
+        "reader completion should release ProcessExited"
+    );
+    let marker_index = final_output
+        .iter()
+        .position(|event| {
             matches!(
                 event,
-                botster_core::SessionIoEvent::ProcessExited {
-                    session_id,
-                    payload: ProcessExitedPayload { .. },
-                } if session_id == &session
+                SessionRuntimeOutput::PtyOutput { data, .. }
+                    if String::from_utf8_lossy(data).contains("shutdown-final-marker")
             )
-        }),
-        "engine shutdown should route ProcessExited through session worker events"
-    );
+        })
+        .expect("shutdown should retain the final PTY marker");
+    let exit_index = final_output
+        .iter()
+        .position(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
+        .expect("shutdown should eventually publish ProcessExited");
+    assert!(marker_index < exit_index);
     assert!(matches!(
         engine.session(&session).map(|session| &session.lifecycle),
         Some(SessionLifecycleState::Exited { .. })
@@ -800,7 +995,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
         let outcome = engine
             .shutdown_session(shutdown_session, "engine slow shutdown", 10)
             .expect("shutdown stubborn session through engine");
-        (started.elapsed(), outcome)
+        (started.elapsed(), outcome, engine)
     });
 
     started_rx
@@ -831,27 +1026,21 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
             session_id: peer.clone(),
         })
         .expect("shutdown peer after engine contention proof");
-    let (shutdown_elapsed, shutdown_outcome) =
+    let (shutdown_elapsed, shutdown_outcome, mut engine) =
         shutdown.join().expect("join engine shutdown thread");
     assert!(
         shutdown_elapsed >= options.shutdown_grace,
         "engine stubborn shutdown completed too quickly: {shutdown_elapsed:?}"
     );
     assert!(
-        shutdown_outcome.session_events.iter().any(|event| {
-            matches!(
-                event,
-                botster_core::SessionIoEvent::ProcessExited {
-                    session_id,
-                    payload: ProcessExitedPayload {
-                        signal: Some(SIGKILL),
-                        ..
-                    },
-                } if session_id == &stubborn
-            )
-        }),
-        "engine stubborn shutdown should require forced cleanup"
+        !shutdown_outcome
+            .session_events
+            .iter()
+            .any(|event| matches!(event, botster_core::SessionIoEvent::ProcessExited { .. })),
+        "engine shutdown must withhold exit until reader completion"
     );
+    let output = collect_until(engine.session_runtime_mut(), &stubborn, has_exit);
+    assert_eq!(exit_signal(&output, &stubborn), Some(SIGKILL));
     let _ = fs::remove_file(child_pid_file);
 }
 

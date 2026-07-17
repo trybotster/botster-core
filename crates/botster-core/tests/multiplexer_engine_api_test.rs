@@ -10,10 +10,10 @@ use botster_core::{
     PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, QueueSource, RequestId,
-    SessionActivityStatus, SessionId, SessionLifecycleState, SessionSpawnRequest,
-    SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
+    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, ProcessExitedPayload,
+    QueueSource, RequestId, SessionActivityStatus, SessionId, SessionLifecycleState,
+    SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -402,13 +402,30 @@ fn multiplexer_engine_drives_spawn_attach_output_notification_plugin_activity_an
             last_output_at: 42,
         })
         .expect("post-shutdown output is accepted by facade");
-    assert!(post_shutdown.client_egress.is_empty());
+    assert_eq!(
+        post_shutdown
+            .client_egress
+            .iter()
+            .filter(|(_, event)| matches!(event, TransportEgress::TerminalOutput { .. }))
+            .count(),
+        2
+    );
     assert_eq!(
         engine
             .classify_session_activity(&session_id(), 43, 5)
-            .expect("late closed output does not refresh activity"),
-        SessionActivityStatus::Idle
+            .expect("final stopping output refreshes activity"),
+        SessionActivityStatus::Active
     );
+
+    engine
+        .handle_runtime_event(SessionWorkerRuntimeEvent::ProcessExited {
+            session_id: session_id(),
+            payload: ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            },
+        })
+        .expect("reader completion releases process exit");
 
     let worker = engine
         .handle_session_request(
