@@ -11,6 +11,29 @@ pub(crate) const GHOSTTY_SUCCESS: GhosttyResult = 0;
 /// Opaque terminal handle owned by libghostty-vt.
 pub(crate) type GhosttyTerminal = *mut c_void;
 
+/// Packed terminal mode: bits 0-14 are the value and bit 15 is the ANSI flag.
+pub(crate) type GhosttyMode = u16;
+
+const fn ghostty_mode(value: u16, ansi: bool) -> GhosttyMode {
+    (value & 0x7fff) | ((ansi as u16) << 15)
+}
+
+/// DECSET 1000 normal mouse tracking.
+#[allow(dead_code)]
+pub(crate) const GHOSTTY_MODE_NORMAL_MOUSE: GhosttyMode = ghostty_mode(1000, false);
+
+/// DECSET 1002 button-event mouse tracking.
+#[allow(dead_code)]
+pub(crate) const GHOSTTY_MODE_BUTTON_MOUSE: GhosttyMode = ghostty_mode(1002, false);
+
+/// DECSET 1003 any-event mouse tracking.
+#[allow(dead_code)]
+pub(crate) const GHOSTTY_MODE_ANY_MOUSE: GhosttyMode = ghostty_mode(1003, false);
+
+/// DECSET 1006 SGR mouse encoding.
+#[allow(dead_code)]
+pub(crate) const GHOSTTY_MODE_SGR_MOUSE: GhosttyMode = ghostty_mode(1006, false);
+
 /// Opaque formatter handle owned by libghostty-vt.
 pub(crate) type GhosttyFormatter = *mut c_void;
 
@@ -94,6 +117,14 @@ unsafe extern "C" {
 
     /// Feed VT bytes to a libghostty-vt terminal.
     pub(crate) fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
+
+    /// Read the current value of a terminal mode.
+    #[allow(dead_code)]
+    pub(crate) fn ghostty_terminal_mode_get(
+        terminal: GhosttyTerminal,
+        mode: GhosttyMode,
+        out_value: *mut bool,
+    ) -> GhosttyResult;
 
     /// Export an opaque terminal snapshot into a Ghostty-allocated buffer.
     pub(crate) fn ghostty_terminal_snapshot_export(
