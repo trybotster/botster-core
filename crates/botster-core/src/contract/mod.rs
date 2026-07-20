@@ -103,8 +103,8 @@ pub use terminal_metadata::{
     TerminalMetadataProducer, TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome,
 };
 pub use terminal_screen::{
-    TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
-    TerminalSnapshotPayload,
+    TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
+    TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use transport::{TransportEgress, TransportIngress};
 pub use ui::{

@@ -1,9 +1,10 @@
 //! Terminal screen engine over a host-owned runtime.
 
 use crate::contract::terminal_screen::{
-    TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize, TerminalScreenState,
-    TerminalSnapshotPayload,
+    TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
+    TerminalScreenState, TerminalSnapshotPayload,
 };
+use crate::ModeFlags;
 
 /// Runtime operations used by the reusable terminal screen engine.
 pub trait TerminalScreenRuntime {
@@ -21,6 +22,14 @@ pub trait TerminalScreenRuntime {
 
     /// Read current screen state.
     fn screen_state(&self) -> TerminalScreenState;
+
+    /// Read current authoritative terminal mode flags.
+    ///
+    /// Backends that cannot query terminal modes must return `Unsupported`
+    /// rather than presenting default flags as authoritative state.
+    fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+        Err(TerminalBackendError::unsupported("mode_flags"))
+    }
 
     /// Return the most recent backend operation error, if the runtime records one.
     fn last_error(&self) -> Option<String> {
@@ -47,6 +56,10 @@ impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
 
     fn screen_state(&self) -> TerminalScreenState {
         self.as_ref().screen_state()
+    }
+
+    fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+        self.as_ref().mode_flags()
     }
 
     fn last_error(&self) -> Option<String> {

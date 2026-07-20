@@ -13,7 +13,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
-    BackpressureRoute, BackpressureSummary, InitialSnapshotRequest, ModeFlags, ModeFlagsReady,
+    BackpressureRoute, BackpressureSummary, InitialSnapshotRequest, ModeFlagsReady,
     PreparedSnapshotReady, PreparedSnapshotRequest, ProcessExitedPayload, ProcessIdentity,
     QueueSource, RequestId, ResizePayload, ScreenReady, SendFileFailed, SendFileRequest,
     SendFileWritten, SessionId, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
@@ -262,12 +262,15 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         }
     }
 
-    fn mode_flags(&mut self, request_id: RequestId, session_id: SessionId) -> ModeFlagsReady {
-        ModeFlagsReady {
-            request_id,
-            session_id,
-            mode_flags: ModeFlags::default(),
-        }
+    fn mode_flags(
+        &mut self,
+        _request_id: RequestId,
+        _session_id: SessionId,
+    ) -> Result<ModeFlagsReady, SessionRuntimeError> {
+        Err(SessionRuntimeError::new(
+            SessionRuntimeErrorKind::OutputFailed,
+            "local process runtime has no authoritative terminal mode backend",
+        ))
     }
 
     fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {

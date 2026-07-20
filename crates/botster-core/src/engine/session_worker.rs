@@ -46,8 +46,11 @@ pub trait SessionWorkerRuntime {
     ) -> PreparedSnapshotReady;
 
     /// Read current terminal mode flags.
-    fn mode_flags(&mut self, request_id: crate::RequestId, session_id: SessionId)
-        -> ModeFlagsReady;
+    fn mode_flags(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+    ) -> Result<ModeFlagsReady, SessionRuntimeError>;
 
     /// Read plain screen contents.
     fn screen(&mut self, request_id: crate::RequestId, session_id: SessionId) -> ScreenReady;
@@ -292,8 +295,9 @@ where
                 request_id,
                 session_id,
             } => {
-                let event =
-                    SessionIoEvent::ModeFlagsReady(self.runtime.mode_flags(request_id, session_id));
+                let event = SessionIoEvent::ModeFlagsReady(
+                    self.runtime.mode_flags(request_id, session_id)?,
+                );
                 Ok(SessionWorkerOutcome::from_events(
                     vec![event],
                     self.last_output_at,

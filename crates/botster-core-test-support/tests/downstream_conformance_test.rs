@@ -200,6 +200,19 @@ fn downstream_consumer_can_assert_terminal_backend_screen_state_contract() {
 }
 
 #[test]
+fn unconfigured_terminal_fake_does_not_publish_default_mode_authority() {
+    let error = FakeTerminalScreenRuntime::new()
+        .mode_flags()
+        .expect_err("unconfigured fake mode flags should be unsupported");
+    assert!(matches!(
+        error,
+        botster_core::TerminalBackendError::Unsupported {
+            operation: "mode_flags"
+        }
+    ));
+}
+
+#[test]
 fn downstream_consumer_can_assert_initial_snapshot_before_live_output_contract() {
     let events = assert_initial_snapshot_precedes_live_output();
 

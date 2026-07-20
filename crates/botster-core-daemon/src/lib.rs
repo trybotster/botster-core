@@ -16,9 +16,9 @@ pub use api::{
     DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
     DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
     PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
-    PublishRoutedEnvelopeResult, ReadScreenRequest, ReadScreenResult,
-    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
-    SpawnSessionRequest,
+    PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
+    ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
+    SessionAdoptionState, SpawnSessionRequest,
 };
 pub use daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};

@@ -6,13 +6,13 @@ use std::rc::Rc;
 
 use botster_core::{
     BackpressureRoute, BackpressureSummary, CoreSessionMetadata, MailboxSendFailureReason,
-    ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngineObservation,
+    ManagedSessionRuntime, ManagedSessionRuntimeError, ModeFlags, MultiplexerEngineObservation,
     ProcessExitedPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionIoEvent,
     SessionIoRequest, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalAttachState, TerminalColorProfile, TerminalOutputChunk,
-    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
-    TransportEgress, TransportIngress,
+    SubscriptionId, TerminalAttachState, TerminalBackendError, TerminalColorProfile,
+    TerminalOutputChunk, TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState,
+    TerminalSnapshotPayload, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -191,6 +191,13 @@ impl TerminalScreenRuntime for SpyTerminalRuntime {
             String::from_utf8_lossy(&self.writes.borrow().concat()).into_owned(),
         )
     }
+
+    fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+        Ok(ModeFlags {
+            mouse_mode: 9,
+            ..ModeFlags::default()
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +300,13 @@ impl TerminalScreenRuntime for FailingTerminalRuntime {
 
     fn screen_state(&self) -> TerminalScreenState {
         TerminalScreenState::new(self.size, String::new())
+    }
+
+    fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+        Err(TerminalBackendError::operation_failed(
+            "mode_flags",
+            self.message,
+        ))
     }
 
     fn last_error(&self) -> Option<String> {
@@ -1465,7 +1479,7 @@ fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_ba
     assert!(matches!(
         mode_error,
         ManagedSessionRuntimeError::UnsupportedSessionRequest {
-            request_kind: "get_mode_flags",
+            request_kind: "mode_flags",
         }
     ));
 
@@ -1483,6 +1497,70 @@ fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_ba
         ManagedSessionRuntimeError::UnsupportedSessionRequest {
             request_kind: "set_color_profile",
         }
+    ));
+}
+
+#[test]
+fn supervised_session_mode_flags_use_authoritative_backend_and_preserve_correlation() {
+    let mut runtime =
+        ManagedSessionRuntime::with_terminal_backend_factory(FakeSessionRuntime::new(), |size| {
+            Ok::<_, std::convert::Infallible>(SpyTerminalRuntime::new(
+                size,
+                Rc::new(RefCell::new(Vec::new())),
+            ))
+        });
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session");
+
+    let output = runtime
+        .handle_session_request(
+            SessionIoRequest::GetModeFlags {
+                request_id: request_id("mode-authoritative"),
+                session_id: session_id(),
+            },
+            20,
+        )
+        .expect("read authoritative mode flags");
+
+    assert!(matches!(
+        output.session_events.as_slice(),
+        [SessionIoEvent::ModeFlagsReady(response)]
+            if response.request_id == request_id("mode-authoritative")
+                && response.session_id == session_id()
+                && response.mode_flags.mouse_mode == 9
+    ));
+}
+
+#[test]
+fn supervised_session_mode_flag_failure_preserves_operation_and_message() {
+    let mut runtime =
+        ManagedSessionRuntime::with_terminal_backend_factory(FakeSessionRuntime::new(), |size| {
+            Ok::<_, std::convert::Infallible>(FailingTerminalRuntime::new(
+                size,
+                "forced mode query failure",
+            ))
+        });
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn managed session");
+
+    let error = runtime
+        .handle_session_request(
+            SessionIoRequest::GetModeFlags {
+                request_id: request_id("mode-failure"),
+                session_id: session_id(),
+            },
+            20,
+        )
+        .expect_err("mode query failure");
+
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::TerminalBackendOperation {
+            operation: "mode_flags",
+            ref message,
+        } if message == "forced mode query failure"
     ));
 }
 
