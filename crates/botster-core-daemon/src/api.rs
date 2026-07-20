@@ -2,12 +2,12 @@
 
 use botster_core::{
     BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, EnvelopeCursor,
-    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, NotificationDeliveryStatus, NotificationId,
-    NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity, RequestId,
-    ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopePublishOutcome,
-    ScreenReady, SessionId, SessionSpawnRequest, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SnapshotReady, SubscriptionId, TerminalSnapshotPayload,
-    TransportEgress,
+    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, ModeFlagsReady, NotificationDeliveryStatus,
+    NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity,
+    RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome,
+    RoutedEnvelopePublishOutcome, ScreenReady, SessionId, SessionSpawnRequest,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SnapshotReady, SubscriptionId,
+    TerminalSnapshotPayload, TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,13 @@ pub struct ReadScreenResult {
     pub screen: ScreenReady,
 }
 
+/// Result of reading authoritative terminal mode flags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadModeFlagsResult {
+    /// Correlated mode response from the core session contract.
+    pub mode_flags: ModeFlagsReady,
+}
+
 /// Result of capturing the current daemon-owned terminal snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureSnapshotResult {
@@ -84,6 +91,17 @@ pub struct CaptureSnapshotResult {
 /// Host request to read the current terminal screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadScreenRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to read.
+    pub session_id: SessionId,
+    /// Logical timestamp used for the internal drain-before-read step.
+    pub now_seconds: u64,
+}
+
+/// Host request to read authoritative terminal mode flags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadModeFlagsRequest {
     /// Request correlation id.
     pub request_id: RequestId,
     /// Session to read.

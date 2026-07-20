@@ -38,8 +38,9 @@ terminal output. It must not re-route the returned session requests; those
 requests are an already-routed record from the engine, not daemon follow-up
 work.
 
-Screen reads and snapshot captures are also part of the typed production daemon
-API. `CoreDaemon::read_screen` and `CoreDaemon::capture_snapshot` internally
+Screen reads, mode reads, and snapshot captures are also part of the typed production daemon
+API. `CoreDaemon::read_screen`, `CoreDaemon::read_mode_flags`, and
+`CoreDaemon::capture_snapshot` internally
 drain the target session before reading terminal state because worker-backed
 terminal truth advances on the drain path. Any client egress or observations
 produced by that internal drain are retained and prepended to the next explicit
@@ -48,8 +49,8 @@ contract. Natural-exit readback retention does not consume the host's pending
 `CoreDaemon::drain` obligation: final egress remains available exactly once.
 
 After final PTY output is drained, natural exit and per-session shutdown freeze
-one immutable paired screen/snapshot record. `read_screen` and
-`capture_snapshot` serve that same record symmetrically, repeatedly, and
+one immutable paired screen/snapshot/mode-read record. `read_screen`,
+`read_mode_flags`, and `capture_snapshot` serve that same record symmetrically, repeatedly, and
 idempotently without polling the dead runtime. The exited session stays
 read-only and cannot be resized, written, attached for reactivation, or resumed
 through this record. No valid paired final capture yields

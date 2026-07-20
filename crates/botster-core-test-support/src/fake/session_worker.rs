@@ -4,8 +4,8 @@ use botster_core::{
     BackpressureRoute, MailboxSendFailure, MailboxSendFailureReason, ModeFlags, ModeFlagsReady,
     PreparedSnapshotReady, PreparedSnapshotRequest, QueueSource, RequestId, ScreenReady,
     SendFileFailed, SendFileRequest, SendFileWritten, SessionId, SessionIoRequest,
-    SessionRuntimeError, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SnapshotReady,
-    TerminalColorProfile,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
+    SnapshotReady, TerminalColorProfile,
 };
 
 /// Runtime command recorded by the fake session runtime.
@@ -62,6 +62,7 @@ pub struct FakeSessionWorkerRuntime {
     cols: u16,
     snapshot: Vec<u8>,
     send_storage_ref: Option<String>,
+    mode_flags: Option<ModeFlags>,
 }
 
 impl Default for FakeSessionWorkerRuntime {
@@ -72,6 +73,7 @@ impl Default for FakeSessionWorkerRuntime {
             cols: 80,
             snapshot: b"snapshot".to_vec(),
             send_storage_ref: Some("opaque-send-file-1".to_string()),
+            mode_flags: None,
         }
     }
 }
@@ -87,6 +89,13 @@ impl FakeSessionWorkerRuntime {
     #[must_use]
     pub const fn commands(&self) -> &Vec<RuntimeCommand> {
         &self.commands
+    }
+
+    /// Configure authoritative mode flags returned by the fake.
+    #[must_use]
+    pub fn with_mode_flags(mut self, mode_flags: ModeFlags) -> Self {
+        self.mode_flags = Some(mode_flags);
+        self
     }
 }
 
@@ -156,15 +165,22 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
         }
     }
 
-    fn mode_flags(&mut self, request_id: RequestId, session_id: SessionId) -> ModeFlagsReady {
-        ModeFlagsReady {
+    fn mode_flags(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+    ) -> Result<ModeFlagsReady, SessionRuntimeError> {
+        let mode_flags = self.mode_flags.clone().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "fake terminal mode flags are not configured",
+            )
+        })?;
+        Ok(ModeFlagsReady {
             request_id,
             session_id,
-            mode_flags: ModeFlags {
-                cursor_visible: true,
-                ..ModeFlags::default()
-            },
-        }
+            mode_flags,
+        })
     }
 
     fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {

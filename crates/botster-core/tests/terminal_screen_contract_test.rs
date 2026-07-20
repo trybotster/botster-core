@@ -318,18 +318,22 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
         }
     }
 
-    fn mode_flags(&mut self, request_id: RequestId, session_id: SessionId) -> ModeFlagsReady {
+    fn mode_flags(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+    ) -> Result<ModeFlagsReady, botster_core::SessionRuntimeError> {
         let state = match self.engine.screen_state().screen {
             Some(state) => state,
             None => {
                 botster_core::TerminalScreenState::new(TerminalScreenSize::new(0, 0), String::new())
             }
         };
-        ModeFlagsReady {
+        Ok(ModeFlagsReady {
             request_id,
             session_id,
             mode_flags: state.mode_flags,
-        }
+        })
     }
 
     fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {

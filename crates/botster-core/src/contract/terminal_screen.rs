@@ -1,10 +1,48 @@
 //! Terminal screen and opaque snapshot contracts.
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use super::actor::{PreparedSnapshotRequest, SnapshotReady};
 use super::session::{RequestId, SessionId};
 use super::session_protocol::{ModeFlags, TerminalColorProfile};
+
+/// Fallible terminal backend state read.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum TerminalBackendError {
+    /// The selected terminal backend cannot provide the requested state.
+    #[error("terminal backend does not support {operation}")]
+    Unsupported {
+        /// Backend-neutral operation name.
+        operation: &'static str,
+    },
+    /// The selected terminal backend failed while reading state.
+    #[error("terminal backend failed during {operation}: {message}")]
+    OperationFailed {
+        /// Backend-neutral operation name.
+        operation: &'static str,
+        /// Backend-owned failure detail.
+        message: String,
+    },
+}
+
+impl TerminalBackendError {
+    /// Build an unsupported-operation error.
+    #[must_use]
+    pub const fn unsupported(operation: &'static str) -> Self {
+        Self::Unsupported { operation }
+    }
+
+    /// Build an operation failure while retaining backend detail.
+    #[must_use]
+    pub fn operation_failed(operation: &'static str, message: impl Into<String>) -> Self {
+        Self::OperationFailed {
+            operation,
+            message: message.into(),
+        }
+    }
+}
 
 /// Terminal dimensions associated with screen state and snapshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
