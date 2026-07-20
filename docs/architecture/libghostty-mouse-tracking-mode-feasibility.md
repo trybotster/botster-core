@@ -62,30 +62,24 @@ This intentionally preserves the production encoding at
 `cli/src/session/protocol.rs:153-163`). Bit 8 alone selects an encoding; it
 does not enable tracking.
 
-The private test helper is fallible. Unlike trybotster's existing primitive at
+The production helper is fallible. Unlike trybotster's earlier primitive at
 `cli/src/ghostty_vt.rs:939-944`, it returns an error when
 `ghostty_terminal_mode_get` fails instead of turning failure into an
-authoritative-looking false value. The helper is `#[cfg(test)]` and is neither
-public nor `pub(crate)`; this spike does not ship a safe mode-reporting API.
+authoritative-looking false value.
 
-## Minimal Downstream Shape
+## Production Readback
 
-The existing backend-neutral seam has no mode probe
-(`crates/botster-core/src/engine/terminal_screen.rs:8-29`), while the existing
-contract already carries `ModeFlags.mouse_mode: u8`
-(`crates/botster-core/src/contract/session_protocol.rs:112-128`).
-`TerminalScreenState::new` currently installs `ModeFlags::default`
-(`crates/botster-core/src/contract/terminal_screen.rs:140-150`), and the
-managed runtime still rejects the existing request
-(`crates/botster-core/src/engine/managed_session_runtime.rs:916`).
+`TerminalScreenRuntime::mode_flags` is the fallible backend-neutral probe.
+Ghostty implements it with the four native queries above. Managed
+`SessionIoRequest::GetModeFlags` routes the correlated result through the
+session worker, engine facade, and `CoreDaemon::read_mode_flags`. Unsupported
+backends and native query failures return errors; neither path returns default
+flags as authoritative state. The daemon retains the final successful read or
+failure beside its final screen/snapshot state for post-exit readback.
 
-The next core ticket should add one required, backend-neutral
-`TerminalScreenRuntime::mode_flags() -> ModeFlags` method, including its boxed
-forwarder. The plain backend and fakes should implement it explicitly. The
-Ghostty backend should query the authoritative state and populate the existing
-`ModeFlags`; it should not add another enum, bool, wire field, or versioned
-flags type. `ManagedSessionRuntime` should use that method to answer the
-existing `GetModeFlags`/`ModeFlagsReady` probe.
+Only `ModeFlags.mouse_mode` is authoritative in this revision. The other six
+fields are unavailable and their default values must not be interpreted as
+authoritative `false` state.
 
 Assumptions:
 
@@ -96,8 +90,8 @@ Assumptions:
   aggregate `GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING` value includes X10, so it is
   not an equivalent substitute for the exact Botster bitmask.
 - A future Ghostty revision change requires rechecking this ABI evidence.
-- Downstream work must decide explicitly whether it populates all current
-  `ModeFlags` fields together or lands honest mouse reporting first.
+- The other `ModeFlags` fields require separate authoritative producers before
+  clients may rely on them.
 
 ## Ordered Next-Ticket DAG
 

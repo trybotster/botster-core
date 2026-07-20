@@ -131,9 +131,11 @@ mod native {
     use std::ptr::{self, NonNull};
 
     use botster_core::contract::terminal_screen::{
-        TerminalOutputChunk, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+        TerminalBackendError, TerminalOutputChunk, TerminalScreenSize, TerminalScreenState,
+        TerminalSnapshotPayload,
     };
     use botster_core::engine::TerminalScreenRuntime;
+    use botster_core::ModeFlags;
 
     use crate::sys::{
         ghostty_formatter_format_alloc, ghostty_formatter_free, ghostty_formatter_terminal_new,
@@ -355,7 +357,6 @@ mod native {
             *self.last_error.borrow_mut() = None;
         }
 
-        #[cfg(test)]
         fn mouse_mode(&self) -> Result<u8, GhosttyTerminalError> {
             use crate::sys::{
                 ghostty_terminal_mode_get, GhosttyMode, GHOSTTY_MODE_ANY_MOUSE,
@@ -432,6 +433,17 @@ mod native {
                     TerminalScreenState::new(self.size, String::new())
                 }
             }
+        }
+
+        fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+            self.mouse_mode()
+                .map(|mouse_mode| ModeFlags {
+                    mouse_mode,
+                    ..ModeFlags::default()
+                })
+                .map_err(|error| {
+                    TerminalBackendError::operation_failed("mode_flags", error.to_string())
+                })
         }
 
         fn last_error(&self) -> Option<String> {
@@ -570,9 +582,23 @@ mod native {
 
             runtime.write_output(b"\x1b[?1000h\x1b[?1006h");
             assert_eq!(runtime.mouse_mode().expect("query combined modes"), 9);
+            assert_eq!(
+                runtime
+                    .mode_flags()
+                    .expect("query authoritative mode flags")
+                    .mouse_mode,
+                9
+            );
 
             runtime.write_output(b"\x1b[?1000l\x1b[?1006l");
             assert_eq!(runtime.mouse_mode().expect("query fully reset modes"), 0);
+            assert_eq!(
+                runtime
+                    .mode_flags()
+                    .expect("query reset authoritative mode flags")
+                    .mouse_mode,
+                0
+            );
         }
     }
 }

@@ -1,8 +1,8 @@
 //! Fake terminal screen runtime for consumer conformance tests.
 
 use botster_core::{
-    ModeFlags, TerminalColorProfile, TerminalOutputChunk, TerminalScreenRuntime,
-    TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+    ModeFlags, TerminalBackendError, TerminalColorProfile, TerminalOutputChunk,
+    TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 
 /// Fake runtime for terminal screen boundary tests.
@@ -14,6 +14,7 @@ pub struct FakeTerminalScreenRuntime {
     title: Option<String>,
     cwd: Option<String>,
     mode_flags: ModeFlags,
+    mode_flags_configured: bool,
     color_profile: Option<TerminalColorProfile>,
     format: Option<String>,
 }
@@ -27,6 +28,7 @@ impl Default for FakeTerminalScreenRuntime {
             title: None,
             cwd: None,
             mode_flags: ModeFlags::default(),
+            mode_flags_configured: false,
             color_profile: None,
             format: Some("fake-opaque-v1".to_string()),
         }
@@ -57,6 +59,7 @@ impl FakeTerminalScreenRuntime {
         self.title = title;
         self.cwd = cwd;
         self.mode_flags = mode_flags;
+        self.mode_flags_configured = true;
         self.color_profile = color_profile;
     }
 
@@ -96,5 +99,11 @@ impl TerminalScreenRuntime for FakeTerminalScreenRuntime {
             mode_flags: self.mode_flags.clone(),
             color_profile: self.color_profile.clone(),
         }
+    }
+
+    fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+        self.mode_flags_configured
+            .then(|| self.mode_flags.clone())
+            .ok_or_else(|| TerminalBackendError::unsupported("mode_flags"))
     }
 }
