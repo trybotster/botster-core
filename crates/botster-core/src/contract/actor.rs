@@ -557,6 +557,10 @@ pub struct PreparedSnapshotReady {
 }
 
 /// Terminal mode flags response.
+///
+/// In the current production readback, only [`ModeFlags::mouse_mode`] is
+/// authoritative. The remaining fields are unavailable and must not be
+/// interpreted as authoritative `false` values.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModeFlagsReady {
     /// Request correlation id.

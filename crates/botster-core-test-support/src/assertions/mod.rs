@@ -213,6 +213,13 @@ pub fn assert_terminal_backend_screen_state_matches_output_and_metadata<R>(
         }]
     );
     assert_eq!(screen_state(outcome.screen), expected_state);
+    assert_eq!(
+        engine
+            .runtime()
+            .mode_flags()
+            .expect("configured backend should expose authoritative mode flags"),
+        expected_state.mode_flags
+    );
 }
 
 /// Assert that attaching live output is held until after the authoritative

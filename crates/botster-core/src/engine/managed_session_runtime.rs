@@ -33,7 +33,9 @@ use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
 };
 use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
-use crate::terminal_screen::{TerminalScreenSize, TerminalSnapshotPayload};
+use crate::terminal_screen::{
+    TerminalBackendError, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
+};
 use crate::transport::TransportIngress;
 use crate::ClientId;
 
@@ -256,6 +258,15 @@ where
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_session_request(&request)?;
+        if let SessionIoRequest::GetModeFlags { session_id, .. } = &request {
+            let worker = self
+                .engine
+                .session_worker_runtime_mut(session_id)
+                .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                    session_id: session_id.clone(),
+                })?;
+            worker.prepare_mode_flags()?;
+        }
         let outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
         Ok(outcome)
@@ -510,11 +521,18 @@ where
         worker.capture_snapshot_payload()
     }
 
-    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    /// Capture screen state, an opaque snapshot, and a separate verified mode read.
     pub fn capture_terminal_state(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(String, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+    ) -> Result<
+        (
+            TerminalScreenState,
+            TerminalSnapshotPayload,
+            Result<ModeFlags, TerminalBackendError>,
+        ),
+        ManagedSessionRuntimeError,
+    > {
         let worker = self
             .engine
             .session_worker_runtime_mut(session_id)
@@ -657,6 +675,7 @@ where
                 inputs: Vec::new(),
                 terminal: TerminalScreenEngine::new(terminal),
                 pending_runtime_events: Vec::new(),
+                prepared_mode_flags: None,
             })),
         }
     }
@@ -700,14 +719,21 @@ where
 
     pub(crate) fn capture_terminal_state(
         &mut self,
-    ) -> Result<(String, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+    ) -> Result<
+        (
+            TerminalScreenState,
+            TerminalSnapshotPayload,
+            Result<ModeFlags, TerminalBackendError>,
+        ),
+        ManagedSessionRuntimeError,
+    > {
         let mut state = self.state.borrow_mut();
         let screen = state
             .terminal
             .screen_state()
             .screen
-            .expect("terminal screen engine reads screen state")
-            .plain_text;
+            .expect("terminal screen engine reads screen state");
+        let mode_flags = state.terminal.runtime().mode_flags();
         let snapshot = state
             .terminal
             .capture_snapshot()
@@ -719,7 +745,18 @@ where
                 message,
             });
         }
-        Ok((screen, snapshot))
+        Ok((screen, snapshot, mode_flags))
+    }
+
+    fn prepare_mode_flags(&mut self) -> Result<(), ManagedSessionRuntimeError> {
+        let mut state = self.state.borrow_mut();
+        let flags = state
+            .terminal
+            .runtime()
+            .mode_flags()
+            .map_err(managed_terminal_backend_error)?;
+        state.prepared_mode_flags = Some(flags);
+        Ok(())
     }
 
     pub(crate) fn last_terminal_error(&self) -> Option<String> {
@@ -735,6 +772,7 @@ where
     inputs: Vec<SessionRuntimeInput>,
     terminal: TerminalScreenEngine<T>,
     pending_runtime_events: Vec<crate::SessionWorkerRuntimeEvent>,
+    prepared_mode_flags: Option<ModeFlags>,
 }
 
 impl<T> SessionWorkerRuntime for SessionRuntimeWorkerAdapter<T>
@@ -836,12 +874,22 @@ where
         }
     }
 
-    fn mode_flags(&mut self, request_id: RequestId, session_id: SessionId) -> ModeFlagsReady {
-        ModeFlagsReady {
+    fn mode_flags(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+    ) -> Result<ModeFlagsReady, SessionRuntimeError> {
+        let mode_flags = self
+            .state
+            .borrow_mut()
+            .prepared_mode_flags
+            .take()
+            .expect("managed runtime primes verified mode flags before routing");
+        Ok(ModeFlagsReady {
             request_id,
             session_id,
-            mode_flags: ModeFlags::default(),
-        }
+            mode_flags,
+        })
     }
 
     fn screen(&mut self, request_id: RequestId, session_id: SessionId) -> ScreenReady {
@@ -913,16 +961,29 @@ fn reject_unsupported_session_request(
     match request {
         SessionIoRequest::SendFile(_) => unsupported("send_file"),
         SessionIoRequest::PrepareSnapshot(_) => unsupported("prepare_snapshot"),
-        SessionIoRequest::GetModeFlags { .. } => unsupported("get_mode_flags"),
         SessionIoRequest::SetColorProfile { .. } => unsupported("set_color_profile"),
         SessionIoRequest::SubscribeTerminal { .. }
         | SessionIoRequest::GetSnapshot { .. }
         | SessionIoRequest::GetInitialSnapshot(_)
+        | SessionIoRequest::GetModeFlags { .. }
         | SessionIoRequest::GetScreen { .. }
         | SessionIoRequest::UnsubscribeTerminal { .. }
         | SessionIoRequest::PtyInput { .. }
         | SessionIoRequest::Resize { .. }
         | SessionIoRequest::Shutdown { .. } => Ok(()),
+    }
+}
+
+fn managed_terminal_backend_error(error: TerminalBackendError) -> ManagedSessionRuntimeError {
+    match error {
+        TerminalBackendError::Unsupported { operation } => {
+            ManagedSessionRuntimeError::UnsupportedSessionRequest {
+                request_kind: operation,
+            }
+        }
+        TerminalBackendError::OperationFailed { operation, message } => {
+            ManagedSessionRuntimeError::TerminalBackendOperation { operation, message }
+        }
     }
 }
 

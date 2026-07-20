@@ -22,9 +22,9 @@ use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
     DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
-    GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadScreenRequest,
-    ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
-    SpawnSessionRequest,
+    GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest,
+    ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
+    SafeWriteIndicator, SessionAdoptionState, SpawnSessionRequest,
 };
 #[cfg(feature = "ghostty-terminal")]
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
@@ -1472,6 +1472,14 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
         .expect("spawned never explicitly drained session should still capture snapshot");
     assert_eq!(snapshot.snapshot.session_id, session_id);
     assert_snapshot_format(&snapshot.payload);
+    #[cfg(feature = "ghostty-terminal")]
+    let live_mode_flags = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("live-mode-flags".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 16,
+        })
+        .expect("live mode flags should be authoritative");
 
     daemon
         .shutdown(Some(session_id.clone()), 20)
@@ -1504,8 +1512,21 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
             now_seconds: 24,
         })
         .expect("shutdown snapshot should be repeatable");
+    #[cfg(feature = "ghostty-terminal")]
+    let retained_mode_flags = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("retained-mode-flags".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 25,
+        })
+        .expect("shutdown mode flags should serve retained terminal truth");
 
     assert!(first_screen.screen.text.contains("echo:shutdown-final"));
+    #[cfg(feature = "ghostty-terminal")]
+    assert_eq!(
+        live_mode_flags.mode_flags.mode_flags.mouse_mode,
+        retained_mode_flags.mode_flags.mode_flags.mouse_mode
+    );
     assert_eq!(first_screen.screen.text, second_screen.screen.text);
     assert_ne!(
         first_screen.screen.request_id,
@@ -1713,6 +1734,36 @@ fn natural_exit_read_screen_and_capture_snapshot_freeze_repeatable_truth() {
         Err(CoreDaemonError::SessionNotReadable(session)) if session == snapshot_session
     ));
 
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(not(feature = "ghostty-terminal"))]
+#[test]
+fn plain_backend_mode_flags_are_unsupported_instead_of_default_authority() {
+    let data_dir = temp_data_dir("plain-mode-flags-unsupported");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("plain-mode-flags-session".to_string());
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn plain-backend session");
+
+    let error = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("plain-mode-flags".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 11,
+        })
+        .expect_err("plain backend must not fabricate all-false authority");
+
+    assert!(matches!(
+        error,
+        CoreDaemonError::Engine(
+            botster_core::ManagedSessionRuntimeError::UnsupportedSessionRequest {
+                request_kind: "mode_flags",
+            }
+        )
+    ));
+    let _ = daemon.shutdown(Some(session_id), 12);
     let _ = fs::remove_dir_all(data_dir);
 }
 

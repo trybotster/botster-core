@@ -3,9 +3,9 @@
 use botster_core::client::ClientId;
 use botster_core::{
     BackpressureRoute, InitialSnapshotReady, InitialSnapshotRequest, MailboxSendFailureReason,
-    NotificationPayload, PreparedSnapshotRequest, ProcessExitedPayload, PromptMarkPayload,
-    QueueSource, RequestId, SendFileRequest, SessionId, SessionIoEvent, SessionIoRequest,
-    SessionWorkerEngine, SessionWorkerRuntimeEvent, SubscriptionId,
+    ModeFlags, NotificationPayload, PreparedSnapshotRequest, ProcessExitedPayload,
+    PromptMarkPayload, QueueSource, RequestId, SendFileRequest, SessionId, SessionIoEvent,
+    SessionIoRequest, SessionWorkerEngine, SessionWorkerRuntimeEvent, SubscriptionId,
 };
 use botster_core_test_support::fake::{
     FakeSessionIoMailbox, FakeSessionWorkerRuntime, RuntimeCommand,
@@ -101,7 +101,11 @@ fn session_worker_routes_resize_before_snapshot() {
 
 #[test]
 fn session_worker_routes_send_file_prepare_mode_and_screen_requests() {
-    let mut engine = engine();
+    let mut engine =
+        SessionWorkerEngine::new(FakeSessionWorkerRuntime::new().with_mode_flags(ModeFlags {
+            cursor_visible: true,
+            ..ModeFlags::default()
+        }));
 
     let send_file = engine
         .handle_request(SessionIoRequest::SendFile(SendFileRequest {

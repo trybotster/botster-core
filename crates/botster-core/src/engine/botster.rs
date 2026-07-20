@@ -424,6 +424,22 @@ impl DefaultBotsterEngine {
             .read_screen(request_id, session_id, now_seconds)
     }
 
+    /// Read authoritative terminal mode flags through the managed session path.
+    pub fn read_mode_flags(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
+        self.runtime.handle_session_request(
+            crate::SessionIoRequest::GetModeFlags {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
     /// Capture a session snapshot where the managed runtime supports it.
     pub fn capture_snapshot(
         &mut self,
@@ -443,11 +459,18 @@ impl DefaultBotsterEngine {
         self.runtime.capture_snapshot_payload(session_id)
     }
 
-    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    /// Capture screen, snapshot, and authoritative mode read from one terminal shadow.
     pub fn capture_terminal_state(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(String, TerminalSnapshotPayload), DefaultBotsterEngineError> {
+    ) -> Result<
+        (
+            crate::TerminalScreenState,
+            TerminalSnapshotPayload,
+            Result<crate::ModeFlags, crate::TerminalBackendError>,
+        ),
+        DefaultBotsterEngineError,
+    > {
         self.runtime.capture_terminal_state(session_id)
     }
 
@@ -668,6 +691,22 @@ impl WorkerBackedBotsterEngine {
             .read_screen(request_id, session_id, now_seconds)
     }
 
+    /// Read authoritative terminal mode flags through the worker-backed path.
+    pub fn read_mode_flags(
+        &mut self,
+        request_id: crate::RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        self.runtime.handle_session_request(
+            crate::SessionIoRequest::GetModeFlags {
+                request_id,
+                session_id,
+            },
+            now_seconds,
+        )
+    }
+
     /// Capture a reusable opaque snapshot payload for one worker-backed session.
     pub fn capture_snapshot_payload(
         &mut self,
@@ -676,11 +715,18 @@ impl WorkerBackedBotsterEngine {
         self.runtime.capture_snapshot_payload(session_id)
     }
 
-    /// Capture plain screen text and an opaque snapshot from one terminal-shadow borrow.
+    /// Capture screen, snapshot, and authoritative mode read from one terminal shadow.
     pub fn capture_terminal_state(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(String, TerminalSnapshotPayload), WorkerBackedBotsterEngineError> {
+    ) -> Result<
+        (
+            crate::TerminalScreenState,
+            TerminalSnapshotPayload,
+            Result<crate::ModeFlags, crate::TerminalBackendError>,
+        ),
+        WorkerBackedBotsterEngineError,
+    > {
         self.runtime.capture_terminal_state(session_id)
     }
 

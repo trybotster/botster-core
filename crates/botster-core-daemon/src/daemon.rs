@@ -11,11 +11,12 @@ use std::{
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
-    DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, NotificationId, NotificationInbox,
-    QueueSource, RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter,
-    ScreenReady, SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeErrorKind,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalSnapshotPayload,
-    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
+    DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
+    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
+    RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
+    SessionLifecycleState, SessionRuntimeErrorKind, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalScreenState,
+    TerminalSnapshotPayload, WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
 #[cfg(feature = "ghostty-terminal")]
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
@@ -27,9 +28,9 @@ use crate::api::{
     DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
     DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
     PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
-    PublishRoutedEnvelopeResult, ReadScreenRequest, ReadScreenResult,
-    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
-    SpawnSessionRequest,
+    PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
+    ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
+    SessionAdoptionState, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -125,6 +126,9 @@ pub enum CoreDaemonError {
     /// daemon readability checks have accepted the request.
     #[error("screen response missing for request: {0:?}")]
     MissingScreenResponse(RequestId),
+    /// Core did not return the expected mode-flags response.
+    #[error("mode flags response missing for request: {0:?}")]
+    MissingModeFlagsResponse(RequestId),
 }
 
 /// Production core daemon supervisor.
@@ -153,6 +157,7 @@ struct PendingDrainResult {
 struct RetainedTerminalState {
     screen_text: String,
     snapshot: TerminalSnapshotPayload,
+    mode_flags: Result<ModeFlags, TerminalBackendError>,
 }
 
 enum ReadbackResolution {
@@ -390,6 +395,39 @@ impl CoreDaemon {
             drain_result_from_engine_output(output),
         );
         Ok(ReadScreenResult { screen })
+    }
+
+    /// Read authoritative terminal mode flags through the production daemon path.
+    pub fn read_mode_flags(
+        &mut self,
+        request: ReadModeFlagsRequest,
+    ) -> Result<ReadModeFlagsResult, CoreDaemonError> {
+        self.ensure_running()?;
+        if let ReadbackResolution::Retained(retained) =
+            self.resolve_readback(&request.session_id, request.now_seconds)?
+        {
+            let mode_flags = retained
+                .mode_flags
+                .map_err(managed_terminal_backend_error)?;
+            return Ok(ReadModeFlagsResult {
+                mode_flags: ModeFlagsReady {
+                    request_id: request.request_id,
+                    session_id: request.session_id,
+                    mode_flags,
+                },
+            });
+        }
+        let mut output = self.engine.read_mode_flags(
+            request.request_id.clone(),
+            request.session_id.clone(),
+            request.now_seconds,
+        )?;
+        let mode_flags = take_mode_flags_ready(&mut output, &request.request_id)?;
+        self.retain_pending_drain_result(
+            &request.session_id,
+            drain_result_from_engine_output(output),
+        );
+        Ok(ReadModeFlagsResult { mode_flags })
     }
 
     /// Capture the current terminal snapshot through the production daemon path.
@@ -876,12 +914,13 @@ impl CoreDaemon {
         if self.retained_terminal.contains_key(session_id) {
             return Ok(());
         }
-        let (screen_text, snapshot) = self.engine.capture_terminal_state(session_id)?;
+        let (screen, snapshot, mode_flags) = self.engine.capture_terminal_state(session_id)?;
         self.retained_terminal.insert(
             session_id.clone(),
             RetainedTerminalState {
-                screen_text,
+                screen_text: screen.plain_text,
                 snapshot,
+                mode_flags,
             },
         );
         Ok(())
@@ -1039,6 +1078,41 @@ fn take_screen_ready(
     }
 }
 
+fn take_mode_flags_ready(
+    output: &mut BotsterEngineOutput,
+    request_id: &RequestId,
+) -> Result<ModeFlagsReady, CoreDaemonError> {
+    let position = output
+        .session_events
+        .iter()
+        .position(|event| match event {
+            SessionIoEvent::ModeFlagsReady(mode_flags) => &mode_flags.request_id == request_id,
+            _ => false,
+        })
+        .ok_or_else(|| CoreDaemonError::MissingModeFlagsResponse(request_id.clone()))?;
+    match output.session_events.remove(position) {
+        SessionIoEvent::ModeFlagsReady(mode_flags) => Ok(mode_flags),
+        _ => unreachable!("position was selected from a ModeFlagsReady event"),
+    }
+}
+
+fn managed_terminal_backend_error(error: TerminalBackendError) -> CoreDaemonError {
+    let error = match error {
+        TerminalBackendError::Unsupported { operation } => {
+            botster_core::ManagedSessionRuntimeError::UnsupportedSessionRequest {
+                request_kind: operation,
+            }
+        }
+        TerminalBackendError::OperationFailed { operation, message } => {
+            botster_core::ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation,
+                message,
+            }
+        }
+    };
+    CoreDaemonError::Engine(error)
+}
+
 fn is_session_not_found(error: &DefaultBotsterEngineError) -> bool {
     matches!(
         error,
@@ -1164,6 +1238,18 @@ impl DaemonEngine {
         }
     }
 
+    fn read_mode_flags(
+        &mut self,
+        request_id: RequestId,
+        session_id: SessionId,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.read_mode_flags(request_id, session_id, now_seconds),
+            Self::Worker(engine) => engine.read_mode_flags(request_id, session_id, now_seconds),
+        }
+    }
+
     fn capture_snapshot_payload(
         &mut self,
         session_id: &SessionId,
@@ -1177,7 +1263,14 @@ impl DaemonEngine {
     fn capture_terminal_state(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(String, TerminalSnapshotPayload), DefaultBotsterEngineError> {
+    ) -> Result<
+        (
+            TerminalScreenState,
+            TerminalSnapshotPayload,
+            Result<ModeFlags, TerminalBackendError>,
+        ),
+        DefaultBotsterEngineError,
+    > {
         match self {
             Self::Local(engine) => engine.capture_terminal_state(session_id),
             Self::Worker(engine) => engine.capture_terminal_state(session_id),
@@ -1283,6 +1376,10 @@ mod terminal_backend_failure_tests {
             self.inner.screen_state()
         }
 
+        fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
+            self.inner.mode_flags()
+        }
+
         fn last_error(&self) -> Option<String> {
             self.forced_error
                 .clone()
@@ -1355,7 +1452,27 @@ mod terminal_backend_failure_tests {
                 cols: 100
             }
         );
-        let _ = daemon.shutdown(Some(session_id), 14);
+        let live_modes = daemon
+            .read_mode_flags(ReadModeFlagsRequest {
+                request_id: RequestId("live-modes".to_string()),
+                session_id: session_id.clone(),
+                now_seconds: 14,
+            })
+            .expect("live mode flags");
+        daemon
+            .shutdown(Some(session_id.clone()), 15)
+            .expect("shutdown should retain terminal state");
+        let retained_modes = daemon
+            .read_mode_flags(ReadModeFlagsRequest {
+                request_id: RequestId("retained-modes".to_string()),
+                session_id,
+                now_seconds: 16,
+            })
+            .expect("retained mode flags");
+        assert_eq!(
+            live_modes.mode_flags.mode_flags.mouse_mode,
+            retained_modes.mode_flags.mode_flags.mouse_mode
+        );
         let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
     }
 
