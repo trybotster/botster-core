@@ -1109,6 +1109,10 @@ fn managed_terminal_backend_error(error: TerminalBackendError) -> CoreDaemonErro
                 message,
             }
         }
+        error => botster_core::ManagedSessionRuntimeError::TerminalBackendOperation {
+            operation: "mode_flags",
+            message: error.to_string(),
+        },
     };
     CoreDaemonError::Engine(error)
 }
