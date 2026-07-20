@@ -1418,7 +1418,8 @@ fn worker_backed_empty_initial_snapshot_attaches_before_live_output_without_hist
 #[test]
 fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
     let data_dir = temp_data_dir("dssn");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
     let missing_session = SessionId("missing-rb-session".to_string());
 
     assert!(matches!(
@@ -1442,7 +1443,7 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
     let client_id = ClientId("dssn-client".to_string());
     daemon
         .spawn(mode_flags_spawn_request(&session_id), 11)
-        .expect("daemon should spawn");
+        .expect("worker-backed daemon should spawn");
     daemon
         .attach(
             client_id.clone(),
@@ -1450,7 +1451,7 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
             SubscriptionId("dssn-subscription".to_string()),
             12,
         )
-        .expect("daemon should attach");
+        .expect("worker-backed daemon should attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
     daemon
         .input(
