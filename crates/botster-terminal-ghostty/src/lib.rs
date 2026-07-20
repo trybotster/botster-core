@@ -354,6 +354,43 @@ mod native {
         fn clear_last_error(&self) {
             *self.last_error.borrow_mut() = None;
         }
+
+        #[cfg(test)]
+        fn mouse_mode(&self) -> Result<u8, GhosttyTerminalError> {
+            use crate::sys::{
+                ghostty_terminal_mode_get, GhosttyMode, GHOSTTY_MODE_ANY_MOUSE,
+                GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
+            };
+
+            let mode_is_set = |mode: GhosttyMode| {
+                let mut out_value = false;
+                let result = unsafe {
+                    ghostty_terminal_mode_get(self.handle.as_ptr(), mode, &mut out_value)
+                };
+
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation("mode_get", result));
+                }
+
+                Ok(out_value)
+            };
+
+            let mut mouse_mode = 0;
+            if mode_is_set(GHOSTTY_MODE_NORMAL_MOUSE)? {
+                mouse_mode |= 1;
+            }
+            if mode_is_set(GHOSTTY_MODE_ANY_MOUSE)? {
+                mouse_mode |= 2;
+            }
+            if mode_is_set(GHOSTTY_MODE_BUTTON_MOUSE)? {
+                mouse_mode |= 4;
+            }
+            if mode_is_set(GHOSTTY_MODE_SGR_MOUSE)? {
+                mouse_mode |= 8;
+            }
+
+            Ok(mouse_mode)
+        }
     }
 
     impl TerminalScreenRuntime for GhosttyTerminal {
@@ -501,6 +538,7 @@ mod native {
     #[cfg(test)]
     mod tests {
         use botster_core::contract::terminal_screen::TerminalScreenSize;
+        use botster_core::engine::TerminalScreenRuntime;
 
         use super::GhosttyTerminal;
 
@@ -510,6 +548,31 @@ mod native {
                 .expect("create Ghostty terminal");
 
             assert_eq!(runtime.size(), TerminalScreenSize::new(24, 80));
+        }
+
+        #[test]
+        fn mouse_mode_tracks_decset_and_decrst_on_the_native_terminal() {
+            let mut runtime = GhosttyTerminal::new(TerminalScreenSize::new(24, 80))
+                .expect("create Ghostty terminal");
+
+            assert_eq!(runtime.mouse_mode().expect("query default modes"), 0);
+
+            for (mode, expected) in [(1000, 1), (1003, 2), (1002, 4), (1006, 8)] {
+                runtime.write_output(format!("\x1b[?{mode}h").as_bytes());
+                assert_eq!(
+                    runtime.mouse_mode().expect("query set mouse mode"),
+                    expected
+                );
+
+                runtime.write_output(format!("\x1b[?{mode}l").as_bytes());
+                assert_eq!(runtime.mouse_mode().expect("query reset mouse mode"), 0);
+            }
+
+            runtime.write_output(b"\x1b[?1000h\x1b[?1006h");
+            assert_eq!(runtime.mouse_mode().expect("query combined modes"), 9);
+
+            runtime.write_output(b"\x1b[?1000l\x1b[?1006l");
+            assert_eq!(runtime.mouse_mode().expect("query fully reset modes"), 0);
         }
     }
 }
