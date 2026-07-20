@@ -267,6 +267,9 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         _request_id: RequestId,
         _session_id: SessionId,
     ) -> Result<ModeFlagsReady, SessionRuntimeError> {
+        // SessionRuntimeErrorKind has no Unsupported variant. OutputFailed is
+        // the narrow existing read-failure category; callers must use the
+        // managed terminal backend seam to distinguish unsupported capability.
         Err(SessionRuntimeError::new(
             SessionRuntimeErrorKind::OutputFailed,
             "local process runtime has no authoritative terminal mode backend",
@@ -997,5 +1000,21 @@ mod tests {
             reader_disconnected,
             pending_reader_error.as_deref()
         ));
+    }
+
+    #[test]
+    fn worker_without_terminal_backend_errors_instead_of_defaulting_mode_flags() {
+        let runtime = LocalProcessRuntime::new();
+        let mut worker = runtime.worker_runtime();
+
+        let error = worker
+            .mode_flags(RequestId("mode-read".to_string()), test_session_id())
+            .expect_err("local process worker has no authoritative mode backend");
+
+        assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
+        assert_eq!(
+            error.message,
+            "local process runtime has no authoritative terminal mode backend"
+        );
     }
 }

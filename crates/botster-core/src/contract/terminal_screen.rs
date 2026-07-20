@@ -9,6 +9,7 @@ use super::session_protocol::{ModeFlags, TerminalColorProfile};
 
 /// Fallible terminal backend state read.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum TerminalBackendError {
     /// The selected terminal backend cannot provide the requested state.
     #[error("terminal backend does not support {operation}")]

@@ -884,7 +884,12 @@ where
             .borrow_mut()
             .prepared_mode_flags
             .take()
-            .expect("managed runtime primes verified mode flags before routing");
+            .ok_or_else(|| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "mode flags were not primed before routing",
+                )
+            })?;
         Ok(ModeFlagsReady {
             request_id,
             session_id,
@@ -989,4 +994,24 @@ fn managed_terminal_backend_error(error: TerminalBackendError) -> ManagedSession
 
 fn unsupported(request_kind: &'static str) -> Result<(), ManagedSessionRuntimeError> {
     Err(ManagedSessionRuntimeError::UnsupportedSessionRequest { request_kind })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unprimed_mode_read_returns_typed_error_instead_of_panicking() {
+        let mut adapter = SessionRuntimeWorkerAdapter::new(PlainTerminalScreenRuntime::default());
+
+        let error = adapter
+            .mode_flags(
+                RequestId("unprimed-mode".to_string()),
+                SessionId("unprimed-session".to_string()),
+            )
+            .expect_err("unprimed mode read should fail");
+
+        assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
+        assert_eq!(error.message, "mode flags were not primed before routing");
+    }
 }
