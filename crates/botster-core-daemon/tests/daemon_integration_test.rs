@@ -44,6 +44,7 @@ const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 #[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
+const REAL_WORKER_PROGRESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]
 fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
@@ -57,6 +58,26 @@ fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
         config.lifecycle_journal_capacity,
         DEFAULT_LIFECYCLE_JOURNAL_CAPACITY
     );
+}
+
+#[test]
+fn lifecycle_changes_reject_a_cursor_ahead_of_the_source() {
+    let data_dir = temp_data_dir("lifecycle-cursor-ahead");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut ahead = daemon
+        .lifecycle_baseline()
+        .expect("empty lifecycle baseline")
+        .cursor;
+    ahead.sequence += 1;
+
+    let changes = daemon.lifecycle_changes(&ahead);
+
+    assert!(changes.changes.is_empty());
+    assert_eq!(
+        changes.resync_required,
+        Some(SessionLifecycleResyncReason::CursorAhead)
+    );
+    let _ = fs::remove_dir_all(data_dir);
 }
 
 #[cfg(unix)]
@@ -2785,8 +2806,9 @@ fn read_screen_until(
     start_tick: u64,
 ) -> botster_core_daemon::ReadScreenResult {
     let request_id = RequestId("read-screen-marker".to_string());
-    let mut last = None;
-    for tick in 0..100 {
+    let started = Instant::now();
+    let mut tick = 0;
+    let last = loop {
         let read = daemon
             .read_screen(ReadScreenRequest {
                 request_id: request_id.clone(),
@@ -2797,12 +2819,15 @@ fn read_screen_until(
         if read.screen.text.contains(expected) {
             return read;
         }
-        last = Some(read);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        if started.elapsed() >= REAL_WORKER_PROGRESS_TIMEOUT {
+            break read;
+        }
+        tick += 1;
+        std::thread::sleep(Duration::from_millis(10));
+    };
     panic!(
-        "read_screen never observed {expected:?}; last text: {:?}",
-        last.map(|read| read.screen.text)
+        "read_screen never observed {expected:?} within {REAL_WORKER_PROGRESS_TIMEOUT:?}; last text: {:?}",
+        last.screen.text
     )
 }
 
