@@ -748,6 +748,24 @@ pub enum UiVariant {
     Emphasized,
 }
 
+/// Portable overflow intent for an action in a toolbar's `actions` slot.
+///
+/// Action declaration order is the priority order. Renderers move [`Self::Auto`]
+/// actions into overflow from the end first, keep [`Self::Never`] actions in the
+/// primary toolbar when possible, and render [`Self::Always`] actions only in
+/// overflow. At constrained widths, every action must remain reachable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiToolbarOverflow {
+    /// Overflow from the end of the declared action list as space tightens.
+    #[default]
+    Auto,
+    /// Prefer placement in the primary toolbar.
+    Never,
+    /// Render only in the toolbar's overflow affordance.
+    Always,
+}
+
 /// Directional trend metadata for metric primitives.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1285,6 +1303,12 @@ fn validate_prop_value(
             "variant",
         ) => {
             deserialize_prop::<UiVariant>(kind, prop, value)?;
+        }
+        (
+            UiNodeKind::Button | UiNodeKind::IconButton | UiNodeKind::MenuItem,
+            "toolbar_overflow",
+        ) => {
+            deserialize_prop::<UiToolbarOverflow>(kind, prop, value)?;
         }
         (_, "selection") => {
             let selection = deserialize_prop::<UiSelection>(kind, prop, value)?;
@@ -2343,6 +2367,7 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
                 "shortcut",
                 "hover_label",
                 "context_menu",
+                "toolbar_overflow",
             ],
             &[],
             &[],
@@ -2358,6 +2383,7 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
                 "shortcut",
                 "hover_label",
                 "context_menu",
+                "toolbar_overflow",
             ],
             &["icon"],
             &[],
@@ -2372,6 +2398,7 @@ fn schema_for(kind: UiNodeKind) -> UiNodeSchema {
                 "shortcut",
                 "hover_label",
                 "context_menu",
+                "toolbar_overflow",
             ],
             &[],
             &[],

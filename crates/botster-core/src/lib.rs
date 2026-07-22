@@ -284,6 +284,6 @@ pub use ui::{
     UiIframeSandboxToken, UiKeyboardCapability, UiMetricTrend, UiMetricTrendDirection, UiNode,
     UiNodeId, UiNodeKind, UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue,
     UiResponsiveWidth, UiSelection, UiSelectionMode, UiSpaceToken, UiSurfaceId, UiTableCell,
-    UiTableColumn, UiTableColumnAlign, UiTableColumnDescriptor, UiTableRow, UiTreeUpdateRef,
-    UiValidationError, UiVariant, UiViewport, UiWidthClass,
+    UiTableColumn, UiTableColumnAlign, UiTableColumnDescriptor, UiTableRow, UiToolbarOverflow,
+    UiTreeUpdateRef, UiValidationError, UiVariant, UiViewport, UiWidthClass,
 };

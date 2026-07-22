@@ -309,6 +309,13 @@ Core owns portable package **shapes**, not product policy.
   `metric`, `metric_grid`, `toolbar`, `status_badge`, `section`, and `panel`.
   These are portable contract shapes, but they are not the required fallback
   substrate for unknown components.
+- **Toolbar action priority and overflow** — direct action children in a
+  toolbar's `actions` slot use declaration order as their priority. Optional
+  `toolbar_overflow` is `auto` by default, `never` expresses primary-placement
+  intent, and `always` places the action only in overflow. Under pressure,
+  renderers move `auto` actions from the end first. Even at impossible widths,
+  every action must remain reachable through a constrained-layout fallback,
+  and hidden or occluded actions must not remain hittable.
 - **UiNode custom UI escape hatch** — `custom` declares a package-owned
   component with `namespace`, `component`, and `reason`, plus exactly one
   static `fallback` slot. Recognizing renderers may consume package-owned
