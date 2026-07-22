@@ -18,10 +18,13 @@ pub use api::{
     PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
     PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
     ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
-    SessionAdoptionState, SpawnSessionRequest,
+    SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChange,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SpawnSessionRequest,
 };
-pub use daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
+pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};
 pub use guarded_write::{
     GuardedWriteDecision, GuardedWriteDeliveryState, PromptEvidence, ReadinessEvidence,
     SafeWriteIndicator, SnapshotEvidence,

@@ -166,6 +166,13 @@ impl SubscriptionMultiplexer {
         }
     }
 
+    pub(crate) fn forget_session(&mut self, session_id: &SessionId) {
+        self.session_subscribers.remove(session_id);
+        for client in self.clients.values_mut() {
+            client.forget_session(session_id);
+        }
+    }
+
     /// Fan out a session-wide pushed event to current subscribers.
     pub fn handle_session_event(
         &mut self,

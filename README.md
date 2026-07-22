@@ -168,6 +168,18 @@ The same lifecycle verbs on the production path are `CoreDaemon::spawn`,
 `attach`, `drain`, `input`, and `shutdown` (plus `resize`, detach, adoption, and
 guarded writes). Prefer those methods over assembling lower-level engines.
 
+Production hosts that maintain a session projection start with
+`CoreDaemon::lifecycle_baseline`, retain its source-generation cursor, and call
+`CoreDaemon::lifecycle_changes` after their normal daemon progress/drain work.
+Changes are ordered and replayed from a bounded in-memory journal. A cursor
+from another daemon generation, ahead of the source, or older than retained
+history returns an explicit resync reason and no partial suffix; fetch a fresh
+baseline before continuing. Terminal bytes and snapshots remain on
+`CoreDaemon::drain`. Hosts may call `CoreDaemon::remove_session` only after a
+session is terminal; that policy-free mechanism clears core, subscription,
+retained-terminal, pending-drain, and registry state before publishing
+`Removed`.
+
 `crates/botster-core-dev` mirrors the library path with a deterministic smoke
 harness. The rustdoc example on `BotsterEngine` is compile-checked against the
 generic facade for custom runtimes.
@@ -190,6 +202,10 @@ generic facade for custom runtimes.
 5. **Other drains** — if you use notifications or routed envelopes on
    `CoreDaemon`, drain those APIs separately; they are daemon process memory,
    not registry-durable across process restart.
+6. **Lifecycle projection** — establish one lifecycle baseline, then consume
+   ordered changes after normal progress calls instead of polling `list()`.
+   Resync from a fresh baseline whenever the change result says the cursor is
+   no longer valid.
 
 Depth lives in architecture docs:
 
