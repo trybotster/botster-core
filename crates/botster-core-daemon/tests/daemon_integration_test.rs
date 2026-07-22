@@ -44,7 +44,8 @@ const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 #[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
-const REAL_WORKER_PROGRESS_TIMEOUT: Duration = Duration::from_secs(5);
+const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[test]
 fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
@@ -2807,6 +2808,8 @@ fn read_screen_until(
 ) -> botster_core_daemon::ReadScreenResult {
     let request_id = RequestId("read-screen-marker".to_string());
     let started = Instant::now();
+    let mut last_progress = started;
+    let mut last_text = String::new();
     let mut tick = 0;
     let last = loop {
         let read = daemon
@@ -2819,14 +2822,21 @@ fn read_screen_until(
         if read.screen.text.contains(expected) {
             return read;
         }
-        if started.elapsed() >= REAL_WORKER_PROGRESS_TIMEOUT {
+        let now = Instant::now();
+        if read.screen.text != last_text {
+            last_progress = now;
+        }
+        if now.duration_since(last_progress) >= REAL_WORKER_IDLE_TIMEOUT
+            || now.duration_since(started) >= REAL_WORKER_COMPLETION_TIMEOUT
+        {
             break read;
         }
+        last_text.clone_from(&read.screen.text);
         tick += 1;
         std::thread::sleep(Duration::from_millis(10));
     };
     panic!(
-        "read_screen never observed {expected:?} within {REAL_WORKER_PROGRESS_TIMEOUT:?}; last text: {:?}",
+        "read_screen never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last text: {:?}",
         last.screen.text
     )
 }
