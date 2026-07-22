@@ -44,8 +44,11 @@ const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 #[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
-const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
-const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
+// The default-budget Ghostty test processes 12,000 lines concurrently and can
+// occupy a hosted runner for about 45 seconds. Keep real-worker synchronization
+// bounded without treating that expected scheduler starvation as a deadlock.
+const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[test]
 fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
