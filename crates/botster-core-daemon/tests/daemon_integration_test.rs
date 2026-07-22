@@ -17,14 +17,17 @@ use botster_core::{
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TerminalAttachState, TransportEgress,
 };
-use botster_core_daemon::DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES;
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
     DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
     GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest,
     ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
-    SafeWriteIndicator, SessionAdoptionState, SpawnSessionRequest,
+    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleChangeKind,
+    SessionLifecycleResyncReason, SpawnSessionRequest,
+};
+use botster_core_daemon::{
+    DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
 #[cfg(feature = "ghostty-terminal")]
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
@@ -49,6 +52,10 @@ fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
     assert_eq!(
         config.ghostty_max_scrollback_bytes,
         DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES
+    );
+    assert_eq!(
+        config.lifecycle_journal_capacity,
+        DEFAULT_LIFECYCLE_JOURNAL_CAPACITY
     );
 }
 
@@ -1901,6 +1908,294 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
+    let data_dir = temp_data_dir("lifecycle-source-exit-removal");
+    let session_id = SessionId("lifecycle-source-session".to_string());
+    let client_id = ClientId("lifecycle-source-client".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_lifecycle_journal_capacity(8),
+    );
+
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("empty lifecycle baseline");
+    assert!(baseline.sessions.is_empty());
+
+    daemon
+        .spawn(self_exit_spawn_request(&session_id), 10)
+        .expect("worker-backed lifecycle fixture should spawn");
+    let running = daemon.lifecycle_changes(&baseline.cursor);
+    assert!(running.resync_required.is_none());
+    assert_eq!(running.changes.len(), 1);
+    assert!(matches!(
+        &running.changes[0].kind,
+        SessionLifecycleChangeKind::Upsert { record }
+            if record.session.session_id == session_id
+                && record.session.registry_state == RegistrySessionState::Running
+                && matches!(record.lifecycle, Some(SessionLifecycleState::Running))
+    ));
+    assert!(!daemon
+        .remove_session(&session_id)
+        .expect("live session removal should be rejected without mutation"));
+
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("lifecycle-source-subscription".to_string()),
+            11,
+        )
+        .expect("fixture should attach through the production daemon facade");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"finish\n".to_vec(),
+            12,
+        )
+        .expect("fixture input should cause natural process exit");
+
+    let mut terminal_drain = botster_core_daemon::DrainResult::default();
+    let exited = (0..100).find_map(|tick| {
+        let drained = daemon
+            .drain(&session_id, 20 + tick)
+            .expect("natural-exit drain should succeed");
+        terminal_drain.client_egress.extend(drained.client_egress);
+        terminal_drain.observations.extend(drained.observations);
+        terminal_drain.backpressure.extend(drained.backpressure);
+        let changes = daemon.lifecycle_changes(&running.cursor);
+        let observed_exit = changes.changes.iter().any(|change| {
+            matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+                        && matches!(
+                            record.lifecycle,
+                            Some(SessionLifecycleState::Exited { code: Some(0) })
+                        )
+            )
+        });
+        if observed_exit {
+            Some(changes)
+        } else {
+            std::thread::sleep(Duration::from_millis(10));
+            None
+        }
+    });
+    let exited = exited.expect("natural exit should publish one terminal lifecycle upsert");
+    assert!(terminal_output(&terminal_drain.client_egress).contains("echo:finish"));
+    assert_eq!(exited.changes.len(), 1);
+
+    let empty = daemon.lifecycle_changes(&exited.cursor);
+    assert!(empty.changes.is_empty());
+    assert!(empty.resync_required.is_none());
+    let _ = daemon
+        .drain(&session_id, 200)
+        .expect("repeat terminal drain should remain reachable");
+    assert!(daemon.lifecycle_changes(&exited.cursor).changes.is_empty());
+
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("host should explicitly forget the terminal session"));
+    let removed = daemon.lifecycle_changes(&exited.cursor);
+    assert_eq!(removed.changes.len(), 1);
+    assert!(matches!(
+        &removed.changes[0].kind,
+        SessionLifecycleChangeKind::Removed { session_id: removed_id }
+            if removed_id == &session_id
+    ));
+    assert!(daemon
+        .lifecycle_baseline()
+        .expect("post-removal baseline")
+        .sessions
+        .is_empty());
+    assert!(matches!(
+        daemon.drain(&session_id, 201),
+        Err(CoreDaemonError::UnknownSession(id)) if id == session_id
+    ));
+
+    daemon
+        .spawn(spawn_request(&session_id), 210)
+        .expect("same stable id should be reusable after complete removal");
+    daemon
+        .attach(
+            client_id,
+            session_id.clone(),
+            SubscriptionId("lifecycle-source-reused-subscription".to_string()),
+            211,
+        )
+        .expect("removed subscription state must not block a fresh attach");
+    let fresh = drain_until(&mut daemon, &session_id, "ready");
+    assert!(!terminal_output(&fresh.client_egress).contains("echo:finish"));
+    assert!(fresh.observations.iter().all(|observation| !matches!(
+        observation,
+        BotsterEngineObservation::Subscription(
+            botster_core::SubscriptionMultiplexerObservation::ClientStream {
+                observation: botster_core::ClientStreamObservation::ReplacedSubscription { .. },
+                ..
+            }
+        )
+    )));
+
+    daemon
+        .shutdown(Some(session_id.clone()), 220)
+        .expect("fresh worker should shut down cleanly");
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("fresh terminal worker should be removable"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync() {
+    let data_dir = temp_data_dir("lifecycle-source-overflow");
+    let session_id = SessionId("lifecycle-overflow-session".to_string());
+    let client_id = ClientId("lifecycle-overflow-client".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_lifecycle_journal_capacity(2),
+    );
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("empty overflow baseline");
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("overflow fixture should spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("lifecycle-overflow-subscription".to_string()),
+            11,
+        )
+        .expect("overflow fixture should attach");
+    daemon
+        .resize(client_id.clone(), session_id.clone(), 25, 80, 12)
+        .expect("first material row update");
+    daemon
+        .resize(client_id, session_id.clone(), 26, 81, 13)
+        .expect("second material row update");
+
+    let overflow = daemon.lifecycle_changes(&baseline.cursor);
+    assert!(overflow.changes.is_empty());
+    assert!(matches!(
+        overflow.resync_required,
+        Some(SessionLifecycleResyncReason::CursorExpired { .. })
+    ));
+    let refreshed = daemon
+        .lifecycle_baseline()
+        .expect("overflow recovery baseline");
+    assert_eq!(refreshed.sessions.len(), 1);
+    assert_eq!(refreshed.sessions[0].session.size.rows, 26);
+    assert_eq!(refreshed.sessions[0].session.size.cols, 81);
+
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("explicit shutdown should complete");
+    let terminal = daemon.lifecycle_changes(&refreshed.cursor);
+    assert!(terminal.resync_required.is_none());
+    let terminal_states: Vec<_> = terminal
+        .changes
+        .iter()
+        .filter_map(|change| match &change.kind {
+            SessionLifecycleChangeKind::Upsert { record } => {
+                Some(record.session.registry_state.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(matches!(
+        terminal_states.as_slice(),
+        [RegistrySessionState::Exited]
+            | [RegistrySessionState::Stopping, RegistrySessionState::Exited]
+    ));
+    assert!(terminal
+        .changes
+        .windows(2)
+        .all(|pair| pair[0].cursor.sequence < pair[1].cursor.sequence));
+
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("shutdown session should be removable"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
+    let data_dir = temp_data_dir("lifecycle-source-restart");
+    let session_id = SessionId("lcr".to_string());
+    let old_cursor = {
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+        let baseline = daemon
+            .lifecycle_baseline()
+            .expect("first-generation baseline");
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("first generation should spawn worker");
+        let cursor = daemon.lifecycle_changes(&baseline.cursor).cursor;
+        daemon.release_for_restart();
+        cursor
+    };
+
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let restarted_baseline = restarted
+        .lifecycle_baseline()
+        .expect("restart baseline should expose durable registry truth");
+    assert_eq!(restarted_baseline.sessions.len(), 1);
+    assert_eq!(
+        restarted_baseline.sessions[0].session.session_id,
+        session_id
+    );
+    assert!(restarted_baseline.sessions[0].lifecycle.is_none());
+    let foreign = restarted.lifecycle_changes(&old_cursor);
+    assert!(foreign.changes.is_empty());
+    assert_eq!(
+        foreign.resync_required,
+        Some(SessionLifecycleResyncReason::SourceChanged)
+    );
+
+    restarted
+        .adopt_session(&session_id, 12)
+        .expect("fresh daemon should adopt from real worker protocol evidence");
+    let adopted = restarted.lifecycle_changes(&restarted_baseline.cursor);
+    assert_eq!(adopted.changes.len(), 1);
+    assert!(matches!(
+        &adopted.changes[0].kind,
+        SessionLifecycleChangeKind::Upsert { record }
+            if record.session.session_id == session_id
+                && record.session.registry_state == RegistrySessionState::Running
+                && matches!(record.lifecycle, Some(SessionLifecycleState::Running))
+    ));
+    assert_eq!(
+        restarted
+            .lifecycle_baseline()
+            .expect("post-adoption baseline")
+            .sessions
+            .len(),
+        1,
+        "adoption must not fabricate a duplicate session"
+    );
+
+    restarted
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("adopted worker should shut down cleanly");
+    assert!(restarted
+        .remove_session(&session_id)
+        .expect("adopted terminal worker should be removable"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_shutdown_waits_for_delayed_progress_before_release_can_preserve_nothing() {
     let data_dir = short_temp_data_dir("delayed");
     let session_id = SessionId("delay".to_string());
@@ -2225,7 +2520,7 @@ fn adoption_scan_reports_duplicate_worker_for_session() {
 #[test]
 fn adoption_scan_is_read_only_until_explicit_mark_stale() {
     let data_dir = temp_data_dir("daemon-adoption-read-only");
-    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("daemon-adoption-read-only-session".to_string());
     let record = adoptable_record(&session_id, 10);
     daemon

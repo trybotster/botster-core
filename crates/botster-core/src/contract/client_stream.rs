@@ -200,6 +200,10 @@ impl ClientStreamHarness {
         }
     }
 
+    pub(crate) fn forget_session(&mut self, session_id: &SessionId) {
+        self.subscriptions.remove(session_id);
+    }
+
     /// Handle client ingress for the current generation.
     pub fn handle_ingress(&mut self, ingress: TransportIngress) -> ClientStreamOutcome {
         self.handle_ingress_for_generation(self.generation, ingress)

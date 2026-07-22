@@ -209,6 +209,29 @@ where
         self.sessions.values().cloned().collect()
     }
 
+    /// Forget all engine-owned state for one terminal session.
+    ///
+    /// This is a policy-free cleanup mechanism. Hosts decide whether and when
+    /// terminal sessions should be retained; core only rejects live sessions
+    /// and clears the session, handle, worker, and subscription indexes.
+    pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        let is_terminal = self.sessions.get(session_id).is_some_and(|session| {
+            matches!(
+                session.lifecycle,
+                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
+            )
+        });
+        if !is_terminal {
+            return false;
+        }
+
+        self.sessions.remove(session_id);
+        self.session_handles.remove(session_id);
+        self.session_workers.remove(session_id);
+        self.subscriptions.forget_session(session_id);
+        true
+    }
+
     /// Return the host runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {
