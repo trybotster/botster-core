@@ -1079,8 +1079,8 @@ fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
         .expect("primary attach should succeed");
     let _ = drain_until(&mut daemon, &session_id, "ready");
 
-    for chunk_start in (0..marker_count).step_by(50) {
-        let chunk_end = (chunk_start + 50).min(marker_count);
+    for chunk_start in (0..marker_count).step_by(10) {
+        let chunk_end = (chunk_start + 10).min(marker_count);
         let mut scrollback_input = Vec::new();
         for line in chunk_start..chunk_end {
             scrollback_input.extend_from_slice(format!("scrollback-line-{line:05}\n").as_bytes());
