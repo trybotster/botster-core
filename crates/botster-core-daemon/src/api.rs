@@ -5,9 +5,9 @@ use botster_core::{
     EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, ModeFlagsReady, NotificationDeliveryStatus,
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity,
     RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome,
-    RoutedEnvelopePublishOutcome, ScreenReady, SessionId, SessionSpawnRequest,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SnapshotReady, SubscriptionId,
-    TerminalSnapshotPayload, TransportEgress,
+    RoutedEnvelopePublishOutcome, ScreenReady, SessionId, SessionLifecycleState,
+    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SnapshotReady,
+    SubscriptionId, TerminalSnapshotPayload, TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +36,96 @@ pub struct DaemonSession {
     pub process: Option<ProcessIdentity>,
     /// Last registry update timestamp.
     pub updated_at: u64,
+}
+
+/// Opaque identity for one in-memory daemon lifecycle source generation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SessionLifecycleSourceId(pub String);
+
+/// Position in one daemon lifecycle source generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleCursor {
+    /// Source generation that issued this cursor.
+    pub source_id: SessionLifecycleSourceId,
+    /// Monotonic sequence observed within the source generation.
+    pub sequence: u64,
+}
+
+/// Authoritative session row exposed to lifecycle-source consumers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleRecord {
+    /// Durable daemon registry facts.
+    pub session: DaemonSession,
+    /// In-memory core lifecycle state when this daemon owns or adopted the session.
+    ///
+    /// A fresh daemon may have registry facts before it has adopted a live worker,
+    /// so this field is absent until core has verified that runtime generation.
+    pub lifecycle: Option<SessionLifecycleState>,
+}
+
+/// Deterministic point-in-time lifecycle projection and its journal watermark.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleBaseline {
+    /// Cursor immediately after all state represented by this baseline.
+    pub cursor: SessionLifecycleCursor,
+    /// Sessions ordered by stable [`SessionId`].
+    pub sessions: Vec<SessionLifecycleRecord>,
+}
+
+/// One material lifecycle projection mutation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SessionLifecycleChangeKind {
+    /// Create or replace the authoritative row for one session.
+    Upsert {
+        /// Current authoritative session row.
+        record: SessionLifecycleRecord,
+    },
+    /// Forget one already-terminal session at explicit host request.
+    Removed {
+        /// Stable id of the removed session.
+        session_id: SessionId,
+    },
+}
+
+/// Ordered lifecycle projection mutation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleChange {
+    /// Cursor identifying this exact change.
+    pub cursor: SessionLifecycleCursor,
+    /// Material mutation at this cursor.
+    pub kind: SessionLifecycleChangeKind,
+}
+
+/// Why a lifecycle consumer must discard its cursor and fetch a new baseline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SessionLifecycleResyncReason {
+    /// The cursor belongs to a different daemon source generation.
+    SourceChanged,
+    /// Required changes were evicted from the bounded journal.
+    CursorExpired {
+        /// Oldest sequence still retained by this source generation.
+        oldest_available_sequence: u64,
+    },
+    /// The cursor claims a sequence this source has not emitted.
+    CursorAhead,
+}
+
+/// Changes after a cursor, or an explicit instruction to fetch a fresh baseline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleChanges {
+    /// Current source watermark.
+    pub cursor: SessionLifecycleCursor,
+    /// Strictly ordered changes after the requested cursor.
+    ///
+    /// This is empty when [`Self::resync_required`] is present; callers never
+    /// receive a silently truncated suffix.
+    pub changes: Vec<SessionLifecycleChange>,
+    /// Explicit loss or generation mismatch, when a fresh baseline is required.
+    pub resync_required: Option<SessionLifecycleResyncReason>,
 }
 
 /// Result of attaching a client to a session.
