@@ -1,10 +1,12 @@
 //! Core daemon supervisor and typed API implementation.
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, VecDeque},
     hash::{Hash, Hasher},
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(feature = "ghostty-terminal")]
@@ -30,7 +32,10 @@ use crate::api::{
     PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
     PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
     ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
-    SessionAdoptionState, SpawnSessionRequest,
+    SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChange,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -44,6 +49,11 @@ use crate::registry::{
 /// currently converge near a 9.0 MiB opaque snapshot frame per attaching client
 /// after scrollback saturation.
 pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
+
+/// Default number of ordered lifecycle changes retained for replay.
+pub const DEFAULT_LIFECYCLE_JOURNAL_CAPACITY: usize = 1_024;
+
+static NEXT_LIFECYCLE_SOURCE_ORDINAL: AtomicU64 = AtomicU64::new(1);
 
 /// Daemon configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +70,8 @@ pub struct CoreDaemonConfig {
     ///
     /// This setting is unused when the `ghostty-terminal` feature is disabled.
     pub ghostty_max_scrollback_bytes: usize,
+    /// Maximum ordered lifecycle changes retained for slow consumers.
+    pub lifecycle_journal_capacity: usize,
 }
 
 impl CoreDaemonConfig {
@@ -72,6 +84,7 @@ impl CoreDaemonConfig {
             worker_path: None,
             routed_envelope_queue: RoutedEnvelopeQueueConfig::default(),
             ghostty_max_scrollback_bytes: DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES,
+            lifecycle_journal_capacity: DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
         }
     }
 
@@ -93,6 +106,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_ghostty_max_scrollback_bytes(mut self, max_bytes: usize) -> Self {
         self.ghostty_max_scrollback_bytes = max_bytes;
+        self
+    }
+
+    /// Retain at most this many lifecycle changes for cursor replay.
+    #[must_use]
+    pub const fn with_lifecycle_journal_capacity(mut self, capacity: usize) -> Self {
+        self.lifecycle_journal_capacity = capacity;
         self
     }
 }
@@ -140,6 +160,9 @@ pub struct CoreDaemon {
     envelope_router: RoutedEnvelopeRouter,
     pending_drain: Vec<PendingDrainResult>,
     retained_terminal: HashMap<SessionId, RetainedTerminalState>,
+    lifecycle_source_id: SessionLifecycleSourceId,
+    lifecycle_sequence: u64,
+    lifecycle_journal: VecDeque<SessionLifecycleChange>,
     running: bool,
 }
 
@@ -189,6 +212,9 @@ impl CoreDaemon {
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            lifecycle_source_id: new_lifecycle_source_id(),
+            lifecycle_sequence: 0,
+            lifecycle_journal: VecDeque::new(),
             running: true,
         }
     }
@@ -229,6 +255,7 @@ impl CoreDaemon {
             }
         }
         self.registry.save(&record)?;
+        self.append_lifecycle_upsert(&record, Some(spawn.session.lifecycle.clone()));
         Ok(spawn.session)
     }
 
@@ -240,6 +267,61 @@ impl CoreDaemon {
             .iter()
             .map(DaemonSession::from)
             .collect())
+    }
+
+    /// Return a deterministic authoritative lifecycle baseline.
+    pub fn lifecycle_baseline(&self) -> Result<SessionLifecycleBaseline, CoreDaemonError> {
+        let sessions = self
+            .registry
+            .load_all()?
+            .iter()
+            .map(|record| self.lifecycle_record(record))
+            .collect();
+        Ok(SessionLifecycleBaseline {
+            cursor: self.lifecycle_cursor(),
+            sessions,
+        })
+    }
+
+    /// Return ordered lifecycle changes after a source cursor.
+    ///
+    /// Foreign, expired, or future cursors return no partial suffix and set an
+    /// explicit resync reason. Recovery is a fresh [`Self::lifecycle_baseline`].
+    #[must_use]
+    pub fn lifecycle_changes(&self, after: &SessionLifecycleCursor) -> SessionLifecycleChanges {
+        let cursor = self.lifecycle_cursor();
+        let resync_required = if after.source_id != self.lifecycle_source_id {
+            Some(SessionLifecycleResyncReason::SourceChanged)
+        } else if after.sequence > self.lifecycle_sequence {
+            Some(SessionLifecycleResyncReason::CursorAhead)
+        } else if self
+            .lifecycle_journal
+            .front()
+            .is_some_and(|oldest| after.sequence < oldest.cursor.sequence.saturating_sub(1))
+        {
+            Some(SessionLifecycleResyncReason::CursorExpired {
+                oldest_available_sequence: self
+                    .lifecycle_journal
+                    .front()
+                    .map_or(self.lifecycle_sequence, |change| change.cursor.sequence),
+            })
+        } else {
+            None
+        };
+        let changes = if resync_required.is_some() {
+            Vec::new()
+        } else {
+            self.lifecycle_journal
+                .iter()
+                .filter(|change| change.cursor.sequence > after.sequence)
+                .cloned()
+                .collect()
+        };
+        SessionLifecycleChanges {
+            cursor,
+            changes,
+            resync_required,
+        }
     }
 
     /// Attach a client through the existing subscription path.
@@ -325,6 +407,11 @@ impl CoreDaemon {
             record.cols = cols;
             record.updated_at = now_seconds;
             self.registry.save(&record)?;
+            let lifecycle = self
+                .engine
+                .session(&session_id)
+                .map(|session| session.lifecycle.clone());
+            self.append_lifecycle_upsert(&record, lifecycle);
         }
         Ok(())
     }
@@ -671,13 +758,20 @@ impl CoreDaemon {
 
     /// Explicitly mark a registry record stale after a read-only adoption scan.
     pub fn mark_stale(
-        &self,
+        &mut self,
         session_id: &SessionId,
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         if let Some(mut record) = self.registry.load(session_id)? {
-            record.mark(RegistrySessionState::Stale, now_seconds);
-            self.registry.save(&record)?;
+            if record.state != RegistrySessionState::Stale {
+                record.mark(RegistrySessionState::Stale, now_seconds);
+                self.registry.save(&record)?;
+                let lifecycle = self
+                    .engine
+                    .session(session_id)
+                    .map(|session| session.lifecycle.clone());
+                self.append_lifecycle_upsert(&record, lifecycle);
+            }
         }
         Ok(())
     }
@@ -711,8 +805,48 @@ impl CoreDaemon {
         if let Some(mut record) = self.registry.load(session_id)? {
             record.mark(RegistrySessionState::Running, now_seconds);
             self.registry.save(&record)?;
+            self.append_lifecycle_upsert(&record, Some(session.lifecycle.clone()));
         }
         Ok(session)
+    }
+
+    /// Forget one already-terminal session and emit a removal change.
+    ///
+    /// Retention timing is host policy. This method only provides the
+    /// policy-free mechanism. It returns `false` without mutation for live or
+    /// stopping sessions and `true` after complete terminal cleanup.
+    pub fn remove_session(&mut self, session_id: &SessionId) -> Result<bool, CoreDaemonError> {
+        self.ensure_running()?;
+        let record = self
+            .registry
+            .load(session_id)?
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        if !matches!(
+            record.state,
+            RegistrySessionState::Exited | RegistrySessionState::Stale
+        ) || self.engine.session(session_id).is_some_and(|session| {
+            !matches!(
+                session.lifecycle,
+                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
+            )
+        }) {
+            return Ok(false);
+        }
+
+        self.registry.remove(session_id)?;
+        if self.engine.session(session_id).is_some() {
+            let forgotten = self.engine.forget_terminal_session(session_id);
+            assert!(
+                forgotten,
+                "terminal removal precondition must match core engine state"
+            );
+        }
+        self.retained_terminal.remove(session_id);
+        self.drop_pending_drain(session_id);
+        self.append_lifecycle_change(SessionLifecycleChangeKind::Removed {
+            session_id: session_id.clone(),
+        });
+        Ok(true)
     }
 
     /// Release worker processes for an intentional daemon restart without shutting them down.
@@ -789,14 +923,21 @@ impl CoreDaemon {
         self.drop_pending_drain(&session_id);
         self.retain_final_terminal_state(&session_id)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
-            record.mark(RegistrySessionState::Exited, now_seconds);
-            self.registry.save(&record)?;
+            if record.state != RegistrySessionState::Exited {
+                record.mark(RegistrySessionState::Exited, now_seconds);
+                self.registry.save(&record)?;
+                let lifecycle = self
+                    .engine
+                    .session(&session_id)
+                    .map(|session| session.lifecycle.clone());
+                self.append_lifecycle_upsert(&record, lifecycle);
+            }
         }
         Ok(())
     }
 
     fn reconcile_lifecycle_observations(
-        &self,
+        &mut self,
         observations: &[BotsterEngineObservation],
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
@@ -810,11 +951,14 @@ impl CoreDaemon {
                 botster_core::SessionLifecycleState::Exited { .. } => RegistrySessionState::Exited,
                 botster_core::SessionLifecycleState::Failed { .. } => RegistrySessionState::Stale,
                 botster_core::SessionLifecycleState::Starting
-                | botster_core::SessionLifecycleState::Running => continue,
+                | botster_core::SessionLifecycleState::Running => RegistrySessionState::Running,
             };
             if let Some(mut record) = self.registry.load(session_id)? {
-                record.mark(registry_state, now_seconds);
-                self.registry.save(&record)?;
+                if record.state != registry_state {
+                    record.mark(registry_state, now_seconds);
+                    self.registry.save(&record)?;
+                    self.append_lifecycle_upsert(&record, Some(state.clone()));
+                }
             }
         }
         Ok(())
@@ -994,6 +1138,62 @@ impl CoreDaemon {
             });
         }
     }
+
+    fn lifecycle_record(&self, record: &RegistryRecord) -> SessionLifecycleRecord {
+        SessionLifecycleRecord {
+            session: DaemonSession::from(record),
+            lifecycle: self
+                .engine
+                .session(&record.session_id)
+                .map(|session| session.lifecycle.clone()),
+        }
+    }
+
+    fn lifecycle_cursor(&self) -> SessionLifecycleCursor {
+        SessionLifecycleCursor {
+            source_id: self.lifecycle_source_id.clone(),
+            sequence: self.lifecycle_sequence,
+        }
+    }
+
+    fn append_lifecycle_upsert(
+        &mut self,
+        record: &RegistryRecord,
+        lifecycle: Option<SessionLifecycleState>,
+    ) {
+        self.append_lifecycle_change(SessionLifecycleChangeKind::Upsert {
+            record: SessionLifecycleRecord {
+                session: DaemonSession::from(record),
+                lifecycle,
+            },
+        });
+    }
+
+    fn append_lifecycle_change(&mut self, kind: SessionLifecycleChangeKind) {
+        self.lifecycle_sequence = self.lifecycle_sequence.saturating_add(1);
+        self.lifecycle_journal.push_back(SessionLifecycleChange {
+            cursor: self.lifecycle_cursor(),
+            kind,
+        });
+        let capacity = self.config.lifecycle_journal_capacity.max(1);
+        while self.lifecycle_journal.len() > capacity {
+            self.lifecycle_journal.pop_front();
+        }
+    }
+}
+
+fn new_lifecycle_source_id() -> SessionLifecycleSourceId {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let ordinal = NEXT_LIFECYCLE_SOURCE_ORDINAL.fetch_add(1, Ordering::Relaxed);
+    SessionLifecycleSourceId(format!(
+        "{:x}-{:x}-{:x}",
+        std::process::id(),
+        nanos,
+        ordinal
+    ))
 }
 
 #[cfg(feature = "ghostty-terminal")]
@@ -1315,6 +1515,13 @@ impl DaemonEngine {
         }
     }
 
+    fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(engine) => engine.forget_terminal_session(session_id),
+            Self::Worker(engine) => engine.forget_terminal_session(session_id),
+        }
+    }
+
     fn adopt_worker_process(
         &mut self,
         session_id: SessionId,
@@ -1629,6 +1836,9 @@ mod terminal_backend_failure_tests {
             envelope_router: RoutedEnvelopeRouter::new(),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            lifecycle_source_id: new_lifecycle_source_id(),
+            lifecycle_sequence: 0,
+            lifecycle_journal: VecDeque::new(),
             running: true,
         }
     }

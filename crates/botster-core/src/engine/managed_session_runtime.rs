@@ -194,6 +194,11 @@ where
         self.engine.list_sessions()
     }
 
+    /// Forget all managed engine state for one terminal session.
+    pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.engine.forget_terminal_session(session_id)
+    }
+
     /// Return the host session runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {

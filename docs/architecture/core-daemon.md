@@ -57,10 +57,46 @@ through this record. No valid paired final capture yields
 `SessionNotReadable`; blank or opaque bytes are never invented as fallback
 truth. Registry-stale and failed sessions remain unreadable.
 
-Retention is daemon-memory-only and clears on explicit in-memory session
-clear/removal or daemon exit; today daemon exit is the concrete expiry because
-no public in-memory removal API exists. There is no TTL or one-consumer budget,
-and durable registry records still contain no terminal bytes.
+Retention is daemon-memory-only and clears on explicit terminal-session
+removal or daemon exit. There is no TTL or one-consumer budget, and durable
+registry records still contain no terminal bytes. `CoreDaemon::remove_session`
+is deliberately a policy-free mechanism rather than automatic retention
+policy: it rejects live and stopping sessions, then clears the registry row,
+engine session/handle/worker indexes, subscriptions, retained terminal state,
+and pending drains before publishing the lifecycle `Removed` change.
+
+## Authoritative lifecycle source
+
+Hosts that maintain a session projection use the public `CoreDaemon` lifecycle
+source instead of repeatedly polling `list()`. `lifecycle_baseline()` returns
+registry rows in deterministic `SessionId` order plus a watermark cursor. Each
+row carries durable `DaemonSession` facts and, when this daemon currently owns
+or adopted the runtime, its in-memory `SessionLifecycleState`. A fresh daemon
+can therefore expose durable registry truth before adoption without fabricating
+live runtime evidence; successful adoption later publishes a `Running` upsert
+for the same stable session id.
+
+Each cursor contains an opaque daemon source-generation id and a strictly
+monotonic sequence. Spawn, adoption, material registry-row updates, lifecycle
+transitions, and explicit terminal removal append changes only after the
+authoritative mutation succeeds. Repeated terminal observations do not append
+duplicate changes. Shutdown normally publishes `Stopping` then `Exited`; when
+the process completes synchronously, the truthful collapsed sequence is only
+`Exited`.
+
+The journal is process-memory-only and bounded to 1,024 changes by default;
+tests and specialized embedders can set
+`CoreDaemonConfig::with_lifecycle_journal_capacity`. `lifecycle_changes()`
+returns an explicit `source_changed`, `cursor_expired`, or `cursor_ahead`
+resync reason with an empty change list when continuity cannot be proven. It
+never returns a silently truncated suffix. Recovery is always a new baseline;
+replay is not durable across daemon restart.
+
+Lifecycle consumption does not advance runtimes. The host still drives normal
+`drain` calls (or other existing progress paths), then consumes lifecycle
+changes. `SessionLifecycleChange` contains session projection facts only;
+`TransportEgress`, PTY bytes, snapshots, and attach ordering remain exclusively
+on the existing drain/data plane.
 
 Snapshot payloads are backend-neutral opaque terminal state. The current plain
 fallback runtime returns raw retained PTY bytes with format

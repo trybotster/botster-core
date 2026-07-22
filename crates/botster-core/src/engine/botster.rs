@@ -153,6 +153,11 @@ impl DefaultBotsterEngine {
         self.runtime.list_sessions()
     }
 
+    /// Forget all local engine state for one terminal session.
+    pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.runtime.forget_terminal_session(session_id)
+    }
+
     /// Return the local process runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &LocalProcessRuntime {
@@ -544,6 +549,11 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn list_sessions(&self) -> Vec<CoreSession> {
         self.runtime.list_sessions()
+    }
+
+    /// Forget all worker-backed engine state for one terminal session.
+    pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.runtime.forget_terminal_session(session_id)
     }
 
     /// Return the worker process runtime adapter.
