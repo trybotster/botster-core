@@ -1097,7 +1097,7 @@ fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
             )
             .expect("scrollback generator chunk should write");
         let chunk_marker = format!("echo:scrollback-line-{:05}", chunk_end - 1);
-        let _ = read_screen_until(
+        drain_until_terminal_marker(
             &mut daemon,
             &session_id,
             &chunk_marker,
@@ -2842,6 +2842,45 @@ fn read_screen_until(
         "read_screen never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last text: {:?}",
         last.screen.text
     )
+}
+
+#[cfg(all(unix, feature = "ghostty-terminal"))]
+fn drain_until_terminal_marker(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    expected: &str,
+    start_tick: u64,
+) {
+    let started = Instant::now();
+    let mut last_progress = started;
+    let mut last_output_length = 0;
+    let mut tick = 0;
+    let mut aggregate = botster_core_daemon::DrainResult::default();
+    loop {
+        let drained = daemon
+            .drain(session_id, start_tick + tick)
+            .expect("daemon drain should succeed");
+        aggregate.client_egress.extend(drained.client_egress);
+        aggregate.observations.extend(drained.observations);
+        aggregate.backpressure.extend(drained.backpressure);
+        let output = terminal_output(&aggregate.client_egress);
+        if output.contains(expected) {
+            return;
+        }
+
+        let now = Instant::now();
+        if output.len() != last_output_length {
+            last_progress = now;
+            last_output_length = output.len();
+        }
+        assert!(
+            now.duration_since(last_progress) < REAL_WORKER_IDLE_TIMEOUT
+                && now.duration_since(started) < REAL_WORKER_COMPLETION_TIMEOUT,
+            "terminal output never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last output: {output:?}"
+        );
+        tick += 1;
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn capture_snapshot_until(
