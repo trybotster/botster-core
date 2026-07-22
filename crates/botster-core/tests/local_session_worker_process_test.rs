@@ -3,7 +3,7 @@
 
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
@@ -721,6 +721,131 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
         wait_until(|| !process_exists(pty_child_pid)),
         "dropping parent runtime should clean worker PTY child {pty_child_pid}"
     );
+}
+
+#[test]
+fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown() {
+    let control_dir = temp_control_dir("bwc");
+    std::fs::create_dir_all(&control_dir).expect("create worker control directory");
+
+    let mut options = worker_options();
+    options.egress_capacity = 1;
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-loaded-completion");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "printf 'terminal-before-exit\\n'",
+        ))
+        .expect("spawn bounded worker session");
+
+    let metadata = runtime.metadata(&session).expect("worker metadata").clone();
+    let worker_pid = metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_pid"))
+        .and_then(serde_json::Value::as_u64)
+        .expect("worker pid in recovery identity") as u32;
+    let socket_path = metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_control_socket"))
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .expect("worker socket in recovery identity");
+    let pty_child_pid = metadata.pid;
+
+    thread::sleep(Duration::from_millis(250));
+    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let terminal_index = output
+        .iter()
+        .position(|event| matches!(event, SessionRuntimeOutput::PtyOutput { .. }))
+        .expect("full bounded queue should retain terminal output");
+    let exit_index = output
+        .iter()
+        .position(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
+        .expect("terminal completion must not be dropped with a full bounded queue");
+
+    assert!(
+        terminal_index < exit_index,
+        "exit must follow retained output"
+    );
+    assert!(output_text(&output).contains("terminal-before-exit"));
+    assert!(
+        !process_exists(worker_pid),
+        "worker must be reaped before exit"
+    );
+    assert!(
+        !process_exists(pty_child_pid),
+        "PTY child must be terminal before exit"
+    );
+    assert!(
+        !socket_path.exists(),
+        "control socket must be removed before exit"
+    );
+    let error = runtime
+        .drain_output(&session)
+        .expect_err("completed session should be removed from runtime ownership");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
+
+    let _ = std::fs::remove_dir_all(control_dir);
+}
+
+#[test]
+fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
+    let control_dir = temp_control_dir("bwe");
+    std::fs::create_dir_all(&control_dir).expect("create worker control directory");
+    let mut options = worker_options();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-unexpected-eof");
+    runtime
+        .spawn_session(shell_request(session.clone(), "cat"))
+        .expect("spawn worker for unexpected EOF");
+    let metadata = runtime.metadata(&session).expect("worker metadata").clone();
+    let worker_pid = metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_pid"))
+        .and_then(serde_json::Value::as_u64)
+        .expect("worker pid in recovery identity") as u32;
+    let socket_path = metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_control_socket"))
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .expect("worker socket in recovery identity");
+
+    let status = Command::new("kill")
+        .arg("-KILL")
+        .arg(worker_pid.to_string())
+        .status()
+        .expect("kill worker process");
+    assert!(status.success());
+    assert!(wait_until(|| !runtime.is_worker_process(&session)));
+    thread::sleep(Duration::from_millis(50));
+    let output = runtime
+        .drain_output(&session)
+        .expect("unexpected EOF remains fail-closed runtime state");
+    assert!(!has_process_exit(&output));
+    assert!(runtime.metadata(&session).is_some());
+
+    drop(runtime);
+    assert!(wait_until(|| !process_exists(metadata.pid)));
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir_all(control_dir);
+}
+
+fn temp_control_dir(prefix: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from("/tmp").join(format!(
+        "{prefix}-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow unix epoch")
+            .as_nanos()
+    ))
 }
 
 #[test]

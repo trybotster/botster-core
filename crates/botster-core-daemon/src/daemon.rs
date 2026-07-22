@@ -14,7 +14,7 @@ use botster_core::{
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
     NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
     RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
-    SessionLifecycleState, SessionRuntimeErrorKind, SessionWorkerHealthReason,
+    SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalScreenState,
     TerminalSnapshotPayload, WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
@@ -746,16 +746,26 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
-        self.engine
-            .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        let shutdown_output =
+            self.engine
+                .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
+        let mut shutdown_drain = drain_result_from_engine_output(shutdown_output);
+        self.reconcile_lifecycle_observations(&shutdown_drain.observations, now_seconds)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
             match self.engine.drain_runtime_once(&session_id, now_seconds) {
-                Ok(_) => final_output_drained = self.engine_session_exited(&session_id),
+                Ok(output) => {
+                    let drained = drain_result_from_engine_output(output);
+                    self.reconcile_lifecycle_observations(&drained.observations, now_seconds)?;
+                    merge_drain_result(&mut shutdown_drain, drained);
+                    final_output_drained = self.engine_session_exited(&session_id);
+                }
                 Err(error) if is_session_not_found(&error) => {
-                    final_output_drained = true;
-                    break;
+                    final_output_drained = self.engine_session_exited(&session_id);
+                    if !final_output_drained {
+                        return Err(error.into());
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -763,10 +773,21 @@ impl CoreDaemon {
                 std::thread::sleep(Duration::from_millis(1));
             }
         }
-        self.drop_pending_drain(&session_id);
-        if final_output_drained {
-            self.retain_final_terminal_state(&session_id)?;
+        if !final_output_drained {
+            self.retain_pending_drain_result(&session_id, shutdown_drain);
+            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::ShutdownFailed,
+                    format!(
+                        "worker session shutdown did not complete before the daemon deadline: {}",
+                        session_id.0
+                    ),
+                ),
+            )));
         }
+
+        self.drop_pending_drain(&session_id);
+        self.retain_final_terminal_state(&session_id)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             record.mark(RegistrySessionState::Exited, now_seconds);
             self.registry.save(&record)?;

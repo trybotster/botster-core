@@ -105,6 +105,19 @@ attach, drain output, send input, and shut the session down through the same
 typed daemon API. This is a core daemon behavior and does not require
 `botster-hub`.
 
+A successful worker-backed shutdown is a terminal completion boundary, not an
+acknowledgement that shutdown merely started. The worker runtime publishes the
+final process-exit observation only after earlier retained output is drainable,
+the control reader has reached EOF, the owned worker child has exited cleanly
+when present, and the control socket has been removed. `CoreDaemon` then freezes
+the final terminal readback and marks the registry record `exited`. If that
+completion cannot be proven within the existing supervisor deadline, shutdown
+returns a typed `ShutdownFailed` error, leaves the registry non-exited, retains
+pending drain evidence, and keeps cleanup ownership. This failure path is
+deliberately distinct from `release_for_restart`, which preserves a worker only
+when the host intentionally chooses restart adoption without first completing
+session shutdown.
+
 Adoption scan is read-only. It reports deterministic follow-up state and leaves
 registry files untouched until a caller performs an explicit operation such as
 `mark_stale`. Terminal registry states (`stopping`, `exited`, `stale`) report
