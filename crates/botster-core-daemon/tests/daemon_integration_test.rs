@@ -3,7 +3,7 @@
 use std::fs;
 use std::process::Command;
 use std::sync::Once;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "ghostty-terminal")]
 use botster_core::TerminalScreenSize;
@@ -1901,6 +1901,112 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
 
 #[cfg(unix)]
 #[test]
+fn worker_shutdown_waits_for_delayed_progress_before_release_can_preserve_nothing() {
+    let data_dir = short_temp_data_dir("delayed");
+    let session_id = SessionId("delay".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn worker-backed session");
+    let (worker_pid, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
+    let mut stopped = StoppedProcess::new(worker_pid);
+    let resume = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        signal_process(worker_pid, "CONT");
+    });
+
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown should complete after worker progress resumes");
+    resume.join().expect("resume worker thread");
+    stopped.resumed = true;
+
+    assert!(
+        started.elapsed() >= Duration::from_millis(150),
+        "shutdown must not report success while the worker is stopped"
+    );
+    let listed = daemon.list().expect("list completed worker session");
+    assert_eq!(listed[0].registry_state, RegistrySessionState::Exited);
+    let first = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("delayed-final-screen-1".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 21,
+        })
+        .expect("read retained final screen");
+    let second = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("delayed-final-screen-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("repeat retained final screen");
+    assert_eq!(first.screen.text, second.screen.text);
+
+    daemon.release_for_restart();
+    drop(daemon);
+    assert!(!process_exists(worker_pid));
+    assert!(!process_exists(pty_child_pid));
+    assert!(!socket_path.exists());
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
+    let data_dir = short_temp_data_dir("timeout");
+    let session_id = SessionId("timeout".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn worker-backed session");
+    let (worker_pid, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
+    let mut stopped = StoppedProcess::new(worker_pid);
+
+    let error = daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect_err("stopped worker must not produce truthful completion");
+    assert!(matches!(
+        error,
+        CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Runtime(
+            botster_core::SessionRuntimeError {
+                kind: botster_core::SessionRuntimeErrorKind::ShutdownFailed,
+                ..
+            }
+        ))
+    ));
+    let listed = daemon.list().expect("list timed-out worker session");
+    assert_ne!(listed[0].registry_state, RegistrySessionState::Exited);
+    assert!(process_exists(worker_pid));
+    assert!(socket_path.exists());
+
+    stopped.resume();
+    for tick in 0..500 {
+        let _ = daemon.drain(&session_id, 30 + tick);
+        let listed = daemon.list().expect("list resumed worker session");
+        if listed[0].registry_state == RegistrySessionState::Exited {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        daemon.list().expect("list cleaned worker session")[0].registry_state,
+        RegistrySessionState::Exited
+    );
+
+    daemon.release_for_restart();
+    drop(daemon);
+    assert!(!process_exists(worker_pid));
+    assert!(!process_exists(pty_child_pid));
+    assert!(!socket_path.exists());
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_registry_reopened_without_worker_path_is_not_restart_durable() {
     let data_dir = temp_data_dir("local-reopen");
     let session_id = SessionId("local-reopen-session".to_string());
@@ -2713,6 +2819,101 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .expect("system clock should be after unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("botster-core-daemon-{label}-{nanos}"))
+}
+
+fn short_temp_data_dir(label: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    std::path::PathBuf::from("/tmp").join(format!("bcd-{label}-{nanos}"))
+}
+
+#[cfg(unix)]
+fn worker_process_evidence(
+    daemon: &CoreDaemon,
+    session_id: &SessionId,
+) -> (u32, u32, std::path::PathBuf) {
+    let record = daemon
+        .registry()
+        .load(session_id)
+        .expect("load worker registry record")
+        .expect("worker registry record");
+    let worker_pid = record
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_pid"))
+        .and_then(serde_json::Value::as_u64)
+        .expect("worker pid in recovery identity") as u32;
+    let pty_child_pid = record
+        .process
+        .and_then(|process| process.pid)
+        .expect("PTY child pid in registry process identity");
+    let socket_path = record
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_control_socket"))
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .expect("worker socket in recovery identity");
+    (worker_pid, pty_child_pid, socket_path)
+}
+
+#[cfg(unix)]
+fn signal_process(pid: u32, signal: &str) {
+    let status = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg(pid.to_string())
+        .status()
+        .expect("run process signal command");
+    assert!(status.success(), "signal {signal} to process {pid}");
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+struct StoppedProcess {
+    pid: u32,
+    resumed: bool,
+}
+
+#[cfg(unix)]
+impl StoppedProcess {
+    fn new(pid: u32) -> Self {
+        signal_process(pid, "STOP");
+        Self {
+            pid,
+            resumed: false,
+        }
+    }
+
+    fn resume(&mut self) {
+        if !self.resumed {
+            signal_process(self.pid, "CONT");
+            self.resumed = true;
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for StoppedProcess {
+    fn drop(&mut self) {
+        if !self.resumed && process_exists(self.pid) {
+            let _ = Command::new("kill")
+                .arg("-CONT")
+                .arg(self.pid.to_string())
+                .status();
+        }
+    }
 }
 
 fn worker_path() -> std::path::PathBuf {
