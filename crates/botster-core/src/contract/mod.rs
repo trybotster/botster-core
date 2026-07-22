@@ -116,6 +116,6 @@ pub use ui::{
     UiMetricTrendDirection, UiNode, UiNodeId, UiNodeKind, UiOrientation, UiPointer,
     UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSelection, UiSelectionMode,
     UiSpaceToken, UiSurfaceId, UiTableCell, UiTableColumn, UiTableColumnAlign,
-    UiTableColumnDescriptor, UiTableRow, UiTreeUpdateRef, UiValidationError, UiVariant, UiViewport,
-    UiWidthClass,
+    UiTableColumnDescriptor, UiTableRow, UiToolbarOverflow, UiTreeUpdateRef, UiValidationError,
+    UiVariant, UiViewport, UiWidthClass,
 };

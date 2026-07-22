@@ -11,9 +11,9 @@ use botster_core::ui::{
     UiIframeSandboxToken, UiKeyboardCapability, UiMetricTrend, UiMetricTrendDirection, UiNode,
     UiNodeId, UiNodeKind, UiPointer, UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth,
     UiSelection, UiSelectionMode, UiSurfaceId, UiTableCell, UiTableColumn, UiTableColumnDescriptor,
-    UiTableRow, UiTreeUpdateRef, UiValidationError, UiVariant, UiWidthClass,
+    UiTableRow, UiToolbarOverflow, UiTreeUpdateRef, UiValidationError, UiVariant, UiWidthClass,
 };
-use botster_core::{RequestId, UiAction};
+use botster_core::{RequestId, UiAction, UiToolbarOverflow as FlatUiToolbarOverflow};
 use serde_json::{json, Map, Value};
 
 fn node(kind: UiNodeKind, props: Value) -> UiNode {
@@ -1193,6 +1193,66 @@ fn renderer_specific_application_props_are_rejected() {
 }
 
 #[test]
+fn toolbar_action_overflow_intent_round_trips_and_validates() {
+    for (wire_value, expected) in [
+        ("auto", UiToolbarOverflow::Auto),
+        ("never", UiToolbarOverflow::Never),
+        ("always", UiToolbarOverflow::Always),
+    ] {
+        let value = serde_json::to_value(expected).expect("serialize toolbar overflow intent");
+        assert_eq!(value, json!(wire_value));
+        assert_eq!(
+            serde_json::from_value::<UiToolbarOverflow>(value)
+                .expect("deserialize toolbar overflow intent"),
+            expected
+        );
+
+        for kind in [
+            UiNodeKind::Button,
+            UiNodeKind::IconButton,
+            UiNodeKind::MenuItem,
+        ] {
+            let mut props = json!({
+                "label": "Toolbar action",
+                "action": { "id": "toolbar.action" },
+                "toolbar_overflow": wire_value
+            });
+            if kind == UiNodeKind::IconButton {
+                props["icon"] = json!("more");
+            }
+            node(kind, props)
+                .validate()
+                .expect("toolbar action overflow intent should validate");
+        }
+    }
+
+    assert_eq!(UiToolbarOverflow::default(), UiToolbarOverflow::Auto);
+    let omitted = node(
+        UiNodeKind::Button,
+        json!({
+            "label": "Refresh",
+            "action": { "id": "toolbar.refresh" }
+        }),
+    );
+    omitted
+        .validate()
+        .expect("omitted toolbar overflow intent should mean auto");
+    assert!(!omitted.props.contains_key("toolbar_overflow"));
+
+    for invalid in [json!("sometimes"), json!(2)] {
+        assert_error_contains(
+            node(UiNodeKind::Button, json!({ "toolbar_overflow": invalid })),
+            "toolbar_overflow",
+        );
+    }
+
+    assert_error_contains(
+        node(UiNodeKind::Button, json!({ "toolbar_priority": 1 })),
+        "toolbar_priority",
+    );
+}
+
+#[test]
 fn deferred_high_level_views_are_rejected_as_unknown_node_kinds() {
     for kind in ["data_grid", "kanban", "timeline", "graph", "action_bar"] {
         let error = serde_json::from_value::<UiNode>(json!({
@@ -1211,6 +1271,9 @@ fn deferred_high_level_views_are_rejected_as_unknown_node_kinds() {
 fn public_api_import_path_exposes_application_ui_contract_types() {
     let _density = UiDensity::Compact;
     let _variant = UiVariant::Plain;
+    let _toolbar_overflow = UiToolbarOverflow::Auto;
+    let _contract_toolbar_overflow = botster_core::contract::UiToolbarOverflow::Auto;
+    let _flat_toolbar_overflow = FlatUiToolbarOverflow::Auto;
     let _selection = UiSelection {
         mode: UiSelectionMode::None,
         selected: Vec::new(),
