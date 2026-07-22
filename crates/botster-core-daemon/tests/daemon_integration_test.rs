@@ -44,11 +44,8 @@ const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 #[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
-// The default-budget Ghostty test processes 12,000 lines concurrently and can
-// occupy a hosted runner for about 45 seconds. Keep real-worker synchronization
-// bounded without treating that expected scheduler starvation as a deadlock.
-const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(120);
+const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[test]
 fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
@@ -1154,11 +1151,14 @@ fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
         GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
     )
     .expect("test should construct Ghostty terminal with daemon default config");
-    let mut output = Vec::new();
-    for line in 0..12_000 {
-        output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
+    for chunk_start in (0..12_000).step_by(100) {
+        let mut output = Vec::new();
+        for line in chunk_start..chunk_start + 100 {
+            output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
+        }
+        terminal.write_output_bytes(&output);
+        std::thread::yield_now();
     }
-    terminal.write_output_bytes(&output);
 
     let plain_text = terminal
         .plain_text()
