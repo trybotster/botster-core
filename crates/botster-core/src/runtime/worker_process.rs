@@ -206,6 +206,7 @@ impl WorkerProcessRuntime {
         let overflow = Arc::new(AtomicUsize::new(0));
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
+        let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
         spawn_stdout_reader(
             control.try_clone().map_err(|error| {
                 SessionRuntimeError::new(
@@ -217,6 +218,7 @@ impl WorkerProcessRuntime {
             Arc::clone(&overflow),
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
+            Arc::clone(&completion),
         );
         let metadata = SessionMetadata {
             session_uuid: session_id.0.clone(),
@@ -248,6 +250,7 @@ impl WorkerProcessRuntime {
                 overflow,
                 pong_count,
                 last_health,
+                completion,
                 egress_capacity: self.options.egress_capacity.max(1),
             },
         );
@@ -378,12 +381,14 @@ impl SessionRuntime for WorkerProcessRuntime {
         let overflow = Arc::new(AtomicUsize::new(0));
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
+        let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
         spawn_stdout_reader(
             reader,
             sender,
             Arc::clone(&overflow),
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
+            Arc::clone(&completion),
         );
 
         self.sessions.insert(
@@ -396,6 +401,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 overflow,
                 pong_count,
                 last_health,
+                completion,
                 egress_capacity: self.options.egress_capacity.max(1),
             },
         );
@@ -428,37 +434,55 @@ impl SessionRuntime for WorkerProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
         let mut output = Vec::new();
-        let overflow = session.overflow.swap(0, Ordering::AcqRel);
-        if overflow > 0 {
-            output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
-                source: QueueSource::SessionIo,
-                capacity: session.egress_capacity,
-                depth: session.egress_capacity,
-                route: BackpressureRoute {
-                    session_id: Some(session_id.clone()),
-                    client_id: None,
-                    subscription_id: None,
-                    plugin_key: None,
-                },
-            }));
-        }
+        let completed = {
+            let session = self.session_mut(session_id)?;
+            let overflow = session.overflow.swap(0, Ordering::AcqRel);
+            if overflow > 0 {
+                output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
+                    source: QueueSource::SessionIo,
+                    capacity: session.egress_capacity,
+                    depth: session.egress_capacity,
+                    route: BackpressureRoute {
+                        session_id: Some(session_id.clone()),
+                        client_id: None,
+                        subscription_id: None,
+                        plugin_key: None,
+                    },
+                }));
+            }
 
-        while let Ok(event) = session.output.try_recv() {
-            output.push(event.into_runtime_output(session_id));
-        }
+            while let Ok(event) = session.output.try_recv() {
+                output.push(event.into_runtime_output(session_id));
+            }
 
-        if output
-            .iter()
-            .any(|event| matches!(event, SessionRuntimeOutput::ProcessExited { .. }))
-        {
+            let completion = session.completion.lock().map_err(lock_error)?;
+            let terminal_payload = completion
+                .reader_finished
+                .then(|| completion.process_exited.clone())
+                .flatten();
+            drop(completion);
+            terminal_payload.filter(|_| match session.child.as_mut() {
+                Some(child) => child
+                    .try_wait()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|status| status.success()),
+                None => true,
+            })
+        };
+
+        if let Some(payload) = completed {
             if let Some(mut removed) = self.sessions.remove(session_id) {
                 if let Some(mut child) = removed.child.take() {
                     let _ = child.wait();
                 }
                 removed.control.cleanup();
             }
+            output.push(SessionRuntimeOutput::ProcessExited {
+                session_id: session_id.clone(),
+                payload,
+            });
         }
 
         Ok(output)
@@ -488,7 +512,14 @@ struct WorkerProcessSession {
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
+    completion: Arc<Mutex<WorkerCompletion>>,
     egress_capacity: usize,
+}
+
+#[derive(Default)]
+struct WorkerCompletion {
+    process_exited: Option<ProcessExitedPayload>,
+    reader_finished: bool,
 }
 
 enum WorkerControl {
@@ -583,7 +614,6 @@ fn connect_worker_socket(path: &std::path::Path) -> Result<UnixStream, SessionRu
 
 enum WorkerOutputEvent {
     PtyOutput(Vec<u8>),
-    ProcessExited(ProcessExitedPayload),
     TitleChanged(String),
     CwdChanged(String),
     PromptMark(PromptMarkPayload),
@@ -598,10 +628,6 @@ impl WorkerOutputEvent {
             Self::PtyOutput(data) => SessionRuntimeOutput::PtyOutput {
                 session_id: session_id.clone(),
                 data,
-            },
-            Self::ProcessExited(payload) => SessionRuntimeOutput::ProcessExited {
-                session_id: session_id.clone(),
-                payload,
             },
             Self::TitleChanged(title) => SessionRuntimeOutput::TitleChanged {
                 session_id: session_id.clone(),
@@ -635,6 +661,7 @@ fn spawn_stdout_reader(
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
+    completion: Arc<Mutex<WorkerCompletion>>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
@@ -646,11 +673,9 @@ fn spawn_stdout_reader(
                 ),
                 FRAME_PROCESS_EXITED => {
                     if let Ok(payload) = serde_json::from_slice(&frame.payload) {
-                        send_worker_output(
-                            &sender,
-                            &overflow,
-                            WorkerOutputEvent::ProcessExited(payload),
-                        );
+                        if let Ok(mut state) = completion.lock() {
+                            state.process_exited = Some(payload);
+                        }
                     }
                 }
                 FRAME_TITLE_CHANGED => {
@@ -707,6 +732,9 @@ fn spawn_stdout_reader(
                 }
                 _ => {}
             }
+        }
+        if let Ok(mut state) = completion.lock() {
+            state.reader_finished = true;
         }
     });
 }
