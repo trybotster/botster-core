@@ -376,6 +376,39 @@ fn application_dashboard_fixture() -> UiRendererConformanceFixture {
                     }),
                 ))],
             );
+            toolbar.slots.insert(
+                "actions".to_string(),
+                vec![
+                    child(node(
+                        UiNodeKind::Button,
+                        "create-ticket",
+                        json!({
+                            "label": "Create ticket",
+                            "action": { "id": "project-pipelines.ticket.create" },
+                            "toolbar_overflow": "never"
+                        }),
+                    )),
+                    child(node(
+                        UiNodeKind::IconButton,
+                        "refresh-status",
+                        json!({
+                            "label": "Refresh status",
+                            "icon": "refresh",
+                            "action": { "id": "project-pipelines.status.refresh" },
+                            "toolbar_overflow": "auto"
+                        }),
+                    )),
+                    child(node(
+                        UiNodeKind::MenuItem,
+                        "archive-ticket",
+                        json!({
+                            "label": "Archive ticket",
+                            "action": { "id": "project-pipelines.ticket.archive" },
+                            "toolbar_overflow": "always"
+                        }),
+                    )),
+                ],
+            );
             toolbar
         })],
     );

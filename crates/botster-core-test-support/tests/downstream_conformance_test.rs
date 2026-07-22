@@ -259,6 +259,48 @@ fn downstream_consumer_can_import_ui_renderer_conformance_helpers() {
 }
 
 #[test]
+fn downstream_consumer_preserves_ordered_toolbar_overflow_intent() {
+    let fixture = ui_renderer_conformance_fixtures()
+        .into_iter()
+        .find(|fixture| fixture.name == "application_dashboard")
+        .expect("application dashboard fixture should exist");
+    let value = serde_json::to_value(&fixture.nodes[0]).expect("serialize dashboard fixture");
+    let root: botster_core::ui::UiNode =
+        serde_json::from_value(value).expect("deserialize dashboard fixture");
+
+    let toolbar = match &root.slots["toolbar"][0] {
+        botster_core::ui::UiChild::Node(node) => node,
+        other => panic!("expected toolbar node, got {other:?}"),
+    };
+    let actions = toolbar
+        .slots
+        .get("actions")
+        .expect("toolbar actions slot should exist");
+    let ordered = actions
+        .iter()
+        .map(|child| match child {
+            botster_core::ui::UiChild::Node(node) => (
+                node.id.as_ref().expect("toolbar action id").0.as_str(),
+                node.props
+                    .get("toolbar_overflow")
+                    .and_then(serde_json::Value::as_str)
+                    .expect("toolbar overflow intent"),
+            ),
+            other => panic!("expected direct toolbar action node, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        ordered,
+        vec![
+            ("create-ticket", "never"),
+            ("refresh-status", "auto"),
+            ("archive-ticket", "always"),
+        ]
+    );
+}
+
+#[test]
 fn downstream_consumer_can_run_one_ui_renderer_fixture() {
     let fixture = ui_renderer_conformance_fixtures()
         .into_iter()
