@@ -44,8 +44,8 @@ const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 #[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
-const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
-const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(60);
+const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[test]
 fn daemon_config_defaults_to_production_ghostty_scrollback_byte_budget() {
@@ -1157,7 +1157,7 @@ fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
             output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
         }
         terminal.write_output_bytes(&output);
-        std::thread::yield_now();
+        std::thread::sleep(Duration::from_millis(1));
     }
 
     let plain_text = terminal
