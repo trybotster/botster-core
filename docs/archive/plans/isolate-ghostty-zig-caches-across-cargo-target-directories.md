@@ -144,8 +144,11 @@ the wall time of the required two-target control/proof so the cost is visible.
   uninitialized (leading `-` in `git submodule status`). The mise-managed Zig
   binary exists and reports `0.15.2`, but implementation must initialize the
   submodule and record both prerequisite checks before native evidence.
-- Unknown to verify during implementation: whether the clean CI checkout has
-  any Ghostty-generated checkout-local cache path besides `.zig-cache`.
+- Verified during implementation: `vendor/ghostty/zig-out/` is the other
+  checkout-local generated path. The vendored repository ignores it, fresh
+  target builds regenerate the archive, and its remaining risk is concurrent
+  install-prefix contention. `--prefix` isolation remains deliberately
+  deferred outside this cache ticket.
 - No ticket ambiguity or convention conflict requires a human question. If
   implementation shows that isolating only the caches cannot prevent the
   reproduced failure, stop and ask before broadening into output-prefix or
