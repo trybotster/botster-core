@@ -238,10 +238,11 @@ pub use package::{
     PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
     PackageResolutionState, PackageSource, PackageSurfaceDescriptor, PackageSurfaceKind,
     PackageSurfaceOperation, RunnableEntrypoint, RunnableEntrypointEnvironmentRequirement,
-    RunnableEntrypointInjection, RunnableEntrypointInjectionKind,
-    RunnableEntrypointInjectionTarget, RunnableEntrypointKind, RunnableEntrypointLaunchMode,
-    RunnableEntrypointLaunchResult, RunnableEntrypointProcessState, RunnableEntrypointReadiness,
-    RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    RunnableEntrypointHubConnection, RunnableEntrypointHubConnectionTransport,
+    RunnableEntrypointHubConnectionValidationError, RunnableEntrypointInjection,
+    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
+    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
+    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
 pub use routed_envelope::{

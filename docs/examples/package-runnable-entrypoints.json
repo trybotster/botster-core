@@ -40,15 +40,6 @@
           },
           "required": true,
           "description": "Package data directory supplied by the host."
-        },
-        {
-          "kind": "hub_socket",
-          "target": {
-            "type": "environment",
-            "name": "BOTSTER_HUB_SOCKET"
-          },
-          "required": true,
-          "description": "Hub socket supplied by the host."
         }
       ],
       "environment": [
@@ -85,14 +76,6 @@
           "target": {
             "type": "environment",
             "name": "BOTSTER_PACKAGE_DATA_DIR"
-          },
-          "required": true
-        },
-        {
-          "kind": "hub_socket",
-          "target": {
-            "type": "environment",
-            "name": "BOTSTER_HUB_SOCKET"
           },
           "required": true
         }
