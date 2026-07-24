@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trybotster.dev/schemas/runnable-entrypoint-hub-connection.json",
+  "title": "Runnable Entrypoint Hub Connection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["transport"],
+  "properties": {
+    "transport": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "path"],
+          "properties": {
+            "type": {
+              "const": "unix_socket"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^/"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

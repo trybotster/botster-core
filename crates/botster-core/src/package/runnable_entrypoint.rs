@@ -7,6 +7,68 @@ use thiserror::Error;
 
 use crate::PackageManifest;
 
+/// Portable Hub connection descriptor injected into runnable entrypoints.
+///
+/// Core owns this serialized contract. Hosts construct it from their selected
+/// endpoint, while runnable packages decode the same JSON through their
+/// manifest-declared injection target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunnableEntrypointHubConnection {
+    /// Typed transport endpoint for the selected Hub.
+    pub transport: RunnableEntrypointHubConnectionTransport,
+}
+
+/// Transport endpoint carried by a runnable-entrypoint Hub connection.
+///
+/// This enum is intentionally exhaustive. Adding another transport is a
+/// deliberate public contract revision for Core, Hub producers, and package
+/// consumers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RunnableEntrypointHubConnectionTransport {
+    /// Local Hub endpoint addressed by an absolute POSIX Unix socket path.
+    UnixSocket {
+        /// Absolute POSIX path to the Unix-domain socket.
+        path: String,
+    },
+}
+
+/// Runnable-entrypoint Hub connection validation failure.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum RunnableEntrypointHubConnectionValidationError {
+    /// Unix-domain socket path is blank or whitespace-only.
+    #[error("runnable entrypoint Hub connection Unix socket path is blank")]
+    BlankUnixSocketPath,
+    /// Unix-domain socket path is not POSIX absolute.
+    #[error("runnable entrypoint Hub connection Unix socket path is not absolute: {0}")]
+    RelativeUnixSocketPath(String),
+}
+
+impl RunnableEntrypointHubConnection {
+    /// Validate transport invariants without consulting the local filesystem.
+    pub fn validate(&self) -> Result<(), RunnableEntrypointHubConnectionValidationError> {
+        match &self.transport {
+            RunnableEntrypointHubConnectionTransport::UnixSocket { path } => {
+                if path.trim().is_empty() {
+                    return Err(
+                        RunnableEntrypointHubConnectionValidationError::BlankUnixSocketPath,
+                    );
+                }
+                if !path.starts_with('/') {
+                    return Err(
+                        RunnableEntrypointHubConnectionValidationError::RelativeUnixSocketPath(
+                            path.clone(),
+                        ),
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Static runnable entrypoint metadata carried by a package manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunnableEntrypoint {
@@ -93,8 +155,6 @@ pub enum RunnableEntrypointInjectionKind {
     HubConnection,
     /// Host-selected package data directory.
     DataDir,
-    /// Local hub socket path or descriptor.
-    HubSocket,
 }
 
 /// Injection target shape.
@@ -241,7 +301,6 @@ impl RunnableEntrypoint {
         for kind in [
             RunnableEntrypointInjectionKind::HubConnection,
             RunnableEntrypointInjectionKind::DataDir,
-            RunnableEntrypointInjectionKind::HubSocket,
         ] {
             if !required_injections.contains(&kind) {
                 return Err(

@@ -1,0 +1,6 @@
+{
+  "transport": {
+    "type": "tcp",
+    "path": "/var/run/botster/hub.sock"
+  }
+}

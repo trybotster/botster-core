@@ -35,10 +35,12 @@ pub use resolution::{
 };
 pub use runnable_entrypoint::{
     validate_package_runnable_entrypoints, RunnableEntrypoint,
-    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointInjection,
-    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
-    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
-    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointHubConnection,
+    RunnableEntrypointHubConnectionTransport, RunnableEntrypointHubConnectionValidationError,
+    RunnableEntrypointInjection, RunnableEntrypointInjectionKind,
+    RunnableEntrypointInjectionTarget, RunnableEntrypointKind, RunnableEntrypointLaunchMode,
+    RunnableEntrypointLaunchResult, RunnableEntrypointProcessState, RunnableEntrypointReadiness,
+    RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
 pub use surface::{PackageSurfaceDescriptor, PackageSurfaceKind, PackageSurfaceOperation};

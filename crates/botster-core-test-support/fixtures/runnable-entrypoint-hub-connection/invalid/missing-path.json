@@ -1,0 +1,5 @@
+{
+  "transport": {
+    "type": "unix_socket"
+  }
+}
