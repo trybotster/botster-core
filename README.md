@@ -329,7 +329,12 @@ Core owns portable package **shapes**, not product policy.
   runnable entrypoints remain the full custom-app escape when a package needs a
   separate app surface. No raw HTML injection.
 - **Runnable entrypoints** — `web_app` / `terminal_app` launch vocabulary; hub
-  owns launch policy. See `docs/examples/package-runnable-entrypoints.json`.
+  owns launch policy. Required launch context is `hub_connection` plus
+  `data_dir`; the portable Hub descriptor currently carries an exhaustive
+  `unix_socket` transport with an absolute POSIX path. Canonical schema and
+  valid/invalid consumer fixtures ship in
+  `botster-core-test-support/fixtures/runnable-entrypoint-hub-connection/`.
+  See `docs/examples/package-runnable-entrypoints.json`.
 - **Dependencies / features** —
   `resolve_package_dependencies(manifest, input)` builds an availability matrix
   from caller-supplied state. See `docs/examples/package-dependencies.json`.
