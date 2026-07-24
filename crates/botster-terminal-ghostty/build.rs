@@ -9,7 +9,9 @@ use std::process::Command;
 
 mod build_support;
 
-use build_support::{resolve_zig_command, zig_candidates, zig_global_cache_dir, ZigCommand};
+use build_support::{
+    resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_local_cache_dir, ZigCommand,
+};
 
 const FEATURE_ENV: &str = "CARGO_FEATURE_LIBGHOSTTY_VT";
 const GHOSTTY_SUBMODULE: &str = "crates/botster-terminal-ghostty/vendor/ghostty";
@@ -36,6 +38,7 @@ fn build_ghostty_vt() {
     let zig = resolve_zig(&ghostty_dir);
     let zig_global_cache_dir =
         zig_global_cache_dir(&out_dir, env::var("ZIG_GLOBAL_CACHE_DIR").ok());
+    let zig_local_cache_dir = zig_local_cache_dir(&out_dir);
 
     println!("cargo:warning=building libghostty-vt with {}", zig.label);
 
@@ -52,6 +55,7 @@ fn build_ghostty_vt() {
         .current_dir(&ghostty_dir)
         .env("DEVELOPER_DIR", "/Library/Developer/CommandLineTools")
         .env("ZIG_GLOBAL_CACHE_DIR", zig_global_cache_dir)
+        .env("ZIG_LOCAL_CACHE_DIR", zig_local_cache_dir)
         .status()
         .unwrap_or_else(|_| panic!("failed to run Zig for the libghostty-vt feature"));
 
