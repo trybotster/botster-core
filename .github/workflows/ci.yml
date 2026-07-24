@@ -44,6 +44,11 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
+      - name: Verify Ghostty cache isolation
+        run: |
+          test -e crates/botster-terminal-ghostty/vendor/ghostty/zig-out/lib/libghostty-vt.a
+          test ! -e crates/botster-terminal-ghostty/vendor/ghostty/.zig-cache
+
       - name: Test daemon plain fallback
         run: cargo test -p botster-core-daemon --no-default-features
 

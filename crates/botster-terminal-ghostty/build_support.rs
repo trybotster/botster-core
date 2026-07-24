@@ -89,3 +89,10 @@ pub fn zig_global_cache_dir(out_dir: &str, configured: Option<String>) -> String
             .to_string()
     })
 }
+
+pub fn zig_local_cache_dir(out_dir: &str) -> String {
+    PathBuf::from(out_dir)
+        .join("zig-local-cache")
+        .display()
+        .to_string()
+}
