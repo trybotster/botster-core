@@ -2,10 +2,12 @@
 
 use botster_core::{
     validate_package_runnable_entrypoints, ExtensionKind, PackageManifest, RunnableEntrypoint,
-    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointInjection,
-    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
-    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
-    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointHubConnection,
+    RunnableEntrypointHubConnectionTransport, RunnableEntrypointHubConnectionValidationError,
+    RunnableEntrypointInjection, RunnableEntrypointInjectionKind,
+    RunnableEntrypointInjectionTarget, RunnableEntrypointKind, RunnableEntrypointLaunchMode,
+    RunnableEntrypointLaunchResult, RunnableEntrypointProcessState, RunnableEntrypointReadiness,
+    RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
 
@@ -26,14 +28,6 @@ fn required_injections() -> Vec<RunnableEntrypointInjection> {
             },
             required: true,
             description: Some("Host-selected package data directory".to_string()),
-        },
-        RunnableEntrypointInjection {
-            kind: RunnableEntrypointInjectionKind::HubSocket,
-            target: RunnableEntrypointInjectionTarget::Environment {
-                name: "BOTSTER_HUB_SOCKET".to_string(),
-            },
-            required: true,
-            description: Some("Host-selected hub socket".to_string()),
         },
     ]
 }
@@ -203,10 +197,15 @@ fn runnable_entrypoint_vocabulary_covers_required_inventory() {
         serde_json::to_value(vec![
             RunnableEntrypointInjectionKind::HubConnection,
             RunnableEntrypointInjectionKind::DataDir,
-            RunnableEntrypointInjectionKind::HubSocket,
         ])
         .expect("serialize injection kinds"),
-        serde_json::json!(["hub_connection", "data_dir", "hub_socket"])
+        serde_json::json!(["hub_connection", "data_dir"])
+    );
+
+    assert!(
+        serde_json::from_value::<RunnableEntrypointInjectionKind>(serde_json::json!("hub_socket"))
+            .is_err(),
+        "obsolete raw socket injection kind must be rejected"
     );
 }
 
@@ -241,16 +240,151 @@ fn package_runnable_entrypoint_validation_rejects_missing_ids_commands_and_injec
     );
 
     let mut manifest = runnable_manifest();
-    manifest.runnable_entrypoints[0].injections.pop();
+    manifest.runnable_entrypoints[0].injections.remove(0);
     assert_eq!(
         validate_package_runnable_entrypoints(&manifest),
         Err(
             RunnableEntrypointValidationError::MissingRequiredInjection {
                 entrypoint_id: "web".to_string(),
-                kind: RunnableEntrypointInjectionKind::HubSocket,
+                kind: RunnableEntrypointInjectionKind::HubConnection,
             }
         )
     );
+}
+
+#[test]
+fn runnable_entrypoint_hub_connection_pins_exact_json_and_round_trips() {
+    let connection = RunnableEntrypointHubConnection {
+        transport: RunnableEntrypointHubConnectionTransport::UnixSocket {
+            path: "/var/run/botster/hub.sock".to_string(),
+        },
+    };
+
+    assert_eq!(connection.validate(), Ok(()));
+    assert_eq!(
+        serde_json::to_value(&connection).expect("serialize Hub connection"),
+        serde_json::json!({
+            "transport": {
+                "type": "unix_socket",
+                "path": "/var/run/botster/hub.sock"
+            }
+        })
+    );
+
+    let decoded: RunnableEntrypointHubConnection = serde_json::from_value(serde_json::json!({
+        "transport": {
+            "type": "unix_socket",
+            "path": "/var/run/botster/hub.sock"
+        }
+    }))
+    .expect("deserialize Hub connection");
+    assert_eq!(decoded, connection);
+}
+
+#[test]
+fn runnable_entrypoint_hub_connection_serde_rejects_open_or_malformed_shapes() {
+    let invalid = [
+        serde_json::json!({}),
+        serde_json::json!({
+            "transport": {
+                "type": "unix_socket"
+            }
+        }),
+        serde_json::json!({
+            "transport": {
+                "type": "tcp",
+                "path": "/var/run/botster/hub.sock"
+            }
+        }),
+        serde_json::json!({
+            "transport": "unix_socket"
+        }),
+        serde_json::json!({
+            "transport": {
+                "type": "unix_socket",
+                "path": "/var/run/botster/hub.sock",
+                "mode": "rw"
+            }
+        }),
+        serde_json::json!({
+            "transport": {
+                "type": "unix_socket",
+                "path": "/var/run/botster/hub.sock"
+            },
+            "credentials": "invented"
+        }),
+    ];
+
+    for value in invalid {
+        assert!(
+            serde_json::from_value::<RunnableEntrypointHubConnection>(value).is_err(),
+            "open or malformed Hub connection shape must fail"
+        );
+    }
+}
+
+#[test]
+fn runnable_entrypoint_hub_connection_validation_rejects_every_invalid_path_class() {
+    for path in ["", "   "] {
+        let connection = RunnableEntrypointHubConnection {
+            transport: RunnableEntrypointHubConnectionTransport::UnixSocket {
+                path: path.to_string(),
+            },
+        };
+        assert_eq!(
+            connection.validate(),
+            Err(RunnableEntrypointHubConnectionValidationError::BlankUnixSocketPath)
+        );
+    }
+
+    for path in ["hub.sock", "./hub.sock", "var/run/hub.sock"] {
+        let connection = RunnableEntrypointHubConnection {
+            transport: RunnableEntrypointHubConnectionTransport::UnixSocket {
+                path: path.to_string(),
+            },
+        };
+        assert_eq!(
+            connection.validate(),
+            Err(
+                RunnableEntrypointHubConnectionValidationError::RelativeUnixSocketPath(
+                    path.to_string()
+                )
+            )
+        );
+    }
+}
+
+#[test]
+fn hub_shaped_producer_serializes_connection_for_arbitrary_manifest_targets() {
+    let connection = RunnableEntrypointHubConnection {
+        transport: RunnableEntrypointHubConnectionTransport::UnixSocket {
+            path: "/private/run/selected-hub.sock".to_string(),
+        },
+    };
+    let serialized = serde_json::to_string(&connection).expect("serialize Hub-owned descriptor");
+
+    let targets = [
+        RunnableEntrypointInjectionTarget::Environment {
+            name: "PACKAGE_SELECTED_CONNECTION".to_string(),
+        },
+        RunnableEntrypointInjectionTarget::Argument {
+            value: "{{portable_connection}}".to_string(),
+        },
+    ];
+
+    for target in targets {
+        let injected = match target {
+            RunnableEntrypointInjectionTarget::Environment { name } => {
+                format!("{name}={serialized}")
+            }
+            RunnableEntrypointInjectionTarget::Argument { value } => {
+                value.replace("{{portable_connection}}", &serialized)
+            }
+        };
+        assert!(injected.contains(
+            r#"{"transport":{"type":"unix_socket","path":"/private/run/selected-hub.sock"}}"#
+        ));
+    }
 }
 
 #[test]
