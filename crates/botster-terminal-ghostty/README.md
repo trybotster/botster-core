@@ -26,6 +26,13 @@ and `mise exec -- zig`. It runs:
 zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev
 ```
 
+The build scopes Zig's local and default global caches to Cargo's `OUT_DIR` as
+`zig-local-cache` and `zig-global-cache`. This keeps both caches coherent for
+each Cargo target directory and prevents builds from writing `.zig-cache` into
+the shared vendored Ghostty checkout. An explicit `ZIG_GLOBAL_CACHE_DIR`
+continues to override the default global cache; local-cache isolation is always
+enforced by the build.
+
 The build links the resulting static `libghostty-vt` archive. On macOS it
 repackages the Zig archive with `ar` before linking and also links the C++
 runtime, matching the proven CLI path.
