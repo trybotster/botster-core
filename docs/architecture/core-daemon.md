@@ -146,10 +146,24 @@ acknowledgement that shutdown merely started. The worker runtime publishes the
 final process-exit observation only after earlier retained output is drainable,
 the control reader has reached EOF, the owned worker child has exited cleanly
 when present, and the control socket has been removed. `CoreDaemon` then freezes
-the final terminal readback and marks the registry record `exited`. If that
-completion cannot be proven within the existing supervisor deadline, shutdown
-returns the original typed delivery error when one started recovery, or
-`ShutdownFailed` after accepted delivery. It leaves the registry non-exited,
+the final terminal readback and marks the registry record `exited`. Any
+subscription egress consumed while reconciling that successful per-session
+shutdown is appended after existing pending egress and remains available
+exactly once through the next explicit `CoreDaemon::drain` for the original
+client and subscription. Recovery egress is retained before final terminal
+capture, so a capture failure cannot erase data that the shutdown path already
+drained. Repeating per-session shutdown neither clears nor duplicates the
+retained batch.
+
+Whole-daemon `shutdown(None, ..)` is terminal host teardown: it stops the
+daemon, clears retained terminal readback, and intentionally has no
+post-shutdown drain surface. A host that must deliver final subscription egress
+before stopping the daemon must shut down and drain each session while the
+daemon is still running.
+
+If completion cannot be proven within the existing supervisor deadline,
+shutdown returns the original typed delivery error when one started recovery,
+or `ShutdownFailed` after accepted delivery. It leaves the registry non-exited,
 retains pending drain evidence, and keeps cleanup ownership. This failure path
 is deliberately distinct from `release_for_restart`, which preserves a worker
 only when the host intentionally chooses restart adoption without first
