@@ -1665,7 +1665,7 @@ fn failed_deferred_shutdown_restores_retryability_and_sends_one_fresh_retry() {
 }
 
 #[test]
-fn failed_deferred_shutdown_merges_same_session_natural_exit_without_stopping_regression() {
+fn failed_deferred_shutdown_leaves_natural_exit_for_the_host_drain_loop() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
     let shutdown = SessionRuntimeInput::Shutdown {
@@ -1689,9 +1689,20 @@ fn failed_deferred_shutdown_merges_same_session_natural_exit_without_stopping_re
         },
     );
 
-    let outcome = runtime
+    let error = runtime
         .shutdown_session(session_id(), "natural exit cleanup", 30)
-        .expect("terminal evidence should recover the shutdown race");
+        .expect_err("managed runtime should preserve the delivery failure");
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::Runtime(SessionRuntimeError {
+            kind: SessionRuntimeErrorKind::InputFailed,
+            ref message,
+        }) if message == "worker control route closed"
+    ));
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 30)
+        .expect("host recovery drain should receive terminal evidence");
 
     assert_eq!(
         terminal_output_bytes_for(
@@ -1737,6 +1748,48 @@ fn failed_deferred_shutdown_merges_same_session_natural_exit_without_stopping_re
             .filter(|input| *input == &shutdown)
             .count(),
         1
+    );
+}
+
+#[test]
+fn failed_deferred_shutdown_does_not_consume_live_output_before_returning_error() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let shutdown = SessionRuntimeInput::Shutdown {
+        session_id: session_id(),
+    };
+    runtime.session_runtime_mut().fail_next_input(
+        shutdown,
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "worker control route closed",
+        ),
+    );
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"live-output-before-exit-evidence".to_vec());
+
+    runtime
+        .shutdown_session(session_id(), "failed cleanup", 30)
+        .expect_err("delivery failure without exit evidence should remain an error");
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 31)
+        .expect("live output should remain reachable after the error");
+    assert_eq!(
+        terminal_output_bytes_for(
+            &outcome,
+            &client_id("client-a"),
+            &subscription_id("sub-a"),
+            &session_id(),
+        ),
+        b"live-output-before-exit-evidence"
+    );
+    assert_eq!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Running)
     );
 }
 

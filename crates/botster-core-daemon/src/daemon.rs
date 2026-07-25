@@ -880,10 +880,14 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
-        let shutdown_output =
-            self.engine
-                .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)?;
-        let mut shutdown_drain = drain_result_from_engine_output(shutdown_output);
+        let (mut shutdown_drain, shutdown_error) =
+            match self
+                .engine
+                .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)
+            {
+                Ok(output) => (drain_result_from_engine_output(output), None),
+                Err(error) => (DrainResult::default(), Some(error)),
+            };
         self.reconcile_lifecycle_observations(&shutdown_drain.observations, now_seconds)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
@@ -909,6 +913,9 @@ impl CoreDaemon {
         }
         if !final_output_drained {
             self.retain_pending_drain_result(&session_id, shutdown_drain);
+            if let Some(error) = shutdown_error {
+                return Err(error.into());
+            }
             return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
                 SessionRuntimeError::new(
                     SessionRuntimeErrorKind::ShutdownFailed,
