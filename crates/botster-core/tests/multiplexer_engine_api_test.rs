@@ -17,6 +17,7 @@ use botster_core::{
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+    RuntimeCommand,
 };
 
 fn request_id(value: &str) -> RequestId {
@@ -154,6 +155,64 @@ fn plugin_invocation_with_timeout(
         timeout_ms,
         ..plugin_invocation(handler)
     }
+}
+
+#[test]
+fn direct_shutdown_is_idempotent_after_delivery_and_after_exit() {
+    let mut engine = MultiplexerEngine::new(FakeSessionRuntime::new());
+    engine
+        .spawn_session(
+            spawn_request(),
+            CoreSessionMetadata::new(),
+            FakeSessionWorkerRuntime::new(),
+        )
+        .expect("spawn session");
+
+    let first = engine
+        .shutdown_session(session_id(), "first shutdown", 10)
+        .expect("first shutdown");
+    let second = engine
+        .shutdown_session(session_id(), "duplicate shutdown", 11)
+        .expect("stopping shutdown is idempotent");
+
+    assert!(first.observations.iter().any(|observation| {
+        observation
+            == &MultiplexerEngineObservation::SessionLifecycle {
+                session_id: session_id(),
+                state: SessionLifecycleState::Stopping,
+            }
+    }));
+    assert_eq!(second, botster_core::MultiplexerEngineOutcome::empty());
+    assert_eq!(
+        engine
+            .session_worker_runtime_mut(&session_id())
+            .expect("session worker")
+            .commands()
+            .iter()
+            .filter(|command| matches!(command, RuntimeCommand::Shutdown { .. }))
+            .count(),
+        1
+    );
+
+    engine
+        .handle_runtime_event(SessionWorkerRuntimeEvent::ProcessExited {
+            session_id: session_id(),
+            payload: ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            },
+        })
+        .expect("route process exit");
+    let exited = engine
+        .shutdown_session(session_id(), "post-exit cleanup", 12)
+        .expect("exited shutdown is idempotent");
+    assert_eq!(exited, botster_core::MultiplexerEngineOutcome::empty());
+    assert_eq!(
+        engine
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Exited { code: Some(0) })
+    );
 }
 
 #[test]

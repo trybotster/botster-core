@@ -1604,6 +1604,196 @@ fn supervised_session_shutdown_closes_worker_and_runtime_exactly_once() {
 }
 
 #[test]
+fn failed_deferred_shutdown_restores_retryability_and_sends_one_fresh_retry() {
+    let mut runtime = managed_runtime();
+    let shutdown = SessionRuntimeInput::Shutdown {
+        session_id: session_id(),
+    };
+    runtime.session_runtime_mut().fail_next_input(
+        shutdown.clone(),
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "forced shutdown delivery failure",
+        ),
+    );
+
+    let error = runtime
+        .shutdown_session(session_id(), "first shutdown", 20)
+        .expect_err("unrecovered delivery failure remains typed");
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::Runtime(SessionRuntimeError {
+            kind: SessionRuntimeErrorKind::InputFailed,
+            ref message,
+        }) if message == "forced shutdown delivery failure"
+    ));
+    assert_eq!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Running)
+    );
+
+    let retry = runtime
+        .shutdown_session(session_id(), "retry shutdown", 21)
+        .expect("retry should enqueue and deliver a fresh shutdown");
+    assert!(retry.observations.iter().any(|observation| {
+        observation
+            == &MultiplexerEngineObservation::SessionLifecycle {
+                session_id: session_id(),
+                state: SessionLifecycleState::Stopping,
+            }
+    }));
+    assert_eq!(
+        runtime
+            .session_runtime()
+            .input_attempts()
+            .iter()
+            .filter(|input| *input == &shutdown)
+            .count(),
+        2
+    );
+    assert_eq!(
+        runtime
+            .session_runtime()
+            .inputs()
+            .iter()
+            .filter(|input| *input == &shutdown)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn failed_deferred_shutdown_leaves_natural_exit_for_the_host_drain_loop() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let shutdown = SessionRuntimeInput::Shutdown {
+        session_id: session_id(),
+    };
+    runtime.session_runtime_mut().fail_next_input(
+        shutdown.clone(),
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "worker control route closed",
+        ),
+    );
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"final-natural-exit-output".to_vec());
+    runtime.session_runtime_mut().emit_exit(
+        session_id(),
+        ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    );
+
+    let error = runtime
+        .shutdown_session(session_id(), "natural exit cleanup", 30)
+        .expect_err("managed runtime should preserve the delivery failure");
+    assert!(matches!(
+        error,
+        ManagedSessionRuntimeError::Runtime(SessionRuntimeError {
+            kind: SessionRuntimeErrorKind::InputFailed,
+            ref message,
+        }) if message == "worker control route closed"
+    ));
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 30)
+        .expect("host recovery drain should receive terminal evidence");
+
+    assert_eq!(
+        terminal_output_bytes_for(
+            &outcome,
+            &client_id("client-a"),
+            &subscription_id("sub-a"),
+            &session_id(),
+        ),
+        b"final-natural-exit-output"
+    );
+    assert!(outcome.session_events.iter().any(|event| {
+        matches!(
+            event,
+            SessionIoEvent::ProcessExited {
+                session_id: observed_session_id,
+                payload: ProcessExitedPayload {
+                    exit_code: Some(0),
+                    ..
+                },
+            } if observed_session_id == &session_id()
+        )
+    }));
+    assert!(!outcome.observations.iter().any(|observation| {
+        matches!(
+            observation,
+            MultiplexerEngineObservation::SessionLifecycle {
+                session_id: observed_session_id,
+                state: SessionLifecycleState::Stopping,
+            } if observed_session_id == &session_id()
+        )
+    }));
+    assert_eq!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Exited { code: Some(0) })
+    );
+    assert_eq!(
+        runtime
+            .session_runtime()
+            .input_attempts()
+            .iter()
+            .filter(|input| *input == &shutdown)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn failed_deferred_shutdown_does_not_consume_live_output_before_returning_error() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let shutdown = SessionRuntimeInput::Shutdown {
+        session_id: session_id(),
+    };
+    runtime.session_runtime_mut().fail_next_input(
+        shutdown,
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "worker control route closed",
+        ),
+    );
+    runtime
+        .session_runtime_mut()
+        .emit_output(session_id(), b"live-output-before-exit-evidence".to_vec());
+
+    runtime
+        .shutdown_session(session_id(), "failed cleanup", 30)
+        .expect_err("delivery failure without exit evidence should remain an error");
+
+    let outcome = runtime
+        .drain_runtime_once(&session_id(), 31)
+        .expect("live output should remain reachable after the error");
+    assert_eq!(
+        terminal_output_bytes_for(
+            &outcome,
+            &client_id("client-a"),
+            &subscription_id("sub-a"),
+            &session_id(),
+        ),
+        b"live-output-before-exit-evidence"
+    );
+    assert_eq!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Running)
+    );
+}
+
+#[test]
 fn supervised_session_process_exit_flushes_ordered_output_before_lifecycle_exit() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
