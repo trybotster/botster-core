@@ -194,6 +194,13 @@ where
         self.closed
     }
 
+    /// Make a deferred shutdown request retryable after its runtime delivery failed.
+    pub(crate) fn rollback_shutdown_request(&mut self) {
+        if !self.closed {
+            self.shutdown_requested = false;
+        }
+    }
+
     /// Handle one typed session I/O request.
     pub fn handle_request(
         &mut self,
