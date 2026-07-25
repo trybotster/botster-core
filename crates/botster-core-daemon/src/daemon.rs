@@ -927,7 +927,7 @@ impl CoreDaemon {
             )));
         }
 
-        self.drop_pending_drain(&session_id);
+        self.retain_pending_drain_result(&session_id, shutdown_drain);
         self.retain_final_terminal_state(&session_id)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             if record.state != RegistrySessionState::Exited {
@@ -1784,13 +1784,27 @@ mod terminal_backend_failure_tests {
             Rc::clone(&fail_snapshot),
         );
         let session_id = SessionId("daemon-final-capture-failure-session".to_string());
+        let client_id = ClientId("daemon-final-capture-failure-client".to_string());
+        let subscription_id =
+            SubscriptionId("daemon-final-capture-failure-subscription".to_string());
         daemon
             .spawn(spawn_request(&session_id), 30)
             .expect("spawn session");
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                31,
+            )
+            .expect("attach session");
+        let _ = daemon
+            .drain(&session_id, 32)
+            .expect("drain initial attach egress");
 
         fail_snapshot.set(true);
         let error = daemon
-            .shutdown(Some(session_id.clone()), 31)
+            .shutdown(Some(session_id.clone()), 33)
             .expect_err("failed paired final capture should fail shutdown finalization");
         assert!(matches!(
             error,
@@ -1800,11 +1814,33 @@ mod terminal_backend_failure_tests {
             }) if message == "forced Ghostty snapshot_export failure"
         ));
         assert!(!daemon.retained_terminal.contains_key(&session_id));
+        let pending_egress = daemon
+            .pending_drain
+            .iter()
+            .filter(|pending| pending.session_id == session_id)
+            .flat_map(|pending| &pending.result.client_egress)
+            .collect::<Vec<_>>();
+        assert!(
+            pending_egress.iter().any(|(frame_client_id, frame)| {
+                frame_client_id == &client_id
+                    && matches!(
+                        frame,
+                        TransportEgress::ProcessExit {
+                            session_id: frame_session_id,
+                            subscription_id: frame_subscription_id,
+                            ..
+                        } if frame_session_id == &session_id
+                            && frame_subscription_id == &subscription_id
+                    )
+            }),
+            "capture failure should preserve shutdown recovery egress: {:?}",
+            pending_egress
+        );
         assert!(matches!(
             daemon.read_screen(ReadScreenRequest {
                 request_id: RequestId("failed-final-screen".to_string()),
                 session_id: session_id.clone(),
-                now_seconds: 32,
+                now_seconds: 34,
             }),
             Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
         ));
