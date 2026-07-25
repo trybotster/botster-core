@@ -26,9 +26,11 @@ pub struct FakeSessionRuntime {
     spawned: Vec<SessionSpawnRequest>,
     handles: Vec<SessionRuntimeHandle>,
     inputs: Vec<SessionRuntimeInput>,
+    input_attempts: Vec<SessionRuntimeInput>,
     outputs: Vec<SessionRuntimeOutput>,
     drain_attempts: Vec<SessionId>,
     next_spawn_error: Option<SessionRuntimeError>,
+    next_input_error: Option<(SessionRuntimeInput, SessionRuntimeError)>,
     next_drain_error: Option<SessionRuntimeError>,
 }
 
@@ -41,6 +43,11 @@ impl FakeSessionRuntime {
     /// Configure the next spawn attempt to fail with a typed runtime error.
     pub fn fail_next_spawn(&mut self, error: SessionRuntimeError) {
         self.next_spawn_error = Some(error);
+    }
+
+    /// Configure one matching runtime input attempt to fail.
+    pub fn fail_next_input(&mut self, input: SessionRuntimeInput, error: SessionRuntimeError) {
+        self.next_input_error = Some((input, error));
     }
 
     /// Configure the next output drain attempt to fail with a typed runtime error.
@@ -56,6 +63,11 @@ impl FakeSessionRuntime {
     /// Return all runtime inputs observed by the fake runtime.
     pub fn inputs(&self) -> &[SessionRuntimeInput] {
         &self.inputs
+    }
+
+    /// Return all runtime input delivery attempts, including failures.
+    pub fn input_attempts(&self) -> &[SessionRuntimeInput] {
+        &self.input_attempts
     }
 
     /// Return session ids passed to `drain_output`, in call order.
@@ -122,6 +134,18 @@ impl SessionRuntime for FakeSessionRuntime {
     }
 
     fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
+        self.input_attempts.push(input.clone());
+        if self
+            .next_input_error
+            .as_ref()
+            .is_some_and(|(failed_input, _)| failed_input == &input)
+        {
+            let (_, error) = self
+                .next_input_error
+                .take()
+                .expect("matching one-shot input failure exists");
+            return Err(error);
+        }
         if !self.session_exists(Self::input_session_id(&input)) {
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SessionNotFound,

@@ -668,6 +668,14 @@ where
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        match &self.ensure_session(&session_id)?.lifecycle {
+            SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping => {
+                return Ok(MultiplexerEngineOutcome::empty());
+            }
+            SessionLifecycleState::Starting
+            | SessionLifecycleState::Running
+            | SessionLifecycleState::Failed { .. } => {}
+        }
         let reason = reason.into();
         let request = SessionIoRequest::Shutdown {
             session_id: session_id.clone(),
@@ -688,6 +696,29 @@ where
                 });
         }
         Ok(outcome)
+    }
+
+    pub(crate) fn rollback_shutdown_session(
+        &mut self,
+        session_id: &SessionId,
+        previous_lifecycle: SessionLifecycleState,
+    ) -> Result<(), MultiplexerEngineError> {
+        if !matches!(
+            &previous_lifecycle,
+            SessionLifecycleState::Starting | SessionLifecycleState::Running
+        ) {
+            return Ok(());
+        }
+        if matches!(
+            self.ensure_session(session_id)?.lifecycle,
+            SessionLifecycleState::Stopping
+        ) {
+            self.apply_lifecycle(session_id.clone(), previous_lifecycle)?;
+            if let Some(worker) = self.session_workers.get_mut(session_id) {
+                worker.rollback_shutdown_request();
+            }
+        }
+        Ok(())
     }
 
     fn handle_session_request_inner(
