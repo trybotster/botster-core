@@ -578,41 +578,15 @@ where
                 .engine
                 .shutdown_session(session_id, reason, now_seconds)?);
         }
-        let mut outcome = self
+        let outcome = self
             .engine
             .shutdown_session(session_id.clone(), reason, now_seconds)?;
 
         if let Err(failure) = self.flush_runtime_inputs_for_session(&session_id) {
-            let target_shutdown_failed = matches!(
-                failure.input,
-                SessionRuntimeInput::Shutdown {
-                    session_id: ref failed_session_id
-                } if failed_session_id == &session_id
-            );
-
-            if target_shutdown_failed {
-                if let Ok(recovered) = self.drain_runtime_once(&session_id, now_seconds) {
-                    append_outcome(&mut outcome, recovered);
-                    if self.session_exited(&session_id) {
-                        outcome.observations.retain(|observation| {
-                            !matches!(
-                                observation,
-                                MultiplexerEngineObservation::SessionLifecycle {
-                                    session_id: observed_session_id,
-                                    state: SessionLifecycleState::Stopping,
-                                } if observed_session_id == &session_id
-                            )
-                        });
-                        self.flush_remaining_runtime_inputs(&session_id)?;
-                        return Ok(outcome);
-                    }
-                }
-            }
-
             self.engine
                 .rollback_shutdown_session(&session_id, previous_lifecycle)?;
             self.cancel_queued_shutdown(&session_id);
-            return Err(failure.error.into());
+            return Err(failure.into());
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
@@ -622,8 +596,7 @@ where
     fn flush_runtime_inputs(&mut self) -> Result<(), SessionRuntimeError> {
         let session_ids = self.engine_session_ids();
         for session_id in session_ids {
-            self.flush_runtime_inputs_for_session(&session_id)
-                .map_err(|failure| failure.error)?;
+            self.flush_runtime_inputs_for_session(&session_id)?;
         }
         Ok(())
     }
@@ -631,7 +604,7 @@ where
     fn flush_runtime_inputs_for_session(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(), RuntimeInputFailure> {
+    ) -> Result<(), SessionRuntimeError> {
         let inputs = self
             .engine_worker(session_id)
             .map(SessionRuntimeWorkerAdapter::drain_inputs)
@@ -642,7 +615,7 @@ where
                 if let Some(worker) = self.engine_worker(session_id) {
                     worker.prepend_inputs(inputs);
                 }
-                return Err(RuntimeInputFailure { input, error });
+                return Err(error);
             }
         }
         Ok(())
@@ -654,8 +627,7 @@ where
     ) -> Result<(), SessionRuntimeError> {
         for session_id in self.engine_session_ids() {
             if &session_id != completed_session_id {
-                self.flush_runtime_inputs_for_session(&session_id)
-                    .map_err(|failure| failure.error)?;
+                self.flush_runtime_inputs_for_session(&session_id)?;
             }
         }
         Ok(())
@@ -729,11 +701,6 @@ fn append_outcome(target: &mut MultiplexerEngineOutcome, source: MultiplexerEngi
         .extend(source.client_control_frames);
     target.session_events.extend(source.session_events);
     target.observations.extend(source.observations);
-}
-
-struct RuntimeInputFailure {
-    input: SessionRuntimeInput,
-    error: SessionRuntimeError,
 }
 
 /// Session worker adapter that converts PTY I/O and lifecycle operations into runtime inputs.

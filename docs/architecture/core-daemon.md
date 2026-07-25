@@ -148,24 +148,27 @@ the control reader has reached EOF, the owned worker child has exited cleanly
 when present, and the control socket has been removed. `CoreDaemon` then freezes
 the final terminal readback and marks the registry record `exited`. If that
 completion cannot be proven within the existing supervisor deadline, shutdown
-returns a typed `ShutdownFailed` error, leaves the registry non-exited, retains
-pending drain evidence, and keeps cleanup ownership. This failure path is
-deliberately distinct from `release_for_restart`, which preserves a worker only
-when the host intentionally chooses restart adoption without first completing
-session shutdown.
+returns the original typed delivery error when one started recovery, or
+`ShutdownFailed` after accepted delivery. It leaves the registry non-exited,
+retains pending drain evidence, and keeps cleanup ownership. This failure path
+is deliberately distinct from `release_for_restart`, which preserves a worker
+only when the host intentionally chooses restart adoption without first
+completing session shutdown.
 
 Shutdown remains idempotent when natural exit wins the race with an explicit
 cleanup request. Direct `MultiplexerEngine` and `BotsterEngine` workers commit
 `stopping` after their synchronous shutdown callback accepts delivery. The
 managed worker path queues that control input, so its `stopping` transition is
-provisional until the runtime accepts the queued input. If delivery fails,
-managed shutdown drains that same session once: terminal process-exit evidence
-wins and returns the merged final output as successful `exited` cleanup;
-otherwise the original typed delivery error is returned and the prior
-`starting` or `running` lifecycle is restored so a later call can retry. A
-known `exited` session and a confirmed `stopping` session accept repeated
-shutdown without another control frame. Unknown sessions and failures without
-same-session terminal evidence remain errors.
+provisional until the runtime accepts the queued input. If delivery fails, the
+managed runtime restores the prior `starting` or `running` lifecycle and
+returns the original typed error without consuming runtime output. The daemon
+then uses its existing bounded final-output drain loop to wait for lagging
+natural-exit evidence. A same-session process-exit observation makes cleanup
+succeed; if the deadline expires first, the original typed delivery error is
+returned so a later call can retry. A known `exited` session and a confirmed
+`stopping` session accept repeated shutdown without another control frame.
+Unknown sessions and failures without same-session terminal evidence remain
+errors.
 
 Adoption scan is read-only. It reports deterministic follow-up state and leaves
 registry files untouched until a caller performs an explicit operation such as
