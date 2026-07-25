@@ -563,25 +563,80 @@ where
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let previous_lifecycle = self
+            .engine
+            .session(&session_id)
+            .map(|session| session.lifecycle.clone())
+            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            })?;
+        if matches!(
+            &previous_lifecycle,
+            SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping
+        ) {
+            return Ok(self
+                .engine
+                .shutdown_session(session_id, reason, now_seconds)?);
+        }
         let outcome = self
             .engine
-            .shutdown_session(session_id, reason, now_seconds)?;
-        self.flush_runtime_inputs()?;
+            .shutdown_session(session_id.clone(), reason, now_seconds)?;
+
+        if let Err(failure) = self.flush_runtime_inputs_for_session(&session_id) {
+            self.engine
+                .rollback_shutdown_session(&session_id, previous_lifecycle)?;
+            self.cancel_queued_shutdown(&session_id);
+            return Err(failure.into());
+        }
+
+        self.flush_remaining_runtime_inputs(&session_id)?;
         Ok(outcome)
     }
 
     fn flush_runtime_inputs(&mut self) -> Result<(), SessionRuntimeError> {
         let session_ids = self.engine_session_ids();
         for session_id in session_ids {
-            let inputs = self
-                .engine_worker(&session_id)
-                .map(SessionRuntimeWorkerAdapter::drain_inputs)
-                .unwrap_or_default();
-            for input in inputs {
-                self.engine.session_runtime_mut().send_input(input)?;
+            self.flush_runtime_inputs_for_session(&session_id)?;
+        }
+        Ok(())
+    }
+
+    fn flush_runtime_inputs_for_session(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), SessionRuntimeError> {
+        let inputs = self
+            .engine_worker(session_id)
+            .map(SessionRuntimeWorkerAdapter::drain_inputs)
+            .unwrap_or_default();
+        let mut inputs = inputs.into_iter();
+        while let Some(input) = inputs.next() {
+            if let Err(error) = self.engine.session_runtime_mut().send_input(input.clone()) {
+                if let Some(worker) = self.engine_worker(session_id) {
+                    worker.prepend_inputs(inputs);
+                }
+                return Err(error);
             }
         }
         Ok(())
+    }
+
+    fn flush_remaining_runtime_inputs(
+        &mut self,
+        completed_session_id: &SessionId,
+    ) -> Result<(), SessionRuntimeError> {
+        for session_id in self.engine_session_ids() {
+            if &session_id != completed_session_id {
+                self.flush_runtime_inputs_for_session(&session_id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn cancel_queued_shutdown(&mut self, session_id: &SessionId) {
+        if let Some(worker) = self.engine_worker(session_id) {
+            worker.cancel_shutdown(session_id);
+        }
     }
 
     fn route_pending_runtime_events(
@@ -693,6 +748,27 @@ where
     /// Drain pending runtime inputs recorded by worker operations.
     pub(crate) fn drain_inputs(&mut self) -> Vec<SessionRuntimeInput> {
         self.state.borrow_mut().inputs.drain(..).collect()
+    }
+
+    pub(crate) fn prepend_inputs(&mut self, inputs: impl IntoIterator<Item = SessionRuntimeInput>) {
+        let mut state = self.state.borrow_mut();
+        let mut retained = inputs.into_iter().collect::<Vec<_>>();
+        retained.append(&mut state.inputs);
+        state.inputs = retained;
+    }
+
+    pub(crate) fn cancel_shutdown(&mut self, session_id: &SessionId) {
+        let mut state = self.state.borrow_mut();
+        if let Some(index) = state.inputs.iter().rposition(|input| {
+            matches!(
+                input,
+                SessionRuntimeInput::Shutdown {
+                    session_id: queued_session_id
+                } if queued_session_id == session_id
+            )
+        }) {
+            state.inputs.remove(index);
+        }
     }
 
     /// Drain pending worker events that must pass through the worker engine.
@@ -1005,6 +1081,71 @@ fn unsupported(request_kind: &'static str) -> Result<(), ManagedSessionRuntimeEr
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct FailingInputRuntime {
+        sessions: Vec<SessionId>,
+        attempts: Vec<SessionRuntimeInput>,
+        delivered: Vec<SessionRuntimeInput>,
+        fail_next: Option<SessionRuntimeInput>,
+    }
+
+    impl FailingInputRuntime {
+        fn fail_next(&mut self, input: SessionRuntimeInput) {
+            self.fail_next = Some(input);
+        }
+    }
+
+    impl SessionRuntime for FailingInputRuntime {
+        fn spawn_session(
+            &mut self,
+            request: SessionSpawnRequest,
+        ) -> Result<crate::SessionRuntimeHandle, SessionRuntimeError> {
+            self.sessions.push(request.session_id.clone());
+            Ok(crate::SessionRuntimeHandle {
+                request_id: request.request_id,
+                session_id: request.session_id,
+                process: crate::ProcessIdentity {
+                    pid: None,
+                    runtime_id: None,
+                },
+            })
+        }
+
+        fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
+            self.attempts.push(input.clone());
+            if self.fail_next.as_ref() == Some(&input) {
+                self.fail_next = None;
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    "forced input failure",
+                ));
+            }
+            self.delivered.push(input);
+            Ok(())
+        }
+
+        fn drain_output(
+            &mut self,
+            _session_id: &SessionId,
+        ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn test_spawn_request(session_id: &str) -> SessionSpawnRequest {
+        SessionSpawnRequest {
+            request_id: RequestId(format!("{session_id}-spawn")),
+            session_id: SessionId(session_id.to_string()),
+            executable: "test-shell".to_string(),
+            arguments: Vec::new(),
+            working_directory: crate::SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: crate::SpawnEnvironment::default(),
+            initial_pty_size: None,
+        }
+    }
+
     #[test]
     fn unprimed_mode_read_returns_typed_error_instead_of_panicking() {
         let mut adapter = SessionRuntimeWorkerAdapter::new(PlainTerminalScreenRuntime::default());
@@ -1018,5 +1159,136 @@ mod tests {
 
         assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
         assert_eq!(error.message, "mode flags were not primed before routing");
+    }
+
+    #[test]
+    fn target_input_failure_rolls_back_shutdown_and_preserves_only_unattempted_tail() {
+        let session_id = SessionId("target".to_string());
+        let failed_input = SessionRuntimeInput::PtyInput {
+            session_id: session_id.clone(),
+            data: b"before-shutdown".to_vec(),
+        };
+        let retained_input = SessionRuntimeInput::Resize {
+            session_id: session_id.clone(),
+            size: crate::ResizePayload {
+                rows: 40,
+                cols: 120,
+            },
+        };
+        let shutdown = SessionRuntimeInput::Shutdown {
+            session_id: session_id.clone(),
+        };
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        runtime
+            .spawn_session(
+                test_spawn_request(&session_id.0),
+                CoreSessionMetadata::new(),
+            )
+            .expect("spawn target");
+        {
+            let worker = runtime.engine_worker(&session_id).expect("target worker");
+            worker.write_input(&session_id, b"before-shutdown");
+            worker
+                .resize(&session_id, 40, 120)
+                .expect("queue retained resize");
+        }
+        runtime
+            .session_runtime_mut()
+            .fail_next(failed_input.clone());
+
+        let error = runtime
+            .shutdown_session(session_id.clone(), "test shutdown", 10)
+            .expect_err("pre-shutdown input failure should propagate");
+        assert!(matches!(
+            error,
+            ManagedSessionRuntimeError::Runtime(SessionRuntimeError {
+                kind: SessionRuntimeErrorKind::InputFailed,
+                ..
+            })
+        ));
+        assert_eq!(
+            runtime
+                .session(&session_id)
+                .map(|session| &session.lifecycle),
+            Some(&SessionLifecycleState::Running)
+        );
+
+        runtime
+            .flush_runtime_inputs()
+            .expect("unattempted resize should remain reachable");
+        runtime
+            .shutdown_session(session_id, "retry shutdown", 11)
+            .expect("fresh shutdown should remain retryable");
+        assert_eq!(
+            runtime.session_runtime().attempts,
+            vec![failed_input, retained_input.clone(), shutdown.clone()]
+        );
+        assert_eq!(
+            runtime.session_runtime().delivered,
+            vec![retained_input, shutdown]
+        );
+    }
+
+    #[test]
+    fn cross_session_failure_propagates_without_rolling_back_delivered_target_shutdown() {
+        let target_id = SessionId("target".to_string());
+        let other_id = SessionId("other".to_string());
+        let shutdown = SessionRuntimeInput::Shutdown {
+            session_id: target_id.clone(),
+        };
+        let failed_other = SessionRuntimeInput::PtyInput {
+            session_id: other_id.clone(),
+            data: b"other-input".to_vec(),
+        };
+        let retained_other = SessionRuntimeInput::Resize {
+            session_id: other_id.clone(),
+            size: crate::ResizePayload { rows: 30, cols: 90 },
+        };
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        runtime
+            .spawn_session(test_spawn_request(&target_id.0), CoreSessionMetadata::new())
+            .expect("spawn target");
+        runtime
+            .spawn_session(test_spawn_request(&other_id.0), CoreSessionMetadata::new())
+            .expect("spawn other");
+        {
+            let worker = runtime.engine_worker(&other_id).expect("other worker");
+            worker.write_input(&other_id, b"other-input");
+            worker
+                .resize(&other_id, 30, 90)
+                .expect("queue retained other resize");
+        }
+        runtime
+            .session_runtime_mut()
+            .fail_next(failed_other.clone());
+
+        let error = runtime
+            .shutdown_session(target_id.clone(), "target shutdown", 10)
+            .expect_err("other session failure should propagate");
+        assert!(matches!(
+            error,
+            ManagedSessionRuntimeError::Runtime(SessionRuntimeError {
+                kind: SessionRuntimeErrorKind::InputFailed,
+                ..
+            })
+        ));
+        assert_eq!(
+            runtime
+                .session(&target_id)
+                .map(|session| &session.lifecycle),
+            Some(&SessionLifecycleState::Stopping)
+        );
+
+        runtime
+            .flush_runtime_inputs()
+            .expect("other unattempted tail should remain reachable");
+        assert_eq!(
+            runtime.session_runtime().attempts,
+            vec![shutdown.clone(), failed_other, retained_other.clone()]
+        );
+        assert_eq!(
+            runtime.session_runtime().delivered,
+            vec![shutdown, retained_other]
+        );
     }
 }

@@ -1,6 +1,8 @@
 #![allow(missing_docs)]
 
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::process::Command;
 use std::sync::Once;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1779,6 +1781,196 @@ fn natural_exit_read_screen_and_capture_snapshot_freeze_repeatable_truth() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
+    let data_dir = short_temp_data_dir("shutdown-race");
+    let session_id = SessionId("shutdown-race-session".to_string());
+    let marker_path = data_dir.join("marker");
+    let release_path = data_dir.join("release");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+
+    daemon
+        .spawn(
+            controlled_exit_spawn_request(&session_id, &marker_path, &release_path),
+            10,
+        )
+        .expect("controlled natural-exit session should spawn");
+    daemon
+        .attach(
+            ClientId("shutdown-race-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("shutdown-race-subscription".to_string()),
+            11,
+        )
+        .expect("controlled natural-exit session should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            ClientId("shutdown-race-client".to_string()),
+            session_id.clone(),
+            b"finish\n".to_vec(),
+            12,
+        )
+        .expect("fixture input should emit the marker");
+    wait_for_condition("fixture marker file", || marker_path.exists());
+    let marker_screen = read_screen_until(
+        &mut daemon,
+        &session_id,
+        "botster-core-natural-exit-marker",
+        13,
+    );
+    assert!(marker_screen
+        .screen
+        .text
+        .contains("botster-core-natural-exit-marker"));
+    let observed_output = daemon
+        .drain(&session_id, 14)
+        .expect("observable marker output should remain drainable");
+    assert!(terminal_output(&observed_output.client_egress)
+        .contains("botster-core-natural-exit-marker"));
+    assert_eq!(
+        daemon.list().expect("list pre-exit session")[0].registry_state,
+        RegistrySessionState::Running
+    );
+
+    let (_, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
+    fs::write(&release_path, b"release").expect("release controlled natural exit");
+    wait_for_condition("worker process and control route completion", || {
+        !process_exists(pty_child_pid) && UnixStream::connect(&socket_path).is_err()
+    });
+    assert_eq!(
+        daemon.list().expect("list unreconciled session")[0].registry_state,
+        RegistrySessionState::Running
+    );
+
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown should reconcile the completed worker");
+    daemon
+        .shutdown(Some(session_id.clone()), 21)
+        .expect("repeated terminal shutdown should remain idempotent");
+    assert_eq!(
+        daemon.list().expect("list reconciled session")[0].registry_state,
+        RegistrySessionState::Exited
+    );
+
+    let first_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-race-screen-1".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("retained terminal screen");
+    let second_screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("shutdown-race-screen-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 23,
+        })
+        .expect("repeat retained terminal screen");
+    let first_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("shutdown-race-snapshot-1".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 24,
+        })
+        .expect("retained terminal snapshot");
+    let second_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("shutdown-race-snapshot-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 25,
+        })
+        .expect("repeat retained terminal snapshot");
+
+    assert!(first_screen
+        .screen
+        .text
+        .contains("botster-core-natural-exit-tail"));
+    assert_eq!(first_screen.screen.text, second_screen.screen.text);
+    assert_eq!(first_snapshot.payload, second_snapshot.payload);
+    assert_snapshot_format(&first_snapshot.payload);
+    assert_snapshot_payload_observed_marker_when_plain(
+        &first_snapshot.payload,
+        "botster-core-natural-exit-tail",
+    );
+    #[cfg(feature = "ghostty-terminal")]
+    assert_ghostty_snapshot_replays_marker(
+        &first_snapshot.payload,
+        "botster-core-natural-exit-tail",
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn shutdown_all_continues_after_a_raced_natural_exit_and_cleans_a_live_session() {
+    let data_dir = short_temp_data_dir("shutdown-all-race");
+    let raced_session = SessionId("shutdown-all-raced".to_string());
+    let live_session = SessionId("shutdown-all-live".to_string());
+    let marker_path = data_dir.join("marker");
+    let release_path = data_dir.join("release");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+
+    daemon
+        .spawn(
+            controlled_exit_spawn_request(&raced_session, &marker_path, &release_path),
+            10,
+        )
+        .expect("controlled natural-exit session should spawn");
+    daemon
+        .attach(
+            ClientId("shutdown-all-raced-client".to_string()),
+            raced_session.clone(),
+            SubscriptionId("shutdown-all-raced-subscription".to_string()),
+            11,
+        )
+        .expect("controlled natural-exit session should attach");
+    let _ = drain_until(&mut daemon, &raced_session, "ready");
+    daemon
+        .input(
+            ClientId("shutdown-all-raced-client".to_string()),
+            raced_session.clone(),
+            b"finish\n".to_vec(),
+            12,
+        )
+        .expect("fixture input should emit the marker");
+    wait_for_condition("shutdown-all fixture marker", || marker_path.exists());
+    let _ = read_screen_until(
+        &mut daemon,
+        &raced_session,
+        "botster-core-natural-exit-marker",
+        13,
+    );
+    let (_, raced_child_pid, raced_socket_path) = worker_process_evidence(&daemon, &raced_session);
+    fs::write(&release_path, b"release").expect("release controlled natural exit");
+    wait_for_condition("shutdown-all raced worker completion", || {
+        !process_exists(raced_child_pid) && UnixStream::connect(&raced_socket_path).is_err()
+    });
+
+    daemon
+        .spawn(spawn_request(&live_session), 20)
+        .expect("live session should spawn");
+    let (_, live_child_pid, live_socket_path) = worker_process_evidence(&daemon, &live_session);
+
+    daemon
+        .shutdown(None, 30)
+        .expect("raced and live sessions should both shut down");
+    let listed = daemon.list().expect("list shutdown-all sessions");
+    assert_eq!(listed.len(), 2);
+    assert!(listed
+        .iter()
+        .all(|record| record.registry_state == RegistrySessionState::Exited));
+    assert!(!process_exists(live_child_pid));
+    assert!(!live_socket_path.exists());
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(not(feature = "ghostty-terminal"))]
 #[test]
 fn plain_backend_mode_flags_are_unsupported_instead_of_default_authority() {
@@ -2672,6 +2864,41 @@ fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     }
 }
 
+#[cfg(unix)]
+fn controlled_exit_spawn_request(
+    session_id: &SessionId,
+    marker_path: &std::path::Path,
+    release_path: &std::path::Path,
+) -> SpawnSessionRequest {
+    SpawnSessionRequest {
+        request: SessionSpawnRequest {
+            request_id: RequestId(format!("{}-spawn", session_id.0)),
+            session_id: session_id.clone(),
+            executable: "sh".to_string(),
+            arguments: vec![
+                "-c".to_string(),
+                concat!(
+                    "printf ready; IFS= read -r line; ",
+                    "printf 'botster-core-natural-exit-marker:%s\\n' \"$line\"; ",
+                    "printf observed > \"$1\"; ",
+                    "while [ ! -e \"$2\" ]; do sleep 0.01; done; ",
+                    "printf 'botster-core-natural-exit-tail\\n'; exit 0"
+                )
+                .to_string(),
+                "botster-controlled-exit".to_string(),
+                marker_path.to_string_lossy().into_owned(),
+                release_path.to_string_lossy().into_owned(),
+            ],
+            working_directory: SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: SpawnEnvironment::default(),
+            initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+        },
+        metadata: CoreSessionMetadata::new(),
+    }
+}
+
 #[cfg(not(feature = "ghostty-terminal"))]
 fn silent_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     SpawnSessionRequest {
@@ -3250,6 +3477,18 @@ fn process_exists(pid: u32) -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+fn wait_for_condition(label: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
+    while Instant::now() < deadline {
+        if condition() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{label} was not observed within {REAL_WORKER_COMPLETION_TIMEOUT:?}");
 }
 
 #[cfg(unix)]
