@@ -1786,6 +1786,8 @@ fn natural_exit_read_screen_and_capture_snapshot_freeze_repeatable_truth() {
 fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
     let data_dir = short_temp_data_dir("shutdown-race");
     let session_id = SessionId("shutdown-race-session".to_string());
+    let client_id = ClientId("shutdown-race-client".to_string());
+    let subscription_id = SubscriptionId("shutdown-race-subscription".to_string());
     let marker_path = data_dir.join("marker");
     let release_path = data_dir.join("release");
     let mut daemon =
@@ -1799,16 +1801,16 @@ fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
         .expect("controlled natural-exit session should spawn");
     daemon
         .attach(
-            ClientId("shutdown-race-client".to_string()),
+            client_id.clone(),
             session_id.clone(),
-            SubscriptionId("shutdown-race-subscription".to_string()),
+            subscription_id.clone(),
             11,
         )
         .expect("controlled natural-exit session should attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
     daemon
         .input(
-            ClientId("shutdown-race-client".to_string()),
+            client_id.clone(),
             session_id.clone(),
             b"finish\n".to_vec(),
             12,
@@ -1851,37 +1853,108 @@ fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
     daemon
         .shutdown(Some(session_id.clone()), 21)
         .expect("repeated terminal shutdown should remain idempotent");
-    assert_eq!(
-        daemon.list().expect("list reconciled session")[0].registry_state,
-        RegistrySessionState::Exited
+
+    let recovered = daemon
+        .drain(&session_id, 22)
+        .expect("attached client should drain shutdown recovery egress");
+    assert!(
+        recovered
+            .client_egress
+            .iter()
+            .all(|(frame_client_id, _)| frame_client_id == &client_id),
+        "shutdown recovery egress must remain targeted to the attached client: {:?}",
+        recovered.client_egress
     );
+    let tail_index = recovered
+        .client_egress
+        .iter()
+        .position(|(frame_client_id, frame)| {
+            frame_client_id == &client_id
+                && matches!(
+                    frame,
+                    TransportEgress::TerminalOutput {
+                        session_id: frame_session_id,
+                        subscription_id: frame_subscription_id,
+                        data,
+                    } if frame_session_id == &session_id
+                        && frame_subscription_id == &subscription_id
+                        && String::from_utf8_lossy(data)
+                            .contains("botster-core-natural-exit-tail")
+                )
+        })
+        .expect("shutdown recovery should preserve the final terminal tail");
+    let process_exits = recovered
+        .client_egress
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (frame_client_id, frame))| match frame {
+            TransportEgress::ProcessExit {
+                session_id: frame_session_id,
+                subscription_id: frame_subscription_id,
+                code,
+            } if frame_client_id == &client_id
+                && frame_session_id == &session_id
+                && frame_subscription_id == &subscription_id =>
+            {
+                Some((index, *code))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        process_exits.len(),
+        1,
+        "shutdown recovery should deliver exactly one ProcessExit: {:?}",
+        recovered.client_egress
+    );
+    assert_eq!(
+        process_exits[0].1,
+        Some(0),
+        "shutdown recovery should deliver the successful exit code"
+    );
+    assert!(
+        tail_index < process_exits[0].0,
+        "final terminal output must precede ProcessExit: {:?}",
+        recovered.client_egress
+    );
+
+    let reconciled = daemon.list().expect("list reconciled session");
+    assert_eq!(reconciled[0].registry_state, RegistrySessionState::Exited);
+    assert!(matches!(
+        daemon
+            .lifecycle_baseline()
+            .expect("lifecycle baseline")
+            .sessions[0]
+            .lifecycle,
+        Some(SessionLifecycleState::Exited { code: Some(0) })
+    ));
 
     let first_screen = daemon
         .read_screen(ReadScreenRequest {
             request_id: RequestId("shutdown-race-screen-1".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 22,
+            now_seconds: 23,
         })
         .expect("retained terminal screen");
     let second_screen = daemon
         .read_screen(ReadScreenRequest {
             request_id: RequestId("shutdown-race-screen-2".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 23,
+            now_seconds: 24,
         })
         .expect("repeat retained terminal screen");
     let first_snapshot = daemon
         .capture_snapshot(CaptureSnapshotRequest {
             request_id: RequestId("shutdown-race-snapshot-1".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 24,
+            now_seconds: 25,
         })
         .expect("retained terminal snapshot");
     let second_snapshot = daemon
         .capture_snapshot(CaptureSnapshotRequest {
             request_id: RequestId("shutdown-race-snapshot-2".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 25,
+            now_seconds: 26,
         })
         .expect("repeat retained terminal snapshot");
 
@@ -1900,6 +1973,21 @@ fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
     assert_ghostty_snapshot_replays_marker(
         &first_snapshot.payload,
         "botster-core-natural-exit-tail",
+    );
+    let repeated_drain = daemon
+        .drain(&session_id, 27)
+        .expect("shutdown recovery egress should be delivered exactly once");
+    assert!(
+        repeated_drain.client_egress.iter().all(|(_, frame)| {
+            !matches!(
+                frame,
+                TransportEgress::TerminalOutput { data, .. }
+                    if String::from_utf8_lossy(data)
+                        .contains("botster-core-natural-exit-tail")
+            ) && !matches!(frame, TransportEgress::ProcessExit { .. })
+        }),
+        "second drain must not duplicate the recovered tail or ProcessExit: {:?}",
+        repeated_drain.client_egress
     );
 
     let _ = fs::remove_dir_all(data_dir);
