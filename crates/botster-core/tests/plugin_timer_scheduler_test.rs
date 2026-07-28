@@ -152,6 +152,23 @@ fn engine() -> BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> {
     )
 }
 
+fn wait_for_snapshot(
+    engine: &BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime>,
+    predicate: impl Fn(&botster_core::PluginWorkerDebugSnapshot) -> bool,
+) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if predicate(&engine.plugin_workers().debug_snapshot()) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    panic!(
+        "plugin worker snapshot never satisfied predicate: {:?}",
+        engine.plugin_workers().debug_snapshot()
+    );
+}
+
 #[test]
 fn one_shot_timer_fires_through_plugin_worker_timer_handler() {
     let engine = engine();
@@ -410,22 +427,18 @@ fn interval_timer_retries_after_backpressure() {
     let occupied = std::thread::spawn(move || {
         occupied_engine.invoke_plugin(plugin_invocation(occupied_handler, 200))
     });
+    wait_for_snapshot(&engine, |debug| {
+        debug.in_flight_jobs == 1 && debug.queued_jobs == 0
+    });
+
     let queued_engine = engine.clone();
     let queued_handler = handler.clone();
     let queued = std::thread::spawn(move || {
         queued_engine.invoke_plugin(plugin_invocation(queued_handler, 200))
     });
-    let deadline = std::time::Instant::now() + Duration::from_millis(250);
-    while {
-        let debug = engine.plugin_workers().debug_snapshot();
-        debug.in_flight_jobs != 1 || debug.queued_jobs != 1
-    } && std::time::Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    let debug = engine.plugin_workers().debug_snapshot();
-    assert_eq!(debug.in_flight_jobs, 1);
-    assert_eq!(debug.queued_jobs, 1);
+    wait_for_snapshot(&engine, |debug| {
+        debug.in_flight_jobs == 1 && debug.queued_jobs == 1
+    });
 
     engine.schedule_plugin_timer(timer_schedule(
         "interval-backpressure",
