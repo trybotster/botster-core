@@ -1,7 +1,11 @@
 //! Local session worker process entrypoint.
 
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::fs::DirBuilder;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -26,7 +30,11 @@ const LOOP_SLEEP: Duration = Duration::from_millis(10);
 
 fn main() {
     if let Err(error) = run() {
-        let _ = writeln!(io::stderr(), "botster-session-worker failed: {error}");
+        let _ = writeln!(
+            io::stderr(),
+            "botster-session-worker {} failed: {error}",
+            process::id()
+        );
         process::exit(1);
     }
 }
@@ -34,6 +42,15 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = WorkerArgs::parse(std::env::args().skip(1).collect())?;
     let control = WorkerControl::open(&args)?;
+    if args.control_socket.is_some() {
+        writeln!(
+            io::stdout(),
+            "botster-session-worker-ready {}",
+            process::id()
+        )
+        .and_then(|_| io::stdout().flush())
+        .map_err(|error| format!("publish worker readiness failed: {error}"))?;
+    }
     let shutdown_on_disconnect = control.shutdown_on_disconnect();
     let mut initial_control = control.accept_initial()?;
 
@@ -315,6 +332,7 @@ enum WorkerControl {
     Socket {
         listener: UnixListener,
         writer: Arc<Mutex<Option<UnixStream>>>,
+        _endpoint: WorkerSocketEndpoint,
     },
 }
 
@@ -324,14 +342,11 @@ impl WorkerControl {
             Some(path) => {
                 #[cfg(unix)]
                 {
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-                    }
-                    let _ = std::fs::remove_file(path);
-                    let listener = UnixListener::bind(path).map_err(|error| error.to_string())?;
+                    let (listener, endpoint) = bind_worker_socket(path)?;
                     Ok(Self::Socket {
                         listener,
                         writer: Arc::new(Mutex::new(None)),
+                        _endpoint: endpoint,
                     })
                 }
                 #[cfg(not(unix))]
@@ -351,7 +366,9 @@ impl WorkerControl {
                 stdout: io::stdout(),
             })),
             #[cfg(unix)]
-            Self::Socket { listener, writer } => {
+            Self::Socket {
+                listener, writer, ..
+            } => {
                 let stream = listener.accept().map_err(|error| error.to_string())?.0;
                 *writer
                     .lock()
@@ -365,7 +382,10 @@ impl WorkerControl {
     fn spawn_readers(&self, initial: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
         spawn_control_reader(initial, sender.clone());
         #[cfg(unix)]
-        if let Self::Socket { listener, writer } = self {
+        if let Self::Socket {
+            listener, writer, ..
+        } = self
+        {
             let listener = listener.try_clone().expect("clone worker listener");
             let writer = Arc::clone(writer);
             thread::spawn(move || {
@@ -455,6 +475,159 @@ impl WorkerControl {
 
     fn shutdown_on_disconnect(&self) -> bool {
         matches!(self, Self::Stdio)
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SocketIdentity {
+    device: u64,
+    inode: u64,
+    ctime: i64,
+    ctime_nsec: i64,
+}
+
+#[cfg(unix)]
+fn socket_identity(path: &std::path::Path) -> io::Result<SocketIdentity> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_socket() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "worker control endpoint is not a socket",
+        ));
+    }
+    Ok(SocketIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        ctime: metadata.ctime(),
+        ctime_nsec: metadata.ctime_nsec(),
+    })
+}
+
+#[cfg(unix)]
+fn remove_socket_if_unchanged(
+    path: &std::path::Path,
+    expected: &SocketIdentity,
+) -> io::Result<bool> {
+    let current = match socket_identity(path) {
+        Ok(identity) => identity,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if &current != expected {
+        return Ok(false);
+    }
+    std::fs::remove_file(path)?;
+    Ok(true)
+}
+
+#[cfg(unix)]
+fn bind_worker_socket(
+    path: &std::path::Path,
+) -> Result<(UnixListener, WorkerSocketEndpoint), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "worker control socket has no parent directory".to_string())?;
+    let parent_existed = match std::fs::symlink_metadata(parent) {
+        Ok(metadata) if metadata.is_dir() => true,
+        Ok(_) => return Err("worker control socket parent is not a directory".to_string()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(format!(
+                "inspect worker control socket parent failed: {error}"
+            ))
+        }
+    };
+    if !parent_existed {
+        create_private_socket_parent(parent)?;
+    }
+    let parent_metadata = std::fs::symlink_metadata(parent)
+        .map_err(|error| format!("inspect worker control socket parent failed: {error}"))?;
+    if !parent_metadata.is_dir() {
+        return Err("worker control socket parent is not a directory".to_string());
+    }
+    if parent_metadata.uid() != effective_user_id() || parent_metadata.mode() & 0o077 != 0 {
+        return Err(
+            "worker control socket parent must be owned by the effective user with private permissions"
+                .to_string(),
+        );
+    }
+
+    match socket_identity(path) {
+        Ok(before) => match UnixStream::connect(path) {
+            Ok(_) => return Err("worker control socket is already active".to_string()),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+                if !remove_socket_if_unchanged(path, &before).map_err(|error| error.to_string())? {
+                    return Err("worker control socket changed during stale cleanup".to_string());
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("probe worker control socket failed: {error}")),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+
+    let listener = UnixListener::bind(path).map_err(|error| {
+        let parent_state = std::fs::symlink_metadata(parent)
+            .map(|metadata| {
+                format!(
+                    "present uid={} mode={:o}",
+                    metadata.uid(),
+                    metadata.mode() & 0o777
+                )
+            })
+            .unwrap_or_else(|parent_error| format!("unavailable: {parent_error}"));
+        format!(
+            "bind worker control socket {:?} failed: {error}; parent is {parent_state}",
+            path
+        )
+    })?;
+    let identity = socket_identity(path)
+        .map_err(|error| format!("inspect bound worker control socket failed: {error}"))?;
+    Ok((
+        listener,
+        WorkerSocketEndpoint {
+            path: path.to_path_buf(),
+            identity,
+        },
+    ))
+}
+
+#[cfg(unix)]
+fn create_private_socket_parent(parent: &std::path::Path) -> Result<(), String> {
+    let mut builder = DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    match builder.create(parent) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(format!(
+            "create worker control socket parent failed: {error}"
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn effective_user_id() -> u32 {
+    extern "C" {
+        fn geteuid() -> u32;
+    }
+
+    // SAFETY: geteuid takes no arguments and returns the effective POSIX user id.
+    unsafe { geteuid() }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct WorkerSocketEndpoint {
+    path: PathBuf,
+    identity: SocketIdentity,
+}
+
+#[cfg(unix)]
+impl Drop for WorkerSocketEndpoint {
+    fn drop(&mut self) {
+        let _ = remove_socket_if_unchanged(&self.path, &self.identity);
     }
 }
 
@@ -664,5 +837,156 @@ mod tests {
 
         lifecycle.observe_process_exit();
         assert!(!lifecycle.should_continue());
+    }
+
+    #[cfg(unix)]
+    mod unix_socket {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::net::UnixListener;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        use super::super::{bind_worker_socket, remove_socket_if_unchanged, socket_identity};
+
+        fn temp_path(label: &str) -> std::path::PathBuf {
+            std::env::temp_dir().join(format!(
+                "bsw-{label}-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_nanos()
+            ))
+        }
+
+        fn create_private_root(root: &std::path::Path) {
+            std::fs::create_dir_all(root).expect("create root");
+            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
+                .expect("make root private");
+        }
+
+        #[test]
+        fn bind_creates_a_missing_private_parent() {
+            let root = temp_path("missing-parent");
+            let path = root.join("worker.sock");
+
+            let (_listener, endpoint) =
+                bind_worker_socket(&path).expect("create private parent and bind");
+
+            let metadata = std::fs::symlink_metadata(&root).expect("root metadata");
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+            drop(endpoint);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn bind_refuses_a_connectable_socket_without_unlinking_it() {
+            let root = temp_path("live");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let listener = UnixListener::bind(&path).expect("bind live socket");
+            let identity = socket_identity(&path).expect("live identity");
+
+            let error = bind_worker_socket(&path).expect_err("live socket must be preserved");
+
+            assert!(error.contains("already active"));
+            assert_eq!(
+                socket_identity(&path).expect("preserved identity"),
+                identity
+            );
+            drop(listener);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn bind_reclaims_a_refused_stale_socket() {
+            let root = temp_path("stale");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let stale = UnixListener::bind(&path).expect("bind stale socket");
+            let stale_identity = socket_identity(&path).expect("stale identity");
+            drop(stale);
+
+            let (_listener, endpoint) =
+                bind_worker_socket(&path).expect("reclaim stale socket and bind");
+
+            assert_ne!(
+                socket_identity(&path).expect("replacement identity"),
+                stale_identity
+            );
+            drop(endpoint);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn cleanup_preserves_a_replaced_socket_object() {
+            let root = temp_path("changed");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let first = UnixListener::bind(&path).expect("bind first socket");
+            let first_identity = socket_identity(&path).expect("first identity");
+            drop(first);
+            std::fs::remove_file(&path).expect("remove first socket");
+            let replacement = UnixListener::bind(&path).expect("bind replacement socket");
+
+            assert!(
+                !remove_socket_if_unchanged(&path, &first_identity).expect("changed socket check")
+            );
+            assert!(path.exists());
+            drop(replacement);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn cleanup_identity_includes_socket_lifetime_metadata() {
+            let root = temp_path("identity-lifetime");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let listener = UnixListener::bind(&path).expect("bind socket");
+            let mut earlier_lifetime = socket_identity(&path).expect("socket identity");
+            earlier_lifetime.ctime_nsec ^= 1;
+
+            assert!(!remove_socket_if_unchanged(&path, &earlier_lifetime)
+                .expect("mismatched lifetime must be preserved"));
+            assert!(path.exists());
+
+            drop(listener);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn bind_preserves_a_non_socket_entry() {
+            let root = temp_path("file");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let mut file = std::fs::File::create(&path).expect("create non-socket");
+            writeln!(file, "keep").expect("write non-socket");
+
+            bind_worker_socket(&path).expect_err("non-socket must fail");
+
+            assert_eq!(
+                std::fs::read_to_string(&path).expect("read preserved file"),
+                "keep\n"
+            );
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn bind_refuses_an_existing_non_private_parent() {
+            let root = temp_path("public-parent");
+            std::fs::create_dir_all(&root).expect("create root");
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777))
+                .expect("make root public");
+            let path = root.join("worker.sock");
+
+            let error = bind_worker_socket(&path).expect_err("public parent must be rejected");
+
+            assert!(error.contains("owned by the effective user with private permissions"));
+            assert!(!path.exists());
+            let _ = std::fs::remove_dir(root);
+        }
     }
 }
