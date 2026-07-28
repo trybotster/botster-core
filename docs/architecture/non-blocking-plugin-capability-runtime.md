@@ -22,7 +22,7 @@ tickets.
 
 ## Boundary
 
-The existing `PluginWorkerEngine` remains the plugin execution boundary. Plugin handlers run through stable `PluginHandlerRef` values, per-plugin capacity, timeout attribution, cooperative cancellation, and unload/reload cleanup. Capability I/O composes with that boundary:
+The existing `PluginWorkerEngine` remains the plugin execution boundary. Plugin handlers run through stable `PluginHandlerRef` values, an independently bounded per-plugin invocation queue, fixed per-plugin executor concurrency, timeout attribution, cooperative cancellation, and joined unload/reload cleanup. Capability I/O composes with that boundary:
 
 - Plugin code requests capability I/O by submitting a `CapabilityRuntimeRequest`.
 - The host-owned `PluginCapabilityRuntime` enqueues the request and returns a `CapabilityRuntimeHandle` or a typed `CapabilityRuntimeError`.
@@ -114,12 +114,17 @@ The capability runtime must use bounded submit and callback/event queues. When i
 
 `HttpCapabilityRuntime::submit` validates capability grants, host/scheme policy, headers, body limits, timeout, and capacity without performing transport I/O inline. Accepted work runs on runtime-owned background worker threads through `HttpCapabilityTransport`; `drain_events` pulls completion, failure, timeout, cancellation, and pressure events.
 
-Pressure reports must include:
+Capability-runtime pressure reports must include:
 
 - `QueueSource::PluginWorker`
-- The configured capacity.
-- Current depth.
+- The capability runtime's configured queue capacity.
+- Current capability-runtime queue depth.
 - `BackpressureRoute.plugin_key`
+
+These values are separate from `PluginWorkerEngineConfig`'s invocation queue
+capacity and executor concurrency. The engine's public debug snapshot reports
+invocation queued and in-flight counts without changing this capability-runtime
+pressure contract.
 
 The runtime must reject or report pressure before unbounded memory growth. It must not block PTY/session/client hot paths waiting for queue space.
 

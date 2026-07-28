@@ -428,7 +428,8 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
         BotsterEngine::with_plugin_config(
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
-                per_plugin_capacity: 1,
+                per_plugin_queue_capacity: 1,
+                per_plugin_executor_concurrency: 1,
             },
         );
     let plugin = plugin_key();
@@ -456,6 +457,20 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
                 [PluginWorkerEvent::InvocationTimedOut(failure)]
                     if failure.request_id == request_id("command-timeout")
                         && failure.kind == PluginInvocationFailureKind::TimedOut
+            )
+    ));
+
+    let queued = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation_with_timeout("command-queued", handler.clone(), 10),
+        })
+        .expect("queued timeout returns plugin outcome");
+    assert!(matches!(
+        queued,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                outcome.events.as_slice(),
+                [PluginWorkerEvent::InvocationTimedOut(_)]
             )
     ));
 
@@ -549,7 +564,8 @@ fn botster_engine_invoke_plugin_exposes_timeout_events() {
         BotsterEngine::with_plugin_config(
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
-                per_plugin_capacity: 1,
+                per_plugin_queue_capacity: 1,
+                per_plugin_executor_concurrency: 1,
             },
         );
     let plugin = plugin_key();

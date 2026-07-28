@@ -146,7 +146,8 @@ fn engine() -> BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> {
     BotsterEngine::with_plugin_config(
         FakeSessionRuntime::new(),
         botster_core::PluginWorkerEngineConfig {
-            per_plugin_capacity: 1,
+            per_plugin_queue_capacity: 1,
+            per_plugin_executor_concurrency: 1,
         },
     )
 }
@@ -409,7 +410,22 @@ fn interval_timer_retries_after_backpressure() {
     let occupied = std::thread::spawn(move || {
         occupied_engine.invoke_plugin(plugin_invocation(occupied_handler, 200))
     });
-    std::thread::sleep(Duration::from_millis(10));
+    let queued_engine = engine.clone();
+    let queued_handler = handler.clone();
+    let queued = std::thread::spawn(move || {
+        queued_engine.invoke_plugin(plugin_invocation(queued_handler, 200))
+    });
+    let deadline = std::time::Instant::now() + Duration::from_millis(250);
+    while {
+        let debug = engine.plugin_workers().debug_snapshot();
+        debug.in_flight_jobs != 1 || debug.queued_jobs != 1
+    } && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let debug = engine.plugin_workers().debug_snapshot();
+    assert_eq!(debug.in_flight_jobs, 1);
+    assert_eq!(debug.queued_jobs, 1);
 
     engine.schedule_plugin_timer(timer_schedule(
         "interval-backpressure",
@@ -421,6 +437,7 @@ fn interval_timer_retries_after_backpressure() {
     ));
     let pressured = engine.drain_plugin_timers_due(10);
     occupied.join().expect("join occupied worker");
+    queued.join().expect("join queued worker");
     let recovered = engine.drain_plugin_timers_due(20);
 
     assert!(pressured.events.iter().any(|event| matches!(
@@ -428,7 +445,7 @@ fn interval_timer_retries_after_backpressure() {
         PluginTimerEvent::Backpressured { timer_id, .. }
             if timer_id.0 == "interval-backpressure-timer"
     )));
-    assert_eq!(runtime.invocations().len(), 2);
+    assert_eq!(runtime.invocations().len(), 3);
     assert!(matches!(
         recovered.events.as_slice(),
         [PluginTimerEvent::Fired { .. }]
