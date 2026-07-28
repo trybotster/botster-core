@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -342,17 +344,13 @@ impl SessionRuntime for WorkerProcessRuntime {
             .transpose()?;
         #[cfg(not(unix))]
         let socket_path: Option<PathBuf> = None;
-        #[cfg(unix)]
-        let previous_socket_identity = socket_path
-            .as_deref()
-            .and_then(|path| socket_identity(path).ok());
-
+        let socket_mode = socket_path.is_some();
         if let Some(path) = &socket_path {
             command
                 .arg("--control-socket")
                 .arg(path)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null());
+                .stdout(Stdio::piped());
         } else {
             command.stdin(Stdio::piped()).stdout(Stdio::piped());
         }
@@ -369,11 +367,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             if let Some(path) = socket_path {
                 #[cfg(unix)]
                 {
-                    let stream = connect_spawned_worker_socket(
-                        &path,
-                        previous_socket_identity,
-                        &mut pending_worker,
-                    )?;
+                    pending_worker.wait_for_socket_readiness()?;
+                    let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
                     stream
                         .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
                         .map_err(|error| {
@@ -431,6 +426,17 @@ impl SessionRuntime for WorkerProcessRuntime {
         });
         let metadata = match startup {
             Ok(metadata) => {
+                let worker_pid = metadata
+                    .recovery_identity
+                    .as_ref()
+                    .and_then(|identity| identity.get("worker_pid"))
+                    .and_then(serde_json::Value::as_u64);
+                if socket_mode && worker_pid != Some(u64::from(pending_worker.child_id())) {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        "worker welcome did not identify the spawned child",
+                    ));
+                }
                 control.clear_startup_read_timeout()?;
                 metadata
             }
@@ -699,11 +705,9 @@ fn validate_worker_socket_path(path: &std::path::Path) -> Result<(), SessionRunt
 #[cfg(unix)]
 fn connect_spawned_worker_socket(
     path: &std::path::Path,
-    previous_identity: Option<SocketIdentity>,
     pending_worker: &mut PendingWorker,
 ) -> Result<UnixStream, SessionRuntimeError> {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut last_error = None;
+    let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
     loop {
         if let Some(diagnostic) = pending_worker.exited_diagnostic() {
             return Err(SessionRuntimeError::new(
@@ -711,28 +715,14 @@ fn connect_spawned_worker_socket(
                 format!("connect worker control socket failed: {diagnostic}"),
             ));
         }
-        match socket_identity(path) {
-            Ok(identity) if Some(identity) != previous_identity => {
-                match UnixStream::connect(path) {
-                    Ok(stream) => return Ok(stream),
-                    Err(error) => last_error = Some(error),
-                }
-            }
-            Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
-                ) => {}
-            Err(error) => last_error = Some(error),
-        }
+        let error = match UnixStream::connect(path) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => error,
+        };
         if Instant::now() >= deadline {
-            let detail = last_error
-                .map(|error| error.to_string())
-                .unwrap_or_else(|| "worker endpoint did not become ready".to_string());
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
-                format!("connect worker control socket failed: {detail}"),
+                format!("connect worker control socket failed: {error}"),
             ));
         }
         thread::sleep(Duration::from_millis(10));
@@ -744,6 +734,8 @@ fn connect_spawned_worker_socket(
 struct SocketIdentity {
     device: u64,
     inode: u64,
+    ctime: i64,
+    ctime_nsec: i64,
 }
 
 #[cfg(unix)]
@@ -758,6 +750,8 @@ fn socket_identity(path: &std::path::Path) -> std::io::Result<SocketIdentity> {
     Ok(SocketIdentity {
         device: metadata.dev(),
         inode: metadata.ino(),
+        ctime: metadata.ctime(),
+        ctime_nsec: metadata.ctime_nsec(),
     })
 }
 
@@ -801,6 +795,75 @@ impl PendingWorker {
         self.child.as_mut().expect("pending worker child")
     }
 
+    fn child_id(&self) -> u32 {
+        self.child.as_ref().expect("pending worker child").id()
+    }
+
+    #[cfg(unix)]
+    fn wait_for_socket_readiness(&mut self) -> Result<(), SessionRuntimeError> {
+        let stdout = self.child_mut().stdout.take().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "worker readiness stdout missing",
+            )
+        })?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = sender.send(read_worker_readiness(stdout));
+        });
+        let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
+        loop {
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(Ok(readiness)) => {
+                    let expected = format!("botster-session-worker-ready {}", self.child_id());
+                    if readiness == expected {
+                        return Ok(());
+                    }
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("worker readiness identity mismatch: {readiness:?}"),
+                    ));
+                }
+                Ok(Err(error)) => loop {
+                    if let Some(diagnostic) = self.exited_diagnostic() {
+                        return Err(SessionRuntimeError::new(
+                            SessionRuntimeErrorKind::SpawnFailed,
+                            format!("connect worker control socket failed: {diagnostic}"),
+                        ));
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(SessionRuntimeError::new(
+                                SessionRuntimeErrorKind::SpawnFailed,
+                                format!(
+                                    "connect worker control socket failed: read worker readiness failed: {error}"
+                                ),
+                            ));
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                },
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        "worker readiness channel disconnected",
+                    ));
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            if let Some(diagnostic) = self.exited_diagnostic() {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("connect worker control socket failed: {diagnostic}"),
+                ));
+            }
+            if Instant::now() >= deadline {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    "connect worker control socket failed: worker readiness timed out",
+                ));
+            }
+        }
+    }
+
     fn take(mut self) -> Child {
         #[cfg(unix)]
         self.socket_path.take();
@@ -825,6 +888,32 @@ impl PendingWorker {
             stderr.to_string()
         })
     }
+}
+
+#[cfg(unix)]
+fn read_worker_readiness(mut stdout: ChildStdout) -> std::io::Result<String> {
+    const MAX_READINESS_BYTES: usize = 128;
+    let mut bytes = Vec::with_capacity(MAX_READINESS_BYTES);
+    while bytes.len() < MAX_READINESS_BYTES {
+        let mut byte = [0_u8; 1];
+        match stdout.read(&mut byte)? {
+            0 => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "worker readiness closed before newline",
+                ))
+            }
+            _ if byte[0] == b'\n' => {
+                return String::from_utf8(bytes)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+            }
+            _ => bytes.push(byte[0]),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "worker readiness exceeded maximum length",
+    ))
 }
 
 impl Drop for PendingWorker {
@@ -1062,12 +1151,36 @@ fn lock_error<T>(_error: std::sync::PoisonError<T>) -> SessionRuntimeError {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::os::unix::net::UnixListener;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        worker_socket_path, ProcessIdentity, SessionId, SessionRuntimeErrorKind,
-        WorkerProcessRuntime, UNIX_SOCKET_PATH_MAX_BYTES,
+        remove_socket_if_unchanged, socket_identity, worker_socket_path, ProcessIdentity,
+        SessionId, SessionRuntimeErrorKind, WorkerProcessRuntime, UNIX_SOCKET_PATH_MAX_BYTES,
     };
+
+    #[test]
+    fn cleanup_identity_includes_socket_lifetime_metadata() {
+        let path = Path::new("/tmp").join(format!(
+            "bri-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).expect("bind socket");
+        let mut earlier_lifetime = socket_identity(&path).expect("socket identity");
+        earlier_lifetime.ctime_nsec ^= 1;
+
+        assert!(!remove_socket_if_unchanged(&path, &earlier_lifetime)
+            .expect("mismatched lifetime must be preserved"));
+        assert!(path.exists());
+
+        drop(listener);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn worker_socket_names_are_bounded_distinct_full_id_digests() {

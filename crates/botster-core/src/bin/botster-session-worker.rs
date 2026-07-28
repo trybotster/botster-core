@@ -42,6 +42,15 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = WorkerArgs::parse(std::env::args().skip(1).collect())?;
     let control = WorkerControl::open(&args)?;
+    if args.control_socket.is_some() {
+        writeln!(
+            io::stdout(),
+            "botster-session-worker-ready {}",
+            process::id()
+        )
+        .and_then(|_| io::stdout().flush())
+        .map_err(|error| format!("publish worker readiness failed: {error}"))?;
+    }
     let shutdown_on_disconnect = control.shutdown_on_disconnect();
     let mut initial_control = control.accept_initial()?;
 
@@ -474,6 +483,8 @@ impl WorkerControl {
 struct SocketIdentity {
     device: u64,
     inode: u64,
+    ctime: i64,
+    ctime_nsec: i64,
 }
 
 #[cfg(unix)]
@@ -488,6 +499,8 @@ fn socket_identity(path: &std::path::Path) -> io::Result<SocketIdentity> {
     Ok(SocketIdentity {
         device: metadata.dev(),
         inode: metadata.ino(),
+        ctime: metadata.ctime(),
+        ctime_nsec: metadata.ctime_nsec(),
     })
 }
 
@@ -921,6 +934,24 @@ mod tests {
             );
             assert!(path.exists());
             drop(replacement);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(root);
+        }
+
+        #[test]
+        fn cleanup_identity_includes_socket_lifetime_metadata() {
+            let root = temp_path("identity-lifetime");
+            create_private_root(&root);
+            let path = root.join("worker.sock");
+            let listener = UnixListener::bind(&path).expect("bind socket");
+            let mut earlier_lifetime = socket_identity(&path).expect("socket identity");
+            earlier_lifetime.ctime_nsec ^= 1;
+
+            assert!(!remove_socket_if_unchanged(&path, &earlier_lifetime)
+                .expect("mismatched lifetime must be preserved"));
+            assert!(path.exists());
+
+            drop(listener);
             let _ = std::fs::remove_file(path);
             let _ = std::fs::remove_dir(root);
         }

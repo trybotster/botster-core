@@ -156,14 +156,15 @@ The worker creates a missing endpoint root with private permissions and then
 revalidates that it is owned by the effective user with no group or other
 permission bits immediately before binding. A creation race fails closed
 rather than using an unverified directory. The parent captures worker startup
-diagnostics and connects only after the child publishes a socket filesystem
-identity different from any entry that existed before spawn. Startup reads are
-bounded, so a foreign or incomplete peer cannot block `spawn_session`
-indefinitely.
+diagnostics and connects only after the spawned child publishes a readiness
+line containing its process id. The protocol welcome must repeat that exact
+worker process id. Startup reads are bounded, so a foreign or incomplete peer
+cannot block `spawn_session` indefinitely.
 
 On worker spawn, an existing connectable endpoint is preserved as live.
 Connection-refused endpoints are reclaimable only when a filesystem identity
-recheck proves the same socket object is still present. Changed entries,
+recheck including device, inode, and change time proves the same socket object
+is still present. Changed entries,
 non-socket entries, and other probe failures are not deleted. Normal worker
 exit removes its unchanged endpoint, intentional `release_for_restart`
 preserves the live route, and daemon-owned roots are removed only when empty.

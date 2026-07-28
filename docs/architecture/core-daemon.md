@@ -155,11 +155,13 @@ fit.
 
 Worker bind is non-destructive by default. A connectable existing socket is
 treated as live. A connection-refused socket may be removed only after its
-device/inode identity is rechecked; changed sockets and non-socket entries are
-preserved and fail the spawn. The worker removes only its own unchanged
-endpoint on normal exit, while the daemon removes its derived root only when
-that directory is empty. Caller-provided roots remain caller-owned. Parent-side
-startup failures reap the exact spawned worker before returning.
+device/inode/change-time identity is rechecked; changed sockets and non-socket
+entries are preserved and fail the spawn. The worker removes only its own
+unchanged endpoint on normal exit, while the daemon removes its derived root
+only when that directory is empty. Caller-provided roots remain caller-owned.
+Parent-side startup waits for a child-PID readiness signal and verifies the
+welcome's worker PID before accepting the control connection. Failures reap the
+exact spawned worker before returning.
 
 A successful worker-backed shutdown is a terminal completion boundary, not an
 acknowledgement that shutdown merely started. The worker runtime publishes the
