@@ -143,6 +143,41 @@ Stale workers are detected through identity mismatch, incompatible protocol,
 expired heartbeat, missing process, or worker death. Hosts may add a classified
 `Other` reason, but core does not define product policy from that detail.
 
+The reconnectable endpoint is an opaque bounded implementation detail. Its
+fixed-length basename digests the complete `SessionId`; it never replaces,
+truncates, or aliases the public session identity carried by the protocol.
+Final Unix pathname capacity is validated before worker spawn. Adoption always
+uses the exact endpoint persisted in recovery metadata and reports an
+unreachable endpoint through the stable
+`connect worker control socket failed: ` `SpawnFailed` contract; it does not
+bind a replacement merely because the pathname is missing.
+
+The worker creates a missing endpoint root with private permissions and then
+revalidates that it is owned by the effective user with no group or other
+permission bits immediately before binding. A creation race fails closed
+rather than using an unverified directory. The parent captures worker startup
+diagnostics and connects only after the spawned child publishes a readiness
+line containing its process id. The protocol welcome must repeat that exact
+worker process id. Startup reads are bounded, so a foreign or incomplete peer
+cannot block `spawn_session` indefinitely.
+Consequently, a configured worker path must preserve the spawned process id:
+wrapper scripts must `exec` the worker rather than fork it and wait.
+
+On worker spawn, an existing connectable endpoint is preserved as live.
+Connection-refused endpoints are reclaimable only when a filesystem identity
+recheck including device, inode, and change time proves the same socket object
+is still present. Changed entries,
+non-socket entries, and other probe failures are not deleted. Normal worker
+exit removes its unchanged endpoint, intentional `release_for_restart`
+preserves the live route, and daemon-owned roots are removed only when empty.
+Explicit library roots stay caller-owned.
+
+A live worker does not self-repair a pathname removed by macOS temporary-file
+cleanup. That is an explicit deviation from the Hub listener repair convention:
+without a worker-owned repair handshake, binding from an adopter could create a
+second owner for a still-live PTY. Adoption therefore reports the stable
+connect failure and lets the host classify the persisted record as stale.
+
 ## Queue And Backpressure
 
 Durable worker output is bounded. `SessionWorkerQueueLimits` names output frame
@@ -168,6 +203,8 @@ adoption lives in `botster-core-daemon` and the `botster-session-worker` path:
 
 - worker-backed local sessions with control sockets recorded as
   `SessionMetadata.recovery_identity`
+- canonical UUID and deliberately long session ids using distinct
+  constant-length endpoints under macOS and Linux pathname limits
 - intentional daemon restart via `release_for_restart` and re-adoption over the
   same `data_dir`
 - guarded-write delivery states and readiness fail-closed behavior
