@@ -39,6 +39,8 @@ pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
+#[cfg(unix)]
+const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[cfg(any(
     target_os = "macos",
@@ -329,7 +331,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             .arg(self.options.shutdown_grace_ms.to_string())
             .arg("--poll-interval-ms")
             .arg(self.options.poll_interval_ms.to_string())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
 
         #[cfg(unix)]
         let socket_path = self
@@ -340,6 +342,10 @@ impl SessionRuntime for WorkerProcessRuntime {
             .transpose()?;
         #[cfg(not(unix))]
         let socket_path: Option<PathBuf> = None;
+        #[cfg(unix)]
+        let previous_socket_identity = socket_path
+            .as_deref()
+            .and_then(|path| socket_identity(path).ok());
 
         if let Some(path) = &socket_path {
             command
@@ -363,7 +369,19 @@ impl SessionRuntime for WorkerProcessRuntime {
             if let Some(path) = socket_path {
                 #[cfg(unix)]
                 {
-                    let stream = connect_worker_socket(&path)?;
+                    let stream = connect_spawned_worker_socket(
+                        &path,
+                        previous_socket_identity,
+                        &mut pending_worker,
+                    )?;
+                    stream
+                        .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
+                        .map_err(|error| {
+                            SessionRuntimeError::new(
+                                SessionRuntimeErrorKind::SpawnFailed,
+                                format!("configure worker startup timeout failed: {error}"),
+                            )
+                        })?;
                     let identity = socket_identity(&path).ok();
                     let reader = stream.try_clone().map_err(|error| {
                         SessionRuntimeError::new(
@@ -407,12 +425,24 @@ impl SessionRuntime for WorkerProcessRuntime {
             read_welcome(&mut reader)
                 .map(|(_, metadata)| metadata)
                 .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
-        })();
+        })()
+        .map_err(|error: SessionRuntimeError| {
+            SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.message)
+        });
         let metadata = match startup {
-            Ok(metadata) => metadata,
+            Ok(metadata) => {
+                control.clear_startup_read_timeout()?;
+                metadata
+            }
             Err(error) => {
+                if let Some(diagnostic) = pending_worker.exited_diagnostic() {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("connect worker control socket failed: {diagnostic}"),
+                    ));
+                }
                 let _ = control.write_frame(FRAME_SHUTDOWN, &[]);
-                pending_worker.wait_for_graceful_shutdown();
+                pending_worker.allow_graceful_exit();
                 return Err(error);
             }
         };
@@ -583,6 +613,19 @@ enum WorkerControl {
 }
 
 impl WorkerControl {
+    fn clear_startup_read_timeout(&self) -> Result<(), SessionRuntimeError> {
+        #[cfg(unix)]
+        if let Self::Socket { stream, .. } = self {
+            stream.set_read_timeout(None).map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("clear worker startup timeout failed: {error}"),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
     fn write_hello(&mut self) -> Result<(), SessionRuntimeError> {
         match self {
             Self::Stdio(stdin) => write_hello(stdin)
@@ -654,28 +697,45 @@ fn validate_worker_socket_path(path: &std::path::Path) -> Result<(), SessionRunt
 }
 
 #[cfg(unix)]
-fn connect_worker_socket(path: &std::path::Path) -> Result<UnixStream, SessionRuntimeError> {
+fn connect_spawned_worker_socket(
+    path: &std::path::Path,
+    previous_identity: Option<SocketIdentity>,
+    pending_worker: &mut PendingWorker,
+) -> Result<UnixStream, SessionRuntimeError> {
     let deadline = Instant::now() + Duration::from_secs(2);
+    let mut last_error = None;
     loop {
-        match UnixStream::connect(path) {
-            Ok(stream) => return Ok(stream),
-            Err(error) if Instant::now() < deadline => {
-                let last_error = error;
-                thread::sleep(Duration::from_millis(10));
-                if !matches!(
-                    last_error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-                ) {
-                    continue;
+        if let Some(diagnostic) = pending_worker.exited_diagnostic() {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("connect worker control socket failed: {diagnostic}"),
+            ));
+        }
+        match socket_identity(path) {
+            Ok(identity) if Some(identity) != previous_identity => {
+                match UnixStream::connect(path) {
+                    Ok(stream) => return Ok(stream),
+                    Err(error) => last_error = Some(error),
                 }
             }
-            Err(error) => {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::SpawnFailed,
-                    format!("connect worker control socket failed: {error}"),
-                ));
-            }
+            Ok(_) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+                ) => {}
+            Err(error) => last_error = Some(error),
         }
+        if Instant::now() >= deadline {
+            let detail = last_error
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "worker endpoint did not become ready".to_string());
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("connect worker control socket failed: {detail}"),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -727,6 +787,8 @@ struct PendingWorker {
 
 impl PendingWorker {
     fn new(child: Child, socket_path: Option<PathBuf>) -> Self {
+        #[cfg(not(unix))]
+        let _ = socket_path;
         Self {
             child: Some(child),
             graceful_shutdown: false,
@@ -740,11 +802,28 @@ impl PendingWorker {
     }
 
     fn take(mut self) -> Child {
+        #[cfg(unix)]
+        self.socket_path.take();
         self.child.take().expect("pending worker child")
     }
 
-    fn wait_for_graceful_shutdown(&mut self) {
+    fn allow_graceful_exit(&mut self) {
         self.graceful_shutdown = true;
+    }
+
+    fn exited_diagnostic(&mut self) -> Option<String> {
+        let child = self.child.as_mut()?;
+        let status = child.try_wait().ok().flatten()?;
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        let stderr = stderr.trim();
+        Some(if stderr.is_empty() {
+            format!("worker process exited before startup completed ({status})")
+        } else {
+            stderr.to_string()
+        })
     }
 }
 

@@ -237,6 +237,13 @@ a fresh bind. A missing or unreachable persisted socket therefore remains a
 `connect worker control socket failed: `; hosts may use that stable seam to
 classify the registry record as stale. This is also the behavior when macOS
 reaps a socket pathname while its worker process identity still appears live.
+This deliberately differs from the Hub listener's self-repair convention:
+session-worker adoption has only persisted route and process evidence, not
+authority to create a second listener for a possibly-live PTY owner. The live
+worker does not currently republish a reaped pathname, so the host must report
+the record stale rather than risk duplicate ownership. Revisit that deviation
+only with a worker-owned repair handshake that proves the original process is
+the listener being restored.
 
 Guarded writes use explicit daemon delivery states: accepted, deferred,
 rejected, written, delivered, and acknowledged. Acceptance means only that the
