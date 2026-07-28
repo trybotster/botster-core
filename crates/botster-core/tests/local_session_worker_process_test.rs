@@ -1035,6 +1035,20 @@ fn welcome_must_identify_the_exact_spawned_worker() {
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         botster_core::read_hello(&mut stream).expect("read hello");
+        let mut frame_len = [0_u8; 4];
+        stream
+            .read_exact(&mut frame_len)
+            .expect("read spawn frame length");
+        let frame_len = u32::from_le_bytes(frame_len) as usize;
+        assert!(frame_len > 0 && frame_len <= botster_core::MAX_FRAME_LEN);
+        let mut frame = vec![0_u8; frame_len];
+        stream
+            .read_exact(&mut frame)
+            .expect("read complete spawn frame");
+        assert_eq!(frame[0], botster_core::FRAME_SPAWN_SESSION);
+        let request: SessionSpawnRequest =
+            serde_json::from_slice(&frame[1..]).expect("decode spawn request");
+        assert_eq!(request.session_id.0, "wrong-worker-pid");
         let metadata = SessionMetadata {
             session_uuid: "wrong-worker-pid".to_string(),
             pid: 1,

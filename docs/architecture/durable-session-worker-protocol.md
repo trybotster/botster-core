@@ -160,6 +160,8 @@ diagnostics and connects only after the spawned child publishes a readiness
 line containing its process id. The protocol welcome must repeat that exact
 worker process id. Startup reads are bounded, so a foreign or incomplete peer
 cannot block `spawn_session` indefinitely.
+Consequently, a configured worker path must preserve the spawned process id:
+wrapper scripts must `exec` the worker rather than fork it and wait.
 
 On worker spawn, an existing connectable endpoint is preserved as live.
 Connection-refused endpoints are reclaimable only when a filesystem identity
