@@ -11,9 +11,17 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
+#[cfg(unix)]
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use sha2::{Digest, Sha256};
 
 use crate::{
     read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, NotificationPayload,
@@ -31,6 +39,28 @@ pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
+const UNIX_SOCKET_PATH_MAX_BYTES: usize = 103;
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))
+))]
+const UNIX_SOCKET_PATH_MAX_BYTES: usize = 107;
 
 /// Options for the local worker process runtime adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,6 +230,7 @@ impl WorkerProcessRuntime {
                 format!("connect worker control socket failed: {error}"),
             )
         })?;
+        let identity = socket_identity(&socket_path).ok();
         write_hello(&mut control)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
@@ -244,6 +275,7 @@ impl WorkerProcessRuntime {
                 control: WorkerControl::Socket {
                     stream: control,
                     path: socket_path,
+                    identity,
                 },
                 metadata,
                 output: receiver,
@@ -304,7 +336,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             .options
             .control_socket_dir
             .as_ref()
-            .map(|dir| worker_socket_path(dir, &request.session_id));
+            .map(|dir| worker_socket_path(dir, &request.session_id))
+            .transpose()?;
         #[cfg(not(unix))]
         let socket_path: Option<PathBuf> = None;
 
@@ -318,18 +351,20 @@ impl SessionRuntime for WorkerProcessRuntime {
             command.stdin(Stdio::piped()).stdout(Stdio::piped());
         }
 
-        let mut child = command.spawn().map_err(|error| {
+        let child = command.spawn().map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
                 format!("spawn worker process failed: {error}"),
             )
         })?;
+        let mut pending_worker = PendingWorker::new(child, socket_path.clone());
 
         let (mut control, mut reader): (WorkerControl, Box<dyn Read + Send>) =
             if let Some(path) = socket_path {
                 #[cfg(unix)]
                 {
                     let stream = connect_worker_socket(&path)?;
+                    let identity = socket_identity(&path).ok();
                     let reader = stream.try_clone().map_err(|error| {
                         SessionRuntimeError::new(
                             SessionRuntimeErrorKind::SpawnFailed,
@@ -337,20 +372,24 @@ impl SessionRuntime for WorkerProcessRuntime {
                         )
                     })?;
                     (
-                        WorkerControl::Socket { stream, path },
+                        WorkerControl::Socket {
+                            stream,
+                            path,
+                            identity,
+                        },
                         Box::new(reader) as Box<dyn Read + Send>,
                     )
                 }
                 #[cfg(not(unix))]
                 unreachable!("socket_path is never set on non-unix targets");
             } else {
-                let stdin = child.stdin.take().ok_or_else(|| {
+                let stdin = pending_worker.child_mut().stdin.take().ok_or_else(|| {
                     SessionRuntimeError::new(
                         SessionRuntimeErrorKind::SpawnFailed,
                         "worker stdin missing",
                     )
                 })?;
-                let stdout = child.stdout.take().ok_or_else(|| {
+                let stdout = pending_worker.child_mut().stdout.take().ok_or_else(|| {
                     SessionRuntimeError::new(
                         SessionRuntimeErrorKind::SpawnFailed,
                         "worker stdout missing",
@@ -362,10 +401,21 @@ impl SessionRuntime for WorkerProcessRuntime {
                 )
             };
 
-        control.write_hello()?;
-        control.write_json(FRAME_SPAWN_SESSION, &request)?;
-        let (_, metadata) = read_welcome(&mut reader)
-            .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
+        let startup = (|| {
+            control.write_hello()?;
+            control.write_json(FRAME_SPAWN_SESSION, &request)?;
+            read_welcome(&mut reader)
+                .map(|(_, metadata)| metadata)
+                .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
+        })();
+        let metadata = match startup {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = control.write_frame(FRAME_SHUTDOWN, &[]);
+                pending_worker.wait_for_graceful_shutdown();
+                return Err(error);
+            }
+        };
         let process = ProcessIdentity {
             pid: Some(metadata.pid),
             runtime_id: metadata
@@ -394,7 +444,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         self.sessions.insert(
             request.session_id.clone(),
             WorkerProcessSession {
-                child: Some(child),
+                child: Some(pending_worker.take()),
                 control,
                 metadata,
                 output: receiver,
@@ -528,6 +578,7 @@ enum WorkerControl {
     Socket {
         stream: UnixStream,
         path: PathBuf,
+        identity: Option<SocketIdentity>,
     },
 }
 
@@ -564,26 +615,42 @@ impl WorkerControl {
 
     fn cleanup(&self) {
         #[cfg(unix)]
-        if let Self::Socket { path, .. } = self {
-            let _ = std::fs::remove_file(path);
+        if let Self::Socket {
+            path,
+            identity: Some(identity),
+            ..
+        } = self
+        {
+            let _ = remove_socket_if_unchanged(path, identity);
         }
     }
 }
 
 #[cfg(unix)]
-fn worker_socket_path(dir: &std::path::Path, session_id: &SessionId) -> PathBuf {
-    let safe: String = session_id
-        .0
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    dir.join(format!("{safe}.sock"))
+fn worker_socket_path(
+    dir: &std::path::Path,
+    session_id: &SessionId,
+) -> Result<PathBuf, SessionRuntimeError> {
+    let digest = Sha256::digest(session_id.0.as_bytes());
+    let basename = format!("{}.sock", URL_SAFE_NO_PAD.encode(&digest[..16]));
+    let path = dir.join(basename);
+    validate_worker_socket_path(&path)?;
+    Ok(path)
+}
+
+#[cfg(unix)]
+fn validate_worker_socket_path(path: &std::path::Path) -> Result<(), SessionRuntimeError> {
+    let path_bytes = path.as_os_str().as_bytes().len();
+    if path_bytes > UNIX_SOCKET_PATH_MAX_BYTES {
+        return Err(SessionRuntimeError::new(
+            SessionRuntimeErrorKind::SpawnFailed,
+            format!(
+                "worker control socket path is {path_bytes} bytes; maximum is \
+                 {UNIX_SOCKET_PATH_MAX_BYTES} bytes"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -607,6 +674,105 @@ fn connect_worker_socket(path: &std::path::Path) -> Result<UnixStream, SessionRu
                     SessionRuntimeErrorKind::SpawnFailed,
                     format!("connect worker control socket failed: {error}"),
                 ));
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SocketIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+fn socket_identity(path: &std::path::Path) -> std::io::Result<SocketIdentity> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_socket() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "worker control endpoint is not a socket",
+        ));
+    }
+    Ok(SocketIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    })
+}
+
+#[cfg(unix)]
+fn remove_socket_if_unchanged(
+    path: &std::path::Path,
+    expected: &SocketIdentity,
+) -> std::io::Result<bool> {
+    let current = match socket_identity(path) {
+        Ok(identity) => identity,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if &current != expected {
+        return Ok(false);
+    }
+    std::fs::remove_file(path)?;
+    Ok(true)
+}
+
+struct PendingWorker {
+    child: Option<Child>,
+    graceful_shutdown: bool,
+    #[cfg(unix)]
+    socket_path: Option<PathBuf>,
+}
+
+impl PendingWorker {
+    fn new(child: Child, socket_path: Option<PathBuf>) -> Self {
+        Self {
+            child: Some(child),
+            graceful_shutdown: false,
+            #[cfg(unix)]
+            socket_path,
+        }
+    }
+
+    fn child_mut(&mut self) -> &mut Child {
+        self.child.as_mut().expect("pending worker child")
+    }
+
+    fn take(mut self) -> Child {
+        self.child.take().expect("pending worker child")
+    }
+
+    fn wait_for_graceful_shutdown(&mut self) {
+        self.graceful_shutdown = true;
+    }
+}
+
+impl Drop for PendingWorker {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            if self.graceful_shutdown {
+                let deadline = Instant::now() + Duration::from_millis(500);
+                while Instant::now() < deadline {
+                    if child.try_wait().ok().flatten().is_some() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+            if child.try_wait().ok().flatten().is_none() {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+        }
+        #[cfg(unix)]
+        if let Some(path) = &self.socket_path {
+            if let Ok(identity) = socket_identity(path) {
+                if UnixStream::connect(path)
+                    .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+                {
+                    let _ = remove_socket_if_unchanged(path, &identity);
+                }
             }
         }
     }
@@ -813,4 +979,91 @@ fn lock_error<T>(_error: std::sync::PoisonError<T>) -> SessionRuntimeError {
         SessionRuntimeErrorKind::OutputFailed,
         "worker health lock poisoned",
     )
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::path::Path;
+
+    use super::{
+        worker_socket_path, ProcessIdentity, SessionId, SessionRuntimeErrorKind,
+        WorkerProcessRuntime, UNIX_SOCKET_PATH_MAX_BYTES,
+    };
+
+    #[test]
+    fn worker_socket_names_are_bounded_distinct_full_id_digests() {
+        let root = Path::new("/tmp/bcd-endpoint");
+        let ids = [
+            SessionId("123e4567-e89b-12d3-a456-426614174000".to_string()),
+            SessionId(format!("sess-long-{}", "identifier-".repeat(100))),
+            SessionId("old/sanitizer/collision".to_string()),
+            SessionId("old?sanitizer?collision".to_string()),
+        ];
+        let paths: Vec<_> = ids
+            .iter()
+            .map(|id| worker_socket_path(root, id).expect("bounded socket path"))
+            .collect();
+        let basename_lengths: Vec<_> = paths
+            .iter()
+            .map(|path| path.file_name().expect("basename").len())
+            .collect();
+
+        assert!(basename_lengths
+            .windows(2)
+            .all(|lengths| lengths[0] == lengths[1]));
+        assert!(paths
+            .iter()
+            .enumerate()
+            .all(|(index, path)| !paths[index + 1..].contains(path)));
+        assert!(paths
+            .iter()
+            .all(|path| path.file_name().expect("basename").len() == 27));
+    }
+
+    #[test]
+    fn worker_socket_path_enforces_platform_byte_capacity() {
+        let session_id = SessionId("123e4567-e89b-12d3-a456-426614174000".to_string());
+        let basename_len = worker_socket_path(Path::new("/"), &session_id)
+            .expect("short path")
+            .file_name()
+            .expect("basename")
+            .len();
+        let root_len = UNIX_SOCKET_PATH_MAX_BYTES - basename_len - 1;
+        let fitting_root = format!("/{}", "r".repeat(root_len - 1));
+        let overlong_root = format!("{fitting_root}x");
+
+        let fitting = worker_socket_path(Path::new(&fitting_root), &session_id)
+            .expect("platform maximum should fit");
+        assert_eq!(
+            fitting.as_os_str().as_encoded_bytes().len(),
+            UNIX_SOCKET_PATH_MAX_BYTES
+        );
+        let error = worker_socket_path(Path::new(&overlong_root), &session_id)
+            .expect_err("path beyond platform maximum must fail");
+        assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+        assert!(error.message.starts_with("worker control socket path is "));
+        assert!(!error
+            .message
+            .starts_with("connect worker control socket failed: "));
+    }
+
+    #[test]
+    fn adoption_preserves_the_stable_connect_failure_contract() {
+        let mut runtime = WorkerProcessRuntime::new("/missing/worker");
+        let error = runtime
+            .adopt_session(
+                SessionId("missing-adoption".to_string()),
+                ProcessIdentity {
+                    pid: Some(std::process::id()),
+                    runtime_id: Some("live-process-identity".to_string()),
+                },
+                "/tmp/botster-missing-adoption-worker.sock",
+            )
+            .expect_err("missing adopted endpoint must fail");
+
+        assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+        assert!(error
+            .message
+            .starts_with("connect worker control socket failed: "));
+    }
 }

@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use std::os::unix::fs::PermissionsExt;
+
 use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
     PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionRuntime,
@@ -724,6 +726,201 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
 }
 
 #[test]
+fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
+    let control_dir = temp_control_dir("bwid");
+    let canonical = session_id("123e4567-e89b-12d3-a456-426614174000");
+    let long = session_id(&format!("sess-long-{}", "identifier-".repeat(100)));
+    let mut options = worker_options();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+
+    let canonical_handle = runtime
+        .spawn_session(shell_request(canonical.clone(), "cat"))
+        .expect("spawn canonical session id");
+    let long_handle = runtime
+        .spawn_session(shell_request(long.clone(), "cat"))
+        .expect("spawn deliberately long session id");
+    assert_eq!(canonical_handle.session_id, canonical);
+    assert_eq!(long_handle.session_id, long);
+    assert_eq!(
+        std::fs::metadata(&control_dir)
+            .expect("worker-created control root")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+
+    let canonical_metadata = runtime
+        .metadata(&canonical)
+        .expect("canonical metadata")
+        .clone();
+    let long_metadata = runtime.metadata(&long).expect("long metadata").clone();
+    assert_eq!(canonical_metadata.session_uuid, canonical.0);
+    assert_eq!(long_metadata.session_uuid, long.0);
+    let canonical_socket = worker_control_socket(&canonical_metadata);
+    let long_socket = worker_control_socket(&long_metadata);
+    assert_eq!(canonical_socket.parent(), Some(control_dir.as_path()));
+    assert_eq!(long_socket.parent(), Some(control_dir.as_path()));
+    assert_ne!(canonical_socket, long_socket);
+    assert_eq!(
+        canonical_socket
+            .file_name()
+            .expect("canonical socket basename")
+            .len(),
+        long_socket.file_name().expect("long socket basename").len()
+    );
+    assert!(
+        canonical_socket.as_os_str().len() <= 103,
+        "macOS-shaped endpoint must fit: {canonical_socket:?}"
+    );
+    assert!(
+        long_socket.as_os_str().len() <= 103,
+        "long-id endpoint must fit: {long_socket:?}"
+    );
+
+    for (session, marker) in [(&canonical, "canonical-marker"), (&long, "long-marker")] {
+        runtime
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session.clone(),
+                data: format!("{marker}\n").into_bytes(),
+            })
+            .expect("send marker input");
+        let output = collect_until(&mut runtime, session, |output| {
+            output_text(output).contains(marker)
+        });
+        assert!(
+            output_text(&output).contains(marker),
+            "session {session:?} should round-trip its own marker"
+        );
+    }
+
+    let canonical_worker_pid = worker_pid(&canonical_metadata);
+    let long_worker_pid = worker_pid(&long_metadata);
+    let canonical_pty_pid = canonical_metadata.pid;
+    let long_pty_pid = long_metadata.pid;
+    for session in [&long, &canonical] {
+        runtime
+            .send_input(SessionRuntimeInput::Shutdown {
+                session_id: session.clone(),
+            })
+            .expect("request worker shutdown");
+        let output = collect_until(&mut runtime, session, has_process_exit);
+        assert!(has_process_exit(&output));
+    }
+    assert!(wait_until(|| !process_exists(canonical_worker_pid)));
+    assert!(wait_until(|| !process_exists(long_worker_pid)));
+    assert!(wait_until(|| !process_exists(canonical_pty_pid)));
+    assert!(wait_until(|| !process_exists(long_pty_pid)));
+    assert!(!canonical_socket.exists());
+    assert!(!long_socket.exists());
+    assert!(
+        control_dir.exists(),
+        "caller-supplied control root must remain caller-owned"
+    );
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn worker_socket_failures_are_typed_before_or_during_connect_and_clean_up() {
+    let overlong_root = std::path::PathBuf::from(format!("/tmp/{}", "x".repeat(120)));
+    let mut overlong_options = worker_options();
+    overlong_options.worker_path = "/definitely/missing/botster-session-worker".into();
+    overlong_options.control_socket_dir = Some(overlong_root.clone());
+    let mut overlong_runtime = WorkerProcessRuntime::with_options(overlong_options);
+    let error = overlong_runtime
+        .spawn_session(shell_request(
+            session_id("123e4567-e89b-12d3-a456-426614174000"),
+            "cat",
+        ))
+        .expect_err("overlong endpoint must fail before worker spawn");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert!(error.message.starts_with("worker control socket path is "));
+    assert!(!error
+        .message
+        .starts_with("connect worker control socket failed: "));
+    assert!(!overlong_root.exists());
+
+    let missing_socket_root = temp_control_dir("bwcf");
+    let mut connect_options = worker_options();
+    connect_options.worker_path = "/usr/bin/false".into();
+    connect_options.control_socket_dir = Some(missing_socket_root.clone());
+    let mut connect_runtime = WorkerProcessRuntime::with_options(connect_options);
+    let error = connect_runtime
+        .spawn_session(shell_request(session_id("connect-failure"), "cat"))
+        .expect_err("worker that exits before bind must retain connect error contract");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert!(error
+        .message
+        .starts_with("connect worker control socket failed: "));
+    assert!(!missing_socket_root.exists());
+}
+
+#[test]
+fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
+    let control_dir = temp_control_dir("bwkr");
+    let session = session_id("same-session-after-worker-kill");
+    let mut options = worker_options();
+    options.control_socket_dir = Some(control_dir.clone());
+    let (stale_socket, first_worker_pid, first_pty_pid) = {
+        let mut runtime = WorkerProcessRuntime::with_options(options.clone());
+        runtime
+            .spawn_session(shell_request(session.clone(), "cat"))
+            .expect("spawn first worker");
+        let metadata = runtime.metadata(&session).expect("first metadata").clone();
+        let socket = worker_control_socket(&metadata);
+        let worker_pid = worker_pid(&metadata);
+        let status = Command::new("kill")
+            .arg("-KILL")
+            .arg(worker_pid.to_string())
+            .status()
+            .expect("kill first worker");
+        assert!(status.success());
+        assert!(wait_until(|| !runtime.is_worker_process(&session)));
+        assert!(!process_exists(worker_pid));
+        assert!(socket.exists(), "SIGKILL should leave a stale socket entry");
+        runtime.release_for_restart();
+        (socket, worker_pid, metadata.pid)
+    };
+    assert!(!process_exists(first_worker_pid));
+    assert!(wait_until(|| !process_exists(first_pty_pid)));
+    assert!(stale_socket.exists());
+
+    let mut replacement = WorkerProcessRuntime::with_options(options);
+    replacement
+        .spawn_session(shell_request(session.clone(), "cat"))
+        .expect("same session id should reclaim refused stale socket");
+    let replacement_metadata = replacement
+        .metadata(&session)
+        .expect("replacement metadata")
+        .clone();
+    assert_ne!(worker_pid(&replacement_metadata), first_worker_pid);
+    assert_eq!(worker_control_socket(&replacement_metadata), stale_socket);
+    replacement
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"replacement-marker\n".to_vec(),
+        })
+        .expect("send replacement marker");
+    let output = collect_until(&mut replacement, &session, |output| {
+        output_text(output).contains("replacement-marker")
+    });
+    assert!(output_text(&output).contains("replacement-marker"));
+    replacement
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: session.clone(),
+        })
+        .expect("shutdown replacement worker");
+    assert!(has_process_exit(&collect_until(
+        &mut replacement,
+        &session,
+        has_process_exit
+    )));
+    assert!(!stale_socket.exists());
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
 fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown() {
     let control_dir = temp_control_dir("bwc");
     std::fs::create_dir_all(&control_dir).expect("create worker control directory");
@@ -846,6 +1043,25 @@ fn temp_control_dir(prefix: &str) -> std::path::PathBuf {
             .expect("system clock should follow unix epoch")
             .as_nanos()
     ))
+}
+
+fn worker_pid(metadata: &botster_core::SessionMetadata) -> u32 {
+    metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_pid"))
+        .and_then(serde_json::Value::as_u64)
+        .expect("worker pid in recovery identity") as u32
+}
+
+fn worker_control_socket(metadata: &botster_core::SessionMetadata) -> std::path::PathBuf {
+    metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_control_socket"))
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .expect("worker socket in recovery identity")
 }
 
 #[test]

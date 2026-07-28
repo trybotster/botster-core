@@ -2213,6 +2213,162 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
 
 #[cfg(unix)]
 #[test]
+fn production_worker_root_handles_canonical_and_long_session_ids() {
+    let data_dir = temp_data_dir("production-worker-id-length");
+    let canonical = SessionId("123e4567-e89b-12d3-a456-426614174000".to_string());
+    let long = SessionId(format!("sess-long-{}", "x".repeat(180)));
+    let canonical_client = ClientId("canonical-client".to_string());
+    let long_client = ClientId("long-client".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+
+    daemon
+        .spawn(spawn_request(&canonical), 10)
+        .expect("spawn canonical worker-backed session");
+    daemon
+        .spawn(spawn_request(&long), 11)
+        .expect("spawn long-id worker-backed session");
+    let listed = daemon.list().expect("list both worker-backed sessions");
+    assert!(listed.iter().any(|session| session.session_id == canonical));
+    assert!(listed.iter().any(|session| session.session_id == long));
+
+    let (canonical_worker, canonical_pty, canonical_socket) =
+        worker_process_evidence(&daemon, &canonical);
+    let (long_worker, long_pty, long_socket) = worker_process_evidence(&daemon, &long);
+    let worker_root = canonical_socket
+        .parent()
+        .expect("canonical worker socket root")
+        .to_path_buf();
+    assert_eq!(long_socket.parent(), Some(worker_root.as_path()));
+    assert!(worker_root.starts_with(std::env::temp_dir()));
+    assert_ne!(canonical_socket, long_socket);
+    assert_eq!(
+        canonical_socket
+            .file_name()
+            .expect("canonical basename")
+            .len(),
+        27
+    );
+    assert_eq!(long_socket.file_name().expect("long basename").len(), 27);
+    assert!(
+        canonical_socket.as_os_str().len() <= 103,
+        "canonical production endpoint must fit macOS SUN_LEN: {canonical_socket:?}"
+    );
+    assert!(
+        long_socket.as_os_str().len() <= 103,
+        "long production endpoint must fit macOS SUN_LEN: {long_socket:?}"
+    );
+
+    for (session, client, subscription, marker, now) in [
+        (
+            &canonical,
+            &canonical_client,
+            "canonical-subscription",
+            "canonical-production-marker",
+            12,
+        ),
+        (
+            &long,
+            &long_client,
+            "long-subscription",
+            "long-production-marker",
+            13,
+        ),
+    ] {
+        daemon
+            .attach(
+                client.clone(),
+                session.clone(),
+                SubscriptionId(subscription.to_string()),
+                now,
+            )
+            .expect("attach worker-backed session");
+        daemon
+            .input(
+                client.clone(),
+                session.clone(),
+                format!("{marker}\n").into_bytes(),
+                now + 1,
+            )
+            .expect("send marker through worker-backed session");
+        let drained = drain_until_for_client(&mut daemon, session, client, marker);
+        assert!(
+            renderable_output_for_client(&drained.client_egress, client).contains(marker),
+            "worker-backed session should read back its own marker"
+        );
+    }
+
+    daemon
+        .shutdown(Some(long.clone()), 30)
+        .expect("shut down long-id session");
+    daemon
+        .shutdown(Some(canonical.clone()), 31)
+        .expect("shut down canonical session");
+    wait_for_condition("production worker and PTY cleanup", || {
+        !process_exists(canonical_worker)
+            && !process_exists(long_worker)
+            && !process_exists(canonical_pty)
+            && !process_exists(long_pty)
+            && !canonical_socket.exists()
+            && !long_socket.exists()
+    });
+    assert!(
+        !worker_root.exists(),
+        "worker-owned production root should be removed when empty"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn adoption_of_live_process_with_reaped_socket_fails_without_rebinding() {
+    let data_dir = temp_data_dir("reaped-worker-socket");
+    let session_id = SessionId("reaped-worker-session".to_string());
+    let mut original =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    original
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn worker before simulated socket reaping");
+    let (worker_pid, pty_pid, socket_path) = worker_process_evidence(&original, &session_id);
+    original.release_for_restart();
+    assert!(process_exists(worker_pid));
+    assert!(process_exists(pty_pid));
+    fs::remove_file(&socket_path).expect("simulate macOS reaping the live socket pathname");
+
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let error = restarted
+        .adopt_session(&session_id, 12)
+        .expect_err("missing persisted endpoint must not create a replacement worker");
+    assert!(matches!(
+        error,
+        CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Runtime(
+            botster_core::SessionRuntimeError {
+                kind: botster_core::SessionRuntimeErrorKind::SpawnFailed,
+                ref message,
+            }
+        )) if message.starts_with("connect worker control socket failed: ")
+    ));
+    assert!(
+        !socket_path.exists(),
+        "adoption must not bind a replacement endpoint"
+    );
+    assert!(
+        process_exists(worker_pid),
+        "adoption must not replace or kill worker"
+    );
+
+    original
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("the connected owner should still shut down the reaped worker");
+    assert!(!process_exists(worker_pid));
+    assert!(!process_exists(pty_pid));
+    assert!(!socket_path.exists());
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
     let data_dir = temp_data_dir("lifecycle-source-exit-removal");
     let session_id = SessionId("lifecycle-source-session".to_string());
