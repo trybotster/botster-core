@@ -12,11 +12,11 @@ use std::os::unix::net::UnixListener;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
-    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionRuntime,
-    SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionMetadata,
+    SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
 use sha2::{Digest, Sha256};
 
@@ -967,7 +967,7 @@ fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
     std::fs::write(
         &worker_script,
         format!(
-            "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec sleep 30\n",
+            "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
             worker_pid_path.display()
         ),
     )
@@ -1002,6 +1002,74 @@ fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
     assert!(wait_until(|| !process_exists(worker_pid)));
     assert!(!socket_path.exists());
     assert!(control_dir.exists(), "caller-owned root must remain");
+    let _ = std::fs::remove_file(worker_pid_path);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn welcome_must_identify_the_exact_spawned_worker() {
+    let control_dir = temp_control_dir("bwpid");
+    std::fs::create_dir_all(&control_dir).expect("create control root");
+    std::fs::set_permissions(&control_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("make control root private");
+    let session = session_id("wrong-worker-pid");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let worker_script = control_dir.join("signaling-worker");
+    let worker_pid_path = control_dir.join("signaling-worker.pid");
+    std::fs::write(
+        &worker_script,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
+            worker_pid_path.display()
+        ),
+    )
+    .expect("write signaling worker");
+    std::fs::set_permissions(&worker_script, std::fs::Permissions::from_mode(0o700))
+        .expect("make signaling worker executable");
+
+    let server_pid_path = worker_pid_path.clone();
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        assert!(wait_until(|| server_pid_path.exists()));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        botster_core::read_hello(&mut stream).expect("read hello");
+        let metadata = SessionMetadata {
+            session_uuid: "wrong-worker-pid".to_string(),
+            pid: 1,
+            rows: 24,
+            cols: 80,
+            last_output_at: 0,
+            title: None,
+            cwd: None,
+            port: None,
+            mode_flags: Default::default(),
+            recovery_identity: Some(serde_json::json!({"worker_pid": 1})),
+        };
+        botster_core::write_welcome(&mut stream, &metadata).expect("write foreign welcome");
+    });
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let error = runtime
+        .spawn_session(shell_request(session, "cat"))
+        .expect_err("foreign welcome identity must fail startup");
+    server.join().expect("fake worker server");
+    let worker_pid = std::fs::read_to_string(&worker_pid_path)
+        .expect("read signaling worker pid")
+        .parse::<u32>()
+        .expect("parse signaling worker pid");
+
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert_eq!(
+        error.message,
+        "worker welcome did not identify the spawned child"
+    );
+    assert!(wait_until(|| !process_exists(worker_pid)));
+    assert!(!socket_path.exists());
     let _ = std::fs::remove_file(worker_pid_path);
     let _ = std::fs::remove_file(worker_script);
     let _ = std::fs::remove_dir(control_dir);
