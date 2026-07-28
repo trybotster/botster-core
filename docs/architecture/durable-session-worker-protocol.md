@@ -143,6 +143,23 @@ Stale workers are detected through identity mismatch, incompatible protocol,
 expired heartbeat, missing process, or worker death. Hosts may add a classified
 `Other` reason, but core does not define product policy from that detail.
 
+The reconnectable endpoint is an opaque bounded implementation detail. Its
+fixed-length basename digests the complete `SessionId`; it never replaces,
+truncates, or aliases the public session identity carried by the protocol.
+Final Unix pathname capacity is validated before worker spawn. Adoption always
+uses the exact endpoint persisted in recovery metadata and reports an
+unreachable endpoint through the stable
+`connect worker control socket failed: ` `SpawnFailed` contract; it does not
+bind a replacement merely because the pathname is missing.
+
+On worker spawn, an existing connectable endpoint is preserved as live.
+Connection-refused endpoints are reclaimable only when a filesystem identity
+recheck proves the same socket object is still present. Changed entries,
+non-socket entries, and other probe failures are not deleted. Normal worker
+exit removes its unchanged endpoint, intentional `release_for_restart`
+preserves the live route, and daemon-owned roots are removed only when empty.
+Explicit library roots stay caller-owned.
+
 ## Queue And Backpressure
 
 Durable worker output is bounded. `SessionWorkerQueueLimits` names output frame
@@ -168,6 +185,8 @@ adoption lives in `botster-core-daemon` and the `botster-session-worker` path:
 
 - worker-backed local sessions with control sockets recorded as
   `SessionMetadata.recovery_identity`
+- canonical UUID and deliberately long session ids using distinct
+  constant-length endpoints under macOS and Linux pathname limits
 - intentional daemon restart via `release_for_restart` and re-adoption over the
   same `data_dir`
 - guarded-write delivery states and readiness fail-closed behavior

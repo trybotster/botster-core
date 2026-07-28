@@ -141,6 +141,26 @@ attach, drain output, send input, and shut the session down through the same
 typed daemon API. This is a core daemon behavior and does not require
 `botster-hub`.
 
+The control socket is private transport state, not session identity. Its
+basename is a fixed-length URL-safe encoding of the first 128 bits of a SHA-256
+digest over the complete `SessionId`; the full unmodified id remains in every
+handle, protocol frame, health response, registry record, and client
+projection. `CoreDaemon` chooses a short, data-directory-derived root beneath
+`std::env::temp_dir()`. A library caller's explicit
+`WorkerProcessRuntimeOptions::control_socket_dir` is used unchanged. Core
+validates the complete pathname in bytes before spawning a worker (103 pathname
+bytes on macOS/BSD-shaped targets, 107 on other Unix targets) and returns
+`SpawnFailed` with a `worker control socket path ...` diagnostic when it cannot
+fit.
+
+Worker bind is non-destructive by default. A connectable existing socket is
+treated as live. A connection-refused socket may be removed only after its
+device/inode identity is rechecked; changed sockets and non-socket entries are
+preserved and fail the spawn. The worker removes only its own unchanged
+endpoint on normal exit, while the daemon removes its derived root only when
+that directory is empty. Caller-provided roots remain caller-owned. Parent-side
+startup failures reap the exact spawned worker before returning.
+
 A successful worker-backed shutdown is a terminal completion boundary, not an
 acknowledgement that shutdown merely started. The worker runtime publishes the
 final process-exit observation only after earlier retained output is drainable,
@@ -211,7 +231,12 @@ Unexpected daemon crashes can leave workers running; they remain adoptable only
 while their control sockets and PTYs are alive. Operators should treat missing
 control sockets, incompatible protocol versions, duplicate candidates, and
 missed heartbeats as non-adoptable until explicit cleanup or mark-stale action
-is taken.
+is taken. Adoption uses the exact persisted endpoint and never falls through to
+a fresh bind. A missing or unreachable persisted socket therefore remains a
+`SpawnFailed` whose message starts with
+`connect worker control socket failed: `; hosts may use that stable seam to
+classify the registry record as stale. This is also the behavior when macOS
+reaps a socket pathname while its worker process identity still appears live.
 
 Guarded writes use explicit daemon delivery states: accepted, deferred,
 rejected, written, delivered, and acknowledged. Acceptance means only that the

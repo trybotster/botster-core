@@ -968,7 +968,14 @@ impl CoreDaemon {
                 }
             }
         }
+        self.cleanup_worker_socket_dir_if_empty();
         Ok(())
+    }
+
+    fn cleanup_worker_socket_dir_if_empty(&self) {
+        if self.config.worker_path.is_some() {
+            let _ = std::fs::remove_dir(worker_socket_dir(&self.config.data_dir));
+        }
     }
 
     fn ensure_running(&self) -> Result<(), CoreDaemonError> {
