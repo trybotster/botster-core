@@ -221,7 +221,8 @@ fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
         MultiplexerEngine::with_plugin_config(
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
-                per_plugin_capacity: 1,
+                per_plugin_queue_capacity: 1,
+                per_plugin_executor_concurrency: 1,
             },
         );
     let plugin = plugin_key();
@@ -272,6 +273,15 @@ fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
         first.result,
         PluginInvocationResult::Failed(failure)
             if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+    let queued = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "plugin-queued",
+        handler.clone(),
+        10,
+    ));
+    assert!(matches!(
+        queued.events.as_slice(),
+        [PluginWorkerEvent::InvocationTimedOut(_)]
     ));
     let pressured = engine.invoke_plugin(plugin_invocation_with_timeout(
         "plugin-pressured",
