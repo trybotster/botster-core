@@ -689,7 +689,8 @@ fn saturated_capability_primitives_do_not_starve_engine_client_paths_or_unrelate
         BotsterEngine::with_plugin_config(
             FakeSessionRuntime::new(),
             PluginWorkerEngineConfig {
-                per_plugin_capacity: 1,
+                per_plugin_queue_capacity: 1,
+                per_plugin_executor_concurrency: 1,
             },
         );
     let unrelated_handler = command_handler(&unrelated_plugin, "render");
@@ -911,7 +912,8 @@ fn active_noisy_watcher_unload_releases_only_owned_resources_without_blocking_re
         BotsterEngine::with_plugin_config(
             FakeSessionRuntime::new(),
             PluginWorkerEngineConfig {
-                per_plugin_capacity: 1,
+                per_plugin_queue_capacity: 1,
+                per_plugin_executor_concurrency: 1,
             },
         );
     let noisy_handler = command_handler(&noisy_plugin, "run");

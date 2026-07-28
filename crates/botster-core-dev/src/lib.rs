@@ -19,9 +19,9 @@ use botster_core::{
     PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginWorkerRegistration, RequestId, ResizePayload, SessionIoEvent,
-    SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress,
+    PluginOwnedDescriptor, PluginWorkerEngineConfig, PluginWorkerRegistration, RequestId,
+    ResizePayload, SessionIoEvent, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
 use botster_core::{Capability, CapabilitySurface, ClientId, SessionActivityStatus, SessionId};
 #[cfg(unix)]
@@ -52,6 +52,14 @@ pub struct EngineSmokeReport {
     pub plugin_denial_failure_kind: String,
     /// Whether the denied plugin runtime observed zero invocations.
     pub denied_plugin_runtime_not_called: bool,
+    /// Queue capacity passed through the public engine facade.
+    pub plugin_queue_capacity: usize,
+    /// Executor concurrency passed through the public engine facade.
+    pub plugin_executor_concurrency: usize,
+    /// Loaded plugin executors reported by the public debug snapshot.
+    pub live_plugin_executors: usize,
+    /// Live workers reported by the public debug snapshot.
+    pub live_plugin_executor_workers: usize,
     /// Requirements this dev proof shows a custom host must provide before entering core.
     pub custom_host_requirements: Vec<String>,
     /// Session spawned through the public generic local engine.
@@ -121,6 +129,16 @@ impl EngineSmokeReport {
             format!(
                 "denied plugin runtime not called: {}",
                 self.denied_plugin_runtime_not_called
+            ),
+            format!("plugin queue capacity: {}", self.plugin_queue_capacity),
+            format!(
+                "plugin executor concurrency: {}",
+                self.plugin_executor_concurrency
+            ),
+            format!("live plugin executors: {}", self.live_plugin_executors),
+            format!(
+                "live plugin executor workers: {}",
+                self.live_plugin_executor_workers
             ),
             format!(
                 "custom host requirements: {}",
@@ -222,7 +240,13 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
 
     let mut report = smoke_result.expect("error branch returned above");
     let mut plugin_engine: BotsterEngine<LocalProcessRuntime, LocalProcessWorkerRuntime> =
-        BotsterEngine::new(LocalProcessRuntime::new());
+        BotsterEngine::with_plugin_config(
+            LocalProcessRuntime::new(),
+            PluginWorkerEngineConfig {
+                per_plugin_queue_capacity: 32,
+                per_plugin_executor_concurrency: 2,
+            },
+        );
     let plugin_proof = run_plugin_proof(&mut plugin_engine, &admitted_capability)?;
     let shutdown = shutdown_session(&mut session_engine, &session_id, logical_clock)?;
     report.shutdown_observed = shutdown.session_events.iter().any(|event| {
@@ -252,6 +276,10 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     report.plugin_missing_capability_rejected = plugin_proof.denied_rejected;
     report.plugin_denial_failure_kind = plugin_proof.denial_failure_kind;
     report.denied_plugin_runtime_not_called = plugin_proof.denied_runtime_not_called;
+    report.plugin_queue_capacity = plugin_proof.queue_capacity;
+    report.plugin_executor_concurrency = plugin_proof.executor_concurrency;
+    report.live_plugin_executors = plugin_proof.live_executors;
+    report.live_plugin_executor_workers = plugin_proof.live_executor_workers;
     report.custom_host_requirements = custom_host_requirements();
 
     Ok(report)
@@ -323,6 +351,10 @@ fn run_spawned_embedder_smoke(
         plugin_missing_capability_rejected: false,
         plugin_denial_failure_kind: String::new(),
         denied_plugin_runtime_not_called: false,
+        plugin_queue_capacity: 0,
+        plugin_executor_concurrency: 0,
+        live_plugin_executors: 0,
+        live_plugin_executor_workers: 0,
         custom_host_requirements: Vec::new(),
         spawned_session_id: session_id,
         attached_client_id: ClientId("real-embedder-client".to_string()),
@@ -355,6 +387,10 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
         plugin_missing_capability_rejected: false,
         plugin_denial_failure_kind: String::new(),
         denied_plugin_runtime_not_called: false,
+        plugin_queue_capacity: 0,
+        plugin_executor_concurrency: 0,
+        live_plugin_executors: 0,
+        live_plugin_executor_workers: 0,
         custom_host_requirements: custom_host_requirements(),
         spawned_session_id: SessionId("real-embedder-session".to_string()),
         attached_client_id: ClientId("real-embedder-client".to_string()),
@@ -532,6 +568,10 @@ struct PluginProof {
     denied_rejected: bool,
     denial_failure_kind: String,
     denied_runtime_not_called: bool,
+    queue_capacity: usize,
+    executor_concurrency: usize,
+    live_executors: usize,
+    live_executor_workers: usize,
 }
 
 #[cfg(unix)]
@@ -627,6 +667,7 @@ fn run_plugin_proof(
         _ => (false, String::new()),
     };
 
+    let debug = engine.plugin_workers().debug_snapshot();
     Ok(PluginProof {
         handler_required_admitted_capability,
         allowed_completed,
@@ -634,6 +675,10 @@ fn run_plugin_proof(
         denied_rejected,
         denial_failure_kind,
         denied_runtime_not_called: denied_runtime.invocations().is_empty(),
+        queue_capacity: debug.configured_queue_capacity,
+        executor_concurrency: debug.configured_executor_concurrency,
+        live_executors: debug.live_plugin_executors,
+        live_executor_workers: debug.live_executor_workers,
     })
 }
 
