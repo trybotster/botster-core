@@ -773,6 +773,7 @@ impl CoreDaemon {
                 self.append_lifecycle_upsert(&record, lifecycle);
             }
         }
+        self.cleanup_worker_socket_dir_if_empty();
         Ok(())
     }
 
@@ -940,6 +941,7 @@ impl CoreDaemon {
                 self.append_lifecycle_upsert(&record, lifecycle);
             }
         }
+        self.cleanup_worker_socket_dir_if_empty();
         Ok(())
     }
 
@@ -948,6 +950,7 @@ impl CoreDaemon {
         observations: &[BotsterEngineObservation],
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
+        let mut terminal_transition = false;
         for observation in observations {
             let BotsterEngineObservation::SessionLifecycle { session_id, state } = observation
             else {
@@ -962,13 +965,19 @@ impl CoreDaemon {
             };
             if let Some(mut record) = self.registry.load(session_id)? {
                 if record.state != registry_state {
+                    terminal_transition |= matches!(
+                        registry_state,
+                        RegistrySessionState::Exited | RegistrySessionState::Stale
+                    );
                     record.mark(registry_state, now_seconds);
                     self.registry.save(&record)?;
                     self.append_lifecycle_upsert(&record, Some(state.clone()));
                 }
             }
         }
-        self.cleanup_worker_socket_dir_if_empty();
+        if terminal_transition {
+            self.cleanup_worker_socket_dir_if_empty();
+        }
         Ok(())
     }
 

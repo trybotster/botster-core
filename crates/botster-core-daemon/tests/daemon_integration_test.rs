@@ -2387,6 +2387,11 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
     daemon
         .spawn(self_exit_spawn_request(&session_id), 10)
         .expect("worker-backed lifecycle fixture should spawn");
+    let (_, _, lifecycle_socket) = worker_process_evidence(&daemon, &session_id);
+    let lifecycle_worker_root = lifecycle_socket
+        .parent()
+        .expect("worker socket parent")
+        .to_path_buf();
     let running = daemon.lifecycle_changes(&baseline.cursor);
     assert!(running.resync_required.is_none());
     assert_eq!(running.changes.len(), 1);
@@ -2449,6 +2454,10 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
     let exited = exited.expect("natural exit should publish one terminal lifecycle upsert");
     assert!(terminal_output(&terminal_drain.client_egress).contains("echo:finish"));
     assert_eq!(exited.changes.len(), 1);
+    assert!(
+        !lifecycle_worker_root.exists(),
+        "natural terminal transition should remove the empty worker root"
+    );
 
     let empty = daemon.lifecycle_changes(&exited.cursor);
     assert!(empty.changes.is_empty());

@@ -1,12 +1,15 @@
 //! Local session worker process acceptance tests.
 #![cfg(all(unix, feature = "local-runtime"))]
 
+use std::io::Read;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
     PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionRuntime,
@@ -15,6 +18,7 @@ use botster_core::{
     TerminalMetadataShapingOutcome, TransportEgress, WorkerBackedBotsterEngine,
     WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
+use sha2::{Digest, Sha256};
 
 extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
@@ -822,7 +826,7 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
 }
 
 #[test]
-fn worker_socket_failures_are_typed_before_or_during_connect_and_clean_up() {
+fn worker_socket_failures_are_typed_before_spawn_or_after_worker_exit() {
     let overlong_root = std::path::PathBuf::from(format!("/tmp/{}", "x".repeat(120)));
     let mut overlong_options = worker_options();
     overlong_options.worker_path = "/definitely/missing/botster-session-worker".into();
@@ -853,7 +857,154 @@ fn worker_socket_failures_are_typed_before_or_during_connect_and_clean_up() {
     assert!(error
         .message
         .starts_with("connect worker control socket failed: "));
+    assert!(error
+        .message
+        .contains("worker process exited before startup completed"));
     assert!(!missing_socket_root.exists());
+}
+
+#[test]
+fn occupied_worker_endpoint_fails_without_contacting_or_replacing_the_live_worker() {
+    let control_dir = temp_control_dir("bwoe");
+    let session = session_id("occupied-worker-endpoint");
+    let mut options = worker_options();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut owner = WorkerProcessRuntime::with_options(options.clone());
+    owner
+        .spawn_session(shell_request(session.clone(), "cat"))
+        .expect("spawn endpoint owner");
+    let owner_metadata = owner.metadata(&session).expect("owner metadata").clone();
+    let owner_worker_pid = worker_pid(&owner_metadata);
+    let owner_pty_pid = owner_metadata.pid;
+    let owner_socket = worker_control_socket(&owner_metadata);
+
+    let started = Instant::now();
+    let mut contender = WorkerProcessRuntime::with_options(options);
+    let error = contender
+        .spawn_session(shell_request(session.clone(), "cat"))
+        .expect_err("occupied endpoint must fail rather than contact its owner");
+
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert!(error
+        .message
+        .starts_with("connect worker control socket failed: "));
+    assert!(error.message.contains("already active"), "{error}");
+    let failed_worker_pid = failed_worker_pid(&error.message);
+    assert!(!process_exists(failed_worker_pid));
+    assert!(process_exists(owner_worker_pid));
+    assert!(process_exists(owner_pty_pid));
+    assert!(owner_socket.exists());
+
+    owner
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"owner-still-connected\n".to_vec(),
+        })
+        .expect("live owner remains writable");
+    let output = collect_until(&mut owner, &session, |output| {
+        output_text(output).contains("owner-still-connected")
+    });
+    assert!(output_text(&output).contains("owner-still-connected"));
+    owner
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: session.clone(),
+        })
+        .expect("shutdown endpoint owner");
+    assert!(has_process_exit(&collect_until(
+        &mut owner,
+        &session,
+        has_process_exit
+    )));
+    assert!(wait_until(|| !process_exists(owner_worker_pid)));
+    assert!(wait_until(|| !process_exists(owner_pty_pid)));
+    assert!(!owner_socket.exists());
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn public_worker_root_failure_is_typed_visible_and_reaped() {
+    let control_dir = temp_control_dir("bwpr");
+    std::fs::create_dir_all(&control_dir).expect("create public control root");
+    std::fs::set_permissions(&control_dir, std::fs::Permissions::from_mode(0o777))
+        .expect("make control root public");
+    let session = session_id("public-worker-root");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let mut options = worker_options();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+
+    let error = runtime
+        .spawn_session(shell_request(session, "cat"))
+        .expect_err("public worker root must fail visibly");
+
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert!(error
+        .message
+        .starts_with("connect worker control socket failed: "));
+    assert!(
+        error
+            .message
+            .contains("owned by the effective user with private permissions"),
+        "{error}"
+    );
+    let worker_pid = failed_worker_pid(&error.message);
+    assert!(!process_exists(worker_pid));
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
+    let control_dir = temp_control_dir("bwhf");
+    std::fs::create_dir_all(&control_dir).expect("create control root");
+    std::fs::set_permissions(&control_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("make control root private");
+    let session = session_id("handshake-failure");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let worker_script = control_dir.join("sleeping-worker");
+    let worker_pid_path = control_dir.join("sleeping-worker.pid");
+    std::fs::write(
+        &worker_script,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec sleep 30\n",
+            worker_pid_path.display()
+        ),
+    )
+    .expect("write sleeping worker");
+    std::fs::set_permissions(&worker_script, std::fs::Permissions::from_mode(0o700))
+        .expect("make sleeping worker executable");
+
+    let server_pid_path = worker_pid_path.clone();
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        assert!(wait_until(|| server_pid_path.exists()));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        let mut hello = [0_u8; 16];
+        let _ = stream.read(&mut hello);
+    });
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let error = runtime
+        .spawn_session(shell_request(session, "cat"))
+        .expect_err("peer that closes before welcome must fail startup");
+    server.join().expect("fake worker server");
+    let worker_pid = std::fs::read_to_string(&worker_pid_path)
+        .expect("read sleeping worker pid")
+        .parse::<u32>()
+        .expect("parse sleeping worker pid");
+
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert!(wait_until(|| !process_exists(worker_pid)));
+    assert!(!socket_path.exists());
+    assert!(control_dir.exists(), "caller-owned root must remain");
+    let _ = std::fs::remove_file(worker_pid_path);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
 }
 
 #[test]
@@ -923,7 +1074,7 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
 #[test]
 fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown() {
     let control_dir = temp_control_dir("bwc");
-    std::fs::create_dir_all(&control_dir).expect("create worker control directory");
+    create_private_control_dir(&control_dir);
 
     let mut options = worker_options();
     options.egress_capacity = 1;
@@ -992,7 +1143,7 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
 #[test]
 fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
     let control_dir = temp_control_dir("bwe");
-    std::fs::create_dir_all(&control_dir).expect("create worker control directory");
+    create_private_control_dir(&control_dir);
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
     let mut runtime = WorkerProcessRuntime::with_options(options);
@@ -1045,6 +1196,12 @@ fn temp_control_dir(prefix: &str) -> std::path::PathBuf {
     ))
 }
 
+fn create_private_control_dir(path: &std::path::Path) {
+    std::fs::create_dir_all(path).expect("create worker control directory");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        .expect("make worker control directory private");
+}
+
 fn worker_pid(metadata: &botster_core::SessionMetadata) -> u32 {
     metadata
         .recovery_identity
@@ -1062,6 +1219,19 @@ fn worker_control_socket(metadata: &botster_core::SessionMetadata) -> std::path:
         .and_then(serde_json::Value::as_str)
         .map(std::path::PathBuf::from)
         .expect("worker socket in recovery identity")
+}
+
+fn derived_worker_socket(root: &std::path::Path, session_id: &SessionId) -> std::path::PathBuf {
+    let digest = Sha256::digest(session_id.0.as_bytes());
+    root.join(format!("{}.sock", URL_SAFE_NO_PAD.encode(&digest[..16])))
+}
+
+fn failed_worker_pid(message: &str) -> u32 {
+    message
+        .split_once("botster-session-worker ")
+        .and_then(|(_, suffix)| suffix.split_whitespace().next())
+        .and_then(|value| value.parse().ok())
+        .expect("failed worker pid in captured diagnostic")
 }
 
 #[test]
