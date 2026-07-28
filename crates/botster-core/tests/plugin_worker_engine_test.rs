@@ -1,6 +1,6 @@
 //! Plugin worker engine acceptance tests.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -239,6 +239,61 @@ impl PluginRuntime for GatedRuntime {
 
     fn stop(&self, _plugin_key: &PluginKey) {
         self.release();
+    }
+}
+
+#[derive(Clone, Default)]
+struct RetirementGatedRuntime {
+    state: Arc<RetirementGatedRuntimeState>,
+}
+
+#[derive(Default)]
+struct RetirementGatedRuntimeState {
+    started: AtomicBool,
+    stop_called: AtomicBool,
+    gate: (Mutex<bool>, Condvar),
+}
+
+impl RetirementGatedRuntime {
+    fn release(&self) {
+        let (released, condition) = &self.state.gate;
+        *released.lock().expect("retirement gate release lock") = true;
+        condition.notify_all();
+    }
+
+    fn started(&self) -> bool {
+        self.state.started.load(Ordering::SeqCst)
+    }
+
+    fn stop_called(&self) -> bool {
+        self.state.stop_called.load(Ordering::SeqCst)
+    }
+}
+
+impl PluginRuntime for RetirementGatedRuntime {
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        _cancellation: PluginCancellationToken,
+    ) -> PluginInvocationResult {
+        self.state.started.store(true, Ordering::SeqCst);
+        let (released, condition) = &self.state.gate;
+        let mut released = released.lock().expect("retirement gate lock");
+        while !*released {
+            released = condition
+                .wait(released)
+                .expect("retirement gate condition wait");
+        }
+
+        PluginInvocationResult::Completed(PluginInvocationSuccess {
+            request_id: request.request_id,
+            handler: request.handler,
+            payload: None,
+        })
+    }
+
+    fn stop(&self, _plugin_key: &PluginKey) {
+        self.state.stop_called.store(true, Ordering::SeqCst);
     }
 }
 
@@ -615,6 +670,64 @@ fn repeated_load_unload_cycles_join_workers_and_return_debug_counts_to_zero() {
 }
 
 #[test]
+fn retiring_generation_remains_observable_until_unload_joins_its_worker() {
+    let plugin = plugin_key("retiring");
+    let command = handler(&plugin, "run");
+    let runtime = RetirementGatedRuntime::default();
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 1,
+        per_plugin_executor_concurrency: 1,
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        runtime.clone(),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    let outcome = engine.invoke(invocation("retiring-timeout", command, 10));
+    assert!(matches!(
+        outcome.result,
+        PluginInvocationResult::Failed(PluginInvocationFailure {
+            kind: PluginInvocationFailureKind::TimedOut,
+            ..
+        })
+    ));
+    wait_until(Duration::from_millis(250), || runtime.started());
+
+    let unload_engine = engine.clone();
+    let unload_plugin = plugin.clone();
+    let unload_handle = std::thread::spawn(move || {
+        unload_engine.unload_plugin(PluginUnloadSpec {
+            request_id: request_id("retiring-unload"),
+            plugin_key: unload_plugin,
+            cleanup: PluginCleanupScope::DescriptorsAndResources,
+        })
+    });
+    wait_until(Duration::from_millis(250), || runtime.stop_called());
+
+    let snapshot = engine.debug_snapshot();
+    let unload_finished_before_release = unload_handle.is_finished();
+    runtime.release();
+    unload_handle.join().expect("retiring unload should join");
+
+    assert!(
+        !unload_finished_before_release,
+        "unload returned before its executor worker retired"
+    );
+    assert!(snapshot.plugins.is_empty());
+    assert_eq!(snapshot.live_plugin_executors, 1);
+    assert_eq!(snapshot.live_executor_workers, 1);
+    assert_eq!(snapshot.in_flight_jobs, 1);
+    let retired = engine.debug_snapshot();
+    assert_eq!(retired.live_plugin_executors, 0);
+    assert_eq!(retired.live_executor_workers, 0);
+    assert_eq!(retired.in_flight_jobs, 0);
+}
+
+#[test]
 fn final_engine_drop_stops_runtime_and_joins_idle_workers() {
     let plugin = plugin_key("drop");
     let command = handler(&plugin, "run");
@@ -788,9 +901,11 @@ fn unload_cancels_in_flight_invocations_before_cleanup() {
         cleanup: PluginCleanupScope::DescriptorsAndResources,
     });
 
-    wait_until(Duration::from_millis(250), || {
-        runtime.cancellations_observed() == 1
-    });
+    assert_eq!(runtime.cancellations_observed(), 1);
+    assert!(
+        in_flight_handle.is_finished(),
+        "unload returned before the in-flight invocation finished"
+    );
     let outcome = in_flight_handle.join().expect("in-flight invoke thread");
     assert!(matches!(
         outcome.result,
@@ -1412,6 +1527,10 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
             runtime_a.cancellations_observed() == index + 1
         });
     }
+    wait_until(Duration::from_millis(250), || {
+        let snapshot = engine.debug_snapshot();
+        snapshot.queued_jobs == 0 && snapshot.in_flight_jobs == 0
+    });
     let snapshot = engine.debug_snapshot();
     assert_eq!(runtime_a.invocations().len(), 3);
     assert_eq!(snapshot.live_plugin_executors, 2);

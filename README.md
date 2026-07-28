@@ -299,11 +299,16 @@ thread per queue slot.
 Hosts can observe this mechanism through
 `BotsterEngine::plugin_workers().debug_snapshot()`. The snapshot reports the
 configured queue/executor values plus aggregate and sorted per-plugin counts for
-live executors/workers, queued jobs, and in-flight jobs. Replacement, reload,
-unload, and final engine drop reject new work, cancel queued and running jobs,
-call `PluginRuntime::stop`, and join the executor workers before teardown
-returns. Runtime implementations must make `stop` promptly unblock cancelled
-work.
+live executors/workers, queued jobs, and in-flight jobs. Aggregate counts include
+retiring generations until their executor workers join; per-plugin rows cover
+currently registered generations. `BackpressureSummary.depth` for a plugin
+worker counts waiting jobs only, with executing jobs reported separately as
+`in_flight_jobs`. Replacement, reload, unload, and final engine drop reject new
+work, cancel queued and running jobs, call `PluginRuntime::stop`, and join the
+executor workers before teardown returns. Runtime implementations must make
+`stop` promptly unblock cancelled work. A panic escaping `PluginRuntime::invoke`
+retires that executor thread and narrows the plugin's concurrency until its next
+reload.
 
 ## Package contracts (summary)
 

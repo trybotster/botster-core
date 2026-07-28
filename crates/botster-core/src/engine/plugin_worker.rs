@@ -61,15 +61,15 @@ pub struct PluginWorkerDebugSnapshot {
     pub configured_queue_capacity: usize,
     /// Configured executor width for every loaded plugin.
     pub configured_executor_concurrency: usize,
-    /// Loaded plugin executors.
+    /// Loaded or retiring plugin executors.
     pub live_plugin_executors: usize,
-    /// Executor workers that have not yet retired.
+    /// Executor workers that have not yet retired, including removed generations.
     pub live_executor_workers: usize,
-    /// Invocations waiting across all plugin queues.
+    /// Invocations waiting across active and retiring plugin queues.
     pub queued_jobs: usize,
-    /// Invocations currently executing across all plugin runtimes.
+    /// Invocations currently executing across active and retiring plugin runtimes.
     pub in_flight_jobs: usize,
-    /// Per-plugin rows sorted by plugin key.
+    /// Currently registered per-plugin rows sorted by plugin key.
     pub plugins: Vec<PluginWorkerPluginDebugSnapshot>,
 }
 
@@ -131,6 +131,7 @@ pub struct PluginWorkerEngine {
 struct PluginWorkerEngineInner {
     config: PluginWorkerEngineConfig,
     workers: Mutex<HashMap<PluginKey, WorkerState>>,
+    metrics: Arc<PluginWorkerEngineMetrics>,
 }
 
 impl Drop for PluginWorkerEngineInner {
@@ -174,6 +175,7 @@ impl PluginWorkerEngine {
             inner: Arc::new(PluginWorkerEngineInner {
                 config,
                 workers: Mutex::new(HashMap::new()),
+                metrics: Arc::new(PluginWorkerEngineMetrics::default()),
             }),
         }
     }
@@ -185,6 +187,7 @@ impl PluginWorkerEngine {
             registration,
             self.inner.config.per_plugin_queue_capacity,
             self.inner.config.per_plugin_executor_concurrency,
+            self.inner.metrics.clone(),
         );
 
         let previous = self
@@ -324,7 +327,10 @@ impl PluginWorkerEngine {
             .unwrap_or_default()
     }
 
-    /// Return a backpressure summary for one plugin worker.
+    /// Return waiting-queue backpressure for one plugin worker.
+    ///
+    /// `depth` excludes currently executing invocations, which are reported by
+    /// [`Self::debug_snapshot`].
     pub fn backpressure_for(&self, plugin_key: &PluginKey) -> BackpressureSummary {
         let depth = self
             .worker_for(plugin_key)
@@ -345,6 +351,10 @@ impl PluginWorkerEngine {
     }
 
     /// Return aggregate and per-plugin executor/queue counters.
+    ///
+    /// Aggregate counters include retiring generations that have left the
+    /// active plugin registry but whose executor workers have not joined yet.
+    /// Per-plugin rows represent only currently registered generations.
     #[must_use]
     pub fn debug_snapshot(&self) -> PluginWorkerDebugSnapshot {
         let workers = self
@@ -361,13 +371,18 @@ impl PluginWorkerEngine {
         PluginWorkerDebugSnapshot {
             configured_queue_capacity: self.inner.config.per_plugin_queue_capacity,
             configured_executor_concurrency: self.inner.config.per_plugin_executor_concurrency,
-            live_plugin_executors: plugins.len(),
-            live_executor_workers: plugins
-                .iter()
-                .map(|plugin| plugin.live_executor_workers)
-                .sum(),
-            queued_jobs: plugins.iter().map(|plugin| plugin.queued_jobs).sum(),
-            in_flight_jobs: plugins.iter().map(|plugin| plugin.in_flight_jobs).sum(),
+            live_plugin_executors: self
+                .inner
+                .metrics
+                .live_plugin_executors
+                .load(Ordering::SeqCst),
+            live_executor_workers: self
+                .inner
+                .metrics
+                .live_executor_workers
+                .load(Ordering::SeqCst),
+            queued_jobs: self.inner.metrics.queued_jobs.load(Ordering::SeqCst),
+            in_flight_jobs: self.inner.metrics.in_flight_jobs.load(Ordering::SeqCst),
             plugins,
         }
     }
@@ -448,6 +463,7 @@ impl WorkerState {
         registration: PluginWorkerRegistration,
         queue_capacity: usize,
         executor_concurrency: usize,
+        engine_metrics: Arc<PluginWorkerEngineMetrics>,
     ) -> Self {
         let plugin_key = registration.load.plugin_key.clone();
         let descriptors = registration
@@ -472,17 +488,25 @@ impl WorkerState {
         let receiver = Arc::new(Mutex::new(receiver));
         let generation = NEXT_WORKER_GENERATION.fetch_add(1, Ordering::SeqCst);
         let mut join_handles = Vec::with_capacity(executor_concurrency);
+        engine_metrics
+            .live_plugin_executors
+            .fetch_add(1, Ordering::SeqCst);
+        engine_metrics
+            .live_executor_workers
+            .fetch_add(executor_concurrency, Ordering::SeqCst);
 
         for worker_index in 0..executor_concurrency {
             let worker_receiver = receiver.clone();
             let worker_runtime = runtime.clone();
             let worker_cancellations = cancellations.clone();
             let worker_metrics = metrics.clone();
+            let worker_engine_metrics = engine_metrics.clone();
             let join_handle = std::thread::Builder::new()
                 .name(format!("botster-plugin-worker-{generation}-{worker_index}"))
                 .spawn(move || {
                     let _liveness = WorkerLivenessGuard {
                         metrics: worker_metrics.clone(),
+                        engine_metrics: worker_engine_metrics.clone(),
                     };
                     loop {
                         let job = worker_receiver
@@ -494,6 +518,9 @@ impl WorkerState {
                         };
                         let request_id = job.request.request_id.clone();
                         worker_metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
+                        worker_engine_metrics
+                            .queued_jobs
+                            .fetch_sub(1, Ordering::SeqCst);
                         if job.cancellation.is_cancelled() {
                             worker_cancellations
                                 .lock()
@@ -502,14 +529,18 @@ impl WorkerState {
                             continue;
                         }
                         worker_metrics.in_flight_jobs.fetch_add(1, Ordering::SeqCst);
+                        worker_engine_metrics
+                            .in_flight_jobs
+                            .fetch_add(1, Ordering::SeqCst);
                         let in_flight = InFlightGuard {
                             metrics: worker_metrics.clone(),
+                            engine_metrics: worker_engine_metrics.clone(),
                             cancellations: worker_cancellations.clone(),
                             request_id,
                         };
                         let result = worker_runtime.invoke(job.request, job.cancellation);
-                        let _ = job.result_sender.send(result);
                         drop(in_flight);
+                        let _ = job.result_sender.send(result);
                     }
                 })
                 .expect("spawn plugin worker thread");
@@ -529,6 +560,7 @@ impl WorkerState {
                 stopping: AtomicBool::new(false),
                 cancellations,
                 metrics,
+                engine_metrics,
             }),
         }
     }
@@ -558,11 +590,19 @@ impl WorkerState {
             .metrics
             .queued_jobs
             .fetch_add(1, Ordering::SeqCst);
+        self.executor
+            .engine_metrics
+            .queued_jobs
+            .fetch_add(1, Ordering::SeqCst);
         match sender.try_send(job) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.executor
                     .metrics
+                    .queued_jobs
+                    .fetch_sub(1, Ordering::SeqCst);
+                self.executor
+                    .engine_metrics
                     .queued_jobs
                     .fetch_sub(1, Ordering::SeqCst);
                 Err(WorkerDispatchError {
@@ -627,6 +667,10 @@ impl WorkerState {
         for join_handle in join_handles {
             let _ = join_handle.join();
         }
+        self.executor
+            .engine_metrics
+            .live_plugin_executors
+            .fetch_sub(1, Ordering::SeqCst);
     }
 
     fn queued_jobs(&self) -> usize {
@@ -649,6 +693,15 @@ struct WorkerExecutor {
     stopping: AtomicBool,
     cancellations: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
     metrics: Arc<WorkerMetrics>,
+    engine_metrics: Arc<PluginWorkerEngineMetrics>,
+}
+
+#[derive(Default)]
+struct PluginWorkerEngineMetrics {
+    live_plugin_executors: AtomicUsize,
+    live_executor_workers: AtomicUsize,
+    queued_jobs: AtomicUsize,
+    in_flight_jobs: AtomicUsize,
 }
 
 struct WorkerMetrics {
@@ -659,16 +712,21 @@ struct WorkerMetrics {
 
 struct WorkerLivenessGuard {
     metrics: Arc<WorkerMetrics>,
+    engine_metrics: Arc<PluginWorkerEngineMetrics>,
 }
 
 impl Drop for WorkerLivenessGuard {
     fn drop(&mut self) {
         self.metrics.live_workers.fetch_sub(1, Ordering::SeqCst);
+        self.engine_metrics
+            .live_executor_workers
+            .fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 struct InFlightGuard {
     metrics: Arc<WorkerMetrics>,
+    engine_metrics: Arc<PluginWorkerEngineMetrics>,
     cancellations: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
     request_id: crate::session::RequestId,
 }
@@ -676,6 +734,9 @@ struct InFlightGuard {
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
         self.metrics.in_flight_jobs.fetch_sub(1, Ordering::SeqCst);
+        self.engine_metrics
+            .in_flight_jobs
+            .fetch_sub(1, Ordering::SeqCst);
         self.cancellations
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
