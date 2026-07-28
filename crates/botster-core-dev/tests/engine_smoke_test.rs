@@ -54,6 +54,10 @@ fn dev_harness_exercises_non_hub_host_profile_engine_path() {
     assert!(report.plugin_missing_capability_rejected);
     assert_eq!(report.plugin_denial_failure_kind, "HandlerFailed");
     assert!(report.denied_plugin_runtime_not_called);
+    assert_eq!(report.plugin_queue_capacity, 32);
+    assert_eq!(report.plugin_executor_concurrency, 2);
+    assert_eq!(report.live_plugin_executors, 2);
+    assert_eq!(report.live_plugin_executor_workers, 4);
     assert_eq!(
         report.custom_host_requirements,
         vec![

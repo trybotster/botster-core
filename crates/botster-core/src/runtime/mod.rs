@@ -322,5 +322,10 @@ pub trait PluginRuntime: Send + Sync + 'static {
     ) -> PluginInvocationResult;
 
     /// Stop runtime-owned resources for one plugin.
+    ///
+    /// This must promptly unblock invocations after their cancellation tokens
+    /// are signalled. The worker engine calls `stop` before joining the
+    /// plugin's executor workers during replacement, reload, unload, and final
+    /// engine drop.
     fn stop(&self, _plugin_key: &PluginKey) {}
 }

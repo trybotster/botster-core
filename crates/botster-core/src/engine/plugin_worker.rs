@@ -6,8 +6,9 @@
 //! [`PluginRuntime`] outside core.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::actor::{
@@ -25,16 +26,51 @@ static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 /// Engine-wide worker execution configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginWorkerEngineConfig {
-    /// Maximum in-flight invocations per plugin worker.
-    pub per_plugin_capacity: usize,
+    /// Maximum number of waiting invocations per plugin worker.
+    pub per_plugin_queue_capacity: usize,
+    /// Maximum number of concurrently executing invocations per plugin worker.
+    pub per_plugin_executor_concurrency: usize,
 }
 
 impl Default for PluginWorkerEngineConfig {
     fn default() -> Self {
         Self {
-            per_plugin_capacity: QueueSource::PluginWorker.default_capacity(),
+            per_plugin_queue_capacity: QueueSource::PluginWorker.default_capacity(),
+            per_plugin_executor_concurrency: 2,
         }
     }
+}
+
+/// Observable state for one loaded plugin executor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginWorkerPluginDebugSnapshot {
+    /// Stable plugin identity.
+    pub plugin_key: PluginKey,
+    /// Executor workers that have not yet retired.
+    pub live_executor_workers: usize,
+    /// Invocations waiting for an executor worker.
+    pub queued_jobs: usize,
+    /// Invocations currently executing in the host runtime.
+    pub in_flight_jobs: usize,
+}
+
+/// Aggregate observable state for the plugin worker engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginWorkerDebugSnapshot {
+    /// Configured waiting-job capacity for every plugin queue.
+    pub configured_queue_capacity: usize,
+    /// Configured executor width for every loaded plugin.
+    pub configured_executor_concurrency: usize,
+    /// Loaded plugin executors.
+    pub live_plugin_executors: usize,
+    /// Executor workers that have not yet retired.
+    pub live_executor_workers: usize,
+    /// Invocations waiting across all plugin queues.
+    pub queued_jobs: usize,
+    /// Invocations currently executing across all plugin runtimes.
+    pub in_flight_jobs: usize,
+    /// Per-plugin rows sorted by plugin key.
+    pub plugins: Vec<PluginWorkerPluginDebugSnapshot>,
 }
 
 /// Handler metadata registered for one plugin worker.
@@ -87,40 +123,79 @@ impl PluginInvocationOutcome {
 }
 
 /// Reusable plugin worker execution engine.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PluginWorkerEngine {
+    inner: Arc<PluginWorkerEngineInner>,
+}
+
+struct PluginWorkerEngineInner {
     config: PluginWorkerEngineConfig,
-    workers: Arc<Mutex<HashMap<PluginKey, WorkerState>>>,
+    workers: Mutex<HashMap<PluginKey, WorkerState>>,
+}
+
+impl Drop for PluginWorkerEngineInner {
+    fn drop(&mut self) {
+        let workers = self
+            .workers
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain()
+            .map(|(_, worker)| worker)
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.shutdown();
+        }
+    }
+}
+
+impl Default for PluginWorkerEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginWorkerEngine {
-    /// Create a new engine with default queue capacity.
+    /// Create a new engine with default queue and executor settings.
     pub fn new() -> Self {
         Self::with_config(PluginWorkerEngineConfig::default())
     }
 
     /// Create a new engine with explicit configuration.
     pub fn with_config(config: PluginWorkerEngineConfig) -> Self {
+        assert!(
+            config.per_plugin_queue_capacity > 0,
+            "plugin worker queue capacity must be greater than zero"
+        );
+        assert!(
+            config.per_plugin_executor_concurrency > 0,
+            "plugin worker executor concurrency must be greater than zero"
+        );
         Self {
-            config,
-            workers: Arc::new(Mutex::new(HashMap::new())),
+            inner: Arc::new(PluginWorkerEngineInner {
+                config,
+                workers: Mutex::new(HashMap::new()),
+            }),
         }
     }
 
     /// Load or replace one plugin worker.
     pub fn load_plugin(&self, registration: PluginWorkerRegistration) {
         let plugin_key = registration.load.plugin_key.clone();
-        let worker = WorkerState::new(registration, self.config.per_plugin_capacity);
+        let worker = WorkerState::new(
+            registration,
+            self.inner.config.per_plugin_queue_capacity,
+            self.inner.config.per_plugin_executor_concurrency,
+        );
 
         let previous = self
+            .inner
             .workers
             .lock()
             .expect("plugin worker engine mutex poisoned")
-            .insert(plugin_key.clone(), worker);
+            .insert(plugin_key, worker);
 
         if let Some(previous) = previous {
-            previous.cancel_all_in_flight();
-            previous.runtime.stop(&plugin_key);
+            previous.shutdown();
         }
     }
 
@@ -143,21 +218,6 @@ impl PluginWorkerEngine {
                     "plugin handler requires a capability missing from package metadata",
                 );
             }
-        }
-
-        if worker.depth() >= self.config.per_plugin_capacity {
-            let summary = self.backpressure_for(&request.handler.plugin_key);
-            let failure = PluginInvocationFailure {
-                request_id: request.request_id,
-                handler: request.handler,
-                kind: PluginInvocationFailureKind::Backpressured,
-                timeout_ms: None,
-                reason: "plugin worker queue is at capacity".to_string(),
-            };
-            return PluginInvocationOutcome::with_event(
-                PluginInvocationResult::Failed(failure),
-                PluginWorkerEvent::Backpressure(summary),
-            );
         }
 
         let timeout_ms = request.timeout_ms;
@@ -268,12 +328,12 @@ impl PluginWorkerEngine {
     pub fn backpressure_for(&self, plugin_key: &PluginKey) -> BackpressureSummary {
         let depth = self
             .worker_for(plugin_key)
-            .map(|worker| worker.depth())
+            .map(|worker| worker.queued_jobs())
             .unwrap_or_default();
 
         BackpressureSummary {
             source: QueueSource::PluginWorker,
-            capacity: self.config.per_plugin_capacity,
+            capacity: self.inner.config.per_plugin_queue_capacity,
             depth,
             route: BackpressureRoute {
                 session_id: None,
@@ -281,6 +341,34 @@ impl PluginWorkerEngine {
                 subscription_id: None,
                 plugin_key: Some(plugin_key.clone()),
             },
+        }
+    }
+
+    /// Return aggregate and per-plugin executor/queue counters.
+    #[must_use]
+    pub fn debug_snapshot(&self) -> PluginWorkerDebugSnapshot {
+        let workers = self
+            .inner
+            .workers
+            .lock()
+            .expect("plugin worker engine mutex poisoned");
+        let mut plugins = workers
+            .values()
+            .map(WorkerState::debug_snapshot)
+            .collect::<Vec<_>>();
+        plugins.sort_by(|left, right| left.plugin_key.0.cmp(&right.plugin_key.0));
+
+        PluginWorkerDebugSnapshot {
+            configured_queue_capacity: self.inner.config.per_plugin_queue_capacity,
+            configured_executor_concurrency: self.inner.config.per_plugin_executor_concurrency,
+            live_plugin_executors: plugins.len(),
+            live_executor_workers: plugins
+                .iter()
+                .map(|plugin| plugin.live_executor_workers)
+                .sum(),
+            queued_jobs: plugins.iter().map(|plugin| plugin.queued_jobs).sum(),
+            in_flight_jobs: plugins.iter().map(|plugin| plugin.in_flight_jobs).sum(),
+            plugins,
         }
     }
 
@@ -292,6 +380,7 @@ impl PluginWorkerEngine {
         stop_runtime: bool,
     ) -> PluginCleanupResult {
         let worker = self
+            .inner
             .workers
             .lock()
             .expect("plugin worker engine mutex poisoned")
@@ -307,8 +396,7 @@ impl PluginWorkerEngine {
         };
 
         if stop_runtime {
-            worker.cancel_all_in_flight();
-            worker.runtime.stop(plugin_key);
+            worker.shutdown();
         }
 
         let removed_descriptors = match scope {
@@ -335,7 +423,8 @@ impl PluginWorkerEngine {
     }
 
     fn worker_for(&self, plugin_key: &PluginKey) -> Option<WorkerState> {
-        self.workers
+        self.inner
+            .workers
             .lock()
             .expect("plugin worker engine mutex poisoned")
             .get(plugin_key)
@@ -345,17 +434,22 @@ impl PluginWorkerEngine {
 
 #[derive(Clone)]
 struct WorkerState {
+    plugin_key: PluginKey,
     manifest: PackageManifest,
     runtime: Arc<dyn PluginRuntime>,
     handlers: HashMap<PluginHandlerRef, PluginHandlerRegistration>,
     descriptors: Vec<PluginDescriptorRef>,
     resources: Arc<Mutex<Vec<PluginResourceRef>>>,
-    slots: Arc<Vec<WorkerSlot>>,
-    in_flight: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
+    executor: Arc<WorkerExecutor>,
 }
 
 impl WorkerState {
-    fn new(registration: PluginWorkerRegistration, capacity: usize) -> Self {
+    fn new(
+        registration: PluginWorkerRegistration,
+        queue_capacity: usize,
+        executor_concurrency: usize,
+    ) -> Self {
+        let plugin_key = registration.load.plugin_key.clone();
         let descriptors = registration
             .load
             .descriptors
@@ -368,69 +462,115 @@ impl WorkerState {
             .map(|handler| (handler.handler.clone(), handler))
             .collect();
         let runtime = registration.runtime;
-        let in_flight = Arc::new(Mutex::new(HashMap::new()));
+        let cancellations = Arc::new(Mutex::new(HashMap::new()));
+        let metrics = Arc::new(WorkerMetrics {
+            live_workers: AtomicUsize::new(executor_concurrency),
+            queued_jobs: AtomicUsize::new(0),
+            in_flight_jobs: AtomicUsize::new(0),
+        });
+        let (sender, receiver) = mpsc::sync_channel::<WorkerJob>(queue_capacity);
+        let receiver = Arc::new(Mutex::new(receiver));
         let generation = NEXT_WORKER_GENERATION.fetch_add(1, Ordering::SeqCst);
-        let mut slots = Vec::with_capacity(capacity);
+        let mut join_handles = Vec::with_capacity(executor_concurrency);
 
-        for slot_index in 0..capacity {
-            let (sender, receiver) = mpsc::channel::<WorkerJob>();
-            let idle = Arc::new(AtomicBool::new(true));
-            let slot_idle = idle.clone();
-            let slot_runtime = runtime.clone();
-            let slot_in_flight = in_flight.clone();
-            std::thread::Builder::new()
-                .name(format!("botster-plugin-worker-{generation}-{slot_index}"))
+        for worker_index in 0..executor_concurrency {
+            let worker_receiver = receiver.clone();
+            let worker_runtime = runtime.clone();
+            let worker_cancellations = cancellations.clone();
+            let worker_metrics = metrics.clone();
+            let join_handle = std::thread::Builder::new()
+                .name(format!("botster-plugin-worker-{generation}-{worker_index}"))
                 .spawn(move || {
-                    while let Ok(job) = receiver.recv() {
-                        let request_id = job.request.request_id.clone();
-                        let result = slot_runtime.invoke(job.request, job.cancellation);
-                        slot_in_flight
+                    let _liveness = WorkerLivenessGuard {
+                        metrics: worker_metrics.clone(),
+                    };
+                    loop {
+                        let job = worker_receiver
                             .lock()
-                            .expect("plugin worker in-flight mutex poisoned")
-                            .remove(&request_id);
-                        slot_idle.store(true, Ordering::SeqCst);
+                            .expect("plugin worker receiver mutex poisoned")
+                            .recv();
+                        let Ok(job) = job else {
+                            break;
+                        };
+                        let request_id = job.request.request_id.clone();
+                        worker_metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
+                        if job.cancellation.is_cancelled() {
+                            worker_cancellations
+                                .lock()
+                                .expect("plugin worker cancellations mutex poisoned")
+                                .remove(&request_id);
+                            continue;
+                        }
+                        worker_metrics.in_flight_jobs.fetch_add(1, Ordering::SeqCst);
+                        let in_flight = InFlightGuard {
+                            metrics: worker_metrics.clone(),
+                            cancellations: worker_cancellations.clone(),
+                            request_id,
+                        };
+                        let result = worker_runtime.invoke(job.request, job.cancellation);
                         let _ = job.result_sender.send(result);
+                        drop(in_flight);
                     }
                 })
                 .expect("spawn plugin worker thread");
-            slots.push(WorkerSlot { sender, idle });
+            join_handles.push(join_handle);
         }
 
         Self {
+            plugin_key,
             manifest: registration.manifest,
             runtime,
             handlers,
             descriptors,
             resources: Arc::new(Mutex::new(registration.resources)),
-            slots: Arc::new(slots),
-            in_flight,
+            executor: Arc::new(WorkerExecutor {
+                sender: Mutex::new(Some(sender)),
+                join_handles: Mutex::new(Some(join_handles)),
+                stopping: AtomicBool::new(false),
+                cancellations,
+                metrics,
+            }),
         }
     }
 
     fn dispatch(&self, job: WorkerJob) -> Result<(), WorkerDispatchError> {
         let plugin_key = job.request.handler.plugin_key.clone();
-
-        for slot in self.slots.iter() {
-            if slot
-                .idle
-                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                if slot.sender.send(job).is_ok() {
-                    return Ok(());
-                }
-                slot.idle.store(true, Ordering::SeqCst);
-                return Err(WorkerDispatchError {
-                    worker_stopped: true,
-                    plugin_key,
-                });
-            }
+        let sender = self
+            .executor
+            .sender
+            .lock()
+            .expect("plugin worker sender mutex poisoned");
+        if self.executor.stopping.load(Ordering::SeqCst) {
+            return Err(WorkerDispatchError {
+                worker_stopped: true,
+                plugin_key,
+            });
         }
 
-        Err(WorkerDispatchError {
-            worker_stopped: false,
-            plugin_key,
-        })
+        let Some(sender) = sender.as_ref() else {
+            return Err(WorkerDispatchError {
+                worker_stopped: true,
+                plugin_key,
+            });
+        };
+
+        self.executor
+            .metrics
+            .queued_jobs
+            .fetch_add(1, Ordering::SeqCst);
+        match sender.try_send(job) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.executor
+                    .metrics
+                    .queued_jobs
+                    .fetch_sub(1, Ordering::SeqCst);
+                Err(WorkerDispatchError {
+                    worker_stopped: matches!(error, mpsc::TrySendError::Disconnected(_)),
+                    plugin_key,
+                })
+            }
+        }
     }
 
     fn track_invocation(
@@ -438,24 +578,36 @@ impl WorkerState {
         request_id: crate::session::RequestId,
         cancellation: PluginCancellationToken,
     ) {
-        self.in_flight
+        self.executor
+            .cancellations
             .lock()
-            .expect("plugin worker in-flight mutex poisoned")
+            .expect("plugin worker cancellations mutex poisoned")
             .insert(request_id, cancellation);
     }
 
     fn finish_invocation(&self, request_id: &crate::session::RequestId) {
-        self.in_flight
+        self.executor
+            .cancellations
             .lock()
-            .expect("plugin worker in-flight mutex poisoned")
+            .expect("plugin worker cancellations mutex poisoned")
             .remove(request_id);
     }
 
-    fn cancel_all_in_flight(&self) {
-        let tokens = self
-            .in_flight
+    fn shutdown(&self) {
+        if self.executor.stopping.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        self.executor
+            .sender
             .lock()
-            .expect("plugin worker in-flight mutex poisoned")
+            .expect("plugin worker sender mutex poisoned")
+            .take();
+        let tokens = self
+            .executor
+            .cancellations
+            .lock()
+            .expect("plugin worker cancellations mutex poisoned")
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -463,19 +615,72 @@ impl WorkerState {
         for token in tokens {
             token.cancel();
         }
+        self.runtime.stop(&self.plugin_key);
+
+        let join_handles = self
+            .executor
+            .join_handles
+            .lock()
+            .expect("plugin worker join handles mutex poisoned")
+            .take()
+            .unwrap_or_default();
+        for join_handle in join_handles {
+            let _ = join_handle.join();
+        }
     }
 
-    fn depth(&self) -> usize {
-        self.in_flight
-            .lock()
-            .expect("plugin worker in-flight mutex poisoned")
-            .len()
+    fn queued_jobs(&self) -> usize {
+        self.executor.metrics.queued_jobs.load(Ordering::SeqCst)
+    }
+
+    fn debug_snapshot(&self) -> PluginWorkerPluginDebugSnapshot {
+        PluginWorkerPluginDebugSnapshot {
+            plugin_key: self.plugin_key.clone(),
+            live_executor_workers: self.executor.metrics.live_workers.load(Ordering::SeqCst),
+            queued_jobs: self.executor.metrics.queued_jobs.load(Ordering::SeqCst),
+            in_flight_jobs: self.executor.metrics.in_flight_jobs.load(Ordering::SeqCst),
+        }
     }
 }
 
-struct WorkerSlot {
-    sender: mpsc::Sender<WorkerJob>,
-    idle: Arc<AtomicBool>,
+struct WorkerExecutor {
+    sender: Mutex<Option<mpsc::SyncSender<WorkerJob>>>,
+    join_handles: Mutex<Option<Vec<JoinHandle<()>>>>,
+    stopping: AtomicBool,
+    cancellations: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
+    metrics: Arc<WorkerMetrics>,
+}
+
+struct WorkerMetrics {
+    live_workers: AtomicUsize,
+    queued_jobs: AtomicUsize,
+    in_flight_jobs: AtomicUsize,
+}
+
+struct WorkerLivenessGuard {
+    metrics: Arc<WorkerMetrics>,
+}
+
+impl Drop for WorkerLivenessGuard {
+    fn drop(&mut self) {
+        self.metrics.live_workers.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+struct InFlightGuard {
+    metrics: Arc<WorkerMetrics>,
+    cancellations: Arc<Mutex<HashMap<crate::session::RequestId, PluginCancellationToken>>>,
+    request_id: crate::session::RequestId,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.metrics.in_flight_jobs.fetch_sub(1, Ordering::SeqCst);
+        self.cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.request_id);
+    }
 }
 
 struct WorkerJob {

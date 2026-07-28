@@ -351,7 +351,8 @@ fn saturated_file_watch_runtime_does_not_block_plugin_worker_invocation() {
     };
     let runtime = FastRuntime::default();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
-        per_plugin_capacity: 1,
+        per_plugin_queue_capacity: 1,
+        per_plugin_executor_concurrency: 1,
     });
     engine.load_plugin(botster_core::PluginWorkerRegistration {
         load: botster_core::PluginLoadSpec {
