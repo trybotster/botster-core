@@ -88,8 +88,6 @@ fn plugin_manifest(plugin_key: &PluginKey) -> PackageManifest {
         host_profile: None,
         configuration: None,
         runnable_entrypoints: Vec::new(),
-        surfaces: Vec::new(),
-        navigation: Vec::new(),
     }
 }
 

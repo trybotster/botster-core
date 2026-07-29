@@ -18,7 +18,6 @@ pub mod session_protocol;
 pub mod terminal_metadata;
 pub mod terminal_screen;
 pub mod transport;
-pub mod ui;
 
 pub use actor::{
     BackpressureRoute, BackpressureSummary, BoundedQueueConfig, ClientConnectionHealth,
@@ -107,15 +106,3 @@ pub use terminal_screen::{
     TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use transport::{TransportEgress, TransportIngress};
-pub use ui::{
-    validate_ui_node_with_capabilities, UiAction, UiActionId, UiActionKind, UiActionRequest,
-    UiActionRequestId, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
-    UiCapabilityFallback, UiCapabilitySet, UiChild, UiColorToken, UiCondition, UiConditional,
-    UiDensity, UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
-    UiFieldValidationHints, UiFormValues, UiHeightClass, UiKeyboardCapability, UiMetricTrend,
-    UiMetricTrendDirection, UiNode, UiNodeId, UiNodeKind, UiOrientation, UiPointer,
-    UiResponsiveHeight, UiResponsiveValue, UiResponsiveWidth, UiSelection, UiSelectionMode,
-    UiSpaceToken, UiSurfaceId, UiTableCell, UiTableColumn, UiTableColumnAlign,
-    UiTableColumnDescriptor, UiTableRow, UiToolbarOverflow, UiTreeUpdateRef, UiValidationError,
-    UiVariant, UiViewport, UiWidthClass,
-};
