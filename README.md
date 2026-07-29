@@ -255,7 +255,7 @@ Most embedders should not start here:
 | `MultiplexerEngine` | Assembled lower-level primitive (session worker + subscription fanout + plugins + notifications). Used internally by facades; direct use is advanced |
 | `session_protocol` | Byte-frame constants and length-prefixed framing for process wire protocol |
 | Capability runtime modules | Plugin HTTP/filesystem/store/timer/watch mechanics — separate plane from session I/O |
-| Package / UI contracts | Portable manifest and UiNode shapes via `package` / `contract::ui`; hosts own policy and renderers |
+| Package contracts | Policy-free manifest, capability, dependency, configuration, and runnable-entrypoint shapes via `package` |
 | Flat crate-root re-exports | Compatibility imports for every public type; not the discovery path — use `prelude` or modules |
 
 ## Public surface migration notes
@@ -274,7 +274,7 @@ For new code and gradual cleanups:
 
 ## What core proves today
 
-- typed session, client, subscription, request, transport, entity, UI, package,
+- typed session, client, subscription, request, transport, entity, package,
   crypto, identity, notification, terminal snapshot, and plugin worker contracts
 - default local session path through `DefaultBotsterEngine` (and worker-backed
   variant) plus production supervision through `CoreDaemon`
@@ -312,43 +312,11 @@ reload.
 
 ## Package contracts (summary)
 
-Core owns portable package **shapes**, not product policy.
+Core owns policy-free package **shapes**, not product or presentation policy.
 
 - **Configuration** — optional `configuration` schema (fields, types, secret
   markers). Hubs own validation, persistence, and secret redaction. See
   `docs/examples/package-configuration-schema.json`.
-- **Surfaces** — `surfaces` list (`app`, `settings`, `dashboard_widget`,
-  `diagnostics`) with operations `render` / `action`. See
-  `docs/examples/package-surfaces.json`.
-- **Navigation** — top-level `navigation` entries targeting surfaces; no
-  order/pin/placement fields (hub/client own presentation).
-- **UiNode UI kernel primitives** — renderer-neutral fallback substrate:
-  `stack`, `inline`, form and field nodes, `scroll_area`, text/content nodes,
-  `empty_state`, `list` / `list_item`, `tree` / `tree_item`, `table`, actions,
-  menus, dialogs, and narrow input primitives. These are the stable UI kernel.
-- **UiNode app UI vocabulary** — shared product-shaped vocabulary:
-  `metric`, `metric_grid`, `toolbar`, `status_badge`, `section`, and `panel`.
-  These are portable contract shapes, but they are not the required fallback
-  substrate for unknown components.
-- **Toolbar action priority and overflow** — direct action children in a
-  toolbar's `actions` slot use declaration order as their priority. Optional
-  `toolbar_overflow` is `auto` by default, `never` expresses primary-placement
-  intent, and `always` places the action only in overflow. Under pressure,
-  renderers move `auto` actions from the end first. Even at impossible widths,
-  every action must remain reachable through a constrained-layout fallback,
-  and hidden or occluded actions must not remain hittable.
-- **UiNode custom UI escape hatch** — `custom` declares a package-owned
-  component with `namespace`, `component`, and `reason`, plus exactly one
-  static `fallback` slot. Recognizing renderers may consume package-owned
-  custom props; non-recognizing clients ignore those props and render the
-  fallback, which must be a standalone UI kernel primitive or sandboxed
-  `iframe`.
-- **Custom promotion rule** — promote custom → shared vocabulary only after
-  repeated multi-client need and consumer/conformance proof; do not promote
-  one package experiment because it is convenient.
-- **Iframe / runnable app escape** — `iframe` and `web_app` / `terminal_app`
-  runnable entrypoints remain the full custom-app escape when a package needs a
-  separate app surface. No raw HTML injection.
 - **Runnable entrypoints** — `web_app` / `terminal_app` launch vocabulary; hub
   owns launch policy. Required launch context is `hub_connection` plus
   `data_dir`; the portable Hub descriptor currently carries an exhaustive
@@ -409,10 +377,10 @@ for future hub, client, cloud, or plugin behavior.
 
 | Layer | Owns | Does not own |
 | --- | --- | --- |
-| Core | Reusable mechanisms and transport-neutral contracts; local PTY/worker path; `DefaultBotsterEngine` / `BotsterEngine`; session-process framing; plugin-worker mechanics; package/UI/entity/crypto shapes; sibling `CoreDaemon` supervisor crate | Product auth, config paths, marketplace, concrete WebRTC policy, renderer UI, workflow policy, async product supervision |
+| Core | Reusable mechanisms and transport-neutral contracts; local PTY/worker path; `DefaultBotsterEngine` / `BotsterEngine`; session-process framing; plugin-worker mechanics; policy-free package/capability/entity/crypto shapes; sibling `CoreDaemon` supervisor crate | Product auth, config paths, marketplace, concrete WebRTC policy, UI payloads and package presentation, workflow policy, async product supervision |
 | Hub | Runtime policy, lifecycle, routing, recovery, extension supervision as a first-party host profile | Raw terminal byte ownership (bytes flow through session/client data plane) |
 | CLI | Operator commands and process startup | Reusable protocol contracts or hub policy |
-| Client | Presentation, local input, transport adaptation, rendering of core UI/entity contracts | Session lifecycle policy or hub supervision |
+| Client | Presentation, local input, transport adaptation, and rendering of Hub-owned UI contracts | Session lifecycle policy or hub supervision |
 | Provider/plugin | Extension packages via manifests, entrypoints, granted capabilities | Implicit hub internals or marketplace policy |
 
 Proof anchors include `crates/botster-core/src/contract/boundary.rs`,
@@ -428,8 +396,7 @@ The following behavior does not belong in `botster-core`:
 - Rails/cloud/Auth implementation
 - concrete WebRTC negotiation policy
 - React/TUI rendering
-- UI contract is not a runtime plugin; `custom` is declarative data, not
-  renderer code loading or plugin callback execution
+- UI payload, package-surface/navigation, and presentation contracts
 - Project Pipelines/GitHub/Cloudflare product logic
 - legacy compatibility paths
 - device config files, OS keychain or file-fallback persistence, operator
@@ -447,38 +414,6 @@ focus, terminal input, resize, snapshot requests, scrollback, process exit,
 client health/state, session lifecycle, and backpressure. Every public
 actor/transport `BoundaryJson` use is classified with owner and reason metadata
 in `tests/actor_contract_test.rs`.
-
-### Custom UI escape hatch
-
-`UiNodeKind::Custom` is the UI-contract equivalent of an owner/reason-classified
-escape hatch. The owner is the `namespace`, the local component identity is
-`component`, and `reason` records why the node escaped the shared vocabulary. A
-recognizing renderer may consume additional package-owned props, including
-bindings. A non-recognizing renderer ignores those custom props and uses the
-fallback. Core validates the shape and path of a top-level `$bind` sentinel on
-a custom payload prop; nested values inside custom payloads are package-owned
-and must be kept well-formed by recognizing renderers.
-
-The fallback is a required named slot, not a JSON prop, so ordinary UiNode
-validation and renderer capability validation walk it wherever the custom node
-itself is reached through children or slots. Node-valued props such as
-`Table.empty_state` are structurally validated but not capability-walked; prefer
-slots over node-valued props for new node-containing semantics.
-
-The custom node is not a runtime plugin mechanism. It does not load component
-code, execute package callbacks, or bypass the plugin-worker supervisor
-boundary. Plugin-owned behavior continues to run behind package entrypoints,
-plugin workers, iframes, or runnable apps; the core UI contract only carries
-declarative structure and a portable fallback.
-
-No first-party renderer consumes `custom` yet; the current proof is the
-core-owned conformance fixture and downstream conformance helper. `botster-web`
-should be the first renderer to consume recognized custom components when
-package UI custom components are wired.
-
-`Custom` is a preserved core UI node kind. Public enums are not marked
-`#[non_exhaustive]` in this release, so downstream exhaustive matches must add a
-`Custom` arm when upgrading.
 
 ## Crypto and identity surface
 
@@ -558,7 +493,7 @@ Every extraction decision must be classified as **preserve**, **translate**, or
 
 Reusable contracts already in this crate: layer responsibility names,
 session/client/subscription/request identifiers, session-process protocol,
-transport-neutral frames, client liveness shapes, entity frames, UI node kinds,
+transport-neutral frames, client liveness shapes, entity frames, policy-free
 package manifests, capabilities, extension metadata, crypto/identity operation
 requests, engine facades, and daemon/worker durable vocabulary.
 
@@ -578,7 +513,7 @@ clients; workflows in plugins or providers.
 
 | Path | Verdict | Policy |
 | --- | --- | --- |
-| Transport-neutral identifiers, frames, entity/UI/package/capability/crypto contracts, engine and daemon mechanisms | preserve | Reusable core surface |
+| Transport-neutral identifiers, frames, entity/package/capability/crypto contracts, engine and daemon mechanisms | preserve | Reusable core surface |
 | `context.json` migration | drop | Hub/CLI migration policy if needed |
 | Legacy repo-cwd hub identity | drop | Ambient cwd is not hub identity |
 | Old forwarder terminology | translate | Terminal subscriptions, not `PtyForwarder` names |
@@ -586,7 +521,7 @@ clients; workflows in plugins or providers.
 | Direct snapshot helpers | translate | Session/client-worker owned snapshot frames only |
 | Hub-owned PTY relays | drop | Hub owns attach policy, not terminal byte delivery |
 | Product-specific UI refresh behavior | drop | Clients/plugins/hub policy |
-| Future `botster-ui-contract` extraction | translate | Only split on churn and consumer pressure, not ideology |
+| UI and package presentation contracts | translate | Hub-owned `botster-ui-contract`; no Core alias or forwarding path |
 
 ## License
 

@@ -76,8 +76,6 @@ fn runnable_manifest() -> PackageManifest {
                 readiness: None,
             },
         ],
-        surfaces: Vec::new(),
-        navigation: Vec::new(),
     }
 }
 

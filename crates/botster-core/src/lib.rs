@@ -32,10 +32,10 @@
 //! | Module | Role |
 //! | --- | --- |
 //! | [`prelude`] | Embedder start-here re-exports for the session lifecycle |
-//! | [`contract`] | Stable wire/UI/session/transport/entity contracts (`contract::*`) |
+//! | [`contract`] | Stable wire/session/transport/entity contracts (`contract::*`) |
 //! | [`engine`] | `BotsterEngine` facade and lower-level engines (advanced below the facade) |
 //! | [`runtime`] | `SessionRuntime` traits, spawn requests, optional local PTY adapters |
-//! | [`package`] | Package manifest, surfaces, host-profile admission helpers |
+//! | [`package`] | Package manifest and host-profile admission helpers |
 //! | [`identity`] | Crypto, device fingerprint, keyring primitives |
 //!
 //! # Features
@@ -58,6 +58,15 @@
 //! and the short root aliases for lower-level engine submodules
 //! (`multiplexer`, `session_worker`, `subscription_multiplexer`, …). Prefer
 //! [`prelude`] and the facade for ordinary embeds.
+//!
+//! # Presentation contracts live outside Core
+//!
+//! UI payloads and package surface/navigation contracts are owned by Hub and
+//! `botster-ui-contract`. They are intentionally unavailable from this crate:
+//!
+//! ```compile_fail
+//! use botster_core::{UiAction, UiNode};
+//! ```
 
 /// Curated start-here re-exports for spawn/attach/drain/input/shutdown embeds.
 pub mod prelude;
@@ -80,7 +89,7 @@ pub mod runtime;
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
     notification, routed_envelope, session, session_protocol, terminal_metadata, terminal_screen,
-    transport, ui,
+    transport,
 };
 
 /// Engine submodules. Prefer [`engine::BotsterEngine`] / `DefaultBotsterEngine`
@@ -94,8 +103,8 @@ pub use engine::{
 
 pub use identity::{crypto, device, keyring};
 pub use package::{
-    capability, configuration, dependency, extension, host_profile, manifest, navigation,
-    resolution, runnable_entrypoint, surface,
+    capability, configuration, dependency, extension, host_profile, manifest, resolution,
+    runnable_entrypoint,
 };
 
 // ---------------------------------------------------------------------------
@@ -235,15 +244,14 @@ pub use package::{
     PackageConfigurationSecretValue, PackageConfigurationValidationHints,
     PackageConfigurationValue, PackageDependency, PackageDependencyKind,
     PackageDependencyResolution, PackageFeatureGate, PackageFeatureResolution, PackageManifest,
-    PackageNavigationEntry, PackageNavigationTarget, PackageRequirement, PackageRequirementStatus,
-    PackageResolutionInput, PackageResolutionMatrix, PackageResolutionPackage,
-    PackageResolutionState, PackageSource, PackageSurfaceDescriptor, PackageSurfaceKind,
-    PackageSurfaceOperation, RunnableEntrypoint, RunnableEntrypointEnvironmentRequirement,
-    RunnableEntrypointHubConnection, RunnableEntrypointHubConnectionTransport,
-    RunnableEntrypointHubConnectionValidationError, RunnableEntrypointInjection,
-    RunnableEntrypointInjectionKind, RunnableEntrypointInjectionTarget, RunnableEntrypointKind,
-    RunnableEntrypointLaunchMode, RunnableEntrypointLaunchResult, RunnableEntrypointProcessState,
-    RunnableEntrypointReadiness, RunnableEntrypointResultField, RunnableEntrypointValidationError,
+    PackageRequirement, PackageRequirementStatus, PackageResolutionInput, PackageResolutionMatrix,
+    PackageResolutionPackage, PackageResolutionState, PackageSource, RunnableEntrypoint,
+    RunnableEntrypointEnvironmentRequirement, RunnableEntrypointHubConnection,
+    RunnableEntrypointHubConnectionTransport, RunnableEntrypointHubConnectionValidationError,
+    RunnableEntrypointInjection, RunnableEntrypointInjectionKind,
+    RunnableEntrypointInjectionTarget, RunnableEntrypointKind, RunnableEntrypointLaunchMode,
+    RunnableEntrypointLaunchResult, RunnableEntrypointProcessState, RunnableEntrypointReadiness,
+    RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
 pub use routed_envelope::{
@@ -277,15 +285,3 @@ pub use terminal_screen::{
     TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use transport::{TransportEgress, TransportIngress};
-pub use ui::{
-    validate_ui_node_with_capabilities, UiAction, UiActionId, UiActionKind, UiActionRequest,
-    UiActionRequestId, UiActionResult, UiActionResultState, UiBind, UiBindIf, UiBindList,
-    UiCapabilityFallback, UiCapabilitySet, UiChild, UiColorToken, UiCondition, UiConditional,
-    UiDensity, UiDialogPresentation, UiFieldErrors, UiFieldKind, UiFieldOption, UiFieldSchema,
-    UiFieldValidationHints, UiFormValues, UiHeightClass, UiIframeBridge, UiIframePermission,
-    UiIframeSandboxToken, UiKeyboardCapability, UiMetricTrend, UiMetricTrendDirection, UiNode,
-    UiNodeId, UiNodeKind, UiOrientation, UiPointer, UiResponsiveHeight, UiResponsiveValue,
-    UiResponsiveWidth, UiSelection, UiSelectionMode, UiSpaceToken, UiSurfaceId, UiTableCell,
-    UiTableColumn, UiTableColumnAlign, UiTableColumnDescriptor, UiTableRow, UiToolbarOverflow,
-    UiTreeUpdateRef, UiValidationError, UiVariant, UiViewport, UiWidthClass,
-};
