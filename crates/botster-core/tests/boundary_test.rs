@@ -95,8 +95,6 @@ fn provider_is_a_privileged_extension_package() {
         host_profile: None,
         configuration: None,
         runnable_entrypoints: Vec::new(),
-        surfaces: Vec::new(),
-        navigation: Vec::new(),
     };
 
     assert_eq!(manifest.kind, ExtensionKind::Provider);
@@ -138,48 +136,13 @@ fn readme_keeps_core_ban_list_explicit() {
         "Rails/cloud/Auth implementation",
         "concrete WebRTC negotiation policy",
         "React/TUI rendering",
-        "UI contract is not a runtime plugin",
+        "UI payload, package-surface/navigation, and presentation contracts",
         "Project Pipelines/GitHub/Cloudflare product logic",
         "legacy compatibility paths",
     ] {
         assert!(
             readme.contains(banned_surface),
             "README.md must explicitly ban {banned_surface} from botster-core"
-        );
-    }
-}
-
-#[test]
-fn readme_documents_ui_kernel_app_custom_escape_hatch_boundaries() {
-    let readme = readme();
-
-    for anchor in [
-        "UiNode UI kernel primitives",
-        "UiNode app UI vocabulary",
-        "UiNode custom UI escape hatch",
-        "namespace",
-        "component",
-        "reason",
-        "fallback",
-        "package-owned props",
-        "non-recognizing clients ignore those props",
-        "Custom promotion rule",
-        "repeated multi-client need",
-        "consumer/conformance proof",
-        "Iframe / runnable app escape",
-        "No raw HTML injection",
-        "### Custom UI escape hatch",
-        "not a runtime plugin mechanism",
-        "plugin-worker supervisor",
-        "Node-valued props such as",
-        "not capability-walked",
-        "No first-party renderer consumes `custom` yet",
-        "botster-web",
-        "downstream exhaustive matches must add a",
-    ] {
-        assert!(
-            readme.contains(anchor),
-            "README.md must document UI contract boundary anchor: {anchor}"
         );
     }
 }
@@ -219,8 +182,7 @@ fn readme_documents_extraction_compatibility_decision_rules() {
     assert!(readme.contains("there is no defer category."));
     assert!(policy.contains("reusable core surface"));
     assert!(policy.contains("botster-ui-contract"));
-    assert!(policy.contains("churn and consumer pressure"));
-    assert!(policy.contains("not ideology"));
+    assert!(policy.contains("no core alias or forwarding path"));
 }
 
 #[test]
@@ -230,7 +192,7 @@ fn readme_classifies_preserved_core_contract_families() {
     for contract in [
         "transport-neutral identifiers",
         "frames",
-        "entity/ui/package/capability/crypto contracts",
+        "entity/package/capability/crypto contracts",
         "engine and daemon mechanisms",
     ] {
         assert!(
@@ -269,6 +231,11 @@ fn source_does_not_reintroduce_legacy_public_api_names() {
         "StopForwarder",
         "create_pty_forwarder",
         "snapshot_and_subscribe",
+        "pub struct UiNode",
+        "pub struct UiAction",
+        "pub mod ui",
+        "PackageSurfaceDescriptor",
+        "PackageNavigationEntry",
     ];
 
     for path in rust_source_files(Path::new("src")) {

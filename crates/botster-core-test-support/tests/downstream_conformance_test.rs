@@ -36,10 +36,6 @@ use botster_core_test_support::conformance::{
 use botster_core_test_support::fake::{
     FakeCapabilityRuntime, FakePluginStoreBackend, FakeSessionTransport, FakeTerminalScreenRuntime,
 };
-use botster_core_test_support::ui_conformance::{
-    assert_ui_renderer_conformance_fixture, assert_ui_renderer_conformance_fixtures,
-    ui_renderer_conformance_fixtures,
-};
 
 fn session_id() -> SessionId {
     SessionId("session-consumer".to_string())
@@ -227,109 +223,6 @@ fn downstream_consumer_can_assert_initial_snapshot_before_live_output_contract()
         &events[1],
         SessionIoEvent::TerminalBytes { data, .. } if data == b"live-before-snapshot\xff"
     ));
-}
-
-#[test]
-fn downstream_consumer_can_import_ui_renderer_conformance_helpers() {
-    assert_ui_renderer_conformance_fixtures();
-
-    let fixtures = ui_renderer_conformance_fixtures();
-    assert!(
-        fixtures.iter().any(|fixture| fixture.name == "bindings"),
-        "fixture set should include binding grammar coverage"
-    );
-    assert!(
-        fixtures
-            .iter()
-            .any(|fixture| fixture.name == "responsive_fallbacks"),
-        "fixture set should include capability downgrade coverage"
-    );
-    assert!(
-        fixtures
-            .iter()
-            .any(|fixture| fixture.name == "application_dashboard"),
-        "fixture set should include application dashboard coverage"
-    );
-    assert!(
-        fixtures
-            .iter()
-            .any(|fixture| fixture.name == "custom_fallback"),
-        "fixture set should include custom fallback coverage"
-    );
-}
-
-#[test]
-fn downstream_consumer_preserves_ordered_toolbar_overflow_intent() {
-    let fixture = ui_renderer_conformance_fixtures()
-        .into_iter()
-        .find(|fixture| fixture.name == "application_dashboard")
-        .expect("application dashboard fixture should exist");
-    let value = serde_json::to_value(&fixture.nodes[0]).expect("serialize dashboard fixture");
-    let root: botster_core::ui::UiNode =
-        serde_json::from_value(value).expect("deserialize dashboard fixture");
-
-    let toolbar = match &root.slots["toolbar"][0] {
-        botster_core::ui::UiChild::Node(node) => node,
-        other => panic!("expected toolbar node, got {other:?}"),
-    };
-    let actions = toolbar
-        .slots
-        .get("actions")
-        .expect("toolbar actions slot should exist");
-    let ordered = actions
-        .iter()
-        .map(|child| match child {
-            botster_core::ui::UiChild::Node(node) => (
-                node.id.as_ref().expect("toolbar action id").0.as_str(),
-                node.props
-                    .get("toolbar_overflow")
-                    .and_then(serde_json::Value::as_str)
-                    .expect("toolbar overflow intent"),
-            ),
-            other => panic!("expected direct toolbar action node, got {other:?}"),
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        ordered,
-        vec![
-            ("create-ticket", "never"),
-            ("refresh-status", "auto"),
-            ("archive-ticket", "always"),
-        ]
-    );
-}
-
-#[test]
-fn downstream_consumer_can_run_one_ui_renderer_fixture() {
-    let fixture = ui_renderer_conformance_fixtures()
-        .into_iter()
-        .find(|fixture| fixture.name == "action_metadata")
-        .expect("action metadata fixture should exist");
-
-    assert_ui_renderer_conformance_fixture(&fixture);
-    assert_eq!(fixture.action_requests.len(), 1);
-    assert_eq!(fixture.action_results.len(), 1);
-}
-
-#[test]
-fn downstream_consumer_can_run_custom_fallback_ui_fixture() {
-    let fixture = ui_renderer_conformance_fixtures()
-        .into_iter()
-        .find(|fixture| fixture.name == "custom_fallback")
-        .expect("custom fallback fixture should exist");
-
-    assert_ui_renderer_conformance_fixture(&fixture);
-    let custom = fixture.nodes.first().expect("custom node fixture");
-    assert_eq!(custom.kind, botster_core::ui::UiNodeKind::Custom);
-    assert_eq!(
-        custom.custom_fallback().expect("custom fallback").kind,
-        botster_core::ui::UiNodeKind::Stack
-    );
-    assert_eq!(
-        custom.props.get("ticket_id"),
-        Some(&serde_json::json!("ticket_1"))
-    );
 }
 
 #[test]

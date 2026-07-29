@@ -53,8 +53,6 @@ fn provider_manifest() -> PackageManifest {
         host_profile: Some(host_profile_metadata(vec![capability])),
         configuration: None,
         runnable_entrypoints: Vec::new(),
-        surfaces: Vec::new(),
-        navigation: Vec::new(),
     }
 }
 

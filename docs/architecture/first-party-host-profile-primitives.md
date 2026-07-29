@@ -56,8 +56,8 @@ in the host, hub, provider, or plugin.
   snapshot, scoped snapshot, upsert, patch, and remove operations, with
   validation for reserved built-ins and plugin-namespaced entity families. That
   is enough for a host profile to require product plugins to publish dynamic
-  state through entity families instead of smuggling records through UI
-  snapshots.
+  state through entity families instead of smuggling records through
+  presentation payloads.
 - Notifications are transport-neutral and can be policy-shaped by the host.
   `crates/botster-core/src/contract/notification.rs` defines notification
   targets, severity, source metadata, actions, content, expiry, delivery
@@ -107,10 +107,11 @@ requirements.
   `ExtensionRuntime`, `ExtensionEntrypoint`, `PackageSource`, and capabilities
   are sufficient to describe providers and plugins, but not to resolve a live
   registry, choose the active provider, or arbitrate conflicting providers.
-- Notification, entity, and UI action policies are not host-profile policies in
-  core. Core defines typed frames and inbox mechanics; the profile must still
-  decide presentation, routing, acknowledgement, filtering, retention, and
-  workflow-specific meanings outside core.
+- Notification, entity, and plugin-action policies are not host-profile policies
+  in core. Core defines typed frames, inbox mechanics, and generic worker-routing
+  kinds; the profile must still decide UI payloads, presentation, routing,
+  acknowledgement, filtering, retention, and workflow-specific meanings outside
+  core.
 
 ## Unsafe escape hatches to keep constrained
 
