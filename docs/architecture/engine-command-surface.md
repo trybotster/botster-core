@@ -6,6 +6,11 @@
 
 Core commands are mechanisms, not product actions. Hosts provide explicit ids, commands, working directories, environment, timestamps, subscription ids, and request ids. Hosts also own executors, queues, transport delivery, persistence, config discovery, auth, cloud/WebRTC/signaling, marketplace/update policy, CLI UX, Rails relay behavior, TUI/browser rendering, provider policy, and Project Pipelines workflow policy.
 
+UI payloads and package surface/navigation contracts live in the Hub-owned
+`botster-ui-contract`; Core retains only generic plugin-worker routing kinds
+such as `UiAction` and `SurfaceRoute`, whose request/response payloads are
+opaque to Core.
+
 Related: [`core-daemon.md`](core-daemon.md), [`durable-session-worker-protocol.md`](durable-session-worker-protocol.md).
 
 ## Commands

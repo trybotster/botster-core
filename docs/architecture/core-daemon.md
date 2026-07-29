@@ -260,8 +260,9 @@ and acknowledge `NotificationItem` values by `NotificationTarget`. Routed
 envelope methods publish, drain with cursor and limit semantics, acknowledge one
 target copy, and report delivery state for `RoutedEnvelope` values. These APIs
 are generic multiplexer coordination primitives; they do not define product
-workflow terms, message semantics, auth policy, retention policy, or UI
-presentation.
+workflow terms, message semantics, auth policy, retention policy, UI payloads,
+package surface/navigation contracts, or presentation. Those contracts belong
+to Hub and `botster-ui-contract`.
 
 `CoreDaemon` owns this notification and routed-envelope state directly instead
 of delegating it to the session engine. That keeps behavior identical for plain
