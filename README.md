@@ -171,6 +171,13 @@ guarded writes). Prefer those methods over assembling lower-level engines.
 Production hosts that maintain a session projection start with
 `CoreDaemon::lifecycle_baseline`, retain its source-generation cursor, and call
 `CoreDaemon::lifecycle_changes` after their normal daemon progress/drain work.
+Each lifecycle row includes the opaque, host-owned `CoreSessionMetadata` map
+supplied at spawn. The daemon persists that map in its registry and restores it
+when adopting a worker, so reconnecting hosts can rebuild their own session
+classification without a parallel metadata store. Core serializes the map but
+does not define its keys; hosts remain responsible for the existing size and
+no-PII constraints. The standalone Core daemon CLI supplies an empty map by
+design because Core owns no host taxonomy.
 Changes are ordered and replayed from a bounded in-memory journal. A cursor
 from another daemon generation, ahead of the source, or older than retained
 history returns an explicit resync reason and no partial suffix; fetch a fresh

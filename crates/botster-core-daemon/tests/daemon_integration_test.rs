@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+use std::collections::BTreeMap;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -17,16 +18,17 @@ use botster_core::{
     RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
     SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalAttachState, TransportEgress,
+    TerminalAttachState, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
-    CoreDaemon, CoreDaemonConfig, CoreDaemonError, DrainNotificationsRequest,
+    CoreDaemon, CoreDaemonConfig, CoreDaemonError, DaemonSession, DrainNotificationsRequest,
     DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
     GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest,
     ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
-    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleChangeKind,
-    SessionLifecycleResyncReason, SpawnSessionRequest,
+    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SpawnSessionRequest,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -2601,30 +2603,60 @@ fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync()
 fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
     let data_dir = temp_data_dir("lifecycle-source-restart");
     let session_id = SessionId("lcr".to_string());
+    let metadata = CoreSessionMetadata::from_entries(BTreeMap::from([
+        ("host.example/class".to_string(), "interactive".to_string()),
+        ("host.example/source".to_string(), "embedded".to_string()),
+    ]));
+    let mut projection = BTreeMap::new();
     let old_cursor = {
         let mut daemon =
             CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
-        let baseline = daemon
-            .lifecycle_baseline()
-            .expect("first-generation baseline");
-        daemon
-            .spawn(spawn_request(&session_id), 10)
+        let baseline = serialized_lifecycle_baseline(
+            &daemon
+                .lifecycle_baseline()
+                .expect("first-generation baseline"),
+        );
+        replace_lifecycle_projection(&mut projection, &baseline);
+        let mut request = spawn_request(&session_id);
+        request.metadata = metadata.clone();
+        let spawned = daemon
+            .spawn(request, 10)
             .expect("first generation should spawn worker");
-        let cursor = daemon.lifecycle_changes(&baseline.cursor).cursor;
+        assert_eq!(spawned.metadata, metadata);
+        let running = serialized_lifecycle_changes(&daemon.lifecycle_changes(&baseline.cursor));
+        apply_lifecycle_changes(&mut projection, &running);
+        assert_eq!(
+            projection
+                .get(&session_id.0)
+                .expect("spawn upsert should populate consumer projection")
+                .metadata,
+            metadata
+        );
+        let current = serialized_lifecycle_baseline(
+            &daemon
+                .lifecycle_baseline()
+                .expect("current first-generation baseline"),
+        );
+        assert_eq!(current.sessions[0].metadata, metadata);
+        let cursor = running.cursor;
         daemon.release_for_restart();
         cursor
     };
 
     let mut restarted =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
-    let restarted_baseline = restarted
-        .lifecycle_baseline()
-        .expect("restart baseline should expose durable registry truth");
+    let restarted_baseline = serialized_lifecycle_baseline(
+        &restarted
+            .lifecycle_baseline()
+            .expect("restart baseline should expose durable registry truth"),
+    );
+    replace_lifecycle_projection(&mut projection, &restarted_baseline);
     assert_eq!(restarted_baseline.sessions.len(), 1);
     assert_eq!(
         restarted_baseline.sessions[0].session.session_id,
         session_id
     );
+    assert_eq!(restarted_baseline.sessions[0].metadata, metadata);
     assert!(restarted_baseline.sessions[0].lifecycle.is_none());
     let foreign = restarted.lifecycle_changes(&old_cursor);
     assert!(foreign.changes.is_empty());
@@ -2633,10 +2665,13 @@ fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
         Some(SessionLifecycleResyncReason::SourceChanged)
     );
 
-    restarted
+    let adopted_session = restarted
         .adopt_session(&session_id, 12)
         .expect("fresh daemon should adopt from real worker protocol evidence");
-    let adopted = restarted.lifecycle_changes(&restarted_baseline.cursor);
+    assert_eq!(adopted_session.metadata, metadata);
+    let adopted =
+        serialized_lifecycle_changes(&restarted.lifecycle_changes(&restarted_baseline.cursor));
+    apply_lifecycle_changes(&mut projection, &adopted);
     assert_eq!(adopted.changes.len(), 1);
     assert!(matches!(
         &adopted.changes[0].kind,
@@ -2644,15 +2679,26 @@ fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
             if record.session.session_id == session_id
                 && record.session.registry_state == RegistrySessionState::Running
                 && matches!(record.lifecycle, Some(SessionLifecycleState::Running))
+                && record.metadata == metadata
     ));
-    assert_eq!(
-        restarted
+    let post_adoption = serialized_lifecycle_baseline(
+        &restarted
             .lifecycle_baseline()
-            .expect("post-adoption baseline")
-            .sessions
-            .len(),
+            .expect("post-adoption baseline"),
+    );
+    assert_eq!(
+        post_adoption.sessions.len(),
         1,
         "adoption must not fabricate a duplicate session"
+    );
+    assert_eq!(post_adoption.sessions[0].metadata, metadata);
+    assert_eq!(projection.len(), 1);
+    assert_eq!(
+        projection
+            .get(&session_id.0)
+            .expect("adoption upsert should update the same projected row")
+            .metadata,
+        metadata
     );
 
     restarted
@@ -2661,6 +2707,105 @@ fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
     assert!(restarted
         .remove_session(&session_id)
         .expect("adopted terminal worker should be removable"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn metadata_free_registry_and_lifecycle_json_default_to_empty_metadata() {
+    let registry_record = botster_core_daemon::RegistryRecord::running(
+        SessionId("legacy-registry".to_string()),
+        None,
+        ResizePayload { rows: 24, cols: 80 },
+        "sh".to_string(),
+        1,
+    );
+    let mut registry_json = serde_json::to_value(&registry_record).expect("serialize registry");
+    registry_json
+        .as_object_mut()
+        .expect("registry JSON object")
+        .remove("metadata");
+    let decoded_registry: botster_core_daemon::RegistryRecord =
+        serde_json::from_value(registry_json).expect("decode legacy registry JSON");
+    assert_eq!(decoded_registry.metadata, CoreSessionMetadata::new());
+
+    let lifecycle_record = SessionLifecycleRecord {
+        session: DaemonSession::from(&registry_record),
+        metadata: CoreSessionMetadata::new(),
+        lifecycle: None,
+    };
+    let mut lifecycle_json =
+        serde_json::to_value(&lifecycle_record).expect("serialize lifecycle record");
+    lifecycle_json
+        .as_object_mut()
+        .expect("lifecycle JSON object")
+        .remove("metadata");
+    let decoded_lifecycle: SessionLifecycleRecord =
+        serde_json::from_value(lifecycle_json).expect("decode legacy lifecycle JSON");
+    assert_eq!(decoded_lifecycle.metadata, CoreSessionMetadata::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn oversized_persisted_metadata_fails_adoption_without_mutation_or_upsert() {
+    let data_dir = temp_data_dir("oversized-adoption-metadata");
+    let session_id = SessionId("oversized-adoption".to_string());
+    {
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("spawn worker before editing persisted metadata");
+        daemon.release_for_restart();
+    }
+
+    let record_path = data_dir.join("sessions").join("oversized-adoption.json");
+    let valid_record = fs::read(&record_path).expect("read valid registry record for cleanup");
+    let mut record: botster_core_daemon::RegistryRecord =
+        serde_json::from_slice(&valid_record).expect("decode persisted registry record");
+    record.metadata = CoreSessionMetadata::from_entries(BTreeMap::from([(
+        "host.example/oversized".to_string(),
+        "x".repeat(MAX_CORE_SESSION_METADATA_LEN + 1),
+    )]));
+    fs::write(
+        &record_path,
+        serde_json::to_vec_pretty(&record).expect("encode oversized registry record"),
+    )
+    .expect("write oversized registry record");
+    let oversized_record = fs::read(&record_path).expect("read oversized registry bytes");
+
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let cursor = restarted
+        .lifecycle_baseline()
+        .expect("baseline before failed adoption")
+        .cursor;
+    let error = restarted
+        .adopt_session(&session_id, 12)
+        .expect_err("oversized persisted metadata must fail loudly");
+    assert!(matches!(
+        error,
+        CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Multiplexer(
+            botster_core::MultiplexerEngineError::MetadataTooLarge
+        ))
+    ));
+    assert_eq!(
+        fs::read(&record_path).expect("read registry after failed adoption"),
+        oversized_record,
+        "failed adoption must not mutate persisted metadata"
+    );
+    assert!(restarted.lifecycle_changes(&cursor).changes.is_empty());
+
+    restarted.release_for_restart();
+    drop(restarted);
+    fs::write(&record_path, valid_record).expect("restore valid registry for worker cleanup");
+    let mut cleanup =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    cleanup
+        .adopt_session(&session_id, 13)
+        .expect("restored record should remain adoptable for cleanup");
+    cleanup
+        .shutdown(Some(session_id.clone()), 14)
+        .expect("cleanup adopted worker");
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -3238,6 +3383,51 @@ fn adoptable_record(
         now_seconds + 1,
     );
     record
+}
+
+fn serialized_lifecycle_baseline(baseline: &SessionLifecycleBaseline) -> SessionLifecycleBaseline {
+    serde_json::from_slice(
+        &serde_json::to_vec(baseline).expect("serialize lifecycle baseline for consumer"),
+    )
+    .expect("deserialize lifecycle baseline for consumer")
+}
+
+fn serialized_lifecycle_changes(changes: &SessionLifecycleChanges) -> SessionLifecycleChanges {
+    serde_json::from_slice(
+        &serde_json::to_vec(changes).expect("serialize lifecycle changes for consumer"),
+    )
+    .expect("deserialize lifecycle changes for consumer")
+}
+
+fn replace_lifecycle_projection(
+    projection: &mut BTreeMap<String, SessionLifecycleRecord>,
+    baseline: &SessionLifecycleBaseline,
+) {
+    projection.clear();
+    projection.extend(
+        baseline
+            .sessions
+            .iter()
+            .cloned()
+            .map(|record| (record.session.session_id.0.clone(), record)),
+    );
+}
+
+fn apply_lifecycle_changes(
+    projection: &mut BTreeMap<String, SessionLifecycleRecord>,
+    changes: &SessionLifecycleChanges,
+) {
+    for change in &changes.changes {
+        match &change.kind {
+            SessionLifecycleChangeKind::Upsert { record } => {
+                projection.insert(record.session.session_id.0.clone(), record.clone());
+            }
+            SessionLifecycleChangeKind::Removed { session_id } => {
+                projection.remove(&session_id.0);
+            }
+            _ => {}
+        }
+    }
 }
 
 fn drain_until(

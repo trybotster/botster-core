@@ -9,8 +9,11 @@ Session workers still own PTYs and terminal/session evidence. The daemon
 records only non-sensitive metadata needed for discovery and adoption: session
 id, process identity, lifecycle state, terminal size, protocol version,
 handshake/liveness booleans, optional recovery identity, timestamps, and a
-scrubbed command label. It does not persist PTY bytes, scrollback, credentials,
-auth state, workflow records, or product routing policy. A registry record is
+scrubbed command label. It also persists the opaque host-owned string map from
+`CoreSessionMetadata`, subject to Core's existing encoded-size limit. Core does
+not interpret or define that map's keys, and hosts remain responsible for
+excluding PII. It does not persist PTY bytes, scrollback, credentials, auth
+state, workflow records, or product routing policy. A registry record is
 adoptable only after the daemon has observed the session-worker restart
 contract: HELLO/WELCOME protocol negotiation, FRAME_PING/PONG liveness support,
 and `SessionMetadata.recovery_identity`. Local in-process spawns that have not
@@ -70,11 +73,20 @@ and pending drains before publishing the lifecycle `Removed` change.
 Hosts that maintain a session projection use the public `CoreDaemon` lifecycle
 source instead of repeatedly polling `list()`. `lifecycle_baseline()` returns
 registry rows in deterministic `SessionId` order plus a watermark cursor. Each
-row carries durable `DaemonSession` facts and, when this daemon currently owns
-or adopted the runtime, its in-memory `SessionLifecycleState`. A fresh daemon
-can therefore expose durable registry truth before adoption without fabricating
-live runtime evidence; successful adoption later publishes a `Running` upsert
-for the same stable session id.
+row carries durable `DaemonSession` facts, the exact opaque host metadata from
+the authoritative registry record, and, when this daemon currently owns or
+adopted the runtime, its in-memory `SessionLifecycleState`. A fresh daemon can
+therefore expose durable registry truth and host metadata before adoption
+without fabricating live runtime evidence; successful adoption restores that
+metadata into `CoreSession` and later publishes a `Running` upsert for the same
+stable session id. Older registry and lifecycle JSON without the field decodes
+to an empty map.
+
+Adoption revalidates persisted metadata against Core's current size cap. An
+oversized or hand-edited map fails adoption with `MetadataTooLarge`; the daemon
+does not truncate it, replace it with an empty map, mutate the registry record,
+or publish a successful adoption upsert. A future cap reduction therefore
+requires an explicit compatibility or migration decision for older records.
 
 Each cursor contains an opaque daemon source-generation id and a strictly
 monotonic sequence. Spawn, adoption, material registry-row updates, lifecycle
