@@ -114,7 +114,7 @@ commit is reachable from a downstream tag that does not match Ghostty's
 fork's `build.zig.zon` version and avoids coupling adapter builds to local git
 tag discovery.
 
-`cli/build_support.rs` requires Zig `0.15.2` and resolves candidates from
+`crates/botster-terminal-ghostty/build_support.rs` requires Zig `0.16.0` and resolves candidates from
 `BOTSTER_ZIG`, `ZIG`, a mise-managed Zig install, `zig` from `PATH`, and
 `mise exec -- zig`. The adapter preserves this explicit tool
 selection model, while avoiding machine-specific paths in docs and errors.
@@ -135,7 +135,7 @@ The current fork exposes `libghostty-vt` as both shared and static build
 artifacts. `build.zig` installs shared `ghostty-vt` and static
 `ghostty-vt-static`, and dependency consumers can request
 `dep.artifact("ghostty-vt-static")`. `build.zig.zon` identifies the fork as
-`1.3.2-dev` and requires Zig `0.15.2`.
+`1.3.2-dev` and requires Zig `0.16.0`.
 
 The C API in `include/ghostty/vt/terminal.h` exposes the first-slice calls the
 adapter needs:
@@ -253,7 +253,7 @@ Current crate shape:
 Build constraints to preserve:
 
 - initialize the vendored Ghostty checkout before running integration builds;
-- require Zig `0.15.2` until the fork moves;
+- require Zig `0.16.0`;
 - include `-Demit-lib-vt`, `-Doptimize=ReleaseFast`, `-Dsimd=false`, and
   `-Dcpu=baseline`;
 - pass `-Dversion-string=1.3.2-dev` for the pinned fork commit so Ghostty's
