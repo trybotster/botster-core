@@ -37,7 +37,7 @@ from the same `GhosttyTerminal` handle through
 (`crates/botster-terminal-ghostty/src/lib.rs:358-393,553-575`).
 
 The native test passed with the initialized pinned submodule and mise Zig
-0.15.2:
+0.16.0:
 
 ```text
 cargo test -p botster-terminal-ghostty --features libghostty-vt mouse_mode
