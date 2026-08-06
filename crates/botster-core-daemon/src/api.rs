@@ -56,6 +56,9 @@ pub struct SessionLifecycleCursor {
 pub struct SessionLifecycleRecord {
     /// Durable daemon registry facts.
     pub session: DaemonSession,
+    /// Opaque host-owned metadata persisted with the registry row.
+    #[serde(default)]
+    pub metadata: CoreSessionMetadata,
     /// In-memory core lifecycle state when this daemon owns or adopted the session.
     ///
     /// A fresh daemon may have registry facts before it has adopted a live worker,

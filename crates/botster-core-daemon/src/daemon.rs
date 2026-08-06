@@ -249,6 +249,7 @@ impl CoreDaemon {
             label,
             now_seconds,
         );
+        record.metadata = spawn.session.metadata.clone();
         if let Some(metadata) = self.engine.worker_metadata(&record.session_id) {
             if let Some(identity) = metadata.recovery_identity.clone() {
                 record.observe_restart_contract(identity, now_seconds);
@@ -801,7 +802,7 @@ impl CoreDaemon {
             session_id.clone(),
             process,
             socket_path,
-            botster_core::CoreSessionMetadata::new(),
+            record.metadata.clone(),
         )?;
         if let Some(mut record) = self.registry.load(session_id)? {
             record.mark(RegistrySessionState::Running, now_seconds);
@@ -1165,6 +1166,7 @@ impl CoreDaemon {
     fn lifecycle_record(&self, record: &RegistryRecord) -> SessionLifecycleRecord {
         SessionLifecycleRecord {
             session: DaemonSession::from(record),
+            metadata: record.metadata.clone(),
             lifecycle: self
                 .engine
                 .session(&record.session_id)
@@ -1187,6 +1189,7 @@ impl CoreDaemon {
         self.append_lifecycle_change(SessionLifecycleChangeKind::Upsert {
             record: SessionLifecycleRecord {
                 session: DaemonSession::from(record),
+                metadata: record.metadata.clone(),
                 lifecycle,
             },
         });

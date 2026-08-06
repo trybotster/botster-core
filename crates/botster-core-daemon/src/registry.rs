@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use botster_core::{ProcessIdentity, ResizePayload, SessionId};
+use botster_core::{CoreSessionMetadata, ProcessIdentity, ResizePayload, SessionId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -27,6 +27,9 @@ pub enum RegistrySessionState {
 pub struct RegistryRecord {
     /// Session id.
     pub session_id: SessionId,
+    /// Opaque host-owned metadata retained for lifecycle projection and adoption.
+    #[serde(default)]
+    pub metadata: CoreSessionMetadata,
     /// Durable state.
     pub state: RegistrySessionState,
     /// Process identity when known.
@@ -66,6 +69,7 @@ impl RegistryRecord {
     ) -> Self {
         Self {
             session_id,
+            metadata: CoreSessionMetadata::new(),
             state: RegistrySessionState::Running,
             process,
             rows: size.rows,
