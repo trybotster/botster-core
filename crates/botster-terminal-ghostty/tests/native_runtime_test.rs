@@ -55,6 +55,89 @@ fn resize_maps_terminal_screen_size_to_ghostty() {
     assert_eq!(runtime.last_error(), None);
 }
 
+/// Upstream's snapshot envelope magic. Botster treats the payload as opaque,
+/// but the magic pins that exports really are upstream `GHOSTSNP` frames and
+/// not a fork format or an empty error path.
+const GHOSTSNP_MAGIC: &[u8] = b"GHOSTSNP";
+
+#[test]
+fn exported_snapshot_carries_the_upstream_ghostsnp_envelope() {
+    let mut source = runtime();
+    source.write_output(b"envelope check");
+
+    let bytes = source
+        .export_snapshot_bytes()
+        .expect("export Ghostty snapshot bytes");
+
+    assert!(
+        bytes.starts_with(GHOSTSNP_MAGIC),
+        "snapshot must begin with the upstream GHOSTSNP magic, got: {:?}",
+        &bytes[..bytes.len().min(GHOSTSNP_MAGIC.len())]
+    );
+    // 8-byte magic plus the u16 format version that follows it.
+    assert!(
+        bytes.len() > GHOSTSNP_MAGIC.len() + 2,
+        "snapshot must carry a version and body after the magic"
+    );
+}
+
+#[test]
+fn snapshot_encodes_while_the_parser_is_mid_sequence() {
+    let mut source = runtime();
+    source.write_output(b"before unfinished");
+    // Leave an SGR sequence unterminated. Without continuation tracking armed
+    // at terminal creation, upstream rejects this encode with INVALID_VALUE,
+    // so this fails if continuation is ever moved to the encode call site.
+    source.write_output(b"\x1b[31");
+
+    let bytes = source
+        .export_snapshot_bytes()
+        .expect("export must succeed with an unfinished VT sequence pending");
+
+    assert!(bytes.starts_with(GHOSTSNP_MAGIC));
+}
+
+#[test]
+fn imported_terminal_can_re_export_while_mid_sequence() {
+    let mut source = runtime();
+    source.write_output(b"restored re-export");
+    let snapshot = source.export_snapshot().expect("export Ghostty snapshot");
+
+    let mut restored = runtime();
+    restored
+        .import_snapshot(&snapshot)
+        .expect("import Ghostty snapshot");
+
+    // A decoded terminal comes back with continuation tracking disabled. If the
+    // wrapper does not re-arm it after import, this second export fails.
+    restored.write_output(b"\x1b[31");
+    let re_exported = restored
+        .export_snapshot_bytes()
+        .expect("restored terminal must re-export with continuation re-armed");
+
+    assert!(re_exported.starts_with(GHOSTSNP_MAGIC));
+    assert_eq!(restored.last_error(), None);
+}
+
+#[test]
+fn failed_import_leaves_the_existing_terminal_usable() {
+    let mut runtime = runtime();
+    runtime.write_output(b"surviving text");
+
+    let invalid = TerminalSnapshotPayload::new(
+        b"not a ghostty snapshot".to_vec(),
+        TerminalScreenSize::new(24, 80),
+        Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
+    );
+
+    assert!(runtime.import_snapshot(&invalid).is_err());
+    // The handle swap happens only after a successful decode, so the original
+    // terminal must still be intact and usable.
+    assert!(runtime.screen_state().plain_text.contains("surviving text"));
+    runtime.write_output(b" and more");
+    assert!(runtime.screen_state().plain_text.contains("and more"));
+}
+
 #[test]
 fn snapshot_round_trips_through_opaque_payload() {
     let mut source = runtime();

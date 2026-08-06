@@ -13,17 +13,20 @@ git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty
 cargo test -p botster-terminal-ghostty --features libghostty-vt
 ```
 
-The vendored source is the trybotster Ghostty fork at commit
-`76853b34274208fe7c051cfe13eb1c7ee63c469b`. The fork is needed for
-`libghostty-vt` snapshot and callback work documented in
-`vendor/ghostty/FORK_NOTES.md`.
+The vendored source is upstream Ghostty at commit
+`22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018` from
+`https://github.com/ghostty-org/ghostty`. Botster no longer carries a Ghostty
+fork: upstream's `libghostty-vt` now publishes the snapshot API
+(`include/ghostty/vt/snapshot.h`) and the terminal callback options this crate
+needs, so the fork's patched callbacks and snapshot entry points are retired.
 
-Feature-enabled builds require Zig `0.15.2`. The build script checks
-`BOTSTER_ZIG`, `ZIG`, a mise-managed Zig `0.15.2` install, `zig` from `PATH`,
-and `mise exec -- zig`. It runs:
+Feature-enabled builds require Zig `0.16.0`, which is upstream's
+`minimum_zig_version` at this pin. The build script checks `BOTSTER_ZIG`,
+`ZIG`, a mise-managed Zig `0.16.0` install, `zig` from `PATH`, and
+`mise exec -- zig`. It runs:
 
 ```sh
-zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev
+zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Demit-xcframework=false
 ```
 
 The build scopes Zig's local and default global caches to Cargo's `OUT_DIR` as
@@ -44,7 +47,7 @@ with:
 botster-terminal-ghostty libghostty-vt feature requires initialized Ghostty source at crates/botster-terminal-ghostty/vendor/ghostty; run `git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty`
 ```
 
-If Zig `0.15.2` is unavailable, the build fails before linking and names the
+If Zig `0.16.0` is unavailable, the build fails before linking and names the
 Zig precondition instead of surfacing a raw linker or `build.zig` error.
 
 Restty is not used here. Restty remains a client renderer path, not the
@@ -52,8 +55,8 @@ authoritative shadow-terminal parser or snapshot owner.
 
 ## License
 
-The workspace crate metadata points at the repository license. The vendored
-Ghostty fork is MIT licensed and carries copyright attribution for Mitchell
+The workspace crate metadata points at the repository license. Vendored upstream
+Ghostty is MIT licensed and carries copyright attribution for Mitchell
 Hashimoto and Ghostty contributors. Any source or binary distribution that
-includes the vendored fork must preserve `vendor/ghostty/LICENSE` and the
-fork's copyright attribution.
+includes the vendored source must preserve `vendor/ghostty/LICENSE` and that
+copyright attribution.
