@@ -141,6 +141,11 @@ where
         socket_path: impl Into<std::path::PathBuf>,
         metadata: CoreSessionMetadata,
     ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
+        if !metadata.is_within_encoded_len_limit() {
+            return Err(ManagedSessionRuntimeError::Multiplexer(
+                MultiplexerEngineError::MetadataTooLarge,
+            ));
+        }
         let handle =
             self.engine
                 .session_runtime_mut()

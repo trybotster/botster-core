@@ -177,7 +177,10 @@ when adopting a worker, so reconnecting hosts can rebuild their own session
 classification without a parallel metadata store. Core serializes the map but
 does not define its keys; hosts remain responsible for the existing size and
 no-PII constraints. The standalone Core daemon CLI supplies an empty map by
-design because Core owns no host taxonomy.
+design because Core owns no host taxonomy. Registry records created before
+metadata persistence was introduced project an empty map permanently; hosts
+should treat that as unknown classification rather than infer a meaning or
+maintain a parallel backfill store.
 Changes are ordered and replayed from a bounded in-memory journal. A cursor
 from another daemon generation, ahead of the source, or older than retained
 history returns an explicit resync reason and no partial suffix; fetch a fresh

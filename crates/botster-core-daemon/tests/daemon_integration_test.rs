@@ -2746,7 +2746,7 @@ fn metadata_free_registry_and_lifecycle_json_default_to_empty_metadata() {
 
 #[cfg(unix)]
 #[test]
-fn oversized_persisted_metadata_fails_adoption_without_mutation_or_upsert() {
+fn oversized_persisted_metadata_fails_adoption_without_touching_the_live_worker() {
     let data_dir = temp_data_dir("oversized-adoption-metadata");
     let session_id = SessionId("oversized-adoption".to_string());
     {
@@ -2795,14 +2795,13 @@ fn oversized_persisted_metadata_fails_adoption_without_mutation_or_upsert() {
     );
     assert!(restarted.lifecycle_changes(&cursor).changes.is_empty());
 
-    restarted.release_for_restart();
+    fs::write(&record_path, valid_record).expect("repair persisted metadata after rejection");
     drop(restarted);
-    fs::write(&record_path, valid_record).expect("restore valid registry for worker cleanup");
     let mut cleanup =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
     cleanup
         .adopt_session(&session_id, 13)
-        .expect("restored record should remain adoptable for cleanup");
+        .expect("rejected adoption must leave the repaired worker adoptable");
     cleanup
         .shutdown(Some(session_id.clone()), 14)
         .expect("cleanup adopted worker");

@@ -83,10 +83,12 @@ stable session id. Older registry and lifecycle JSON without the field decodes
 to an empty map.
 
 Adoption revalidates persisted metadata against Core's current size cap. An
-oversized or hand-edited map fails adoption with `MetadataTooLarge`; the daemon
-does not truncate it, replace it with an empty map, mutate the registry record,
-or publish a successful adoption upsert. A future cap reduction therefore
-requires an explicit compatibility or migration decision for older records.
+oversized or hand-edited map fails adoption with `MetadataTooLarge` before the
+daemon touches the live worker. The daemon does not truncate it, replace it
+with an empty map, mutate the registry record, or publish a successful adoption
+upsert. The running worker remains untouched and can be adopted after the
+record is repaired. A future cap reduction therefore requires an explicit
+compatibility or migration decision for older records.
 
 Each cursor contains an opaque daemon source-generation id and a strictly
 monotonic sequence. Spawn, adoption, material registry-row updates, lifecycle
