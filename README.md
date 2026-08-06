@@ -353,8 +353,9 @@ restty is a web/client renderer path. It may consume terminal state and streams
 through client data-plane contracts, but it is not core shadow-terminal
 infrastructure.
 
-`botster-terminal-ghostty` pins the trybotster Ghostty fork at
-`76853b34274208fe7c051cfe13eb1c7ee63c469b`. Default workspace builds do not
+`botster-terminal-ghostty` pins upstream Ghostty
+(`https://github.com/ghostty-org/ghostty`) at
+`22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`. Default workspace builds do not
 require the submodule or Zig. To exercise the native path:
 
 ```sh

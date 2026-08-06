@@ -40,9 +40,10 @@ Botster core evidence:
 - `docs/archive/plans/terminal-screen-snapshot-boundary.md`
 - `README.md`
 
-Current Ghostty fork evidence:
+Current Ghostty pin evidence:
 
-- fork commit `76853b34274208fe7c051cfe13eb1c7ee63c469b`
+- upstream commit `22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`
+  from `https://github.com/ghostty-org/ghostty`
 - `build.zig`
 - `build.zig.zon`
 - `src/build/GhosttyLibVt.zig`
@@ -144,10 +145,18 @@ adapter needs:
 - `ghostty_terminal_resize`
 - `ghostty_terminal_vt_write`
 - `ghostty_terminal_get`
-- `ghostty_terminal_mode_get`
 - `ghostty_terminal_set`
-- `ghostty_terminal_snapshot_export`
-- `ghostty_terminal_snapshot_import`
+- `ghostty_snapshot_encode_alloc`
+- `ghostty_snapshot_decoder_new_buf`
+- `ghostty_snapshot_decoder_decode`
+- `ghostty_snapshot_decoder_free`
+
+Mode state is read through `ghostty_terminal_get` with
+`GHOSTTY_TERMINAL_DATA_MODE` and a `GhosttyTerminalModeConfig`; the fork's
+`ghostty_terminal_mode_get` no longer exists upstream. Snapshot continuation
+tracking is armed with `GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES` at
+terminal creation and again after every import, because encode rejects a
+terminal whose parser is mid-sequence without it.
 
 The same header states that effects callbacks fire synchronously during
 `ghostty_terminal_vt_write`, must not re-enter `ghostty_terminal_vt_write`, and
