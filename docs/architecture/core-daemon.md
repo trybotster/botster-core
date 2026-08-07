@@ -140,7 +140,7 @@ paths should treat those frames as large opaque state, not renderable text;
 payload cost scales with retained scrollback. Follow-up
 `ticket_1783631884_479370` owns host-configurable scrollback budget and any
 chunking or backpressure changes for multi-MiB snapshot frames. Default daemon
-and workspace builds therefore require Zig `0.15.2` and an initialized
+and workspace builds therefore require Zig `0.16.0` and an initialized
 `crates/botster-terminal-ghostty/vendor/ghostty` submodule. Disable daemon
 default features for pure contract builds that must avoid Ghostty and Zig.
 

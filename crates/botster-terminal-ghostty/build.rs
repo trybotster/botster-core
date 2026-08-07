@@ -51,6 +51,11 @@ fn build_ghostty_vt() {
             "-Dsimd=false",
             "-Dcpu=baseline",
             "-Dversion-string=1.3.2-dev",
+            // In lib-vt mode upstream defaults this to "is xcodebuild on
+            // PATH", which makes the build non-hermetic and requires full
+            // Xcode. We statically link the archive and never consume the
+            // universal xcframework, so keep it off explicitly.
+            "-Demit-xcframework=false",
         ])
         .current_dir(&ghostty_dir)
         .env("DEVELOPER_DIR", "/Library/Developer/CommandLineTools")
@@ -61,7 +66,7 @@ fn build_ghostty_vt() {
 
     assert!(
         status.success(),
-        "botster-terminal-ghostty libghostty-vt feature requires `zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev` to succeed"
+        "botster-terminal-ghostty libghostty-vt feature requires `zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Demit-xcframework=false` to succeed"
     );
 
     assert!(

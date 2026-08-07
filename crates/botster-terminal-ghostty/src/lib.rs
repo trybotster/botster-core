@@ -9,10 +9,15 @@
 //! The default public surface documents the crate boundary without requiring
 //! Ghostty or Zig. Enabling `libghostty-vt` exposes the safe native runtime.
 //!
-//! Enabling the `libghostty-vt` feature builds the pinned trybotster Ghostty
-//! fork from `vendor/ghostty` and links its static `libghostty-vt` archive.
-//! Default builds of this crate leave that native path disabled. First-party
-//! host profiles may enable it as part of their default production feature set.
+//! Enabling the `libghostty-vt` feature builds pinned upstream Ghostty from
+//! `vendor/ghostty` and links its static `libghostty-vt` archive. Default
+//! builds of this crate leave that native path disabled. First-party host
+//! profiles may enable it as part of their default production feature set.
+//!
+//! Snapshots use upstream's `GHOSTSNP` snapshot format via
+//! `ghostty_snapshot_encode_alloc` and the one-shot decoder. Botster no longer
+//! carries a Ghostty fork, and old fork-format snapshot blobs are not
+//! readable: decoding fails closed rather than falling back to a second format.
 //!
 //! restty remains a web/client rendering path. Clients may consume terminal
 //! state and streams, but restty must not become core shadow-terminal
@@ -139,13 +144,23 @@ mod native {
 
     use crate::sys::{
         ghostty_formatter_format_alloc, ghostty_formatter_free, ghostty_formatter_terminal_new,
-        ghostty_free, ghostty_terminal_free, ghostty_terminal_new, ghostty_terminal_resize,
-        ghostty_terminal_snapshot_export, ghostty_terminal_snapshot_import,
+        ghostty_free, ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free,
+        ghostty_snapshot_decoder_new_buf, ghostty_snapshot_encode_alloc, ghostty_terminal_free,
+        ghostty_terminal_get, ghostty_terminal_new, ghostty_terminal_resize, ghostty_terminal_set,
         ghostty_terminal_vt_write, GhosttyFormatter, GhosttyFormatterFormat,
         GhosttyFormatterScreenExtra, GhosttyFormatterTerminalExtra,
-        GhosttyFormatterTerminalOptions, GhosttyResult, GhosttyTerminalOptions, GHOSTTY_SUCCESS,
+        GhosttyFormatterTerminalOptions, GhosttyResult, GhosttySnapshotDecoder, GHOSTTY_SUCCESS,
+        GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
     };
     use crate::{GhosttyAdapterConfig, GHOSTTY_SNAPSHOT_FORMAT};
+
+    /// Bytes of unfinished VT sequence retained for snapshot continuation.
+    ///
+    /// Snapshot encode fails with `GHOSTTY_INVALID_VALUE` when the parser is
+    /// mid-sequence and continuation tracking was never enabled, so every
+    /// terminal this wrapper owns enables it before any VT byte is written.
+    /// The value matches upstream's `c-vt-snapshot` reference example.
+    const CONTINUATION_MAX_BYTES: usize = 1024;
 
     /// Safe owner for a libghostty-vt terminal handle.
     pub struct GhosttyTerminal {
@@ -177,17 +192,8 @@ mod native {
             config: GhosttyAdapterConfig,
         ) -> Result<Self, GhosttyTerminalError> {
             let mut terminal = ptr::null_mut();
-            let result = unsafe {
-                ghostty_terminal_new(
-                    ptr::null(),
-                    &mut terminal,
-                    GhosttyTerminalOptions {
-                        cols: size.cols,
-                        rows: size.rows,
-                        max_scrollback: config.max_scrollback(),
-                    },
-                )
-            };
+            let result =
+                unsafe { ghostty_terminal_new(ptr::null(), &mut terminal, size.cols, size.rows) };
 
             if result != GHOSTTY_SUCCESS {
                 return Err(GhosttyTerminalError::operation("new", result));
@@ -197,12 +203,53 @@ mod native {
                 return Err(GhosttyTerminalError::NullHandle { operation: "new" });
             };
 
-            Ok(Self {
+            // Own the handle before any further fallible call so an error path
+            // cannot leak it.
+            let owned = Self {
                 handle,
                 size,
                 config,
                 last_error: RefCell::new(None),
-            })
+            };
+
+            let max_scrollback = config.max_scrollback();
+            let result = unsafe {
+                ghostty_terminal_set(
+                    owned.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                    (&raw const max_scrollback).cast(),
+                )
+            };
+
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("set_scrollback", result));
+            }
+
+            owned.enable_continuation_tracking()?;
+
+            Ok(owned)
+        }
+
+        /// Arm snapshot continuation tracking on the owned handle.
+        ///
+        /// Must run before any VT byte reaches the parser, and again after a
+        /// snapshot import, because a decoded terminal comes back with
+        /// continuation tracking disabled.
+        fn enable_continuation_tracking(&self) -> Result<(), GhosttyTerminalError> {
+            let limit = CONTINUATION_MAX_BYTES;
+            let result = unsafe {
+                ghostty_terminal_set(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
+                    (&raw const limit).cast(),
+                )
+            };
+
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("set_continuation", result));
+            }
+
+            Ok(())
         }
 
         /// Return the current terminal size known by the wrapper.
@@ -264,7 +311,7 @@ mod native {
             let mut out_ptr = ptr::null_mut();
             let mut out_len = 0;
             let result = unsafe {
-                ghostty_terminal_snapshot_export(
+                ghostty_snapshot_encode_alloc(
                     self.handle.as_ptr(),
                     ptr::null(),
                     &mut out_ptr,
@@ -282,21 +329,50 @@ mod native {
         }
 
         /// Import an opaque Ghostty terminal snapshot.
+        ///
+        /// Upstream decoding produces a new caller-owned terminal rather than
+        /// restoring into an existing one, so this swaps the wrapper's handle
+        /// and frees the previous terminal. The wrapper's own handle is
+        /// replaced only after decoding succeeds, so a rejected snapshot
+        /// leaves the current terminal intact.
         pub fn import_snapshot(
             &mut self,
             payload: &TerminalSnapshotPayload,
         ) -> Result<(), GhosttyTerminalError> {
+            let mut decoder: GhosttySnapshotDecoder = ptr::null_mut();
             let result = unsafe {
-                ghostty_terminal_snapshot_import(
-                    self.handle.as_ptr(),
+                ghostty_snapshot_decoder_new_buf(
+                    ptr::null(),
+                    &mut decoder,
                     payload.bytes.as_ptr(),
                     payload.bytes.len(),
                 )
             };
 
             if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("snapshot_decoder", result));
+            }
+
+            let decoder = DecoderGuard(decoder);
+            let mut decoded = ptr::null_mut();
+            let result = unsafe { ghostty_snapshot_decoder_decode(decoder.0, &mut decoded) };
+
+            if result != GHOSTTY_SUCCESS {
                 return Err(GhosttyTerminalError::operation("snapshot_import", result));
             }
+
+            let Some(decoded) = NonNull::new(decoded) else {
+                return Err(GhosttyTerminalError::NullHandle {
+                    operation: "snapshot_import",
+                });
+            };
+
+            let previous = std::mem::replace(&mut self.handle, decoded);
+            unsafe { ghostty_terminal_free(previous.as_ptr()) };
+
+            // A decoded terminal comes back with continuation tracking off; a
+            // host that re-exports would otherwise fail on unfinished VT.
+            self.enable_continuation_tracking()?;
 
             self.size = payload.size;
             self.clear_last_error();
@@ -359,21 +435,26 @@ mod native {
 
         fn mouse_mode(&self) -> Result<u8, GhosttyTerminalError> {
             use crate::sys::{
-                ghostty_terminal_mode_get, GhosttyMode, GHOSTTY_MODE_ANY_MOUSE,
+                GhosttyMode, GhosttyTerminalModeConfig, GHOSTTY_MODE_ANY_MOUSE,
                 GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
+                GHOSTTY_TERMINAL_DATA_MODE,
             };
 
             let mode_is_set = |mode: GhosttyMode| {
-                let mut out_value = false;
+                let mut query = GhosttyTerminalModeConfig { mode, value: false };
                 let result = unsafe {
-                    ghostty_terminal_mode_get(self.handle.as_ptr(), mode, &mut out_value)
+                    ghostty_terminal_get(
+                        self.handle.as_ptr(),
+                        GHOSTTY_TERMINAL_DATA_MODE,
+                        (&raw mut query).cast(),
+                    )
                 };
 
                 if result != GHOSTTY_SUCCESS {
                     return Err(GhosttyTerminalError::operation("mode_get", result));
                 }
 
-                Ok(out_value)
+                Ok(query.value)
             };
 
             let mut mouse_mode = 0;
@@ -503,6 +584,14 @@ mod native {
         }
     }
 
+    struct DecoderGuard(GhosttySnapshotDecoder);
+
+    impl Drop for DecoderGuard {
+        fn drop(&mut self) {
+            unsafe { ghostty_snapshot_decoder_free(self.0) };
+        }
+    }
+
     fn copy_ghostty_buffer(ptr: *mut u8, len: usize) -> Vec<u8> {
         let bytes = if ptr.is_null() || len == 0 {
             Vec::new()
@@ -544,6 +633,8 @@ mod native {
             unwrap: false,
             trim: true,
             extra,
+            // Format the whole screen rather than a selection range.
+            selection: ptr::null(),
         }
     }
 

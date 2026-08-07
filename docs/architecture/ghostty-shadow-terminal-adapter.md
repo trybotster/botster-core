@@ -40,9 +40,10 @@ Botster core evidence:
 - `docs/archive/plans/terminal-screen-snapshot-boundary.md`
 - `README.md`
 
-Current Ghostty fork evidence:
+Current Ghostty pin evidence:
 
-- fork commit `76853b34274208fe7c051cfe13eb1c7ee63c469b`
+- upstream commit `22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`
+  from `https://github.com/ghostty-org/ghostty`
 - `build.zig`
 - `build.zig.zon`
 - `src/build/GhosttyLibVt.zig`
@@ -113,7 +114,7 @@ commit is reachable from a downstream tag that does not match Ghostty's
 fork's `build.zig.zon` version and avoids coupling adapter builds to local git
 tag discovery.
 
-`cli/build_support.rs` requires Zig `0.15.2` and resolves candidates from
+`crates/botster-terminal-ghostty/build_support.rs` requires Zig `0.16.0` and resolves candidates from
 `BOTSTER_ZIG`, `ZIG`, a mise-managed Zig install, `zig` from `PATH`, and
 `mise exec -- zig`. The adapter preserves this explicit tool
 selection model, while avoiding machine-specific paths in docs and errors.
@@ -134,7 +135,7 @@ The current fork exposes `libghostty-vt` as both shared and static build
 artifacts. `build.zig` installs shared `ghostty-vt` and static
 `ghostty-vt-static`, and dependency consumers can request
 `dep.artifact("ghostty-vt-static")`. `build.zig.zon` identifies the fork as
-`1.3.2-dev` and requires Zig `0.15.2`.
+`1.3.2-dev` and requires Zig `0.16.0`.
 
 The C API in `include/ghostty/vt/terminal.h` exposes the first-slice calls the
 adapter needs:
@@ -144,10 +145,18 @@ adapter needs:
 - `ghostty_terminal_resize`
 - `ghostty_terminal_vt_write`
 - `ghostty_terminal_get`
-- `ghostty_terminal_mode_get`
 - `ghostty_terminal_set`
-- `ghostty_terminal_snapshot_export`
-- `ghostty_terminal_snapshot_import`
+- `ghostty_snapshot_encode_alloc`
+- `ghostty_snapshot_decoder_new_buf`
+- `ghostty_snapshot_decoder_decode`
+- `ghostty_snapshot_decoder_free`
+
+Mode state is read through `ghostty_terminal_get` with
+`GHOSTTY_TERMINAL_DATA_MODE` and a `GhosttyTerminalModeConfig`; the fork's
+`ghostty_terminal_mode_get` no longer exists upstream. Snapshot continuation
+tracking is armed with `GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES` at
+terminal creation and again after every import, because encode rejects a
+terminal whose parser is mid-sequence without it.
 
 The same header states that effects callbacks fire synchronously during
 `ghostty_terminal_vt_write`, must not re-enter `ghostty_terminal_vt_write`, and
@@ -244,7 +253,7 @@ Current crate shape:
 Build constraints to preserve:
 
 - initialize the vendored Ghostty checkout before running integration builds;
-- require Zig `0.15.2` until the fork moves;
+- require Zig `0.16.0`;
 - include `-Demit-lib-vt`, `-Doptimize=ReleaseFast`, `-Dsimd=false`, and
   `-Dcpu=baseline`;
 - pass `-Dversion-string=1.3.2-dev` for the pinned fork commit so Ghostty's

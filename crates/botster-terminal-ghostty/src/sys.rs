@@ -33,16 +33,39 @@ pub(crate) const GHOSTTY_MODE_SGR_MOUSE: GhosttyMode = ghostty_mode(1006, false)
 /// Opaque formatter handle owned by libghostty-vt.
 pub(crate) type GhosttyFormatter = *mut c_void;
 
-/// Terminal initialization options for `ghostty_terminal_new`.
+/// Opaque snapshot decoder handle owned by libghostty-vt.
+pub(crate) type GhosttySnapshotDecoder = *mut c_void;
+
+/// Terminal option identifier accepted by `ghostty_terminal_set`.
+pub(crate) type GhosttyTerminalOption = c_int;
+
+/// Maximum scrollback page-allocation bytes retained by Ghostty (`size_t*`).
+pub(crate) const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: GhosttyTerminalOption = 27;
+
+/// Maximum retained bytes of an unfinished VT sequence (`size_t*`).
+///
+/// This must be enabled before any `ghostty_terminal_vt_write` that can leave
+/// the parser mid-sequence; otherwise `ghostty_snapshot_encode_alloc` rejects
+/// the terminal with `GHOSTTY_INVALID_VALUE`.
+pub(crate) const GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES: GhosttyTerminalOption = 31;
+
+/// Terminal data identifier accepted by `ghostty_terminal_get`.
+pub(crate) type GhosttyTerminalData = c_int;
+
+/// Query a single terminal mode (`GhosttyTerminalModeConfig*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_MODE: GhosttyTerminalData = 37;
+
+/// A terminal mode and its boolean value.
+///
+/// Upstream documents this layout as frozen. `mode` is the caller-provided
+/// query input; `value` receives the current mode value on success.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GhosttyTerminalOptions {
-    /// Terminal width in cells.
-    pub(crate) cols: u16,
-    /// Terminal height in cells.
-    pub(crate) rows: u16,
-    /// Maximum scrollback page-allocation bytes retained by Ghostty.
-    pub(crate) max_scrollback: usize,
+pub(crate) struct GhosttyTerminalModeConfig {
+    /// Mode to query.
+    pub(crate) mode: GhosttyMode,
+    /// Current value returned by the query.
+    pub(crate) value: bool,
 }
 
 /// Formatter output format.
@@ -89,6 +112,12 @@ pub(crate) struct GhosttyFormatterTerminalOptions {
     pub(crate) unwrap: bool,
     pub(crate) trim: bool,
     pub(crate) extra: GhosttyFormatterTerminalExtra,
+    /// Optional `GhosttySelection *` restricting output to a range.
+    ///
+    /// Null formats the entire screen. This field is not optional in the
+    /// layout: `size` is `sizeof` of the whole struct, so omitting it makes
+    /// Ghostty read the selection pointer out of bounds.
+    pub(crate) selection: *const c_void,
 }
 
 unsafe extern "C" {
@@ -96,7 +125,22 @@ unsafe extern "C" {
     pub(crate) fn ghostty_terminal_new(
         allocator: *const c_void,
         terminal: *mut GhosttyTerminal,
-        options: GhosttyTerminalOptions,
+        cols: u16,
+        rows: u16,
+    ) -> GhosttyResult;
+
+    /// Configure a libghostty-vt terminal option.
+    pub(crate) fn ghostty_terminal_set(
+        terminal: GhosttyTerminal,
+        option: GhosttyTerminalOption,
+        value: *const c_void,
+    ) -> GhosttyResult;
+
+    /// Read typed data from a libghostty-vt terminal.
+    pub(crate) fn ghostty_terminal_get(
+        terminal: GhosttyTerminal,
+        data: GhosttyTerminalData,
+        out: *mut c_void,
     ) -> GhosttyResult;
 
     /// Free a libghostty-vt terminal.
@@ -114,27 +158,33 @@ unsafe extern "C" {
     /// Feed VT bytes to a libghostty-vt terminal.
     pub(crate) fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
 
-    /// Read the current value of a terminal mode.
-    pub(crate) fn ghostty_terminal_mode_get(
-        terminal: GhosttyTerminal,
-        mode: GhosttyMode,
-        out_value: *mut bool,
-    ) -> GhosttyResult;
-
-    /// Export an opaque terminal snapshot into a Ghostty-allocated buffer.
-    pub(crate) fn ghostty_terminal_snapshot_export(
+    /// Encode a terminal snapshot into a Ghostty-allocated buffer.
+    ///
+    /// The buffer must be released with `ghostty_free` using the same
+    /// allocator that produced it.
+    pub(crate) fn ghostty_snapshot_encode_alloc(
         terminal: GhosttyTerminal,
         allocator: *const c_void,
         out_ptr: *mut *mut u8,
         out_len: *mut usize,
     ) -> GhosttyResult;
 
-    /// Import an opaque terminal snapshot previously exported by Ghostty.
-    pub(crate) fn ghostty_terminal_snapshot_import(
-        terminal: GhosttyTerminal,
-        data: *const u8,
-        data_len: usize,
+    /// Create a one-shot snapshot decoder over a caller-owned buffer.
+    pub(crate) fn ghostty_snapshot_decoder_new_buf(
+        allocator: *const c_void,
+        decoder: *mut GhosttySnapshotDecoder,
+        ptr: *const u8,
+        len: usize,
     ) -> GhosttyResult;
+
+    /// Decode a complete snapshot into a newly created, caller-owned terminal.
+    pub(crate) fn ghostty_snapshot_decoder_decode(
+        decoder: GhosttySnapshotDecoder,
+        terminal: *mut GhosttyTerminal,
+    ) -> GhosttyResult;
+
+    /// Free a snapshot decoder. This does not free a decoded terminal.
+    pub(crate) fn ghostty_snapshot_decoder_free(decoder: GhosttySnapshotDecoder);
 
     /// Create a formatter for a terminal's active screen.
     pub(crate) fn ghostty_formatter_terminal_new(
