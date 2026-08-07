@@ -1,0 +1,4 @@
+[tools]
+# Upstream Ghostty's `minimum_zig_version` at the vendored pin. The
+# botster-terminal-ghostty build script requires this exact version.
+zig = "0.16.0"

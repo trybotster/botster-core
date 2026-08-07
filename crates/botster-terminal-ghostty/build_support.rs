@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-pub const REQUIRED_ZIG_VERSION: &str = "0.15.2";
+pub const REQUIRED_ZIG_VERSION: &str = "0.16.0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ZigCommand {
@@ -42,11 +42,11 @@ pub fn zig_candidates(
     }
 
     if let Some(home) = home {
-        let mise_zig = PathBuf::from(home).join(".local/share/mise/installs/zig/0.15.2/bin/zig");
+        let mise_zig = PathBuf::from(home).join(".local/share/mise/installs/zig/0.16.0/bin/zig");
         if path_exists(&mise_zig) {
             candidates.push(direct_zig(
                 mise_zig.display().to_string(),
-                "mise Zig 0.15.2 install",
+                "mise Zig 0.16.0 install",
             ));
         }
     }

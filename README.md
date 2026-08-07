@@ -80,7 +80,7 @@ Terminal history and authoritative screen/snapshot intent go through core’s
 opaque terminal seams. Botster’s blessed shadow-terminal backend is Ghostty in
 the sibling `botster-terminal-ghostty` crate. `botster-core-daemon` enables it
 on the default production path through its default `ghostty-terminal` feature.
-Default daemon and workspace builds therefore require Zig `0.15.2` plus the
+Default daemon and workspace builds therefore require Zig `0.16.0` plus the
 initialized `crates/botster-terminal-ghostty/vendor/ghostty` submodule.
 Contract-only daemon embedders can opt out with:
 
@@ -353,8 +353,9 @@ restty is a web/client renderer path. It may consume terminal state and streams
 through client data-plane contracts, but it is not core shadow-terminal
 infrastructure.
 
-`botster-terminal-ghostty` pins the trybotster Ghostty fork at
-`76853b34274208fe7c051cfe13eb1c7ee63c469b`. Default workspace builds do not
+`botster-terminal-ghostty` pins upstream Ghostty
+(`https://github.com/ghostty-org/ghostty`) at
+`22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`. Default workspace builds do not
 require the submodule or Zig. To exercise the native path:
 
 ```sh
@@ -362,7 +363,7 @@ git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty
 cargo test -p botster-terminal-ghostty --features libghostty-vt
 ```
 
-Feature-enabled builds require Zig `0.15.2` and run
+Feature-enabled builds require Zig `0.16.0` and run
 `zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev`.
 The vendored Ghostty fork is MIT licensed; preserve
 `crates/botster-terminal-ghostty/vendor/ghostty/LICENSE` in distributions that
