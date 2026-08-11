@@ -79,18 +79,15 @@ Workers own PTYs and control sockets. Intentional daemon restart can call
 Terminal history and authoritative screen/snapshot intent go through core’s
 opaque terminal seams. Botster’s blessed shadow-terminal backend is Ghostty in
 the sibling `botster-terminal-ghostty` crate. `botster-core-daemon` enables it
-on every production path. The daemon always constructs Ghostty; there is no plain terminal production feature lane.
+on every production path. The daemon always constructs Ghostty; there is no
+optional plain production terminal feature lane and no
+`botster-core-daemon --no-default-features` product path.
 Default daemon and workspace builds therefore require Zig `0.16.0` plus the
 initialized `crates/botster-terminal-ghostty/vendor/ghostty` submodule.
-Contract-only daemon embedders can opt out with:
-
-```toml
-botster-core-daemon = { path = "crates/botster-core-daemon", default-features = false }
-```
-
-That opt-out uses the plain fallback terminal state and avoids the Ghostty/Zig
-dependency. The default daemon profile configures Ghostty with a 10 MB retained
-scrollback byte budget. Hosts can tune it without rebuilding:
+`PlainTerminalScreenRuntime` remains available only as a `botster-core`
+library or unit-test harness and is not reachable from `CoreDaemon`
+construction. The default daemon profile configures Ghostty with a 10 MB
+retained scrollback byte budget. Hosts can tune it without rebuilding:
 
 ```rust
 let config = CoreDaemonConfig::new(data_dir)

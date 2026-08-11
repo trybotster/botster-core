@@ -256,9 +256,8 @@ mod native {
 
             owned.enable_continuation_tracking()?;
             owned.install_effects()?;
-            // Session-side defaults so OSC 10/11/12 queries can be answered
-            // before any client attaches a color profile.
-            owned.apply_builtin_default_theme()?;
+            // Color defaults are host policy. Production daemons supply a profile
+            // through TerminalScreenRuntime::set_color_profile after construction.
 
             Ok(owned)
         }
@@ -576,34 +575,6 @@ mod native {
         /// Drain PTY query responses generated during the last VT write batch.
         pub fn drain_pty_writes(&mut self) -> Vec<u8> {
             self.effects.pty_writes.borrow_mut().drain(..).collect()
-        }
-
-        fn apply_builtin_default_theme(&self) -> Result<(), GhosttyTerminalError> {
-            self.set_default_color(
-                GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
-                Rgb {
-                    r: 0xdd,
-                    g: 0xdd,
-                    b: 0xdd,
-                },
-            )?;
-            self.set_default_color(
-                GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
-                Rgb {
-                    r: 0x1e,
-                    g: 0x1e,
-                    b: 0x2e,
-                },
-            )?;
-            self.set_default_color(
-                GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
-                Rgb {
-                    r: 0xf5,
-                    g: 0xe0,
-                    b: 0xdc,
-                },
-            )?;
-            Ok(())
         }
 
         /// Apply a Botster color profile as Ghostty defaults.

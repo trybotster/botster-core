@@ -3163,45 +3163,53 @@ fn worker_backed_osc_color_queries_receive_session_side_write_pty_replies() {
     let session_id = SessionId("osc-color-session".to_string());
 
     // No client attaches. Child emits OSC 10/11/12 queries; session Ghostty must
-    // answer via write_pty before any client is present.
-    let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = concat!(
-        "printf ready; ",
-        "printf '\\033]10;?\\033\\\\\\033]11;?\\033\\\\\\033]12;?\\033\\\\'; ",
-        "python3 -c \"",
-        "import sys,select,time; ",
-        "sys.stdout.write('ready-queries\\n'); sys.stdout.flush(); ",
-        "chunks=[]; end=time.time()+3; ",
-        "while time.time()<end: ",
-        " r,_,_=select.select([sys.stdin],[],[],0.05); ",
-        " if r: ",
-        "  b=sys.stdin.buffer.read1(4096); ",
-        "  if not b: break; ",
-        "  chunks.append(b); ",
-        "data=b''.join(chunks); ",
-        "sys.stdout.write('reply-hex:' + data.hex() + '\\n'); ",
-        "sys.stdout.flush()",
-        "\""
+    // answer via write_pty using the daemon-supplied production color profile.
+    // Replies are injected into the child PTY and appear on the production
+    // screen path (line-discipline echo of PTY input), proving pre-attach
+    // session-side ownership of OSC 10/11/12.
+    let script_path = data_dir.join("osc_query_child.py");
+    fs::create_dir_all(&data_dir).expect("create data dir for script");
+    fs::write(
+        &script_path,
+        r#"#!/usr/bin/env python3
+import sys
+import time
+
+sys.stdout.write("ready\n")
+sys.stdout.flush()
+sys.stdout.buffer.write(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\")
+sys.stdout.flush()
+# Stay alive long enough for the parent to drain PTY output, run write_pty,
+# and inject replies into this process's PTY input.
+time.sleep(2)
+sys.stdout.write("done\n")
+sys.stdout.flush()
+"#,
     )
-    .to_string();
+    .expect("write osc child script");
+
+    let mut request = spawn_request(&session_id);
+    request.request.executable = "python3".to_string();
+    request.request.arguments = vec![script_path.to_string_lossy().into_owned()];
 
     daemon
         .spawn(request, 10)
         .expect("spawn color query session");
-    let screen = read_screen_until(&mut daemon, &session_id, "reply-hex:", 11);
-    let reply = screen
-        .screen
-        .text
-        .split("reply-hex:")
-        .nth(1)
-        .unwrap_or("")
-        .split_whitespace()
-        .next()
-        .unwrap_or("");
+    // Wait until all three production-profile OSC replies are visible on the
+    // session path without any client attach.
+    let screen = read_screen_until(&mut daemon, &session_id, "]12;", 11);
+    let text = screen.screen.text;
+    // Production daemon profile:
+    // FG 0xdd/0xdd/0xdd, BG 0x1e/0x1e/0x2e, cursor 0xf5/0xe0/0xdc
+    assert_osc_color_reply(&text, 10, 0xdd, 0xdd, 0xdd);
+    assert_osc_color_reply(&text, 11, 0x1e, 0x1e, 0x2e);
+    assert_osc_color_reply(&text, 12, 0xf5, 0xe0, 0xdc);
+    let i10 = text.find("]10;").expect("OSC 10 reply present");
+    let i11 = text.find("]11;").expect("OSC 11 reply present");
+    let i12 = text.find("]12;").expect("OSC 12 reply present");
     assert!(
-        !reply.is_empty(),
-        "session must inject write_pty OSC color replies into the child PTY without a client; text={}",
-        screen.screen.text
+        i10 < i11 && i11 < i12,
+        "expected OSC 10,11,12 reply ordering; text={text}"
     );
 
     daemon.shutdown(Some(session_id), 12).ok();
@@ -3579,6 +3587,24 @@ fn capture_snapshot_and_retained_output_until(
         last.and_then(|captured| captured.payload.format),
         aggregate_output
     )
+}
+
+fn assert_osc_color_reply(reply_text: &str, osc: u8, r: u8, g: u8, b: u8) {
+    // Ghostty encodes OSC color replies as rgb:RRRR/GGGG/BBBB with 16-bit
+    // channels (high byte == low byte for 8-bit source colors).
+    let marker = format!("]{osc};");
+    assert!(
+        reply_text.contains(&marker),
+        "expected OSC {osc} reply in {reply_text}"
+    );
+    let rr = format!("{r:02x}{r:02x}");
+    let gg = format!("{g:02x}{g:02x}");
+    let bb = format!("{b:02x}{b:02x}");
+    let rgb = format!("rgb:{rr}/{gg}/{bb}");
+    assert!(
+        reply_text.to_ascii_lowercase().contains(&rgb),
+        "expected OSC {osc} RGB {rgb} in reply {reply_text}"
+    );
 }
 
 fn assert_snapshot_format(payload: &botster_core::TerminalSnapshotPayload) {

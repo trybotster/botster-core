@@ -2219,34 +2219,63 @@ pub fn assert_mode_flags_authority(flags: &ModeFlags, required: ModeFlags) {
     }
 }
 
-/// Hub-shaped assertion for color/palette authority on screen state or profile.
+/// Hub-shaped assertion for Ghostty-owned palette authority.
+///
+/// A Ghostty-owned production read exposes all 256 palette indices. Callers
+/// that also apply special defaults should assert those indices separately.
 pub fn assert_color_profile_authority(profile: &TerminalColorProfile) {
-    assert!(
-        !profile.colors.is_empty(),
-        "Ghostty authority color profile must expose at least one color"
+    for index in 0u16..256 {
+        assert!(
+            profile.colors.contains_key(&index),
+            "Ghostty authority color profile must include palette index {index}"
+        );
+    }
+}
+
+/// Assert special FG/BG/cursor defaults are present when a host supplied them.
+pub fn assert_special_color_defaults(
+    profile: &TerminalColorProfile,
+    foreground: botster_core::Rgb,
+    background: botster_core::Rgb,
+    cursor: botster_core::Rgb,
+    foreground_index: u16,
+    background_index: u16,
+    cursor_index: u16,
+) {
+    assert_eq!(
+        profile.colors.get(&foreground_index),
+        Some(&foreground),
+        "expected foreground default at special index"
     );
-    // Palette indices 0-255 always exist on Ghostty-owned reads.
-    assert!(
-        (0u16..16).any(|index| profile.colors.contains_key(&index)),
-        "Ghostty authority color profile should include base palette entries"
+    assert_eq!(
+        profile.colors.get(&background_index),
+        Some(&background),
+        "expected background default at special index"
+    );
+    assert_eq!(
+        profile.colors.get(&cursor_index),
+        Some(&cursor),
+        "expected cursor default at special index"
     );
 }
 
 /// Combined hub-facing authority export check for mode + snapshot + color.
+///
+/// Always compares the exported `ModeFlags` with the screen carrier. Requires a
+/// Ghostty-owned color profile with the complete 256-entry palette.
 pub fn assert_ghostty_terminal_authority_exports(
     mode_flags: &ModeFlags,
     snapshot: &TerminalSnapshotPayload,
     screen: &TerminalScreenState,
 ) {
     assert_ghostty_snapshot_authority(snapshot);
-    // Mouse mode and kitty may be zero/false when unset; require the structural
-    // fields exist (default) and color authority is present when screen carries it.
-    let _ = mode_flags;
-    if let Some(profile) = &screen.color_profile {
-        assert_color_profile_authority(profile);
-    } else {
-        // Screen state may omit color until defaults are applied; still require
-        // mode_flags to round-trip on the state carrier.
-        assert_eq!(screen.mode_flags, *mode_flags);
-    }
+    assert_eq!(
+        screen.mode_flags, *mode_flags,
+        "Hub-facing ModeFlags must match the TerminalScreenState carrier"
+    );
+    let profile = screen
+        .color_profile
+        .as_ref()
+        .expect("Ghostty authority exports require a color profile on TerminalScreenState");
+    assert_color_profile_authority(profile);
 }

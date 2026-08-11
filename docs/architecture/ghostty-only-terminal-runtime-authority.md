@@ -1,9 +1,9 @@
 # Ghostty-only terminal runtime authority (Core)
 
-Ticket: `ticket_1786471489_484901` — Make Botster Core the Ghostty-only terminal runtime authority  
-Run: `run_1786471511_632427`  
-Pipeline step: Implement (`botster_stack_implement`)  
-Status: implemented (awaiting Review)  
+Ticket: `ticket_1786471489_484901` — Make Botster Core the Ghostty-only terminal runtime authority
+Run: `run_1786471511_632427`
+Pipeline step: Implement (`botster_stack_implement`)
+Status: implemented (awaiting Review)
 Plan Review: `review_1786472662_676314` (approved cold-turkey Ghostty plan)
 
 ## Target
@@ -12,7 +12,7 @@ Plan Review: `review_1786472662_676314` (approved cold-turkey Ghostty plan)
 | --- | --- |
 | Target repository | `botster-core` (`trybotster/botster-core`) |
 | Target id | `tgt_1f7bce66eb304881980f9b4a2a5ae3fe` |
-| Target path (spawn authority) | `/Users/jasonconigliari/Projects/botster-core` |
+| Target path (spawn authority) | resolved from `target_id` by Botster |
 | Pipeline worktree | Botster-managed ticket worktree for this run (do not use ambient checkout) |
 | Workspace crates in scope | `botster-core`, `botster-core-daemon`, `botster-terminal-ghostty`, `botster-core-test-support` |
 | Project | Botster Ghostty-only terminal cutover (`project_1786468118_227513`) |

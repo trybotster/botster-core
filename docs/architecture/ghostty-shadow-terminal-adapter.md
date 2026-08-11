@@ -263,10 +263,11 @@ Build constraints to preserve:
 - document platform-specific link handling such as macOS archive repacking if
   the adapter repeats the current CLI approach.
 
-The no-native opt-out is `botster-core-daemon --no-default-features`; that lane
-uses the plain fallback backend and must keep executing tests for
-`plain-opaque-v1`. `botster-core` remains backend-neutral and must not gain a
-`botster-terminal-ghostty`, `libghostty`, Zig, or build-script edge.
+There is no daemon plain / `--no-default-features` production terminal lane.
+`botster-core-daemon` always constructs Ghostty. `PlainTerminalScreenRuntime`
+is only a `botster-core` library or unit-test harness. `botster-core` remains
+backend-neutral and must not gain a `botster-terminal-ghostty`, `libghostty`,
+Zig, or build-script edge.
 The default daemon host profile uses a 10 MB Ghostty scrollback byte budget
 instead of the adapter crate's zero-scrollback default. Ghostty quantizes that
 budget into terminal pages, so effective retained lines depend on terminal
@@ -333,9 +334,8 @@ the fork commit, why the fork is needed, and what local patches are relied on.
 ## Verification
 
 This ADR began as documentation-only. Current production daemon defaults now
-wire `botster-terminal-ghostty` through `botster-core-daemon`'s
-always-on Ghostty production path; the plain
-fallback backend.
+wire `botster-terminal-ghostty` through `botster-core-daemon`'s always-on
+Ghostty production path.
 
 Verification performed for this ADR:
 
