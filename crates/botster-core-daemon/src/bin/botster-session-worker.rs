@@ -78,6 +78,7 @@ fn run() -> Result<(), String> {
         pty_reader_chunk_capacity: args.pty_reader_chunk_capacity,
         test_hold_after_read_ms: args.test_hold_after_read_ms,
         test_write_block_until_unix_ms: args.test_write_block_until_unix_ms,
+        test_write_max_chunk: args.test_write_max_chunk,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
     let handle = runtime
@@ -158,6 +159,7 @@ fn run() -> Result<(), String> {
                             Err(error) => ModeGatedPtyInputResult {
                                 request_id: String::new(),
                                 admitted: false,
+                                bytes_written: 0,
                                 mode_flags: mode_owner.mode_flags.clone(),
                                 mode_freshness: mode_owner.token(),
                                 error_kind: Some(format!("malformed request: {error}")),
@@ -453,6 +455,7 @@ fn atomic_mode_gated_admit(
             return Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: false,
+                bytes_written: 0,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: Some("revision_overflow".to_string()),
@@ -463,6 +466,7 @@ fn atomic_mode_gated_admit(
             return Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: false,
+                bytes_written: 0,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: Some("deadline_exceeded".to_string()),
@@ -472,26 +476,48 @@ fn atomic_mode_gated_admit(
             return Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: false,
+                bytes_written: 0,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: None,
             });
         }
         // Bound the complete write, including WouldBlock retries.
+        let data_len = data.len();
         match barrier.write_input(&data, Some(deadline_unix_ms)) {
-            Ok(()) => Ok(ModeGatedPtyInputResult {
+            Ok(written) if written == data_len => Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: true,
+                bytes_written: written,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: None,
             }),
-            Err(error) => Ok(ModeGatedPtyInputResult {
+            Ok(written) => Ok(ModeGatedPtyInputResult {
+                // Should not happen: write_all returns Ok only for complete.
                 request_id: request_id.clone(),
                 admitted: false,
+                bytes_written: written,
+                mode_flags: mode_owner.mode_flags.clone(),
+                mode_freshness: current,
+                error_kind: Some("partial_write".to_string()),
+            }),
+            Err(error) if error.bytes_written == 0 => Ok(ModeGatedPtyInputResult {
+                request_id: request_id.clone(),
+                admitted: false,
+                bytes_written: 0,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: Some(error.message),
+            }),
+            Err(error) => Ok(ModeGatedPtyInputResult {
+                // Explicit partial delivery: callers must check bytes_written.
+                request_id: request_id.clone(),
+                admitted: false,
+                bytes_written: error.bytes_written,
+                mode_flags: mode_owner.mode_flags.clone(),
+                mode_freshness: current,
+                error_kind: Some(format!("partial_write:{}", error.message)),
             }),
         }
     });
@@ -501,6 +527,7 @@ fn atomic_mode_gated_admit(
         Err(error) => ModeGatedPtyInputResult {
             request_id,
             admitted: false,
+            bytes_written: 0,
             mode_flags: mode_owner.mode_flags.clone(),
             mode_freshness: mode_owner.token(),
             error_kind: Some(error.to_string()),
@@ -1099,6 +1126,7 @@ struct WorkerArgs {
     control_socket: Option<PathBuf>,
     test_hold_after_read_ms: Option<u64>,
     test_write_block_until_unix_ms: Option<u64>,
+    test_write_max_chunk: Option<usize>,
 }
 
 impl WorkerArgs {
@@ -1110,6 +1138,7 @@ impl WorkerArgs {
         let mut control_socket = None;
         let mut test_hold_after_read_ms = None;
         let mut test_write_block_until_unix_ms = None;
+        let mut test_write_max_chunk = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -1148,6 +1177,10 @@ impl WorkerArgs {
                     test_write_block_until_unix_ms =
                         Some(parse_arg(&args, index, "--test-write-block-until-unix-ms")?);
                 }
+                "--test-write-max-chunk" => {
+                    index += 1;
+                    test_write_max_chunk = Some(parse_arg(&args, index, "--test-write-max-chunk")?);
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -1161,6 +1194,7 @@ impl WorkerArgs {
             control_socket,
             test_hold_after_read_ms,
             test_write_block_until_unix_ms,
+            test_write_max_chunk,
         })
     }
 }

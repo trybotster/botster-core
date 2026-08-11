@@ -130,6 +130,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_mode_gated_hold_ms: None,
         test_hold_after_read_ms: None,
         test_write_block_until_unix_ms: None,
+        test_write_max_chunk: None,
     }
 }
 

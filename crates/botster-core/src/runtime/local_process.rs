@@ -1,6 +1,6 @@
 //! Default local PTY-backed process runtime with process-group cleanup.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -61,6 +61,8 @@ pub struct LocalProcessRuntimeOptions {
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write attempts to return `WouldBlock` until this Unix ms.
     pub test_write_block_until_unix_ms: Option<u64>,
+    /// Test-only: cap each `write()` call to this many bytes (partial-write proofs).
+    pub test_write_max_chunk: Option<usize>,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -71,6 +73,7 @@ impl Default for LocalProcessRuntimeOptions {
             pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
+            test_write_max_chunk: None,
         }
     }
 }
@@ -187,16 +190,16 @@ impl SessionRuntime for LocalProcessRuntime {
                 format!("open pty writer failed: {error}"),
             )
         })?;
+        let reader_capacity = self.options.pty_reader_chunk_capacity.max(1);
         let reader_fence = Arc::new(ReaderFence {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             test_hold_after_read_ms: self.options.test_hold_after_read_ms,
+            pending: Mutex::new(VecDeque::new()),
+            pending_capacity: reader_capacity,
         });
-        let (output, output_pressure, output_capacity) = spawn_reader(
-            reader,
-            self.options.pty_reader_chunk_capacity,
-            Arc::clone(&reader_fence),
-        );
+        let (output, output_pressure, output_capacity) =
+            spawn_reader(reader, reader_capacity, Arc::clone(&reader_fence));
 
         self.registry.insert(
             request.session_id.clone(),
@@ -266,7 +269,13 @@ impl PtyIoBarrier<'_> {
         if let Some(message) = self.session.pending_reader_error.take() {
             return Err(reader_error(message));
         }
-        let mut output = drain_reader_output(&mut self.session, &self.session_id)?;
+        // Fence-owned unpublished events first (never blocked behind channel send).
+        let mut output = drain_fence_pending(
+            &self.session.reader_fence,
+            &self.session_id,
+            &self.session.output_pressure,
+        )?;
+        output.extend(drain_reader_output(&mut self.session, &self.session_id)?);
         output.extend(drain_residual_reader(
             &mut self.session.residual_reader,
             &self.session_id,
@@ -290,11 +299,13 @@ impl PtyIoBarrier<'_> {
     ///
     /// When `deadline_unix_ms` is set, the write fails closed at or after that
     /// wall-clock instant and does not keep retrying past the deadline.
+    /// Returns the number of bytes written. Complete success is `Ok(data.len())`.
+    /// `Err` with [`PtyWriteFailure::bytes_written`] `> 0` is an explicit partial write.
     pub fn write_input(
         &mut self,
         data: &[u8],
         deadline_unix_ms: Option<u64>,
-    ) -> Result<(), SessionRuntimeError> {
+    ) -> Result<usize, PtyWriteFailure> {
         let hooks = Arc::clone(&self.session.write_test_hooks);
         write_all_blocking(
             &mut self.session.writer,
@@ -302,6 +313,34 @@ impl PtyIoBarrier<'_> {
             deadline_unix_ms,
             Some(hooks.as_ref()),
         )
+    }
+}
+
+/// Failure from a deadline-aware PTY write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyWriteFailure {
+    /// Human-readable failure detail.
+    pub message: String,
+    /// Bytes successfully written before the failure.
+    pub bytes_written: usize,
+}
+
+impl PtyWriteFailure {
+    fn new(message: impl Into<String>, bytes_written: usize) -> Self {
+        Self {
+            message: message.into(),
+            bytes_written,
+        }
+    }
+
+    fn into_runtime_error(self) -> SessionRuntimeError {
+        SessionRuntimeError::new(SessionRuntimeErrorKind::InputFailed, self.message)
+    }
+}
+
+impl std::fmt::Display for PtyWriteFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
     }
 }
 
@@ -447,6 +486,8 @@ impl LocalProcessRegistry {
         let mut session = lock_session(&session)?;
         let hooks = Arc::clone(&session.write_test_hooks);
         write_all_blocking(&mut session.writer, data, None, Some(hooks.as_ref()))
+            .map(|_| ())
+            .map_err(PtyWriteFailure::into_runtime_error)
     }
 
     fn resize(
@@ -604,17 +645,25 @@ struct ReaderFence {
     state: Mutex<ReaderFenceState>,
     cv: Condvar,
     test_hold_after_read_ms: Option<u64>,
+    /// Unpublished reader events that stay inside the ordering boundary until
+    /// a barrier or normal drain consumes them. Never uses blocking channel send.
+    pending: Mutex<VecDeque<ReaderEvent>>,
+    pending_capacity: usize,
 }
 
 #[derive(Default)]
 struct WriteTestHooks {
     force_would_block_until_unix_ms: Option<u64>,
+    max_chunk: Option<usize>,
+    writes_completed: AtomicUsize,
 }
 
 impl WriteTestHooks {
     fn from_options(options: &LocalProcessRuntimeOptions) -> Self {
         Self {
             force_would_block_until_unix_ms: options.test_write_block_until_unix_ms,
+            max_chunk: options.test_write_max_chunk,
+            writes_completed: AtomicUsize::new(0),
         }
     }
 }
@@ -672,6 +721,64 @@ impl ReaderFence {
             state.in_critical = false;
             if state.paused {
                 self.cv.notify_all();
+            }
+        }
+    }
+
+    fn push_pending(&self, event: ReaderEvent) -> Result<(), ()> {
+        let Ok(mut pending) = self.pending.lock() else {
+            return Err(());
+        };
+        if pending.len() >= self.pending_capacity {
+            // Bounded: drop oldest unpublished event under pressure, same as
+            // channel overflow would force progress without deadlocking.
+            let _ = pending.pop_front();
+        }
+        pending.push_back(event);
+        Ok(())
+    }
+
+    fn take_pending(&self) -> Vec<ReaderEvent> {
+        self.pending
+            .lock()
+            .map(|mut pending| pending.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    /// Non-blocking flush of fence-owned pending events into the reader channel.
+    ///
+    /// Depth was already counted when the event entered `pending`. Do not
+    /// re-count on a successful channel send.
+    fn try_flush_pending_to_channel(
+        &self,
+        sender: &SyncSender<ReaderEvent>,
+        pressure: &ReaderPressure,
+    ) -> Result<(), ()> {
+        loop {
+            let event = {
+                let Ok(mut pending) = self.pending.lock() else {
+                    return Err(());
+                };
+                match pending.pop_front() {
+                    Some(event) => event,
+                    None => return Ok(()),
+                }
+            };
+            match sender.try_send(event) {
+                Ok(()) => {}
+                Err(TrySendError::Full(event)) => {
+                    pressure.pressured.store(true, Ordering::Release);
+                    // Keep unpublished ownership on the fence; never block.
+                    let Ok(mut pending) = self.pending.lock() else {
+                        return Err(());
+                    };
+                    pending.push_front(event);
+                    return Ok(());
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    decrement_reader_depth(pressure);
+                    return Err(());
+                }
             }
         }
     }
@@ -807,14 +914,41 @@ fn drain_reader_output(
     session: &mut LocalSession,
     session_id: &SessionId,
 ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-    drain_reader_events(
+    let mut output =
+        drain_fence_pending(&session.reader_fence, session_id, &session.output_pressure)?;
+    output.extend(drain_reader_events(
         &session.output,
         &session.output_pressure,
         session.output_capacity,
         &mut session.reader_disconnected,
         &mut session.pending_reader_error,
         session_id,
-    )
+    )?);
+    Ok(output)
+}
+
+fn drain_fence_pending(
+    fence: &ReaderFence,
+    session_id: &SessionId,
+    pressure: &ReaderPressure,
+) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+    let mut output = Vec::new();
+    for event in fence.take_pending() {
+        match event {
+            ReaderEvent::Output(data) => {
+                decrement_reader_depth(pressure);
+                output.push(SessionRuntimeOutput::PtyOutput {
+                    session_id: session_id.clone(),
+                    data,
+                });
+            }
+            ReaderEvent::Failed(message) => {
+                decrement_reader_depth(pressure);
+                return Err(reader_error(message));
+            }
+        }
+    }
+    Ok(output)
 }
 
 fn drain_residual_reader(
@@ -936,8 +1070,8 @@ fn spawn_reader(
     thread::spawn(move || {
         let mut buffer = [0; PTY_READER_BUFFER_BYTES];
         loop {
-            // Wait while paused, then mark critical around the non-blocking read
-            // and channel publication so unpublished chunks never leave the fence.
+            // Critical only for capture into fence-owned pending — never for
+            // blocking channel send (that deadlocks admission under backpressure).
             fence.enter_critical();
             let read_result = reader.read(&mut buffer);
             match read_result {
@@ -949,19 +1083,28 @@ fn spawn_reader(
                     let chunk = buffer[..bytes_read].to_vec();
                     if let Some(hold_ms) = fence.test_hold_after_read_ms {
                         if hold_ms > 0 {
-                            // Stay critical: barrier must wait for publication.
                             thread::sleep(Duration::from_millis(hold_ms));
                         }
                     }
-                    let publish =
-                        send_reader_event(&sender, &reader_pressure, ReaderEvent::Output(chunk));
+                    // Depth tracks fence-pending + channel occupancy for backpressure.
+                    reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
+                    if fence.push_pending(ReaderEvent::Output(chunk)).is_err() {
+                        fence.leave_critical();
+                        break;
+                    }
                     fence.leave_critical();
-                    if publish.is_err() {
+                    // Non-blocking flush only. Barrier drains fence.pending itself.
+                    if fence
+                        .try_flush_pending_to_channel(&sender, &reader_pressure)
+                        .is_err()
+                    {
                         break;
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     fence.leave_critical();
+                    // Still try to flush any pending when not paused.
+                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                     thread::sleep(Duration::from_millis(1));
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {
@@ -972,13 +1115,12 @@ fn spawn_reader(
                     break;
                 }
                 Err(error) => {
-                    let publish = send_reader_event(
-                        &sender,
-                        &reader_pressure,
-                        ReaderEvent::Failed(format!("read pty output failed: {error}")),
-                    );
+                    reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
+                    let _ = fence.push_pending(ReaderEvent::Failed(format!(
+                        "read pty output failed: {error}"
+                    )));
                     fence.leave_critical();
-                    let _ = publish;
+                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                     break;
                 }
             }
@@ -992,75 +1134,83 @@ fn write_all_blocking(
     data: &[u8],
     deadline_unix_ms: Option<u64>,
     write_test_hooks: Option<&WriteTestHooks>,
-) -> Result<(), SessionRuntimeError> {
+) -> Result<usize, PtyWriteFailure> {
     if data.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
     if deadline_reached(deadline_unix_ms) {
-        return Err(SessionRuntimeError::new(
-            SessionRuntimeErrorKind::InputFailed,
+        return Err(PtyWriteFailure::new(
             "write pty input failed: deadline_exceeded before write",
+            0,
         ));
     }
     let mut offset = 0;
     while offset < data.len() {
         if deadline_reached(deadline_unix_ms) {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
+            return Err(PtyWriteFailure::new(
                 format!(
                     "write pty input failed: deadline_exceeded after {offset} of {} bytes",
                     data.len()
                 ),
+                offset,
             ));
         }
         if force_write_would_block(write_test_hooks) {
             thread::sleep(Duration::from_millis(1));
             continue;
         }
-        match writer.write(&data[offset..]) {
+        let end = match write_test_hooks.and_then(|hooks| hooks.max_chunk) {
+            Some(max) if max > 0 => (offset + max).min(data.len()),
+            _ => data.len(),
+        };
+        match writer.write(&data[offset..end]) {
             Ok(0) => {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
+                return Err(PtyWriteFailure::new(
                     "write pty input failed: wrote zero bytes",
+                    offset,
                 ))
             }
-            Ok(written) => offset += written,
+            Ok(written) => {
+                offset += written;
+                if let Some(hooks) = write_test_hooks {
+                    hooks.writes_completed.fetch_add(1, Ordering::Relaxed);
+                }
+            }
             Err(error)
                 if error.kind() == io::ErrorKind::WouldBlock
                     || error.kind() == io::ErrorKind::Interrupted =>
             {
                 if deadline_reached(deadline_unix_ms) {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::InputFailed,
+                    return Err(PtyWriteFailure::new(
                         format!(
                             "write pty input failed: deadline_exceeded after {offset} of {} bytes",
                             data.len()
                         ),
+                        offset,
                     ));
                 }
                 thread::sleep(Duration::from_millis(1));
             }
             Err(error) => {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
+                return Err(PtyWriteFailure::new(
                     format!("write pty input failed: {error}"),
+                    offset,
                 ))
             }
         }
     }
     loop {
         if deadline_reached(deadline_unix_ms) {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                "write pty input failed: deadline_exceeded during flush",
-            ));
+            // All payload bytes were accepted by the kernel; flush timeout is
+            // still a complete delivery of the request payload.
+            return Ok(offset);
         }
         if force_write_would_block(write_test_hooks) {
             thread::sleep(Duration::from_millis(1));
             continue;
         }
         match writer.flush() {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(offset),
             Err(error)
                 if error.kind() == io::ErrorKind::WouldBlock
                     || error.kind() == io::ErrorKind::Interrupted =>
@@ -1068,9 +1218,9 @@ fn write_all_blocking(
                 thread::sleep(Duration::from_millis(1));
             }
             Err(error) => {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
+                return Err(PtyWriteFailure::new(
                     format!("flush pty input failed: {error}"),
+                    offset,
                 ))
             }
         }
@@ -1085,9 +1235,19 @@ fn deadline_reached(deadline_unix_ms: Option<u64>) -> bool {
 }
 
 fn force_write_would_block(write_test_hooks: Option<&WriteTestHooks>) -> bool {
-    match write_test_hooks.and_then(|hooks| hooks.force_would_block_until_unix_ms) {
-        Some(until) => unix_now_ms() < until,
-        None => false,
+    let Some(hooks) = write_test_hooks else {
+        return false;
+    };
+    // After the first successful write chunk, optional deadline backpressure
+    // forces WouldBlock so partial-write proofs can cross the deadline.
+    if hooks.max_chunk.is_some() && hooks.writes_completed.load(Ordering::Relaxed) > 0 {
+        if let Some(until) = hooks.force_would_block_until_unix_ms {
+            return unix_now_ms() < until;
+        }
+    }
+    match hooks.force_would_block_until_unix_ms {
+        Some(until) if hooks.max_chunk.is_none() => unix_now_ms() < until,
+        _ => false,
     }
 }
 
@@ -1128,6 +1288,19 @@ fn set_master_nonblocking(master: &dyn MasterPty) -> Result<(), SessionRuntimeEr
     }
 }
 
+fn decrement_reader_depth(pressure: &ReaderPressure) {
+    let _ = pressure
+        .depth
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
+            depth.checked_sub(1)
+        });
+}
+
+/// Non-blocking enqueue into the reader channel (tests / helpers only).
+///
+/// Production readers use fence-owned pending + `try_flush_pending_to_channel`
+/// so a full channel never blocks inside the admission critical section.
+#[cfg(test)]
 fn send_reader_event(
     sender: &SyncSender<ReaderEvent>,
     pressure: &ReaderPressure,
@@ -1136,25 +1309,11 @@ fn send_reader_event(
     pressure.depth.fetch_add(1, Ordering::AcqRel);
     match sender.try_send(event) {
         Ok(()) => Ok(()),
-        Err(TrySendError::Full(event)) => {
-            pressure.pressured.store(true, Ordering::Release);
-            sender.send(event).map_err(|_| {
-                decrement_reader_depth(pressure);
-            })
-        }
-        Err(TrySendError::Disconnected(_)) => {
+        Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
             decrement_reader_depth(pressure);
             Err(())
         }
     }
-}
-
-fn decrement_reader_depth(pressure: &ReaderPressure) {
-    let _ = pressure
-        .depth
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
-            depth.checked_sub(1)
-        });
 }
 
 fn is_terminal_closed(error: &io::Error) -> bool {
@@ -1412,6 +1571,98 @@ mod tests {
         assert_eq!(
             error.message,
             "local process runtime has no authoritative terminal mode backend"
+        );
+    }
+
+    #[test]
+    fn full_reader_channel_keeps_pending_on_fence_without_blocking() {
+        // Capacity-1 channel already full: try_flush must requeue to the fence
+        // and return, never block. Barrier drain then recovers the unpublished
+        // chunk from fence pending.
+        let fence = Arc::new(ReaderFence {
+            state: Mutex::new(ReaderFenceState::default()),
+            cv: Condvar::new(),
+            test_hold_after_read_ms: None,
+            pending: Mutex::new(VecDeque::new()),
+            pending_capacity: 4,
+        });
+        let pressure = Arc::new(ReaderPressure::default());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .try_send(ReaderEvent::Output(b"occupying".to_vec()))
+            .expect("fill channel");
+        pressure.depth.fetch_add(1, Ordering::AcqRel);
+
+        pressure.depth.fetch_add(1, Ordering::AcqRel);
+        fence
+            .push_pending(ReaderEvent::Output(b"mode-chunk".to_vec()))
+            .expect("pending");
+        fence
+            .try_flush_pending_to_channel(&sender, &pressure)
+            .expect("flush must not fail");
+        // Channel still holds occupying; mode-chunk remains fence-owned.
+        let pending = fence.pending.lock().expect("fence pending lock");
+        assert!(matches!(
+            pending.front(),
+            Some(ReaderEvent::Output(data)) if data == b"mode-chunk"
+        ));
+        drop(pending);
+        // Prove try_flush is non-blocking under a full channel: second call returns.
+        fence
+            .try_flush_pending_to_channel(&sender, &pressure)
+            .expect("second flush still non-blocking");
+
+        // Drain fence pending as the admission barrier does.
+        let drained = drain_fence_pending(&fence, &test_session_id(), &pressure).expect("drain");
+        assert!(matches!(
+            drained.as_slice(),
+            [SessionRuntimeOutput::PtyOutput { data, .. }] if data == b"mode-chunk"
+        ));
+        // Channel occupant still present until normal channel drain.
+        assert!(matches!(
+            receiver.try_recv().ok(),
+            Some(ReaderEvent::Output(data)) if data == b"occupying"
+        ));
+    }
+
+    #[test]
+    fn write_all_blocking_reports_partial_bytes_after_deadline() {
+        // Cap each write to 1 byte, force WouldBlock after the first success,
+        // and expire the deadline so the public failure carries bytes_written=1.
+        struct ChunkWriter {
+            limit: usize,
+            written: usize,
+        }
+        impl Write for ChunkWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                if self.written >= self.limit {
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "blocked"));
+                }
+                let n = 1.min(buf.len());
+                self.written += n;
+                Ok(n)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer: Box<dyn Write + Send> = Box::new(ChunkWriter {
+            limit: 1,
+            written: 0,
+        });
+        let hooks = WriteTestHooks {
+            force_would_block_until_unix_ms: Some(unix_now_ms() + 5_000),
+            max_chunk: Some(1),
+            writes_completed: AtomicUsize::new(0),
+        };
+        let deadline = unix_now_ms() + 30;
+        let err = write_all_blocking(&mut writer, b"abcdef", Some(deadline), Some(&hooks))
+            .expect_err("must partial-fail");
+        assert_eq!(err.bytes_written, 1);
+        assert!(
+            err.message.contains("deadline"),
+            "expected deadline detail, got {}",
+            err.message
         );
     }
 }

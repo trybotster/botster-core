@@ -3861,6 +3861,172 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_mode_gated_full_reader_channel_does_not_deadlock() {
+    // Capacity-1 PTY reader channel + continuous mode-changing flood. Without
+    // the fence-owned pending queue, a full channel blocked the reader inside
+    // the critical section and deadlocked admission. This must complete.
+    let data_dir = temp_data_dir("mode-gated-full-chan");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_pty_reader_chunk_capacity(Some(1))
+            .with_mode_gated_input_timeout(Duration::from_secs(5))
+            .with_test_hold_after_read_ms(Some(30)),
+    );
+    let session_id = SessionId("mode-gated-full-chan".to_string());
+    let client_id = ClientId("mode-gated-full-chan-client".to_string());
+    let mut request = spawn_request(&session_id);
+    // On "flood", emit many short mode-toggle chunks so capacity-1 fills while
+    // hold-after-read keeps the reader near the critical-section boundary.
+    request.request.arguments[1] = concat!(
+        "printf ready; ",
+        "while IFS= read -r line; do ",
+        "if [ \"$line\" = flood ]; then ",
+        "i=0; while [ $i -lt 80 ]; do ",
+        "printf 'flood-%s\\n' \"$i\"; ",
+        "printf '\\033[?1000h\\033[?1006h'; ",
+        "printf '\\033[?1000l\\033[?1006l'; ",
+        "i=$((i+1)); ",
+        "done; ",
+        "else printf \"echo:%s\\n\" \"$line\"; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("full-chan-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("full-chan-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"flood\n".to_vec(),
+            13,
+        )
+        .expect("start flood");
+    // Let flood chunks enter the capacity-1 channel / fence pending.
+    thread::sleep(Duration::from_millis(40));
+    let start = Instant::now();
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"full-chan-payload\n".to_vec(),
+            Some(probe.mode_flags.mode_freshness),
+            14,
+        )
+        .expect("gated must return (no deadlock)");
+    assert!(
+        start.elapsed() < Duration::from_secs(8),
+        "admission must not hang on a full reader channel"
+    );
+    match outcome {
+        ModeGatedInputOutcome::Gated(result) => {
+            // Stale or admitted both fine — the contract is progress + no hang.
+            // Flood toggles mouse modes so reject is the common case.
+            let _ = result.admitted;
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+    }
+    daemon.shutdown(Some(session_id), 15).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_partial_write_reports_bytes_written() {
+    // First write chunk succeeds (1 byte), then force WouldBlock past the
+    // deadline. Public outcome must be admitted=false with nonzero
+    // bytes_written and partial_write error_kind — never a clean reject.
+    let data_dir = temp_data_dir("mode-gated-partial-write");
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    let block_until = now_ms + 2_000;
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_mode_gated_input_timeout(Duration::from_millis(600))
+            .with_test_write_max_chunk(Some(1))
+            .with_test_write_block_until_unix_ms(Some(block_until)),
+    );
+    let session_id = SessionId(format!("mode-gated-partial-{now_ms}"));
+    let client_id = ClientId("mode-gated-partial-client".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("partial-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("partial-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+
+    let payload = b"partial-payload\n".to_vec();
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            payload.clone(),
+            Some(probe.mode_flags.mode_freshness),
+            13,
+        )
+        .expect("partial path returns outcome");
+    match outcome {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "partial must not report full admit");
+            assert!(
+                result.bytes_written > 0,
+                "partial must report nonzero bytes_written, got {}",
+                result.bytes_written
+            );
+            assert!(
+                result.bytes_written < payload.len(),
+                "partial bytes_written must be less than payload; written={} len={}",
+                result.bytes_written,
+                payload.len()
+            );
+            let kind = result.error_kind.unwrap_or_default();
+            assert!(
+                kind.contains("partial_write") || kind.contains("deadline"),
+                "expected partial_write/deadline error_kind, got {kind}"
+            );
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated partial outcome"),
+    }
+    daemon.shutdown(Some(session_id), 14).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_binary_is_hosted_by_daemon_package_not_core() {
     // Packaging proof: session worker builds from botster-core-daemon and
     // botster-core does not depend on botster-terminal-ghostty.
