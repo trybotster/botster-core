@@ -3323,7 +3323,12 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
     // control-socket death without sleeping past a race into the live path.
     let (_, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
     daemon
-        .input(client_id, session_id.clone(), b"color-exit\n".to_vec(), 20)
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"color-exit\n".to_vec(),
+            20,
+        )
         .expect("natural-exit trigger input should write");
     wait_for_condition("worker process and control route completion", || {
         !process_exists(pty_child_pid) && UnixStream::connect(&socket_path).is_err()
@@ -3346,6 +3351,23 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
             now_seconds: 21,
         })
         .expect("first natural-exit capture_color_and_snapshot should freeze retained truth");
+
+    // Public lifecycle discriminator: after the first reconciling capture, mutable
+    // session paths must reject with SessionNotReadable before any later readback.
+    // This proves capture_color_and_snapshot reconciled exit without relying only
+    // on a later drain.
+    assert!(
+        matches!(
+            daemon.input(
+                client_id,
+                session_id.clone(),
+                b"should-not-write\n".to_vec(),
+                21,
+            ),
+            Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
+        ),
+        "first reconciling capture must make subsequent input SessionNotReadable"
+    );
 
     // Second call serves the frozen pair without re-entering a live terminal.
     // This is the retained branch: process/socket are already dead, so a live
