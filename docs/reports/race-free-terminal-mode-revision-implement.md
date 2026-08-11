@@ -8,7 +8,7 @@
 - PR: https://github.com/trybotster/botster-core/pull/120
 - Addresses review: `review_1786490355_764752` / finding `finding_1786490355_252756`
 - Also retains prior fixes for carry-forward `finding_1786488133_182843` (overflow gated-first + normal-drain FIFO)
-- Implementation SHA: *(filled after commit)*
+- Implementation SHA: 997fabef2021313a533c4b075a84437b9b1715ad
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
