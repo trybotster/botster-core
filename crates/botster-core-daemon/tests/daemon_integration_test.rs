@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -13,11 +13,11 @@ use botster_core::{
     BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
     EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags, NotificationContent,
     NotificationDeliveryStatus, NotificationId, NotificationItem, NotificationSeverity,
-    NotificationSource, NotificationTarget, NotificationTimestamp, RequestId, ResizePayload,
+    NotificationSource, NotificationTarget, NotificationTimestamp, RequestId, ResizePayload, Rgb,
     RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
     SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalAttachState, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
+    TerminalAttachState, TerminalColorProfile, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
@@ -35,7 +35,10 @@ use botster_core_daemon::{
 use botster_core_test_support::conformance::{
     assert_ghostty_snapshot_authority, assert_mode_flags_authority, GHOSTSNP_MAGIC,
 };
-use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
+use botster_terminal_ghostty::{
+    GhosttyAdapterConfig, GhosttyTerminal, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR,
+    COLOR_INDEX_FOREGROUND,
+};
 
 const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
@@ -3158,15 +3161,21 @@ fn worker_backed_mode_flags_include_kitty_and_mouse_from_ghostty_authority() {
 #[test]
 fn worker_backed_osc_color_queries_receive_session_side_write_pty_replies() {
     let data_dir = temp_data_dir("osc-color-write-pty");
-    let mut daemon =
-        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    // Host outside Core supplies presentation policy through the policy-free
+    // CoreDaemonConfig seam. CoreDaemon itself invents no color defaults.
+    let host_color_profile = host_test_color_profile();
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_terminal_color_profile(host_color_profile),
+    );
     let session_id = SessionId("osc-color-session".to_string());
 
     // No client attaches. Child emits OSC 10/11/12 queries; session Ghostty must
-    // answer via write_pty using the daemon-supplied production color profile.
-    // Replies are injected into the child PTY and appear on the production
-    // screen path (line-discipline echo of PTY input), proving pre-attach
-    // session-side ownership of OSC 10/11/12.
+    // answer via write_pty using the host-supplied color profile. Replies are
+    // injected into the child PTY and appear on the production screen path
+    // (line-discipline echo of PTY input), proving pre-attach session-side
+    // ownership of OSC 10/11/12 for a supplied profile.
     let script_path = data_dir.join("osc_query_child.py");
     fs::create_dir_all(&data_dir).expect("create data dir for script");
     fs::write(
@@ -3195,21 +3204,18 @@ sys.stdout.flush()
     daemon
         .spawn(request, 10)
         .expect("spawn color query session");
-    // Wait until all three production-profile OSC replies are visible on the
-    // session path without any client attach.
+    // Wait until all three host-supplied OSC replies are visible on the session
+    // path without any client attach.
     let screen = read_screen_until(&mut daemon, &session_id, "]12;", 11);
     let text = screen.screen.text;
-    // Production daemon profile:
+    // Host test profile:
     // FG 0xdd/0xdd/0xdd, BG 0x1e/0x1e/0x2e, cursor 0xf5/0xe0/0xdc
-    assert_osc_color_reply(&text, 10, 0xdd, 0xdd, 0xdd);
-    assert_osc_color_reply(&text, 11, 0x1e, 0x1e, 0x2e);
-    assert_osc_color_reply(&text, 12, 0xf5, 0xe0, 0xdc);
-    let i10 = text.find("]10;").expect("OSC 10 reply present");
-    let i11 = text.find("]11;").expect("OSC 11 reply present");
-    let i12 = text.find("]12;").expect("OSC 12 reply present");
+    let seq10 = assert_osc_color_reply_sequence(&text, 10, 0xdd, 0xdd, 0xdd);
+    let seq11 = assert_osc_color_reply_sequence(&text, 11, 0x1e, 0x1e, 0x2e);
+    let seq12 = assert_osc_color_reply_sequence(&text, 12, 0xf5, 0xe0, 0xdc);
     assert!(
-        i10 < i11 && i11 < i12,
-        "expected OSC 10,11,12 reply ordering; text={text}"
+        seq10 < seq11 && seq11 < seq12,
+        "expected OSC 10,11,12 bound reply sequences in order; text={text}"
     );
 
     daemon.shutdown(Some(session_id), 12).ok();
@@ -3589,22 +3595,52 @@ fn capture_snapshot_and_retained_output_until(
     )
 }
 
-fn assert_osc_color_reply(reply_text: &str, osc: u8, r: u8, g: u8, b: u8) {
-    // Ghostty encodes OSC color replies as rgb:RRRR/GGGG/BBBB with 16-bit
-    // channels (high byte == low byte for 8-bit source colors).
-    let marker = format!("]{osc};");
-    assert!(
-        reply_text.contains(&marker),
-        "expected OSC {osc} reply in {reply_text}"
+/// Host-owned test color profile used only by daemon integration proofs.
+///
+/// Presentation policy is intentionally not hardcoded inside CoreDaemon.
+fn host_test_color_profile() -> TerminalColorProfile {
+    let mut colors = HashMap::new();
+    colors.insert(
+        COLOR_INDEX_FOREGROUND,
+        Rgb {
+            r: 0xdd,
+            g: 0xdd,
+            b: 0xdd,
+        },
     );
+    colors.insert(
+        COLOR_INDEX_BACKGROUND,
+        Rgb {
+            r: 0x1e,
+            g: 0x1e,
+            b: 0x2e,
+        },
+    );
+    colors.insert(
+        COLOR_INDEX_CURSOR,
+        Rgb {
+            r: 0xf5,
+            g: 0xe0,
+            b: 0xdc,
+        },
+    );
+    TerminalColorProfile { colors }
+}
+
+/// Assert one complete OSC identifier+value sequence and return its index.
+///
+/// Ghostty encodes OSC color replies as `]Ps;rgb:RRRR/GGGG/BBBB` with 16-bit
+/// channels (high byte == low byte for 8-bit source colors). The identifier and
+/// RGB value must appear as one bound sequence so mismatched OSC/RGB pairs fail.
+fn assert_osc_color_reply_sequence(reply_text: &str, osc: u8, r: u8, g: u8, b: u8) -> usize {
     let rr = format!("{r:02x}{r:02x}");
     let gg = format!("{g:02x}{g:02x}");
     let bb = format!("{b:02x}{b:02x}");
-    let rgb = format!("rgb:{rr}/{gg}/{bb}");
-    assert!(
-        reply_text.to_ascii_lowercase().contains(&rgb),
-        "expected OSC {osc} RGB {rgb} in reply {reply_text}"
-    );
+    let expected = format!("]{osc};rgb:{rr}/{gg}/{bb}");
+    let lowered = reply_text.to_ascii_lowercase();
+    lowered
+        .find(&expected)
+        .unwrap_or_else(|| panic!("expected bound OSC sequence {expected} in reply {reply_text}"))
 }
 
 fn assert_snapshot_format(payload: &botster_core::TerminalSnapshotPayload) {
