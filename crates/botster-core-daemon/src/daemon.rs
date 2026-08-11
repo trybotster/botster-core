@@ -87,8 +87,8 @@ pub struct CoreDaemonConfig {
     pub test_write_max_chunk: Option<usize>,
     /// Test-only: fence pending capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after pending flush while still under the fence.
-    pub test_hold_after_flush_ms: Option<u64>,
+    /// Test-only: hold after fence enqueue while still under the critical fence.
+    pub test_hold_after_enqueue_ms: Option<u64>,
     /// Retained PTY reader chunks inside the worker process (tests may set 1).
     pub pty_reader_chunk_capacity: Option<usize>,
 }
@@ -111,7 +111,7 @@ impl CoreDaemonConfig {
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
             test_pending_capacity: None,
-            test_hold_after_flush_ms: None,
+            test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
         }
     }
@@ -165,10 +165,10 @@ impl CoreDaemonConfig {
         self
     }
 
-    /// Set test-only post-flush hold while still under the admission fence.
+    /// Set test-only post-enqueue hold while still under the admission fence.
     #[must_use]
-    pub const fn with_test_hold_after_flush_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_flush_ms = hold_ms;
+    pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_after_enqueue_ms = hold_ms;
         self
     }
 
@@ -313,7 +313,7 @@ impl CoreDaemon {
                 options.test_write_block_until_unix_ms = config.test_write_block_until_unix_ms;
                 options.test_write_max_chunk = config.test_write_max_chunk;
                 options.test_pending_capacity = config.test_pending_capacity;
-                options.test_hold_after_flush_ms = config.test_hold_after_flush_ms;
+                options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
                     options.pty_reader_chunk_capacity = capacity;
                 }

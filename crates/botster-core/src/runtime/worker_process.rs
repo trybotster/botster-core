@@ -99,8 +99,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_write_max_chunk: Option<usize>,
     /// Test-only: fence pending capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after pending flush while still critical.
-    pub test_hold_after_flush_ms: Option<u64>,
+    /// Test-only: hold after fence enqueue while still critical.
+    pub test_hold_after_enqueue_ms: Option<u64>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -120,7 +120,7 @@ impl WorkerProcessRuntimeOptions {
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
             test_pending_capacity: None,
-            test_hold_after_flush_ms: None,
+            test_hold_after_enqueue_ms: None,
         }
     }
 
@@ -166,10 +166,10 @@ impl WorkerProcessRuntimeOptions {
         self
     }
 
-    /// Set the test-only post-flush hold while still under the admission fence.
+    /// Set the test-only post-enqueue hold while still under the admission fence.
     #[must_use]
-    pub const fn with_test_hold_after_flush_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_flush_ms = hold_ms;
+    pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_after_enqueue_ms = hold_ms;
         self
     }
 
@@ -658,9 +658,9 @@ impl SessionRuntime for WorkerProcessRuntime {
                 .arg("--test-pending-capacity")
                 .arg(capacity.to_string());
         }
-        if let Some(hold_ms) = self.options.test_hold_after_flush_ms {
+        if let Some(hold_ms) = self.options.test_hold_after_enqueue_ms {
             command
-                .arg("--test-hold-after-flush-ms")
+                .arg("--test-hold-after-enqueue-ms")
                 .arg(hold_ms.to_string());
         }
 
