@@ -56,7 +56,7 @@ pub struct LocalProcessRuntimeOptions {
     /// Values below one are clamped to one chunk when the reader starts.
     pub pty_reader_chunk_capacity: usize,
     /// Test-only: hold after a successful PTY read while still inside the reader
-    /// critical section, before channel publication.
+    /// critical section, before leave_critical (still unpublished on the fence).
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write attempts to return `WouldBlock` until this Unix ms.
     pub test_write_block_until_unix_ms: Option<u64>,

@@ -3796,7 +3796,7 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_mode_gated_input_timeout(Duration::from_millis(2_500))
+            .with_mode_gated_input_timeout(Duration::from_secs(5))
             .with_test_write_block_until_unix_ms(Some(block_until)),
     );
     let session_id = SessionId(format!("mode-gated-wdeadline-{now_ms}"));
@@ -3823,17 +3823,18 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
         })
         .expect("probe");
 
-    let outcome = daemon
-        .mode_gated_input(
-            client_id,
-            session_id.clone(),
-            b"deadline-bytes\n".to_vec(),
-            Some(probe.mode_flags.mode_freshness),
-            13,
-        )
-        .expect("deadline path returns a closed outcome");
+    // Under suite load the parent Instant wait can expire slightly before the
+    // worker's wall-clock deadline reply arrives. Both are fail-closed: no
+    // admit and zero payload bytes.
+    let outcome = daemon.mode_gated_input(
+        client_id,
+        session_id.clone(),
+        b"deadline-bytes\n".to_vec(),
+        Some(probe.mode_flags.mode_freshness),
+        13,
+    );
     match outcome {
-        ModeGatedInputOutcome::Gated(result) => {
+        Ok(ModeGatedInputOutcome::Gated(result)) => {
             assert!(!result.admitted, "deadline must not admit");
             let kind = result.error_kind.unwrap_or_default();
             assert!(
@@ -3841,7 +3842,14 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
                 "expected deadline error_kind, got {kind}"
             );
         }
-        ModeGatedInputOutcome::PlainWritten => panic!("expected gated fail-closed outcome"),
+        Ok(ModeGatedInputOutcome::PlainWritten) => panic!("expected gated fail-closed outcome"),
+        Err(error) => {
+            let msg = format!("{error:?}");
+            assert!(
+                msg.contains("timeout") || msg.contains("deadline"),
+                "parent fail-closed must be timeout/deadline, got {msg}"
+            );
+        }
     }
     // Prove zero payload bytes after the fail-closed outcome (block still active).
     thread::sleep(Duration::from_millis(100));
@@ -3863,12 +3871,11 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
 
 #[cfg(unix)]
 #[test]
-fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
-    // Capacity-1 + hold-after-read places an older mode chunk on the channel and
-    // a newer opposite transition on fence pending. Barrier/probe drain must keep
-    // FIFO (channel then pending): enable then disable → mouse off. Reversed
-    // order leaves mouse on.
-    let data_dir = temp_data_dir("mode-gated-full-chan-order");
+fn worker_backed_mode_gated_fence_queue_preserves_mode_order() {
+    // Capacity-1 fence queue + hold-after-read: opposite mode transitions are
+    // enqueued in order on the single ownership queue. Barrier/probe drain must
+    // keep FIFO enable then disable → mouse off. Reversed order leaves mouse on.
+    let data_dir = temp_data_dir("mode-gated-fence-order");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
@@ -3876,11 +3883,11 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
             .with_mode_gated_input_timeout(Duration::from_secs(5))
             .with_test_hold_after_read_ms(Some(60)),
     );
-    let session_id = SessionId("mode-gated-full-chan-order".to_string());
-    let client_id = ClientId("mode-gated-full-chan-order-client".to_string());
+    let session_id = SessionId("mode-gated-fence-order".to_string());
+    let client_id = ClientId("mode-gated-fence-order-client".to_string());
     let mut request = spawn_request(&session_id);
-    // Separate writes + sleep so capacity-1 captures enable then disable as
-    // distinct chunks (channel then pending under hold-after-read).
+    // Separate writes + sleep so the single fence queue captures enable then
+    // disable as distinct chunks under hold-after-read.
     request.request.arguments[1] = concat!(
         "printf ready; ",
         "while IFS= read -r line; do ",
@@ -3899,14 +3906,14 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
         .attach(
             client_id.clone(),
             session_id.clone(),
-            SubscriptionId("full-chan-order-sub".to_string()),
+            SubscriptionId("fence-order-sub".to_string()),
             11,
         )
         .expect("attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
     let baseline = daemon
         .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("full-chan-order-base".to_string()),
+            request_id: RequestId("fence-order-base".to_string()),
             session_id: session_id.clone(),
             now_seconds: 12,
         })
@@ -3917,20 +3924,20 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
     daemon
         .input(client_id.clone(), session_id.clone(), b"seq\n".to_vec(), 13)
         .expect("seq");
-    // Wait for enable hold (~60ms) + disable capture so channel+pending both
-    // hold opposite transitions, then drain via probe (barrier path).
+    // Wait for enable hold (~60ms) + disable capture on the single fence queue,
+    // then drain via probe (barrier path).
     thread::sleep(Duration::from_millis(120));
     let start = Instant::now();
     let after_seq = daemon
         .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("full-chan-order-after".to_string()),
+            request_id: RequestId("fence-order-after".to_string()),
             session_id: session_id.clone(),
             now_seconds: 14,
         })
-        .expect("probe must drain dual buffers without hang");
+        .expect("probe must drain fence queue without hang");
     assert!(
         start.elapsed() < Duration::from_secs(8),
-        "mode probe must not hang when channel+pending both hold mode bytes"
+        "mode probe must not hang when the fence queue holds mode bytes"
     );
     assert_eq!(
         after_seq.mode_flags.mode_flags.mouse_mode, 0,
@@ -3942,7 +3949,7 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
     let _ = drain_until(&mut daemon, &session_id, "seq-done");
     let final_modes = daemon
         .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("full-chan-order-final".to_string()),
+            request_id: RequestId("fence-order-final".to_string()),
             session_id: session_id.clone(),
             now_seconds: 15,
         })
@@ -3998,7 +4005,7 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_overflow_stays_failed_closed() {
-    // Tiny dual buffers + flood. Overflow latches sticky authority failure:
+    // Tiny single-queue capacity + flood. Overflow latches sticky authority failure:
     // every post-overflow probe and gated admit must fail, including the first
     // call that may still deliver retained output.
     let data_dir = temp_data_dir("mode-gated-overflow-sticky");
