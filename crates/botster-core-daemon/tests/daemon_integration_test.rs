@@ -3297,7 +3297,7 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
         )
         .expect("natural-exit color session should attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
-    // Ensure OSC mutations reach the Ghostty shadow before exit.
+    // Ensure OSC mutations reach the Ghostty shadow while the session is live.
     let _ = capture_color_and_snapshot_until(
         &mut daemon,
         &session_id,
@@ -3318,12 +3318,27 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
                     })
         },
     );
+
+    // Capture worker identity before exit so we can wait for exact process and
+    // control-socket death without sleeping past a race into the live path.
+    let (_, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
     daemon
         .input(client_id, session_id.clone(), b"color-exit\n".to_vec(), 20)
         .expect("natural-exit trigger input should write");
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    wait_for_condition("worker process and control route completion", || {
+        !process_exists(pty_child_pid) && UnixStream::connect(&socket_path).is_err()
+    });
+    // Process is gone, but the daemon has not yet reconciled lifecycle.
+    assert_eq!(
+        daemon.list().expect("list unreconciled session")[0].registry_state,
+        RegistrySessionState::Running,
+        "registry must still report Running before the first reconciling capture"
+    );
 
-    // First reconciling read after exit freezes the retained color+snapshot pair.
+    // First daemon lifecycle reconciliation after process exit: freeze retained
+    // color+snapshot pair through capture_color_and_snapshot (not drain/read_screen).
+    // resolve_readback drains the dead worker, freezes retained terminal state, and
+    // returns that frozen pair — the live dual-return branch is not used.
     let first = daemon
         .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
             request_id: RequestId("natural-exit-color-1".to_string()),
@@ -3331,6 +3346,10 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
             now_seconds: 21,
         })
         .expect("first natural-exit capture_color_and_snapshot should freeze retained truth");
+
+    // Second call serves the frozen pair without re-entering a live terminal.
+    // This is the retained branch: process/socket are already dead, so a live
+    // re-capture could not produce a fresh authoritative Ghostty pair.
     let second = daemon
         .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
             request_id: RequestId("natural-exit-color-2".to_string()),
@@ -3339,9 +3358,27 @@ fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
         })
         .expect("retained capture_color_and_snapshot should be repeatable");
 
-    assert_eq!(first.color_profile, second.color_profile);
-    assert_eq!(first.payload, second.payload);
+    assert_eq!(
+        first.color_profile, second.color_profile,
+        "retained freeze must serve the same color profile"
+    );
+    assert_eq!(
+        first.payload, second.payload,
+        "retained freeze must serve the same GHOSTSNP payload"
+    );
     assert_ne!(first.snapshot.request_id, second.snapshot.request_id);
+    // Symmetric retained snapshot path must agree with the dual-return freeze.
+    let retained_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-snapshot-from-retained".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("capture_snapshot should serve the same retained freeze");
+    assert_eq!(
+        retained_snapshot.payload, first.payload,
+        "retained snapshot projection must match the frozen dual-return pair"
+    );
     assert_eq!(
         first.snapshot.request_id,
         RequestId("natural-exit-color-1".to_string())
