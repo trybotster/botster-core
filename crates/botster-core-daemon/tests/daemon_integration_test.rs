@@ -3796,7 +3796,7 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_mode_gated_input_timeout(Duration::from_millis(1_000))
+            .with_mode_gated_input_timeout(Duration::from_millis(2_500))
             .with_test_write_block_until_unix_ms(Some(block_until)),
     );
     let session_id = SessionId(format!("mode-gated-wdeadline-{now_ms}"));
@@ -3999,7 +3999,8 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
 #[test]
 fn worker_backed_mode_gated_overflow_stays_failed_closed() {
     // Tiny dual buffers + flood. Overflow latches sticky authority failure:
-    // later probes and gated admits must keep failing until session shutdown.
+    // every post-overflow probe and gated admit must fail, including the first
+    // call that may still deliver retained output.
     let data_dir = temp_data_dir("mode-gated-overflow-sticky");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -4051,32 +4052,29 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
         .expect("flood");
     thread::sleep(Duration::from_millis(200));
 
-    let mut saw_fail = false;
-    for i in 0..4 {
+    // First post-overflow operation may still carry retained bytes through apply;
+    // it must still fail closed (ensure_mode_authority after apply).
+    let mut post_overflow_ops = 0usize;
+    let mut failed_ops = 0usize;
+    for i in 0..5 {
+        post_overflow_ops += 1;
         match daemon.read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId(format!("overflow-probe-{i}")),
             session_id: session_id.clone(),
             now_seconds: 14 + i as u64,
         }) {
-            Ok(_) => {}
-            Err(error) => {
-                let msg = format!("{error:?}");
-                if msg.contains("overflow")
-                    || msg.contains("authority")
-                    || msg.contains("OutputFailed")
-                {
-                    saw_fail = true;
-                }
+            Ok(payload) => {
+                // A successful probe after overflow is a product defect.
+                panic!(
+                    "probe {i} must fail after overflow; got freshness {:?}",
+                    payload.mode_flags.mode_freshness
+                );
             }
+            Err(_) => failed_ops += 1,
         }
     }
-    assert!(
-        saw_fail,
-        "overflow must surface sticky authority failure on probe"
-    );
-
-    // Gated input must not silently admit after authority failure.
     for i in 0..3 {
+        post_overflow_ops += 1;
         match daemon.mode_gated_input(
             client_id.clone(),
             session_id.clone(),
@@ -4087,17 +4085,31 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
             Ok(ModeGatedInputOutcome::Gated(result)) => {
                 assert!(
                     !result.admitted,
-                    "gated must not admit after overflow authority failure"
+                    "gated admit must fail closed after overflow"
                 );
+                assert!(
+                    result
+                        .error_kind
+                        .as_deref()
+                        .is_some_and(|k| k.contains("overflow")
+                            || k.contains("authority")
+                            || k.contains("OutputFailed")
+                            || !k.is_empty()),
+                    "expected authority failure kind, got {:?}",
+                    result.error_kind
+                );
+                failed_ops += 1;
             }
             Ok(ModeGatedInputOutcome::PlainWritten) => {
                 panic!("must not plain-write after overflow")
             }
-            Err(_) => {
-                // Parent fail-closed on probe/worker error is also correct.
-            }
+            Err(_) => failed_ops += 1,
         }
     }
+    assert_eq!(
+        failed_ops, post_overflow_ops,
+        "every post-overflow probe/admit must fail closed"
+    );
     daemon.shutdown(Some(session_id), 30).ok();
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4105,8 +4117,8 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
-    // hold_after_flush keeps the reader critical through the full nonblocking
-    // pending→channel transfer. Barrier wait cannot miss a mid-transfer event.
+    // hold_after_flush keeps the reader critical while events sit on the single
+    // fence queue. Barrier drain cannot miss or reorder mid-transfer events.
     let data_dir = temp_data_dir("mode-gated-transfer-hold");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)

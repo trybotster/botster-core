@@ -285,10 +285,10 @@ impl PtyIoBarrier<'_> {
     /// dedicated residual reader so a paused background reader cannot hide
     /// pre-write mode changes.
     pub fn drain_output(&mut self) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        // FIFO across the dual buffers: channel holds older flushed events,
-        // fence pending holds newer unpublished events. Residual is newest
-        // (not yet captured by the background reader).
-        // Retained events are always delivered before sticky authority failure.
+        // Single fence-owned FIFO plus residual OS bytes (newest). Retained
+        // events are delivered even when authority is sticky-failed so the
+        // worker can apply them; callers must then call
+        // [`Self::ensure_mode_authority`] before probe success or admit write.
         let mut output = drain_reader_output(&mut self.session, &self.session_id)?;
         output.extend(drain_residual_reader(
             &mut self.session.residual_reader,
@@ -308,11 +308,20 @@ impl PtyIoBarrier<'_> {
         let mut queued = self.session.outputs.drain(..).collect::<Vec<_>>();
         output.append(&mut queued);
         if output.is_empty() {
-            if let Some(message) = sticky_session_error(&self.session) {
-                return Err(reader_error(message));
-            }
+            self.ensure_mode_authority()?;
         }
         Ok(output)
+    }
+
+    /// Fail closed when mode authority is incomplete (sticky overflow, etc.).
+    ///
+    /// Call after applying retained drain output and before token compare or
+    /// PTY write so the first post-overflow gated operation cannot succeed.
+    pub fn ensure_mode_authority(&self) -> Result<(), SessionRuntimeError> {
+        if let Some(message) = sticky_session_error(&self.session) {
+            return Err(reader_error(message));
+        }
+        Ok(())
     }
 
     /// Write raw PTY input while the reader remains paused.
@@ -794,8 +803,11 @@ impl ReaderFence {
 
     /// Non-blocking flush of fence-owned pending events into the reader channel.
     ///
+    /// Production readers no longer use this for ownership (single fence queue).
+    /// Retained for unit tests that exercise dual-buffer history.
     /// Depth was already counted when the event entered `pending`. Do not
     /// re-count on a successful channel send.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn try_flush_pending_to_channel(
         &self,
         sender: &SyncSender<ReaderEvent>,
@@ -962,10 +974,10 @@ fn drain_reader_output(
     session: &mut LocalSession,
     session_id: &SessionId,
 ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-    // Channel first (older flushed events), then fence pending (newer
-    // unpublished). Reversing this order rewrites Ghostty mode history.
-    // Pending-to-channel transfer only runs under fence critical, so a barrier
-    // that waits for !in_critical never observes an event in neither buffer.
+    // Single ownership queue: fence pending is the only ordered reader buffer.
+    // (Legacy channel may still hold pre-cutover events; drain it first as older
+    // prefix, then pending. New reader code no longer publishes mid-drain, so
+    // a concurrent transfer cannot reverse FIFO.)
     let mut output = drain_reader_events(
         &session.output,
         &session.output_pressure,
@@ -986,6 +998,13 @@ fn drain_reader_output(
     }
     if let Some(message) = session.pending_reader_error.take() {
         session.authority_failed.get_or_insert(message);
+    }
+    // Report backpressure when fence occupancy reaches the public capacity.
+    if session.output_pressure.depth.load(Ordering::Acquire) >= session.output_capacity {
+        session
+            .output_pressure
+            .pressured
+            .store(true, Ordering::Release);
     }
     Ok(output)
 }
@@ -1140,8 +1159,12 @@ fn spawn_reader(
     let pressure = Arc::new(ReaderPressure::default());
     let reader_pressure = Arc::clone(&pressure);
     let (sender, receiver) = mpsc::sync_channel(capacity);
+    // Keep a channel endpoint so Session types stay stable, but the reader no
+    // longer publishes into it for ownership. Fence pending is the sole FIFO.
     thread::spawn(move || {
         let mut buffer = [0; PTY_READER_BUFFER_BYTES];
+        // Keep sender alive so the receiver is not permanently disconnected.
+        let _keep_sender_alive = sender;
         loop {
             // Critical only for capture into fence-owned pending — never for
             // blocking channel send (that deadlocks admission under backpressure).
@@ -1159,21 +1182,17 @@ fn spawn_reader(
                             thread::sleep(Duration::from_millis(hold_ms));
                         }
                     }
-                    // All pending↔channel transfer stays under critical so a
-                    // barrier waiting on !in_critical never misses an event
-                    // mid-transfer (neither buffer).
-                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
+                    // Single ownership queue: events stay on the fence until a
+                    // drain consumes them. No pending→channel transfer means a
+                    // concurrent normal drain cannot reverse FIFO mid-transfer.
                     match fence.push_pending(ReaderEvent::Output(chunk)) {
                         Ok(()) => {
                             reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
-                            if fence
-                                .try_flush_pending_to_channel(&sender, &reader_pressure)
-                                .is_err()
-                            {
-                                fence.leave_critical();
-                                break;
+                            if reader_pressure.depth.load(Ordering::Acquire) >= capacity {
+                                reader_pressure.pressured.store(true, Ordering::Release);
                             }
                             if let Some(hold_ms) = fence.test_hold_after_flush_ms {
+                                // Still under critical (admission fence window).
                                 if hold_ms > 0 {
                                     thread::sleep(Duration::from_millis(hold_ms));
                                 }
@@ -1192,8 +1211,6 @@ fn spawn_reader(
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    // Flush under critical before idle so transfers stay fenced.
-                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                     fence.leave_critical();
                     thread::sleep(Duration::from_millis(1));
                 }
@@ -1205,13 +1222,11 @@ fn spawn_reader(
                     break;
                 }
                 Err(error) => {
-                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                     match fence.push_pending(ReaderEvent::Failed(format!(
                         "read pty output failed: {error}"
                     ))) {
                         Ok(()) => {
                             reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
-                            let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                         }
                         Err(_) => {
                             fence.set_overflow_error(format!(
