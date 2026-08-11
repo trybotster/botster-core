@@ -64,9 +64,9 @@ pub struct LocalProcessRuntimeOptions {
     pub test_write_max_chunk: Option<usize>,
     /// Test-only: override fence pending capacity (overflow proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after pending-to-channel flush while still critical
-    /// (transfer-window proofs; must stay under the fence the barrier waits on).
-    pub test_hold_after_flush_ms: Option<u64>,
+    /// Test-only: hold after successful fence enqueue while still critical
+    /// (single-queue hold proofs; must stay under the fence the barrier waits on).
+    pub test_hold_after_enqueue_ms: Option<u64>,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -79,7 +79,7 @@ impl Default for LocalProcessRuntimeOptions {
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
             test_pending_capacity: None,
-            test_hold_after_flush_ms: None,
+            test_hold_after_enqueue_ms: None,
         }
     }
 }
@@ -208,7 +208,7 @@ impl SessionRuntime for LocalProcessRuntime {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             test_hold_after_read_ms: self.options.test_hold_after_read_ms,
-            test_hold_after_enqueue_ms: self.options.test_hold_after_flush_ms,
+            test_hold_after_enqueue_ms: self.options.test_hold_after_enqueue_ms,
             pending: Mutex::new(VecDeque::new()),
             pending_capacity,
             overflow_error: Mutex::new(None),

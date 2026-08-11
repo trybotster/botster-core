@@ -4052,27 +4052,10 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
         .expect("flood");
     thread::sleep(Duration::from_millis(200));
 
-    // First post-overflow operation may still carry retained bytes through apply;
-    // it must still fail closed (ensure_mode_authority after apply).
+    // First post-overflow op is gated while retained output may still exist;
+    // it must fail closed (apply retained then ensure_mode_authority).
     let mut post_overflow_ops = 0usize;
     let mut failed_ops = 0usize;
-    for i in 0..5 {
-        post_overflow_ops += 1;
-        match daemon.read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId(format!("overflow-probe-{i}")),
-            session_id: session_id.clone(),
-            now_seconds: 14 + i as u64,
-        }) {
-            Ok(payload) => {
-                // A successful probe after overflow is a product defect.
-                panic!(
-                    "probe {i} must fail after overflow; got freshness {:?}",
-                    payload.mode_flags.mode_freshness
-                );
-            }
-            Err(_) => failed_ops += 1,
-        }
-    }
     for i in 0..3 {
         post_overflow_ops += 1;
         match daemon.mode_gated_input(
@@ -4085,16 +4068,10 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
             Ok(ModeGatedInputOutcome::Gated(result)) => {
                 assert!(
                     !result.admitted,
-                    "gated admit must fail closed after overflow"
+                    "gated admit must fail closed after overflow (op {i})"
                 );
                 assert!(
-                    result
-                        .error_kind
-                        .as_deref()
-                        .is_some_and(|k| k.contains("overflow")
-                            || k.contains("authority")
-                            || k.contains("OutputFailed")
-                            || !k.is_empty()),
+                    result.error_kind.as_deref().is_some_and(|k| !k.is_empty()),
                     "expected authority failure kind, got {:?}",
                     result.error_kind
                 );
@@ -4102,6 +4079,22 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
             }
             Ok(ModeGatedInputOutcome::PlainWritten) => {
                 panic!("must not plain-write after overflow")
+            }
+            Err(_) => failed_ops += 1,
+        }
+    }
+    for i in 0..5 {
+        post_overflow_ops += 1;
+        match daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("overflow-probe-{i}")),
+            session_id: session_id.clone(),
+            now_seconds: 14 + i as u64,
+        }) {
+            Ok(payload) => {
+                panic!(
+                    "probe {i} must fail after overflow; got freshness {:?}",
+                    payload.mode_flags.mode_freshness
+                );
             }
             Err(_) => failed_ops += 1,
         }
@@ -4116,19 +4109,21 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
 
 #[cfg(unix)]
 #[test]
-fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
-    // hold_after_flush keeps the reader critical while events sit on the single
-    // fence queue. Barrier drain cannot miss or reorder mid-transfer events.
-    let data_dir = temp_data_dir("mode-gated-transfer-hold");
+fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
+    // hold_after_enqueue keeps the reader critical while opposite mode chunks
+    // sit on the single fence queue. Normal (non-barrier) drain via the worker
+    // control loop + parent drain, then a later probe, must keep enable→disable
+    // FIFO (mouse off).
+    let data_dir = temp_data_dir("mode-gated-normal-drain-fifo");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_pty_reader_chunk_capacity(Some(1))
-            .with_test_hold_after_flush_ms(Some(80))
+            .with_test_hold_after_enqueue_ms(Some(80))
             .with_mode_gated_input_timeout(Duration::from_secs(5)),
     );
-    let session_id = SessionId("mode-gated-transfer".to_string());
-    let client_id = ClientId("mode-gated-transfer-client".to_string());
+    let session_id = SessionId("mode-gated-normal-drain".to_string());
+    let client_id = ClientId("mode-gated-normal-drain-client".to_string());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = concat!(
         "printf ready; ",
@@ -4148,14 +4143,14 @@ fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
         .attach(
             client_id.clone(),
             session_id.clone(),
-            SubscriptionId("transfer-sub".to_string()),
+            SubscriptionId("normal-drain-sub".to_string()),
             11,
         )
         .expect("attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
     let baseline = daemon
         .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("transfer-base".to_string()),
+            request_id: RequestId("normal-drain-base".to_string()),
             session_id: session_id.clone(),
             now_seconds: 12,
         })
@@ -4163,34 +4158,33 @@ fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
     daemon
         .input(client_id.clone(), session_id.clone(), b"seq\n".to_vec(), 13)
         .expect("seq");
-    thread::sleep(Duration::from_millis(40));
-    // Race probe during transfer holds — must not hang and must leave mouse off.
+    // Normal-path drains while enqueue holds may still be active.
+    thread::sleep(Duration::from_millis(30));
     let start = Instant::now();
-    let after = daemon
-        .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("transfer-after".to_string()),
-            session_id: session_id.clone(),
-            now_seconds: 14,
-        })
-        .expect("probe during transfer hold");
-    assert!(start.elapsed() < Duration::from_secs(8), "must not hang");
+    let _ = daemon
+        .drain(&session_id, 14)
+        .expect("normal drain during hold");
     let _ = drain_until(&mut daemon, &session_id, "seq-done");
+    assert!(
+        start.elapsed() < Duration::from_secs(8),
+        "normal drain path must not hang under enqueue hold"
+    );
     let final_modes = daemon
         .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("transfer-final".to_string()),
+            request_id: RequestId("normal-drain-final".to_string()),
             session_id: session_id.clone(),
             now_seconds: 15,
         })
         .expect("final");
     assert_eq!(
         final_modes.mode_flags.mode_flags.mouse_mode, 0,
-        "transfer-safe drain must keep enable→disable order"
+        "normal-drain FIFO must keep enable→disable (mouse off)"
     );
     let stale = daemon
         .mode_gated_input(
             client_id,
             session_id.clone(),
-            b"stale-transfer\n".to_vec(),
+            b"stale-normal-drain\n".to_vec(),
             Some(baseline.mode_flags.mode_freshness),
             16,
         )
@@ -4203,7 +4197,6 @@ fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
             ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
         }
     }
-    let _ = after;
     daemon.shutdown(Some(session_id), 17).ok();
     let _ = fs::remove_dir_all(data_dir);
 }
