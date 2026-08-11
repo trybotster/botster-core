@@ -13,13 +13,17 @@ use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
-    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
+    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload, Rgb,
     RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
     SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalScreenState,
-    TerminalSnapshotPayload, WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
+    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalColorProfile,
+    TerminalScreenState, TerminalSnapshotPayload, WorkerBackedBotsterEngine,
+    WorkerProcessRuntimeOptions,
 };
-use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
+use botster_terminal_ghostty::{
+    GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError, COLOR_INDEX_BACKGROUND,
+    COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
+};
 use thiserror::Error;
 
 use crate::api::{
@@ -517,8 +521,8 @@ impl CoreDaemon {
 
     /// Capture the current terminal snapshot through the production daemon path.
     ///
-    /// The payload is backend-neutral opaque terminal state. The plain fallback
-    /// runtime currently labels it `plain-opaque-v1` and retains at most the
+    /// The payload is Ghostty-owned opaque terminal state (`GHOSTSNP` /
+    /// `ghostty-terminal-snapshot-v1`). Production daemons retain at most the
     /// most recent 1 MiB of PTY bytes.
     pub fn capture_snapshot(
         &mut self,
@@ -1234,14 +1238,49 @@ fn worker_engine(
     })
 }
 
+/// Production-session color defaults owned by the daemon host composition seam.
+///
+/// These values are presentation policy for CoreDaemon sessions, not adapter
+/// mechanism defaults. OSC 10/11/12 queries are answered from this profile.
+fn production_session_color_profile() -> TerminalColorProfile {
+    let mut colors = HashMap::new();
+    colors.insert(
+        COLOR_INDEX_FOREGROUND,
+        Rgb {
+            r: 0xdd,
+            g: 0xdd,
+            b: 0xdd,
+        },
+    );
+    colors.insert(
+        COLOR_INDEX_BACKGROUND,
+        Rgb {
+            r: 0x1e,
+            g: 0x1e,
+            b: 0x2e,
+        },
+    );
+    colors.insert(
+        COLOR_INDEX_CURSOR,
+        Rgb {
+            r: 0xf5,
+            g: 0xe0,
+            b: 0xdc,
+        },
+    );
+    TerminalColorProfile { colors }
+}
+
 fn default_ghostty_terminal(
     size: TerminalScreenSize,
     max_scrollback_bytes: usize,
 ) -> Result<GhosttyTerminal, GhosttyTerminalError> {
-    GhosttyTerminal::with_config(
+    let mut terminal = GhosttyTerminal::with_config(
         size,
         GhosttyAdapterConfig::with_max_scrollback_bytes(max_scrollback_bytes),
-    )
+    )?;
+    terminal.apply_color_profile(&production_session_color_profile())?;
+    Ok(terminal)
 }
 
 fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {

@@ -112,20 +112,19 @@ changes. `SessionLifecycleChange` contains session projection facts only;
 `TransportEgress`, PTY bytes, snapshots, and attach ordering remain exclusively
 on the existing drain/data plane.
 
-Snapshot payloads are backend-neutral opaque terminal state. The current plain
-fallback runtime returns raw retained PTY bytes with format
-`plain-opaque-v1`, terminal dimensions, and a 1 MiB retained-tail bound; older
-bytes are truncated from the head. The plain fallback runtime does not parse VT
-sequences. It is retained for `botster-core-daemon --no-default-features`
-contract-only embeds.
+Snapshot payloads are Ghostty-owned opaque terminal state. Production
+`CoreDaemon::capture_snapshot` returns `GHOSTSNP` bytes labeled
+`ghostty-terminal-snapshot-v1`. There is no daemon plain/`plain-opaque-v1`
+production path; `PlainTerminalScreenRuntime` is only a `botster-core` library
+or unit-test harness.
 
 `botster-core-daemon` always depends on Ghostty (`botster-terminal-ghostty` with
 `libghostty-vt`). There is no optional plain production terminal feature. Ghostty
 uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
 feature as the production terminal backend. On that path,
 `CoreDaemon::read_screen` returns Ghostty-formatted plain text and
-`CoreDaemon::capture_snapshot` returns opaque bytes labeled
-`ghostty-terminal-snapshot-v1`. The daemon configures Ghostty with a 10 MB
+`CoreDaemon::capture_snapshot` returns opaque Ghostty snapshot bytes. The
+daemon configures Ghostty with a 10 MB
 retained scrollback byte budget. Ghostty stores parsed terminal pages instead
 of a raw byte tail, so the effective retained line count is page-quantized and
 depends on terminal width. At 24x80 today the daemon test fixture with 12,000
