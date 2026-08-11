@@ -7,6 +7,7 @@
 - Run step: `run_step_1786487435_539660`
 - PR: https://github.com/trybotster/botster-core/pull/120
 - Addresses review: `review_1786487424_418020`
+- Implementation SHA: `2fdd643179ee3ac9277df6d1bd1a9be673459f72`
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
