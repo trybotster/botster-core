@@ -3700,9 +3700,10 @@ fn worker_backed_mode_gated_interleaved_output_during_wait() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_unpublished_reader_chunk_window_rejects() {
-    // Hold after the background reader captures mode bytes and before channel
-    // publication. The barrier must wait for publication, apply the modes, and
-    // reject the stale token — not write while the chunk is unpublished.
+    // Hold after the background reader captures mode bytes and before fence
+    // enqueue onto the single fence-owned queue. The barrier must wait for
+    // publication, apply the modes, and reject the stale token — not write while
+    // the chunk is unpublished.
     let data_dir = temp_data_dir("mode-gated-unpub-chunk");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
