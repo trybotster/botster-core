@@ -3152,7 +3152,9 @@ fn worker_backed_capture_color_and_snapshot_agrees_with_ghostsnp_import_after_os
         host_color_profile.colors.get(&COLOR_INDEX_FOREGROUND)
     );
 
-    // GHOSTSNP content proof: import into a fresh Ghostty terminal and compare.
+    // GHOSTSNP content proof: import into a fresh Ghostty terminal and fully
+    // compare the restored profile with the paired atomic result (all 256
+    // palette entries + specials), while keeping targeted mutation diagnostics.
     let restored = ghostty_snapshot_color_profile(&first.payload);
     assert_eq!(
         restored.colors.get(&3),
@@ -3173,6 +3175,10 @@ fn worker_backed_capture_color_and_snapshot_agrees_with_ghostsnp_import_after_os
         restored.colors.get(&COLOR_INDEX_CURSOR),
         first.color_profile.colors.get(&COLOR_INDEX_CURSOR),
         "imported GHOSTSNP cursor must match atomic pair"
+    );
+    assert_eq!(
+        restored, first.color_profile,
+        "imported GHOSTSNP full color profile must equal the paired atomic profile"
     );
 
     // Hold the first pair; mutate live; prove held pair is stable and a new
@@ -3234,6 +3240,10 @@ fn worker_backed_capture_color_and_snapshot_agrees_with_ghostsnp_import_after_os
         second_restored.colors.get(&COLOR_INDEX_FOREGROUND),
         second.color_profile.colors.get(&COLOR_INDEX_FOREGROUND)
     );
+    assert_eq!(
+        second_restored, second.color_profile,
+        "second capture GHOSTSNP full profile must equal its paired atomic profile"
+    );
 
     // Drain-before-read egress retention parity: next explicit drain returns
     // client egress retained from internal drains exactly once for markers.
@@ -3247,6 +3257,153 @@ fn worker_backed_capture_color_and_snapshot_agrees_with_ghostsnp_import_after_os
     );
 
     daemon.shutdown(Some(session_id), 90).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
+    // Direct retained-path proof for the new public dual-return: first
+    // reconciling read after natural exit is capture_color_and_snapshot.
+    let data_dir = temp_data_dir("color-snap-natural-exit");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("color-snap-exit-session".to_string());
+    let client_id = ClientId("color-snap-exit-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = [
+        "printf ready; ",
+        "printf '\\033]4;5;rgb:5555/6666/7777\\033\\\\'; ",
+        "printf '\\033]10;rgb:1010/2020/3030\\033\\\\'; ",
+        "printf '\\033]11;rgb:4040/5050/6060\\033\\\\'; ",
+        "printf '\\033]12;rgb:7070/8080/9090\\033\\\\'; ",
+        "printf 'echo:color-exit-ready\\n'; ",
+        "IFS= read -r line; ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "exit 0",
+    ]
+    .concat();
+
+    daemon
+        .spawn(request, 10)
+        .expect("natural-exit color session should spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("color-snap-exit-sub".to_string()),
+            11,
+        )
+        .expect("natural-exit color session should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    // Ensure OSC mutations reach the Ghostty shadow before exit.
+    let _ = capture_color_and_snapshot_until(
+        &mut daemon,
+        &session_id,
+        "echo:color-exit-ready",
+        12,
+        |profile| {
+            profile.colors.get(&5)
+                == Some(&Rgb {
+                    r: 0x55,
+                    g: 0x66,
+                    b: 0x77,
+                })
+                && profile.colors.get(&COLOR_INDEX_FOREGROUND)
+                    == Some(&Rgb {
+                        r: 0x10,
+                        g: 0x20,
+                        b: 0x30,
+                    })
+        },
+    );
+    daemon
+        .input(client_id, session_id.clone(), b"color-exit\n".to_vec(), 20)
+        .expect("natural-exit trigger input should write");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // First reconciling read after exit freezes the retained color+snapshot pair.
+    let first = daemon
+        .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+            request_id: RequestId("natural-exit-color-1".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 21,
+        })
+        .expect("first natural-exit capture_color_and_snapshot should freeze retained truth");
+    let second = daemon
+        .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+            request_id: RequestId("natural-exit-color-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("retained capture_color_and_snapshot should be repeatable");
+
+    assert_eq!(first.color_profile, second.color_profile);
+    assert_eq!(first.payload, second.payload);
+    assert_ne!(first.snapshot.request_id, second.snapshot.request_id);
+    assert_eq!(
+        first.snapshot.request_id,
+        RequestId("natural-exit-color-1".to_string())
+    );
+    assert_eq!(
+        second.snapshot.request_id,
+        RequestId("natural-exit-color-2".to_string())
+    );
+    assert_ghostty_snapshot_authority(&first.payload);
+    assert!(first.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+    assert_color_profile_authority(&first.color_profile);
+    assert_eq!(
+        first.color_profile.colors.get(&5),
+        Some(&Rgb {
+            r: 0x55,
+            g: 0x66,
+            b: 0x77
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        Some(&Rgb {
+            r: 0x10,
+            g: 0x20,
+            b: 0x30
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_BACKGROUND),
+        Some(&Rgb {
+            r: 0x40,
+            g: 0x50,
+            b: 0x60
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_CURSOR),
+        Some(&Rgb {
+            r: 0x70,
+            g: 0x80,
+            b: 0x90
+        })
+    );
+
+    let restored = ghostty_snapshot_color_profile(&first.payload);
+    assert_eq!(
+        restored, first.color_profile,
+        "retained GHOSTSNP full profile must equal the frozen atomic pair"
+    );
+
+    let exit_drain = daemon
+        .drain(&session_id, 23)
+        .expect("drain after retained color capture should return final output");
+    assert_retained_exit_output(&exit_drain, &session_id, "echo:color-exit");
+    let second_drain = daemon
+        .drain(&session_id, 24)
+        .expect("second drain after retained color capture should succeed");
+    assert_no_duplicate_exit_output(&second_drain, "echo:color-exit");
+
+    daemon
+        .shutdown(Some(session_id), 25)
+        .expect("shutdown after retained color capture");
     let _ = fs::remove_dir_all(data_dir);
 }
 

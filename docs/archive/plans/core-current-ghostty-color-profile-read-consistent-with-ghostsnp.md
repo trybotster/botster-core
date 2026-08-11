@@ -185,9 +185,9 @@ Hub-facing production path: **`CoreDaemon`**. Success is a new (or extended) Cor
 
 ### Cross-repo dependencies
 - **Inbound to this ticket:** none blocking (Ghostty-only authority parent closed)
-- **Outbound / consumer:** already registered  
-  `dependency_1786479063_760119`: Hub `ticket_1786471489_718500` depends on this Core ticket  
-  Targets: Hub `tgt_7e208a0c76a44980a83b63af976b1f22` ← Core `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
+- **Outbound / consumer:** already registered
+  - `dependency_1786479063_760119`: Hub `ticket_1786471489_718500` depends on this Core ticket
+  - Targets: Hub `tgt_7e208a0c76a44980a83b63af976b1f22` ← Core `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 
 ## Assumptions and unknowns
 
