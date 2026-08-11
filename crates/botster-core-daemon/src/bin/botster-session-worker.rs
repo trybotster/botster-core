@@ -545,7 +545,10 @@ fn apply_barrier_outputs(
     metadata_shaper: &mut TerminalMetadataLaneShaper,
     egress: &WorkerEgress,
 ) -> Result<(), botster_core::SessionRuntimeError> {
-    for output in barrier.drain_output()? {
+    // Apply retained output first, then fail closed on sticky authority so the
+    // first post-overflow probe/admit cannot succeed after incomplete modes.
+    let outputs = barrier.drain_output()?;
+    for output in outputs {
         match output {
             SessionRuntimeOutput::PtyOutput { data, .. } => {
                 apply_pty_output_chunk(
@@ -569,6 +572,7 @@ fn apply_barrier_outputs(
             | SessionRuntimeOutput::MetadataShaping(_) => {}
         }
     }
+    barrier.ensure_mode_authority()?;
     Ok(())
 }
 
