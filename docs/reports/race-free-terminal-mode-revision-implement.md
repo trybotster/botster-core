@@ -1,67 +1,44 @@
-# Implementation report: Race-free terminal mode revision for mode-dependent input
+# Implementation report: Race-free terminal mode revision (review rework 2)
 
 ## Target repository and target_id
-- Target repository: `botster-core` (`trybotster/botster-core`)
+- Target repository: `botster-core`
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 - Run: `run_1786479064_760292`
-- Ticket: `ticket_1786478568_882200`
-- Plan: Plan visit 6 (`docs/archive/plans/race-free-terminal-mode-revision.md`)
-- Base SHA: `747be95b8922130d3e2c3f6844e3dbe1deeb2faa`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- Review findings addressed: `review_1786483831_205485` open findings
+- Addresses review: `review_1786484890_817223`
 
-## Repository playbook and other playbooks/notes applied
+## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
-- [[ghostty shadow terminal integration belongs outside botster core]]
-- Human binding `question_1786481243_140177`
-- Not loaded: [[project-pipelines-playbook]]; teardown lenses (`teardown_class_applies=false`)
+- Worker atomic admit binding from `question_1786481243_140177`
 
-## Review findings addressed (this rework)
+## Findings addressed
 | Finding | Fix |
 | --- | --- |
-| Worker PTY read-to-write race | `LocalProcessRuntime::with_pty_io_barrier` pauses nonblocking reader, drains channel + residual OS PTY buffer, then writes under exclusive ownership |
-| Timeout/disconnect late write | `deadline_unix_ms` on gated request; worker refuses write after deadline; timeout test waits past hold and asserts zero PTY bytes |
-| Race matrix incomplete | Separate race (a)/(b), post-final-drain hold, interleaved demux, timeout late-write proofs |
-| Uncorrelated probe / silent parent fallback | `ModeFlagsPayload.request_id` match; worker-backed probe fails closed (no parent token substitute) |
-| Process-global hold env | Per-request `test_hold_ms` + `CoreDaemonConfig::with_test_mode_gated_hold_ms` |
-| Plan trailing whitespace | Stripped |
-| README duplicate daemon row | Merged runtime ownership table |
+| Unpublished PTY chunk before channel publish | Reader keeps fence critical until after channel publication; optional after-read hold stays critical |
+| Deadline does not bound complete write | `write_all_blocking` takes deadline, uses `now >= deadline`, stops retries; partial write fails closed (`admitted=false`) |
+| Tests miss remaining windows | `worker_backed_mode_gated_unpublished_reader_chunk_window_rejects`, `worker_backed_mode_gated_write_deadline_bounds_complete_write` |
+| Probe success after barrier failure | Probe only sends success ModeFlags on barrier Ok; failures send `error_kind` and parent fail-closes |
 
-## Files changed (rework)
-- `crates/botster-core/src/runtime/local_process.rs` — reader fence, residual drain, nonblocking master + blocking write retry, `PtyIoBarrier`
-- `crates/botster-core/src/runtime/worker_process.rs` — deadline + test hold on request; correlated probe wait
-- `crates/botster-core/src/contract/session_protocol.rs` — `deadline_unix_ms`, `test_hold_ms`, probe `request_id`
-- `crates/botster-core/src/engine/botster.rs` — no silent parent mode fallback
-- `crates/botster-core-daemon/src/bin/botster-session-worker.rs` — barrier admit + deadline
-- `crates/botster-core-daemon/src/daemon.rs` — test hold config
-- Daemon integration tests, protocol tests, README, plan whitespace
+## Files changed
+- `crates/botster-core/src/runtime/local_process.rs` — critical-until-publish, deadline write, test hooks
+- `crates/botster-core/src/runtime/worker_process.rs` — CLI test hooks; probe error_kind handling
+- `crates/botster-core/src/contract/session_protocol.rs` — `ModeFlagsPayload.error_kind`
+- `crates/botster-core-daemon/src/bin/botster-session-worker.rs` — deadline write; probe failure path; CLI args
+- `crates/botster-core-daemon/src/daemon.rs` — test hook config
+- Daemon integration tests for the two remaining windows
 
-## Ownership boundaries preserved
-- Core stays Ghostty-free; daemon hosts Ghostty worker binary
-- Worker atomic admit remains correctness boundary
-
-## Cross-repo
-- Hub product still separate; prior path-patch compile policy retained
-- Additive request fields remain wire-compatible for coordinated 0.1.0 consumers
-
-## Deviations from plan
-- Same as prior report for `CoreDaemonError::Engine` mapping
-- Residual PTY reader under barrier supplements paused background reader (required for true pre-write drain)
-
-## Tests and downstream proof
+## Tests
 - `cargo fmt --all`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `BOTSTER_ENV=test cargo test --workspace`
-- Mode-gated: admit/stale, race-a, race-b, post-final-drain hold, interleaved, timeout-without-late-write, packaging
+- All `worker_backed_mode_gated_*` including unpublished-chunk and write-deadline
 
-## Unverified / residual risk
-- Adopt mid-wait remains fail-closed via disconnect/timeout paths (no separate chaos test)
-- Dual Ghostty parent/worker still exists for screen vs token
-- Mismatched `request_id` handling covered in parent demux logic; no separate injectable-stale-result integration harness
+## Residual risk
+- Adopt mid-wait still covered by disconnect/timeout fail-closed, not a dedicated chaos test
+- Dual Ghostty parent/worker for screen vs token remains intentional
 
-## Missing vault guidance
-- Nonblocking PTY master requires blocking write retries
-- Admission barriers need residual OS-buffer drain when the background reader is paused
+## Ownership
+- Core stays Ghostty-free; daemon hosts Ghostty worker binary
 
-## Runtime-teardown class
+## Runtime-teardown
 - `teardown_class_applies=false`

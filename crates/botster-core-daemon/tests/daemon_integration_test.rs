@@ -3696,6 +3696,171 @@ fn worker_backed_mode_gated_interleaved_output_during_wait() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_mode_gated_unpublished_reader_chunk_window_rejects() {
+    // Hold after the background reader captures mode bytes and before channel
+    // publication. The barrier must wait for publication, apply the modes, and
+    // reject the stale token — not write while the chunk is unpublished.
+    let data_dir = temp_data_dir("mode-gated-unpub-chunk");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_hold_after_read_ms(Some(250)),
+    );
+    let session_id = SessionId("mode-gated-unpub".to_string());
+    let client_id = ClientId("mode-gated-unpub-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; while IFS= read -r line; do ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "if [ \"$line\" = flip ]; then ",
+        "printf '\\033[?1000h\\033[?1006h'; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("unpub-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("unpub-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+    let token = probe.mode_flags.mode_freshness;
+
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"flip\n".to_vec(),
+            13,
+        )
+        .expect("flip");
+    // Give the reader time to capture mode output into the after-read hold.
+    thread::sleep(Duration::from_millis(50));
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"stale-unpub\n".to_vec(),
+            Some(token),
+            14,
+        )
+        .expect("gated");
+    match outcome {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "unpublished chunk window must reject");
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+    }
+    thread::sleep(Duration::from_millis(300));
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("unpub-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 15,
+        })
+        .expect("screen");
+    assert!(
+        !screen.screen.text.contains("echo:stale-unpub"),
+        "must write zero stale bytes; screen={}",
+        screen.screen.text
+    );
+    daemon.shutdown(Some(session_id), 16).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
+    // Force write WouldBlock past the parent timeout so the worker write path
+    // must fail closed without delivering the payload after deadline.
+    let data_dir = temp_data_dir("mode-gated-write-deadline");
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    let block_until = now_ms + 800;
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_mode_gated_input_timeout(Duration::from_millis(150))
+            .with_test_write_block_until_unix_ms(Some(block_until)),
+    );
+    let session_id = SessionId(format!("mode-gated-wdeadline-{now_ms}"));
+    let client_id = ClientId("mode-gated-wdeadline-client".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("wdeadline-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("wdeadline-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"deadline-bytes\n".to_vec(),
+            Some(probe.mode_flags.mode_freshness),
+            13,
+        )
+        .expect("deadline path returns a closed outcome");
+    match outcome {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "deadline must not admit");
+            let kind = result.error_kind.unwrap_or_default();
+            assert!(
+                kind.contains("deadline") || kind.contains("timeout"),
+                "expected deadline error_kind, got {kind}"
+            );
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated fail-closed outcome"),
+    }
+    // Wait past the force-block window and prove zero late bytes.
+    thread::sleep(Duration::from_millis(900));
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("wdeadline-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 14,
+        })
+        .expect("screen");
+    assert!(
+        !screen.screen.text.contains("echo:deadline-bytes"),
+        "deadline-bounded write must deliver zero payload bytes; screen={}",
+        screen.screen.text
+    );
+    daemon.shutdown(Some(session_id), 15).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_binary_is_hosted_by_daemon_package_not_core() {
     // Packaging proof: session worker builds from botster-core-daemon and
     // botster-core does not depend on botster-terminal-ghostty.

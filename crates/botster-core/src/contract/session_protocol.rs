@@ -138,6 +138,9 @@ pub struct ModeFlagsPayload {
     pub mode_flags: ModeFlags,
     /// Current mode freshness token for mode-dependent input.
     pub mode_freshness: ModeFreshnessToken,
+    /// Optional probe failure kind. When set, modes are not authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
 }
 
 mod mode_gated_bytes {
