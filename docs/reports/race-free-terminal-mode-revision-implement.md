@@ -7,6 +7,8 @@
 - Ticket: `ticket_1786478568_882200`
 - Plan: Plan visit 6 (`docs/archive/plans/race-free-terminal-mode-revision.md`)
 - Base SHA: `747be95b8922130d3e2c3f6844e3dbe1deeb2faa`
+- Implementation SHA: `af434ee758e409fbd1230c7fdbac869f2fdb6c1d`
+- PR: https://github.com/trybotster/botster-core/pull/120
 - `teardown_class_applies`: false
 
 ## Repository playbook and other playbooks/notes applied
