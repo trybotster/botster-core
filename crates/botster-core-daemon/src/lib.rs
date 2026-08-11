@@ -23,7 +23,7 @@ pub use api::{
     SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
     SpawnSessionRequest,
 };
-pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
+pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome};
 pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};
 pub use guarded_write::{
     GuardedWriteDecision, GuardedWriteDeliveryState, PromptEvidence, ReadinessEvidence,

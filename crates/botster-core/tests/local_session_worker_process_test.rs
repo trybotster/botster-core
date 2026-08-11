@@ -24,8 +24,36 @@ extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
 }
 
-fn worker_path() -> &'static str {
-    env!("CARGO_BIN_EXE_botster-session-worker")
+fn worker_path() -> std::path::PathBuf {
+    use std::process::Command;
+    use std::sync::Once;
+    static BUILD_WORKER: Once = Once::new();
+    BUILD_WORKER.call_once(|| {
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "botster-core-daemon",
+                "--bin",
+                "botster-session-worker",
+            ])
+            .status()
+            .expect("worker binary build command should run");
+        assert!(
+            status.success(),
+            "worker binary should build for core worker tests"
+        );
+    });
+    let mut path = std::env::current_exe().expect("test executable path should resolve");
+    while path.file_name().and_then(|name| name.to_str()) != Some("debug")
+        && path.file_name().and_then(|name| name.to_str()) != Some("release")
+    {
+        assert!(
+            path.pop(),
+            "test executable should live under target/debug or target/release"
+        );
+    }
+    path.join("botster-session-worker")
 }
 
 fn request_id(value: &str) -> RequestId {
@@ -92,12 +120,13 @@ fn shell_request(session_id: SessionId, script: &str) -> SessionSpawnRequest {
 
 fn worker_options() -> WorkerProcessRuntimeOptions {
     WorkerProcessRuntimeOptions {
-        worker_path: worker_path().into(),
+        worker_path: worker_path(),
         egress_capacity: 64,
         pty_reader_chunk_capacity: 8,
         shutdown_grace_ms: 80,
         poll_interval_ms: 5,
         control_socket_dir: None,
+        mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
     }
 }
 

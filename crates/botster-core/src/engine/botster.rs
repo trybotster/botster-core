@@ -708,13 +708,49 @@ impl WorkerBackedBotsterEngine {
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.runtime.handle_session_request(
-            crate::SessionIoRequest::GetModeFlags {
-                request_id,
-                session_id,
-            },
-            now_seconds,
-        )
+        // Prefer worker-authoritative mode probe when available; fall back to
+        // parent shadow modes only if the worker probe is unavailable.
+        match self
+            .runtime
+            .session_runtime_mut()
+            .read_mode_flags(&session_id)
+        {
+            Ok(payload) => {
+                let _ = now_seconds;
+                let mut outcome = BotsterEngineOutput::empty();
+                outcome
+                    .session_events
+                    .push(crate::SessionIoEvent::ModeFlagsReady(
+                        crate::ModeFlagsReady {
+                            request_id,
+                            session_id,
+                            mode_flags: payload.mode_flags,
+                            mode_freshness: payload.mode_freshness,
+                        },
+                    ));
+                Ok(outcome)
+            }
+            Err(_) => self.runtime.handle_session_request(
+                crate::SessionIoRequest::GetModeFlags {
+                    request_id,
+                    session_id,
+                },
+                now_seconds,
+            ),
+        }
+    }
+
+    /// Correlated mode-gated PTY input against the worker atomic admit barrier.
+    pub fn mode_gated_pty_input(
+        &mut self,
+        session_id: SessionId,
+        expected: crate::ModeFreshnessToken,
+        data: Vec<u8>,
+    ) -> Result<crate::ModeGatedPtyInputResult, WorkerBackedBotsterEngineError> {
+        self.runtime
+            .session_runtime_mut()
+            .mode_gated_pty_input(&session_id, expected, data)
+            .map_err(WorkerBackedBotsterEngineError::from)
     }
 
     /// Capture a reusable opaque snapshot payload for one worker-backed session.

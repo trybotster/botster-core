@@ -13,11 +13,11 @@ use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
-    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
-    RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
-    SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalColorProfile,
-    TerminalScreenState, TerminalSnapshotPayload, WorkerBackedBotsterEngine,
+    ModeFreshnessToken, ModeGatedPtyInputResult, NotificationId, NotificationInbox, QueueSource,
+    RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady,
+    SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
+    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload, WorkerBackedBotsterEngine,
     WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
@@ -75,6 +75,8 @@ pub struct CoreDaemonConfig {
     /// presentation defaults. Hosts outside this repository supply color policy
     /// when OSC 10/11/12 replies or palette defaults are required.
     pub terminal_color_profile: Option<TerminalColorProfile>,
+    /// Parent wait bound for correlated mode-gated PTY input RPC.
+    pub mode_gated_input_timeout: Duration,
 }
 
 impl CoreDaemonConfig {
@@ -89,7 +91,15 @@ impl CoreDaemonConfig {
             ghostty_max_scrollback_bytes: DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES,
             lifecycle_journal_capacity: DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
             terminal_color_profile: None,
+            mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
         }
+    }
+
+    /// Override the mode-gated input RPC wait bound (tests may use a short timeout).
+    #[must_use]
+    pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
+        self.mode_gated_input_timeout = timeout;
+        self
     }
 
     /// Use worker process backed sessions through the supplied worker executable.
@@ -130,6 +140,15 @@ impl CoreDaemonConfig {
         self.terminal_color_profile = Some(profile);
         self
     }
+}
+
+/// Outcome of [`CoreDaemon::mode_gated_input`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModeGatedInputOutcome {
+    /// Plain input path wrote bytes without a freshness token.
+    PlainWritten,
+    /// Correlated mode-gated worker admit result.
+    Gated(ModeGatedPtyInputResult),
 }
 
 /// Daemon API error.
@@ -175,6 +194,7 @@ pub struct CoreDaemon {
     envelope_router: RoutedEnvelopeRouter,
     pending_drain: Vec<PendingDrainResult>,
     retained_terminal: HashMap<SessionId, RetainedTerminalState>,
+    last_mode_freshness: HashMap<SessionId, ModeFreshnessToken>,
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
@@ -196,6 +216,7 @@ struct RetainedTerminalState {
     screen_text: String,
     snapshot: TerminalSnapshotPayload,
     mode_flags: Result<ModeFlags, TerminalBackendError>,
+    mode_freshness: ModeFreshnessToken,
 }
 
 enum ReadbackResolution {
@@ -216,6 +237,7 @@ impl CoreDaemon {
             .map(|worker_path| {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
+                options.mode_gated_input_timeout = config.mode_gated_input_timeout;
                 DaemonEngine::Worker(worker_engine(
                     options,
                     ghostty_max_scrollback_bytes,
@@ -237,6 +259,7 @@ impl CoreDaemon {
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            last_mode_freshness: HashMap::new(),
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
@@ -527,6 +550,7 @@ impl CoreDaemon {
                     request_id: request.request_id,
                     session_id: request.session_id,
                     mode_flags,
+                    mode_freshness: retained.mode_freshness,
                 },
             });
         }
@@ -536,11 +560,47 @@ impl CoreDaemon {
             request.now_seconds,
         )?;
         let mode_flags = take_mode_flags_ready(&mut output, &request.request_id)?;
+        self.last_mode_freshness
+            .insert(request.session_id.clone(), mode_flags.mode_freshness);
         self.retain_pending_drain_result(
             &request.session_id,
             drain_result_from_engine_output(output),
         );
         Ok(ReadModeFlagsResult { mode_flags })
+    }
+
+    /// Admit mode-dependent PTY input under the worker atomic mode-gated path.
+    ///
+    /// When `expected_mode_freshness` is `None`, this is identical to
+    /// [`Self::input`] (plain `FRAME_PTY_INPUT`). When `Some`, the production
+    /// worker-backed path uses correlated mode-gated RPC; the worker is the
+    /// correctness boundary. Parent drain is optimization-only.
+    pub fn mode_gated_input(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        data: impl Into<Vec<u8>>,
+        expected_mode_freshness: Option<ModeFreshnessToken>,
+        now_seconds: u64,
+    ) -> Result<ModeGatedInputOutcome, CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session_mutable(&session_id)?;
+        let data = data.into();
+        let Some(expected) = expected_mode_freshness else {
+            self.engine
+                .write_bytes(client_id, session_id, data, now_seconds)?;
+            return Ok(ModeGatedInputOutcome::PlainWritten);
+        };
+
+        // Optimization-only pre-admit drain. Correctness is worker atomic admit.
+        let _ = self.drain_runtime_for_readback(&session_id, now_seconds);
+
+        let result = self
+            .engine
+            .mode_gated_pty_input(session_id.clone(), expected, data)?;
+        self.last_mode_freshness
+            .insert(session_id, result.mode_freshness);
+        Ok(ModeGatedInputOutcome::Gated(result))
     }
 
     /// Capture the current terminal snapshot through the production daemon path.
@@ -1132,12 +1192,18 @@ impl CoreDaemon {
             return Ok(());
         }
         let (screen, snapshot, mode_flags) = self.engine.capture_terminal_state(session_id)?;
+        let mode_freshness = self
+            .last_mode_freshness
+            .get(session_id)
+            .copied()
+            .unwrap_or_default();
         self.retained_terminal.insert(
             session_id.clone(),
             RetainedTerminalState {
                 screen_text: screen.plain_text,
                 snapshot,
                 mode_flags,
+                mode_freshness,
             },
         );
         Ok(())
@@ -1471,6 +1537,25 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.write_bytes(client_id, session_id, data, now_seconds),
             Self::Worker(engine) => engine.write_bytes(client_id, session_id, data, now_seconds),
+        }
+    }
+
+    fn mode_gated_pty_input(
+        &mut self,
+        session_id: SessionId,
+        expected: ModeFreshnessToken,
+        data: Vec<u8>,
+    ) -> Result<ModeGatedPtyInputResult, CoreDaemonError> {
+        match self {
+            Self::Local(_) => Err(CoreDaemonError::Engine(
+                DefaultBotsterEngineError::Runtime(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    "mode-gated input requires a worker-backed daemon (CoreDaemonConfig::with_worker_path)",
+                )),
+            )),
+            Self::Worker(engine) => engine
+                .mode_gated_pty_input(session_id, expected, data)
+                .map_err(CoreDaemonError::Engine),
         }
     }
 
@@ -1920,6 +2005,7 @@ mod terminal_backend_failure_tests {
             envelope_router: RoutedEnvelopeRouter::new(),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            last_mode_freshness: HashMap::new(),
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),

@@ -558,9 +558,8 @@ pub struct PreparedSnapshotReady {
 
 /// Terminal mode flags response.
 ///
-/// In the current production readback, only [`ModeFlags::mouse_mode`] is
-/// authoritative. The remaining fields are unavailable and must not be
-/// interpreted as authoritative `false` values.
+/// Production readback exposes the complete authoritative [`ModeFlags`] value
+/// plus a [`crate::ModeFreshnessToken`] for race-free mode-dependent input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModeFlagsReady {
     /// Request correlation id.
@@ -569,6 +568,9 @@ pub struct ModeFlagsReady {
     pub session_id: SessionId,
     /// Current terminal mode flags.
     pub mode_flags: ModeFlags,
+    /// Mode freshness token for mode-dependent input admission.
+    #[serde(default)]
+    pub mode_freshness: crate::ModeFreshnessToken,
 }
 
 /// Plain terminal screen response.

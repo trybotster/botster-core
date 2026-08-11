@@ -4,8 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Once;
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::TerminalScreenSize;
@@ -23,11 +25,11 @@ use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, DaemonSession, DrainNotificationsRequest,
     DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
-    GuardedWriteRequest, PostNotificationRequest, PublishRoutedEnvelopeRequest,
-    ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
-    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SpawnSessionRequest,
+    GuardedWriteRequest, ModeGatedInputOutcome, PostNotificationRequest,
+    PublishRoutedEnvelopeRequest, ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence,
+    RegistrySessionState, SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleRecord,
+    SessionLifecycleResyncReason, SpawnSessionRequest,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -3159,6 +3161,430 @@ fn worker_backed_mode_flags_include_kitty_and_mouse_from_ghostty_authority() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_mode_gated_input_admits_matching_token_and_rejects_stale() {
+    let data_dir = temp_data_dir("mode-gated-admit");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("mode-gated-session".to_string());
+    let client_id = ClientId("mode-gated-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    // Child records exact PTY input lines so we can prove zero stale bytes.
+    request.request.arguments[1] = concat!(
+        "printf ready; while IFS= read -r line; do ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "if [ \"$line\" = enable-modes ]; then ",
+        "printf '\\033[?1000h\\033[?1006h\\033[=1;1u'; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("mode-gated-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    let baseline = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("mode-gated-baseline".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("baseline modes");
+    let baseline_token = baseline.mode_flags.mode_freshness;
+    assert_ne!(baseline_token.mode_generation, 0);
+    assert!(baseline_token.mode_revision >= 1);
+
+    // Matching token admits bytes.
+    let admitted = daemon
+        .mode_gated_input(
+            client_id.clone(),
+            session_id.clone(),
+            b"enable-modes\n".to_vec(),
+            Some(baseline_token),
+            13,
+        )
+        .expect("matching gated input");
+    match admitted {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(result.admitted, "matching token must admit");
+            assert_eq!(result.mode_freshness, baseline_token);
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated outcome"),
+    }
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:enable-modes", 14);
+
+    let after_modes = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("mode-gated-after".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 15,
+        })
+        .expect("modes after enable");
+    assert!(after_modes.mode_flags.mode_flags.kitty_enabled);
+    assert_eq!(after_modes.mode_flags.mode_flags.mouse_mode, 9);
+    assert!(
+        after_modes.mode_flags.mode_freshness.mode_revision > baseline_token.mode_revision
+            || after_modes.mode_flags.mode_freshness.mode_generation
+                != baseline_token.mode_generation,
+        "mode-changing output must bump freshness"
+    );
+
+    // Stale token (pre-mode-change) must reject and write zero PTY bytes.
+    let stale = daemon
+        .mode_gated_input(
+            client_id.clone(),
+            session_id.clone(),
+            b"stale-input\n".to_vec(),
+            Some(baseline_token),
+            16,
+        )
+        .expect("stale gated input returns typed result");
+    match stale {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "stale token must reject");
+            assert_eq!(result.mode_freshness, after_modes.mode_flags.mode_freshness);
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated outcome"),
+    }
+
+    // Give the child a moment; prove the rejected payload never reached PTY.
+    thread::sleep(Duration::from_millis(100));
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("mode-gated-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 17,
+        })
+        .expect("screen after stale reject");
+    assert!(
+        !screen.screen.text.contains("echo:stale-input"),
+        "stale gated input must write zero PTY bytes; screen={}",
+        screen.screen.text
+    );
+
+    // Matching current token admits.
+    let current = after_modes.mode_flags.mode_freshness;
+    let again = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"fresh-input\n".to_vec(),
+            Some(current),
+            18,
+        )
+        .expect("fresh gated input");
+    match again {
+        ModeGatedInputOutcome::Gated(result) => assert!(result.admitted),
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated outcome"),
+    }
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:fresh-input", 19);
+
+    // Plain None path remains unchanged.
+    daemon
+        .mode_gated_input(
+            ClientId("mode-gated-client".to_string()),
+            session_id.clone(),
+            b"plain-path\n".to_vec(),
+            None,
+            20,
+        )
+        .expect("plain path");
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:plain-path", 21);
+
+    daemon.shutdown(Some(session_id), 22).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_race_after_probe_before_input_rejects() {
+    // Race (b): mode change after probe reply, before input admission.
+    let data_dir = temp_data_dir("mode-gated-race-b");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("mode-gated-race-b".to_string());
+    let client_id = ClientId("mode-gated-race-b-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; while IFS= read -r line; do ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "if [ \"$line\" = flip ]; then ",
+        "printf '\\033[?1000h\\033[?1006h'; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("race-b-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("race-b-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+    let token = probe.mode_flags.mode_freshness;
+
+    // Cause a mode change after the probe, then attempt gated input with the
+    // pre-change token. Worker atomic admit must reject.
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"flip\n".to_vec(),
+            13,
+        )
+        .expect("flip modes");
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:flip", 14);
+
+    let stale = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"stale-race-b\n".to_vec(),
+            Some(token),
+            15,
+        )
+        .expect("race-b gated");
+    match stale {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "race (b) must reject stale token");
+            assert!(result.mode_flags.mouse_mode != 0 || result.mode_freshness != token);
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+    }
+    thread::sleep(Duration::from_millis(100));
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("race-b-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 16,
+        })
+        .expect("screen");
+    assert!(
+        !screen.screen.text.contains("echo:stale-race-b"),
+        "race (b) must write zero stale PTY bytes"
+    );
+
+    daemon.shutdown(Some(session_id), 17).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_post_parent_drain_hold_rejects() {
+    // Deterministic hold: mode-changing output becomes visible to the worker
+    // only after the parent optimization drain, immediately before admit.
+    let data_dir = temp_data_dir("mode-gated-hold");
+    std::env::set_var("BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS", "150");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("mode-gated-hold".to_string());
+    let client_id = ClientId("mode-gated-hold-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; while IFS= read -r line; do ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "if [ \"$line\" = flip ]; then ",
+        "printf '\\033[?1000h\\033[?1006h'; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("hold-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("hold-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("probe");
+    let token = probe.mode_flags.mode_freshness;
+
+    // Fire mode change then immediately gated-admit with old token while the
+    // worker hold delays applying the mode-changing output until admit time.
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"flip\n".to_vec(),
+            13,
+        )
+        .expect("flip");
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"held-stale\n".to_vec(),
+            Some(token),
+            14,
+        )
+        .expect("held gated");
+    std::env::remove_var("BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS");
+
+    match outcome {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(
+                !result.admitted,
+                "post-parent-drain pre-worker-admit hold must reject"
+            );
+        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+    }
+    thread::sleep(Duration::from_millis(200));
+    let screen = daemon
+        .read_screen(ReadScreenRequest {
+            request_id: RequestId("hold-screen".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 15,
+        })
+        .expect("screen");
+    assert!(
+        !screen.screen.text.contains("echo:held-stale"),
+        "held race must write zero stale PTY bytes"
+    );
+
+    daemon.shutdown(Some(session_id), 16).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_timeout_fails_closed() {
+    let data_dir = temp_data_dir("mode-gated-timeout");
+    // Set hold only for this worker process tree via spawn environment is not
+    // available; use process env carefully and always clear on exit.
+    std::env::set_var("BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS", "2000");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_worker_path(worker_path())
+                .with_mode_gated_input_timeout(Duration::from_millis(150)),
+        );
+        let session_id = SessionId(format!(
+            "mode-gated-timeout-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let client_id = ClientId("mode-gated-timeout-client".to_string());
+
+        let mut request = spawn_request(&session_id);
+        request.request.arguments[1] =
+            "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+                .to_string();
+        daemon.spawn(request, 10).expect("spawn");
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                SubscriptionId("timeout-sub".to_string()),
+                11,
+            )
+            .expect("attach");
+        let _ = drain_until(&mut daemon, &session_id, "ready");
+        let probe = daemon
+            .read_mode_flags(ReadModeFlagsRequest {
+                request_id: RequestId("timeout-probe".to_string()),
+                session_id: session_id.clone(),
+                now_seconds: 12,
+            })
+            .expect("probe");
+
+        // Hold forces the worker admit path to sleep past the short parent timeout.
+        // Fail closed: no hang, no plain input fallback.
+        let error = daemon
+            .mode_gated_input(
+                client_id,
+                session_id.clone(),
+                b"timeout-bytes\n".to_vec(),
+                Some(probe.mode_flags.mode_freshness),
+                13,
+            )
+            .expect_err("short timeout must fail closed");
+        let message = error.to_string();
+        assert!(
+            message.contains("timed out") || message.contains("timeout"),
+            "expected timeout failure via Engine path, got {message}"
+        );
+
+        daemon.shutdown(Some(session_id), 14).ok();
+    }));
+    std::env::remove_var("BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS");
+    let _ = fs::remove_dir_all(&data_dir);
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_binary_is_hosted_by_daemon_package_not_core() {
+    // Packaging proof: session worker builds from botster-core-daemon and
+    // botster-core does not depend on botster-terminal-ghostty.
+    let daemon_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let core_toml = fs::read_to_string(daemon_manifest.join("../botster-core/Cargo.toml"))
+        .expect("read core cargo");
+    assert!(
+        !core_toml.contains("botster-terminal-ghostty"),
+        "botster-core must remain Ghostty-free"
+    );
+    assert!(
+        !core_toml.contains("name = \"botster-session-worker\""),
+        "session-worker binary must not remain in botster-core"
+    );
+    let daemon_toml =
+        fs::read_to_string(daemon_manifest.join("Cargo.toml")).expect("read daemon cargo");
+    assert!(
+        daemon_toml.contains("name = \"botster-session-worker\""),
+        "daemon package must host botster-session-worker"
+    );
+    assert!(
+        daemon_toml.contains("botster-terminal-ghostty"),
+        "daemon package hosts Ghostty for the worker binary"
+    );
+    let path = worker_path();
+    assert!(
+        path.exists(),
+        "daemon-hosted worker binary must resolve at {}",
+        path.display()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_osc_color_queries_receive_session_side_write_pty_replies() {
     let data_dir = temp_data_dir("osc-color-write-pty");
     // Host outside Core supplies presentation policy through the policy-free
@@ -3985,7 +4411,7 @@ fn worker_path() -> std::path::PathBuf {
             .args([
                 "build",
                 "-p",
-                "botster-core",
+                "botster-core-daemon",
                 "--bin",
                 "botster-session-worker",
             ])

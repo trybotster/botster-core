@@ -26,21 +26,27 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, NotificationPayload,
+    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, ModeFlagsPayload,
+    ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult, NotificationPayload,
     ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource, SessionId,
     SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     TerminalMetadataShapingObservation, TimeoutPayload, FRAME_BELL, FRAME_CWD_CHANGED,
-    FRAME_METADATA_SHAPING, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
-    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
-    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT,
+    FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
+    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 /// Default retained worker egress frames per session in the parent process.
 pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 
+/// Default parent wait bound for mode-gated PTY input RPC.
+pub const DEFAULT_MODE_GATED_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
+
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
+const GATED_POLL: Duration = Duration::from_millis(5);
 #[cfg(unix)]
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -81,6 +87,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub poll_interval_ms: u64,
     /// Directory for reconnectable worker control sockets.
     pub control_socket_dir: Option<PathBuf>,
+    /// Parent wait bound for correlated mode-gated PTY input RPC.
+    pub mode_gated_input_timeout: Duration,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -94,7 +102,15 @@ impl WorkerProcessRuntimeOptions {
             shutdown_grace_ms: 500,
             poll_interval_ms: 10,
             control_socket_dir: None,
+            mode_gated_input_timeout: DEFAULT_MODE_GATED_INPUT_TIMEOUT,
         }
+    }
+
+    /// Override the mode-gated input wait bound (tests may use a short timeout).
+    #[must_use]
+    pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
+        self.mode_gated_input_timeout = timeout;
+        self
     }
 }
 
@@ -207,6 +223,196 @@ impl WorkerProcessRuntime {
             .write_json(FRAME_SET_TIMEOUT, &TimeoutPayload { seconds })
     }
 
+    /// Read worker-authoritative mode flags and freshness token.
+    pub fn read_mode_flags(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<ModeFlagsPayload, SessionRuntimeError> {
+        let request_id = next_gated_request_id();
+        {
+            let session = self.session_mut(session_id)?;
+            if session
+                .gated_in_flight
+                .lock()
+                .map_err(lock_error)?
+                .is_some()
+            {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    "mode-gated request already in flight for session",
+                ));
+            }
+            *session.mode_flags_slot.lock().map_err(lock_error)? = None;
+            session
+                .control
+                .write_json(FRAME_GET_MODE_FLAGS, &ModeFlagsProbeRequest { request_id })?;
+        }
+        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        loop {
+            self.pump_session_output(session_id)?;
+            if let Some(payload) = self
+                .session_mut(session_id)?
+                .mode_flags_slot
+                .lock()
+                .map_err(lock_error)?
+                .take()
+            {
+                return Ok(payload);
+            }
+            if Instant::now() >= deadline {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker mode-flags probe timed out",
+                ));
+            }
+            if self.session_reader_finished(session_id)? {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker disconnected before mode-flags reply",
+                ));
+            }
+            thread::sleep(GATED_POLL);
+        }
+    }
+
+    /// Correlated mode-gated PTY input against the worker atomic admit barrier.
+    ///
+    /// Interleaved PTY/metadata frames continue normal demux into pending
+    /// output. Only a matching result completes the wait. Fail closed on
+    /// timeout, disconnect, exit, malformed reply, and concurrent gated calls.
+    pub fn mode_gated_pty_input(
+        &mut self,
+        session_id: &SessionId,
+        expected: ModeFreshnessToken,
+        data: Vec<u8>,
+    ) -> Result<ModeGatedPtyInputResult, SessionRuntimeError> {
+        let request_id = next_gated_request_id();
+        {
+            let session = self.session_mut(session_id)?;
+            let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+            if in_flight.is_some() {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    "mode-gated request already in flight for session",
+                ));
+            }
+            *in_flight = Some(GatedInFlight {
+                request_id: request_id.clone(),
+                result: None,
+            });
+            drop(in_flight);
+            session.control.write_json(
+                FRAME_MODE_GATED_PTY_INPUT,
+                &ModeGatedPtyInputRequest {
+                    request_id: request_id.clone(),
+                    expected,
+                    data,
+                },
+            )?;
+        }
+
+        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        loop {
+            self.pump_session_output(session_id)?;
+            {
+                let session = self.session_mut(session_id)?;
+                let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+                if let Some(slot) = in_flight.as_mut() {
+                    if let Some(result) = slot.result.take() {
+                        *in_flight = None;
+                        return result;
+                    }
+                }
+            }
+            if Instant::now() >= deadline {
+                if let Ok(session) = self.session_mut(session_id) {
+                    if let Ok(mut in_flight) = session.gated_in_flight.lock() {
+                        *in_flight = None;
+                    }
+                }
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "mode-gated input timed out",
+                ));
+            }
+            if self.session_reader_finished(session_id)? {
+                if let Ok(session) = self.session_mut(session_id) {
+                    if let Ok(mut in_flight) = session.gated_in_flight.lock() {
+                        *in_flight = None;
+                    }
+                }
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker disconnected before mode-gated result",
+                ));
+            }
+            if let Ok(session) = self.session_mut(session_id) {
+                if let Some(child) = session.child.as_mut() {
+                    if child.try_wait().ok().flatten().is_some() {
+                        if let Ok(mut in_flight) = session.gated_in_flight.lock() {
+                            *in_flight = None;
+                        }
+                        return Err(SessionRuntimeError::new(
+                            SessionRuntimeErrorKind::OutputFailed,
+                            "worker process exited before mode-gated result",
+                        ));
+                    }
+                }
+            }
+            thread::sleep(GATED_POLL);
+        }
+    }
+
+    fn pump_session_output(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        let session = self.session_mut(session_id)?;
+        while let Ok(event) = session.output.try_recv() {
+            match event {
+                WorkerChannelEvent::Output(output) => session.pending_output.push_back(output),
+                WorkerChannelEvent::ModeFlags(payload) => {
+                    *session.mode_flags_slot.lock().map_err(lock_error)? = Some(payload);
+                }
+                WorkerChannelEvent::ModeGatedResult(result) => {
+                    let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+                    match in_flight.as_mut() {
+                        Some(slot) if slot.request_id == result.request_id => {
+                            slot.result = Some(Ok(result));
+                        }
+                        Some(_) => {
+                            // Stale/mismatched request_id: ignore and keep waiting.
+                        }
+                        None => {
+                            // No outstanding wait: drop stale result.
+                        }
+                    }
+                }
+                WorkerChannelEvent::MalformedModeGated {
+                    request_id,
+                    message,
+                } => {
+                    let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+                    if let Some(slot) = in_flight.as_mut() {
+                        if request_id.is_empty() || slot.request_id == request_id {
+                            slot.result = Some(Err(SessionRuntimeError::new(
+                                SessionRuntimeErrorKind::OutputFailed,
+                                message,
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn session_reader_finished(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<bool, SessionRuntimeError> {
+        let session = self.session_mut(session_id)?;
+        let completion = session.completion.lock().map_err(lock_error)?;
+        Ok(completion.reader_finished)
+    }
+
     /// Release worker processes without sending shutdown frames when the daemon is intentionally restarting.
     pub fn release_for_restart(&mut self) {
         self.release_on_drop = true;
@@ -287,6 +493,9 @@ impl WorkerProcessRuntime {
                 pong_count,
                 last_health,
                 completion,
+                gated_in_flight: Arc::new(Mutex::new(None)),
+                mode_flags_slot: Arc::new(Mutex::new(None)),
+                pending_output: std::collections::VecDeque::new(),
                 egress_capacity: self.options.egress_capacity.max(1),
             },
         );
@@ -488,6 +697,9 @@ impl SessionRuntime for WorkerProcessRuntime {
                 pong_count,
                 last_health,
                 completion,
+                gated_in_flight: Arc::new(Mutex::new(None)),
+                mode_flags_slot: Arc::new(Mutex::new(None)),
+                pending_output: std::collections::VecDeque::new(),
                 egress_capacity: self.options.egress_capacity.max(1),
             },
         );
@@ -520,6 +732,9 @@ impl SessionRuntime for WorkerProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        // Demux interleaved gated/mode-flags frames before yielding output so
+        // outstanding RPC waits and pending buffers stay ordered.
+        self.pump_session_output(session_id)?;
         let mut output = Vec::new();
         let completed = {
             let session = self.session_mut(session_id)?;
@@ -538,7 +753,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 }));
             }
 
-            while let Ok(event) = session.output.try_recv() {
+            while let Some(event) = session.pending_output.pop_front() {
                 output.push(event.into_runtime_output(session_id));
             }
 
@@ -594,12 +809,25 @@ struct WorkerProcessSession {
     child: Option<Child>,
     control: WorkerControl,
     metadata: SessionMetadata,
-    output: Receiver<WorkerOutputEvent>,
+    output: Receiver<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
+    gated_in_flight: Arc<Mutex<Option<GatedInFlight>>>,
+    mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
+    pending_output: std::collections::VecDeque<WorkerOutputEvent>,
     egress_capacity: usize,
+}
+
+struct GatedInFlight {
+    request_id: String,
+    result: Option<Result<ModeGatedPtyInputResult, SessionRuntimeError>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ModeFlagsProbeRequest {
+    request_id: String,
 }
 
 #[derive(Default)]
@@ -956,6 +1184,13 @@ enum WorkerOutputEvent {
     MetadataShaping(TerminalMetadataShapingObservation),
 }
 
+enum WorkerChannelEvent {
+    Output(WorkerOutputEvent),
+    ModeFlags(ModeFlagsPayload),
+    ModeGatedResult(ModeGatedPtyInputResult),
+    MalformedModeGated { request_id: String, message: String },
+}
+
 impl WorkerOutputEvent {
     fn into_runtime_output(self, session_id: &SessionId) -> SessionRuntimeOutput {
         match self {
@@ -991,7 +1226,7 @@ impl WorkerOutputEvent {
 
 fn spawn_stdout_reader(
     mut stdout: impl Read + Send + 'static,
-    sender: SyncSender<WorkerOutputEvent>,
+    sender: SyncSender<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
@@ -1000,10 +1235,10 @@ fn spawn_stdout_reader(
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
             match frame.frame_type {
-                FRAME_PTY_OUTPUT => send_worker_output(
+                FRAME_PTY_OUTPUT => send_worker_event(
                     &sender,
                     &overflow,
-                    WorkerOutputEvent::PtyOutput(frame.payload),
+                    WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                 ),
                 FRAME_PROCESS_EXITED => {
                     if let Ok(payload) = serde_json::from_slice(&frame.payload) {
@@ -1014,46 +1249,88 @@ fn spawn_stdout_reader(
                 }
                 FRAME_TITLE_CHANGED => {
                     if let Ok(title) = String::from_utf8(frame.payload) {
-                        send_worker_output(
+                        send_worker_event(
                             &sender,
                             &overflow,
-                            WorkerOutputEvent::TitleChanged(title),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
                     }
                 }
                 FRAME_CWD_CHANGED => {
                     if let Ok(cwd) = String::from_utf8(frame.payload) {
-                        send_worker_output(&sender, &overflow, WorkerOutputEvent::CwdChanged(cwd));
+                        send_worker_event(
+                            &sender,
+                            &overflow,
+                            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
+                        );
                     }
                 }
                 FRAME_PROMPT_MARK => {
                     if let Ok(payload) = serde_json::from_slice(&frame.payload) {
-                        send_worker_output(
+                        send_worker_event(
                             &sender,
                             &overflow,
-                            WorkerOutputEvent::PromptMark(payload),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
                     }
                 }
                 FRAME_BELL => {
-                    send_worker_output(&sender, &overflow, WorkerOutputEvent::Bell);
+                    send_worker_event(
+                        &sender,
+                        &overflow,
+                        WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
+                    );
                 }
                 FRAME_NOTIFICATION => {
                     if let Ok(payload) = serde_json::from_slice(&frame.payload) {
-                        send_worker_output(
+                        send_worker_event(
                             &sender,
                             &overflow,
-                            WorkerOutputEvent::Notification(payload),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
                     }
                 }
                 FRAME_METADATA_SHAPING => {
                     if let Ok(observation) = serde_json::from_slice(&frame.payload) {
-                        send_worker_output(
+                        send_worker_event(
                             &sender,
                             &overflow,
-                            WorkerOutputEvent::MetadataShaping(observation),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
+                                observation,
+                            )),
                         );
+                    }
+                }
+                FRAME_MODE_FLAGS => {
+                    match serde_json::from_slice::<ModeFlagsPayload>(&frame.payload) {
+                        Ok(payload) => {
+                            send_worker_event(
+                                &sender,
+                                &overflow,
+                                WorkerChannelEvent::ModeFlags(payload),
+                            );
+                        }
+                        Err(error) => {
+                            let _ = error;
+                            // Malformed probe replies fail closed on the waiter timeout path.
+                        }
+                    }
+                }
+                FRAME_MODE_GATED_PTY_INPUT_RESULT => {
+                    match serde_json::from_slice::<ModeGatedPtyInputResult>(&frame.payload) {
+                        Ok(result) => send_worker_event(
+                            &sender,
+                            &overflow,
+                            WorkerChannelEvent::ModeGatedResult(result),
+                        ),
+                        Err(error) => send_worker_event(
+                            &sender,
+                            &overflow,
+                            WorkerChannelEvent::MalformedModeGated {
+                                request_id: String::new(),
+                                message: format!("malformed mode-gated result: {error}"),
+                            },
+                        ),
                     }
                 }
                 FRAME_PONG => {
@@ -1073,10 +1350,10 @@ fn spawn_stdout_reader(
     });
 }
 
-fn send_worker_output(
-    sender: &SyncSender<WorkerOutputEvent>,
+fn send_worker_event(
+    sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
-    event: WorkerOutputEvent,
+    event: WorkerChannelEvent,
 ) {
     match sender.try_send(event) {
         Ok(()) => {}
@@ -1085,6 +1362,16 @@ fn send_worker_output(
         }
         Err(TrySendError::Disconnected(_)) => {}
     }
+}
+
+fn next_gated_request_id() -> String {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("mode-gated-{}-{}", nanos, ordinal)
 }
 
 fn read_frame(stream: &mut impl Read) -> Result<Frame, SessionRuntimeError> {
