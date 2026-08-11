@@ -79,6 +79,8 @@ fn run() -> Result<(), String> {
         test_hold_after_read_ms: args.test_hold_after_read_ms,
         test_write_block_until_unix_ms: args.test_write_block_until_unix_ms,
         test_write_max_chunk: args.test_write_max_chunk,
+        test_pending_capacity: args.test_pending_capacity,
+        test_hold_after_flush_ms: args.test_hold_after_flush_ms,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
     let handle = runtime
@@ -1127,6 +1129,8 @@ struct WorkerArgs {
     test_hold_after_read_ms: Option<u64>,
     test_write_block_until_unix_ms: Option<u64>,
     test_write_max_chunk: Option<usize>,
+    test_pending_capacity: Option<usize>,
+    test_hold_after_flush_ms: Option<u64>,
 }
 
 impl WorkerArgs {
@@ -1139,6 +1143,8 @@ impl WorkerArgs {
         let mut test_hold_after_read_ms = None;
         let mut test_write_block_until_unix_ms = None;
         let mut test_write_max_chunk = None;
+        let mut test_pending_capacity = None;
+        let mut test_hold_after_flush_ms = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -1181,6 +1187,16 @@ impl WorkerArgs {
                     index += 1;
                     test_write_max_chunk = Some(parse_arg(&args, index, "--test-write-max-chunk")?);
                 }
+                "--test-pending-capacity" => {
+                    index += 1;
+                    test_pending_capacity =
+                        Some(parse_arg(&args, index, "--test-pending-capacity")?);
+                }
+                "--test-hold-after-flush-ms" => {
+                    index += 1;
+                    test_hold_after_flush_ms =
+                        Some(parse_arg(&args, index, "--test-hold-after-flush-ms")?);
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -1195,6 +1211,8 @@ impl WorkerArgs {
             test_hold_after_read_ms,
             test_write_block_until_unix_ms,
             test_write_max_chunk,
+            test_pending_capacity,
+            test_hold_after_flush_ms,
         })
     }
 }

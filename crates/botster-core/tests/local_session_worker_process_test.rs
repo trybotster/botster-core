@@ -131,6 +131,8 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_hold_after_read_ms: None,
         test_write_block_until_unix_ms: None,
         test_write_max_chunk: None,
+        test_pending_capacity: None,
+        test_hold_after_flush_ms: None,
     }
 }
 
