@@ -51,7 +51,7 @@ pub use file_watch::{
 };
 #[cfg(feature = "local-runtime")]
 pub use local_process::{
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
     DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 #[cfg(feature = "local-runtime")]

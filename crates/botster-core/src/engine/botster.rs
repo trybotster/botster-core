@@ -708,36 +708,26 @@ impl WorkerBackedBotsterEngine {
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        // Prefer worker-authoritative mode probe when available; fall back to
-        // parent shadow modes only if the worker probe is unavailable.
-        match self
+        // Worker-backed production path must use worker Ghostty token authority.
+        // Do not silently substitute parent-shadow freshness on probe failure.
+        let _ = now_seconds;
+        let payload = self
             .runtime
             .session_runtime_mut()
             .read_mode_flags(&session_id)
-        {
-            Ok(payload) => {
-                let _ = now_seconds;
-                let mut outcome = BotsterEngineOutput::empty();
-                outcome
-                    .session_events
-                    .push(crate::SessionIoEvent::ModeFlagsReady(
-                        crate::ModeFlagsReady {
-                            request_id,
-                            session_id,
-                            mode_flags: payload.mode_flags,
-                            mode_freshness: payload.mode_freshness,
-                        },
-                    ));
-                Ok(outcome)
-            }
-            Err(_) => self.runtime.handle_session_request(
-                crate::SessionIoRequest::GetModeFlags {
+            .map_err(WorkerBackedBotsterEngineError::from)?;
+        let mut outcome = BotsterEngineOutput::empty();
+        outcome
+            .session_events
+            .push(crate::SessionIoEvent::ModeFlagsReady(
+                crate::ModeFlagsReady {
                     request_id,
                     session_id,
+                    mode_flags: payload.mode_flags,
+                    mode_freshness: payload.mode_freshness,
                 },
-                now_seconds,
-            ),
-        }
+            ));
+        Ok(outcome)
     }
 
     /// Correlated mode-gated PTY input against the worker atomic admit barrier.

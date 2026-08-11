@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -110,6 +110,22 @@ impl LocalProcessRuntime {
             options: self.options,
         }
     }
+
+    /// Run `body` with the PTY reader paused and exclusive session I/O ownership.
+    ///
+    /// The reader thread stops issuing new PTY reads before `body` runs, so
+    /// drained output, Ghostty apply, token comparison, and PTY write can form
+    /// one atomic admission barrier.
+    pub fn with_pty_io_barrier<R, F>(
+        &mut self,
+        session_id: &SessionId,
+        body: F,
+    ) -> Result<R, SessionRuntimeError>
+    where
+        F: FnOnce(&mut PtyIoBarrier<'_>) -> Result<R, SessionRuntimeError>,
+    {
+        self.registry.with_pty_io_barrier(session_id, body)
+    }
 }
 
 impl SessionRuntime for LocalProcessRuntime {
@@ -139,10 +155,21 @@ impl SessionRuntime for LocalProcessRuntime {
             pid,
             runtime_id: Some(request.session_id.0.clone()),
         };
+        // Non-blocking PTY reads let the admission fence pause the reader without
+        // waiting for the child to produce data or exit.
+        set_master_nonblocking(pty_pair.master.as_ref())?;
         let reader = pty_pair.master.try_clone_reader().map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::OutputFailed,
                 format!("clone pty reader failed: {error}"),
+            )
+        })?;
+        // Barrier residual reader: while the background reader is paused, the
+        // admission path drains the OS PTY buffer through this handle.
+        let residual_reader = pty_pair.master.try_clone_reader().map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                format!("clone residual pty reader failed: {error}"),
             )
         })?;
         let writer = pty_pair.master.take_writer().map_err(|error| {
@@ -151,14 +178,19 @@ impl SessionRuntime for LocalProcessRuntime {
                 format!("open pty writer failed: {error}"),
             )
         })?;
-        let (output, output_pressure, output_capacity) =
-            spawn_reader(reader, self.options.pty_reader_chunk_capacity);
+        let reader_fence = Arc::new(ReaderFence::default());
+        let (output, output_pressure, output_capacity) = spawn_reader(
+            reader,
+            self.options.pty_reader_chunk_capacity,
+            Arc::clone(&reader_fence),
+        );
 
         self.registry.insert(
             request.session_id.clone(),
             LocalSession {
                 master: pty_pair.master,
                 writer,
+                residual_reader,
                 child,
                 output,
                 output_pressure,
@@ -170,6 +202,7 @@ impl SessionRuntime for LocalProcessRuntime {
                 process_group_cleanup_requested: false,
                 reader_disconnected: false,
                 pending_reader_error: None,
+                reader_fence,
             },
         )?;
 
@@ -200,6 +233,48 @@ impl SessionRuntime for LocalProcessRuntime {
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
         self.registry.drain_output(session_id)
+    }
+}
+
+/// Exclusive PTY I/O handle available inside [`LocalProcessRuntime::with_pty_io_barrier`].
+pub struct PtyIoBarrier<'a> {
+    session: MutexGuard<'a, LocalSession>,
+    session_id: SessionId,
+}
+
+impl PtyIoBarrier<'_> {
+    /// Drain currently queued reader output while the reader remains paused.
+    ///
+    /// Also drains residual bytes still sitting in the OS PTY buffer through a
+    /// dedicated residual reader so a paused background reader cannot hide
+    /// pre-write mode changes.
+    pub fn drain_output(&mut self) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        if let Some(message) = self.session.pending_reader_error.take() {
+            return Err(reader_error(message));
+        }
+        let mut output = drain_reader_output(&mut self.session, &self.session_id)?;
+        output.extend(drain_residual_reader(
+            &mut self.session.residual_reader,
+            &self.session_id,
+        )?);
+        harvest_session(&mut self.session)?;
+        if self.session.exit_payload.is_some() {
+            request_process_group_cleanup(&mut self.session)?;
+        }
+        if reader_finalization_complete(
+            self.session.reader_disconnected,
+            self.session.pending_reader_error.as_deref(),
+        ) {
+            queue_exit_output(&mut self.session, &self.session_id, None);
+        }
+        let mut queued = self.session.outputs.drain(..).collect::<Vec<_>>();
+        output.append(&mut queued);
+        Ok(output)
+    }
+
+    /// Write raw PTY input while the reader remains paused.
+    pub fn write_input(&mut self, data: &[u8]) -> Result<(), SessionRuntimeError> {
+        write_all_blocking(&mut self.session.writer, data)
     }
 }
 
@@ -343,18 +418,7 @@ impl LocalProcessRegistry {
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
-        session.writer.write_all(data).map_err(|error| {
-            SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                format!("write pty input failed: {error}"),
-            )
-        })?;
-        session.writer.flush().map_err(|error| {
-            SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                format!("flush pty input failed: {error}"),
-            )
-        })
+        write_all_blocking(&mut session.writer, data)
     }
 
     fn resize(
@@ -431,6 +495,34 @@ impl LocalProcessRegistry {
         Ok(output)
     }
 
+    fn with_pty_io_barrier<R, F>(
+        &self,
+        session_id: &SessionId,
+        body: F,
+    ) -> Result<R, SessionRuntimeError>
+    where
+        F: FnOnce(&mut PtyIoBarrier<'_>) -> Result<R, SessionRuntimeError>,
+    {
+        let handle = self.session(session_id)?;
+        // Pause the reader before taking the session lock so the reader can
+        // leave its critical section without contending on the session mutex.
+        let fence = {
+            let session = lock_session(&handle)?;
+            Arc::clone(&session.reader_fence)
+        };
+        fence.pause_and_wait_idle()?;
+        let result = {
+            let session = lock_session(&handle)?;
+            let mut barrier = PtyIoBarrier {
+                session,
+                session_id: session_id.clone(),
+            };
+            body(&mut barrier)
+        };
+        fence.resume();
+        result
+    }
+
     fn lock(
         &self,
     ) -> Result<MutexGuard<'_, HashMap<SessionId, LocalSessionHandle>>, SessionRuntimeError> {
@@ -464,6 +556,7 @@ type LocalSessionHandle = Arc<Mutex<LocalSession>>;
 struct LocalSession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
+    residual_reader: Box<dyn Read + Send>,
     child: Box<dyn Child + Send + Sync>,
     output: Receiver<ReaderEvent>,
     output_pressure: Arc<ReaderPressure>,
@@ -475,6 +568,71 @@ struct LocalSession {
     process_group_cleanup_requested: bool,
     reader_disconnected: bool,
     pending_reader_error: Option<String>,
+    reader_fence: Arc<ReaderFence>,
+}
+
+#[derive(Default)]
+struct ReaderFence {
+    state: Mutex<ReaderFenceState>,
+    cv: Condvar,
+}
+
+#[derive(Default)]
+struct ReaderFenceState {
+    paused: bool,
+    in_critical: bool,
+}
+
+impl ReaderFence {
+    fn pause_and_wait_idle(&self) -> Result<(), SessionRuntimeError> {
+        let mut state = self.state.lock().map_err(|_| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::CleanupFailed,
+                "local process reader fence lock poisoned",
+            )
+        })?;
+        state.paused = true;
+        while state.in_critical {
+            state = self.cv.wait(state).map_err(|_| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::CleanupFailed,
+                    "local process reader fence wait poisoned",
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    fn resume(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.paused = false;
+            self.cv.notify_all();
+        }
+    }
+
+    fn enter_critical(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        while state.paused {
+            state.in_critical = false;
+            self.cv.notify_all();
+            let Ok(guard) = self.cv.wait(state) else {
+                return;
+            };
+            state = guard;
+        }
+        state.in_critical = true;
+    }
+
+    fn leave_critical(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.in_critical = false;
+            if state.paused {
+                self.cv.notify_all();
+            }
+        }
+    }
 }
 
 enum ReaderEvent {
@@ -617,6 +775,33 @@ fn drain_reader_output(
     )
 }
 
+fn drain_residual_reader(
+    residual_reader: &mut Box<dyn Read + Send>,
+    session_id: &SessionId,
+) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+    let mut output = Vec::new();
+    let mut buffer = [0; PTY_READER_BUFFER_BYTES];
+    loop {
+        match residual_reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => output.push(SessionRuntimeOutput::PtyOutput {
+                session_id: session_id.clone(),
+                data: buffer[..bytes_read].to_vec(),
+            }),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if is_terminal_closed(&error) => break,
+            Err(error) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    format!("residual pty read failed: {error}"),
+                ))
+            }
+        }
+    }
+    Ok(output)
+}
+
 fn drain_reader_events(
     receiver: &Receiver<ReaderEvent>,
     pressure: &ReaderPressure,
@@ -700,6 +885,7 @@ fn pty_size(size: Option<&ResizePayload>) -> PtySize {
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     capacity: usize,
+    fence: Arc<ReaderFence>,
 ) -> (Receiver<ReaderEvent>, Arc<ReaderPressure>, usize) {
     let capacity = capacity.max(1);
     let pressure = Arc::new(ReaderPressure::default());
@@ -708,21 +894,37 @@ fn spawn_reader(
     thread::spawn(move || {
         let mut buffer = [0; PTY_READER_BUFFER_BYTES];
         loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
+            // Wait while paused, then mark critical around the non-blocking read.
+            fence.enter_critical();
+            let read_result = reader.read(&mut buffer);
+            match read_result {
+                Ok(0) => {
+                    fence.leave_critical();
+                    break;
+                }
                 Ok(bytes_read) => {
-                    if send_reader_event(
-                        &sender,
-                        &reader_pressure,
-                        ReaderEvent::Output(buffer[..bytes_read].to_vec()),
-                    )
-                    .is_err()
+                    let chunk = buffer[..bytes_read].to_vec();
+                    // Leave critical before a potentially blocking channel send.
+                    fence.leave_critical();
+                    if send_reader_event(&sender, &reader_pressure, ReaderEvent::Output(chunk))
+                        .is_err()
                     {
                         break;
                     }
                 }
-                Err(error) if is_terminal_closed(&error) => break,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    fence.leave_critical();
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    fence.leave_critical();
+                }
+                Err(error) if is_terminal_closed(&error) => {
+                    fence.leave_critical();
+                    break;
+                }
                 Err(error) => {
+                    fence.leave_critical();
                     let _ = send_reader_event(
                         &sender,
                         &reader_pressure,
@@ -734,6 +936,83 @@ fn spawn_reader(
         }
     });
     (receiver, pressure, capacity)
+}
+
+fn write_all_blocking(
+    writer: &mut Box<dyn Write + Send>,
+    data: &[u8],
+) -> Result<(), SessionRuntimeError> {
+    let mut offset = 0;
+    while offset < data.len() {
+        match writer.write(&data[offset..]) {
+            Ok(0) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    "write pty input failed: wrote zero bytes",
+                ))
+            }
+            Ok(written) => offset += written,
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock
+                    || error.kind() == io::ErrorKind::Interrupted =>
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    format!("write pty input failed: {error}"),
+                ))
+            }
+        }
+    }
+    loop {
+        match writer.flush() {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock
+                    || error.kind() == io::ErrorKind::Interrupted =>
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    format!("flush pty input failed: {error}"),
+                ))
+            }
+        }
+    }
+}
+
+fn set_master_nonblocking(master: &dyn MasterPty) -> Result<(), SessionRuntimeError> {
+    #[cfg(unix)]
+    {
+        let Some(fd) = master.as_raw_fd() else {
+            return Ok(());
+        };
+        // SAFETY: fd is the live master PTY descriptor owned by this runtime.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("get pty flags failed: {}", io::Error::last_os_error()),
+            ));
+        }
+        let result = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+        if result < 0 {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("set pty nonblocking failed: {}", io::Error::last_os_error()),
+            ));
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = master;
+        Ok(())
+    }
 }
 
 fn send_reader_event(

@@ -77,6 +77,8 @@ pub struct CoreDaemonConfig {
     pub terminal_color_profile: Option<TerminalColorProfile>,
     /// Parent wait bound for correlated mode-gated PTY input RPC.
     pub mode_gated_input_timeout: Duration,
+    /// Optional per-request worker admit hold for deterministic race tests.
+    pub test_mode_gated_hold_ms: Option<u64>,
 }
 
 impl CoreDaemonConfig {
@@ -92,6 +94,7 @@ impl CoreDaemonConfig {
             lifecycle_journal_capacity: DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
             terminal_color_profile: None,
             mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+            test_mode_gated_hold_ms: None,
         }
     }
 
@@ -99,6 +102,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
         self.mode_gated_input_timeout = timeout;
+        self
+    }
+
+    /// Set a per-request worker admit hold for deterministic race tests.
+    #[must_use]
+    pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_mode_gated_hold_ms = hold_ms;
         self
     }
 
@@ -238,6 +248,7 @@ impl CoreDaemon {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
                 options.mode_gated_input_timeout = config.mode_gated_input_timeout;
+                options.test_mode_gated_hold_ms = config.test_mode_gated_hold_ms;
                 DaemonEngine::Worker(worker_engine(
                     options,
                     ghostty_max_scrollback_bytes,

@@ -246,8 +246,7 @@ by the daemon and session-worker path. Types alone do not schedule processes.
 | Layer | What exists today |
 | --- | --- |
 | `botster-core` | Contracts, `DefaultBotsterEngine` / worker-backed engine, session-process framing |
-| `botster-core-daemon` | Durable supervisor + Ghostty-hosted `botster-session-worker` binary |
-| `botster-core-daemon` | Durable supervisor: registry metadata, adoption scan, guarded-write delivery states, typed API and thin CLI |
+| `botster-core-daemon` | Durable supervisor (registry, adoption, guarded writes, typed API/CLI) and Ghostty-hosted `botster-session-worker` binary |
 
 Do **not** read “durable_session types are contracts” as “no durable daemon
 exists.” The workspace implements the production daemon in

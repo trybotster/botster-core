@@ -7,89 +7,61 @@
 - Ticket: `ticket_1786478568_882200`
 - Plan: Plan visit 6 (`docs/archive/plans/race-free-terminal-mode-revision.md`)
 - Base SHA: `747be95b8922130d3e2c3f6844e3dbe1deeb2faa`
-- Implementation SHA: `af434ee758e409fbd1230c7fdbac869f2fdb6c1d`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- `teardown_class_applies`: false
+- Review findings addressed: `review_1786483831_205485` open findings
 
 ## Repository playbook and other playbooks/notes applied
-- [[implementer-playbook]]
-- [[botster-implementer-playbook]]
-- [[botster-core-playbook]] (primary ownership charter)
-- [[cli-patterns]], [[botster-architecture]]
-- [[botster core contract surface needs consumer proof]]
-- [[botster core public surface needs a narrow start here path]]
-- [[public dto field additions are source breaking without non exhaustive]]
-- [[scratch cargo patch redirects measure downstream dto breakage]]
+- [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
 - [[ghostty shadow terminal integration belongs outside botster core]]
-- [[pinned libghostty exposes synchronous exact mouse mode state]]
-- [[test script required for rust tests not cargo test]] (workspace uses `BOTSTER_ENV=test cargo test --workspace`)
-- Human binding `question_1786481243_140177` (worker atomic admit is correctness boundary)
-- Not loaded: [[project-pipelines-playbook]]; [[botster runtime teardown lenses]] (`teardown_class_applies=false`)
+- Human binding `question_1786481243_140177`
+- Not loaded: [[project-pipelines-playbook]]; teardown lenses (`teardown_class_applies=false`)
 
-## Files changed
-### Packaging / host
-- `crates/botster-core/Cargo.toml` — removed `botster-session-worker` binary
-- `crates/botster-core/src/bin/botster-session-worker.rs` — deleted (moved)
-- `crates/botster-core-daemon/Cargo.toml` — hosts `[[bin]] botster-session-worker`
-- `crates/botster-core-daemon/src/bin/botster-session-worker.rs` — Ghostty-hosted worker + atomic mode-gated admit
+## Review findings addressed (this rework)
+| Finding | Fix |
+| --- | --- |
+| Worker PTY read-to-write race | `LocalProcessRuntime::with_pty_io_barrier` pauses nonblocking reader, drains channel + residual OS PTY buffer, then writes under exclusive ownership |
+| Timeout/disconnect late write | `deadline_unix_ms` on gated request; worker refuses write after deadline; timeout test waits past hold and asserts zero PTY bytes |
+| Race matrix incomplete | Separate race (a)/(b), post-final-drain hold, interleaved demux, timeout late-write proofs |
+| Uncorrelated probe / silent parent fallback | `ModeFlagsPayload.request_id` match; worker-backed probe fails closed (no parent token substitute) |
+| Process-global hold env | Per-request `test_hold_ms` + `CoreDaemonConfig::with_test_mode_gated_hold_ms` |
+| Plan trailing whitespace | Stripped |
+| README duplicate daemon row | Merged runtime ownership table |
 
-### Protocol / runtime / public surface
-- `crates/botster-core/src/contract/session_protocol.rs` — `ModeFreshnessToken`, mode-gated request/result frames (`0x19`/`0x1a`), `ModeFlagsPayload`
-- `crates/botster-core/src/contract/actor.rs` — `ModeFlagsReady.mode_freshness`
-- `crates/botster-core/src/runtime/worker_process.rs` — correlated wait demux, timeout, fail-closed matrix, pending output buffer
-- `crates/botster-core/src/engine/botster.rs` — worker-authoritative mode probe + `mode_gated_pty_input`
-- `crates/botster-core/src/engine/managed_session_runtime.rs` — local token tracking on mode observation
-- `crates/botster-core-daemon/src/daemon.rs` — `mode_gated_input`, timeout config, token cache for retained readback
-- Exports updated in `lib.rs` / `contract/mod.rs` / `runtime/mod.rs` / daemon `lib.rs`
-
-### Tests / docs / support
-- daemon integration tests for admit/stale, race (b), post-drain hold, timeout, packaging
-- protocol round-trip + frame constants
-- test-support fake `ModeFlagsReady`
-- README + durable-session worker protocol docs (binary provenance)
+## Files changed (rework)
+- `crates/botster-core/src/runtime/local_process.rs` — reader fence, residual drain, nonblocking master + blocking write retry, `PtyIoBarrier`
+- `crates/botster-core/src/runtime/worker_process.rs` — deadline + test hold on request; correlated probe wait
+- `crates/botster-core/src/contract/session_protocol.rs` — `deadline_unix_ms`, `test_hold_ms`, probe `request_id`
+- `crates/botster-core/src/engine/botster.rs` — no silent parent mode fallback
+- `crates/botster-core-daemon/src/bin/botster-session-worker.rs` — barrier admit + deadline
+- `crates/botster-core-daemon/src/daemon.rs` — test hold config
+- Daemon integration tests, protocol tests, README, plan whitespace
 
 ## Ownership boundaries preserved
-- `botster-core` stays Ghostty-free (no `botster-terminal-ghostty` dependency; no session-worker bin)
-- `botster-terminal-ghostty` remains concrete Ghostty adapter ownership
-- `botster-core-daemon` hosts production `CoreDaemon` **and** the Ghostty-enabled `botster-session-worker` binary (cycle-free)
-- Parent pre-admit drain is optimization only; worker atomic admit is correctness boundary
-- Parent dual-shadow still owns screen/snapshot/OSC write_pty injection; worker Ghostty is mode-token/admit authority
+- Core stays Ghostty-free; daemon hosts Ghostty worker binary
+- Worker atomic admit remains correctness boundary
 
-## Cross-repo dependencies or separately routed work
-- Hub ticket `ticket_1786471489_718500` depends on this Core contract (`ModeFreshnessToken` / mode-gated input)
-- Hub product projection of `mode_gated_input` and client encoding against tokens is **out of scope** (separate Hub run)
-- Scratch hub path-patch `cargo check -p botster-hub` against this Core revision: **pass** (Core SHA base `747be95b…`, Hub SHA `891cc796…`)
-- Hub-shaped standalone DTO compile of `ModeFlagsReady` + `ModeFreshnessToken`: **pass**
+## Cross-repo
+- Hub product still separate; prior path-patch compile policy retained
+- Additive request fields remain wire-compatible for coordinated 0.1.0 consumers
 
 ## Deviations from plan
-1. **No new `CoreDaemonError` variant** for mode-gated timeout/fail-closed. Failures map through existing `CoreDaemonError::Engine(...)` so Hub exhaustive matches on `CoreDaemonError` remain source-compatible without a Hub co-change in this ticket. Typed stale rejection is still a successful `ModeGatedInputOutcome::Gated { admitted: false, ... }`.
-2. **Parent Ghostty dual-shadow retained** for screen/snapshot/OSC write_pty; worker Ghostty does not inject `drain_pty_writes` (avoids double OSC replies). Plan allowed dual-shadow risk; worker remains token/admit authority.
-3. **Deterministic hold test seam**: `BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS` env var for post-parent-drain / pre-admit hold proof (test-only).
-4. Adopt mid-wait fail-closed is covered by disconnect/timeout fail-closed path + existing adopt continuity of live worker generation; a dedicated adopt-mid-wait flaky integration test was not added beyond fail-closed matrix units.
+- Same as prior report for `CoreDaemonError::Engine` mapping
+- Residual PTY reader under barrier supplements paused background reader (required for true pre-write drain)
 
-## Tests and downstream proof run
-Commands (with `PATH` including mise Zig 0.16.0; `BOTSTER_ENV=test`):
+## Tests and downstream proof
 - `cargo fmt --all`
-- `cargo clippy --workspace --all-targets -- -D warnings` — pass
-- `cargo test --workspace` — pass
-- Focused: `worker_backed_mode_gated_*` (admit/stale, race b, hold, timeout) — pass
-- `worker_binary_is_hosted_by_daemon_package_not_core` — pass
-- `worker_backed_mode_flags_include_kitty_and_mouse_from_ghostty_authority` — pass
-- Scratch hub path-patch compile — pass
-- Production path evidence: `CoreDaemon::mode_gated_input(Some(token))` → correlated `FRAME_MODE_GATED_PTY_INPUT` → worker atomic drain/compare/write-or-reject → `FRAME_MODE_GATED_PTY_INPUT_RESULT` (not parent-compare + plain `FRAME_PTY_INPUT`)
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `BOTSTER_ENV=test cargo test --workspace`
+- Mode-gated: admit/stale, race-a, race-b, post-final-drain hold, interleaved, timeout-without-late-write, packaging
 
-## Unverified behavior or residual risk
-- Concurrent gated requests are parent-serialized (reject second while first in flight); worker processes one frame fully before the next (single-threaded loop)
-- Dual Ghostty (parent screen vs worker modes) can theoretically diverge if parent and worker apply different VT streams; production path applies the same PTY output bytes to both
-- `BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS` is process-global env; tests clear it, but parallel suites that also set it could interact
-- Hub product clients are not yet encoding mode-dependent input against tokens (Hub ticket dependency)
-- Reconnect/adopt mid-wait is fail-closed via disconnect/timeout; not a separate live-adopt chaos test
+## Unverified / residual risk
+- Adopt mid-wait remains fail-closed via disconnect/timeout paths (no separate chaos test)
+- Dual Ghostty parent/worker still exists for screen vs token
+- Mismatched `request_id` handling covered in parent demux logic; no separate injectable-stale-result integration harness
 
-## Missing vault guidance discovered
-1. Session worker binary that hosts Ghostty must not live in package `botster-core` (dependency cycle with `botster-terminal-ghostty`)
-2. Mode-gated worker RPC needs correlation + bounded fail-closed wait (timeout, disconnect, exit, mismatched `request_id`)
-3. Worker atomic Ghostty admit is correctness; parent drain is optimization only
-4. Prefer not adding new exhaustive `CoreDaemonError` variants for additive fail-closed paths when Hub matches exhaustively; map through `Engine` unless Hub co-evolves
+## Missing vault guidance
+- Nonblocking PTY master requires blocking write retries
+- Admission barriers need residual OS-buffer drain when the background reader is paused
 
 ## Runtime-teardown class
-- `teardown_class_applies=false` — no lens implementation required
+- `teardown_class_applies=false`

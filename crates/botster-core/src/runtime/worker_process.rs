@@ -89,6 +89,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub control_socket_dir: Option<PathBuf>,
     /// Parent wait bound for correlated mode-gated PTY input RPC.
     pub mode_gated_input_timeout: Duration,
+    /// Optional per-request worker admit hold for deterministic race tests.
+    pub test_mode_gated_hold_ms: Option<u64>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -103,6 +105,7 @@ impl WorkerProcessRuntimeOptions {
             poll_interval_ms: 10,
             control_socket_dir: None,
             mode_gated_input_timeout: DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+            test_mode_gated_hold_ms: None,
         }
     }
 
@@ -110,6 +113,13 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
         self.mode_gated_input_timeout = timeout;
+        self
+    }
+
+    /// Set a per-request worker admit hold for deterministic race tests.
+    #[must_use]
+    pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_mode_gated_hold_ms = hold_ms;
         self
     }
 }
@@ -243,29 +253,43 @@ impl WorkerProcessRuntime {
                 ));
             }
             *session.mode_flags_slot.lock().map_err(lock_error)? = None;
-            session
-                .control
-                .write_json(FRAME_GET_MODE_FLAGS, &ModeFlagsProbeRequest { request_id })?;
+            *session.outstanding_mode_probe.lock().map_err(lock_error)? = Some(request_id.clone());
+            session.control.write_json(
+                FRAME_GET_MODE_FLAGS,
+                &ModeFlagsProbeRequest {
+                    request_id: request_id.clone(),
+                },
+            )?;
         }
         let deadline = Instant::now() + self.options.mode_gated_input_timeout;
         loop {
             self.pump_session_output(session_id)?;
-            if let Some(payload) = self
-                .session_mut(session_id)?
-                .mode_flags_slot
-                .lock()
-                .map_err(lock_error)?
-                .take()
-            {
+            let matched = {
+                let session = self.session_mut(session_id)?;
+                let mut slot = session.mode_flags_slot.lock().map_err(lock_error)?;
+                match slot.take() {
+                    Some(payload) if payload.request_id == request_id => {
+                        *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
+                        Some(payload)
+                    }
+                    Some(_) => None, // stale/mismatched probe reply
+                    None => None,
+                }
+            };
+            if let Some(payload) = matched {
                 return Ok(payload);
             }
             if Instant::now() >= deadline {
+                let session = self.session_mut(session_id)?;
+                *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "worker mode-flags probe timed out",
                 ));
             }
             if self.session_reader_finished(session_id)? {
+                let session = self.session_mut(session_id)?;
+                *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "worker disconnected before mode-flags reply",
@@ -287,6 +311,9 @@ impl WorkerProcessRuntime {
         data: Vec<u8>,
     ) -> Result<ModeGatedPtyInputResult, SessionRuntimeError> {
         let request_id = next_gated_request_id();
+        let timeout = self.options.mode_gated_input_timeout;
+        let test_hold_ms = self.options.test_mode_gated_hold_ms;
+        let deadline_unix_ms = unix_now_ms().saturating_add(timeout.as_millis() as u64);
         {
             let session = self.session_mut(session_id)?;
             let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
@@ -307,11 +334,13 @@ impl WorkerProcessRuntime {
                     request_id: request_id.clone(),
                     expected,
                     data,
+                    deadline_unix_ms,
+                    test_hold_ms,
                 },
             )?;
         }
 
-        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        let deadline = Instant::now() + timeout;
         loop {
             self.pump_session_output(session_id)?;
             {
@@ -330,6 +359,8 @@ impl WorkerProcessRuntime {
                         *in_flight = None;
                     }
                 }
+                // Parent timed out. The worker still holds a deadline fence and
+                // must not write after deadline_unix_ms.
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "mode-gated input timed out",
@@ -495,6 +526,7 @@ impl WorkerProcessRuntime {
                 completion,
                 gated_in_flight: Arc::new(Mutex::new(None)),
                 mode_flags_slot: Arc::new(Mutex::new(None)),
+                outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
                 egress_capacity: self.options.egress_capacity.max(1),
             },
@@ -699,6 +731,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 completion,
                 gated_in_flight: Arc::new(Mutex::new(None)),
                 mode_flags_slot: Arc::new(Mutex::new(None)),
+                outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
                 egress_capacity: self.options.egress_capacity.max(1),
             },
@@ -816,6 +849,7 @@ struct WorkerProcessSession {
     completion: Arc<Mutex<WorkerCompletion>>,
     gated_in_flight: Arc<Mutex<Option<GatedInFlight>>>,
     mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
+    outstanding_mode_probe: Arc<Mutex<Option<String>>>,
     pending_output: std::collections::VecDeque<WorkerOutputEvent>,
     egress_capacity: usize,
 }
@@ -1372,6 +1406,13 @@ fn next_gated_request_id() -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     format!("mode-gated-{}-{}", nanos, ordinal)
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn read_frame(stream: &mut impl Read) -> Result<Frame, SessionRuntimeError> {
