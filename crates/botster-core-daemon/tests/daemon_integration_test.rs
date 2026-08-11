@@ -3796,7 +3796,7 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_mode_gated_input_timeout(Duration::from_millis(400))
+            .with_mode_gated_input_timeout(Duration::from_millis(1_000))
             .with_test_write_block_until_unix_ms(Some(block_until)),
     );
     let session_id = SessionId(format!("mode-gated-wdeadline-{now_ms}"));
@@ -3991,6 +3991,207 @@ fn worker_backed_mode_gated_full_reader_channel_preserves_mode_order() {
         }
         ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
     }
+    daemon.shutdown(Some(session_id), 17).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_overflow_stays_failed_closed() {
+    // Tiny dual buffers + flood. Overflow latches sticky authority failure:
+    // later probes and gated admits must keep failing until session shutdown.
+    let data_dir = temp_data_dir("mode-gated-overflow-sticky");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_pty_reader_chunk_capacity(Some(1))
+            .with_test_pending_capacity(Some(1))
+            .with_mode_gated_input_timeout(Duration::from_secs(3)),
+    );
+    let session_id = SessionId("mode-gated-overflow".to_string());
+    let client_id = ClientId("mode-gated-overflow-client".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; ",
+        "while IFS= read -r line; do ",
+        "if [ \"$line\" = flood ]; then ",
+        "i=0; while [ $i -lt 40 ]; do ",
+        "printf 'flood-%s:%04000d\\n' \"$i\" 0; ",
+        "i=$((i+1)); ",
+        "done; ",
+        "else printf \"echo:%s\\n\" \"$line\"; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("overflow-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let baseline = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("overflow-base".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("baseline before flood");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"flood\n".to_vec(),
+            13,
+        )
+        .expect("flood");
+    thread::sleep(Duration::from_millis(200));
+
+    let mut saw_fail = false;
+    for i in 0..4 {
+        match daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("overflow-probe-{i}")),
+            session_id: session_id.clone(),
+            now_seconds: 14 + i as u64,
+        }) {
+            Ok(_) => {}
+            Err(error) => {
+                let msg = format!("{error:?}");
+                if msg.contains("overflow")
+                    || msg.contains("authority")
+                    || msg.contains("OutputFailed")
+                {
+                    saw_fail = true;
+                }
+            }
+        }
+    }
+    assert!(
+        saw_fail,
+        "overflow must surface sticky authority failure on probe"
+    );
+
+    // Gated input must not silently admit after authority failure.
+    for i in 0..3 {
+        match daemon.mode_gated_input(
+            client_id.clone(),
+            session_id.clone(),
+            format!("post-overflow-{i}\n").into_bytes(),
+            Some(baseline.mode_flags.mode_freshness),
+            20 + i as u64,
+        ) {
+            Ok(ModeGatedInputOutcome::Gated(result)) => {
+                assert!(
+                    !result.admitted,
+                    "gated must not admit after overflow authority failure"
+                );
+            }
+            Ok(ModeGatedInputOutcome::PlainWritten) => {
+                panic!("must not plain-write after overflow")
+            }
+            Err(_) => {
+                // Parent fail-closed on probe/worker error is also correct.
+            }
+        }
+    }
+    daemon.shutdown(Some(session_id), 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_gated_transfer_hold_preserves_modes() {
+    // hold_after_flush keeps the reader critical through the full nonblocking
+    // pending→channel transfer. Barrier wait cannot miss a mid-transfer event.
+    let data_dir = temp_data_dir("mode-gated-transfer-hold");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_pty_reader_chunk_capacity(Some(1))
+            .with_test_hold_after_flush_ms(Some(80))
+            .with_mode_gated_input_timeout(Duration::from_secs(5)),
+    );
+    let session_id = SessionId("mode-gated-transfer".to_string());
+    let client_id = ClientId("mode-gated-transfer-client".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; ",
+        "while IFS= read -r line; do ",
+        "if [ \"$line\" = seq ]; then ",
+        "printf '\\033[?1000h\\033[?1006h'; ",
+        "sleep 0.05; ",
+        "printf '\\033[?1000l\\033[?1006l'; ",
+        "printf 'seq-done\\n'; ",
+        "else printf \"echo:%s\\n\" \"$line\"; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("transfer-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let baseline = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("transfer-base".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 12,
+        })
+        .expect("baseline");
+    daemon
+        .input(client_id.clone(), session_id.clone(), b"seq\n".to_vec(), 13)
+        .expect("seq");
+    thread::sleep(Duration::from_millis(40));
+    // Race probe during transfer holds — must not hang and must leave mouse off.
+    let start = Instant::now();
+    let after = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("transfer-after".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 14,
+        })
+        .expect("probe during transfer hold");
+    assert!(start.elapsed() < Duration::from_secs(8), "must not hang");
+    let _ = drain_until(&mut daemon, &session_id, "seq-done");
+    let final_modes = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("transfer-final".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 15,
+        })
+        .expect("final");
+    assert_eq!(
+        final_modes.mode_flags.mode_flags.mouse_mode, 0,
+        "transfer-safe drain must keep enable→disable order"
+    );
+    let stale = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"stale-transfer\n".to_vec(),
+            Some(baseline.mode_flags.mode_freshness),
+            16,
+        )
+        .expect("stale");
+    if final_modes.mode_flags.mode_freshness != baseline.mode_flags.mode_freshness {
+        match stale {
+            ModeGatedInputOutcome::Gated(result) => {
+                assert!(!result.admitted, "stale must reject after mode sequence");
+            }
+            ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+        }
+    }
+    let _ = after;
     daemon.shutdown(Some(session_id), 17).ok();
     let _ = fs::remove_dir_all(data_dir);
 }

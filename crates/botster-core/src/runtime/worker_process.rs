@@ -97,6 +97,10 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_write_block_until_unix_ms: Option<u64>,
     /// Test-only: cap each write() to this many bytes (partial-write proofs).
     pub test_write_max_chunk: Option<usize>,
+    /// Test-only: fence pending capacity override (overflow proofs).
+    pub test_pending_capacity: Option<usize>,
+    /// Test-only: hold after pending flush while still critical.
+    pub test_hold_after_flush_ms: Option<u64>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -115,6 +119,8 @@ impl WorkerProcessRuntimeOptions {
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
+            test_pending_capacity: None,
+            test_hold_after_flush_ms: None,
         }
     }
 
@@ -150,6 +156,20 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_write_max_chunk(mut self, max_chunk: Option<usize>) -> Self {
         self.test_write_max_chunk = max_chunk;
+        self
+    }
+
+    /// Set the test-only fence pending capacity for overflow proofs.
+    #[must_use]
+    pub const fn with_test_pending_capacity(mut self, capacity: Option<usize>) -> Self {
+        self.test_pending_capacity = capacity;
+        self
+    }
+
+    /// Set the test-only post-flush hold while still under the admission fence.
+    #[must_use]
+    pub const fn with_test_hold_after_flush_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_after_flush_ms = hold_ms;
         self
     }
 
@@ -632,6 +652,16 @@ impl SessionRuntime for WorkerProcessRuntime {
             command
                 .arg("--test-write-max-chunk")
                 .arg(max_chunk.to_string());
+        }
+        if let Some(capacity) = self.options.test_pending_capacity {
+            command
+                .arg("--test-pending-capacity")
+                .arg(capacity.to_string());
+        }
+        if let Some(hold_ms) = self.options.test_hold_after_flush_ms {
+            command
+                .arg("--test-hold-after-flush-ms")
+                .arg(hold_ms.to_string());
         }
 
         #[cfg(unix)]
