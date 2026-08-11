@@ -4128,7 +4128,9 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
     // hold_after_enqueue keeps the reader critical while opposite mode chunks
     // sit on the single fence queue. Normal (non-barrier) drain via the worker
     // control loop + parent drain, then a later probe, must keep enable→disable
-    // FIFO (mouse off).
+    // FIFO (mouse off) after both mode transitions apply. Complements the
+    // dual-buffer source guard in local_process unit tests (that guard fails on
+    // df38c218; this path proves production normal-drain + Ghostty apply order).
     let data_dir = temp_data_dir("mode-gated-normal-drain-fifo");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -4195,6 +4197,23 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
         final_modes.mode_flags.mode_flags.mouse_mode, 0,
         "normal-drain FIFO must keep enable→disable (mouse off)"
     );
+    // Both transitions must apply: enable+disable advances revision by ≥2.
+    // Mouse-off alone is insufficient if only disable (or neither) applied.
+    assert!(
+        final_modes.mode_flags.mode_freshness.mode_revision
+            >= baseline
+                .mode_flags
+                .mode_freshness
+                .mode_revision
+                .saturating_add(2),
+        "expected ≥2 mode revisions (enable then disable); baseline={:?} final={:?}",
+        baseline.mode_flags.mode_freshness,
+        final_modes.mode_flags.mode_freshness
+    );
+    assert_ne!(
+        final_modes.mode_flags.mode_freshness, baseline.mode_flags.mode_freshness,
+        "mode sequence must change freshness so stale admit is meaningful"
+    );
     let stale = daemon
         .mode_gated_input(
             client_id,
@@ -4204,13 +4223,11 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
             16,
         )
         .expect("stale");
-    if final_modes.mode_flags.mode_freshness != baseline.mode_flags.mode_freshness {
-        match stale {
-            ModeGatedInputOutcome::Gated(result) => {
-                assert!(!result.admitted, "stale must reject after mode sequence");
-            }
-            ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
+    match stale {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(!result.admitted, "stale must reject after mode sequence");
         }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
     }
     daemon.shutdown(Some(session_id), 17).ok();
     let _ = fs::remove_dir_all(data_dir);
