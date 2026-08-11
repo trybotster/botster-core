@@ -277,6 +277,19 @@ where
                 })?;
             worker.prepare_mode_flags()?;
         }
+        if let SessionIoRequest::SetColorProfile {
+            session_id,
+            color_profile,
+        } = &request
+        {
+            let worker = self
+                .engine
+                .session_worker_runtime_mut(session_id)
+                .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                    session_id: session_id.clone(),
+                })?;
+            worker.prepare_color_profile(color_profile.clone())?;
+        }
         let outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
         Ok(outcome)
@@ -390,7 +403,7 @@ where
             let runtime_event = match output {
                 SessionRuntimeOutput::PtyOutput { session_id, data } => {
                     if let Some(worker) = self.engine_worker(&session_id) {
-                        worker.record_output(&data);
+                        worker.record_output(&session_id, &data);
                     }
                     crate::SessionWorkerRuntimeEvent::TerminalBytes {
                         session_id,
@@ -441,6 +454,10 @@ where
             let step = self.engine.handle_runtime_event(runtime_event)?;
             append_outcome(&mut outcome, step);
         }
+
+        // write_pty replies queued during record_output must reach the child
+        // PTY even when no client-facing request mutator flushes inputs.
+        self.flush_runtime_inputs_for_session(session_id)?;
 
         Ok(outcome)
     }
@@ -746,8 +763,20 @@ where
     }
 
     /// Record runtime output in terminal state before live fanout.
-    pub(crate) fn record_output(&mut self, data: &[u8]) {
-        self.state.borrow_mut().terminal.normalize_output(data);
+    ///
+    /// When the backend generates PTY query replies (for example OSC color
+    /// probe responses owned by the session terminal runtime), those bytes are
+    /// queued as session PTY input so the child receives them without a client.
+    pub(crate) fn record_output(&mut self, session_id: &SessionId, data: &[u8]) {
+        let mut state = self.state.borrow_mut();
+        state.terminal.normalize_output(data);
+        let pty_replies = state.terminal.runtime_mut().drain_pty_writes();
+        if !pty_replies.is_empty() {
+            state.inputs.push(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: pty_replies,
+            });
+        }
     }
 
     /// Drain pending runtime inputs recorded by worker operations.
@@ -843,6 +872,18 @@ where
             .map_err(managed_terminal_backend_error)?;
         state.prepared_mode_flags = Some(flags);
         Ok(())
+    }
+
+    fn prepare_color_profile(
+        &mut self,
+        color_profile: TerminalColorProfile,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        self.state
+            .borrow_mut()
+            .terminal
+            .runtime_mut()
+            .set_color_profile(color_profile)
+            .map_err(managed_terminal_backend_error)
     }
 
     pub(crate) fn last_terminal_error(&self) -> Option<String> {
@@ -998,7 +1039,14 @@ where
         }
     }
 
-    fn set_color_profile(&mut self, _session_id: &SessionId, _color_profile: TerminalColorProfile) {
+    fn set_color_profile(
+        &mut self,
+        _session_id: &SessionId,
+        _color_profile: TerminalColorProfile,
+    ) -> Result<(), SessionRuntimeError> {
+        // Color profile apply is primed through prepare_color_profile so
+        // Unsupported backends map to ManagedSessionRuntimeError::UnsupportedSessionRequest.
+        Ok(())
     }
 
     fn shutdown(
@@ -1052,12 +1100,12 @@ fn reject_unsupported_session_request(
     match request {
         SessionIoRequest::SendFile(_) => unsupported("send_file"),
         SessionIoRequest::PrepareSnapshot(_) => unsupported("prepare_snapshot"),
-        SessionIoRequest::SetColorProfile { .. } => unsupported("set_color_profile"),
         SessionIoRequest::SubscribeTerminal { .. }
         | SessionIoRequest::GetSnapshot { .. }
         | SessionIoRequest::GetInitialSnapshot(_)
         | SessionIoRequest::GetModeFlags { .. }
         | SessionIoRequest::GetScreen { .. }
+        | SessionIoRequest::SetColorProfile { .. }
         | SessionIoRequest::UnsubscribeTerminal { .. }
         | SessionIoRequest::PtyInput { .. }
         | SessionIoRequest::Resize { .. }

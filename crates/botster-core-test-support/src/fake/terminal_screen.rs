@@ -106,4 +106,16 @@ impl TerminalScreenRuntime for FakeTerminalScreenRuntime {
             .then(|| self.mode_flags.clone())
             .ok_or_else(|| TerminalBackendError::unsupported("mode_flags"))
     }
+
+    fn set_color_profile(
+        &mut self,
+        profile: TerminalColorProfile,
+    ) -> Result<(), TerminalBackendError> {
+        self.color_profile = Some(profile);
+        Ok(())
+    }
+
+    fn color_profile(&self) -> Result<Option<TerminalColorProfile>, TerminalBackendError> {
+        Ok(self.color_profile.clone())
+    }
 }

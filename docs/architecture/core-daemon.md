@@ -119,7 +119,8 @@ bytes are truncated from the head. The plain fallback runtime does not parse VT
 sequences. It is retained for `botster-core-daemon --no-default-features`
 contract-only embeds.
 
-The default `botster-core-daemon` feature set enables `ghostty-terminal`, which
+`botster-core-daemon` always depends on Ghostty (`botster-terminal-ghostty` with
+`libghostty-vt`). There is no optional plain production terminal feature. Ghostty
 uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
 feature as the production terminal backend. On that path,
 `CoreDaemon::read_screen` returns Ghostty-formatted plain text and

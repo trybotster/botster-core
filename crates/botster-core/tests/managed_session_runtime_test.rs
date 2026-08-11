@@ -1475,7 +1475,7 @@ fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_ba
             },
             20,
         )
-        .expect_err("mode flags remain explicitly unsupported");
+        .expect_err("plain library harness mode flags remain explicitly unsupported");
     assert!(matches!(
         mode_error,
         ManagedSessionRuntimeError::UnsupportedSessionRequest {
@@ -1483,6 +1483,8 @@ fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_ba
         }
     ));
 
+    // Plain harness has no palette authority; production Ghostty backends own
+    // set_color_profile through TerminalScreenRuntime.
     let color_error = runtime
         .handle_session_request(
             SessionIoRequest::SetColorProfile {
@@ -1491,7 +1493,7 @@ fn supervised_session_mode_and_color_paths_stay_explicitly_unsupported_or_are_ba
             },
             21,
         )
-        .expect_err("color profile remains explicitly unsupported");
+        .expect_err("plain library harness color profile remains explicitly unsupported");
     assert!(matches!(
         color_error,
         ManagedSessionRuntimeError::UnsupportedSessionRequest {

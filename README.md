@@ -79,7 +79,7 @@ Workers own PTYs and control sockets. Intentional daemon restart can call
 Terminal history and authoritative screen/snapshot intent go through core’s
 opaque terminal seams. Botster’s blessed shadow-terminal backend is Ghostty in
 the sibling `botster-terminal-ghostty` crate. `botster-core-daemon` enables it
-on the default production path through its default `ghostty-terminal` feature.
+on every production path. The daemon always constructs Ghostty; there is no plain terminal production feature lane.
 Default daemon and workspace builds therefore require Zig `0.16.0` plus the
 initialized `crates/botster-terminal-ghostty/vendor/ghostty` submodule.
 Contract-only daemon embedders can opt out with:
