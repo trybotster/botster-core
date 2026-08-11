@@ -1,10 +1,10 @@
 # Plan: Race-free terminal mode revision for mode-dependent input
 
-**Ticket:** `ticket_1786478568_882200`  
-**Run:** `run_1786479064_760292`  
-**Plan visit:** 6 (cycle-free Ghostty worker host + correlated gated-input RPC)  
-**Base SHA:** `747be95b8922130d3e2c3f6844e3dbe1deeb2faa`  
-**Human binding:** `question_1786481243_140177` — worker atomic admit is correctness boundary  
+**Ticket:** `ticket_1786478568_882200`
+**Run:** `run_1786479064_760292`
+**Plan visit:** 6 (cycle-free Ghostty worker host + correlated gated-input RPC)
+**Base SHA:** `747be95b8922130d3e2c3f6844e3dbe1deeb2faa`
+**Human binding:** `question_1786481243_140177` — worker atomic admit is correctness boundary
 
 Supersedes visits 1–5. Visit 5 correctly locked worker Ghostty admit but did not specify a **cycle-free Cargo host** or **correlated request/result failure bounds**.
 
@@ -100,8 +100,8 @@ Ghostty adapter stays in `botster-terminal-ghostty`; worker **hosts** it; core p
 | Packaging / CI | Workspace `cargo build` produces the binary from daemon package; update any tests that assumed `CARGO_BIN_EXE` from `botster-core`; document in README/architecture if binary provenance changes |
 | Restart/adoption | Unchanged protocol + path semantics |
 
-**Rejected:** adding `botster-terminal-ghostty` to package `botster-core` (cycle).  
-**Rejected:** moving Ghostty FFI into `botster-core`.  
+**Rejected:** adding `botster-terminal-ghostty` to package `botster-core` (cycle).
+**Rejected:** moving Ghostty FFI into `botster-core`.
 **Alternative allowed only if needed:** new workspace crate `botster-session-worker` depending on core + ghostty — larger than moving the bin into daemon; **do not** take this unless daemon packaging is proven wrong. Default is daemon-hosted binary.
 
 ### 4. Correlated mode-gated RPC + failure bounds (visit 6 lock)

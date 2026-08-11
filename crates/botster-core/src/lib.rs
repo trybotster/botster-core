@@ -137,9 +137,10 @@ pub use runtime::{
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, WorkerHealth,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT,
-    DEFAULT_PTY_READER_CHUNK_CAPACITY, DEFAULT_WORKER_EGRESS_CAPACITY,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
+    WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    DEFAULT_WORKER_EGRESS_CAPACITY,
 };
 
 pub use actor::{

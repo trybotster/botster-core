@@ -105,6 +105,12 @@ pub struct ModeGatedPtyInputRequest {
     /// Candidate input bytes. Written only when the worker admits the request.
     #[serde(with = "mode_gated_bytes")]
     pub data: Vec<u8>,
+    /// Parent wall-clock deadline (Unix epoch milliseconds). Worker must not
+    /// write input after this instant even if the token still matches.
+    pub deadline_unix_ms: u64,
+    /// Optional deterministic hold before the final pre-write drain (tests only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_hold_ms: Option<u64>,
 }
 
 /// Correlated mode-gated PTY input result payload.
@@ -126,6 +132,8 @@ pub struct ModeGatedPtyInputResult {
 /// Worker mode-flags response payload, including the public freshness token.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModeFlagsPayload {
+    /// Echo of the probe correlation id.
+    pub request_id: String,
     /// Current complete mode flags.
     pub mode_flags: ModeFlags,
     /// Current mode freshness token for mode-dependent input.

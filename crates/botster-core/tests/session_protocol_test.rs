@@ -97,6 +97,8 @@ fn mode_gated_request_and_result_round_trip_json() {
             mode_revision: 3,
         },
         data: b"hello\n".to_vec(),
+        deadline_unix_ms: 1_700_000_000_000,
+        test_hold_ms: Some(5),
     };
     let encoded = serde_json::to_vec(&request).expect("encode request");
     let decoded: ModeGatedPtyInputRequest =

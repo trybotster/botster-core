@@ -127,6 +127,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         poll_interval_ms: 5,
         control_socket_dir: None,
         mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+        test_mode_gated_hold_ms: None,
     }
 }
 
