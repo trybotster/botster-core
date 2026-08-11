@@ -91,13 +91,13 @@ pub struct WorkerProcessRuntimeOptions {
     pub mode_gated_input_timeout: Duration,
     /// Optional per-request worker admit hold for deterministic race tests.
     pub test_mode_gated_hold_ms: Option<u64>,
-    /// Test-only: hold after PTY read before channel publication (worker CLI).
+    /// Test-only: hold after PTY read while still in the reader critical section (worker CLI).
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write WouldBlock until this Unix ms (worker CLI).
     pub test_write_block_until_unix_ms: Option<u64>,
     /// Test-only: cap each write() to this many bytes (partial-write proofs).
     pub test_write_max_chunk: Option<usize>,
-    /// Test-only: fence pending capacity override (overflow proofs).
+    /// Test-only: single-queue fence capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still critical.
     pub test_hold_after_enqueue_ms: Option<u64>,
@@ -159,7 +159,7 @@ impl WorkerProcessRuntimeOptions {
         self
     }
 
-    /// Set the test-only fence pending capacity for overflow proofs.
+    /// Set the test-only single-queue fence capacity for overflow proofs.
     #[must_use]
     pub const fn with_test_pending_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_pending_capacity = capacity;
