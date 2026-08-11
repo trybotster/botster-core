@@ -13,17 +13,14 @@ use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
     DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
-    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload, Rgb,
+    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
     RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
     SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalColorProfile,
     TerminalScreenState, TerminalSnapshotPayload, WorkerBackedBotsterEngine,
     WorkerProcessRuntimeOptions,
 };
-use botster_terminal_ghostty::{
-    GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError, COLOR_INDEX_BACKGROUND,
-    COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
-};
+use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
 
 use crate::api::{
@@ -69,10 +66,15 @@ pub struct CoreDaemonConfig {
     /// Bounded per-target routed-envelope queue settings.
     pub routed_envelope_queue: RoutedEnvelopeQueueConfig,
     /// Ghostty scrollback page-allocation byte budget for each daemon session.
-    ///
     pub ghostty_max_scrollback_bytes: usize,
     /// Maximum ordered lifecycle changes retained for slow consumers.
     pub lifecycle_journal_capacity: usize,
+    /// Optional host-supplied terminal color profile for new Ghostty sessions.
+    ///
+    /// This is a policy-free configuration seam: `CoreDaemon` does not invent
+    /// presentation defaults. Hosts outside this repository supply color policy
+    /// when OSC 10/11/12 replies or palette defaults are required.
+    pub terminal_color_profile: Option<TerminalColorProfile>,
 }
 
 impl CoreDaemonConfig {
@@ -86,6 +88,7 @@ impl CoreDaemonConfig {
             routed_envelope_queue: RoutedEnvelopeQueueConfig::default(),
             ghostty_max_scrollback_bytes: DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES,
             lifecycle_journal_capacity: DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
+            terminal_color_profile: None,
         }
     }
 
@@ -114,6 +117,17 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_lifecycle_journal_capacity(mut self, capacity: usize) -> Self {
         self.lifecycle_journal_capacity = capacity;
+        self
+    }
+
+    /// Supply a host-owned terminal color profile for new Ghostty sessions.
+    ///
+    /// Callers outside this repository own presentation policy. Passing a
+    /// profile is required for pre-attach OSC 10/11/12 replies that need
+    /// configured default colors.
+    #[must_use]
+    pub fn with_terminal_color_profile(mut self, profile: TerminalColorProfile) -> Self {
+        self.terminal_color_profile = Some(profile);
         self
     }
 }
@@ -195,15 +209,25 @@ impl CoreDaemon {
     pub fn new(config: CoreDaemonConfig) -> Self {
         let registry = SessionRegistry::new(&config.data_dir);
         let ghostty_max_scrollback_bytes = config.ghostty_max_scrollback_bytes;
+        let terminal_color_profile = config.terminal_color_profile.clone();
         let engine = config
             .worker_path
             .as_ref()
             .map(|worker_path| {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
-                DaemonEngine::Worker(worker_engine(options, ghostty_max_scrollback_bytes))
+                DaemonEngine::Worker(worker_engine(
+                    options,
+                    ghostty_max_scrollback_bytes,
+                    terminal_color_profile.clone(),
+                ))
             })
-            .unwrap_or_else(|| DaemonEngine::Local(local_engine(ghostty_max_scrollback_bytes)));
+            .unwrap_or_else(|| {
+                DaemonEngine::Local(local_engine(
+                    ghostty_max_scrollback_bytes,
+                    terminal_color_profile,
+                ))
+            });
         let envelope_queue = config.routed_envelope_queue.clone();
         Self {
             config,
@@ -1223,63 +1247,38 @@ fn new_lifecycle_source_id() -> SessionLifecycleSourceId {
     ))
 }
 
-fn local_engine(max_scrollback_bytes: usize) -> DefaultBotsterEngine {
+fn local_engine(
+    max_scrollback_bytes: usize,
+    color_profile: Option<TerminalColorProfile>,
+) -> DefaultBotsterEngine {
     DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
-        default_ghostty_terminal(size, max_scrollback_bytes)
+        default_ghostty_terminal(size, max_scrollback_bytes, color_profile.clone())
     })
 }
 
 fn worker_engine(
     options: WorkerProcessRuntimeOptions,
     max_scrollback_bytes: usize,
+    color_profile: Option<TerminalColorProfile>,
 ) -> WorkerBackedBotsterEngine {
     WorkerBackedBotsterEngine::with_options_and_terminal_backend_factory(options, move |size| {
-        default_ghostty_terminal(size, max_scrollback_bytes)
+        default_ghostty_terminal(size, max_scrollback_bytes, color_profile.clone())
     })
-}
-
-/// Production-session color defaults owned by the daemon host composition seam.
-///
-/// These values are presentation policy for CoreDaemon sessions, not adapter
-/// mechanism defaults. OSC 10/11/12 queries are answered from this profile.
-fn production_session_color_profile() -> TerminalColorProfile {
-    let mut colors = HashMap::new();
-    colors.insert(
-        COLOR_INDEX_FOREGROUND,
-        Rgb {
-            r: 0xdd,
-            g: 0xdd,
-            b: 0xdd,
-        },
-    );
-    colors.insert(
-        COLOR_INDEX_BACKGROUND,
-        Rgb {
-            r: 0x1e,
-            g: 0x1e,
-            b: 0x2e,
-        },
-    );
-    colors.insert(
-        COLOR_INDEX_CURSOR,
-        Rgb {
-            r: 0xf5,
-            g: 0xe0,
-            b: 0xdc,
-        },
-    );
-    TerminalColorProfile { colors }
 }
 
 fn default_ghostty_terminal(
     size: TerminalScreenSize,
     max_scrollback_bytes: usize,
+    color_profile: Option<TerminalColorProfile>,
 ) -> Result<GhosttyTerminal, GhosttyTerminalError> {
     let mut terminal = GhosttyTerminal::with_config(
         size,
         GhosttyAdapterConfig::with_max_scrollback_bytes(max_scrollback_bytes),
     )?;
-    terminal.apply_color_profile(&production_session_color_profile())?;
+    // Apply only host-supplied policy. No in-repo presentation defaults.
+    if let Some(profile) = color_profile.as_ref() {
+        terminal.apply_color_profile(profile)?;
+    }
     Ok(terminal)
 }
 
@@ -1904,7 +1903,7 @@ mod terminal_backend_failure_tests {
         let factory_fail_snapshot = Rc::clone(&fail_snapshot);
         let engine = DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
             Ok::<_, GhosttyTerminalError>(ControlledGhosttyTerminal {
-                inner: default_ghostty_terminal(size, DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES)?,
+                inner: default_ghostty_terminal(size, DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, None)?,
                 fail_resize: Rc::clone(&factory_fail_resize),
                 fail_snapshot: Rc::clone(&factory_fail_snapshot),
                 forced_error: None,
