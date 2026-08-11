@@ -58,8 +58,9 @@ Diagnostic only; primary Hub checkout not modified. Scratch worktree of Hub + te
 
 ```text
 Core path: /Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1786478568_882200
+Implementation SHA: a9d6d23feb40684d6cdddb13170d96522333374c
 Core HEAD at probe start: 8e87c133653051e58b535e5a44a62f84591962ac
-  (path-patch compiled the live dirty worktree that becomes the post-rework commit)
+  (path-patch compiled the live dirty worktree committed as a9d6d23)
 Hub SHA: 90d0e1adac7a7d3c6efc815173014c68b95dbbf3
 Commands:
   git -C ~/Projects/botster-hub worktree add --detach /tmp/botster-hub-path-patch-… HEAD
