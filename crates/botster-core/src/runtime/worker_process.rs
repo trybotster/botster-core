@@ -95,6 +95,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write WouldBlock until this Unix ms (worker CLI).
     pub test_write_block_until_unix_ms: Option<u64>,
+    /// Test-only: cap each write() to this many bytes (partial-write proofs).
+    pub test_write_max_chunk: Option<usize>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -112,6 +114,7 @@ impl WorkerProcessRuntimeOptions {
             test_mode_gated_hold_ms: None,
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
+            test_write_max_chunk: None,
         }
     }
 
@@ -140,6 +143,20 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
         self.test_write_block_until_unix_ms = until;
+        self
+    }
+
+    /// Set the test-only per-call write cap for partial-write proofs.
+    #[must_use]
+    pub const fn with_test_write_max_chunk(mut self, max_chunk: Option<usize>) -> Self {
+        self.test_write_max_chunk = max_chunk;
+        self
+    }
+
+    /// Override retained PTY reader chunk capacity inside the worker process.
+    #[must_use]
+    pub const fn with_pty_reader_chunk_capacity(mut self, capacity: usize) -> Self {
+        self.pty_reader_chunk_capacity = capacity;
         self
     }
 }
@@ -610,6 +627,11 @@ impl SessionRuntime for WorkerProcessRuntime {
             command
                 .arg("--test-write-block-until-unix-ms")
                 .arg(until.to_string());
+        }
+        if let Some(max_chunk) = self.options.test_write_max_chunk {
+            command
+                .arg("--test-write-max-chunk")
+                .arg(max_chunk.to_string());
         }
 
         #[cfg(unix)]

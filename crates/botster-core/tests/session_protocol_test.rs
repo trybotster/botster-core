@@ -108,6 +108,7 @@ fn mode_gated_request_and_result_round_trip_json() {
     let result = ModeGatedPtyInputResult {
         request_id: "req-1".to_string(),
         admitted: false,
+        bytes_written: 0,
         mode_flags: ModeFlags {
             kitty_enabled: true,
             ..ModeFlags::default()

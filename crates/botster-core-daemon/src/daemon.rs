@@ -83,6 +83,10 @@ pub struct CoreDaemonConfig {
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write WouldBlock until this Unix ms.
     pub test_write_block_until_unix_ms: Option<u64>,
+    /// Test-only: cap each write() to this many bytes (partial-write proofs).
+    pub test_write_max_chunk: Option<usize>,
+    /// Retained PTY reader chunks inside the worker process (tests may set 1).
+    pub pty_reader_chunk_capacity: Option<usize>,
 }
 
 impl CoreDaemonConfig {
@@ -101,6 +105,8 @@ impl CoreDaemonConfig {
             test_mode_gated_hold_ms: None,
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
+            test_write_max_chunk: None,
+            pty_reader_chunk_capacity: None,
         }
     }
 
@@ -129,6 +135,20 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
         self.test_write_block_until_unix_ms = until;
+        self
+    }
+
+    /// Set the test-only per-call write cap for partial-write proofs.
+    #[must_use]
+    pub const fn with_test_write_max_chunk(mut self, max_chunk: Option<usize>) -> Self {
+        self.test_write_max_chunk = max_chunk;
+        self
+    }
+
+    /// Override worker PTY reader chunk capacity (full-channel admission proofs).
+    #[must_use]
+    pub const fn with_pty_reader_chunk_capacity(mut self, capacity: Option<usize>) -> Self {
+        self.pty_reader_chunk_capacity = capacity;
         self
     }
 
@@ -271,6 +291,10 @@ impl CoreDaemon {
                 options.test_mode_gated_hold_ms = config.test_mode_gated_hold_ms;
                 options.test_hold_after_read_ms = config.test_hold_after_read_ms;
                 options.test_write_block_until_unix_ms = config.test_write_block_until_unix_ms;
+                options.test_write_max_chunk = config.test_write_max_chunk;
+                if let Some(capacity) = config.pty_reader_chunk_capacity {
+                    options.pty_reader_chunk_capacity = capacity;
+                }
                 DaemonEngine::Worker(worker_engine(
                     options,
                     ghostty_max_scrollback_bytes,

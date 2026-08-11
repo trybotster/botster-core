@@ -118,8 +118,17 @@ pub struct ModeGatedPtyInputRequest {
 pub struct ModeGatedPtyInputResult {
     /// Echo of the request correlation id.
     pub request_id: String,
-    /// Whether the worker wrote the input bytes to the PTY.
+    /// Whether the worker wrote **all** input bytes to the PTY.
+    ///
+    /// Clean reject (stale token / deadline before any write): `admitted=false`
+    /// and [`Self::bytes_written`] is `0`. Complete success: `admitted=true`
+    /// and `bytes_written` equals the request payload length. Partial delivery
+    /// uses `admitted=false`, `error_kind=Some("partial_write")`, and a nonzero
+    /// `bytes_written` so callers never treat a prefix as a clean reject.
     pub admitted: bool,
+    /// Number of request payload bytes actually written to the PTY.
+    #[serde(default)]
+    pub bytes_written: usize,
     /// Current complete mode flags after the pre-barrier apply.
     pub mode_flags: ModeFlags,
     /// Current mode freshness token after the pre-barrier apply.
