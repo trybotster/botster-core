@@ -3552,12 +3552,15 @@ fn worker_backed_mode_gated_post_final_drain_hold_rejects() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_timeout_fails_closed_without_late_write() {
+    // Parent wait is write-timeout + 1s reply grace. Hold past that so the
+    // parent clears the wait slot as a true timeout (not a correlated deadline
+    // result). The worker still must not write after its wall-clock deadline.
     let data_dir = temp_data_dir("mode-gated-timeout");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_mode_gated_input_timeout(Duration::from_millis(120))
-            .with_test_mode_gated_hold_ms(Some(800)),
+            .with_test_mode_gated_hold_ms(Some(2_000)),
     );
     let session_id = SessionId(format!(
         "mode-gated-timeout-{}",
@@ -3605,8 +3608,8 @@ fn worker_backed_mode_gated_timeout_fails_closed_without_late_write() {
         "expected timeout failure, got {message}"
     );
 
-    // Wait past the worker hold/deadline and prove zero late PTY bytes.
-    thread::sleep(Duration::from_millis(1000));
+    // Wait past the worker hold so a non-fail-closed worker would write.
+    thread::sleep(Duration::from_millis(1_500));
     let screen = daemon
         .read_screen(ReadScreenRequest {
             request_id: RequestId("timeout-screen".to_string()),
@@ -3783,20 +3786,24 @@ fn worker_backed_mode_gated_unpublished_reader_chunk_window_rejects() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
-    // Force write WouldBlock past the parent timeout so the worker write path
-    // must fail closed without delivering the payload after deadline.
+    // Force write WouldBlock past the worker write deadline so the worker must
+    // return a correlated deadline result without delivering the payload. The
+    // parent wait includes reply grace so this test must observe that result
+    // (parent timeout is not accepted). After the block lifts, re-check screen
+    // so a non-enforcing worker cannot pass by writing late.
     let data_dir = temp_data_dir("mode-gated-write-deadline");
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_millis() as u64;
-    // Far past the parent timeout so suite scheduling cannot expire the block
-    // window before the gated write starts.
-    let block_until = now_ms + 30_000;
+    // Block long enough for spawn/probe/scheduling plus the 1s write deadline.
+    // Keep the window short enough that waiting past it is practical in CI.
+    let write_timeout = Duration::from_secs(1);
+    let block_until = now_ms + 8_000;
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_mode_gated_input_timeout(Duration::from_secs(5))
+            .with_mode_gated_input_timeout(write_timeout)
             .with_test_write_block_until_unix_ms(Some(block_until)),
     );
     let session_id = SessionId(format!("mode-gated-wdeadline-{now_ms}"));
@@ -3823,36 +3830,37 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
         })
         .expect("probe");
 
-    // Under suite load the parent Instant wait can expire slightly before the
-    // worker's wall-clock deadline reply arrives. Both are fail-closed: no
-    // admit and zero payload bytes.
-    let outcome = daemon.mode_gated_input(
-        client_id,
-        session_id.clone(),
-        b"deadline-bytes\n".to_vec(),
-        Some(probe.mode_flags.mode_freshness),
-        13,
-    );
+    let outcome = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"deadline-bytes\n".to_vec(),
+            Some(probe.mode_flags.mode_freshness),
+            13,
+        )
+        .expect("must receive correlated worker gated result (not parent timeout)");
     match outcome {
-        Ok(ModeGatedInputOutcome::Gated(result)) => {
+        ModeGatedInputOutcome::Gated(result) => {
             assert!(!result.admitted, "deadline must not admit");
+            assert_eq!(result.bytes_written, 0, "deadline must write zero bytes");
             let kind = result.error_kind.unwrap_or_default();
             assert!(
-                kind.contains("deadline") || kind.contains("timeout"),
-                "expected deadline error_kind, got {kind}"
+                kind.contains("deadline"),
+                "expected deadline error_kind from worker, got {kind}"
             );
         }
-        Ok(ModeGatedInputOutcome::PlainWritten) => panic!("expected gated fail-closed outcome"),
-        Err(error) => {
-            let msg = format!("{error:?}");
-            assert!(
-                msg.contains("timeout") || msg.contains("deadline"),
-                "parent fail-closed must be timeout/deadline, got {msg}"
-            );
-        }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated fail-closed outcome"),
     }
-    // Prove zero payload bytes after the fail-closed outcome (block still active).
-    thread::sleep(Duration::from_millis(100));
+
+    // Wait until the forced WouldBlock window has ended so a worker that
+    // ignored the deadline would complete the write and echo the payload.
+    let after_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    if after_ms < block_until + 250 {
+        thread::sleep(Duration::from_millis(block_until + 250 - after_ms));
+    }
     let screen = daemon
         .read_screen(ReadScreenRequest {
             request_id: RequestId("wdeadline-screen".to_string()),
@@ -3862,7 +3870,7 @@ fn worker_backed_mode_gated_write_deadline_bounds_complete_write() {
         .expect("screen");
     assert!(
         !screen.screen.text.contains("echo:deadline-bytes"),
-        "deadline-bounded write must deliver zero payload bytes; screen={}",
+        "deadline-bounded write must deliver zero payload bytes even after block lifts; screen={}",
         screen.screen.text
     );
     daemon.shutdown(Some(session_id), 15).ok();

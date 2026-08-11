@@ -44,6 +44,11 @@ pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 /// Default parent wait bound for mode-gated PTY input RPC.
 pub const DEFAULT_MODE_GATED_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Extra parent wait after the worker write deadline so a correlated
+/// `deadline_exceeded` (or other) result can demux under load before the
+/// parent clears the in-flight slot and fails closed as a timeout.
+const MODE_GATED_REPLY_GRACE: Duration = Duration::from_secs(1);
+
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
 const GATED_POLL: Duration = Duration::from_millis(5);
@@ -376,6 +381,9 @@ impl WorkerProcessRuntime {
         let request_id = next_gated_request_id();
         let timeout = self.options.mode_gated_input_timeout;
         let test_hold_ms = self.options.test_mode_gated_hold_ms;
+        // Worker write fence uses this wall-clock deadline; parent Instant wait
+        // below is timeout + MODE_GATED_REPLY_GRACE so a post-deadline reply
+        // still correlates under scheduling load.
         let deadline_unix_ms = unix_now_ms().saturating_add(timeout.as_millis() as u64);
         {
             let session = self.session_mut(session_id)?;
@@ -403,7 +411,7 @@ impl WorkerProcessRuntime {
             )?;
         }
 
-        let deadline = Instant::now() + timeout;
+        let parent_wait_deadline = Instant::now() + timeout + MODE_GATED_REPLY_GRACE;
         loop {
             self.pump_session_output(session_id)?;
             {
@@ -416,14 +424,15 @@ impl WorkerProcessRuntime {
                     }
                 }
             }
-            if Instant::now() >= deadline {
+            if Instant::now() >= parent_wait_deadline {
                 if let Ok(session) = self.session_mut(session_id) {
                     if let Ok(mut in_flight) = session.gated_in_flight.lock() {
                         *in_flight = None;
                     }
                 }
-                // Parent timed out. The worker still holds a deadline fence and
-                // must not write after deadline_unix_ms.
+                // Parent timed out after write deadline + reply grace. The worker
+                // still holds a deadline fence and must not write after
+                // deadline_unix_ms.
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "mode-gated input timed out",

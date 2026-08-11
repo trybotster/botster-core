@@ -1,13 +1,14 @@
-# Implementation report: Race-free terminal mode revision (review rework 9)
+# Implementation report: Race-free terminal mode revision (review rework 10)
 
 ## Target repository and target_id
 - Target repository: `botster-core`
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 - Run: `run_1786479064_760292`
-- Run step: `run_step_1786489926_187346`
+- Run step: `run_step_1786490370_745480`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- Addresses review: `review_1786489914_134076` (and open carry-forward `finding_1786488133_182843`)
-- Implementation SHA: `045f677326e910364692e4ed0522e7c6df5607c9`
+- Addresses review: `review_1786490355_764752` / finding `finding_1786490355_252756`
+- Also retains prior fixes for carry-forward `finding_1786488133_182843` (overflow gated-first + normal-drain FIFO)
+- Implementation SHA: *(filled after commit)*
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
@@ -16,35 +17,33 @@
 ## Findings addressed
 | Finding | Fix |
 | --- | --- |
-| Dual-buffer test names/comments after channel removal | Renamed `worker_backed_mode_gated_full_reader_channel_preserves_mode_order` → `worker_backed_mode_gated_fence_queue_preserves_mode_order`. Updated comments to single fence queue. Overflow test no longer says dual buffers. Docs: hold-after-read is critical-section hold, not channel publication. |
-| Tests permit authority/FIFO defects (carry-forward) | Overflow matrix still gated-first + all fail; `worker_backed_mode_gated_normal_drain_preserves_mode_fifo` races normal parent drain under enqueue hold. |
+| Write-deadline test accepts parent timeout / early screen check | Parent mode-gated wait is now `timeout + MODE_GATED_REPLY_GRACE` (1s) so a correlated worker deadline result demuxes under load; worker write fence still uses wall-clock `deadline_unix_ms` only. Strict test requires `Ok(Gated)` with `deadline` error_kind and `bytes_written == 0`, rejects parent timeout, waits past force-block window, then asserts no `echo:deadline-bytes`. Timeout-path test hold raised above grace so true parent timeout remains covered. |
 
 ## Files changed
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — single-queue naming; write-deadline parent-timeout tolerance
-- `crates/botster-core/src/runtime/local_process.rs` — hold-after-read docs
-- `crates/botster-core-daemon/src/daemon.rs`, `worker_process.rs`, unit test comments — single-queue wording
+- `crates/botster-core/src/runtime/worker_process.rs` — `MODE_GATED_REPLY_GRACE`; parent Instant wait = write timeout + grace
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — strict write-deadline test; timeout test hold beyond grace
 - Implement report
 
 ## Ownership boundaries preserved
 - Core Ghostty-free; daemon hosts worker
-- Comment/test-only cleanup; no product API change
+- No public API surface change (parent wait is internal runtime behavior)
 
 ## Cross-repo dependencies
 - Hub ticket `ticket_1786471489_718500` remains dependent
 
 ## Deviations from plan
-- None
+- None. Reply grace is a correctness hardening of the correlated RPC wait already in the approved shape.
 
 ## Tests and downstream proof
 - `cargo fmt --all`
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `BOTSTER_ENV=test cargo test --workspace`
-- All 12 `worker_backed_mode_gated_*` including fence-queue order, normal-drain FIFO, overflow sticky
+- `cargo test -p botster-core-daemon --test daemon_integration_test worker_backed_mode_gated_` (12/12)
+- `BOTSTER_ENV=test cargo test --workspace` (recorded at gate)
 
 ## Unverified behavior / residual risk
 - Adopt mid-wait fail-closed via disconnect/timeout only
 - Dual Ghostty intentional
-- Write-deadline test accepts parent timeout under suite load as fail-closed when zero payload bytes
+- Parent timeout path still drops a late-arriving result after grace; worker deadline fence remains the write authority
 
 ## Missing vault guidance
 - None
