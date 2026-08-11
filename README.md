@@ -12,8 +12,8 @@ plugin runtime must agree on.
 
 | Crate | Role |
 | --- | --- |
-| `botster-core` | Production contracts, engine facades, local PTY/process runtime, and the `botster-session-worker` binary |
-| `botster-core-daemon` | Production supervisor: registry, adoption, guarded writes, typed daemon API over core; default features use the sibling Ghostty terminal backend |
+| `botster-core` | Production contracts, engine facades, and local PTY/process runtime library surface |
+| `botster-core-daemon` | Production supervisor (registry, adoption, guarded writes, typed daemon API) and Ghostty-hosted `botster-session-worker` binary |
 | `botster-core-test-support` | Dev-dependency fixtures, fakes, and conformance helpers for consumers pinned to the same core version |
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
 | `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); stays outside the core crate |
@@ -245,7 +245,8 @@ by the daemon and session-worker path. Types alone do not schedule processes.
 
 | Layer | What exists today |
 | --- | --- |
-| `botster-core` | Contracts, `DefaultBotsterEngine` / worker-backed engine, `botster-session-worker` binary, session-process framing |
+| `botster-core` | Contracts, `DefaultBotsterEngine` / worker-backed engine, session-process framing |
+| `botster-core-daemon` | Durable supervisor + Ghostty-hosted `botster-session-worker` binary |
 | `botster-core-daemon` | Durable supervisor: registry metadata, adoption scan, guarded-write delivery states, typed API and thin CLI |
 
 Do **not** read “durable_session types are contracts” as “no durable daemon

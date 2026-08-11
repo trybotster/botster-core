@@ -32,7 +32,7 @@ use crate::runtime::{WorkerProcessRuntime, WorkerProcessRuntimeOptions};
 use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
 };
-use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile};
+use crate::session_protocol::{ModeFlags, ModeFreshnessToken, ResizePayload, TerminalColorProfile};
 use crate::terminal_screen::{
     TerminalBackendError, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
@@ -758,6 +758,9 @@ where
                 terminal: TerminalScreenEngine::new(terminal),
                 pending_runtime_events: Vec::new(),
                 prepared_mode_flags: None,
+                mode_generation: new_mode_generation(),
+                mode_revision: 1,
+                last_mode_flags: ModeFlags::default(),
             })),
         }
     }
@@ -770,6 +773,9 @@ where
     pub(crate) fn record_output(&mut self, session_id: &SessionId, data: &[u8]) {
         let mut state = self.state.borrow_mut();
         state.terminal.normalize_output(data);
+        if let Ok(flags) = state.terminal.runtime().mode_flags() {
+            let _ = state.observe_mode_flags(&flags);
+        }
         let pty_replies = state.terminal.runtime_mut().drain_pty_writes();
         if !pty_replies.is_empty() {
             state.inputs.push(SessionRuntimeInput::PtyInput {
@@ -900,6 +906,47 @@ where
     terminal: TerminalScreenEngine<T>,
     pending_runtime_events: Vec<crate::SessionWorkerRuntimeEvent>,
     prepared_mode_flags: Option<ModeFlags>,
+    mode_generation: u64,
+    mode_revision: u64,
+    last_mode_flags: ModeFlags,
+}
+
+impl<T> SessionRuntimeWorkerState<T>
+where
+    T: TerminalScreenRuntime,
+{
+    fn observe_mode_flags(&mut self, mode_flags: &ModeFlags) -> ModeFreshnessToken {
+        if mode_flags != &self.last_mode_flags {
+            if self.mode_revision == u64::MAX {
+                // Overflow is fail-closed for gated admit; keep the saturated
+                // revision so probes remain self-consistent within the epoch.
+                self.mode_revision = u64::MAX;
+            } else {
+                self.mode_revision = self.mode_revision.saturating_add(1);
+            }
+            self.last_mode_flags = mode_flags.clone();
+        }
+        ModeFreshnessToken {
+            mode_generation: self.mode_generation,
+            mode_revision: self.mode_revision,
+        }
+    }
+}
+
+fn new_mode_generation() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(1);
+    let mixed = nanos
+        ^ (std::process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (std::ptr::from_ref(&nanos) as usize as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    if mixed == 0 {
+        1
+    } else {
+        mixed
+    }
 }
 
 impl<T> SessionWorkerRuntime for SessionRuntimeWorkerAdapter<T>
@@ -1006,21 +1053,19 @@ where
         request_id: RequestId,
         session_id: SessionId,
     ) -> Result<ModeFlagsReady, SessionRuntimeError> {
-        let mode_flags = self
-            .state
-            .borrow_mut()
-            .prepared_mode_flags
-            .take()
-            .ok_or_else(|| {
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "mode flags were not primed before routing",
-                )
-            })?;
+        let mut state = self.state.borrow_mut();
+        let mode_flags = state.prepared_mode_flags.take().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "mode flags were not primed before routing",
+            )
+        })?;
+        let mode_freshness = state.observe_mode_flags(&mode_flags);
         Ok(ModeFlagsReady {
             request_id,
             session_id,
             mode_flags,
+            mode_freshness,
         })
     }
 

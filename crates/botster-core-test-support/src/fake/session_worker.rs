@@ -180,6 +180,10 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
             request_id,
             session_id,
             mode_flags,
+            mode_freshness: botster_core::ModeFreshnessToken {
+                mode_generation: 1,
+                mode_revision: 1,
+            },
         })
     }
 

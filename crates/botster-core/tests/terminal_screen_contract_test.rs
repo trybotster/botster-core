@@ -333,6 +333,7 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
             request_id,
             session_id,
             mode_flags: state.mode_flags,
+            mode_freshness: botster_core::ModeFreshnessToken::default(),
         })
     }
 

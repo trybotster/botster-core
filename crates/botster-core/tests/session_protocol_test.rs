@@ -83,6 +83,42 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_NOTIFICATION, 0x15);
     assert_eq!(FRAME_SET_COLOR_PROFILE, 0x16);
     assert_eq!(FRAME_SPAWN_SESSION, 0x17);
+    assert_eq!(FRAME_METADATA_SHAPING, 0x18);
+    assert_eq!(FRAME_MODE_GATED_PTY_INPUT, 0x19);
+    assert_eq!(FRAME_MODE_GATED_PTY_INPUT_RESULT, 0x1a);
+}
+
+#[test]
+fn mode_gated_request_and_result_round_trip_json() {
+    let request = ModeGatedPtyInputRequest {
+        request_id: "req-1".to_string(),
+        expected: ModeFreshnessToken {
+            mode_generation: 9,
+            mode_revision: 3,
+        },
+        data: b"hello\n".to_vec(),
+    };
+    let encoded = serde_json::to_vec(&request).expect("encode request");
+    let decoded: ModeGatedPtyInputRequest =
+        serde_json::from_slice(&encoded).expect("decode request");
+    assert_eq!(decoded, request);
+
+    let result = ModeGatedPtyInputResult {
+        request_id: "req-1".to_string(),
+        admitted: false,
+        mode_flags: ModeFlags {
+            kitty_enabled: true,
+            ..ModeFlags::default()
+        },
+        mode_freshness: ModeFreshnessToken {
+            mode_generation: 9,
+            mode_revision: 4,
+        },
+        error_kind: None,
+    };
+    let encoded = serde_json::to_vec(&result).expect("encode result");
+    let decoded: ModeGatedPtyInputResult = serde_json::from_slice(&encoded).expect("decode result");
+    assert_eq!(decoded, result);
 }
 
 #[test]

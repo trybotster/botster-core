@@ -129,7 +129,7 @@ fn build_worker_binary() {
             .args([
                 "build",
                 "-p",
-                "botster-core",
+                "botster-core-daemon",
                 "--bin",
                 "botster-session-worker",
             ])

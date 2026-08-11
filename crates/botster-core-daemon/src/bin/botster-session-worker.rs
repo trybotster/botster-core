@@ -1,4 +1,9 @@
 //! Local session worker process entrypoint.
+//!
+//! Hosted by `botster-core-daemon` so the worker can depend on
+//! `botster-terminal-ghostty` without a Cargo cycle through package
+//! `botster-core`. This process owns worker-local Ghostty mode state and the
+//! atomic mode-gated PTY input admit barrier.
 
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -13,18 +18,22 @@ use std::process;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use botster_core::engine::TerminalScreenRuntime;
 use botster_core::{
-    read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions,
+    read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags,
+    ModeFlagsPayload, ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult,
     ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
     TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TimeoutPayload, WorkerHealth, FRAME_BELL, FRAME_CWD_CHANGED,
-    FRAME_METADATA_SHAPING, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
-    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT,
-    FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth, FRAME_BELL,
+    FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS,
+    FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
+    FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
+    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
+use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(10);
 
@@ -72,21 +81,34 @@ fn run() -> Result<(), String> {
     let handle = runtime
         .spawn_session(spawn_request)
         .map_err(|error| error.to_string())?;
+    let initial_rows = 24;
+    let initial_cols = 80;
+    let mut ghostty = GhosttyTerminal::with_config(
+        TerminalScreenSize::new(initial_rows, initial_cols),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(10_000_000),
+    )
+    .map_err(|error| format!("worker Ghostty init failed: {error}"))?;
+    let mut mode_owner = WorkerModeOwner::new(
+        ghostty
+            .mode_flags()
+            .map_err(|error| format!("worker initial mode flags failed: {error}"))?,
+    );
     let metadata = SessionMetadata {
         session_uuid: session_id.0.clone(),
         pid: handle.process.pid.unwrap_or_else(process::id),
-        rows: 24,
-        cols: 80,
+        rows: initial_rows,
+        cols: initial_cols,
         last_output_at: 0,
         title: None,
         cwd: None,
         port: None,
-        mode_flags: Default::default(),
+        mode_flags: mode_owner.mode_flags.clone(),
         recovery_identity: Some(serde_json::json!({
             "session_uuid": session_id.0,
             "runtime_id": handle.process.runtime_id,
             "worker_pid": process::id(),
             "worker_control_socket": args.control_socket,
+            "mode_generation": mode_owner.token().mode_generation,
         })),
     };
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
@@ -115,9 +137,59 @@ fn run() -> Result<(), String> {
                             data: frame.payload,
                         })
                         .map_err(|error| error.to_string())?,
+                    FRAME_MODE_GATED_PTY_INPUT => {
+                        // Process one gated admit fully before the next frame.
+                        // Parent also rejects concurrent gated waits per session.
+                        let result = match serde_json::from_slice::<ModeGatedPtyInputRequest>(
+                            &frame.payload,
+                        ) {
+                            Ok(request) => atomic_mode_gated_admit(
+                                &mut runtime,
+                                &handle.session_id,
+                                &mut ghostty,
+                                &mut mode_owner,
+                                &mut metadata_producer,
+                                &mut metadata_shaper,
+                                &egress,
+                                request,
+                            ),
+                            Err(error) => ModeGatedPtyInputResult {
+                                request_id: String::new(),
+                                admitted: false,
+                                mode_flags: mode_owner.mode_flags.clone(),
+                                mode_freshness: mode_owner.token(),
+                                error_kind: Some(format!("malformed request: {error}")),
+                            },
+                        };
+                        egress.send_protected_json(FRAME_MODE_GATED_PTY_INPUT_RESULT, &result);
+                    }
+                    FRAME_GET_MODE_FLAGS => {
+                        // Drain available PTY output first so the probe sees
+                        // pre-probe mode state that is already ordered.
+                        let exited = drain_and_apply_pty_output(
+                            &mut runtime,
+                            &handle.session_id,
+                            &mut ghostty,
+                            &mut mode_owner,
+                            &mut metadata_producer,
+                            &mut metadata_shaper,
+                            &egress,
+                        )?;
+                        if exited {
+                            lifecycle.observe_process_exit();
+                        }
+                        egress.send_protected_json(
+                            FRAME_MODE_FLAGS,
+                            &ModeFlagsPayload {
+                                mode_flags: mode_owner.mode_flags.clone(),
+                                mode_freshness: mode_owner.token(),
+                            },
+                        );
+                    }
                     FRAME_RESIZE => {
                         let size: ResizePayload = serde_json::from_slice(&frame.payload)
                             .map_err(|error| error.to_string())?;
+                        ghostty.resize(TerminalScreenSize::new(size.rows, size.cols));
                         runtime
                             .send_input(SessionRuntimeInput::Resize {
                                 session_id: handle.session_id.clone(),
@@ -163,39 +235,17 @@ fn run() -> Result<(), String> {
             }
         }
 
-        for output in runtime
-            .drain_output(&handle.session_id)
-            .map_err(|error| error.to_string())?
-        {
-            match output {
-                SessionRuntimeOutput::PtyOutput { data, .. } => {
-                    let observations = metadata_producer.observe(&data);
-                    egress.send_protected_frame(FRAME_PTY_OUTPUT, data);
-                    let mut shaping_reports = MetadataShapingReportAccumulator::default();
-                    for observation in observations {
-                        for shaping in metadata_shaper.push(observation) {
-                            shaping_reports.record(shaping);
-                        }
-                    }
-                    for observation in metadata_shaper.drain() {
-                        send_metadata_observation(&egress, observation);
-                    }
-                    for shaping in shaping_reports.into_reports() {
-                        egress.send_protected_json(FRAME_METADATA_SHAPING, &shaping);
-                    }
-                }
-                SessionRuntimeOutput::ProcessExited { payload, .. } => {
-                    egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
-                    lifecycle.observe_process_exit();
-                }
-                SessionRuntimeOutput::Backpressure(_) => {}
-                SessionRuntimeOutput::TitleChanged { .. }
-                | SessionRuntimeOutput::CwdChanged { .. }
-                | SessionRuntimeOutput::PromptMark { .. }
-                | SessionRuntimeOutput::Bell { .. }
-                | SessionRuntimeOutput::Notification { .. }
-                | SessionRuntimeOutput::MetadataShaping(_) => {}
-            }
+        let exited = drain_and_apply_pty_output(
+            &mut runtime,
+            &handle.session_id,
+            &mut ghostty,
+            &mut mode_owner,
+            &mut metadata_producer,
+            &mut metadata_shaper,
+            &egress,
+        )?;
+        if exited {
+            lifecycle.observe_process_exit();
         }
 
         thread::sleep(LOOP_SLEEP);
@@ -206,6 +256,224 @@ fn run() -> Result<(), String> {
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
     Ok(())
+}
+
+struct WorkerModeOwner {
+    generation: u64,
+    revision: u64,
+    mode_flags: ModeFlags,
+}
+
+impl WorkerModeOwner {
+    fn new(initial: ModeFlags) -> Self {
+        Self {
+            generation: new_mode_generation(),
+            revision: 1,
+            mode_flags: initial,
+        }
+    }
+
+    fn token(&self) -> ModeFreshnessToken {
+        ModeFreshnessToken {
+            mode_generation: self.generation,
+            mode_revision: self.revision,
+        }
+    }
+
+    fn observe(&mut self, mode_flags: ModeFlags) {
+        if mode_flags != self.mode_flags {
+            if self.revision < u64::MAX {
+                self.revision = self.revision.saturating_add(1);
+            }
+            self.mode_flags = mode_flags;
+        }
+    }
+}
+
+fn new_mode_generation() -> u64 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(1);
+    let mixed = nanos
+        ^ (process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (std::ptr::from_ref(&nanos) as usize as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    if mixed == 0 {
+        1
+    } else {
+        mixed
+    }
+}
+
+fn apply_pty_output_chunk(
+    ghostty: &mut GhosttyTerminal,
+    mode_owner: &mut WorkerModeOwner,
+    metadata_producer: &mut TerminalMetadataProducer,
+    metadata_shaper: &mut TerminalMetadataLaneShaper,
+    egress: &WorkerEgress,
+    data: Vec<u8>,
+) {
+    let observations = metadata_producer.observe(&data);
+    ghostty.write_output(&data);
+    // Do not inject Ghostty write_pty replies here: the parent dual-shadow still
+    // owns OSC write_pty injection for worker-backed sessions. Worker Ghostty is
+    // the mode-token authority only.
+    if let Ok(flags) = ghostty.mode_flags() {
+        mode_owner.observe(flags);
+    }
+    egress.send_protected_frame(FRAME_PTY_OUTPUT, data);
+    let mut shaping_reports = MetadataShapingReportAccumulator::default();
+    for observation in observations {
+        for shaping in metadata_shaper.push(observation) {
+            shaping_reports.record(shaping);
+        }
+    }
+    for observation in metadata_shaper.drain() {
+        send_metadata_observation(egress, observation);
+    }
+    for shaping in shaping_reports.into_reports() {
+        egress.send_protected_json(FRAME_METADATA_SHAPING, &shaping);
+    }
+}
+
+fn drain_and_apply_pty_output(
+    runtime: &mut LocalProcessRuntime,
+    session_id: &botster_core::SessionId,
+    ghostty: &mut GhosttyTerminal,
+    mode_owner: &mut WorkerModeOwner,
+    metadata_producer: &mut TerminalMetadataProducer,
+    metadata_shaper: &mut TerminalMetadataLaneShaper,
+    egress: &WorkerEgress,
+) -> Result<bool, String> {
+    let mut process_exited = false;
+    for output in runtime
+        .drain_output(session_id)
+        .map_err(|error| error.to_string())?
+    {
+        match output {
+            SessionRuntimeOutput::PtyOutput { data, .. } => {
+                apply_pty_output_chunk(
+                    ghostty,
+                    mode_owner,
+                    metadata_producer,
+                    metadata_shaper,
+                    egress,
+                    data,
+                );
+            }
+            SessionRuntimeOutput::ProcessExited { payload, .. } => {
+                egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
+                process_exited = true;
+            }
+            SessionRuntimeOutput::Backpressure(_) => {}
+            SessionRuntimeOutput::TitleChanged { .. }
+            | SessionRuntimeOutput::CwdChanged { .. }
+            | SessionRuntimeOutput::PromptMark { .. }
+            | SessionRuntimeOutput::Bell { .. }
+            | SessionRuntimeOutput::Notification { .. }
+            | SessionRuntimeOutput::MetadataShaping(_) => {}
+        }
+    }
+    Ok(process_exited)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn atomic_mode_gated_admit(
+    runtime: &mut LocalProcessRuntime,
+    session_id: &botster_core::SessionId,
+    ghostty: &mut GhosttyTerminal,
+    mode_owner: &mut WorkerModeOwner,
+    metadata_producer: &mut TerminalMetadataProducer,
+    metadata_shaper: &mut TerminalMetadataLaneShaper,
+    egress: &WorkerEgress,
+    request: ModeGatedPtyInputRequest,
+) -> ModeGatedPtyInputResult {
+    // 1. Drain/apply all PTY output available before the barrier.
+    if drain_and_apply_pty_output(
+        runtime,
+        session_id,
+        ghostty,
+        mode_owner,
+        metadata_producer,
+        metadata_shaper,
+        egress,
+    )
+    .is_err()
+    {
+        return ModeGatedPtyInputResult {
+            request_id: request.request_id,
+            admitted: false,
+            mode_flags: mode_owner.mode_flags.clone(),
+            mode_freshness: mode_owner.token(),
+            error_kind: Some("drain_failed".to_string()),
+        };
+    }
+
+    // Optional deterministic hold for race tests (post-parent-drain / pre-admit).
+    if let Ok(hold_ms) = std::env::var("BOTSTER_SESSION_WORKER_HOLD_PTY_OUTPUT_MS") {
+        if let Ok(ms) = hold_ms.parse::<u64>() {
+            if ms > 0 {
+                thread::sleep(Duration::from_millis(ms));
+                let _ = drain_and_apply_pty_output(
+                    runtime,
+                    session_id,
+                    ghostty,
+                    mode_owner,
+                    metadata_producer,
+                    metadata_shaper,
+                    egress,
+                );
+            }
+        }
+    }
+
+    let current = mode_owner.token();
+    if mode_owner.revision == u64::MAX {
+        return ModeGatedPtyInputResult {
+            request_id: request.request_id,
+            admitted: false,
+            mode_flags: mode_owner.mode_flags.clone(),
+            mode_freshness: current,
+            error_kind: Some("revision_overflow".to_string()),
+        };
+    }
+
+    // 2. Compare expected token to current worker Ghostty token.
+    if request.expected != current {
+        // 3. Mismatch → zero PTY input bytes; return current state.
+        return ModeGatedPtyInputResult {
+            request_id: request.request_id,
+            admitted: false,
+            mode_flags: mode_owner.mode_flags.clone(),
+            mode_freshness: current,
+            error_kind: None,
+        };
+    }
+
+    // 4. Match → write input before later terminal output.
+    if runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session_id.clone(),
+            data: request.data,
+        })
+        .is_err()
+    {
+        return ModeGatedPtyInputResult {
+            request_id: request.request_id,
+            admitted: false,
+            mode_flags: mode_owner.mode_flags.clone(),
+            mode_freshness: current,
+            error_kind: Some("write_failed".to_string()),
+        };
+    }
+
+    ModeGatedPtyInputResult {
+        request_id: request.request_id,
+        admitted: true,
+        mode_flags: mode_owner.mode_flags.clone(),
+        mode_freshness: current,
+        error_kind: None,
+    }
 }
 
 #[derive(Default)]

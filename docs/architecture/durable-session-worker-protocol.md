@@ -10,7 +10,7 @@ start processes or open sockets.
 | Layer | Crate / binary | Role today |
 | --- | --- | --- |
 | Protocol vocabulary | `botster-core` (`durable_session`) | Shared typed shapes for spawn/adopt, health, guarded writes, queues, daemon control ops |
-| Session worker process | `botster-session-worker` (binary in `botster-core`) | Owns one PTY and child process; reconnectable control socket for adoption |
+| Session worker process | `botster-session-worker` (binary in `botster-core-daemon`, Ghostty-hosted) | Owns one PTY, worker-local Ghostty mode authority, and child process; reconnectable control socket for adoption |
 | Production daemon | `botster-core-daemon` (`CoreDaemon`) | Registry metadata, adoption scan, guarded-write delivery states, typed host API |
 | Library engine | `DefaultBotsterEngine` / `worker_backed` | In-process or worker-backed embed path without the full supervisor |
 
@@ -33,7 +33,7 @@ The durable model has three layers:
 
 The data plane remains session/client-worker owned. The durable worker contract
 sits above `contract::session_protocol` (advanced byte-frame constants) for PTY
-input/output, resize, snapshot, ping/pong, shutdown, mode flags, screen reads,
+input/output, resize, snapshot, ping/pong, shutdown, mode flags, mode-gated PTY input, screen reads,
 prompt marks, and notifications.
 
 ## Public Contracts

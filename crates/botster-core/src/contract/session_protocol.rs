@@ -78,6 +78,90 @@ pub const FRAME_SET_COLOR_PROFILE: u8 = 0x16;
 pub const FRAME_SPAWN_SESSION: u8 = 0x17;
 /// Session to daemon data plane: payload-free terminal metadata shaping report.
 pub const FRAME_METADATA_SHAPING: u8 = 0x18;
+/// Daemon data plane to session: mode-gated PTY input request (correlated RPC).
+pub const FRAME_MODE_GATED_PTY_INPUT: u8 = 0x19;
+/// Session to daemon data plane: mode-gated PTY input result (correlated RPC).
+pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
+
+/// Public freshness token for race-free mode-dependent input admission.
+///
+/// `mode_generation` is a high-entropy epoch for the current worker mode owner.
+/// `mode_revision` counts complete [`ModeFlags`] changes within that epoch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ModeFreshnessToken {
+    /// Worker/session mode-owner epoch. Changes only on new worker ownership.
+    pub mode_generation: u64,
+    /// Monotonic complete-`ModeFlags` counter within [`Self::mode_generation`].
+    pub mode_revision: u64,
+}
+
+/// Correlated mode-gated PTY input request payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeGatedPtyInputRequest {
+    /// Parent-issued correlation id for this gated admit attempt.
+    pub request_id: String,
+    /// Expected complete-mode freshness token from the last successful probe.
+    pub expected: ModeFreshnessToken,
+    /// Candidate input bytes. Written only when the worker admits the request.
+    #[serde(with = "mode_gated_bytes")]
+    pub data: Vec<u8>,
+}
+
+/// Correlated mode-gated PTY input result payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeGatedPtyInputResult {
+    /// Echo of the request correlation id.
+    pub request_id: String,
+    /// Whether the worker wrote the input bytes to the PTY.
+    pub admitted: bool,
+    /// Current complete mode flags after the pre-barrier apply.
+    pub mode_flags: ModeFlags,
+    /// Current mode freshness token after the pre-barrier apply.
+    pub mode_freshness: ModeFreshnessToken,
+    /// Optional protocol/runtime failure kind (malformed request, overflow, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+}
+
+/// Worker mode-flags response payload, including the public freshness token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeFlagsPayload {
+    /// Current complete mode flags.
+    pub mode_flags: ModeFlags,
+    /// Current mode freshness token for mode-dependent input.
+    pub mode_freshness: ModeFreshnessToken,
+}
+
+mod mode_gated_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64_encode(bytes))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        base64_decode(&encoded).map_err(serde::de::Error::custom)
+    }
+
+    fn base64_encode(bytes: &[u8]) -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        STANDARD.encode(bytes)
+    }
+
+    fn base64_decode(encoded: &str) -> Result<Vec<u8>, String> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        STANDARD
+            .decode(encoded)
+            .map_err(|error| format!("invalid mode-gated input bytes encoding: {error}"))
+    }
+}
 
 /// Session metadata sent in the welcome handshake.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
