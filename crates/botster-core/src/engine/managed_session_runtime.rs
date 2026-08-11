@@ -549,6 +549,10 @@ where
     }
 
     /// Capture screen state, an opaque snapshot, and a separate verified mode read.
+    ///
+    /// Screen state includes the backend-owned color profile when available; the
+    /// color profile and snapshot are read under one terminal borrow so consumers
+    /// can project an atomic colors+snapshot boundary.
     pub fn capture_terminal_state(
         &mut self,
         session_id: &SessionId,
@@ -567,6 +571,20 @@ where
                 session_id: session_id.clone(),
             })?;
         worker.capture_terminal_state()
+    }
+
+    /// Capture backend-owned colors and opaque snapshot under one terminal borrow.
+    pub fn capture_color_and_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(TerminalColorProfile, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+        let worker = self
+            .engine
+            .session_worker_runtime_mut(session_id)
+            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            })?;
+        worker.capture_color_and_snapshot()
     }
 
     /// Replay or prepare a snapshot through the existing worker path.
@@ -843,6 +861,8 @@ where
         ManagedSessionRuntimeError,
     > {
         let mut state = self.state.borrow_mut();
+        // screen_state populates color_profile under the same terminal borrow
+        // used for the snapshot capture below.
         let screen = state
             .terminal
             .screen_state()
@@ -861,6 +881,35 @@ where
             });
         }
         Ok((screen, snapshot, mode_flags))
+    }
+
+    pub(crate) fn capture_color_and_snapshot(
+        &mut self,
+    ) -> Result<(TerminalColorProfile, TerminalSnapshotPayload), ManagedSessionRuntimeError> {
+        let mut state = self.state.borrow_mut();
+        // Color profile and opaque snapshot share one exclusive terminal borrow
+        // so the CoreDaemon atomic dual-return cannot observe a race.
+        let color_profile = state
+            .terminal
+            .runtime()
+            .color_profile()
+            .map_err(managed_terminal_backend_error)?
+            .ok_or_else(|| ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "color_profile",
+                message: "terminal did not expose a color profile".to_string(),
+            })?;
+        let snapshot = state
+            .terminal
+            .capture_snapshot()
+            .snapshot
+            .expect("terminal screen engine captures a snapshot");
+        if let Some(message) = state.terminal.runtime().last_error() {
+            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "capture_snapshot",
+                message,
+            });
+        }
+        Ok((color_profile, snapshot))
     }
 
     fn prepare_mode_flags(&mut self) -> Result<(), ManagedSessionRuntimeError> {
