@@ -350,7 +350,11 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
         }
     }
 
-    fn set_color_profile(&mut self, _session_id: &SessionId, color_profile: TerminalColorProfile) {
+    fn set_color_profile(
+        &mut self,
+        _session_id: &SessionId,
+        color_profile: TerminalColorProfile,
+    ) -> Result<(), botster_core::SessionRuntimeError> {
         let state = self.engine.runtime().screen_state();
         self.engine.runtime_mut().set_synced_state(
             state.title,
@@ -358,6 +362,7 @@ impl SessionWorkerRuntime for TerminalBackedSessionRuntime {
             state.mode_flags,
             Some(color_profile),
         );
+        Ok(())
     }
 
     fn shutdown(

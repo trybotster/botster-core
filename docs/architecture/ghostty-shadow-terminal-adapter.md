@@ -244,7 +244,7 @@ Current crate shape:
 - `botster-terminal-ghostty`: optional adapter crate that owns the Ghostty fork
   pin, Zig build, static link, FFI, and safe wrapper.
 - `botster-core-daemon`: first-party production host profile that enables the
-  sibling adapter by default through `ghostty-terminal =
+  sibling adapter always (historical optional feature text retired); previously `ghostty-terminal =
   ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/libghostty-vt"]`.
 - CLI integration: keep the existing subsystem until the adapter proves parity,
   then migrate the CLI to the adapter and remove duplication in one deliberate
@@ -334,7 +334,7 @@ the fork commit, why the fork is needed, and what local patches are relied on.
 
 This ADR began as documentation-only. Current production daemon defaults now
 wire `botster-terminal-ghostty` through `botster-core-daemon`'s
-`ghostty-terminal` feature while the no-default feature lane keeps the plain
+always-on Ghostty production path; the plain
 fallback backend.
 
 Verification performed for this ADR:

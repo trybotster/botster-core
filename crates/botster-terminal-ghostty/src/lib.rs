@@ -15,9 +15,9 @@
 //! profiles may enable it as part of their default production feature set.
 //!
 //! Snapshots use upstream's `GHOSTSNP` snapshot format via
-//! `ghostty_snapshot_encode_alloc` and the one-shot decoder. Botster no longer
-//! carries a Ghostty fork, and old fork-format snapshot blobs are not
-//! readable: decoding fails closed rather than falling back to a second format.
+//! `ghostty_snapshot_encode_alloc` and the one-shot decoder. This workspace pins
+//! trybotster/ghostty (not ghostty-org/ghostty) for Botster production embeds;
+//! old alternate snapshot formats are not readable and decoding fails closed.
 //!
 //! restty remains a web/client rendering path. Clients may consume terminal
 //! state and streams, but restty must not become core shadow-terminal
@@ -147,12 +147,25 @@ mod native {
         ghostty_free, ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free,
         ghostty_snapshot_decoder_new_buf, ghostty_snapshot_encode_alloc, ghostty_terminal_free,
         ghostty_terminal_get, ghostty_terminal_new, ghostty_terminal_resize, ghostty_terminal_set,
-        ghostty_terminal_vt_write, GhosttyFormatter, GhosttyFormatterFormat,
+        ghostty_terminal_vt_write, GhosttyColorRgb, GhosttyFormatter, GhosttyFormatterFormat,
         GhosttyFormatterScreenExtra, GhosttyFormatterTerminalExtra,
-        GhosttyFormatterTerminalOptions, GhosttyResult, GhosttySnapshotDecoder, GHOSTTY_SUCCESS,
+        GhosttyFormatterTerminalOptions, GhosttyKittyKeyFlags, GhosttyMode, GhosttyResult,
+        GhosttySnapshotDecoder, GhosttyTerminalModeConfig, GHOSTTY_MODE_ALT_SCREEN,
+        GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE, GHOSTTY_MODE_BRACKETED_PASTE,
+        GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE, GHOSTTY_MODE_DECCKM,
+        GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
+        GHOSTTY_NO_VALUE, GHOSTTY_SUCCESS, GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_CURSOR, GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_PALETTE, GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
+        GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, GHOSTTY_TERMINAL_DATA_MODE,
+        GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+        GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
         GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+        GHOSTTY_TERMINAL_OPT_USERDATA, GHOSTTY_TERMINAL_OPT_WRITE_PTY,
     };
     use crate::{GhosttyAdapterConfig, GHOSTTY_SNAPSHOT_FORMAT};
+    use botster_core::{Rgb, TerminalColorProfile};
+    use std::collections::HashMap;
 
     /// Bytes of unfinished VT sequence retained for snapshot continuation.
     ///
@@ -162,12 +175,25 @@ mod native {
     /// The value matches upstream's `c-vt-snapshot` reference example.
     const CONTINUATION_MAX_BYTES: usize = 1024;
 
+    /// Special `TerminalColorProfile` index for default foreground.
+    pub const COLOR_INDEX_FOREGROUND: u16 = 0x1000;
+    /// Special `TerminalColorProfile` index for default background.
+    pub const COLOR_INDEX_BACKGROUND: u16 = 0x1001;
+    /// Special `TerminalColorProfile` index for default cursor color.
+    pub const COLOR_INDEX_CURSOR: u16 = 0x1002;
+
+    /// Heap-stable effect state passed to libghostty-vt callbacks as userdata.
+    struct EffectsState {
+        pty_writes: RefCell<Vec<u8>>,
+    }
+
     /// Safe owner for a libghostty-vt terminal handle.
     pub struct GhosttyTerminal {
         handle: NonNull<c_void>,
         size: TerminalScreenSize,
         config: GhosttyAdapterConfig,
         last_error: RefCell<Option<GhosttyTerminalError>>,
+        effects: Box<EffectsState>,
     }
 
     impl fmt::Debug for GhosttyTerminal {
@@ -210,6 +236,9 @@ mod native {
                 size,
                 config,
                 last_error: RefCell::new(None),
+                effects: Box::new(EffectsState {
+                    pty_writes: RefCell::new(Vec::new()),
+                }),
             };
 
             let max_scrollback = config.max_scrollback();
@@ -226,6 +255,10 @@ mod native {
             }
 
             owned.enable_continuation_tracking()?;
+            owned.install_effects()?;
+            // Session-side defaults so OSC 10/11/12 queries can be answered
+            // before any client attaches a color profile.
+            owned.apply_builtin_default_theme()?;
 
             Ok(owned)
         }
@@ -249,6 +282,34 @@ mod native {
                 return Err(GhosttyTerminalError::operation("set_continuation", result));
             }
 
+            Ok(())
+        }
+
+        /// Install userdata + write_pty so query responses can leave the session.
+        fn install_effects(&self) -> Result<(), GhosttyTerminalError> {
+            let userdata = self.effects.as_ref() as *const EffectsState as *mut c_void;
+            let result = unsafe {
+                ghostty_terminal_set(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_OPT_USERDATA,
+                    userdata.cast(),
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("set_userdata", result));
+            }
+
+            let callback: crate::sys::GhosttyTerminalWritePtyFn = on_write_pty;
+            let result = unsafe {
+                ghostty_terminal_set(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_OPT_WRITE_PTY,
+                    callback as *const c_void,
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("set_write_pty", result));
+            }
             Ok(())
         }
 
@@ -373,6 +434,8 @@ mod native {
             // A decoded terminal comes back with continuation tracking off; a
             // host that re-exports would otherwise fail on unfinished VT.
             self.enable_continuation_tracking()?;
+            // Effect callbacks are terminal-handle local and must be reinstalled.
+            self.install_effects()?;
 
             self.size = payload.size;
             self.clear_last_error();
@@ -433,45 +496,276 @@ mod native {
             *self.last_error.borrow_mut() = None;
         }
 
-        fn mouse_mode(&self) -> Result<u8, GhosttyTerminalError> {
-            use crate::sys::{
-                GhosttyMode, GhosttyTerminalModeConfig, GHOSTTY_MODE_ANY_MOUSE,
-                GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
-                GHOSTTY_TERMINAL_DATA_MODE,
+        fn mode_is_set(&self, mode: GhosttyMode) -> Result<bool, GhosttyTerminalError> {
+            let mut query = GhosttyTerminalModeConfig { mode, value: false };
+            let result = unsafe {
+                ghostty_terminal_get(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_DATA_MODE,
+                    (&raw mut query).cast(),
+                )
             };
 
-            let mode_is_set = |mode: GhosttyMode| {
-                let mut query = GhosttyTerminalModeConfig { mode, value: false };
-                let result = unsafe {
-                    ghostty_terminal_get(
-                        self.handle.as_ptr(),
-                        GHOSTTY_TERMINAL_DATA_MODE,
-                        (&raw mut query).cast(),
-                    )
-                };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("mode_get", result));
+            }
 
-                if result != GHOSTTY_SUCCESS {
-                    return Err(GhosttyTerminalError::operation("mode_get", result));
-                }
+            Ok(query.value)
+        }
 
-                Ok(query.value)
-            };
-
+        /// Read the load-bearing mouse mode bitmask.
+        pub fn mouse_mode(&self) -> Result<u8, GhosttyTerminalError> {
             let mut mouse_mode = 0;
-            if mode_is_set(GHOSTTY_MODE_NORMAL_MOUSE)? {
+            if self.mode_is_set(GHOSTTY_MODE_NORMAL_MOUSE)? {
                 mouse_mode |= 1;
             }
-            if mode_is_set(GHOSTTY_MODE_ANY_MOUSE)? {
+            if self.mode_is_set(GHOSTTY_MODE_ANY_MOUSE)? {
                 mouse_mode |= 2;
             }
-            if mode_is_set(GHOSTTY_MODE_BUTTON_MOUSE)? {
+            if self.mode_is_set(GHOSTTY_MODE_BUTTON_MOUSE)? {
                 mouse_mode |= 4;
             }
-            if mode_is_set(GHOSTTY_MODE_SGR_MOUSE)? {
+            if self.mode_is_set(GHOSTTY_MODE_SGR_MOUSE)? {
                 mouse_mode |= 8;
             }
 
             Ok(mouse_mode)
+        }
+
+        /// Read complete production mode flags from the native terminal.
+        pub fn read_mode_flags(&self) -> Result<ModeFlags, GhosttyTerminalError> {
+            let mut kitty_flags: GhosttyKittyKeyFlags = 0;
+            let result = unsafe {
+                ghostty_terminal_get(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS,
+                    (&raw mut kitty_flags).cast(),
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("kitty_flags", result));
+            }
+
+            let mut cursor_visible = true;
+            let cursor_result = unsafe {
+                ghostty_terminal_get(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
+                    (&raw mut cursor_visible).cast(),
+                )
+            };
+            if cursor_result != GHOSTTY_SUCCESS {
+                // Fall back to the DEC mode probe when the dedicated data id fails.
+                cursor_visible = self.mode_is_set(GHOSTTY_MODE_CURSOR_VISIBLE)?;
+            }
+
+            let alt_screen = self.mode_is_set(GHOSTTY_MODE_ALT_SCREEN)?
+                || self.mode_is_set(GHOSTTY_MODE_ALT_SCREEN_SAVE)?;
+
+            Ok(ModeFlags {
+                kitty_enabled: kitty_flags != 0,
+                cursor_visible,
+                bracketed_paste: self.mode_is_set(GHOSTTY_MODE_BRACKETED_PASTE)?,
+                mouse_mode: self.mouse_mode()?,
+                alt_screen,
+                focus_reporting: self.mode_is_set(GHOSTTY_MODE_FOCUS_EVENT)?,
+                application_cursor: self.mode_is_set(GHOSTTY_MODE_DECCKM)?,
+            })
+        }
+
+        /// Drain PTY query responses generated during the last VT write batch.
+        pub fn drain_pty_writes(&mut self) -> Vec<u8> {
+            self.effects.pty_writes.borrow_mut().drain(..).collect()
+        }
+
+        fn apply_builtin_default_theme(&self) -> Result<(), GhosttyTerminalError> {
+            self.set_default_color(
+                GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+                Rgb {
+                    r: 0xdd,
+                    g: 0xdd,
+                    b: 0xdd,
+                },
+            )?;
+            self.set_default_color(
+                GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+                Rgb {
+                    r: 0x1e,
+                    g: 0x1e,
+                    b: 0x2e,
+                },
+            )?;
+            self.set_default_color(
+                GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+                Rgb {
+                    r: 0xf5,
+                    g: 0xe0,
+                    b: 0xdc,
+                },
+            )?;
+            Ok(())
+        }
+
+        /// Apply a Botster color profile as Ghostty defaults.
+        pub fn apply_color_profile(
+            &mut self,
+            profile: &TerminalColorProfile,
+        ) -> Result<(), GhosttyTerminalError> {
+            if let Some(color) = profile.colors.get(&COLOR_INDEX_FOREGROUND) {
+                self.set_default_color(GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, *color)?;
+            }
+            if let Some(color) = profile.colors.get(&COLOR_INDEX_BACKGROUND) {
+                self.set_default_color(GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, *color)?;
+            }
+            if let Some(color) = profile.colors.get(&COLOR_INDEX_CURSOR) {
+                self.set_default_color(GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, *color)?;
+            }
+
+            let mut palette = [GhosttyColorRgb { r: 0, g: 0, b: 0 }; 256];
+            let result = unsafe {
+                ghostty_terminal_get(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
+                    palette.as_mut_ptr().cast(),
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("palette_get", result));
+            }
+
+            let mut palette_changed = false;
+            for (index, color) in &profile.colors {
+                if *index < 256 {
+                    palette[*index as usize] = GhosttyColorRgb {
+                        r: color.r,
+                        g: color.g,
+                        b: color.b,
+                    };
+                    palette_changed = true;
+                }
+            }
+            if palette_changed {
+                let result = unsafe {
+                    ghostty_terminal_set(
+                        self.handle.as_ptr(),
+                        GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                        palette.as_ptr().cast(),
+                    )
+                };
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation("palette_set", result));
+                }
+            }
+
+            self.clear_last_error();
+            Ok(())
+        }
+
+        fn set_default_color(
+            &self,
+            option: crate::sys::GhosttyTerminalOption,
+            color: Rgb,
+        ) -> Result<(), GhosttyTerminalError> {
+            let rgb = GhosttyColorRgb {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+            };
+            let result = unsafe {
+                ghostty_terminal_set(self.handle.as_ptr(), option, (&raw const rgb).cast())
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("color_set", result));
+            }
+            Ok(())
+        }
+
+        /// Read Ghostty-owned palette + special colors as a Botster profile.
+        pub fn read_color_profile(&self) -> Result<TerminalColorProfile, GhosttyTerminalError> {
+            let mut colors = HashMap::new();
+            let mut palette = [GhosttyColorRgb { r: 0, g: 0, b: 0 }; 256];
+            let result = unsafe {
+                ghostty_terminal_get(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
+                    palette.as_mut_ptr().cast(),
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("palette_get", result));
+            }
+            for (index, entry) in palette.iter().enumerate() {
+                colors.insert(
+                    index as u16,
+                    Rgb {
+                        r: entry.r,
+                        g: entry.g,
+                        b: entry.b,
+                    },
+                );
+            }
+
+            self.read_optional_color(
+                GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+                COLOR_INDEX_FOREGROUND,
+                &mut colors,
+            )?;
+            self.read_optional_color(
+                GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+                COLOR_INDEX_BACKGROUND,
+                &mut colors,
+            )?;
+            self.read_optional_color(
+                GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+                COLOR_INDEX_CURSOR,
+                &mut colors,
+            )?;
+
+            Ok(TerminalColorProfile { colors })
+        }
+
+        fn read_optional_color(
+            &self,
+            data: crate::sys::GhosttyTerminalData,
+            index: u16,
+            colors: &mut HashMap<u16, Rgb>,
+        ) -> Result<(), GhosttyTerminalError> {
+            let mut rgb = GhosttyColorRgb { r: 0, g: 0, b: 0 };
+            let result =
+                unsafe { ghostty_terminal_get(self.handle.as_ptr(), data, (&raw mut rgb).cast()) };
+            if result == GHOSTTY_NO_VALUE {
+                return Ok(());
+            }
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("color_get", result));
+            }
+            colors.insert(
+                index,
+                Rgb {
+                    r: rgb.r,
+                    g: rgb.g,
+                    b: rgb.b,
+                },
+            );
+            Ok(())
+        }
+    }
+
+    unsafe extern "C" fn on_write_pty(
+        _terminal: *mut c_void,
+        userdata: *mut c_void,
+        data: *const u8,
+        len: usize,
+    ) {
+        if userdata.is_null() || data.is_null() || len == 0 {
+            return;
+        }
+        // SAFETY: userdata is the stable EffectsState boxed by GhosttyTerminal for
+        // the lifetime of the handle; data/len are valid for this callback only.
+        unsafe {
+            let effects = &*(userdata as *const EffectsState);
+            let bytes = std::slice::from_raw_parts(data, len);
+            effects.pty_writes.borrow_mut().extend_from_slice(bytes);
         }
     }
 
@@ -507,24 +801,51 @@ mod native {
         }
 
         fn screen_state(&self) -> TerminalScreenState {
-            match self.plain_text() {
-                Ok(plain_text) => TerminalScreenState::new(self.size, plain_text),
+            let plain_text = match self.plain_text() {
+                Ok(plain_text) => plain_text,
                 Err(error) => {
                     self.record_error(error);
-                    TerminalScreenState::new(self.size, String::new())
+                    String::new()
                 }
+            };
+            let mode_flags = self.read_mode_flags().unwrap_or_else(|error| {
+                self.record_error(error);
+                ModeFlags::default()
+            });
+            let color_profile = self.read_color_profile().ok();
+            TerminalScreenState {
+                size: self.size,
+                plain_text,
+                title: None,
+                cwd: None,
+                mode_flags,
+                color_profile,
             }
         }
 
         fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
-            self.mouse_mode()
-                .map(|mouse_mode| ModeFlags {
-                    mouse_mode,
-                    ..ModeFlags::default()
-                })
-                .map_err(|error| {
-                    TerminalBackendError::operation_failed("mode_flags", error.to_string())
-                })
+            self.read_mode_flags().map_err(|error| {
+                TerminalBackendError::operation_failed("mode_flags", error.to_string())
+            })
+        }
+
+        fn set_color_profile(
+            &mut self,
+            profile: TerminalColorProfile,
+        ) -> Result<(), TerminalBackendError> {
+            self.apply_color_profile(&profile).map_err(|error| {
+                TerminalBackendError::operation_failed("set_color_profile", error.to_string())
+            })
+        }
+
+        fn color_profile(&self) -> Result<Option<TerminalColorProfile>, TerminalBackendError> {
+            self.read_color_profile().map(Some).map_err(|error| {
+                TerminalBackendError::operation_failed("color_profile", error.to_string())
+            })
+        }
+
+        fn drain_pty_writes(&mut self) -> Vec<u8> {
+            GhosttyTerminal::drain_pty_writes(self)
         }
 
         fn last_error(&self) -> Option<String> {
@@ -691,8 +1012,141 @@ mod native {
                 0
             );
         }
+
+        #[test]
+        fn mode_flags_track_kitty_cursor_paste_alt_focus_and_app_cursor() {
+            let mut runtime = GhosttyTerminal::new(TerminalScreenSize::new(24, 80))
+                .expect("create Ghostty terminal");
+
+            let defaults = runtime.mode_flags().expect("default mode flags");
+            assert!(!defaults.kitty_enabled);
+            assert!(!defaults.bracketed_paste);
+            assert!(!defaults.alt_screen);
+            assert!(!defaults.focus_reporting);
+            assert!(!defaults.application_cursor);
+
+            runtime.write_output(b"\x1b[=1;1u");
+            assert!(runtime.mode_flags().expect("kitty on").kitty_enabled);
+
+            runtime.write_output(b"\x1b[?25l");
+            assert!(!runtime.mode_flags().expect("cursor hide").cursor_visible);
+            runtime.write_output(b"\x1b[?25h");
+            assert!(runtime.mode_flags().expect("cursor show").cursor_visible);
+
+            runtime.write_output(b"\x1b[?2004h");
+            assert!(runtime.mode_flags().expect("paste on").bracketed_paste);
+            runtime.write_output(b"\x1b[?2004l");
+            assert!(!runtime.mode_flags().expect("paste off").bracketed_paste);
+
+            runtime.write_output(b"\x1b[?1049h");
+            assert!(runtime.mode_flags().expect("alt on").alt_screen);
+            runtime.write_output(b"\x1b[?1049l");
+            assert!(!runtime.mode_flags().expect("alt off").alt_screen);
+
+            runtime.write_output(b"\x1b[?1004h");
+            assert!(runtime.mode_flags().expect("focus on").focus_reporting);
+            runtime.write_output(b"\x1b[?1004l");
+            assert!(!runtime.mode_flags().expect("focus off").focus_reporting);
+
+            runtime.write_output(b"\x1b[?1h");
+            assert!(
+                runtime
+                    .mode_flags()
+                    .expect("app cursor on")
+                    .application_cursor
+            );
+            runtime.write_output(b"\x1b[?1l");
+            assert!(
+                !runtime
+                    .mode_flags()
+                    .expect("app cursor off")
+                    .application_cursor
+            );
+        }
+
+        #[test]
+        fn write_pty_captures_osc_color_query_replies() {
+            use botster_core::{Rgb, TerminalColorProfile};
+            use std::collections::HashMap;
+
+            let mut runtime = GhosttyTerminal::new(TerminalScreenSize::new(24, 80))
+                .expect("create Ghostty terminal");
+            let mut colors = HashMap::new();
+            colors.insert(
+                super::COLOR_INDEX_FOREGROUND,
+                Rgb {
+                    r: 0x11,
+                    g: 0x22,
+                    b: 0x33,
+                },
+            );
+            colors.insert(
+                super::COLOR_INDEX_BACKGROUND,
+                Rgb {
+                    r: 0x44,
+                    g: 0x55,
+                    b: 0x66,
+                },
+            );
+            colors.insert(
+                super::COLOR_INDEX_CURSOR,
+                Rgb {
+                    r: 0x77,
+                    g: 0x88,
+                    b: 0x99,
+                },
+            );
+            runtime
+                .set_color_profile(TerminalColorProfile { colors })
+                .expect("apply defaults");
+
+            let _ = runtime.drain_pty_writes();
+            runtime.write_output(b"\x1b]10;?\x1b\\");
+            runtime.write_output(b"\x1b]11;?\x1b\\");
+            runtime.write_output(b"\x1b]12;?\x1b\\");
+            let replies = runtime.drain_pty_writes();
+            let text = String::from_utf8_lossy(&replies);
+            assert!(
+                text.contains("11") || text.contains("22") || text.contains("rgb:"),
+                "expected OSC color replies in write_pty output, got {text:?}"
+            );
+            assert!(
+                !replies.is_empty(),
+                "write_pty must capture pre-attach replies"
+            );
+        }
+
+        #[test]
+        fn color_profile_round_trips_palette_and_special_colors() {
+            use botster_core::{Rgb, TerminalColorProfile};
+            use std::collections::HashMap;
+
+            let mut runtime = GhosttyTerminal::new(TerminalScreenSize::new(24, 80))
+                .expect("create Ghostty terminal");
+            let mut colors = HashMap::new();
+            colors.insert(1, Rgb { r: 255, g: 0, b: 0 });
+            colors.insert(super::COLOR_INDEX_FOREGROUND, Rgb { r: 1, g: 2, b: 3 });
+            runtime
+                .set_color_profile(TerminalColorProfile {
+                    colors: colors.clone(),
+                })
+                .expect("set profile");
+
+            let read = runtime
+                .color_profile()
+                .expect("read profile")
+                .expect("some");
+            assert_eq!(read.colors.get(&1), Some(&Rgb { r: 255, g: 0, b: 0 }));
+            assert_eq!(
+                read.colors.get(&super::COLOR_INDEX_FOREGROUND),
+                Some(&Rgb { r: 1, g: 2, b: 3 })
+            );
+        }
     }
 }
 
 #[cfg(feature = "libghostty-vt")]
-pub use native::{GhosttyTerminal, GhosttyTerminalError};
+pub use native::{
+    GhosttyTerminal, GhosttyTerminalError, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR,
+    COLOR_INDEX_FOREGROUND,
+};

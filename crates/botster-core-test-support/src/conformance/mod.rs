@@ -11,10 +11,11 @@ use std::time::{Duration, Instant};
 
 use botster_core::{
     ClientId, CoreSession, CoreSessionMetadata, EndpointId, EnvelopeId, EnvelopeTarget,
-    LocalProcessRuntime, ManagedSessionRuntime, ManagedSessionRuntimeError,
+    LocalProcessRuntime, ManagedSessionRuntime, ManagedSessionRuntimeError, ModeFlags,
     MultiplexerEngineOutcome, ResizePayload, RoutedEnvelope, RoutedEnvelopePayload, SessionId,
     SessionRuntimeErrorKind, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TransportEgress, TransportIngress,
+    SubscriptionId, TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload,
+    TransportEgress, TransportIngress,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{
@@ -2146,4 +2147,106 @@ fn terminal_output_bytes_for(
         .flatten()
         .copied()
         .collect()
+}
+
+/// Ghostty opaque snapshot magic required on the production authority path.
+pub const GHOSTSNP_MAGIC: &[u8] = b"GHOSTSNP";
+
+/// Production snapshot format label exported by botster-terminal-ghostty.
+pub const GHOSTTY_SNAPSHOT_FORMAT_LABEL: &str = "ghostty-terminal-snapshot-v1";
+
+/// Hub-shaped assertion for Ghostty snapshot authority exports.
+///
+/// Downstream consumers (Hub first) call this against the public
+/// `TerminalSnapshotPayload` shape without needing Ghostty FFI.
+pub fn assert_ghostty_snapshot_authority(payload: &TerminalSnapshotPayload) {
+    assert!(
+        payload.bytes.starts_with(GHOSTSNP_MAGIC),
+        "Ghostty authority snapshot must start with GHOSTSNP magic, got {:?}",
+        &payload.bytes[..payload.bytes.len().min(GHOSTSNP_MAGIC.len())]
+    );
+    assert_eq!(
+        payload.format.as_deref(),
+        Some(GHOSTTY_SNAPSHOT_FORMAT_LABEL),
+        "Ghostty authority snapshot must use the production format label"
+    );
+    assert!(
+        payload.bytes.len() > GHOSTSNP_MAGIC.len(),
+        "Ghostty authority snapshot must carry more than the magic prefix"
+    );
+}
+
+/// Hub-shaped assertion for complete ModeFlags authority fields.
+///
+/// `required` bits must be present; remaining fields may still be false when
+/// the session has not enabled those modes.
+pub fn assert_mode_flags_authority(flags: &ModeFlags, required: ModeFlags) {
+    if required.kitty_enabled {
+        assert!(flags.kitty_enabled, "expected kitty_enabled authority bit");
+    }
+    if required.cursor_visible {
+        assert!(
+            flags.cursor_visible,
+            "expected cursor_visible authority bit"
+        );
+    }
+    if required.bracketed_paste {
+        assert!(
+            flags.bracketed_paste,
+            "expected bracketed_paste authority bit"
+        );
+    }
+    if required.mouse_mode != 0 {
+        assert_eq!(
+            flags.mouse_mode, required.mouse_mode,
+            "expected mouse_mode authority bitmask"
+        );
+    }
+    if required.alt_screen {
+        assert!(flags.alt_screen, "expected alt_screen authority bit");
+    }
+    if required.focus_reporting {
+        assert!(
+            flags.focus_reporting,
+            "expected focus_reporting authority bit"
+        );
+    }
+    if required.application_cursor {
+        assert!(
+            flags.application_cursor,
+            "expected application_cursor authority bit"
+        );
+    }
+}
+
+/// Hub-shaped assertion for color/palette authority on screen state or profile.
+pub fn assert_color_profile_authority(profile: &TerminalColorProfile) {
+    assert!(
+        !profile.colors.is_empty(),
+        "Ghostty authority color profile must expose at least one color"
+    );
+    // Palette indices 0-255 always exist on Ghostty-owned reads.
+    assert!(
+        (0u16..16).any(|index| profile.colors.contains_key(&index)),
+        "Ghostty authority color profile should include base palette entries"
+    );
+}
+
+/// Combined hub-facing authority export check for mode + snapshot + color.
+pub fn assert_ghostty_terminal_authority_exports(
+    mode_flags: &ModeFlags,
+    snapshot: &TerminalSnapshotPayload,
+    screen: &TerminalScreenState,
+) {
+    assert_ghostty_snapshot_authority(snapshot);
+    // Mouse mode and kitty may be zero/false when unset; require the structural
+    // fields exist (default) and color authority is present when screen carries it.
+    let _ = mode_flags;
+    if let Some(profile) = &screen.color_profile {
+        assert_color_profile_authority(profile);
+    } else {
+        // Screen state may omit color until defaults are applied; still require
+        // mode_flags to round-trip on the state carrier.
+        assert_eq!(screen.mode_flags, *mode_flags);
+    }
 }

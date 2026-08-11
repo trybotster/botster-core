@@ -60,7 +60,7 @@ pub trait SessionWorkerRuntime {
         &mut self,
         session_id: &SessionId,
         color_profile: crate::TerminalColorProfile,
-    );
+    ) -> Result<(), SessionRuntimeError>;
 
     /// Shut down the runtime side of the session.
     fn shutdown(
@@ -325,7 +325,7 @@ where
                 session_id,
                 color_profile,
             } => {
-                self.runtime.set_color_profile(&session_id, color_profile);
+                self.runtime.set_color_profile(&session_id, color_profile)?;
                 Ok(SessionWorkerOutcome::from_events(
                     Vec::new(),
                     self.last_output_at,

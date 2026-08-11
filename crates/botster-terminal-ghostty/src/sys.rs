@@ -8,15 +8,27 @@ pub(crate) type GhosttyResult = c_int;
 /// Successful libghostty-vt result code.
 pub(crate) const GHOSTTY_SUCCESS: GhosttyResult = 0;
 
+/// libghostty-vt reports that an optional value is not configured.
+pub(crate) const GHOSTTY_NO_VALUE: GhosttyResult = -4;
+
 /// Opaque terminal handle owned by libghostty-vt.
 pub(crate) type GhosttyTerminal = *mut c_void;
 
 /// Packed terminal mode: bits 0-14 are the value and bit 15 is the ANSI flag.
 pub(crate) type GhosttyMode = u16;
 
+/// Kitty keyboard protocol flags (`uint8_t`).
+pub(crate) type GhosttyKittyKeyFlags = u8;
+
 const fn ghostty_mode(value: u16, ansi: bool) -> GhosttyMode {
     (value & 0x7fff) | ((ansi as u16) << 15)
 }
+
+/// DECSET 1 application cursor keys (DECCKM).
+pub(crate) const GHOSTTY_MODE_DECCKM: GhosttyMode = ghostty_mode(1, false);
+
+/// DECSET 25 cursor visible (DECTCEM).
+pub(crate) const GHOSTTY_MODE_CURSOR_VISIBLE: GhosttyMode = ghostty_mode(25, false);
 
 /// DECSET 1000 normal mouse tracking.
 pub(crate) const GHOSTTY_MODE_NORMAL_MOUSE: GhosttyMode = ghostty_mode(1000, false);
@@ -27,8 +39,20 @@ pub(crate) const GHOSTTY_MODE_BUTTON_MOUSE: GhosttyMode = ghostty_mode(1002, fal
 /// DECSET 1003 any-event mouse tracking.
 pub(crate) const GHOSTTY_MODE_ANY_MOUSE: GhosttyMode = ghostty_mode(1003, false);
 
+/// DECSET 1004 focus reporting.
+pub(crate) const GHOSTTY_MODE_FOCUS_EVENT: GhosttyMode = ghostty_mode(1004, false);
+
 /// DECSET 1006 SGR mouse encoding.
 pub(crate) const GHOSTTY_MODE_SGR_MOUSE: GhosttyMode = ghostty_mode(1006, false);
+
+/// DECSET 1047 alternate screen.
+pub(crate) const GHOSTTY_MODE_ALT_SCREEN: GhosttyMode = ghostty_mode(1047, false);
+
+/// DECSET 1049 alternate screen + save cursor + clear.
+pub(crate) const GHOSTTY_MODE_ALT_SCREEN_SAVE: GhosttyMode = ghostty_mode(1049, false);
+
+/// DECSET 2004 bracketed paste.
+pub(crate) const GHOSTTY_MODE_BRACKETED_PASTE: GhosttyMode = ghostty_mode(2004, false);
 
 /// Opaque formatter handle owned by libghostty-vt.
 pub(crate) type GhosttyFormatter = *mut c_void;
@@ -38,6 +62,24 @@ pub(crate) type GhosttySnapshotDecoder = *mut c_void;
 
 /// Terminal option identifier accepted by `ghostty_terminal_set`.
 pub(crate) type GhosttyTerminalOption = c_int;
+
+/// Embedder userdata pointer passed to every effect callback.
+pub(crate) const GHOSTTY_TERMINAL_OPT_USERDATA: GhosttyTerminalOption = 0;
+
+/// Effect callback that receives PTY query responses.
+pub(crate) const GHOSTTY_TERMINAL_OPT_WRITE_PTY: GhosttyTerminalOption = 1;
+
+/// Default foreground color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND: GhosttyTerminalOption = 11;
+
+/// Default background color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND: GhosttyTerminalOption = 12;
+
+/// Default cursor color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_OPT_COLOR_CURSOR: GhosttyTerminalOption = 13;
+
+/// Default 256-color palette (`GhosttyColorRgb[256]*`).
+pub(crate) const GHOSTTY_TERMINAL_OPT_COLOR_PALETTE: GhosttyTerminalOption = 14;
 
 /// Maximum scrollback page-allocation bytes retained by Ghostty (`size_t*`).
 pub(crate) const GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: GhosttyTerminalOption = 27;
@@ -52,8 +94,35 @@ pub(crate) const GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES: GhosttyTerminalOpt
 /// Terminal data identifier accepted by `ghostty_terminal_get`.
 pub(crate) type GhosttyTerminalData = c_int;
 
+/// Cursor visibility (`bool*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE: GhosttyTerminalData = 7;
+
+/// Kitty keyboard protocol flags (`GhosttyKittyKeyFlags*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS: GhosttyTerminalData = 8;
+
+/// Effective foreground color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND: GhosttyTerminalData = 18;
+
+/// Effective background color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND: GhosttyTerminalData = 19;
+
+/// Effective cursor color (`GhosttyColorRgb*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_COLOR_CURSOR: GhosttyTerminalData = 20;
+
+/// Current palette including OSC overrides (`GhosttyColorRgb[256]*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_COLOR_PALETTE: GhosttyTerminalData = 21;
+
 /// Query a single terminal mode (`GhosttyTerminalModeConfig*`).
 pub(crate) const GHOSTTY_TERMINAL_DATA_MODE: GhosttyTerminalData = 37;
+
+/// RGB color layout frozen by libghostty-vt.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GhosttyColorRgb {
+    pub(crate) r: u8,
+    pub(crate) g: u8,
+    pub(crate) b: u8,
+}
 
 /// A terminal mode and its boolean value.
 ///
@@ -67,6 +136,14 @@ pub(crate) struct GhosttyTerminalModeConfig {
     /// Current value returned by the query.
     pub(crate) value: bool,
 }
+
+/// Callback type for `GHOSTTY_TERMINAL_OPT_WRITE_PTY`.
+pub(crate) type GhosttyTerminalWritePtyFn = unsafe extern "C" fn(
+    terminal: GhosttyTerminal,
+    userdata: *mut c_void,
+    data: *const u8,
+    len: usize,
+);
 
 /// Formatter output format.
 #[repr(C)]

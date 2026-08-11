@@ -284,7 +284,12 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
         }
     }
 
-    fn set_color_profile(&mut self, _session_id: &SessionId, _color_profile: TerminalColorProfile) {
+    fn set_color_profile(
+        &mut self,
+        _session_id: &SessionId,
+        _color_profile: TerminalColorProfile,
+    ) -> Result<(), SessionRuntimeError> {
+        Ok(())
     }
 
     fn shutdown(

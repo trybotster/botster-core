@@ -13,12 +13,13 @@ git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty
 cargo test -p botster-terminal-ghostty --features libghostty-vt
 ```
 
-The vendored source is upstream Ghostty at commit
-`22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018` from
-`https://github.com/ghostty-org/ghostty`. Botster no longer carries a Ghostty
-fork: upstream's `libghostty-vt` now publishes the snapshot API
-(`include/ghostty/vt/snapshot.h`) and the terminal callback options this crate
-needs, so the fork's patched callbacks and snapshot entry points are retired.
+The vendored source is trybotster/ghostty at commit
+`5e9ba17a22ba8e40bf8de7d3e7555b8378cb1880` from
+`https://github.com/trybotster/ghostty`. That pin is the production terminal
+authority for Botster Core: it publishes the snapshot API
+(`include/ghostty/vt/snapshot.h`), mode/palette reads, and the `write_pty`
+effect callback this crate installs so session-side OSC color and device
+queries can be answered before any client attaches.
 
 Feature-enabled builds require Zig `0.16.0`, which is upstream's
 `minimum_zig_version` at this pin. The build script checks `BOTSTER_ZIG`,
@@ -49,6 +50,12 @@ botster-terminal-ghostty libghostty-vt feature requires initialized Ghostty sour
 
 If Zig `0.16.0` is unavailable, the build fails before linking and names the
 Zig precondition instead of surfacing a raw linker or `build.zig` error.
+
+Ghostty is the only production terminal authority in this workspace. This
+adapter owns GHOSTSNP snapshots, complete `ModeFlags` (Kitty, mouse, cursor,
+bracketed paste, alt screen, focus reporting, application cursor), palette
+state, and PTY query replies. `botster-core` stays backend-neutral; hosts
+compose this crate on the production daemon path.
 
 Restty is not used here. Restty remains a client renderer path, not the
 authoritative shadow-terminal parser or snapshot owner.

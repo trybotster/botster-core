@@ -9,7 +9,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(feature = "ghostty-terminal")]
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
@@ -20,7 +19,6 @@ use botster_core::{
     SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalScreenState,
     TerminalSnapshotPayload, WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
-#[cfg(feature = "ghostty-terminal")]
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
 
@@ -68,7 +66,6 @@ pub struct CoreDaemonConfig {
     pub routed_envelope_queue: RoutedEnvelopeQueueConfig,
     /// Ghostty scrollback page-allocation byte budget for each daemon session.
     ///
-    /// This setting is unused when the `ghostty-terminal` feature is disabled.
     pub ghostty_max_scrollback_bytes: usize,
     /// Maximum ordered lifecycle changes retained for slow consumers.
     pub lifecycle_journal_capacity: usize,
@@ -1222,19 +1219,12 @@ fn new_lifecycle_source_id() -> SessionLifecycleSourceId {
     ))
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn local_engine(max_scrollback_bytes: usize) -> DefaultBotsterEngine {
     DefaultBotsterEngine::with_terminal_backend_factory(move |size| {
         default_ghostty_terminal(size, max_scrollback_bytes)
     })
 }
 
-#[cfg(not(feature = "ghostty-terminal"))]
-fn local_engine(_max_scrollback_bytes: usize) -> DefaultBotsterEngine {
-    DefaultBotsterEngine::new()
-}
-
-#[cfg(feature = "ghostty-terminal")]
 fn worker_engine(
     options: WorkerProcessRuntimeOptions,
     max_scrollback_bytes: usize,
@@ -1244,15 +1234,6 @@ fn worker_engine(
     })
 }
 
-#[cfg(not(feature = "ghostty-terminal"))]
-fn worker_engine(
-    options: WorkerProcessRuntimeOptions,
-    _max_scrollback_bytes: usize,
-) -> WorkerBackedBotsterEngine {
-    WorkerBackedBotsterEngine::with_options(options)
-}
-
-#[cfg(feature = "ghostty-terminal")]
 fn default_ghostty_terminal(
     size: TerminalScreenSize,
     max_scrollback_bytes: usize,
@@ -1575,7 +1556,7 @@ impl DaemonEngine {
     }
 }
 
-#[cfg(all(test, feature = "ghostty-terminal", unix))]
+#[cfg(all(test, unix))]
 mod terminal_backend_failure_tests {
     use std::cell::Cell;
     use std::rc::Rc;

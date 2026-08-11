@@ -8,7 +8,6 @@ use std::process::Command;
 use std::sync::Once;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "ghostty-terminal")]
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
@@ -33,20 +32,15 @@ use botster_core_daemon::{
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
-#[cfg(feature = "ghostty-terminal")]
+use botster_core_test_support::conformance::{
+    assert_ghostty_snapshot_authority, assert_mode_flags_authority, GHOSTSNP_MAGIC,
+};
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
 
-#[cfg(feature = "ghostty-terminal")]
 const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
-#[cfg(not(feature = "ghostty-terminal"))]
-const EXPECTED_SNAPSHOT_FORMAT: &str = "plain-opaque-v1";
-#[cfg(feature = "ghostty-terminal")]
 const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
-#[cfg(feature = "ghostty-terminal")]
 const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
-#[cfg(feature = "ghostty-terminal")]
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
-#[cfg(feature = "ghostty-terminal")]
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
 const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
@@ -212,7 +206,6 @@ fn daemon_late_attach_drains_initial_history_before_later_live_output() {
         &late_client,
         "echo:after-late-attach",
     );
-    #[cfg(feature = "ghostty-terminal")]
     {
         let (snapshot_index, snapshot) =
             first_snapshot_for_client(&late_drain.client_egress, &late_client)
@@ -228,22 +221,6 @@ fn daemon_late_attach_drains_initial_history_before_later_live_output() {
             snapshot_index < live_index,
             "late Ghostty snapshot replay should precede later live output: {:?}",
             late_drain.client_egress
-        );
-    }
-    #[cfg(not(feature = "ghostty-terminal"))]
-    {
-        let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
-        let history_index = late_output
-            .find("echo:before-late-attach")
-            .unwrap_or_else(|| panic!("late attach should replay prior marker: {late_output:?}"));
-        let live_index = late_output
-            .find("echo:after-late-attach")
-            .unwrap_or_else(|| {
-                panic!("late client should receive later live output: {late_output:?}")
-            });
-        assert!(
-            history_index < live_index,
-            "late replay should precede later live output for the subscription: {late_output:?}"
         );
     }
 
@@ -689,15 +666,12 @@ fn worker_backed_capture_snapshot_drains_before_capture_and_preserves_client_egr
         )
         .expect("marker input should write");
 
-    #[cfg(feature = "ghostty-terminal")]
     let (captured, output) = capture_snapshot_and_retained_output_until(
         &mut daemon,
         &session_id,
         "echo:snapshot-marker",
         13,
     );
-    #[cfg(not(feature = "ghostty-terminal"))]
-    let captured = capture_snapshot_until(&mut daemon, &session_id, "echo:snapshot-marker", 13);
     assert_eq!(
         captured.snapshot.request_id,
         RequestId("capture-snapshot-marker".to_string())
@@ -706,15 +680,7 @@ fn worker_backed_capture_snapshot_drains_before_capture_and_preserves_client_egr
     assert_snapshot_format(&captured.payload);
     assert_eq!(captured.snapshot.data, captured.payload.bytes);
     assert_snapshot_payload_observed_marker_when_plain(&captured.payload, "echo:snapshot-marker");
-    #[cfg(feature = "ghostty-terminal")]
     assert_ghostty_snapshot_replays_marker(&captured.payload, "echo:snapshot-marker");
-
-    #[cfg(not(feature = "ghostty-terminal"))]
-    let drained = daemon
-        .drain(&session_id, 30)
-        .expect("drain after capture_snapshot should succeed");
-    #[cfg(not(feature = "ghostty-terminal"))]
-    let output = terminal_output(&drained.client_egress);
     assert_eq!(
         count_occurrences(&output, "echo:snapshot-marker"),
         1,
@@ -761,13 +727,12 @@ fn local_daemon_read_screen_and_capture_snapshot_use_configured_terminal_backend
     assert_snapshot_format(&captured.payload);
     assert_eq!(captured.snapshot.data, captured.payload.bytes);
     assert_snapshot_payload_observed_marker_when_plain(&captured.payload, "echo:local-marker");
-    #[cfg(feature = "ghostty-terminal")]
     assert_ghostty_snapshot_replays_marker(&captured.payload, "echo:local-marker");
 
     let _ = fs::remove_dir_all(data_dir);
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 #[test]
 fn worker_backed_daemon_default_path_uses_ghostty_terminal_fidelity() {
     let data_dir = temp_data_dir("dwgf");
@@ -818,7 +783,7 @@ fn worker_backed_daemon_default_path_uses_ghostty_terminal_fidelity() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 #[test]
 fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
     let data_dir = temp_data_dir("dwgrh");
@@ -988,7 +953,7 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 #[test]
 fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_window() {
     let data_dir = temp_data_dir("dwgs");
@@ -1056,7 +1021,7 @@ fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_windo
     let _ = fs::remove_dir_all(data_dir);
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 #[test]
 fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
     let data_dir = temp_data_dir("dwgs-override");
@@ -1147,7 +1112,7 @@ fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
     );
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 #[test]
 fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
     let mut terminal = GhosttyTerminal::with_config(
@@ -1316,7 +1281,6 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
         "worker-backed readiness must order Attaching before history before Attached before live output: {:?}",
         late_drain.client_egress
     );
-    #[cfg(feature = "ghostty-terminal")]
     {
         let (snapshot_index, snapshot) =
             first_snapshot_for_client(&late_drain.client_egress, &late_client)
@@ -1334,118 +1298,6 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
             late_drain.client_egress
         );
     }
-    #[cfg(not(feature = "ghostty-terminal"))]
-    {
-        let late_output = renderable_output_for_client(&late_drain.client_egress, &late_client);
-        let history_index = late_output
-            .find("echo:worker-before-late")
-            .unwrap_or_else(|| {
-                panic!("late attach history should remain pending: {late_output:?}")
-            });
-        let live_index = late_output
-            .find("echo:worker-after-read")
-            .unwrap_or_else(|| {
-                panic!("read_screen internal drain should remain pending: {late_output:?}")
-            });
-        assert!(
-            history_index < live_index,
-            "attach pending drain should merge before read_screen pending drain: {late_output:?}"
-        );
-    }
-
-    let _ = fs::remove_dir_all(data_dir);
-}
-
-#[cfg(all(unix, not(feature = "ghostty-terminal")))]
-#[test]
-fn worker_backed_empty_initial_snapshot_attaches_before_live_output_without_history() {
-    let data_dir = temp_data_dir("worker-empty-initial-snapshot");
-    let mut daemon =
-        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
-    let session_id = SessionId("worker-empty-session".to_string());
-    let client_id = ClientId("worker-empty-client".to_string());
-    let subscription_id = SubscriptionId("worker-empty-subscription".to_string());
-
-    daemon
-        .spawn(silent_spawn_request(&session_id), 10)
-        .expect("silent worker-backed daemon should spawn");
-    daemon
-        .attach(
-            client_id.clone(),
-            session_id.clone(),
-            subscription_id.clone(),
-            11,
-        )
-        .expect("silent worker-backed attach should subscribe");
-    daemon
-        .input(
-            client_id.clone(),
-            session_id.clone(),
-            b"after-empty-snapshot\n".to_vec(),
-            12,
-        )
-        .expect("live marker should write after empty snapshot request");
-
-    let drained = drain_until_for_client(
-        &mut daemon,
-        &session_id,
-        &client_id,
-        "echo:after-empty-snapshot",
-    );
-    let client_frames = drained
-        .client_egress
-        .iter()
-        .filter(|(frame_client_id, _)| frame_client_id == &client_id)
-        .map(|(_, frame)| frame)
-        .collect::<Vec<_>>();
-    assert!(client_frames.iter().all(|frame| !matches!(
-        frame,
-        TransportEgress::Snapshot { .. } | TransportEgress::Scrollback { .. }
-    )));
-    let attaching_index = client_frames
-        .iter()
-        .position(|frame| {
-            matches!(
-                frame,
-                TransportEgress::AttachState {
-                    subscription_id: frame_subscription_id,
-                    state: TerminalAttachState::Attaching,
-                    ..
-                } if frame_subscription_id == &subscription_id
-            )
-        })
-        .expect("empty worker-backed attach should emit Attaching");
-    let attached_index = client_frames
-        .iter()
-        .position(|frame| {
-            matches!(
-                frame,
-                TransportEgress::AttachState {
-                    subscription_id: frame_subscription_id,
-                    state: TerminalAttachState::Attached,
-                    ..
-                } if frame_subscription_id == &subscription_id
-            )
-        })
-        .expect("empty InitialSnapshotReady should emit Attached");
-    let live_index = client_frames
-        .iter()
-        .position(|frame| {
-            matches!(
-                frame,
-                TransportEgress::TerminalOutput {
-                    subscription_id: frame_subscription_id,
-                    data,
-                    ..
-                } if frame_subscription_id == &subscription_id
-                    && String::from_utf8_lossy(data).contains("echo:after-empty-snapshot")
-            )
-        })
-        .expect("live output should flow after empty snapshot readiness");
-    assert!(
-        attaching_index < attached_index && attached_index < live_index,
-        "empty worker-backed readiness must order Attaching before Attached before live output: {client_frames:?}"
-    );
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -1508,7 +1360,6 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
         .expect("spawned never explicitly drained session should still capture snapshot");
     assert_eq!(snapshot.snapshot.session_id, session_id);
     assert_snapshot_format(&snapshot.payload);
-    #[cfg(feature = "ghostty-terminal")]
     daemon
         .input(
             client_id.clone(),
@@ -1517,9 +1368,7 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
             16,
         )
         .expect("mouse mode DECSET should write");
-    #[cfg(feature = "ghostty-terminal")]
     let _ = read_screen_until(&mut daemon, &session_id, "echo:enable-mouse", 17);
-    #[cfg(feature = "ghostty-terminal")]
     let live_mode_flags = daemon
         .read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId("live-mode-flags".to_string()),
@@ -1527,7 +1376,6 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
             now_seconds: 18,
         })
         .expect("live mode flags should be authoritative");
-    #[cfg(feature = "ghostty-terminal")]
     assert_eq!(live_mode_flags.mode_flags.mode_flags.mouse_mode, 9);
 
     daemon
@@ -1561,7 +1409,6 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
             now_seconds: 24,
         })
         .expect("shutdown snapshot should be repeatable");
-    #[cfg(feature = "ghostty-terminal")]
     let retained_mode_flags = daemon
         .read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId("retained-mode-flags".to_string()),
@@ -1571,7 +1418,6 @@ fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
         .expect("shutdown mode flags should serve retained terminal truth");
 
     assert!(first_screen.screen.text.contains("echo:shutdown-final"));
-    #[cfg(feature = "ghostty-terminal")]
     assert_eq!(retained_mode_flags.mode_flags.mode_flags.mouse_mode, 9);
     assert_eq!(first_screen.screen.text, second_screen.screen.text);
     assert_ne!(
@@ -1971,7 +1817,6 @@ fn shutdown_reconciles_a_worker_natural_exit_after_output_is_observable() {
         &first_snapshot.payload,
         "botster-core-natural-exit-tail",
     );
-    #[cfg(feature = "ghostty-terminal")]
     assert_ghostty_snapshot_replays_marker(
         &first_snapshot.payload,
         "botster-core-natural-exit-tail",
@@ -2058,53 +1903,6 @@ fn shutdown_all_continues_after_a_raced_natural_exit_and_cleans_a_live_session()
     assert!(!process_exists(live_child_pid));
     assert!(!live_socket_path.exists());
 
-    let _ = fs::remove_dir_all(data_dir);
-}
-
-#[cfg(not(feature = "ghostty-terminal"))]
-#[test]
-fn plain_backend_mode_flags_are_unsupported_instead_of_default_authority() {
-    let data_dir = temp_data_dir("plain-mode-flags-unsupported");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-    let session_id = SessionId("plain-mode-flags-session".to_string());
-    daemon
-        .spawn(spawn_request(&session_id), 10)
-        .expect("spawn plain-backend session");
-
-    let error = daemon
-        .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("plain-mode-flags".to_string()),
-            session_id: session_id.clone(),
-            now_seconds: 11,
-        })
-        .expect_err("plain backend must not fabricate all-false authority");
-
-    assert!(matches!(
-        error,
-        CoreDaemonError::Engine(
-            botster_core::ManagedSessionRuntimeError::UnsupportedSessionRequest {
-                request_kind: "mode_flags",
-            }
-        )
-    ));
-    daemon
-        .shutdown(Some(session_id.clone()), 12)
-        .expect("plain-backend shutdown should retain unsupported mode state");
-    let retained_error = daemon
-        .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("plain-retained-mode-flags".to_string()),
-            session_id: session_id.clone(),
-            now_seconds: 13,
-        })
-        .expect_err("retained plain mode state must remain unsupported");
-    assert!(matches!(
-        retained_error,
-        CoreDaemonError::Engine(
-            botster_core::ManagedSessionRuntimeError::UnsupportedSessionRequest {
-                request_kind: "mode_flags",
-            }
-        )
-    ));
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -3221,6 +3019,195 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn worker_backed_kitty_and_mouse_input_reaches_child_pty() {
+    let data_dir = temp_data_dir("kitty-mouse-input-pty");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("kitty-mouse-input-session".to_string());
+    let client_id = ClientId("kitty-mouse-input-client".to_string());
+
+    // Child hex-encodes exact raw stdin bytes so the production input path can
+    // prove Kitty and mouse encodings reach the PTY unchanged.
+    let kitty_bytes = b"\x1b[27u".to_vec();
+    let mouse_bytes = b"\x1b[<0;10;20M".to_vec();
+    let mut expected = kitty_bytes.clone();
+    expected.extend_from_slice(&mouse_bytes);
+    let expected_len = expected.len();
+
+    let mut request = spawn_request(&session_id);
+    // Use dd for an exact-length raw read and od for hex so we prove the
+    // production CoreDaemon::input path without depending on Python startup.
+    request.request.arguments[1] = format!(
+        "stty -echo raw 2>/dev/null; printf ready; dd bs=1 count={len} 2>/dev/null | od -An -tx1 | tr -d ' \n'; printf '\n'",
+        len = expected_len
+    );
+
+    daemon
+        .spawn(request, 10)
+        .expect("spawn input-proof session");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("kitty-mouse-sub".to_string()),
+            11,
+        )
+        .expect("attach input-proof session");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+
+    daemon
+        .input(client_id.clone(), session_id.clone(), kitty_bytes, 12)
+        .expect("kitty input should write through CoreDaemon::input");
+    daemon
+        .input(client_id.clone(), session_id.clone(), mouse_bytes, 13)
+        .expect("mouse input should write through CoreDaemon::input");
+
+    let mut expected_hex = String::new();
+    for byte in &expected {
+        expected_hex.push_str(&format!("{byte:02x}"));
+    }
+    let screen = read_screen_until(&mut daemon, &session_id, &expected_hex, 14);
+    assert!(
+        screen.screen.text.contains(&expected_hex),
+        "child PTY must receive exact Kitty+mouse input bytes; text={}",
+        screen.screen.text
+    );
+
+    daemon
+        .shutdown(Some(session_id), 15)
+        .expect("shutdown input-proof session");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_mode_flags_include_kitty_and_mouse_from_ghostty_authority() {
+    let data_dir = temp_data_dir("mode-flags-full-authority");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("mode-flags-full-session".to_string());
+    let client_id = ClientId("mode-flags-full-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; while IFS= read -r line; do ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "if [ \"$line\" = enable-modes ]; then ",
+        "printf '\\033[?1000h\\033[?1006h\\033[=1;1u\\033[?2004h\\033[?1004h\\033[?1h'; ",
+        "fi; ",
+        "done"
+    )
+    .to_string();
+
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("mode-full-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id,
+            session_id.clone(),
+            b"enable-modes\n".to_vec(),
+            12,
+        )
+        .expect("enable modes");
+    let _ = read_screen_until(&mut daemon, &session_id, "echo:enable-modes", 13);
+
+    let mode_flags = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("mode-full".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 14,
+        })
+        .expect("read production mode flags");
+    assert_mode_flags_authority(
+        &mode_flags.mode_flags.mode_flags,
+        ModeFlags {
+            kitty_enabled: true,
+            mouse_mode: 9,
+            bracketed_paste: true,
+            focus_reporting: true,
+            application_cursor: true,
+            ..ModeFlags::default()
+        },
+    );
+
+    let snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("mode-full-snap".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 15,
+        })
+        .expect("capture snapshot");
+    assert_ghostty_snapshot_authority(&snapshot.payload);
+    assert!(snapshot.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+
+    daemon.shutdown(Some(session_id), 16).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_osc_color_queries_receive_session_side_write_pty_replies() {
+    let data_dir = temp_data_dir("osc-color-write-pty");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("osc-color-session".to_string());
+
+    // No client attaches. Child emits OSC 10/11/12 queries; session Ghostty must
+    // answer via write_pty before any client is present.
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = concat!(
+        "printf ready; ",
+        "printf '\\033]10;?\\033\\\\\\033]11;?\\033\\\\\\033]12;?\\033\\\\'; ",
+        "python3 -c \"",
+        "import sys,select,time; ",
+        "sys.stdout.write('ready-queries\\n'); sys.stdout.flush(); ",
+        "chunks=[]; end=time.time()+3; ",
+        "while time.time()<end: ",
+        " r,_,_=select.select([sys.stdin],[],[],0.05); ",
+        " if r: ",
+        "  b=sys.stdin.buffer.read1(4096); ",
+        "  if not b: break; ",
+        "  chunks.append(b); ",
+        "data=b''.join(chunks); ",
+        "sys.stdout.write('reply-hex:' + data.hex() + '\\n'); ",
+        "sys.stdout.flush()",
+        "\""
+    )
+    .to_string();
+
+    daemon
+        .spawn(request, 10)
+        .expect("spawn color query session");
+    let screen = read_screen_until(&mut daemon, &session_id, "reply-hex:", 11);
+    let reply = screen
+        .screen
+        .text
+        .split("reply-hex:")
+        .nth(1)
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or("");
+    assert!(
+        !reply.is_empty(),
+        "session must inject write_pty OSC color replies into the child PTY without a client; text={}",
+        screen.screen.text
+    );
+
+    daemon.shutdown(Some(session_id), 12).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 fn mode_flags_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     let mut request = spawn_request(session_id);
     request.request.arguments[1] = concat!(
@@ -3233,7 +3220,6 @@ fn mode_flags_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     request
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn retained_history_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     let mut request = spawn_request(session_id);
     request.request.arguments[1] = "printf 'echo:dwgrh-prior-marker\nready'; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string();
@@ -3285,27 +3271,6 @@ fn controlled_exit_spawn_request(
                 "botster-controlled-exit".to_string(),
                 marker_path.to_string_lossy().into_owned(),
                 release_path.to_string_lossy().into_owned(),
-            ],
-            working_directory: SpawnWorkingDirectory {
-                path: ".".to_string(),
-            },
-            environment: SpawnEnvironment::default(),
-            initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
-        },
-        metadata: CoreSessionMetadata::new(),
-    }
-}
-
-#[cfg(not(feature = "ghostty-terminal"))]
-fn silent_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
-    SpawnSessionRequest {
-        request: SessionSpawnRequest {
-            request_id: RequestId(format!("{}-spawn", session_id.0)),
-            session_id: session_id.clone(),
-            executable: "sh".to_string(),
-            arguments: vec![
-                "-c".to_string(),
-                "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string(),
             ],
             working_directory: SpawnWorkingDirectory {
                 path: ".".to_string(),
@@ -3513,7 +3478,7 @@ fn read_screen_until(
     )
 }
 
-#[cfg(all(unix, feature = "ghostty-terminal"))]
+#[cfg(unix)]
 fn drain_until_terminal_marker(
     daemon: &mut CoreDaemon,
     session_id: &SessionId,
@@ -3568,12 +3533,7 @@ fn capture_snapshot_until(
                 now_seconds: start_tick + tick,
             })
             .expect("daemon capture_snapshot should succeed");
-        #[cfg(feature = "ghostty-terminal")]
         if ghostty_snapshot_replays_marker(&captured.payload, expected) {
-            return captured;
-        }
-        #[cfg(not(feature = "ghostty-terminal"))]
-        if String::from_utf8_lossy(&captured.payload.bytes).contains(expected) {
             return captured;
         }
         last = Some(captured);
@@ -3585,7 +3545,6 @@ fn capture_snapshot_until(
     )
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn capture_snapshot_and_retained_output_until(
     daemon: &mut CoreDaemon,
     session_id: &SessionId,
@@ -3634,16 +3593,11 @@ fn assert_snapshot_payload_observed_marker_when_plain(
     payload: &botster_core::TerminalSnapshotPayload,
     expected: &str,
 ) {
-    #[cfg(not(feature = "ghostty-terminal"))]
-    assert!(
-        String::from_utf8_lossy(&payload.bytes).contains(expected),
-        "plain fallback snapshot should retain raw marker bytes"
-    );
-    #[cfg(feature = "ghostty-terminal")]
+    // Plain fallback snapshots are no longer a production path. Keep the helper
+    // as a no-op so historical call sites stay readable next to Ghostty asserts.
     let _ = (payload, expected);
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn assert_ghostty_snapshot_replays_marker(
     payload: &botster_core::TerminalSnapshotPayload,
     expected: &str,
@@ -3661,7 +3615,6 @@ fn assert_ghostty_snapshot_replays_marker(
     );
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn assert_ghostty_snapshot_replays_minimum_markers(
     payload: &botster_core::TerminalSnapshotPayload,
     marker_count: usize,
@@ -3682,7 +3635,6 @@ fn assert_ghostty_snapshot_replays_minimum_markers(
     );
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn assert_ghostty_snapshot_does_not_replay_marker(
     payload: &botster_core::TerminalSnapshotPayload,
     unexpected: &str,
@@ -3695,7 +3647,6 @@ fn assert_ghostty_snapshot_does_not_replay_marker(
     );
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn ghostty_snapshot_replays_marker(
     payload: &botster_core::TerminalSnapshotPayload,
     expected: &str,
@@ -3703,7 +3654,6 @@ fn ghostty_snapshot_replays_marker(
     ghostty_snapshot_plain_text(payload).contains(expected)
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn ghostty_snapshot_plain_text(payload: &botster_core::TerminalSnapshotPayload) -> String {
     assert_snapshot_format(payload);
     let mut terminal = GhosttyTerminal::with_config(
@@ -3719,7 +3669,6 @@ fn ghostty_snapshot_plain_text(payload: &botster_core::TerminalSnapshotPayload) 
         .expect("test should format replayed Ghostty snapshot")
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn retained_ghostty_scrollback_markers(plain_text: &str, marker_count: usize) -> Vec<usize> {
     (0..marker_count)
         .filter(|line| plain_text.contains(&format!("echo:scrollback-line-{line:05}")))
@@ -3781,7 +3730,6 @@ fn terminal_output(frames: &[(ClientId, TransportEgress)]) -> String {
         .join("")
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn first_snapshot_for_client(
     frames: &[(ClientId, TransportEgress)],
     client_id: &ClientId,
@@ -3807,7 +3755,6 @@ fn first_snapshot_for_client(
         })
 }
 
-#[cfg(feature = "ghostty-terminal")]
 fn first_terminal_output_index_for_client_containing(
     frames: &[(ClientId, TransportEgress)],
     client_id: &ClientId,

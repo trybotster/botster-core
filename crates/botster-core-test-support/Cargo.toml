@@ -13,11 +13,13 @@ keywords = ["botster", "testing", "fixtures", "conformance"]
 categories = ["development-tools::testing"]
 
 [features]
-default = ["local-runtime"]
+default = ["local-runtime", "ghostty-terminal"]
 local-runtime = ["botster-core/local-runtime"]
+ghostty-terminal = ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/libghostty-vt"]
 
 [dependencies]
 botster-core = { path = "../botster-core", version = "0.1.0", default-features = false }
+botster-terminal-ghostty = { path = "../botster-terminal-ghostty", optional = true, default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

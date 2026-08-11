@@ -191,11 +191,16 @@ impl SessionWorkerRuntime for FakeSessionWorkerRuntime {
         }
     }
 
-    fn set_color_profile(&mut self, session_id: &SessionId, color_profile: TerminalColorProfile) {
+    fn set_color_profile(
+        &mut self,
+        session_id: &SessionId,
+        color_profile: TerminalColorProfile,
+    ) -> Result<(), SessionRuntimeError> {
         self.commands.push(RuntimeCommand::SetColorProfile {
             session_id: session_id.clone(),
             color_profile,
         });
+        Ok(())
     }
 
     fn shutdown(

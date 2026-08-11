@@ -4,6 +4,7 @@ use crate::contract::terminal_screen::{
     TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
     TerminalScreenState, TerminalSnapshotPayload,
 };
+use crate::session_protocol::TerminalColorProfile;
 use crate::ModeFlags;
 
 /// Runtime operations used by the reusable terminal screen engine.
@@ -29,6 +30,31 @@ pub trait TerminalScreenRuntime {
     /// rather than presenting default flags as authoritative state.
     fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
         Err(TerminalBackendError::unsupported("mode_flags"))
+    }
+
+    /// Apply a terminal color profile to the authoritative backend.
+    ///
+    /// Backends that cannot own palette state must return `Unsupported`.
+    fn set_color_profile(
+        &mut self,
+        profile: TerminalColorProfile,
+    ) -> Result<(), TerminalBackendError> {
+        let _ = profile;
+        Err(TerminalBackendError::unsupported("set_color_profile"))
+    }
+
+    /// Read the authoritative terminal color profile, when the backend owns one.
+    fn color_profile(&self) -> Result<Option<TerminalColorProfile>, TerminalBackendError> {
+        Ok(None)
+    }
+
+    /// Drain PTY-bound query responses generated while accepting terminal output.
+    ///
+    /// Ghostty effects callbacks run synchronously during `write_output`. Session
+    /// hosts must inject these bytes into the child PTY so color and device
+    /// queries are answered before any client attaches.
+    fn drain_pty_writes(&mut self) -> Vec<u8> {
+        Vec::new()
     }
 
     /// Return the most recent backend operation error, if the runtime records one.
@@ -60,6 +86,21 @@ impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
 
     fn mode_flags(&self) -> Result<ModeFlags, TerminalBackendError> {
         self.as_ref().mode_flags()
+    }
+
+    fn set_color_profile(
+        &mut self,
+        profile: TerminalColorProfile,
+    ) -> Result<(), TerminalBackendError> {
+        self.as_mut().set_color_profile(profile)
+    }
+
+    fn color_profile(&self) -> Result<Option<TerminalColorProfile>, TerminalBackendError> {
+        self.as_ref().color_profile()
+    }
+
+    fn drain_pty_writes(&mut self) -> Vec<u8> {
+        self.as_mut().drain_pty_writes()
     }
 
     fn last_error(&self) -> Option<String> {
