@@ -1,14 +1,13 @@
-# Implementation report: Race-free terminal mode revision (review rework 10)
+# Implementation report: Race-free terminal mode revision (review rework 11)
 
 ## Target repository and target_id
 - Target repository: `botster-core`
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 - Run: `run_1786479064_760292`
-- Run step: `run_step_1786490370_745480`
+- Run step: `run_step_1786491094_660262`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- Addresses review: `review_1786490355_764752` / finding `finding_1786490355_252756`
-- Also retains prior fixes for carry-forward `finding_1786488133_182843` (overflow gated-first + normal-drain FIFO)
-- Implementation SHA: 997fabef2021313a533c4b075a84437b9b1715ad
+- Addresses review: `review_1786491067_654917` / finding `finding_1786491067_719525`
+- Implementation SHA: *(filled after commit)*
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
@@ -17,36 +16,38 @@
 ## Findings addressed
 | Finding | Fix |
 | --- | --- |
-| Write-deadline test accepts parent timeout / early screen check | Parent mode-gated wait is now `timeout + MODE_GATED_REPLY_GRACE` (1s) so a correlated worker deadline result demuxes under load; worker write fence still uses wall-clock `deadline_unix_ms` only. Strict test requires `Ok(Gated)` with `deadline` error_kind and `bytes_written == 0`, rejects parent timeout, waits past force-block window, then asserts no `echo:deadline-bytes`. Timeout-path test hold raised above grace so true parent timeout remains covered. |
+| Normal-drain FIFO test passes on defective dual-buffer SHA df38c218 | Added `single_queue_reader_source_prohibits_dual_buffer_transfer` unit source guard that bans dual-buffer transfer symbols (`try_flush_pending_to_channel`, dual-buffer/channel-before-pending comments). **Red** on production source of `df38c218092f59377bec12457840b0a7512bd294` (hits: try_flush_pending_to_channel, pending-to-channel, dual buffers, channel-before-pending, …). **Green** on HEAD unit test + production source. Strengthened normal-drain integration: require ≥2 mode revisions, mandatory freshness change, always-stale reject. |
 
 ## Files changed
-- `crates/botster-core/src/runtime/worker_process.rs` — `MODE_GATED_REPLY_GRACE`; parent Instant wait = write timeout + grace
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — strict write-deadline test; timeout test hold beyond grace
+- `crates/botster-core/src/runtime/local_process.rs` — dual-buffer transfer source guard
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — stricter normal-drain FIFO assertions
 - Implement report
 
 ## Ownership boundaries preserved
 - Core Ghostty-free; daemon hosts worker
-- No public API surface change (parent wait is internal runtime behavior)
+- Test/source-guard only; no product API change
 
 ## Cross-repo dependencies
 - Hub ticket `ticket_1786471489_718500` remains dependent
 
 ## Deviations from plan
-- None. Reply grace is a correctness hardening of the correlated RPC wait already in the approved shape.
+- None
 
 ## Tests and downstream proof
+- Source-guard red check: defective SHA production source contains banned dual-buffer symbols
+- `cargo test -p botster-core single_queue_reader_source_prohibits_dual_buffer_transfer` (green on HEAD)
+- `cargo test -p botster-core-daemon --test daemon_integration_test worker_backed_mode_gated_` (12/12)
 - `cargo fmt --all`
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test -p botster-core-daemon --test daemon_integration_test worker_backed_mode_gated_` (12/12)
 - `BOTSTER_ENV=test cargo test --workspace` (recorded at gate)
 
 ## Unverified behavior / residual risk
 - Adopt mid-wait fail-closed via disconnect/timeout only
 - Dual Ghostty intentional
-- Parent timeout path still drops a late-arriving result after grace; worker deadline fence remains the write authority
+- Source guard is the deterministic red-on-historical-mutant control; integration path proves Ghostty apply order under enqueue hold
 
 ## Missing vault guidance
-- None
+- None discovered this visit (review requested red historical mutant proof; recorded above)
 
 ## Runtime-teardown
 - `teardown_class_applies=false`

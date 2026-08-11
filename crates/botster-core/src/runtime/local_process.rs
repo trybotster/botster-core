@@ -1495,6 +1495,41 @@ mod tests {
     }
 
     #[test]
+    fn single_queue_reader_source_prohibits_dual_buffer_transfer() {
+        // Cold-migration regression for the dual-buffer transfer design.
+        // Historical defective SHA df38c218092f59377bec12457840b0a7512bd294 still
+        // contains these symbols; the normal-drain integration body alone can
+        // pass there. This source guard fails on that mutant and passes on the
+        // single-queue production reader.
+        // Inspect production source only (exclude this test module so the ban
+        // list literals cannot self-match).
+        let full = include_str!("local_process.rs");
+        let production = full
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production local_process.rs");
+        // Construct banned fragments so this test body does not embed the
+        // complete production symbols as contiguous ban targets either.
+        let banned = [
+            format!("{}{}", "try_flush_pending", "_to_channel"),
+            format!("{}{}", "pending-to-", "channel"),
+            format!("{}{}", "dual ", "buffers"),
+            format!("{}{}", "dual-", "buffer"),
+            format!("{}{}", "channel-before-", "pending"),
+            format!("{}{}", "channel holds ", "older"),
+            format!("{}{}", "fence pending holds ", "newer"),
+            format!("{}{}", "Channel first ", "(older"),
+        ];
+        for term in &banned {
+            assert!(
+                !production.contains(term.as_str()),
+                "local_process.rs production source must not reintroduce dual-buffer \
+                 transfer symbol `{term}` (red on dual-buffer SHA df38c218; green on HEAD)"
+            );
+        }
+    }
+
+    #[test]
     fn concurrent_drain_does_not_leak_reader_depth() {
         // Enqueue+depth under one lock: after a concurrent-style drain of the
         // only event, depth must be zero (not left at 1 from a late increment).
