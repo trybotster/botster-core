@@ -26,6 +26,12 @@
 ## Prior findings (still resolved)
 - Ghostty-only hard cutover; hub-shaped exact assertions; plain-lane docs removed; plan path-neutral + whitespace clean
 
+
+## Verify findings addressed (this revision)
+| Finding | Fix |
+| --- | --- |
+| `[documentation] Remove the stale 1 MiB PTY-tail snapshot claim` | `CoreDaemon::capture_snapshot` docs now describe Ghostty page-budget scrollback (default 10 MB) instead of a 1 MiB PTY-tail claim. |
+
 ## Files changed (latest rework)
 - `crates/botster-core-daemon/src/daemon.rs` — optional host color profile config seam; no production RGB defaults
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs` — host-supplied profile for OSC proof; bound OSC identifier+value asserts

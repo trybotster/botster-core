@@ -546,8 +546,11 @@ impl CoreDaemon {
     /// Capture the current terminal snapshot through the production daemon path.
     ///
     /// The payload is Ghostty-owned opaque terminal state (`GHOSTSNP` /
-    /// `ghostty-terminal-snapshot-v1`). Production daemons retain at most the
-    /// most recent 1 MiB of PTY bytes.
+    /// `ghostty-terminal-snapshot-v1`). Scrollback retention is governed by
+    /// [`CoreDaemonConfig::ghostty_max_scrollback_bytes`] (default 10 MB of
+    /// Ghostty page-allocation budget). Ghostty stores page-quantized parsed
+    /// terminal state rather than a raw PTY byte tail, so effective retained
+    /// lines depend on terminal width.
     pub fn capture_snapshot(
         &mut self,
         request: CaptureSnapshotRequest,
