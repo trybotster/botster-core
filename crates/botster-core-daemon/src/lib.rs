@@ -12,16 +12,16 @@ pub mod registry;
 
 pub use api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
-    CaptureSnapshotRequest, CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus,
-    DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
-    DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
-    PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
-    PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
-    ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
-    SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChange,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SpawnSessionRequest,
+    CaptureColorAndSnapshotRequest, CaptureColorAndSnapshotResult, CaptureSnapshotRequest,
+    CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
+    DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
+    GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult, PostNotificationRequest,
+    PostNotificationResult, PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult,
+    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleChange, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleRecord,
+    SessionLifecycleResyncReason, SessionLifecycleSourceId, SpawnSessionRequest,
 };
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError};
 pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};

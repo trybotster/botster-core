@@ -41,20 +41,34 @@ terminal output. It must not re-route the returned session requests; those
 requests are an already-routed record from the engine, not daemon follow-up
 work.
 
-Screen reads, mode reads, and snapshot captures are also part of the typed production daemon
-API. `CoreDaemon::read_screen`, `CoreDaemon::read_mode_flags`, and
-`CoreDaemon::capture_snapshot` internally
-drain the target session before reading terminal state because worker-backed
-terminal truth advances on the drain path. Any client egress or observations
-produced by that internal drain are retained and prepended to the next explicit
-`CoreDaemon::drain` result for the session, matching the attach retention
-contract. Natural-exit readback retention does not consume the host's pending
-`CoreDaemon::drain` obligation: final egress remains available exactly once.
+Screen reads, mode reads, snapshot captures, and atomic color+snapshot captures
+are also part of the typed production daemon API.
+`CoreDaemon::read_screen`, `CoreDaemon::read_mode_flags`,
+`CoreDaemon::capture_snapshot`, and `CoreDaemon::capture_color_and_snapshot`
+internally drain the target session before reading terminal state because
+worker-backed terminal truth advances on the drain path. Any client egress or
+observations produced by that internal drain are retained and prepended to the
+next explicit `CoreDaemon::drain` result for the session, matching the attach
+retention contract. Natural-exit readback retention does not consume the host's
+pending `CoreDaemon::drain` obligation: final egress remains available exactly
+once.
+
+`CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
+current Ghostty colors and durable GHOSTSNP state. It returns
+`TerminalColorProfile` (full 256 palette plus reserved special indexes
+`0x1000` foreground, `0x1001` background, `0x1002` cursor) together with the
+opaque snapshot payload from **one** session terminal borrow after drain. Hosts
+must not reconstruct agreement by calling independent color and snapshot reads.
+Host-supplied `CoreDaemonConfig::with_terminal_color_profile` remains
+spawn/initial baseline only; after session start Ghostty owns current
+palette/specials (including OSC 4/10/11/12 mutations). GHOSTSNP remains the
+authoritative durable state for late attach/reconnect.
 
 After final PTY output is drained, natural exit and per-session shutdown freeze
-one immutable paired screen/snapshot/mode-read record. `read_screen`,
-`read_mode_flags`, and `capture_snapshot` serve that same record symmetrically, repeatedly, and
-idempotently without polling the dead runtime. The exited session stays
+one immutable paired screen/snapshot/mode-read/color-profile record.
+`read_screen`, `read_mode_flags`, `capture_snapshot`, and
+`capture_color_and_snapshot` serve that same record symmetrically, repeatedly,
+and idempotently without polling the dead runtime. The exited session stays
 read-only and cannot be resized, written, attached for reactivation, or resumed
 through this record. No valid paired final capture yields
 `SessionNotReadable`; blank or opaque bytes are never invented as fallback
@@ -113,7 +127,8 @@ changes. `SessionLifecycleChange` contains session projection facts only;
 on the existing drain/data plane.
 
 Snapshot payloads are Ghostty-owned opaque terminal state. Production
-`CoreDaemon::capture_snapshot` returns `GHOSTSNP` bytes labeled
+`CoreDaemon::capture_snapshot` and the snapshot half of
+`CoreDaemon::capture_color_and_snapshot` return `GHOSTSNP` bytes labeled
 `ghostty-terminal-snapshot-v1`. There is no daemon plain/`plain-opaque-v1`
 production path; `PlainTerminalScreenRuntime` is only a `botster-core` library
 or unit-test harness.
@@ -123,7 +138,9 @@ or unit-test harness.
 uses the sibling `botster-terminal-ghostty` crate and its `libghostty-vt`
 feature as the production terminal backend. On that path,
 `CoreDaemon::read_screen` returns Ghostty-formatted plain text and
-`CoreDaemon::capture_snapshot` returns opaque Ghostty snapshot bytes. The
+`CoreDaemon::capture_snapshot` returns opaque Ghostty snapshot bytes. Atomic
+color+snapshot capture proves GHOSTSNP content by replaying the payload into a
+fresh Ghostty terminal and comparing the restored color profile. The
 daemon configures Ghostty with a 10 MB
 retained scrollback byte budget. Ghostty stores parsed terminal pages instead
 of a raw byte tail, so the effective retained line count is page-quantized and

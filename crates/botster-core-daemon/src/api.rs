@@ -7,7 +7,7 @@ use botster_core::{
     RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome,
     RoutedEnvelopePublishOutcome, ScreenReady, SessionId, SessionLifecycleState,
     SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SnapshotReady,
-    SubscriptionId, TerminalSnapshotPayload, TransportEgress,
+    SubscriptionId, TerminalColorProfile, TerminalSnapshotPayload, TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -181,6 +181,20 @@ pub struct CaptureSnapshotResult {
     pub payload: TerminalSnapshotPayload,
 }
 
+/// Result of an atomic color-profile + GHOSTSNP capture.
+///
+/// Both values come from one terminal ownership critical section so attach and
+/// reconnect consumers cannot observe colors that disagree with the snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureColorAndSnapshotResult {
+    /// Ghostty-owned current palette and special colors (reserved indexes).
+    pub color_profile: TerminalColorProfile,
+    /// Correlated snapshot response from the core session contract.
+    pub snapshot: SnapshotReady,
+    /// Backend-neutral reusable payload, including the runtime-owned format label.
+    pub payload: TerminalSnapshotPayload,
+}
+
 /// Host request to read the current terminal screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadScreenRequest {
@@ -209,6 +223,17 @@ pub struct CaptureSnapshotRequest {
     /// Request correlation id.
     pub request_id: RequestId,
     /// Session to snapshot.
+    pub session_id: SessionId,
+    /// Logical timestamp used for the internal drain-before-read step.
+    pub now_seconds: u64,
+}
+
+/// Host request to capture current colors and GHOSTSNP atomically.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureColorAndSnapshotRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to read.
     pub session_id: SessionId,
     /// Logical timestamp used for the internal drain-before-read step.
     pub now_seconds: u64,
