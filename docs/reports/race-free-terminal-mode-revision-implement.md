@@ -1,29 +1,31 @@
-# Implementation report: Race-free terminal mode revision (review rework 6)
+# Implementation report: Race-free terminal mode revision (review rework 7)
 
 ## Target repository and target_id
 - Target repository: `botster-core`
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 - Run: `run_1786479064_760292`
-- Run step: `run_step_1786488144_829112`
+- Run step: `run_step_1786488790_304838`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- Addresses review: `review_1786488132_330624`
-- Implementation SHA: `81338d1f5a72c67e0e64964210b9c51f863a9741`
+- Addresses review: `review_1786488779_536913`
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
 - Worker atomic admit binding from `question_1786481243_140177`
 
-## Findings addressed (review_1786488132)
+## Findings addressed (review_1786488779)
 | Finding | Fix |
 | --- | --- |
-| Retained output hides sticky authority on first gated op | `PtyIoBarrier::ensure_mode_authority()`; worker `apply_barrier_outputs` applies retained drain then **always** calls ensure before returning Ok. Probe/admit cannot succeed after sticky overflow. |
-| Normal drain can reverse events during pending transfer | Reader uses a **single fence-owned FIFO** for ownership (no production pending→channel transfer). Concurrent normal drains cannot reverse mid-transfer. |
-| Tests permit remaining defects | Overflow test requires **every** post-overflow probe (incl. first) and gated call to fail. Transfer-hold production test retained. |
+| Concurrent drain can leak reader depth | `push_pending` / `take_pending` update `pressure.depth` under the **same** pending lock as queue mutation. |
+| Dual-buffer path left alive after single-queue migration | Cold-removed channel `Receiver`/`Sender`, `try_flush_pending_to_channel`, and channel drain path. Reader finishes via `reader_finished` atomic. |
+| Obsolete dual-buffer tests | Replaced with single-queue FIFO, concurrent depth, overflow, and finalization unit tests. |
+
+### Carry-forward still green
+- `ensure_mode_authority` after barrier apply (sticky overflow)
+- Strict post-overflow probe/admit matrix
+- Transfer-hold production test on single-queue enqueue window
 
 ## Files changed
-- `crates/botster-core/src/runtime/local_process.rs` — single-queue ownership; `ensure_mode_authority`
-- `crates/botster-core-daemon/src/bin/botster-session-worker.rs` — apply retained then ensure
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — strict overflow matrix
+- `crates/botster-core/src/runtime/local_process.rs` — pure single-queue ownership + atomic depth
 - Implement report
 
 ## Ownership boundaries preserved
@@ -33,18 +35,19 @@
 - Hub ticket `ticket_1786471489_718500` remains dependent; no Hub product edits
 
 ## Deviations from plan
-- None material; single queue is the durable FIFO boundary for mode authority
+- None material
 
 ## Tests and downstream proof
 - `cargo fmt --all`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `BOTSTER_ENV=test cargo test --workspace`
-- All 12 `worker_backed_mode_gated_*` including strict overflow and transfer-hold
+- Unit: `concurrent_drain_does_not_leak_reader_depth`, `single_queue_fifo_order_is_preserved`, overflow/finalization
+- All `worker_backed_mode_gated_*` production suite
 
 ## Unverified behavior / residual risk
 - Adopt mid-wait fail-closed via disconnect/timeout only
 - Dual Ghostty intentional
-- Unqueued overflow chunk is still lost at overflow; sticky fail prevents false admit
+- Overflow still loses the unqueued current chunk; sticky fail prevents false admit
 
 ## Missing vault guidance
 - None
