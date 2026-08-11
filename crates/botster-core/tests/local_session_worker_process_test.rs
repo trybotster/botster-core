@@ -128,6 +128,8 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         control_socket_dir: None,
         mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
         test_mode_gated_hold_ms: None,
+        test_hold_after_read_ms: None,
+        test_write_block_until_unix_ms: None,
     }
 }
 

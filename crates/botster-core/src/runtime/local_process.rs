@@ -56,6 +56,11 @@ pub struct LocalProcessRuntimeOptions {
     ///
     /// Values below one are clamped to one chunk when the reader starts.
     pub pty_reader_chunk_capacity: usize,
+    /// Test-only: hold after a successful PTY read while still inside the reader
+    /// critical section, before channel publication.
+    pub test_hold_after_read_ms: Option<u64>,
+    /// Test-only: force write attempts to return `WouldBlock` until this Unix ms.
+    pub test_write_block_until_unix_ms: Option<u64>,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -64,6 +69,8 @@ impl Default for LocalProcessRuntimeOptions {
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             poll_interval: POLL_INTERVAL,
             pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
+            test_hold_after_read_ms: None,
+            test_write_block_until_unix_ms: None,
         }
     }
 }
@@ -78,6 +85,7 @@ impl Default for LocalProcessRuntimeOptions {
 pub struct LocalProcessRuntime {
     registry: Arc<LocalProcessRegistry>,
     options: LocalProcessRuntimeOptions,
+    write_test_hooks: Arc<WriteTestHooks>,
 }
 
 impl Default for LocalProcessRuntime {
@@ -98,6 +106,7 @@ impl LocalProcessRuntime {
     pub fn with_options(options: LocalProcessRuntimeOptions) -> Self {
         Self {
             registry: Arc::new(LocalProcessRegistry::default()),
+            write_test_hooks: Arc::new(WriteTestHooks::from_options(&options)),
             options,
         }
     }
@@ -178,7 +187,11 @@ impl SessionRuntime for LocalProcessRuntime {
                 format!("open pty writer failed: {error}"),
             )
         })?;
-        let reader_fence = Arc::new(ReaderFence::default());
+        let reader_fence = Arc::new(ReaderFence {
+            state: Mutex::new(ReaderFenceState::default()),
+            cv: Condvar::new(),
+            test_hold_after_read_ms: self.options.test_hold_after_read_ms,
+        });
         let (output, output_pressure, output_capacity) = spawn_reader(
             reader,
             self.options.pty_reader_chunk_capacity,
@@ -203,6 +216,7 @@ impl SessionRuntime for LocalProcessRuntime {
                 reader_disconnected: false,
                 pending_reader_error: None,
                 reader_fence,
+                write_test_hooks: Arc::clone(&self.write_test_hooks),
             },
         )?;
 
@@ -273,8 +287,21 @@ impl PtyIoBarrier<'_> {
     }
 
     /// Write raw PTY input while the reader remains paused.
-    pub fn write_input(&mut self, data: &[u8]) -> Result<(), SessionRuntimeError> {
-        write_all_blocking(&mut self.session.writer, data)
+    ///
+    /// When `deadline_unix_ms` is set, the write fails closed at or after that
+    /// wall-clock instant and does not keep retrying past the deadline.
+    pub fn write_input(
+        &mut self,
+        data: &[u8],
+        deadline_unix_ms: Option<u64>,
+    ) -> Result<(), SessionRuntimeError> {
+        let hooks = Arc::clone(&self.session.write_test_hooks);
+        write_all_blocking(
+            &mut self.session.writer,
+            data,
+            deadline_unix_ms,
+            Some(hooks.as_ref()),
+        )
     }
 }
 
@@ -418,7 +445,8 @@ impl LocalProcessRegistry {
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
-        write_all_blocking(&mut session.writer, data)
+        let hooks = Arc::clone(&session.write_test_hooks);
+        write_all_blocking(&mut session.writer, data, None, Some(hooks.as_ref()))
     }
 
     fn resize(
@@ -569,12 +597,26 @@ struct LocalSession {
     reader_disconnected: bool,
     pending_reader_error: Option<String>,
     reader_fence: Arc<ReaderFence>,
+    write_test_hooks: Arc<WriteTestHooks>,
 }
 
-#[derive(Default)]
 struct ReaderFence {
     state: Mutex<ReaderFenceState>,
     cv: Condvar,
+    test_hold_after_read_ms: Option<u64>,
+}
+
+#[derive(Default)]
+struct WriteTestHooks {
+    force_would_block_until_unix_ms: Option<u64>,
+}
+
+impl WriteTestHooks {
+    fn from_options(options: &LocalProcessRuntimeOptions) -> Self {
+        Self {
+            force_would_block_until_unix_ms: options.test_write_block_until_unix_ms,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -894,7 +936,8 @@ fn spawn_reader(
     thread::spawn(move || {
         let mut buffer = [0; PTY_READER_BUFFER_BYTES];
         loop {
-            // Wait while paused, then mark critical around the non-blocking read.
+            // Wait while paused, then mark critical around the non-blocking read
+            // and channel publication so unpublished chunks never leave the fence.
             fence.enter_critical();
             let read_result = reader.read(&mut buffer);
             match read_result {
@@ -904,11 +947,16 @@ fn spawn_reader(
                 }
                 Ok(bytes_read) => {
                     let chunk = buffer[..bytes_read].to_vec();
-                    // Leave critical before a potentially blocking channel send.
+                    if let Some(hold_ms) = fence.test_hold_after_read_ms {
+                        if hold_ms > 0 {
+                            // Stay critical: barrier must wait for publication.
+                            thread::sleep(Duration::from_millis(hold_ms));
+                        }
+                    }
+                    let publish =
+                        send_reader_event(&sender, &reader_pressure, ReaderEvent::Output(chunk));
                     fence.leave_critical();
-                    if send_reader_event(&sender, &reader_pressure, ReaderEvent::Output(chunk))
-                        .is_err()
-                    {
+                    if publish.is_err() {
                         break;
                     }
                 }
@@ -924,12 +972,13 @@ fn spawn_reader(
                     break;
                 }
                 Err(error) => {
-                    fence.leave_critical();
-                    let _ = send_reader_event(
+                    let publish = send_reader_event(
                         &sender,
                         &reader_pressure,
                         ReaderEvent::Failed(format!("read pty output failed: {error}")),
                     );
+                    fence.leave_critical();
+                    let _ = publish;
                     break;
                 }
             }
@@ -941,9 +990,33 @@ fn spawn_reader(
 fn write_all_blocking(
     writer: &mut Box<dyn Write + Send>,
     data: &[u8],
+    deadline_unix_ms: Option<u64>,
+    write_test_hooks: Option<&WriteTestHooks>,
 ) -> Result<(), SessionRuntimeError> {
+    if data.is_empty() {
+        return Ok(());
+    }
+    if deadline_reached(deadline_unix_ms) {
+        return Err(SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "write pty input failed: deadline_exceeded before write",
+        ));
+    }
     let mut offset = 0;
     while offset < data.len() {
+        if deadline_reached(deadline_unix_ms) {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                format!(
+                    "write pty input failed: deadline_exceeded after {offset} of {} bytes",
+                    data.len()
+                ),
+            ));
+        }
+        if force_write_would_block(write_test_hooks) {
+            thread::sleep(Duration::from_millis(1));
+            continue;
+        }
         match writer.write(&data[offset..]) {
             Ok(0) => {
                 return Err(SessionRuntimeError::new(
@@ -956,6 +1029,15 @@ fn write_all_blocking(
                 if error.kind() == io::ErrorKind::WouldBlock
                     || error.kind() == io::ErrorKind::Interrupted =>
             {
+                if deadline_reached(deadline_unix_ms) {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::InputFailed,
+                        format!(
+                            "write pty input failed: deadline_exceeded after {offset} of {} bytes",
+                            data.len()
+                        ),
+                    ));
+                }
                 thread::sleep(Duration::from_millis(1));
             }
             Err(error) => {
@@ -967,6 +1049,16 @@ fn write_all_blocking(
         }
     }
     loop {
+        if deadline_reached(deadline_unix_ms) {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "write pty input failed: deadline_exceeded during flush",
+            ));
+        }
+        if force_write_would_block(write_test_hooks) {
+            thread::sleep(Duration::from_millis(1));
+            continue;
+        }
         match writer.flush() {
             Ok(()) => return Ok(()),
             Err(error)
@@ -983,6 +1075,27 @@ fn write_all_blocking(
             }
         }
     }
+}
+
+fn deadline_reached(deadline_unix_ms: Option<u64>) -> bool {
+    match deadline_unix_ms {
+        Some(deadline) => unix_now_ms() >= deadline,
+        None => false,
+    }
+}
+
+fn force_write_would_block(write_test_hooks: Option<&WriteTestHooks>) -> bool {
+    match write_test_hooks.and_then(|hooks| hooks.force_would_block_until_unix_ms) {
+        Some(until) => unix_now_ms() < until,
+        None => false,
+    }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn set_master_nonblocking(master: &dyn MasterPty) -> Result<(), SessionRuntimeError> {

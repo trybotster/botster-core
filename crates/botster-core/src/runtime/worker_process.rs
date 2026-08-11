@@ -91,6 +91,10 @@ pub struct WorkerProcessRuntimeOptions {
     pub mode_gated_input_timeout: Duration,
     /// Optional per-request worker admit hold for deterministic race tests.
     pub test_mode_gated_hold_ms: Option<u64>,
+    /// Test-only: hold after PTY read before channel publication (worker CLI).
+    pub test_hold_after_read_ms: Option<u64>,
+    /// Test-only: force write WouldBlock until this Unix ms (worker CLI).
+    pub test_write_block_until_unix_ms: Option<u64>,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -106,6 +110,8 @@ impl WorkerProcessRuntimeOptions {
             control_socket_dir: None,
             mode_gated_input_timeout: DEFAULT_MODE_GATED_INPUT_TIMEOUT,
             test_mode_gated_hold_ms: None,
+            test_hold_after_read_ms: None,
+            test_write_block_until_unix_ms: None,
         }
     }
 
@@ -120,6 +126,20 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_mode_gated_hold_ms = hold_ms;
+        self
+    }
+
+    /// Set the test-only after-read hold for unpublished-chunk race proofs.
+    #[must_use]
+    pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_after_read_ms = hold_ms;
+        self
+    }
+
+    /// Set the test-only write backpressure deadline for timeout proofs.
+    #[must_use]
+    pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
+        self.test_write_block_until_unix_ms = until;
         self
     }
 }
@@ -277,6 +297,12 @@ impl WorkerProcessRuntime {
                 }
             };
             if let Some(payload) = matched {
+                if let Some(error_kind) = payload.error_kind {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        error_kind,
+                    ));
+                }
                 return Ok(payload);
             }
             if Instant::now() >= deadline {
@@ -575,6 +601,16 @@ impl SessionRuntime for WorkerProcessRuntime {
             .arg("--poll-interval-ms")
             .arg(self.options.poll_interval_ms.to_string())
             .stderr(Stdio::piped());
+        if let Some(hold_ms) = self.options.test_hold_after_read_ms {
+            command
+                .arg("--test-hold-after-read-ms")
+                .arg(hold_ms.to_string());
+        }
+        if let Some(until) = self.options.test_write_block_until_unix_ms {
+            command
+                .arg("--test-write-block-until-unix-ms")
+                .arg(until.to_string());
+        }
 
         #[cfg(unix)]
         let socket_path = self

@@ -79,6 +79,10 @@ pub struct CoreDaemonConfig {
     pub mode_gated_input_timeout: Duration,
     /// Optional per-request worker admit hold for deterministic race tests.
     pub test_mode_gated_hold_ms: Option<u64>,
+    /// Test-only: hold after PTY read before channel publication.
+    pub test_hold_after_read_ms: Option<u64>,
+    /// Test-only: force write WouldBlock until this Unix ms.
+    pub test_write_block_until_unix_ms: Option<u64>,
 }
 
 impl CoreDaemonConfig {
@@ -95,6 +99,8 @@ impl CoreDaemonConfig {
             terminal_color_profile: None,
             mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
             test_mode_gated_hold_ms: None,
+            test_hold_after_read_ms: None,
+            test_write_block_until_unix_ms: None,
         }
     }
 
@@ -109,6 +115,20 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_mode_gated_hold_ms = hold_ms;
+        self
+    }
+
+    /// Set the test-only after-read publication hold for unpublished-chunk proofs.
+    #[must_use]
+    pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_after_read_ms = hold_ms;
+        self
+    }
+
+    /// Set the test-only write backpressure bound for deadline proofs.
+    #[must_use]
+    pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
+        self.test_write_block_until_unix_ms = until;
         self
     }
 
@@ -249,6 +269,8 @@ impl CoreDaemon {
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
                 options.mode_gated_input_timeout = config.mode_gated_input_timeout;
                 options.test_mode_gated_hold_ms = config.test_mode_gated_hold_ms;
+                options.test_hold_after_read_ms = config.test_hold_after_read_ms;
+                options.test_write_block_until_unix_ms = config.test_write_block_until_unix_ms;
                 DaemonEngine::Worker(worker_engine(
                     options,
                     ghostty_max_scrollback_bytes,

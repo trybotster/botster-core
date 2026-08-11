@@ -76,6 +76,8 @@ fn run() -> Result<(), String> {
         shutdown_grace: Duration::from_millis(args.shutdown_grace_ms),
         poll_interval: Duration::from_millis(args.poll_interval_ms),
         pty_reader_chunk_capacity: args.pty_reader_chunk_capacity,
+        test_hold_after_read_ms: args.test_hold_after_read_ms,
+        test_write_block_until_unix_ms: args.test_write_block_until_unix_ms,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
     let handle = runtime
@@ -176,7 +178,7 @@ fn run() -> Result<(), String> {
                                 .unwrap_or_default();
                         // Probe under the same reader fence so returned modes
                         // cannot race with later unapplied PTY output.
-                        let _ = runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
+                        match runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
                             apply_barrier_outputs(
                                 barrier,
                                 &mut ghostty,
@@ -185,15 +187,32 @@ fn run() -> Result<(), String> {
                                 &mut metadata_shaper,
                                 &egress,
                             )
-                        });
-                        egress.send_protected_json(
-                            FRAME_MODE_FLAGS,
-                            &ModeFlagsPayload {
-                                request_id: probe_request_id,
-                                mode_flags: mode_owner.mode_flags.clone(),
-                                mode_freshness: mode_owner.token(),
-                            },
-                        );
+                        }) {
+                            Ok(()) => {
+                                egress.send_protected_json(
+                                    FRAME_MODE_FLAGS,
+                                    &ModeFlagsPayload {
+                                        request_id: probe_request_id,
+                                        mode_flags: mode_owner.mode_flags.clone(),
+                                        mode_freshness: mode_owner.token(),
+                                        error_kind: None,
+                                    },
+                                );
+                            }
+                            Err(error) => {
+                                // Fail closed: correlated explicit probe failure,
+                                // not a successful token after a drain error.
+                                egress.send_protected_json(
+                                    FRAME_MODE_FLAGS,
+                                    &ModeFlagsPayload {
+                                        request_id: probe_request_id,
+                                        mode_flags: mode_owner.mode_flags.clone(),
+                                        mode_freshness: mode_owner.token(),
+                                        error_kind: Some(error.to_string()),
+                                    },
+                                );
+                            }
+                        }
                     }
                     FRAME_RESIZE => {
                         let size: ResizePayload = serde_json::from_slice(&frame.payload)
@@ -439,7 +458,8 @@ fn atomic_mode_gated_admit(
                 error_kind: Some("revision_overflow".to_string()),
             });
         }
-        if unix_now_ms() > deadline_unix_ms {
+        // Fail closed at or after the parent deadline (inclusive).
+        if unix_now_ms() >= deadline_unix_ms {
             return Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: false,
@@ -457,24 +477,23 @@ fn atomic_mode_gated_admit(
                 error_kind: None,
             });
         }
-        // Final deadline check immediately before the write fence.
-        if unix_now_ms() > deadline_unix_ms {
-            return Ok(ModeGatedPtyInputResult {
+        // Bound the complete write, including WouldBlock retries.
+        match barrier.write_input(&data, Some(deadline_unix_ms)) {
+            Ok(()) => Ok(ModeGatedPtyInputResult {
+                request_id: request_id.clone(),
+                admitted: true,
+                mode_flags: mode_owner.mode_flags.clone(),
+                mode_freshness: current,
+                error_kind: None,
+            }),
+            Err(error) => Ok(ModeGatedPtyInputResult {
                 request_id: request_id.clone(),
                 admitted: false,
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
-                error_kind: Some("deadline_exceeded".to_string()),
-            });
+                error_kind: Some(error.message),
+            }),
         }
-        barrier.write_input(&data)?;
-        Ok(ModeGatedPtyInputResult {
-            request_id: request_id.clone(),
-            admitted: true,
-            mode_flags: mode_owner.mode_flags.clone(),
-            mode_freshness: current,
-            error_kind: None,
-        })
     });
 
     match outcome {
@@ -1078,6 +1097,8 @@ struct WorkerArgs {
     shutdown_grace_ms: u64,
     poll_interval_ms: u64,
     control_socket: Option<PathBuf>,
+    test_hold_after_read_ms: Option<u64>,
+    test_write_block_until_unix_ms: Option<u64>,
 }
 
 impl WorkerArgs {
@@ -1087,6 +1108,8 @@ impl WorkerArgs {
         let mut shutdown_grace_ms = 500;
         let mut poll_interval_ms = 10;
         let mut control_socket = None;
+        let mut test_hold_after_read_ms = None;
+        let mut test_write_block_until_unix_ms = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -1115,6 +1138,16 @@ impl WorkerArgs {
                         "--control-socket",
                     )?));
                 }
+                "--test-hold-after-read-ms" => {
+                    index += 1;
+                    test_hold_after_read_ms =
+                        Some(parse_arg(&args, index, "--test-hold-after-read-ms")?);
+                }
+                "--test-write-block-until-unix-ms" => {
+                    index += 1;
+                    test_write_block_until_unix_ms =
+                        Some(parse_arg(&args, index, "--test-write-block-until-unix-ms")?);
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -1126,6 +1159,8 @@ impl WorkerArgs {
             shutdown_grace_ms,
             poll_interval_ms,
             control_socket,
+            test_hold_after_read_ms,
+            test_write_block_until_unix_ms,
         })
     }
 }
