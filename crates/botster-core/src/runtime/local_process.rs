@@ -191,12 +191,18 @@ impl SessionRuntime for LocalProcessRuntime {
             )
         })?;
         let reader_capacity = self.options.pty_reader_chunk_capacity.max(1);
+        // Fence pending is a second ownership tier after the channel. Size it
+        // larger than the channel so try_send Full can report backpressure
+        // without immediately fail-closing, while still bounding retained
+        // unpublished chunks and never dropping parser input.
+        let pending_capacity = reader_capacity.saturating_mul(8).max(256);
         let reader_fence = Arc::new(ReaderFence {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             test_hold_after_read_ms: self.options.test_hold_after_read_ms,
             pending: Mutex::new(VecDeque::new()),
-            pending_capacity: reader_capacity,
+            pending_capacity,
+            overflow_error: Mutex::new(None),
         });
         let (output, output_pressure, output_capacity) =
             spawn_reader(reader, reader_capacity, Arc::clone(&reader_fence));
@@ -269,13 +275,10 @@ impl PtyIoBarrier<'_> {
         if let Some(message) = self.session.pending_reader_error.take() {
             return Err(reader_error(message));
         }
-        // Fence-owned unpublished events first (never blocked behind channel send).
-        let mut output = drain_fence_pending(
-            &self.session.reader_fence,
-            &self.session_id,
-            &self.session.output_pressure,
-        )?;
-        output.extend(drain_reader_output(&mut self.session, &self.session_id)?);
+        // FIFO across the dual buffers: channel holds older flushed events,
+        // fence pending holds newer unpublished events. Residual is newest
+        // (not yet captured by the background reader).
+        let mut output = drain_reader_output(&mut self.session, &self.session_id)?;
         output.extend(drain_residual_reader(
             &mut self.session.residual_reader,
             &self.session_id,
@@ -647,8 +650,13 @@ struct ReaderFence {
     test_hold_after_read_ms: Option<u64>,
     /// Unpublished reader events that stay inside the ordering boundary until
     /// a barrier or normal drain consumes them. Never uses blocking channel send.
+    /// Newer than anything already flushed into the reader channel.
     pending: Mutex<VecDeque<ReaderEvent>>,
     pending_capacity: usize,
+    /// Set when a read cannot be enqueued without dropping prior PTY bytes.
+    /// Authority is incomplete; drains surface this after FIFO delivery of
+    /// retained events so the session fails closed instead of silent loss.
+    overflow_error: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -725,14 +733,14 @@ impl ReaderFence {
         }
     }
 
-    fn push_pending(&self, event: ReaderEvent) -> Result<(), ()> {
+    /// Enqueue without dropping. Returns `Err(event)` when at capacity so the
+    /// caller can fail closed instead of silently discarding PTY parser input.
+    fn push_pending(&self, event: ReaderEvent) -> Result<(), ReaderEvent> {
         let Ok(mut pending) = self.pending.lock() else {
-            return Err(());
+            return Err(event);
         };
         if pending.len() >= self.pending_capacity {
-            // Bounded: drop oldest unpublished event under pressure, same as
-            // channel overflow would force progress without deadlocking.
-            let _ = pending.pop_front();
+            return Err(event);
         }
         pending.push_back(event);
         Ok(())
@@ -743,6 +751,21 @@ impl ReaderFence {
             .lock()
             .map(|mut pending| pending.drain(..).collect())
             .unwrap_or_default()
+    }
+
+    fn take_overflow_error(&self) -> Option<String> {
+        self.overflow_error
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+    }
+
+    fn set_overflow_error(&self, message: impl Into<String>) {
+        if let Ok(mut slot) = self.overflow_error.lock() {
+            if slot.is_none() {
+                *slot = Some(message.into());
+            }
+        }
     }
 
     /// Non-blocking flush of fence-owned pending events into the reader channel.
@@ -784,6 +807,7 @@ impl ReaderFence {
     }
 }
 
+#[derive(Debug)]
 enum ReaderEvent {
     Output(Vec<u8>),
     Failed(String),
@@ -914,16 +938,25 @@ fn drain_reader_output(
     session: &mut LocalSession,
     session_id: &SessionId,
 ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-    let mut output =
-        drain_fence_pending(&session.reader_fence, session_id, &session.output_pressure)?;
-    output.extend(drain_reader_events(
+    // Channel first (older flushed events), then fence pending (newer
+    // unpublished). Reversing this order rewrites Ghostty mode history.
+    let mut output = drain_reader_events(
         &session.output,
         &session.output_pressure,
         session.output_capacity,
         &mut session.reader_disconnected,
         &mut session.pending_reader_error,
         session_id,
+    )?;
+    output.extend(drain_fence_pending(
+        &session.reader_fence,
+        session_id,
+        &session.output_pressure,
     )?);
+    if let Some(message) = session.reader_fence.take_overflow_error() {
+        session.pending_reader_error = Some(message.clone());
+        return Err(reader_error(message));
+    }
     Ok(output)
 }
 
@@ -1086,19 +1119,31 @@ fn spawn_reader(
                             thread::sleep(Duration::from_millis(hold_ms));
                         }
                     }
-                    // Depth tracks fence-pending + channel occupancy for backpressure.
-                    reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
-                    if fence.push_pending(ReaderEvent::Output(chunk)).is_err() {
-                        fence.leave_critical();
-                        break;
-                    }
-                    fence.leave_critical();
-                    // Non-blocking flush only. Barrier drains fence.pending itself.
-                    if fence
-                        .try_flush_pending_to_channel(&sender, &reader_pressure)
-                        .is_err()
-                    {
-                        break;
+                    // Opportunistic nonblocking flush under critical frees pending
+                    // room without blocking the admission fence.
+                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
+                    match fence.push_pending(ReaderEvent::Output(chunk)) {
+                        Ok(()) => {
+                            // Depth tracks fence-pending + channel occupancy.
+                            reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
+                            fence.leave_critical();
+                            // Non-blocking flush only. Barrier drains both buffers.
+                            if fence
+                                .try_flush_pending_to_channel(&sender, &reader_pressure)
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(_unqueued) => {
+                            // Never drop retained PTY bytes. Fail closed so mode
+                            // authority cannot silently lose transitions.
+                            fence.set_overflow_error(
+                                "pty reader buffer overflow: mode authority incomplete",
+                            );
+                            fence.leave_critical();
+                            break;
+                        }
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -1115,10 +1160,19 @@ fn spawn_reader(
                     break;
                 }
                 Err(error) => {
-                    reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
-                    let _ = fence.push_pending(ReaderEvent::Failed(format!(
+                    let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
+                    match fence.push_pending(ReaderEvent::Failed(format!(
                         "read pty output failed: {error}"
-                    )));
+                    ))) {
+                        Ok(()) => {
+                            reader_pressure.depth.fetch_add(1, Ordering::AcqRel);
+                        }
+                        Err(_) => {
+                            fence.set_overflow_error(format!(
+                                "read pty output failed (buffer full): {error}"
+                            ));
+                        }
+                    }
                     fence.leave_critical();
                     let _ = fence.try_flush_pending_to_channel(&sender, &reader_pressure);
                     break;
@@ -1574,18 +1628,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn full_reader_channel_keeps_pending_on_fence_without_blocking() {
-        // Capacity-1 channel already full: try_flush must requeue to the fence
-        // and return, never block. Barrier drain then recovers the unpublished
-        // chunk from fence pending.
-        let fence = Arc::new(ReaderFence {
+    fn test_fence(pending_capacity: usize) -> Arc<ReaderFence> {
+        Arc::new(ReaderFence {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             test_hold_after_read_ms: None,
             pending: Mutex::new(VecDeque::new()),
-            pending_capacity: 4,
-        });
+            pending_capacity,
+            overflow_error: Mutex::new(None),
+        })
+    }
+
+    #[test]
+    fn full_reader_channel_keeps_pending_on_fence_without_blocking() {
+        // Capacity-1 channel already full: try_flush must requeue to the fence
+        // and return, never block. Barrier drain recovers FIFO: channel then pending.
+        let fence = test_fence(4);
         let pressure = Arc::new(ReaderPressure::default());
         let (sender, receiver) = mpsc::sync_channel(1);
         sender
@@ -1612,17 +1670,106 @@ mod tests {
             .try_flush_pending_to_channel(&sender, &pressure)
             .expect("second flush still non-blocking");
 
-        // Drain fence pending as the admission barrier does.
-        let drained = drain_fence_pending(&fence, &test_session_id(), &pressure).expect("drain");
+        // FIFO drain: older channel occupant, then newer fence pending.
+        let mut drained = Vec::new();
+        match receiver.try_recv() {
+            Ok(ReaderEvent::Output(data)) => {
+                decrement_reader_depth(&pressure);
+                drained.push(data);
+            }
+            other => panic!("expected channel occupant, got {other:?}"),
+        }
+        drained.extend(
+            drain_fence_pending(&fence, &test_session_id(), &pressure)
+                .expect("pending drain")
+                .into_iter()
+                .filter_map(|out| match out {
+                    SessionRuntimeOutput::PtyOutput { data, .. } => Some(data),
+                    _ => None,
+                }),
+        );
+        assert_eq!(
+            drained,
+            vec![b"occupying".to_vec(), b"mode-chunk".to_vec()],
+            "channel-before-pending FIFO must hold"
+        );
+    }
+
+    #[test]
+    fn barrier_drain_order_is_channel_then_pending() {
+        // Opposite mode transitions: older enable in channel, newer disable in
+        // pending. Drain must apply enable then disable (not reverse).
+        let fence = test_fence(4);
+        let pressure = Arc::new(ReaderPressure::default());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let enable = b"\x1b[?1000h".to_vec();
+        let disable = b"\x1b[?1000l".to_vec();
+        sender
+            .try_send(ReaderEvent::Output(enable.clone()))
+            .expect("channel");
+        pressure.depth.fetch_add(1, Ordering::AcqRel);
+        fence
+            .push_pending(ReaderEvent::Output(disable.clone()))
+            .expect("pending");
+        pressure.depth.fetch_add(1, Ordering::AcqRel);
+
+        // Simulate drain_reader_output order without a full session.
+        let mut ordered = Vec::new();
+        let mut disconnected = false;
+        let mut pending_err = None;
+        ordered.extend(
+            drain_reader_events(
+                &receiver,
+                &pressure,
+                1,
+                &mut disconnected,
+                &mut pending_err,
+                &test_session_id(),
+            )
+            .expect("channel drain"),
+        );
+        ordered.extend(
+            drain_fence_pending(&fence, &test_session_id(), &pressure).expect("pending drain"),
+        );
+        let chunks: Vec<Vec<u8>> = ordered
+            .into_iter()
+            .filter_map(|out| match out {
+                SessionRuntimeOutput::PtyOutput { data, .. } => Some(data),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(chunks, vec![enable, disable]);
+    }
+
+    #[test]
+    fn pending_overflow_does_not_drop_prior_events() {
+        let fence = test_fence(1);
+        let pressure = Arc::new(ReaderPressure::default());
+        fence
+            .push_pending(ReaderEvent::Output(b"keep-me".to_vec()))
+            .expect("first fits");
+        pressure.depth.fetch_add(1, Ordering::AcqRel);
+        let rejected = fence
+            .push_pending(ReaderEvent::Output(b"overflow".to_vec()))
+            .expect_err("second must not drop first");
         assert!(matches!(
-            drained.as_slice(),
-            [SessionRuntimeOutput::PtyOutput { data, .. }] if data == b"mode-chunk"
+            rejected,
+            ReaderEvent::Output(data) if data == b"overflow"
         ));
-        // Channel occupant still present until normal channel drain.
+        // Prior event still present; depth still matches one queued event.
+        let pending = fence.pending.lock().expect("lock");
+        assert_eq!(pending.len(), 1);
         assert!(matches!(
-            receiver.try_recv().ok(),
-            Some(ReaderEvent::Output(data)) if data == b"occupying"
+            pending.front(),
+            Some(ReaderEvent::Output(data)) if data == b"keep-me"
         ));
+        drop(pending);
+        assert_eq!(pressure.depth.load(Ordering::Acquire), 1);
+        fence.set_overflow_error("pty reader buffer overflow: mode authority incomplete");
+        let err = fence
+            .take_overflow_error()
+            .expect("overflow must be explicit");
+        assert!(err.contains("overflow"));
     }
 
     #[test]

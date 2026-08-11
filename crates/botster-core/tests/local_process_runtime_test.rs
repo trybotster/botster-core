@@ -253,6 +253,9 @@ fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
     });
     let session = session_id("local-runtime-reader-pressure");
 
+    // Flood enough to fill capacity-1 channel so nonblocking try_send marks
+    // pressured. Fence pending is larger (no drop) so this remains backpressure,
+    // not fail-closed overflow.
     runtime
         .spawn_session(shell_request(
             session.clone(),
@@ -274,7 +277,7 @@ fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
         .expect("bounded reader pressure should be reported");
     assert_eq!(summary.source, QueueSource::SessionIo);
     assert_eq!(summary.capacity, 1);
-    assert_eq!(summary.depth, 1);
+    assert!(summary.depth >= 1);
     assert_eq!(summary.route.session_id, Some(session.clone()));
     assert_eq!(summary.route.client_id, None);
     assert!(output.iter().any(|event| {
