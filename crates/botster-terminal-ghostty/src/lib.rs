@@ -67,6 +67,9 @@ use botster_core::engine::TerminalScreenRuntime;
 #[cfg(feature = "libghostty-vt")]
 mod sys;
 
+#[cfg(feature = "libghostty-vt")]
+mod client;
+
 /// Snapshot format label reserved for Ghostty-owned opaque snapshot payloads.
 pub const GHOSTTY_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 
@@ -129,7 +132,7 @@ pub trait GhosttyTerminalRuntime: TerminalScreenRuntime {}
 impl<T> GhosttyTerminalRuntime for T where T: TerminalScreenRuntime {}
 
 #[cfg(feature = "libghostty-vt")]
-mod native {
+pub(crate) mod native {
     use std::cell::RefCell;
     use std::ffi::c_void;
     use std::fmt;
@@ -848,7 +851,7 @@ mod native {
     }
 
     impl GhosttyTerminalError {
-        const fn operation(operation: &'static str, result: GhosttyResult) -> Self {
+        pub(crate) const fn operation(operation: &'static str, result: GhosttyResult) -> Self {
             Self::OperationFailed { operation, result }
         }
     }
@@ -1115,6 +1118,12 @@ mod native {
         }
     }
 }
+
+#[cfg(feature = "libghostty-vt")]
+pub use client::{
+    CursorProjection, CursorStyle, GhosttyClientProjection, ProjectedCell, ProjectedWide, ScrollOp,
+    ScrollbarState, ViewportProjection, GHOSTSNP_MAGIC,
+};
 
 #[cfg(feature = "libghostty-vt")]
 pub use native::{
