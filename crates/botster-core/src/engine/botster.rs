@@ -479,6 +479,15 @@ impl DefaultBotsterEngine {
         self.runtime.capture_terminal_state(session_id)
     }
 
+    /// Capture colors and GHOSTSNP under one terminal ownership section.
+    pub fn capture_color_and_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(crate::TerminalColorProfile, TerminalSnapshotPayload), DefaultBotsterEngineError>
+    {
+        self.runtime.capture_color_and_snapshot(session_id)
+    }
+
     /// Replay or prepare a snapshot where the managed runtime supports it.
     pub fn replay_snapshot(
         &mut self,
@@ -764,6 +773,17 @@ impl WorkerBackedBotsterEngine {
         WorkerBackedBotsterEngineError,
     > {
         self.runtime.capture_terminal_state(session_id)
+    }
+
+    /// Capture colors and GHOSTSNP under one terminal ownership section.
+    pub fn capture_color_and_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<
+        (crate::TerminalColorProfile, TerminalSnapshotPayload),
+        WorkerBackedBotsterEngineError,
+    > {
+        self.runtime.capture_color_and_snapshot(session_id)
     }
 
     /// Shut down a worker-owned session.

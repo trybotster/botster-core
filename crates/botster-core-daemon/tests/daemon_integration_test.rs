@@ -22,20 +22,21 @@ use botster_core::{
     TerminalAttachState, TerminalColorProfile, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
-    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CaptureSnapshotRequest,
-    CoreDaemon, CoreDaemonConfig, CoreDaemonError, DaemonSession, DrainNotificationsRequest,
-    DrainRoutedEnvelopesRequest, GuardedWriteDecision, GuardedWriteDeliveryState,
-    GuardedWriteRequest, ModeGatedInputOutcome, PostNotificationRequest,
-    PublishRoutedEnvelopeRequest, ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence,
-    RegistrySessionState, SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleRecord,
-    SessionLifecycleResyncReason, SpawnSessionRequest,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest,
+    CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
+    CoreDaemonError, DaemonSession, DrainNotificationsRequest, DrainRoutedEnvelopesRequest,
+    GuardedWriteDecision, GuardedWriteDeliveryState, GuardedWriteRequest, ModeGatedInputOutcome,
+    PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadModeFlagsRequest, ReadScreenRequest,
+    ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleChangeKind, SessionLifecycleChanges,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SpawnSessionRequest,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
 use botster_core_test_support::conformance::{
-    assert_ghostty_snapshot_authority, assert_mode_flags_authority, GHOSTSNP_MAGIC,
+    assert_color_profile_authority, assert_ghostty_snapshot_authority, assert_mode_flags_authority,
+    GHOSTSNP_MAGIC,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyTerminal, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR,
@@ -3026,6 +3027,449 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_capture_color_and_snapshot_agrees_with_ghostsnp_import_after_osc_mutations() {
+    // Production path: worker-backed CoreDaemon atomic dual-return after OSC
+    // palette/special mutations, with GHOSTSNP import equality and stability.
+    let data_dir = temp_data_dir("color-snap-atomic");
+    let host_color_profile = host_test_color_profile();
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_terminal_color_profile(host_color_profile.clone()),
+    );
+    let session_id = SessionId("color-snap-session".to_string());
+    let client_id = ClientId("color-snap-client".to_string());
+
+    // Child applies OSC 4 (palette index 3), OSC 10/11/12 specials, then echoes
+    // a marker so drain-before-read has terminal truth to observe.
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = [
+        "printf ready; ",
+        // palette index 3 -> rgb 0x11/0x22/0x33",
+        "printf '\\033]4;3;rgb:1111/2222/3333\\033\\\\'; ",
+        // FG 0xaa/0xbb/0xcc, BG 0x01/0x02/0x03, cursor 0xfe/0xfd/0xfc",
+        "printf '\\033]10;rgb:aaaa/bbbb/cccc\\033\\\\'; ",
+        "printf '\\033]11;rgb:0101/0202/0303\\033\\\\'; ",
+        "printf '\\033]12;rgb:fefe/fdfd/fcfc\\033\\\\'; ",
+        "printf 'echo:color-mutated\\n'; ",
+        "while IFS= read -r line; do ",
+        "if [ \"$line\" = mutate-again ]; then ",
+        "printf '\\033]4;3;rgb:4444/5555/6666\\033\\\\'; ",
+        "printf '\\033]10;rgb:1212/3434/5656\\033\\\\'; ",
+        "printf 'echo:color-mutated-again\\n'; ",
+        "else printf \"echo:%s\\n\" \"$line\"; ",
+        "fi; ",
+        "done",
+    ]
+    .concat();
+
+    daemon.spawn(request, 10).expect("spawn color-snap session");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("color-snap-sub".to_string()),
+            11,
+        )
+        .expect("attach color-snap session");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    // Wait until OSC mutations reach the Ghostty shadow via drain-before-read.
+    let first = capture_color_and_snapshot_until(
+        &mut daemon,
+        &session_id,
+        "echo:color-mutated",
+        12,
+        |profile| {
+            profile.colors.get(&3)
+                == Some(&Rgb {
+                    r: 0x11,
+                    g: 0x22,
+                    b: 0x33,
+                })
+                && profile.colors.get(&COLOR_INDEX_FOREGROUND)
+                    == Some(&Rgb {
+                        r: 0xaa,
+                        g: 0xbb,
+                        b: 0xcc,
+                    })
+                && profile.colors.get(&COLOR_INDEX_BACKGROUND)
+                    == Some(&Rgb {
+                        r: 0x01,
+                        g: 0x02,
+                        b: 0x03,
+                    })
+                && profile.colors.get(&COLOR_INDEX_CURSOR)
+                    == Some(&Rgb {
+                        r: 0xfe,
+                        g: 0xfd,
+                        b: 0xfc,
+                    })
+        },
+    );
+
+    assert_eq!(
+        first.snapshot.request_id,
+        RequestId("capture-color-and-snapshot".to_string())
+    );
+    assert_eq!(first.snapshot.session_id, session_id);
+    assert_eq!(first.snapshot.data, first.payload.bytes);
+    assert_ghostty_snapshot_authority(&first.payload);
+    assert!(first.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+    assert_color_profile_authority(&first.color_profile);
+    assert_eq!(
+        first.color_profile.colors.get(&3),
+        Some(&Rgb {
+            r: 0x11,
+            g: 0x22,
+            b: 0x33
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        Some(&Rgb {
+            r: 0xaa,
+            g: 0xbb,
+            b: 0xcc
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_BACKGROUND),
+        Some(&Rgb {
+            r: 0x01,
+            g: 0x02,
+            b: 0x03
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_CURSOR),
+        Some(&Rgb {
+            r: 0xfe,
+            g: 0xfd,
+            b: 0xfc
+        })
+    );
+    // Host baseline must not rewrite live OSC-owned colors after start.
+    assert_ne!(
+        first.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        host_color_profile.colors.get(&COLOR_INDEX_FOREGROUND)
+    );
+
+    // GHOSTSNP content proof: import into a fresh Ghostty terminal and fully
+    // compare the restored profile with the paired atomic result (all 256
+    // palette entries + specials), while keeping targeted mutation diagnostics.
+    let restored = ghostty_snapshot_color_profile(&first.payload);
+    assert_eq!(
+        restored.colors.get(&3),
+        first.color_profile.colors.get(&3),
+        "imported GHOSTSNP palette index 3 must match atomic pair"
+    );
+    assert_eq!(
+        restored.colors.get(&COLOR_INDEX_FOREGROUND),
+        first.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        "imported GHOSTSNP foreground must match atomic pair"
+    );
+    assert_eq!(
+        restored.colors.get(&COLOR_INDEX_BACKGROUND),
+        first.color_profile.colors.get(&COLOR_INDEX_BACKGROUND),
+        "imported GHOSTSNP background must match atomic pair"
+    );
+    assert_eq!(
+        restored.colors.get(&COLOR_INDEX_CURSOR),
+        first.color_profile.colors.get(&COLOR_INDEX_CURSOR),
+        "imported GHOSTSNP cursor must match atomic pair"
+    );
+    assert_eq!(
+        restored, first.color_profile,
+        "imported GHOSTSNP full color profile must equal the paired atomic profile"
+    );
+
+    // Hold the first pair; mutate live; prove held pair is stable and a new
+    // capture differs.
+    let held_profile = first.color_profile.clone();
+    let held_payload = first.payload.clone();
+    daemon
+        .input(
+            client_id,
+            session_id.clone(),
+            b"mutate-again\n".to_vec(),
+            50,
+        )
+        .expect("second OSC mutation input");
+    let second = capture_color_and_snapshot_until(
+        &mut daemon,
+        &session_id,
+        "echo:color-mutated-again",
+        51,
+        |profile| {
+            profile.colors.get(&3)
+                == Some(&Rgb {
+                    r: 0x44,
+                    g: 0x55,
+                    b: 0x66,
+                })
+                && profile.colors.get(&COLOR_INDEX_FOREGROUND)
+                    == Some(&Rgb {
+                        r: 0x12,
+                        g: 0x34,
+                        b: 0x56,
+                    })
+        },
+    );
+    assert_eq!(
+        held_profile, first.color_profile,
+        "held atomic color pair must not mutate with live terminal"
+    );
+    assert_eq!(
+        held_payload, first.payload,
+        "held atomic snapshot pair must not mutate with live terminal"
+    );
+    assert_ne!(
+        second.color_profile.colors.get(&3),
+        held_profile.colors.get(&3),
+        "live re-capture must observe post-mutation palette"
+    );
+    assert_ne!(
+        second.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        held_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        "live re-capture must observe post-mutation foreground"
+    );
+    let second_restored = ghostty_snapshot_color_profile(&second.payload);
+    assert_eq!(
+        second_restored.colors.get(&3),
+        second.color_profile.colors.get(&3)
+    );
+    assert_eq!(
+        second_restored.colors.get(&COLOR_INDEX_FOREGROUND),
+        second.color_profile.colors.get(&COLOR_INDEX_FOREGROUND)
+    );
+    assert_eq!(
+        second_restored, second.color_profile,
+        "second capture GHOSTSNP full profile must equal its paired atomic profile"
+    );
+
+    // Drain-before-read egress retention parity: next explicit drain returns
+    // client egress retained from internal drains exactly once for markers.
+    let drained = daemon
+        .drain(&session_id, 80)
+        .expect("drain after atomic captures should succeed");
+    let output = terminal_output(&drained.client_egress);
+    assert!(
+        output.contains("echo:color-mutated") || output.contains("echo:color-mutated-again"),
+        "internal atomic capture drain must retain client egress: {output:?}"
+    );
+
+    daemon.shutdown(Some(session_id), 90).expect("shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn natural_exit_capture_color_and_snapshot_freezes_repeatable_pair() {
+    // Direct retained-path proof for the new public dual-return: first
+    // reconciling read after natural exit is capture_color_and_snapshot.
+    let data_dir = temp_data_dir("color-snap-natural-exit");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("color-snap-exit-session".to_string());
+    let client_id = ClientId("color-snap-exit-client".to_string());
+
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = [
+        "printf ready; ",
+        "printf '\\033]4;5;rgb:5555/6666/7777\\033\\\\'; ",
+        "printf '\\033]10;rgb:1010/2020/3030\\033\\\\'; ",
+        "printf '\\033]11;rgb:4040/5050/6060\\033\\\\'; ",
+        "printf '\\033]12;rgb:7070/8080/9090\\033\\\\'; ",
+        "printf 'echo:color-exit-ready\\n'; ",
+        "IFS= read -r line; ",
+        "printf \"echo:%s\\n\" \"$line\"; ",
+        "exit 0",
+    ]
+    .concat();
+
+    daemon
+        .spawn(request, 10)
+        .expect("natural-exit color session should spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("color-snap-exit-sub".to_string()),
+            11,
+        )
+        .expect("natural-exit color session should attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    // Ensure OSC mutations reach the Ghostty shadow while the session is live.
+    let _ = capture_color_and_snapshot_until(
+        &mut daemon,
+        &session_id,
+        "echo:color-exit-ready",
+        12,
+        |profile| {
+            profile.colors.get(&5)
+                == Some(&Rgb {
+                    r: 0x55,
+                    g: 0x66,
+                    b: 0x77,
+                })
+                && profile.colors.get(&COLOR_INDEX_FOREGROUND)
+                    == Some(&Rgb {
+                        r: 0x10,
+                        g: 0x20,
+                        b: 0x30,
+                    })
+        },
+    );
+
+    // Capture worker identity before exit so we can wait for exact process and
+    // control-socket death without sleeping past a race into the live path.
+    let (_, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"color-exit\n".to_vec(),
+            20,
+        )
+        .expect("natural-exit trigger input should write");
+    wait_for_condition("worker process and control route completion", || {
+        !process_exists(pty_child_pid) && UnixStream::connect(&socket_path).is_err()
+    });
+    // Process is gone, but the daemon has not yet reconciled lifecycle.
+    assert_eq!(
+        daemon.list().expect("list unreconciled session")[0].registry_state,
+        RegistrySessionState::Running,
+        "registry must still report Running before the first reconciling capture"
+    );
+
+    // First daemon lifecycle reconciliation after process exit: freeze retained
+    // color+snapshot pair through capture_color_and_snapshot (not drain/read_screen).
+    // resolve_readback drains the dead worker, freezes retained terminal state, and
+    // returns that frozen pair — the live dual-return branch is not used.
+    let first = daemon
+        .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+            request_id: RequestId("natural-exit-color-1".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 21,
+        })
+        .expect("first natural-exit capture_color_and_snapshot should freeze retained truth");
+
+    // Public lifecycle discriminator: after the first reconciling capture, mutable
+    // session paths must reject with SessionNotReadable before any later readback.
+    // This proves capture_color_and_snapshot reconciled exit without relying only
+    // on a later drain.
+    assert!(
+        matches!(
+            daemon.input(
+                client_id,
+                session_id.clone(),
+                b"should-not-write\n".to_vec(),
+                21,
+            ),
+            Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
+        ),
+        "first reconciling capture must make subsequent input SessionNotReadable"
+    );
+
+    // Second call serves the frozen pair without re-entering a live terminal.
+    // This is the retained branch: process/socket are already dead, so a live
+    // re-capture could not produce a fresh authoritative Ghostty pair.
+    let second = daemon
+        .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+            request_id: RequestId("natural-exit-color-2".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("retained capture_color_and_snapshot should be repeatable");
+
+    assert_eq!(
+        first.color_profile, second.color_profile,
+        "retained freeze must serve the same color profile"
+    );
+    assert_eq!(
+        first.payload, second.payload,
+        "retained freeze must serve the same GHOSTSNP payload"
+    );
+    assert_ne!(first.snapshot.request_id, second.snapshot.request_id);
+    // Symmetric retained snapshot path must agree with the dual-return freeze.
+    let retained_snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("natural-exit-snapshot-from-retained".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 22,
+        })
+        .expect("capture_snapshot should serve the same retained freeze");
+    assert_eq!(
+        retained_snapshot.payload, first.payload,
+        "retained snapshot projection must match the frozen dual-return pair"
+    );
+    assert_eq!(
+        first.snapshot.request_id,
+        RequestId("natural-exit-color-1".to_string())
+    );
+    assert_eq!(
+        second.snapshot.request_id,
+        RequestId("natural-exit-color-2".to_string())
+    );
+    assert_ghostty_snapshot_authority(&first.payload);
+    assert!(first.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+    assert_color_profile_authority(&first.color_profile);
+    assert_eq!(
+        first.color_profile.colors.get(&5),
+        Some(&Rgb {
+            r: 0x55,
+            g: 0x66,
+            b: 0x77
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        Some(&Rgb {
+            r: 0x10,
+            g: 0x20,
+            b: 0x30
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_BACKGROUND),
+        Some(&Rgb {
+            r: 0x40,
+            g: 0x50,
+            b: 0x60
+        })
+    );
+    assert_eq!(
+        first.color_profile.colors.get(&COLOR_INDEX_CURSOR),
+        Some(&Rgb {
+            r: 0x70,
+            g: 0x80,
+            b: 0x90
+        })
+    );
+
+    let restored = ghostty_snapshot_color_profile(&first.payload);
+    assert_eq!(
+        restored, first.color_profile,
+        "retained GHOSTSNP full profile must equal the frozen atomic pair"
+    );
+
+    let exit_drain = daemon
+        .drain(&session_id, 23)
+        .expect("drain after retained color capture should return final output");
+    assert_retained_exit_output(&exit_drain, &session_id, "echo:color-exit");
+    let second_drain = daemon
+        .drain(&session_id, 24)
+        .expect("second drain after retained color capture should succeed");
+    assert_no_duplicate_exit_output(&second_drain, "echo:color-exit");
+
+    daemon
+        .shutdown(Some(session_id), 25)
+        .expect("shutdown after retained color capture");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_kitty_and_mouse_input_reaches_child_pty() {
     let data_dir = temp_data_dir("kitty-mouse-input-pty");
     let mut daemon =
@@ -4719,6 +5163,59 @@ fn drain_until_terminal_marker(
         tick += 1;
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn capture_color_and_snapshot_until(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    expected_marker: &str,
+    start_tick: u64,
+    profile_ready: impl Fn(&TerminalColorProfile) -> bool,
+) -> botster_core_daemon::CaptureColorAndSnapshotResult {
+    let request_id = RequestId("capture-color-and-snapshot".to_string());
+    let mut last = None;
+    for tick in 0..150 {
+        let captured = daemon
+            .capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+                request_id: request_id.clone(),
+                session_id: session_id.clone(),
+                now_seconds: start_tick + tick,
+            })
+            .expect("daemon capture_color_and_snapshot should succeed");
+        let marker_ready = ghostty_snapshot_replays_marker(&captured.payload, expected_marker);
+        if marker_ready && profile_ready(&captured.color_profile) {
+            return captured;
+        }
+        last = Some(captured);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let last = last.expect("at least one atomic capture should complete");
+    panic!(
+        "capture_color_and_snapshot never observed marker {expected_marker:?} with expected colors; \
+         palette[3]={:?} fg={:?} bg={:?} cursor={:?}; format={:?}",
+        last.color_profile.colors.get(&3),
+        last.color_profile.colors.get(&COLOR_INDEX_FOREGROUND),
+        last.color_profile.colors.get(&COLOR_INDEX_BACKGROUND),
+        last.color_profile.colors.get(&COLOR_INDEX_CURSOR),
+        last.payload.format,
+    );
+}
+
+fn ghostty_snapshot_color_profile(
+    payload: &botster_core::TerminalSnapshotPayload,
+) -> TerminalColorProfile {
+    assert_snapshot_format(payload);
+    let mut terminal = GhosttyTerminal::with_config(
+        payload.size,
+        GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+    )
+    .expect("test should construct Ghostty import terminal");
+    terminal
+        .import_snapshot(payload)
+        .expect("test should import daemon Ghostty snapshot");
+    terminal
+        .read_color_profile()
+        .expect("imported GHOSTSNP should expose a color profile")
 }
 
 fn capture_snapshot_until(

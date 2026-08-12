@@ -25,16 +25,16 @@ use thiserror::Error;
 
 use crate::api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
-    CaptureSnapshotRequest, CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus,
-    DrainNotificationsRequest, DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest,
-    DrainRoutedEnvelopesResult, GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult,
-    PostNotificationRequest, PostNotificationResult, PublishRoutedEnvelopeRequest,
-    PublishRoutedEnvelopeResult, ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest,
-    ReadScreenResult, RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport,
-    SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChange,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SpawnSessionRequest,
+    CaptureColorAndSnapshotRequest, CaptureColorAndSnapshotResult, CaptureSnapshotRequest,
+    CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
+    DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
+    GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult, PostNotificationRequest,
+    PostNotificationResult, PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult,
+    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleChange, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleRecord,
+    SessionLifecycleResyncReason, SessionLifecycleSourceId, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -287,6 +287,8 @@ struct RetainedTerminalState {
     snapshot: TerminalSnapshotPayload,
     mode_flags: Result<ModeFlags, TerminalBackendError>,
     mode_freshness: ModeFreshnessToken,
+    /// Ghostty-owned colors frozen with the snapshot under one terminal borrow.
+    color_profile: TerminalColorProfile,
 }
 
 enum ReadbackResolution {
@@ -709,6 +711,46 @@ impl CoreDaemon {
             .clone()
             .into_snapshot_ready(request.request_id, request.session_id);
         Ok(CaptureSnapshotResult { snapshot, payload })
+    }
+
+    /// Capture current colors and GHOSTSNP from one terminal ownership section.
+    ///
+    /// This is the Hub-facing production ordering boundary: palette/special
+    /// colors and the opaque snapshot are taken under the same session terminal
+    /// borrow after the drain-before-read path used by other readbacks. Host
+    /// `terminal_color_profile` remains spawn/initial baseline only; after
+    /// session start Ghostty owns current colors (including OSC mutations).
+    /// Retained post-exit freezes serve the same paired record without
+    /// re-entering a live terminal.
+    pub fn capture_color_and_snapshot(
+        &mut self,
+        request: CaptureColorAndSnapshotRequest,
+    ) -> Result<CaptureColorAndSnapshotResult, CoreDaemonError> {
+        self.ensure_running()?;
+        if let ReadbackResolution::Retained(retained) =
+            self.resolve_readback(&request.session_id, request.now_seconds)?
+        {
+            let payload = retained.snapshot;
+            let snapshot = payload
+                .clone()
+                .into_snapshot_ready(request.request_id, request.session_id);
+            return Ok(CaptureColorAndSnapshotResult {
+                color_profile: retained.color_profile,
+                snapshot,
+                payload,
+            });
+        }
+        let (color_profile, payload) = self
+            .engine
+            .capture_color_and_snapshot(&request.session_id)?;
+        let snapshot = payload
+            .clone()
+            .into_snapshot_ready(request.request_id, request.session_id);
+        Ok(CaptureColorAndSnapshotResult {
+            color_profile,
+            snapshot,
+            payload,
+        })
     }
 
     /// Queue one policy-free notification inbox item.
@@ -1276,6 +1318,12 @@ impl CoreDaemon {
             .get(session_id)
             .copied()
             .unwrap_or_default();
+        let color_profile = screen.color_profile.ok_or_else(|| {
+            managed_terminal_backend_error(TerminalBackendError::operation_failed(
+                "color_profile",
+                "terminal did not expose a color profile for retained freeze",
+            ))
+        })?;
         self.retained_terminal.insert(
             session_id.clone(),
             RetainedTerminalState {
@@ -1283,6 +1331,7 @@ impl CoreDaemon {
                 snapshot,
                 mode_flags,
                 mode_freshness,
+                color_profile,
             },
         );
         Ok(())
@@ -1711,6 +1760,16 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.capture_terminal_state(session_id),
             Self::Worker(engine) => engine.capture_terminal_state(session_id),
+        }
+    }
+
+    fn capture_color_and_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(TerminalColorProfile, TerminalSnapshotPayload), DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.capture_color_and_snapshot(session_id),
+            Self::Worker(engine) => engine.capture_color_and_snapshot(session_id),
         }
     }
 
