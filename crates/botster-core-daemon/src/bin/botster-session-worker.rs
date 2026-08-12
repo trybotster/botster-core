@@ -322,19 +322,23 @@ impl WorkerModeOwner {
     }
 }
 
+/// Allocate a process-local mode generation token that is safe to round-trip
+/// through JSON numbers used by browser clients (`Number.MAX_SAFE_INTEGER` =
+/// 2^53 - 1). Wall-clock nanos / pointer mixing previously produced full `u64`
+/// values that browsers silently corrupted, breaking ModeGatedInput admission.
 fn new_mode_generation() -> u64 {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as u64)
-        .unwrap_or(1);
-    let mixed = nanos
-        ^ (process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ (std::ptr::from_ref(&nanos) as usize as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    if mixed == 0 {
-        1
-    } else {
-        mixed
-    }
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Largest integer that every IEEE-754 binary64 JSON number can represent
+    /// exactly. Browser `Number` and `JSON.parse` share this bound.
+    const JSON_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 1;
+
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    // Keep the token in `(1 ..= JSON_SAFE_INTEGER_MAX)` so Web clients can
+    // ModeGatedInput without a send_input fallback.
+    let next = NEXT.fetch_add(1, Ordering::Relaxed);
+    let token = (next % JSON_SAFE_INTEGER_MAX).max(1);
+    token
 }
 
 fn apply_pty_output_chunk(
@@ -1402,5 +1406,31 @@ mod tests {
             assert!(!path.exists());
             let _ = std::fs::remove_dir(root);
         }
+    }
+
+    #[test]
+    fn mode_generation_tokens_are_json_safe_integers() {
+        use super::new_mode_generation;
+
+        // Browser JSON numbers only preserve integers up to 2^53 - 1 exactly.
+        const JSON_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 1;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..10_000 {
+            let generation = new_mode_generation();
+            assert!(generation >= 1, "generation must be non-zero");
+            assert!(
+                generation <= JSON_SAFE_INTEGER_MAX,
+                "generation {generation} exceeds JSON-safe integer max"
+            );
+            // Round-trip through serde_json number must preserve equality.
+            let encoded = serde_json::to_string(&generation).expect("encode");
+            let decoded: u64 = serde_json::from_str(&encoded).expect("decode");
+            assert_eq!(decoded, generation);
+            // Also prove f64 JSON parse path used by browsers would match.
+            let as_f64 = encoded.parse::<f64>().expect("parse f64");
+            assert_eq!(as_f64 as u64, generation);
+            seen.insert(generation);
+        }
+        assert!(seen.len() > 1, "tokens must advance");
     }
 }
