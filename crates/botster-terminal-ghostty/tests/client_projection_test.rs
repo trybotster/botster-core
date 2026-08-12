@@ -227,6 +227,62 @@ fn projects_grapheme_wide_resolved_rgb_attributes_and_cursor() {
 }
 
 #[test]
+fn default_new_client_preserves_imported_scrollback_history() {
+    // Regression for review finding: GhosttyClientProjection::new uses a zero
+    // live scrollback budget. install must not re-apply that zero limit after
+    // decode, or retained history from the GHOSTSNP is erased.
+    let size = TerminalScreenSize::new(5, 40);
+    let mut producer = producer(size);
+    producer.write_output_bytes(b"TOP_MARKER\r\n");
+    for i in 0..20 {
+        producer.write_output_bytes(format!("mid line {i}\r\n").as_bytes());
+    }
+    producer.write_output_bytes(b"JUST_ABOVE_VIEWPORT\r\n");
+    for i in 0..4 {
+        producer.write_output_bytes(format!("live edge {i}\r\n").as_bytes());
+    }
+    producer.write_output_bytes(b"BOTTOM_LIVE");
+    let ghostsnp = producer
+        .export_snapshot_bytes()
+        .expect("export retained-history GHOSTSNP");
+
+    let mut client = GhosttyClientProjection::new(size).expect("default client");
+    client
+        .install_ghostsnp(&ghostsnp)
+        .expect("install into default client");
+
+    let bar = client.scrollbar().expect("scrollbar after install");
+    assert!(
+        bar.total > bar.len,
+        "default install must retain history: total={} len={}",
+        bar.total,
+        bar.len
+    );
+
+    client.scroll(ScrollOp::Top);
+    let top = client.project_viewport().expect("top");
+    assert!(
+        viewport_contains(&top, "TOP_MARKER"),
+        "Top must surface imported history on default client"
+    );
+
+    client.scroll(ScrollOp::Bottom);
+    let bottom = client.project_viewport().expect("bottom");
+    assert!(
+        viewport_contains(&bottom, "BOTTOM_LIVE"),
+        "Bottom must return to live edge on default client"
+    );
+
+    let before = client.scrollbar().expect("before delta").offset;
+    client.scroll(ScrollOp::Delta(-4));
+    let after = client.scrollbar().expect("after delta").offset;
+    assert_ne!(
+        after, before,
+        "Delta must move viewport after default-client install"
+    );
+}
+
+#[test]
 fn full_scrollback_navigation_top_bottom_and_delta() {
     let size = TerminalScreenSize::new(5, 40);
     let mut client = client(size);
