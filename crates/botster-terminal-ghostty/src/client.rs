@@ -60,7 +60,12 @@ pub const GHOSTSNP_MAGIC: &[u8] = b"GHOSTSNP";
 const CONTINUATION_MAX_BYTES: usize = 1024;
 
 /// Wide-cell kind projected for a client renderer map.
+///
+/// Marked `non_exhaustive` so adding renderer-facing wide kinds is not a
+/// silent exhaustive-match break for downstream TUI pins
+/// ([[botster core public enums are breaking until non exhaustive is decided]]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProjectedWide {
     /// Single-column cell.
     Narrow,
@@ -73,7 +78,11 @@ pub enum ProjectedWide {
 }
 
 /// Cursor visual style projected for a client renderer.
+///
+/// Marked `non_exhaustive` so pin consumers must handle future styles without
+/// a coordinated breaking upgrade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CursorStyle {
     /// Block cursor.
     Block,
@@ -86,7 +95,11 @@ pub enum CursorStyle {
 }
 
 /// Scroll navigation operations against Ghostty-owned viewport state.
+///
+/// Marked `non_exhaustive` so additional Ghostty scroll behaviors can land
+/// without forcing exhaustive match rewrites on every TUI pin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ScrollOp {
     /// Jump to the top of retained history.
     Top,
@@ -338,17 +351,23 @@ impl GhosttyClientProjection {
         unsafe { ghostty_terminal_free(previous.as_ptr()) };
 
         self.enable_continuation_tracking()?;
-        // Re-apply host scrollback budget on the new handle.
+        // Preserve decoded retained history. Ghostty erases scrollback when
+        // SCROLLBACK_MAX_BYTES is set to 0; the default client config uses 0
+        // for "no live budget policy", not "wipe imported history". Only apply
+        // a positive host budget after decode so GHOSTSNP history survives
+        // GhosttyClientProjection::new() install.
         let max_scrollback = self.config.max_scrollback();
-        let result = unsafe {
-            ghostty_terminal_set(
-                self.handle.as_ptr(),
-                GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
-                (&raw const max_scrollback).cast(),
-            )
-        };
-        if result != GHOSTTY_SUCCESS {
-            return Err(GhosttyTerminalError::operation("set_scrollback", result));
+        if max_scrollback > 0 {
+            let result = unsafe {
+                ghostty_terminal_set(
+                    self.handle.as_ptr(),
+                    GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                    (&raw const max_scrollback).cast(),
+                )
+            };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation("set_scrollback", result));
+            }
         }
 
         self.size = self.query_dimensions()?;

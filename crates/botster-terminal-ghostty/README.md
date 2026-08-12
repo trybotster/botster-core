@@ -94,6 +94,15 @@ Fail closed on empty, non-`GHOSTSNP` magic, corrupt body, or decode failure
 (previous handle stays usable). **Never** pass `DaemonEvent::Scrollback`
 payloads to `install_ghostsnp`.
 
+`GhosttyClientProjection::new` uses a zero *live* scrollback budget (same
+default as session config). Install does **not** re-apply that zero limit onto
+a decoded snapshot, so Hub GHOSTSNP retained history survives the default
+client path. Use `GhosttyAdapterConfig::with_max_scrollback_bytes` when the
+client should keep growing history from later `apply_terminal_output` writes.
+
+Public enums `ProjectedWide`, `CursorStyle`, and `ScrollOp` are
+`#[non_exhaustive]` so pin consumers must keep a wildcard arm.
+
 ### Pinned projection fields
 
 | Type | Fields |

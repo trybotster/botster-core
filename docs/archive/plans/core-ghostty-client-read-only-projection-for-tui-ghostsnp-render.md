@@ -257,46 +257,46 @@ test ! -e crates/botster-terminal-ghostty/vendor/ghostty/.zig-cache
 
 ### Product proofs (mandatory)
 
-**A. Hub-shaped install (blocker)**  
-1. Produce real GHOSTSNP bytes via session export (or producer helper).  
-2. Install with **bytes only** — no format label, no size struct required.  
-3. Fixture models Hub 89dae7e consumption: treat payload as `DaemonOpaqueHistoryPayload::from_bytes(ghostsnp).decoded_bytes()` equivalent (raw bytes after decode).  
-4. Fail closed: empty; non-`GHOSTSNP` magic; garbage body; **Scrollback-like non-GHOSTSNP body** never installs.  
+**A. Hub-shaped install (blocker)**
+1. Produce real GHOSTSNP bytes via session export (or producer helper).
+2. Install with **bytes only** — no format label, no size struct required.
+3. Fixture models Hub 89dae7e consumption: treat payload as `DaemonOpaqueHistoryPayload::from_bytes(ghostsnp).decoded_bytes()` equivalent (raw bytes after decode).
+4. Fail closed: empty; non-`GHOSTSNP` magic; garbage body; **Scrollback-like non-GHOSTSNP body** never installs.
 5. After install, `dimensions()` / `project_viewport()` reflect **decoded** size.
 
-**B. Apply live**  
+**B. Apply live**
 Post-install VT/live bytes update projected graphemes.
 
-**C. Pinned renderer fields (high)**  
-1. Grapheme content visible in `ProjectedCell.grapheme`.  
-2. Wide-cell behavior: write a wide character; assert `Wide` / spacer kinds as Ghostty reports (at least one non-`Narrow` case).  
-3. Resolved FG/BG RGB present on styled cells (SGR colors).  
-4. At least bold and inverse (or underline) attributes round-trip into bools.  
+**C. Pinned renderer fields (high)**
+1. Grapheme content visible in `ProjectedCell.grapheme`.
+2. Wide-cell behavior: write a wide character; assert `Wide` / spacer kinds as Ghostty reports (at least one non-`Narrow` case).
+3. Resolved FG/BG RGB present on styled cells (SGR colors).
+4. At least bold and inverse (or underline) attributes round-trip into bools.
 5. Cursor: after positioning writes, `visible`, `in_viewport`, `x`/`y`, and `style` are coherent.
 
-**D. Full retained scrollback navigation (high)**  
-1. Configure scrollback budget > 0.  
-2. Write enough lines that markers exist **outside** the live viewport at **distinct** history depths (minimum: one near top of retained history, one just above viewport).  
-3. Assert `scrollbar()` reports depth (`total > len`).  
-4. `ScrollOp::Top` surfaces the far marker in projection.  
-5. `ScrollOp::Bottom` returns to live edge.  
-6. `ScrollOp::Delta` moves between positions (not only a single scroll-up once).  
+**D. Full retained scrollback navigation (high)**
+1. Configure scrollback budget > 0.
+2. Write enough lines that markers exist **outside** the live viewport at **distinct** history depths (minimum: one near top of retained history, one just above viewport).
+3. Assert `scrollbar()` reports depth (`total > len`).
+4. `ScrollOp::Top` surfaces the far marker in projection.
+5. `ScrollOp::Bottom` returns to live edge.
+6. `ScrollOp::Delta` moves between positions (not only a single scroll-up once).
 
-**E. OSC palette and specials (high)**  
-1. After install (or on a live client terminal), apply **real OSC** sequences that set palette entry and special colors (OSC 4 / 10 / 11 / 12 as supported), **not** `set_color_profile` as the proof path.  
-2. `color_profile()` (or projection colors) reflects palette index + FG/BG/cursor specials.  
+**E. OSC palette and specials (high)**
+1. After install (or on a live client terminal), apply **real OSC** sequences that set palette entry and special colors (OSC 4 / 10 / 11 / 12 as supported), **not** `set_color_profile` as the proof path.
+2. `color_profile()` (or projection colors) reflects palette index + FG/BG/cursor specials.
 3. Client type does not expose session-style OSC **reply** capture as product behavior.
 
-**F. Downstream-shaped public consumer gate (high)**  
+**F. Downstream-shaped public consumer gate (high)**
 In-crate (or workspace test-only) scratch consumer that:
-1. Depends only on public `botster-terminal-ghostty` (+ core RGB types as needed) and optionally `ratatui` as a **dev-dependency** for the mapper shape **or** a local `RatatuiCellLike { symbol, fg, bg, bold, … }` struct that mirrors Ratatui’s buffer cell fields without requiring the TUI app.  
-2. Installs Hub-shaped GHOSTSNP bytes.  
-3. Applies live output.  
-4. Maps each `ProjectedCell` → consumer cell fields.  
-5. Asserts mapped content/color/style — proving the public types can drive a TUI renderer map.  
+1. Depends only on public `botster-terminal-ghostty` (+ core RGB types as needed) and optionally `ratatui` as a **dev-dependency** for the mapper shape **or** a local `RatatuiCellLike { symbol, fg, bg, bold, … }` struct that mirrors Ratatui’s buffer cell fields without requiring the TUI app.
+2. Installs Hub-shaped GHOSTSNP bytes.
+3. Applies live output.
+4. Maps each `ProjectedCell` → consumer cell fields.
+5. Asserts mapped content/color/style — proving the public types can drive a TUI renderer map.
 6. Contains **no** `botster-tui` / kit product imports.
 
-**G. Docs**  
+**G. Docs**
 README documents: bytes-only install; Hub Snapshot consumption; pinned field table; scroll ops; non-goals (no PTY, no OSC answering, no Scrollback install); feature `libghostty-vt`; consumer pin path for TUI ticket.
 
 ### Downstream live Hub attach
@@ -307,13 +307,13 @@ Owned by TUI `ticket_1786471490_592122` after it pins the landed Core revision. 
 `teardown_class_applies`: **false**
 
 ## Vault gaps (post-implement if still novel)
-1. Client projection install is **bytes-only** matching Hub opaque history (no format/dims).  
-2. Client vs session GhosttyTerminal split (no write_pty answering on client).  
+1. Client projection install is **bytes-only** matching Hub opaque history (no format/dims).
+2. Client vs session GhosttyTerminal split (no write_pty answering on client).
 3. Pinned `ProjectedCell` field set for TUI/Ratatui mappers.
 
 ## Worktree / checklist hygiene
-- `.gitignore` non-empty; path has no `:`.  
-- **Primary checklist:** `checklist_1786509519_980369` (reuse; no new Plan checklist this visit).  
+- `.gitignore` non-empty; path has no `:`.
+- **Primary checklist:** `checklist_1786509519_980369` (reuse; no new Plan checklist this visit).
 - Duplicate checklist IDs from visit 1 remain historical (`checklist_1786509488_280977`, `checklist_1786509500_706140`).
 
 ## Product decision ledger
