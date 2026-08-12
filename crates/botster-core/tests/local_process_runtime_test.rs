@@ -33,6 +33,7 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
+        test_fail_closed_when_pending_full: false,
     }
 }
 
@@ -46,6 +47,7 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
+        test_fail_closed_when_pending_full: false,
     }
 }
 
@@ -297,6 +299,92 @@ fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
     let _ = runtime.send_input(SessionRuntimeInput::Shutdown {
         session_id: session,
     });
+}
+
+#[test]
+fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
+    // Deterministic ordinary-pressure proof: tiny public capacity + tiny fence
+    // pending + many adversarial small chunks. Expects typed backpressure, quiet
+    // sibling completion, noisy process exit, and no sticky authority failure.
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
+        pty_reader_chunk_capacity: 1,
+        test_pending_capacity: Some(2),
+        test_fail_closed_when_pending_full: false,
+        ..runtime_options()
+    });
+    let noisy = session_id("local-adv-noisy");
+    let quiet = session_id("local-adv-quiet");
+
+    runtime
+        .spawn_session(shell_request(
+            quiet.clone(),
+            "printf 'quiet-ready\\n'; printf 'quiet-done\\n'",
+        ))
+        .expect("spawn quiet");
+    runtime
+        .spawn_session(shell_request(
+            noisy.clone(),
+            // Many tiny writes to force multi-chunk reads under small capacity.
+            "i=0; while [ \"$i\" -lt 4000 ]; do printf 'n%04d\\n' \"$i\"; i=$((i + 1)); done; printf 'noisy-done\\n'",
+        ))
+        .expect("spawn noisy");
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut quiet_out = Vec::new();
+    let mut noisy_out = Vec::new();
+    let mut saw_backpressure = false;
+    let mut quiet_done = false;
+    let mut noisy_exit = false;
+
+    while Instant::now() < deadline && !(quiet_done && noisy_exit && saw_backpressure) {
+        match runtime.drain_output(&quiet) {
+            Ok(drained) => {
+                quiet_out.extend(drained);
+            }
+            Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {}
+            Err(error) => panic!("quiet drain must not authority-fail: {error}"),
+        }
+        match runtime.drain_output(&noisy) {
+            Ok(drained) => {
+                if drained
+                    .iter()
+                    .any(|e| matches!(e, SessionRuntimeOutput::Backpressure(_)))
+                {
+                    saw_backpressure = true;
+                }
+                noisy_out.extend(drained);
+            }
+            Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {}
+            Err(error) => panic!("noisy drain must not authority-fail: {error}"),
+        }
+        quiet_done = output_text(&quiet_out).contains("quiet-done") && has_exit(&quiet_out);
+        noisy_exit = has_exit(&noisy_out);
+        if !quiet_done || !noisy_exit {
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    assert!(
+        saw_backpressure,
+        "small-capacity adversarial stream must report reader backpressure; noisy={noisy_out:?}"
+    );
+    assert!(
+        quiet_done,
+        "quiet sibling must complete under noisy pressure; quiet={quiet_out:?}"
+    );
+    assert!(
+        noisy_exit,
+        "noisy session must deliver process exit without authority failure; noisy={noisy_out:?}"
+    );
+    assert!(
+        output_text(&noisy_out).contains("noisy-done")
+            || noisy_out.iter().any(|e| matches!(
+                e,
+                SessionRuntimeOutput::PtyOutput { data, .. } if !data.is_empty()
+            )),
+        "noisy session must deliver retained output (not sticky fail-closed); noisy={noisy_out:?}"
+    );
 }
 
 #[test]
