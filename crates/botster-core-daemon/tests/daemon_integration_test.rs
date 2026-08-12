@@ -4576,6 +4576,14 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
     // FIFO (mouse off) after both mode transitions apply. Complements the
     // dual-buffer source guard in local_process unit tests (that guard fails on
     // df38c218; this path proves production normal-drain + Ghostty apply order).
+    //
+    // Deterministic producer/worker-application boundary: the child emits
+    // enable + an "enabled" marker, then blocks until the parent releases
+    // disable. The test observes worker-applied mouse-on (and a revision bump)
+    // before releasing disable. Without that boundary, enable+disable can
+    // coalesce into one PTY read; the worker samples ModeFlags once per chunk
+    // and net-zero final modes leave mode_revision unchanged (production
+    // contract), which made the old sleep-separated form flake.
     let data_dir = temp_data_dir("mode-gated-normal-drain-fifo");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -4592,7 +4600,8 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
         "while IFS= read -r line; do ",
         "if [ \"$line\" = seq ]; then ",
         "printf '\\033[?1000h\\033[?1006h'; ",
-        "sleep 0.05; ",
+        "printf 'enabled\\n'; ",
+        "IFS= read -r _release; ",
         "printf '\\033[?1000l\\033[?1006l'; ",
         "printf 'seq-done\\n'; ",
         "else printf \"echo:%s\\n\" \"$line\"; ",
@@ -4617,15 +4626,66 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
             now_seconds: 12,
         })
         .expect("baseline");
+    assert_eq!(
+        baseline.mode_flags.mode_flags.mouse_mode, 0,
+        "baseline mouse must be off before the sequence"
+    );
     daemon
         .input(client_id.clone(), session_id.clone(), b"seq\n".to_vec(), 13)
         .expect("seq");
-    // Normal-path drains while enqueue holds may still be active.
-    thread::sleep(Duration::from_millis(30));
+    // Normal-path drains while enqueue holds may still be active (no fixed sleep).
     let start = Instant::now();
     let _ = daemon
         .drain(&session_id, 14)
         .expect("normal drain during hold");
+    let _ = drain_until(&mut daemon, &session_id, "enabled");
+
+    // Require worker application of enable before the child may emit disable.
+    // Polling is condition-driven; mode sampling (not wall-clock) is the barrier.
+    let mut enable_modes = None;
+    for tick in 0..200u64 {
+        let probe = daemon
+            .read_mode_flags(ReadModeFlagsRequest {
+                request_id: RequestId(format!("normal-drain-enable-{tick}")),
+                session_id: session_id.clone(),
+                now_seconds: 15 + tick,
+            })
+            .expect("enable probe");
+        if probe.mode_flags.mode_flags.mouse_mode != 0 {
+            enable_modes = Some(probe);
+            break;
+        }
+        let _ = daemon
+            .drain(&session_id, 200 + tick)
+            .expect("normal drain while waiting for enable apply");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let enable_modes = enable_modes
+        .expect("worker must apply enable (mouse on) before release; missing application boundary");
+    assert!(
+        enable_modes.mode_flags.mode_freshness.mode_revision
+            >= baseline
+                .mode_flags
+                .mode_freshness
+                .mode_revision
+                .saturating_add(1),
+        "enable application must advance revision; baseline={:?} enable={:?}",
+        baseline.mode_flags.mode_freshness,
+        enable_modes.mode_flags.mode_freshness
+    );
+
+    // Release disable only after enable was observed as its own mode sample.
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"release\n".to_vec(),
+            16,
+        )
+        .expect("release");
+    let _ = daemon
+        .drain(&session_id, 17)
+        .expect("normal drain during second transition");
     let _ = drain_until(&mut daemon, &session_id, "seq-done");
     assert!(
         start.elapsed() < Duration::from_secs(8),
@@ -4635,15 +4695,16 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
         .read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId("normal-drain-final".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 15,
+            now_seconds: 18,
         })
         .expect("final");
     assert_eq!(
         final_modes.mode_flags.mode_flags.mouse_mode, 0,
         "normal-drain FIFO must keep enable→disable (mouse off)"
     );
-    // Both transitions must apply: enable+disable advances revision by ≥2.
-    // Mouse-off alone is insufficient if only disable (or neither) applied.
+    // Both transitions applied as distinct observations: enable then disable
+    // advances revision by ≥2. Mouse-off alone is insufficient if only disable
+    // (or neither) applied. Valid because enable was observed before release.
     assert!(
         final_modes.mode_flags.mode_freshness.mode_revision
             >= baseline
@@ -4651,8 +4712,9 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
                 .mode_freshness
                 .mode_revision
                 .saturating_add(2),
-        "expected ≥2 mode revisions (enable then disable); baseline={:?} final={:?}",
+        "expected ≥2 mode revisions (enable then disable); baseline={:?} enable={:?} final={:?}",
         baseline.mode_flags.mode_freshness,
+        enable_modes.mode_flags.mode_freshness,
         final_modes.mode_flags.mode_freshness
     );
     assert_ne!(
@@ -4665,7 +4727,7 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
             session_id.clone(),
             b"stale-normal-drain\n".to_vec(),
             Some(baseline.mode_flags.mode_freshness),
-            16,
+            19,
         )
         .expect("stale");
     match stale {
@@ -4674,7 +4736,7 @@ fn worker_backed_mode_gated_normal_drain_preserves_mode_fifo() {
         }
         ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
     }
-    daemon.shutdown(Some(session_id), 17).ok();
+    daemon.shutdown(Some(session_id), 20).ok();
     let _ = fs::remove_dir_all(data_dir);
 }
 
