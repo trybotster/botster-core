@@ -280,6 +280,35 @@ fn default_new_client_preserves_imported_scrollback_history() {
         after, before,
         "Delta must move viewport after default-client install"
     );
+
+    // Inherited producer budget remains after default install: later live
+    // output continues to grow retained history under the decoded snapshot
+    // policy (no client-side override when max_scrollback is 0).
+    client.scroll(ScrollOp::Bottom);
+    let total_before_live = client.scrollbar().expect("before live").total;
+    for i in 0..12 {
+        client.apply_terminal_output(format!("post-import growth {i}\r\n").as_bytes());
+    }
+    client.apply_terminal_output(b"POST_IMPORT_LIVE");
+    let bar_after_live = client.scrollbar().expect("after live growth");
+    assert!(
+        bar_after_live.total > total_before_live,
+        "default client must inherit producer scrollback budget so later output grows history: before={total_before_live} after={}",
+        bar_after_live.total
+    );
+    let live = client
+        .project_viewport()
+        .expect("post-import live projection");
+    assert!(
+        viewport_contains(&live, "POST_IMPORT_LIVE"),
+        "later apply_terminal_output must project on default client"
+    );
+    client.scroll(ScrollOp::Top);
+    let top_after_growth = client.project_viewport().expect("top after growth");
+    assert!(
+        viewport_contains(&top_after_growth, "TOP_MARKER"),
+        "inherited budget must keep pre-import history while growing"
+    );
 }
 
 #[test]
