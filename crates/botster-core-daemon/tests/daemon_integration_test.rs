@@ -4457,23 +4457,22 @@ fn worker_backed_mode_gated_fence_queue_preserves_mode_order() {
 
 #[cfg(unix)]
 #[test]
-fn worker_backed_mode_gated_overflow_stays_failed_closed() {
-    // Forced-loss path: tiny capacity + fail-closed-on-full + flood. Ordinary
-    // production pressure waits losslessly; this test injects true loss so
-    // sticky mode authority fails closed. Every post-overflow probe and gated
-    // admit must fail, including the first call that may still deliver retained
-    // output.
-    let data_dir = temp_data_dir("mode-gated-overflow-sticky");
+fn worker_backed_mode_gated_ordinary_pressure_stays_lossless() {
+    // Tiny public capacity + tiny fence pending + flood: ordinary pressure must
+    // wait/backpressure, not latch sticky mode-authority failure. After the
+    // flood drains, probes and current-token gated admit still succeed.
+    // True-loss sticky fail-closed is covered by internal unit seams
+    // (set_overflow_error / Failed event) without a public production flag.
+    let data_dir = temp_data_dir("mode-gated-pressure-lossless");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_pty_reader_chunk_capacity(Some(1))
             .with_test_pending_capacity(Some(1))
-            .with_test_fail_closed_when_pending_full(true)
-            .with_mode_gated_input_timeout(Duration::from_secs(3)),
+            .with_mode_gated_input_timeout(Duration::from_secs(5)),
     );
-    let session_id = SessionId("mode-gated-overflow".to_string());
-    let client_id = ClientId("mode-gated-overflow-client".to_string());
+    let session_id = SessionId("mode-gated-pressure-lossless".to_string());
+    let client_id = ClientId("mode-gated-pressure-client".to_string());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = concat!(
         "printf ready; ",
@@ -4483,6 +4482,7 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
         "printf 'flood-%s:%04000d\\n' \"$i\" 0; ",
         "i=$((i+1)); ",
         "done; ",
+        "printf 'flood-done\\n'; ",
         "else printf \"echo:%s\\n\" \"$line\"; ",
         "fi; ",
         "done"
@@ -4493,18 +4493,11 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
         .attach(
             client_id.clone(),
             session_id.clone(),
-            SubscriptionId("overflow-sub".to_string()),
+            SubscriptionId("pressure-sub".to_string()),
             11,
         )
         .expect("attach");
     let _ = drain_until(&mut daemon, &session_id, "ready");
-    let baseline = daemon
-        .read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId("overflow-base".to_string()),
-            session_id: session_id.clone(),
-            now_seconds: 12,
-        })
-        .expect("baseline before flood");
     daemon
         .input(
             client_id.clone(),
@@ -4513,60 +4506,33 @@ fn worker_backed_mode_gated_overflow_stays_failed_closed() {
             13,
         )
         .expect("flood");
-    thread::sleep(Duration::from_millis(200));
-
-    // First post-overflow op is gated while retained output may still exist;
-    // it must fail closed (apply retained then ensure_mode_authority).
-    let mut post_overflow_ops = 0usize;
-    let mut failed_ops = 0usize;
-    for i in 0..3 {
-        post_overflow_ops += 1;
-        match daemon.mode_gated_input(
-            client_id.clone(),
-            session_id.clone(),
-            format!("post-overflow-{i}\n").into_bytes(),
-            Some(baseline.mode_flags.mode_freshness),
-            20 + i as u64,
-        ) {
-            Ok(ModeGatedInputOutcome::Gated(result)) => {
-                assert!(
-                    !result.admitted,
-                    "gated admit must fail closed after overflow (op {i})"
-                );
-                assert!(
-                    result.error_kind.as_deref().is_some_and(|k| !k.is_empty()),
-                    "expected authority failure kind, got {:?}",
-                    result.error_kind
-                );
-                failed_ops += 1;
-            }
-            Ok(ModeGatedInputOutcome::PlainWritten) => {
-                panic!("must not plain-write after overflow")
-            }
-            Err(_) => failed_ops += 1,
-        }
-    }
-    for i in 0..5 {
-        post_overflow_ops += 1;
-        match daemon.read_mode_flags(ReadModeFlagsRequest {
-            request_id: RequestId(format!("overflow-probe-{i}")),
+    let _ = drain_until(&mut daemon, &session_id, "flood-done");
+    let after = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("pressure-after".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 14 + i as u64,
-        }) {
-            Ok(payload) => {
-                panic!(
-                    "probe {i} must fail after overflow; got freshness {:?}",
-                    payload.mode_flags.mode_freshness
-                );
-            }
-            Err(_) => failed_ops += 1,
+            now_seconds: 14,
+        })
+        .expect("probe must succeed after ordinary pressure (not sticky authority fail)");
+    let admitted = daemon
+        .mode_gated_input(
+            client_id,
+            session_id.clone(),
+            b"after-pressure\n".to_vec(),
+            Some(after.mode_flags.mode_freshness),
+            15,
+        )
+        .expect("current token after pressure");
+    match admitted {
+        ModeGatedInputOutcome::Gated(result) => {
+            assert!(
+                result.admitted,
+                "ordinary pressure must not latch sticky authority failure"
+            );
         }
+        ModeGatedInputOutcome::PlainWritten => panic!("expected gated"),
     }
-    assert_eq!(
-        failed_ops, post_overflow_ops,
-        "every post-overflow probe/admit must fail closed"
-    );
-    daemon.shutdown(Some(session_id), 30).ok();
+    daemon.shutdown(Some(session_id), 16).ok();
     let _ = fs::remove_dir_all(data_dir);
 }
 

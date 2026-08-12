@@ -33,7 +33,6 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
-        test_fail_closed_when_pending_full: false,
     }
 }
 
@@ -47,7 +46,6 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
-        test_fail_closed_when_pending_full: false,
     }
 }
 
@@ -310,7 +308,6 @@ fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
     let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
         pty_reader_chunk_capacity: 1,
         test_pending_capacity: Some(2),
-        test_fail_closed_when_pending_full: false,
         ..runtime_options()
     });
     let noisy = session_id("local-adv-noisy");

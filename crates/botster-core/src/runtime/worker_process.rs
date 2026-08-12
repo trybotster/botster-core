@@ -106,8 +106,6 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still critical.
     pub test_hold_after_enqueue_ms: Option<u64>,
-    /// Test-only: pending full latches sticky overflow (forced-loss proofs).
-    pub test_fail_closed_when_pending_full: bool,
 }
 
 impl WorkerProcessRuntimeOptions {
@@ -128,7 +126,6 @@ impl WorkerProcessRuntimeOptions {
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
-            test_fail_closed_when_pending_full: false,
         }
     }
 
@@ -178,13 +175,6 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_hold_after_enqueue_ms = hold_ms;
-        self
-    }
-
-    /// Test-only: pending full latches sticky overflow instead of lossless wait.
-    #[must_use]
-    pub const fn with_test_fail_closed_when_pending_full(mut self, enabled: bool) -> Self {
-        self.test_fail_closed_when_pending_full = enabled;
         self
     }
 
@@ -681,9 +671,6 @@ impl SessionRuntime for WorkerProcessRuntime {
             command
                 .arg("--test-hold-after-enqueue-ms")
                 .arg(hold_ms.to_string());
-        }
-        if self.options.test_fail_closed_when_pending_full {
-            command.arg("--test-fail-closed-when-pending-full");
         }
 
         #[cfg(unix)]
