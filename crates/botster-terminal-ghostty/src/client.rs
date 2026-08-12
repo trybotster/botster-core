@@ -351,11 +351,15 @@ impl GhosttyClientProjection {
         unsafe { ghostty_terminal_free(previous.as_ptr()) };
 
         self.enable_continuation_tracking()?;
-        // Preserve decoded retained history. Ghostty erases scrollback when
-        // SCROLLBACK_MAX_BYTES is set to 0; the default client config uses 0
-        // for "no live budget policy", not "wipe imported history". Only apply
-        // a positive host budget after decode so GHOSTSNP history survives
-        // GhosttyClientProjection::new() install.
+        // Scrollback after decode:
+        // - Snapshot decode restores the producer max_scrollback_bytes from the
+        //   GHOSTSNP header. That policy governs retained history and later
+        //   growth until the client overrides it.
+        // - config.max_scrollback == 0 means "no client-side override" (default
+        //   new()). Do not call SCROLLBACK_MAX_BYTES with 0: Ghostty treats 0 as
+        //   "erase retained history", which would destroy the imported buffer.
+        // - config.max_scrollback > 0 means "override decoded policy now". A
+        //   tighter override can prune history immediately.
         let max_scrollback = self.config.max_scrollback();
         if max_scrollback > 0 {
             let result = unsafe {

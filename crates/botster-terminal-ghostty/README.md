@@ -94,11 +94,19 @@ Fail closed on empty, non-`GHOSTSNP` magic, corrupt body, or decode failure
 (previous handle stays usable). **Never** pass `DaemonEvent::Scrollback`
 payloads to `install_ghostsnp`.
 
-`GhosttyClientProjection::new` uses a zero *live* scrollback budget (same
-default as session config). Install does **not** re-apply that zero limit onto
-a decoded snapshot, so Hub GHOSTSNP retained history survives the default
-client path. Use `GhosttyAdapterConfig::with_max_scrollback_bytes` when the
-client should keep growing history from later `apply_terminal_output` writes.
+### Scrollback budget after install
+
+`GhosttyAdapterConfig::max_scrollback` is a **client-side override**, not the
+effective post-import limit by itself:
+
+| Client budget | After `install_ghostsnp` |
+| --- | --- |
+| **0 (default `new`)** | No override. Ghostty keeps the scrollback policy restored from the GHOSTSNP header (the producer/session budget). Imported history is retained, and later `apply_terminal_output` grows under that **decoded snapshot policy**. |
+| **> 0** | Client overrides the decoded policy with that byte budget. That can prune retained history immediately if the override is tighter than the snapshot. |
+
+Use `with_max_scrollback_bytes` only when the client intentionally owns the
+post-import retention limit. Leaving the default zero is correct when the TUI
+should honor the session snapshot's retained-history policy.
 
 Public enums `ProjectedWide`, `CursorStyle`, and `ScrollOp` are
 `#[non_exhaustive]` so pin consumers must keep a wildcard arm.
