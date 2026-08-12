@@ -60,6 +60,64 @@ compose this crate on the production daemon path.
 Restty is not used here. Restty remains a client renderer path, not the
 authoritative shadow-terminal parser or snapshot owner.
 
+## Client read-only projection (TUI pin surface)
+
+Feature `libghostty-vt` also exposes **`GhosttyClientProjection`**: a reusable,
+mechanism-only client adapter for first-party TUI (and similar) consumers that
+install Hub `DaemonEvent::Snapshot` history bytes and render without decoding
+terminal truth in app code.
+
+### Bytes-only install (Hub 89dae7e shape)
+
+Hub data-plane Snapshot carries opaque history (`payload_base64` →
+`decoded_bytes()`). The client install API takes **those bytes only** — no
+format label, no Hub rows/cols, no `TerminalSnapshotPayload` wrapper.
+
+```rust
+// feature = "libghostty-vt"
+use botster_terminal_ghostty::{GhosttyClientProjection, ScrollOp, GHOSTSNP_MAGIC};
+
+let mut client = GhosttyClientProjection::new(size)?;
+// hub_bytes == Snapshot.history.decoded_bytes()  (must start with GHOSTSNP)
+client.install_ghostsnp(&hub_bytes)?;
+// dimensions come from decoded Ghostty after install
+let dims = client.dimensions();
+client.apply_terminal_output(&live_terminal_output);
+let viewport = client.project_viewport()?;
+let bar = client.scrollbar()?;
+client.scroll(ScrollOp::Delta(-3));
+let profile = client.color_profile()?;
+let modes = client.mode_flags()?;
+```
+
+Fail closed on empty, non-`GHOSTSNP` magic, corrupt body, or decode failure
+(previous handle stays usable). **Never** pass `DaemonEvent::Scrollback`
+payloads to `install_ghostsnp`.
+
+### Pinned projection fields
+
+| Type | Fields |
+| --- | --- |
+| `ProjectedCell` | `grapheme`, `wide` (`Narrow` / `Wide` / `SpacerTail` / `SpacerHead`), resolved `fg`/`bg` `Rgb`, `bold`, `italic`, `underline`, `inverse`, `faint`, `strikethrough` |
+| `ViewportProjection` | `cols`, `rows`, row-major `cells` (`len == cols * rows`), `cursor` |
+| `CursorProjection` | `visible`, `in_viewport`, `x`, `y`, `style` (`Block` / `Bar` / `Underline` / `Hollow`) |
+| `ScrollbarState` | `total`, `offset`, `len` (Ghostty truth at read time) |
+| `ScrollOp` | `Top`, `Bottom`, `Delta(i32)` (negative = up into history) |
+
+### Non-goals
+
+- No PTY ownership.
+- No `write_pty` / OSC query answering (session `GhosttyTerminal` keeps that path).
+- No Hub DTO ownership; no TUI/kit product code in this crate.
+- Live multi-process Hub attach remains the TUI ticket after it pins this crate.
+
+### Session vs client
+
+| Type | Role |
+| --- | --- |
+| `GhosttyTerminal` | Session/shadow path: snapshots, `write_pty` OSC answers, `TerminalScreenRuntime` |
+| `GhosttyClientProjection` | Client pin: bytes install → live apply → project cells/scroll/palette/cursor |
+
 ## License
 
 The workspace crate metadata points at the repository license. Vendored upstream
