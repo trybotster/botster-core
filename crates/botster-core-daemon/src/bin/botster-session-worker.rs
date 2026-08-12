@@ -81,6 +81,7 @@ fn run() -> Result<(), String> {
         test_write_max_chunk: args.test_write_max_chunk,
         test_pending_capacity: args.test_pending_capacity,
         test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
+        test_fail_closed_when_pending_full: args.test_fail_closed_when_pending_full,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
     let handle = runtime
@@ -1135,6 +1136,7 @@ struct WorkerArgs {
     test_write_max_chunk: Option<usize>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
+    test_fail_closed_when_pending_full: bool,
 }
 
 impl WorkerArgs {
@@ -1149,6 +1151,7 @@ impl WorkerArgs {
         let mut test_write_max_chunk = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
+        let mut test_fail_closed_when_pending_full = false;
         let mut index = 0;
 
         while index < args.len() {
@@ -1201,6 +1204,9 @@ impl WorkerArgs {
                     test_hold_after_enqueue_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
+                "--test-fail-closed-when-pending-full" => {
+                    test_fail_closed_when_pending_full = true;
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -1217,6 +1223,7 @@ impl WorkerArgs {
             test_write_max_chunk,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
+            test_fail_closed_when_pending_full,
         })
     }
 }

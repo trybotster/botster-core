@@ -54,6 +54,9 @@ pub struct LocalProcessRuntimeOptions {
     /// Retained PTY reader chunks per session before the reader blocks.
     ///
     /// Values below one are clamped to one chunk when the reader starts.
+    /// When the fence pending queue is full the reader waits outside the fence
+    /// critical section (lossless ordinary pressure + OS PTY backpressure). It
+    /// does **not** treat capacity alone as a sticky mode-authority failure.
     pub pty_reader_chunk_capacity: usize,
     /// Test-only: hold after a successful PTY read while still inside the reader
     /// critical section, before leave_critical (still unpublished on the fence).
@@ -62,11 +65,14 @@ pub struct LocalProcessRuntimeOptions {
     pub test_write_block_until_unix_ms: Option<u64>,
     /// Test-only: cap each `write()` call to this many bytes (partial-write proofs).
     pub test_write_max_chunk: Option<usize>,
-    /// Test-only: override fence pending capacity (overflow proofs).
+    /// Test-only: override fence pending capacity (pressure / forced-loss proofs).
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after successful fence enqueue while still critical
     /// (single-queue hold proofs; must stay under the fence the barrier waits on).
     pub test_hold_after_enqueue_ms: Option<u64>,
+    /// Test-only: when pending is full, latch sticky mode-authority overflow and
+    /// stop the reader (forced-loss proofs). Production keeps lossless wait.
+    pub test_fail_closed_when_pending_full: bool,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -80,6 +86,7 @@ impl Default for LocalProcessRuntimeOptions {
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
+            test_fail_closed_when_pending_full: false,
         }
     }
 }
@@ -197,8 +204,10 @@ impl SessionRuntime for LocalProcessRuntime {
             )
         })?;
         let reader_capacity = self.options.pty_reader_chunk_capacity.max(1);
-        // Single fence-owned FIFO. Capacity bounds retained unpublished chunks;
-        // overflow fails closed without dropping retained events.
+        // Single fence-owned FIFO. Capacity bounds retained unpublished chunks.
+        // Ordinary pressure waits outside the fence critical section (lossless).
+        // Sticky fail-closed mode authority is reserved for true loss / reader
+        // failure (or test-only forced-loss injection).
         let pending_capacity = self
             .options
             .test_pending_capacity
@@ -207,8 +216,10 @@ impl SessionRuntime for LocalProcessRuntime {
         let reader_fence = Arc::new(ReaderFence {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
+            pending_cv: Condvar::new(),
             test_hold_after_read_ms: self.options.test_hold_after_read_ms,
             test_hold_after_enqueue_ms: self.options.test_hold_after_enqueue_ms,
+            test_fail_closed_when_pending_full: self.options.test_fail_closed_when_pending_full,
             pending: Mutex::new(VecDeque::new()),
             pending_capacity,
             overflow_error: Mutex::new(None),
@@ -676,16 +687,20 @@ struct LocalSession {
 struct ReaderFence {
     state: Mutex<ReaderFenceState>,
     cv: Condvar,
+    /// Wakes the reader after drain frees fence pending capacity.
+    pending_cv: Condvar,
     test_hold_after_read_ms: Option<u64>,
     /// Hold after successful enqueue while still in critical (tests only).
     test_hold_after_enqueue_ms: Option<u64>,
+    /// Test-only: capacity full latches sticky overflow instead of waiting.
+    test_fail_closed_when_pending_full: bool,
     /// Single ownership queue for reader PTY events.
     pending: Mutex<VecDeque<ReaderEvent>>,
     pending_capacity: usize,
-    /// Set when a read cannot be enqueued without dropping prior PTY bytes.
-    /// Promoted into session `authority_failed` on the next drain (sticky).
+    /// Sticky mode-authority failure for true loss / forced-loss injection.
+    /// Promoted into session `authority_failed` on the next drain.
     overflow_error: Mutex<Option<String>>,
-    /// Reader thread has exited (EOF/error/overflow stop).
+    /// Reader thread has exited (EOF/error/forced-loss stop).
     reader_finished: AtomicBool,
 }
 
@@ -765,7 +780,7 @@ impl ReaderFence {
 
     /// Enqueue without dropping. Updates pressure depth under the same lock so
     /// a concurrent drain cannot observe an enqueued event with depth lag.
-    /// Returns `Err(event)` when at capacity.
+    /// Returns `Err(event)` when at capacity (caller waits outside critical).
     fn push_pending(
         &self,
         event: ReaderEvent,
@@ -776,6 +791,13 @@ impl ReaderFence {
             return Err(event);
         };
         if pending.len() >= self.pending_capacity {
+            // Still mark pressured so drains observe ordinary reader pressure
+            // even while the lossless wait path holds the chunk.
+            let depth = pending.len().max(1);
+            pressure.depth.store(depth, Ordering::Release);
+            if depth >= pressure_capacity.max(1) {
+                pressure.pressured.store(true, Ordering::Release);
+            }
             return Err(event);
         }
         pending.push_back(event);
@@ -787,6 +809,20 @@ impl ReaderFence {
         Ok(())
     }
 
+    /// Wait until fence pending has free capacity. Must not be called while the
+    /// reader holds the fence critical section (would block mode barriers).
+    fn wait_for_pending_space(&self) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return;
+        };
+        while pending.len() >= self.pending_capacity {
+            let Ok(guard) = self.pending_cv.wait(pending) else {
+                return;
+            };
+            pending = guard;
+        }
+    }
+
     /// Drain all pending events and sync pressure depth under the same lock.
     fn take_pending(&self, pressure: &ReaderPressure) -> Vec<ReaderEvent> {
         let Ok(mut pending) = self.pending.lock() else {
@@ -794,6 +830,8 @@ impl ReaderFence {
         };
         let events: Vec<_> = pending.drain(..).collect();
         pressure.depth.store(pending.len(), Ordering::Release);
+        // Wake any reader waiting for free capacity (lossless pressure path).
+        self.pending_cv.notify_all();
         events
     }
 
@@ -1102,33 +1140,42 @@ fn spawn_reader(
                     break;
                 }
                 Ok(bytes_read) => {
-                    let chunk = buffer[..bytes_read].to_vec();
+                    let mut event = ReaderEvent::Output(buffer[..bytes_read].to_vec());
                     if let Some(hold_ms) = reader_fence.test_hold_after_read_ms {
                         if hold_ms > 0 {
                             thread::sleep(Duration::from_millis(hold_ms));
                         }
                     }
-                    // Enqueue + depth under one lock (see push_pending).
-                    match reader_fence.push_pending(
-                        ReaderEvent::Output(chunk),
-                        &reader_pressure,
-                        capacity,
-                    ) {
-                        Ok(()) => {
-                            if let Some(hold_ms) = reader_fence.test_hold_after_enqueue_ms {
-                                if hold_ms > 0 {
-                                    thread::sleep(Duration::from_millis(hold_ms));
+                    // Enqueue + depth under one lock (see push_pending). On
+                    // capacity pressure, leave critical before waiting so a
+                    // mode barrier can progress; never block under critical.
+                    loop {
+                        match reader_fence.push_pending(event, &reader_pressure, capacity) {
+                            Ok(()) => {
+                                if let Some(hold_ms) = reader_fence.test_hold_after_enqueue_ms {
+                                    if hold_ms > 0 {
+                                        thread::sleep(Duration::from_millis(hold_ms));
+                                    }
                                 }
+                                reader_fence.leave_critical();
+                                break;
                             }
-                            reader_fence.leave_critical();
-                        }
-                        Err(_unqueued) => {
-                            reader_fence.set_overflow_error(
-                                "pty reader buffer overflow: mode authority incomplete",
-                            );
-                            reader_fence.mark_reader_finished();
-                            reader_fence.leave_critical();
-                            break;
+                            Err(returned) => {
+                                if reader_fence.test_fail_closed_when_pending_full {
+                                    // Forced-loss path only: sticky authority
+                                    // after true loss injection (tests).
+                                    reader_fence.set_overflow_error(
+                                        "pty reader buffer overflow: mode authority incomplete",
+                                    );
+                                    reader_fence.mark_reader_finished();
+                                    reader_fence.leave_critical();
+                                    return;
+                                }
+                                event = returned;
+                                reader_fence.leave_critical();
+                                reader_fence.wait_for_pending_space();
+                                reader_fence.enter_critical();
+                            }
                         }
                     }
                 }
@@ -1145,16 +1192,25 @@ fn spawn_reader(
                     break;
                 }
                 Err(error) => {
-                    match reader_fence.push_pending(
-                        ReaderEvent::Failed(format!("read pty output failed: {error}")),
-                        &reader_pressure,
-                        capacity,
-                    ) {
-                        Ok(()) => {}
-                        Err(_) => {
-                            reader_fence.set_overflow_error(format!(
-                                "read pty output failed (buffer full): {error}"
-                            ));
+                    // True reader failure: retain Failed when possible (wait
+                    // outside critical), then stop. Sticky authority follows
+                    // from the Failed event (or overflow if forced-loss full).
+                    let mut event = ReaderEvent::Failed(format!("read pty output failed: {error}"));
+                    loop {
+                        match reader_fence.push_pending(event, &reader_pressure, capacity) {
+                            Ok(()) => break,
+                            Err(returned) => {
+                                if reader_fence.test_fail_closed_when_pending_full {
+                                    reader_fence.set_overflow_error(format!(
+                                        "read pty output failed (buffer full): {error}"
+                                    ));
+                                    break;
+                                }
+                                event = returned;
+                                reader_fence.leave_critical();
+                                reader_fence.wait_for_pending_space();
+                                reader_fence.enter_critical();
+                            }
                         }
                     }
                     reader_fence.mark_reader_finished();
@@ -1443,8 +1499,10 @@ mod tests {
         Arc::new(ReaderFence {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
+            pending_cv: Condvar::new(),
             test_hold_after_read_ms: None,
             test_hold_after_enqueue_ms: None,
+            test_fail_closed_when_pending_full: false,
             pending: Mutex::new(VecDeque::new()),
             pending_capacity,
             overflow_error: Mutex::new(None),
@@ -1578,10 +1636,54 @@ mod tests {
             pending.front(),
             Some(ReaderEvent::Output(data)) if data == b"keep-me"
         ));
+        // Ordinary pressure marks pressured without latching overflow.
+        assert!(pressure.pressured.load(Ordering::Acquire));
+        assert!(fence.take_overflow_error().is_none());
+    }
+
+    #[test]
+    fn pending_full_wait_is_lossless_after_drain() {
+        // Capacity-full try-push returns the event; after drain frees space the
+        // same event enqueues without sticky overflow (ordinary pressure path).
+        let fence = test_fence(1);
+        let pressure = Arc::new(ReaderPressure::default());
+        fence
+            .push_pending(ReaderEvent::Output(b"first".to_vec()), &pressure, 1)
+            .expect("first");
+        let rejected = fence
+            .push_pending(ReaderEvent::Output(b"second".to_vec()), &pressure, 1)
+            .expect_err("full");
+        assert!(fence.take_overflow_error().is_none());
+
+        let fence_w = Arc::clone(&fence);
+        let pressure_w = Arc::clone(&pressure);
+        let waiter = thread::spawn(move || {
+            let mut event = rejected;
+            loop {
+                match fence_w.push_pending(event, &pressure_w, 1) {
+                    Ok(()) => break,
+                    Err(returned) => {
+                        event = returned;
+                        fence_w.wait_for_pending_space();
+                    }
+                }
+            }
+        });
+
+        thread::sleep(Duration::from_millis(20));
+        let (out, fail) = drain_fence_pending(&fence, &test_session_id(), &pressure);
+        assert!(fail.is_none());
+        assert_eq!(out.len(), 1);
+        waiter.join().expect("waiter");
+        assert!(fence.take_overflow_error().is_none());
+        let (out2, fail2) = drain_fence_pending(&fence, &test_session_id(), &pressure);
+        assert!(fail2.is_none());
+        assert_eq!(out2.len(), 1, "second chunk retained after wait+drain");
     }
 
     #[test]
     fn overflow_latches_sticky_authority_after_retained_drain() {
+        // Forced-loss / true-loss sticky path (not ordinary capacity pressure).
         let fence = test_fence(1);
         let pressure = Arc::new(ReaderPressure::default());
         fence

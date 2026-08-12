@@ -133,6 +133,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
+        test_fail_closed_when_pending_full: false,
     }
 }
 

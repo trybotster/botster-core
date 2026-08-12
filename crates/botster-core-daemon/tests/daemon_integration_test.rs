@@ -4458,15 +4458,18 @@ fn worker_backed_mode_gated_fence_queue_preserves_mode_order() {
 #[cfg(unix)]
 #[test]
 fn worker_backed_mode_gated_overflow_stays_failed_closed() {
-    // Tiny single-queue capacity + flood. Overflow latches sticky authority failure:
-    // every post-overflow probe and gated admit must fail, including the first
-    // call that may still deliver retained output.
+    // Forced-loss path: tiny capacity + fail-closed-on-full + flood. Ordinary
+    // production pressure waits losslessly; this test injects true loss so
+    // sticky mode authority fails closed. Every post-overflow probe and gated
+    // admit must fail, including the first call that may still deliver retained
+    // output.
     let data_dir = temp_data_dir("mode-gated-overflow-sticky");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_pty_reader_chunk_capacity(Some(1))
             .with_test_pending_capacity(Some(1))
+            .with_test_fail_closed_when_pending_full(true)
             .with_mode_gated_input_timeout(Duration::from_secs(3)),
     );
     let session_id = SessionId("mode-gated-overflow".to_string());
