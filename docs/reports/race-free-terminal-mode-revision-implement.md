@@ -8,7 +8,19 @@
 - Addresses review: `review_1786496210_758623` / finding `finding_1786496210_169896`
 - Scope guard: no new public production test hook / broad flag plumbing
 - Evidence artifact referenced: `artifact_1786496190_368348`
+- Scope-cleanup tip: `060723624a8238870ec91777c97a4e3e5dd6b5a4` (field removal complete; no remaining `test_fail_closed_when_pending_full` reads)
+- Prior product tip: `41221cb0246d9aa2c536826fa1f1f846f77689a4`
 - Prior tip: `0943a416f0c8e6ff8a51f032bf0919f7de29331e`
+
+## Clean-tip re-verification (this visit)
+- Worktree: clean (`git status --porcelain` empty)
+- `cargo check --workspace --all-targets` PASS
+- `cargo fmt --all -- --check` PASS
+- `cargo clippy --workspace --all-targets -- -D warnings` PASS
+- `BOTSTER_ENV=test cargo test --workspace` PASS (incl. many_pty adversarial backpressure, daemon_integration 61, mode-gated 12)
+- Focused: small-capacity adversarial multi-session PASS; bounded reader backpressure PASS; ordinary pressure lossless PASS
+- `git diff --check` clean
+- No public `test_fail_closed_when_pending_full` flag; ReaderFence has no residual field reads
 
 ## Product fix
 Ordinary fence pending capacity-full **waits outside the fence critical section**
