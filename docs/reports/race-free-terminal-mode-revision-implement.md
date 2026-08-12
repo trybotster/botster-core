@@ -1,53 +1,63 @@
-# Implementation report: Race-free terminal mode revision (review rework 11)
+# Implementation report: Race-free terminal mode revision (review rework 12)
 
 ## Target repository and target_id
 - Target repository: `botster-core`
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 - Run: `run_1786479064_760292`
-- Run step: `run_step_1786491094_660262`
 - PR: https://github.com/trybotster/botster-core/pull/120
-- Addresses review: `review_1786491067_654917` / finding `finding_1786491067_719525`
-- Implementation SHA: b4aaaaa098c77b6c541bece553b3401dcca123fa
+- Addresses review: `review_1786494863_541037` / finding `finding_1786494863_440502`
+- Evidence artifact referenced: `artifact_1786494842_253259`
+- Base tip reviewed: `52cb7bb6895c0912e55ae32e140c286811138fcd`
 
 ## Playbooks applied
 - [[implementer-playbook]], [[botster-implementer-playbook]], [[botster-core-playbook]]
-- Worker atomic admit binding from `question_1786481243_140177`
+- Deterministic producer / condition-driven PTY readiness (no unexplained fixed sleep)
 
 ## Findings addressed
 | Finding | Fix |
 | --- | --- |
-| Normal-drain FIFO test passes on defective dual-buffer SHA df38c218 | Added `single_queue_reader_source_prohibits_dual_buffer_transfer` unit source guard that bans dual-buffer transfer symbols (`try_flush_pending_to_channel`, dual-buffer/channel-before-pending comments). **Red** on production source of `df38c218092f59377bec12457840b0a7512bd294` (hits: try_flush_pending_to_channel, pending-to-channel, dual buffers, channel-before-pending, …). **Green** on HEAD unit test + production source. Strengthened normal-drain integration: require ≥2 mode revisions, mandatory freshness change, always-stale reject. |
+| `worker_backed_mode_gated_normal_drain_preserves_mode_fifo` nondeterministic: `mode_revision >= baseline+2` depended on PTY chunk timing | Replaced `sleep 0.05` producer gap with a handshake: child emits enable + `enabled`, then blocks on stdin until parent releases. Test condition-polls until worker applies mouse-on and revision advances, then releases disable. Retains ≥2 revision, mouse-off FIFO, freshness change, and mandatory stale reject. Race/normal-drain proof kept (hold_after_enqueue + normal drains during hold). |
+
+## Root cause
+Worker samples `ModeFlags` once after each applied PTY chunk. If enable and disable coalesce into one read, Ghostty ends mouse-off with **net-zero** observed flags, so `mode_revision` stays at baseline. That is the production contract; the test must establish a worker-application boundary before requiring two revisions.
+
+## Red evidence (defective / flaky form at 52cb7bb)
+1. **Stress flake:** 12× `worker_backed_mode_gated_` suite → 11 PASS / 1 FAIL. Failure:
+   `expected ≥2 mode revisions … baseline mode_revision: 1 final mode_revision: 1`
+2. **Forced-coalesce deterministic red:** same test with enable+disable in one `printf` → always FAIL with baseline and final revision both 1 (proves the revision-count assertion is invalid without a producer boundary).
+
+## Green evidence (fix)
+1. Exact test 10× PASS
+2. Focused `worker_backed_mode_gated_` suite 8× PASS (12/12 each)
+3. `cargo fmt --all -- --check` PASS
+4. `cargo clippy --workspace --all-targets -- -D warnings` PASS
+5. `BOTSTER_ENV=test cargo test --workspace` PASS (`daemon_integration_test` 61 passed)
+6. `git diff --check` clean
 
 ## Files changed
-- `crates/botster-core/src/runtime/local_process.rs` — dual-buffer transfer source guard
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — stricter normal-drain FIFO assertions
-- Implement report
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — deterministic producer/worker-application boundary for normal-drain FIFO proof
+- `docs/reports/race-free-terminal-mode-revision-implement.md` — this report
 
 ## Ownership boundaries preserved
-- Core Ghostty-free; daemon hosts worker
-- Test/source-guard only; no product API change
+- Test-only change; no product API or worker mode-sampling contract change
+- Core remains Ghostty-free; daemon hosts worker
+- Ticket race proof not weakened: still holds enqueue, normal drain during hold, enable→disable FIFO, ≥2 distinct mode observations, stale reject
 
 ## Cross-repo dependencies
 - Hub ticket `ticket_1786471489_718500` remains dependent
 
 ## Deviations from plan
-- None
-
-## Tests and downstream proof
-- Source-guard red check: defective SHA production source contains banned dual-buffer symbols
-- `cargo test -p botster-core single_queue_reader_source_prohibits_dual_buffer_transfer` (green on HEAD)
-- `cargo test -p botster-core-daemon --test daemon_integration_test worker_backed_mode_gated_` (12/12)
-- `cargo fmt --all`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `BOTSTER_ENV=test cargo test --workspace` (recorded at gate)
+- None; chose deterministic producer boundary over dropping the ≥2 revision requirement
 
 ## Unverified behavior / residual risk
-- Adopt mid-wait fail-closed via disconnect/timeout only
+- Fence-order sibling still uses sleep-separated producer (softens stale only when net-zero); out of scope for this finding
 - Dual Ghostty intentional
-- Source guard is the deterministic red-on-historical-mutant control; integration path proves Ghostty apply order under enqueue hold
 
 ## Missing vault guidance
-- None discovered this visit (review requested red historical mutant proof; recorded above)
+- None; existing deterministic-producer / poll-for-readiness notes covered this
 
 ## Runtime-teardown
 - `teardown_class_applies=false`
+
+## Merge / close
+- Not merged; ticket not closed
