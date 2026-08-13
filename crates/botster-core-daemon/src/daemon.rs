@@ -91,6 +91,8 @@ pub struct CoreDaemonConfig {
     pub test_hold_after_enqueue_ms: Option<u64>,
     /// Retained PTY reader chunks inside the worker process (tests may set 1).
     pub pty_reader_chunk_capacity: Option<usize>,
+    /// Test-only parent worker egress capacity.
+    pub test_worker_egress_capacity: Option<usize>,
 }
 
 impl CoreDaemonConfig {
@@ -113,6 +115,7 @@ impl CoreDaemonConfig {
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
+            test_worker_egress_capacity: None,
         }
     }
 
@@ -155,6 +158,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_pty_reader_chunk_capacity(mut self, capacity: Option<usize>) -> Self {
         self.pty_reader_chunk_capacity = capacity;
+        self
+    }
+
+    /// Set the test-only parent worker egress capacity.
+    #[must_use]
+    pub const fn with_test_worker_egress_capacity(mut self, capacity: Option<usize>) -> Self {
+        self.test_worker_egress_capacity = capacity;
         self
     }
 
@@ -316,8 +326,13 @@ impl CoreDaemon {
                 options.test_write_max_chunk = config.test_write_max_chunk;
                 options.test_pending_capacity = config.test_pending_capacity;
                 options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
+                options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
+                options.terminal_color_profile = terminal_color_profile.clone();
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
                     options.pty_reader_chunk_capacity = capacity;
+                }
+                if let Some(capacity) = config.test_worker_egress_capacity {
+                    options.egress_capacity = capacity;
                 }
                 DaemonEngine::Worker(worker_engine(
                     options,
@@ -1007,10 +1022,17 @@ impl CoreDaemon {
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
         let socket_path = worker_control_socket(&record)
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        let supports_snapshot_boundary = record
+            .recovery_identity
+            .as_ref()
+            .and_then(|identity| identity.get("atomic_snapshot_boundary"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let session = self.engine.adopt_worker_process(
             session_id.clone(),
             process,
             socket_path,
+            supports_snapshot_boundary,
             record.metadata.clone(),
         )?;
         if let Some(mut record) = self.registry.load(session_id)? {
@@ -1798,6 +1820,7 @@ impl DaemonEngine {
         session_id: SessionId,
         process: botster_core::ProcessIdentity,
         socket_path: PathBuf,
+        supports_snapshot_boundary: bool,
         metadata: botster_core::CoreSessionMetadata,
     ) -> Result<CoreSession, DefaultBotsterEngineError> {
         match self {
@@ -1808,7 +1831,13 @@ impl DaemonEngine {
                 ),
             )),
             Self::Worker(engine) => engine
-                .adopt_worker_process(session_id, process, socket_path, metadata)
+                .adopt_worker_process(
+                    session_id,
+                    process,
+                    socket_path,
+                    supports_snapshot_boundary,
+                    metadata,
+                )
                 .map(|outcome| outcome.session),
         }
     }

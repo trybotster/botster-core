@@ -27,11 +27,13 @@ use botster_core::{
     ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
     TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth, FRAME_BELL,
-    FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS,
+    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth,
+    WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED,
+    FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS,
     FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
     FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
-    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
+    FRAME_TITLE_CHANGED,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
 
@@ -83,16 +85,25 @@ fn run() -> Result<(), String> {
         test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
+    let initial_size = spawn_request
+        .initial_pty_size
+        .clone()
+        .unwrap_or(ResizePayload { rows: 24, cols: 80 });
     let handle = runtime
         .spawn_session(spawn_request)
         .map_err(|error| error.to_string())?;
-    let initial_rows = 24;
-    let initial_cols = 80;
+    let initial_rows = initial_size.rows;
+    let initial_cols = initial_size.cols;
     let mut ghostty = GhosttyTerminal::with_config(
         TerminalScreenSize::new(initial_rows, initial_cols),
-        GhosttyAdapterConfig::with_max_scrollback_bytes(10_000_000),
+        GhosttyAdapterConfig::with_max_scrollback_bytes(args.ghostty_max_scrollback_bytes),
     )
     .map_err(|error| format!("worker Ghostty init failed: {error}"))?;
+    if let Some(profile) = args.terminal_color_profile.as_ref() {
+        ghostty
+            .apply_color_profile(profile)
+            .map_err(|error| format!("worker Ghostty color profile failed: {error}"))?;
+    }
     let mut mode_owner = WorkerModeOwner::new(
         ghostty
             .mode_flags()
@@ -114,6 +125,7 @@ fn run() -> Result<(), String> {
             "worker_pid": process::id(),
             "worker_control_socket": args.control_socket,
             "mode_generation": mode_owner.token().mode_generation,
+            "atomic_snapshot_boundary": true,
         })),
     };
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
@@ -228,6 +240,47 @@ fn run() -> Result<(), String> {
                                 size,
                             })
                             .map_err(|error| error.to_string())?;
+                    }
+                    FRAME_GET_SNAPSHOT => {
+                        let request =
+                            serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload);
+                        let result = match request {
+                            Ok(request) => {
+                                match runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
+                                    apply_barrier_outputs(
+                                        barrier,
+                                        &mut ghostty,
+                                        &mut mode_owner,
+                                        &mut metadata_producer,
+                                        &mut metadata_shaper,
+                                        &egress,
+                                    )?;
+                                    ghostty.export_snapshot().map_err(|error| {
+                                        botster_core::SessionRuntimeError::new(
+                                            botster_core::SessionRuntimeErrorKind::OutputFailed,
+                                            error.to_string(),
+                                        )
+                                    })
+                                }) {
+                                    Ok(snapshot) => WorkerSnapshotResult {
+                                        request_id: request.request_id,
+                                        snapshot: Some(snapshot),
+                                        error_kind: None,
+                                    },
+                                    Err(error) => WorkerSnapshotResult {
+                                        request_id: request.request_id,
+                                        snapshot: None,
+                                        error_kind: Some(error.to_string()),
+                                    },
+                                }
+                            }
+                            Err(error) => WorkerSnapshotResult {
+                                request_id: String::new(),
+                                snapshot: None,
+                                error_kind: Some(format!("malformed snapshot request: {error}")),
+                            },
+                        };
+                        egress.send_protected_json(FRAME_SNAPSHOT, &result);
                     }
                     FRAME_PING => {
                         let health = WorkerHealth {
@@ -1139,6 +1192,8 @@ struct WorkerArgs {
     test_write_max_chunk: Option<usize>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
+    ghostty_max_scrollback_bytes: usize,
+    terminal_color_profile: Option<botster_core::TerminalColorProfile>,
 }
 
 impl WorkerArgs {
@@ -1153,6 +1208,8 @@ impl WorkerArgs {
         let mut test_write_max_chunk = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
+        let mut ghostty_max_scrollback_bytes = 10_000_000;
+        let mut terminal_color_profile = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -1205,6 +1262,22 @@ impl WorkerArgs {
                     test_hold_after_enqueue_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
+                "--ghostty-max-scrollback-bytes" => {
+                    index += 1;
+                    ghostty_max_scrollback_bytes =
+                        parse_arg(&args, index, "--ghostty-max-scrollback-bytes")?;
+                }
+                "--terminal-color-profile" => {
+                    index += 1;
+                    terminal_color_profile = Some(
+                        serde_json::from_str(&parse_string_arg(
+                            &args,
+                            index,
+                            "--terminal-color-profile",
+                        )?)
+                        .map_err(|error| error.to_string())?,
+                    );
+                }
                 other => return Err(format!("unknown worker argument: {other}")),
             }
             index += 1;
@@ -1221,6 +1294,8 @@ impl WorkerArgs {
             test_write_max_chunk,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
+            ghostty_max_scrollback_bytes,
+            terminal_color_profile,
         })
     }
 }

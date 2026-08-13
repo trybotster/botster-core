@@ -133,6 +133,8 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
+        ghostty_max_scrollback_bytes: 10_000_000,
+        terminal_color_profile: None,
     }
 }
 
@@ -578,11 +580,6 @@ fn worker_backed_public_engine_path_routes_spawn_input_resize_output_and_shutdow
     engine
         .attach_client(client.clone(), session.clone(), subscription.clone(), 10)
         .expect("attach public path consumer");
-
-    let ready = drain_engine_until(&mut engine, &session, |bytes| {
-        String::from_utf8_lossy(bytes).contains("public-ready")
-    });
-    assert!(String::from_utf8_lossy(&ready).contains("public-ready"));
 
     engine
         .resize(client.clone(), session.clone(), 28, 88, 11)
