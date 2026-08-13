@@ -140,6 +140,11 @@ pub struct AttachedSession {
     pub session_id: SessionId,
     /// Subscription id used for output routing.
     pub subscription_id: SubscriptionId,
+    /// Initial egress owned by this exact client, session, and subscription route.
+    ///
+    /// Hosts must deliver these frames as the attach response. A later daemon
+    /// drain does not repeat them.
+    pub client_egress: Vec<(ClientId, TransportEgress)>,
 }
 
 /// Output drained through the daemon.
@@ -147,10 +152,9 @@ pub struct AttachedSession {
 pub struct DrainResult {
     /// Egress frames routed to clients.
     ///
-    /// Attach may produce initial subscription history immediately inside the
-    /// core engine. The daemon retains that attach output and exposes it here
-    /// so embedders can observe history replay through the same drain surface
-    /// as live runtime output.
+    /// This list contains live output and attach output for other routes.
+    /// [`AttachedSession::client_egress`] owns initial output for the requested
+    /// attach route.
     pub client_egress: Vec<(ClientId, TransportEgress)>,
     /// Core observations from the drain.
     pub observations: Vec<BotsterEngineObservation>,

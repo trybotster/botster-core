@@ -598,6 +598,7 @@ impl ManyPtySessionState {
 struct ManyPtyLoadHarness {
     engine: DefaultBotsterEngine,
     sessions: Vec<ManyPtySessionState>,
+    pending_output: MultiplexerEngineOutcome,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -606,7 +607,12 @@ impl ManyPtyLoadHarness {
         Self {
             engine: DefaultBotsterEngine::new(),
             sessions: Vec::new(),
+            pending_output: MultiplexerEngineOutcome::empty(),
         }
+    }
+
+    fn take_pending_output(&mut self) -> MultiplexerEngineOutcome {
+        std::mem::replace(&mut self.pending_output, MultiplexerEngineOutcome::empty())
     }
 
     fn shutdown_all(&mut self, now_seconds: u64) {
@@ -686,7 +692,7 @@ pub fn run_adversarial_hot_path_load(
 
     while Instant::now() < deadline {
         drain_rounds += 1;
-        let output = harness
+        let drained = harness
             .engine
             .drain_runtime_all_once(drain_rounds as u64 + 1)
             .map_err(EngineConformanceError::from)
@@ -698,6 +704,8 @@ pub fn run_adversarial_hot_path_load(
                     format!("fair aggregate drain failed: {error}"),
                 )
             })?;
+        let mut output = harness.take_pending_output();
+        append_outcome(&mut output, drained);
 
         queue_backpressure_observations.extend(queue_backpressure_observations_for(&output));
         for session in &mut harness.sessions {
@@ -845,7 +853,7 @@ fn drain_many_pty_harness_once(
     harness: &mut ManyPtyLoadHarness,
     last_output_at: u64,
 ) -> Result<MultiplexerEngineOutcome, EngineConformanceError> {
-    let mut combined = MultiplexerEngineOutcome::empty();
+    let mut combined = harness.take_pending_output();
     let session_ids = harness
         .sessions
         .iter()
@@ -923,7 +931,7 @@ fn spawn_many_pty_sessions(
 #[cfg(feature = "local-runtime")]
 fn attach_many_pty_clients(harness: &mut ManyPtyLoadHarness) -> Result<(), EngineConformanceError> {
     for session in &harness.sessions {
-        harness
+        let outcome = harness
             .engine
             .execute_command(DefaultEngineCommand::AttachClient {
                 client_id: session.client_id.clone(),
@@ -940,6 +948,19 @@ fn attach_many_pty_clients(harness: &mut ManyPtyLoadHarness) -> Result<(), Engin
                     error,
                 )
             })?;
+        match outcome {
+            EngineCommandOutcome::Output(output) => {
+                append_outcome(&mut harness.pending_output, output)
+            }
+            outcome => {
+                return Err(many_pty_error(
+                    "attach",
+                    Some(session.session_id.clone()),
+                    Some(session.client_id.clone()),
+                    format!("unexpected outcome: {outcome:?}"),
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -976,7 +997,7 @@ fn spawn_adversarial_control_session(
         })
         .map_err(EngineConformanceError::from)
         .map_err(|error| wrap_many_pty_error("spawn-control", &control.session_id, None, error))?;
-    harness
+    let outcome = harness
         .engine
         .execute_command(DefaultEngineCommand::AttachClient {
             client_id: control.client_id.clone(),
@@ -993,6 +1014,17 @@ fn spawn_adversarial_control_session(
                 error,
             )
         })?;
+    match outcome {
+        EngineCommandOutcome::Output(output) => append_outcome(&mut harness.pending_output, output),
+        outcome => {
+            return Err(many_pty_error(
+                "attach-control",
+                Some(control.session_id.clone()),
+                Some(control.client_id.clone()),
+                format!("unexpected outcome: {outcome:?}"),
+            ));
+        }
+    }
 
     Ok(control)
 }
@@ -1367,11 +1399,11 @@ fn drain_control_until_input_echo(
     let mut combined = MultiplexerEngineOutcome::empty();
 
     while Instant::now() < deadline {
-        let output = harness
+        let drained = harness
             .engine
             .drain_runtime_once(&control.session_id, 24)
             .map_err(EngineConformanceError::from)?;
-        append_outcome(&mut combined, output);
+        append_outcome(&mut combined, drained);
         let delivered = terminal_output_bytes_for(
             &combined,
             &control.client_id,
@@ -1500,7 +1532,7 @@ fn drain_many_pty_sessions(
         let mut made_progress = false;
         drain_rounds += 1;
 
-        let output = harness
+        let drained = harness
             .engine
             .drain_runtime_all_once(drain_rounds as u64 + 1)
             .map_err(EngineConformanceError::from)
@@ -1512,6 +1544,8 @@ fn drain_many_pty_sessions(
                     format!("fair aggregate drain failed: {error}"),
                 )
             })?;
+        let mut output = harness.take_pending_output();
+        append_outcome(&mut output, drained);
 
         if !output.client_egress.is_empty() || !output.session_events.is_empty() {
             made_progress = true;
