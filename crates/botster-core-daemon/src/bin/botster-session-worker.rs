@@ -748,6 +748,16 @@ impl SnapshotBarrierControl {
             state.active_request = Some(request_id);
             state.staged_resize = None;
             state.release = None;
+            self.wake.notify_all();
+        }
+    }
+
+    fn cancel_active(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.active_request.is_some() {
+                state.release = Some(SnapshotBarrierRelease::Cancel);
+                self.wake.notify_all();
+            }
         }
     }
 
@@ -897,6 +907,7 @@ fn spawn_control_reader(
                 break;
             }
         }
+        snapshot_barrier.cancel_active();
     });
 }
 
@@ -1562,7 +1573,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::WorkerLifecycle;
+    use std::sync::Arc;
+
+    use super::{SnapshotBarrierControl, SnapshotBarrierRelease, WorkerLifecycle};
 
     #[test]
     fn shutdown_keeps_worker_loop_alive_until_process_exit_is_observed() {
@@ -1573,6 +1586,21 @@ mod tests {
 
         lifecycle.observe_process_exit();
         assert!(!lifecycle.should_continue());
+    }
+
+    #[test]
+    fn control_eof_releases_an_active_snapshot_barrier() {
+        let control = Arc::new(SnapshotBarrierControl::default());
+        control.begin("snapshot-eof".to_string());
+        let waiter = Arc::clone(&control);
+        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-eof"));
+
+        control.cancel_active();
+
+        assert!(matches!(
+            joined.join().expect("barrier waiter"),
+            SnapshotBarrierRelease::Cancel
+        ));
     }
 
     #[cfg(unix)]

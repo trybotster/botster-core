@@ -425,32 +425,44 @@ impl WorkerProcessRuntime {
         let mut bytes = Vec::new();
         let mut before_ready = Vec::new();
         loop {
-            let poll = self.poll_snapshot_boundary(session_id, &request_id)?;
+            let poll = match self.poll_snapshot_boundary(session_id, &request_id) {
+                Ok(poll) => poll,
+                Err(error) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                    return Err(error);
+                }
+            };
             before_ready.extend(poll.before_ready);
             for frame in poll.frames {
                 if let Some(error) = frame.error_kind {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
                     return Err(SessionRuntimeError::new(
                         SessionRuntimeErrorKind::OutputFailed,
                         error,
                     ));
                 }
-                let phase = frame.phase.ok_or_else(|| {
-                    SessionRuntimeError::new(
+                let Some(phase) = frame.phase else {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                    return Err(SessionRuntimeError::new(
                         SessionRuntimeErrorKind::OutputFailed,
                         "worker snapshot frame omitted its phase",
-                    )
-                })?;
-                let snapshot = frame.snapshot.ok_or_else(|| {
-                    SessionRuntimeError::new(
+                    ));
+                };
+                let Some(snapshot) = frame.snapshot else {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                    return Err(SessionRuntimeError::new(
                         SessionRuntimeErrorKind::OutputFailed,
                         "worker snapshot frame omitted its bytes",
-                    )
-                })?;
+                    ));
+                };
                 let size = snapshot.size;
                 let format = snapshot.format;
                 bytes.extend(snapshot.bytes);
                 if phase == crate::WorkerSnapshotPhase::Finish {
-                    self.complete_snapshot_boundary(session_id, &request_id)?;
+                    if let Err(error) = self.complete_snapshot_boundary(session_id, &request_id) {
+                        let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                        return Err(error);
+                    }
                     return Ok((
                         crate::TerminalSnapshotPayload::new(bytes, size, format),
                         before_ready,
@@ -464,12 +476,20 @@ impl WorkerProcessRuntime {
                     "worker snapshot request timed out",
                 ));
             }
-            if self.session_reader_finished(session_id)? {
-                self.session_mut(session_id)?.outstanding_snapshot_request = None;
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker disconnected before snapshot response",
-                ));
+            match self.session_reader_finished(session_id) {
+                Ok(true) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                    self.session_mut(session_id)?.outstanding_snapshot_request = None;
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "worker disconnected before snapshot response",
+                    ));
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
+                    return Err(error);
+                }
             }
             thread::sleep(GATED_POLL);
         }
@@ -588,8 +608,15 @@ impl WorkerProcessRuntime {
         }
         let deadline = Instant::now() + self.options.mode_gated_input_timeout;
         loop {
-            let poll = self.poll_snapshot_boundary(session_id, request_id)?;
+            let poll = match self.poll_snapshot_boundary(session_id, request_id) {
+                Ok(poll) => poll,
+                Err(error) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
+                    return Err(error);
+                }
+            };
             if let Some(error) = poll.frames.into_iter().find_map(|frame| frame.error_kind) {
+                let _ = self.cancel_snapshot_boundary(session_id, request_id);
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     error,
@@ -605,12 +632,20 @@ impl WorkerProcessRuntime {
                     "worker snapshot barrier release timed out",
                 ));
             }
-            if self.session_reader_finished(session_id)? {
-                self.session_mut(session_id)?.outstanding_snapshot_request = None;
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker disconnected before snapshot barrier release",
-                ));
+            match self.session_reader_finished(session_id) {
+                Ok(true) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
+                    self.session_mut(session_id)?.outstanding_snapshot_request = None;
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "worker disconnected before snapshot barrier release",
+                    ));
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
+                    return Err(error);
+                }
             }
             thread::sleep(GATED_POLL);
         }

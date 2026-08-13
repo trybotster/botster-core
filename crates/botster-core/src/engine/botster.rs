@@ -886,15 +886,34 @@ impl WorkerBackedBotsterEngine {
         let Some(mut attach) = self.incremental_attaches.remove(session_id) else {
             return self.runtime.drain_runtime_once(session_id, last_output_at);
         };
-        let poll = self
+        let poll = match self
             .runtime
             .session_runtime_mut()
-            .poll_snapshot_boundary(session_id, &attach.request_id)?;
-        let mut output = self.runtime.route_worker_boundary_outputs(
+            .poll_snapshot_boundary(session_id, &attach.request_id)
+        {
+            Ok(poll) => poll,
+            Err(error) => {
+                let _ = self
+                    .runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(session_id, &attach.request_id);
+                return Err(error.into());
+            }
+        };
+        let mut output = match self.runtime.route_worker_boundary_outputs(
             session_id,
             poll.before_ready,
             last_output_at,
-        )?;
+        ) {
+            Ok(output) => output,
+            Err(error) => {
+                let _ = self
+                    .runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(session_id, &attach.request_id);
+                return Err(error);
+            }
+        };
         suppress_attach_terminal_output(&mut output, session_id, &attach);
 
         let mut history_incomplete = false;
@@ -956,12 +975,21 @@ impl WorkerBackedBotsterEngine {
             }
             let phase = frame.phase.expect("snapshot phase was validated above");
             let snapshot = frame.snapshot.expect("snapshot bytes were validated above");
-            let frame_output = self.runtime.snapshot_attach_frame(
+            let frame_output = match self.runtime.snapshot_attach_frame(
                 attach.client_id.clone(),
                 session_id.clone(),
                 attach.subscription_id.clone(),
                 snapshot.bytes,
-            )?;
+            ) {
+                Ok(output) => output,
+                Err(error) => {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(session_id, &attach.request_id);
+                    return Err(error);
+                }
+            };
             append_engine_output(&mut output, frame_output);
             match phase {
                 crate::WorkerSnapshotPhase::Ready => attach.ready = true,
@@ -977,7 +1005,7 @@ impl WorkerBackedBotsterEngine {
 
         let applied_resize = attach.queued_resize.take();
         if let Some((resize_client, rows, cols, resize_at)) = applied_resize.as_ref() {
-            let resize_output = self.runtime.handle_client_ingress(
+            let resize_output = match self.runtime.handle_client_ingress(
                 resize_client.clone(),
                 TransportIngress::Resize {
                     session_id: session_id.clone(),
@@ -985,7 +1013,16 @@ impl WorkerBackedBotsterEngine {
                     cols: *cols,
                 },
                 *resize_at,
-            )?;
+            ) {
+                Ok(output) => output,
+                Err(error) => {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(session_id, &attach.request_id);
+                    return Err(error);
+                }
+            };
             append_engine_output(&mut output, resize_output);
         }
         self.runtime
