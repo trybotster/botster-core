@@ -1310,6 +1310,127 @@ fn worker_backed_late_attach_and_read_screen_pending_drains_merge_in_order() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_attach_during_alt_screen_resize_gets_complete_current_state() {
+    for iteration in 0..5 {
+        let data_dir = temp_data_dir(&format!("atomic-resize-attach-{iteration}"));
+        let midpoint = data_dir.join("redraw-midpoint");
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_worker_path(worker_path())
+                .with_pty_reader_chunk_capacity(Some(1))
+                .with_test_hold_after_read_ms(Some(2))
+                .with_test_worker_egress_capacity(Some(4)),
+        );
+        let session_id = SessionId(format!("atomic-resize-attach-{iteration}"));
+        let primary_client = ClientId(format!("atomic-primary-{iteration}"));
+        let late_client = ClientId(format!("atomic-late-{iteration}"));
+        let mut request = spawn_request(&session_id);
+        request.request.arguments[1] = format!(
+            concat!(
+                "trap 'printf \"\\033[?1049h\\033[2J\"; ",
+                "i=0; while [ $i -lt 100 ]; do ",
+                "printf \"\\033]0;filler-%03d\\007\" \"$i\"; i=$((i+1)); done; ",
+                "i=1; while [ $i -le 49 ]; do ",
+                "printf \"\\033[%d;1HROW-%02d-COMPLETE\" \"$i\" \"$i\"; ",
+                "sleep 0.003; i=$((i+1)); done; ",
+                "printf done > \"{}\"; sleep 1; ",
+                "printf \"\\033[50;1HROW-50-COMPLETE\"' WINCH; ",
+                "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            ),
+            midpoint.display()
+        );
+
+        daemon.spawn(request, 10).expect("spawn real worker");
+        daemon
+            .attach(
+                primary_client.clone(),
+                session_id.clone(),
+                SubscriptionId(format!("atomic-primary-sub-{iteration}")),
+                11,
+            )
+            .expect("primary attach");
+        let _ = drain_until(&mut daemon, &session_id, "ready");
+        daemon
+            .resize(primary_client, session_id.clone(), 50, 152, 12)
+            .expect("production resize");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !midpoint.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            midpoint.exists(),
+            "child must reach the controlled redraw midpoint"
+        );
+
+        daemon
+            .attach(
+                late_client.clone(),
+                session_id.clone(),
+                SubscriptionId(format!("atomic-late-sub-{iteration}")),
+                13,
+            )
+            .expect("attach during alternate-screen redraw");
+
+        let drained =
+            drain_until_for_client(&mut daemon, &session_id, &late_client, "ROW-50-COMPLETE");
+        let (snapshot_index, snapshot) = first_snapshot_for_client_at_size(
+            &drained.client_egress,
+            &late_client,
+            TerminalScreenSize::new(50, 152),
+        )
+        .expect("late attach must receive GHOSTSNP");
+        assert_ghostty_snapshot_authority(&snapshot);
+        let snapshot_text = ghostty_snapshot_plain_text(&snapshot);
+        assert!(
+            snapshot_text.contains("ROW-49-COMPLETE"),
+            "snapshot must contain the pre-boundary redraw prefix"
+        );
+        assert!(
+            !snapshot_text.contains("ROW-50-COMPLETE"),
+            "row 50 must remain a post-boundary live-output suffix"
+        );
+        let mut client = GhosttyTerminal::with_config(
+            snapshot.size,
+            GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+        )
+        .expect("client Ghostty");
+        client.import_snapshot(&snapshot).expect("install GHOSTSNP");
+        for (index, (client_id, frame)) in drained.client_egress.iter().enumerate() {
+            if index <= snapshot_index {
+                continue;
+            }
+            if client_id == &late_client {
+                if let TransportEgress::TerminalOutput { data, .. } = frame {
+                    client.write_output_bytes(data);
+                }
+            }
+        }
+        let text = client.plain_text().expect("render client state");
+        for row in 1..=50 {
+            assert!(
+                text.contains(&format!("ROW-{row:02}-COMPLETE")),
+                "iteration {iteration} missed row {row}; text={text:?}"
+            );
+        }
+        assert_eq!(client.size(), TerminalScreenSize::new(50, 152));
+        assert!(client.read_mode_flags().expect("mode flags").alt_screen);
+
+        let screen = daemon
+            .read_screen(ReadScreenRequest {
+                request_id: RequestId(format!("atomic-screen-{iteration}")),
+                session_id: session_id.clone(),
+                now_seconds: 14,
+            })
+            .expect("parent screen after attach boundary");
+        assert!(screen.screen.text.contains("ROW-50-COMPLETE"));
+        daemon.shutdown(Some(session_id), 15).ok();
+        let _ = fs::remove_dir_all(data_dir);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn daemon_screen_and_snapshot_retain_shutdown_truth_and_keep_negative_paths() {
     let data_dir = temp_data_dir("dssn");
     let mut daemon =
@@ -1955,7 +2076,7 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
         daemon
             .spawn(spawn_request(&session_id), 10)
             .expect("first daemon should spawn live session");
-        let record = daemon
+        let mut record = daemon
             .registry()
             .load(&session_id)
             .expect("registry load should succeed")
@@ -1968,6 +2089,16 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
                 .is_some(),
             "worker-backed daemon should persist a reconnectable worker endpoint"
         );
+        record
+            .recovery_identity
+            .as_mut()
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("recovery identity object")
+            .remove("atomic_snapshot_boundary");
+        daemon
+            .registry()
+            .save(&record)
+            .expect("persist a legacy v2 worker record without the capability");
         daemon.release_for_restart();
     }
 
@@ -5532,6 +5663,31 @@ fn first_snapshot_for_client(
                 )),
                 _ => None,
             }
+        })
+}
+
+fn first_snapshot_for_client_at_size(
+    frames: &[(ClientId, TransportEgress)],
+    client_id: &ClientId,
+    size: TerminalScreenSize,
+) -> Option<(usize, botster_core::TerminalSnapshotPayload)> {
+    frames
+        .iter()
+        .enumerate()
+        .find_map(|(index, (target, frame))| {
+            if target == client_id {
+                if let TransportEgress::Snapshot { data, .. } = frame {
+                    return Some((
+                        index,
+                        botster_core::TerminalSnapshotPayload::new(
+                            data.clone(),
+                            size,
+                            Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
+                        ),
+                    ));
+                }
+            }
+            None
         })
 }
 

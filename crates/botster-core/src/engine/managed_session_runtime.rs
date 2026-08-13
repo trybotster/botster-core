@@ -133,12 +133,45 @@ impl<T> ManagedSessionRuntime<WorkerProcessRuntime, T>
 where
     T: TerminalScreenRuntime + 'static,
 {
+    /// Synchronize the parent terminal with one atomic worker snapshot boundary.
+    pub fn synchronize_worker_snapshot_boundary(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let (snapshot, output) = self
+            .engine
+            .session_runtime_mut()
+            .capture_snapshot_boundary(session_id)?;
+        let mut outcome = self.route_runtime_outputs(session_id, output, last_output_at)?;
+        let worker = self.engine_worker(session_id).ok_or_else(|| {
+            MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            }
+        })?;
+        worker.replay_snapshot(snapshot)?;
+        self.route_pending_runtime_events(&mut outcome)?;
+        Ok(outcome)
+    }
+
+    /// Return whether one worker supports atomic snapshot boundaries.
+    pub fn worker_supports_snapshot_boundary(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<bool, ManagedSessionRuntimeError> {
+        Ok(self
+            .engine
+            .session_runtime()
+            .supports_snapshot_boundary(session_id)?)
+    }
+
     /// Adopt a live worker process through its reopenable control endpoint.
     pub fn adopt_worker_process(
         &mut self,
         session_id: SessionId,
         process: ProcessIdentity,
         socket_path: impl Into<std::path::PathBuf>,
+        supports_snapshot_boundary: bool,
         metadata: CoreSessionMetadata,
     ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
         if !metadata.is_within_encoded_len_limit() {
@@ -146,10 +179,12 @@ where
                 MultiplexerEngineError::MetadataTooLarge,
             ));
         }
-        let handle =
-            self.engine
-                .session_runtime_mut()
-                .adopt_session(session_id, process, socket_path)?;
+        let handle = self.engine.session_runtime_mut().adopt_session(
+            session_id,
+            process,
+            socket_path,
+            supports_snapshot_boundary,
+        )?;
         let terminal = (self.terminal_backend_factory)(TerminalScreenSize::new(24, 80))
             .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
         Ok(self.engine.adopt_session(
@@ -395,6 +430,15 @@ where
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let outputs = self.engine.session_runtime_mut().drain_output(session_id)?;
+        self.route_runtime_outputs(session_id, outputs, last_output_at)
+    }
+
+    fn route_runtime_outputs(
+        &mut self,
+        session_id: &SessionId,
+        outputs: Vec<SessionRuntimeOutput>,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut outcome = MultiplexerEngineOutcome::empty();
 
         // Runtime drains are output-only; worker input buffers are populated by
@@ -854,6 +898,22 @@ where
             });
         }
         Ok(snapshot)
+    }
+
+    #[cfg(feature = "local-runtime")]
+    pub(crate) fn replay_snapshot(
+        &mut self,
+        snapshot: TerminalSnapshotPayload,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let mut state = self.state.borrow_mut();
+        state.terminal.replay_snapshot(snapshot);
+        if let Some(message) = state.terminal.runtime().last_error() {
+            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
+                operation: "replay_snapshot",
+                message,
+            });
+        }
+        Ok(())
     }
 
     pub(crate) fn capture_terminal_state(

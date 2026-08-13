@@ -588,10 +588,16 @@ impl WorkerBackedBotsterEngine {
         session_id: SessionId,
         process: ProcessIdentity,
         socket_path: impl Into<std::path::PathBuf>,
+        supports_snapshot_boundary: bool,
         metadata: CoreSessionMetadata,
     ) -> Result<BotsterSpawnOutcome, WorkerBackedBotsterEngineError> {
-        self.runtime
-            .adopt_worker_process(session_id, process, socket_path, metadata)
+        self.runtime.adopt_worker_process(
+            session_id,
+            process,
+            socket_path,
+            supports_snapshot_boundary,
+            metadata,
+        )
     }
 
     /// Release workers without sending shutdown frames for an intentional daemon restart.
@@ -616,10 +622,19 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        let mut output = if self
+            .runtime
+            .worker_supports_snapshot_boundary(&session_id)?
+        {
+            self.runtime
+                .synchronize_worker_snapshot_boundary(&session_id, now_seconds)?
+        } else {
+            BotsterEngineOutput::empty()
+        };
         self.runtime
             .session_runtime_mut()
             .attach_consumer(&session_id)?;
-        self.runtime.handle_client_ingress(
+        let attach = self.runtime.handle_client_ingress(
             client_id.clone(),
             TransportIngress::SubscribeSession {
                 client_id,
@@ -627,7 +642,15 @@ impl WorkerBackedBotsterEngine {
                 subscription_id,
             },
             now_seconds,
-        )
+        )?;
+        output.client_egress.extend(attach.client_egress);
+        output.session_requests.extend(attach.session_requests);
+        output
+            .client_control_frames
+            .extend(attach.client_control_frames);
+        output.session_events.extend(attach.session_events);
+        output.observations.extend(attach.observations);
+        Ok(output)
     }
 
     /// Detach a client from a session stream.

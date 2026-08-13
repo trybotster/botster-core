@@ -83,6 +83,25 @@ pub const FRAME_MODE_GATED_PTY_INPUT: u8 = 0x19;
 /// Session to daemon data plane: mode-gated PTY input result (correlated RPC).
 pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
 
+/// Correlated request for an atomic worker-owned terminal snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerSnapshotRequest {
+    /// Parent-issued correlation id.
+    pub request_id: String,
+}
+
+/// Correlated worker-owned terminal snapshot response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerSnapshotResult {
+    /// Echo of the request correlation id.
+    pub request_id: String,
+    /// Snapshot captured after all pre-boundary PTY output was applied.
+    pub snapshot: Option<crate::TerminalSnapshotPayload>,
+    /// Worker snapshot failure. The worker remains live when this field is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+}
+
 /// Public freshness token for race-free mode-dependent input admission.
 ///
 /// `mode_generation` is a high-entropy epoch for the current worker mode owner.
