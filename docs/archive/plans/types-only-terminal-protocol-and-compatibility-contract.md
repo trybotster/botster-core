@@ -5,6 +5,8 @@ Run: `run_1786661055_398881`
 Target: `botster-core` / `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Pipeline: `botster_stack_delivery` / `botster_stack_plan`
 Base: `main` at `033cd01`
+Revision: addresses Plan Review `review_1786661988_371515` findings
+`finding_1786661988_522167`, `finding_1786661988_724616`, `finding_1786661988_868062`.
 
 ## Target repository and target_id
 
@@ -70,115 +72,173 @@ Targeted atomic notes:
 
 ## Context loaded
 
-- Pipeline ticket, project, run, and empty artifacts/reviews/questions/checklists via `project_pipelines_current_context`.
+- Pipeline ticket, project, run, artifacts, Plan Review `changes_required`, and the three open product findings.
 - Project `project_1786660949_205223` (`Botster Terminal Transport North Star`) and sibling tickets. This ticket is the protocol-plane first step. No registered ticket dependencies.
-- Target-repo README, workspace `Cargo.toml`, CI (`.github/workflows/ci.yml`), `docs/README.md`, `docs/plans/README.md`, and living architecture docs.
-- Current Core terminal/runtime types: `TransportIngress` / `TransportEgress`, `TerminalAttachState`, `WorkerSnapshotPhase`, session-process protocol in `contract/session_protocol.rs`.
-- Current Hub-owned combined protocol in `botster-hub-client`: `PROTOCOL = botster-hub-daemon-v1`, `PROTOCOL_VERSION = 7`, `CONFORMANCE_FIXTURE_REVISION = 38`, mixed `DaemonRequest` / `DaemonEvent`, TypeScript emitter, and `@trybotster/hub-test-support` 0.1.33 including GHOSTSNP goldens.
-- Repo placement: landed plans go under `docs/archive/plans/`. `docs/plans/` is a retired stub.
+- Target-repo README, workspace `Cargo.toml`, CI (`.github/workflows/ci.yml`), `docs/README.md`, `docs/plans/README.md`.
+- Current Core types: `TransportIngress` / `TransportEgress`, `TerminalAttachState`, `WorkerSnapshotPhase`.
+- Current Hub-owned combined protocol: `botster-hub-daemon-v1` / protocol 7 / conf 38. Terminal event tags and envelopes from `botster-hub-client` and `late-attach-history-conformance-fixture.json`.
+- Repo placement: landed plans go under `docs/archive/plans/`.
 
 ## Botster layers touched
 
-- New Core-owned types-only protocol crate, generated TypeScript, fixtures, and package versioning.
-- Living architecture/README for the new crate.
+- Two Core-owned types-only crates, generated TypeScript, fixtures, Node package, and CI Node consumer smoke.
+- Living architecture/README.
 - No Lua plugin, Hub runtime, Hub host-control protocol, TUI, SPA, Rails relay, MCP, Ghostty adapter, SessionIo/ClientWorker, or Project Pipelines product layer.
 
 ## Scope
 
-Create a standalone, Core-owned, types-only terminal protocol plane in this workspace.
+Create the Core-owned types-only terminal protocol plane as two workspace crates plus one Node package.
 
-1. Add workspace crate `botster-terminal-protocol` (version `0.1.0`).
-2. Own the public terminal wire types:
-   - Requests: `Attach`, `Detach`, `Input`, `Resize`.
-   - Events: `Snapshot` including first-class `SnapshotPhase` (`ready`, `history`, `finish`), `AttachState`, `TerminalOutput`, `ProcessExited`.
-3. Own terminal protocol identity and compatibility:
-   - Independent protocol name, not `botster-hub-daemon-v1`.
-   - `protocol_version` and `conformance_fixture_revision`.
-   - Feature tokens and advertised-vs-required descriptors.
-   - `snapshot_delivery=ready_then_history` is advertised optional support and is not in the default client requirement. Attach stays `{ session_id, subscription_id }`.
-4. Make adapter-facing frame bodies opaque outside the crate:
-   - Public `TerminalFrame` serializes and deserializes.
-   - No public Snapshot-body or attach-phase accessors on that type.
-   - Snapshot history bytes stay an opaque validated base64 envelope.
-   - Live `TerminalOutput` uses the same envelope field names but a distinct type whose decoded bytes are renderable PTY output.
-5. Generate TypeScript from the Rust serde source. Commit the artifact. Drift-check field sets, mapped types, and per-field optionality.
-6. Own terminal conformance assets that belong to Core:
-   - Copy Hub-owned GHOSTSNP late-attach goldens and terminal-event fixtures into this crate.
-   - Do not edit Hub in this run.
-7. Package versioning: Cargo crate version plus a committed Node package coordinate such as `@trybotster/terminal-protocol` at `0.1.0`, kept unpublished in this ticket.
-8. Prove crate isolation: no `botster-core` runtime dependency and no Hub crate dependency.
-9. Document the living contract under `docs/architecture/` and list the crate in the root README workspace table.
+### Crate and package boundary
+
+| Coordinate | Consumers | Public surface |
+| --- | --- | --- |
+| `botster-terminal-protocol` 0.1.0 | Hub adapters and any content-blind forwarder | Compatibility descriptors, feature tokens, request types Hub may forward, opaque `TerminalFrame` |
+| `botster-terminal-protocol-client` 0.1.0 | TUI Rust and the TypeScript generator | Semantic Snapshot / phase / AttachState / TerminalOutput / ProcessExit types |
+| `@trybotster/terminal-protocol` 0.1.0 | Web (and any Node consumer) | Generated TypeScript, metadata, terminal fixtures |
+
+Dependency direction:
+
+- `botster-terminal-protocol-client` depends on `botster-terminal-protocol`.
+- `@trybotster/terminal-protocol` is generated from the client crate. It is not a Rust public surface.
+- Hub must depend only on `botster-terminal-protocol`. Hub must not depend on `botster-terminal-protocol-client` or import generated TypeScript to inspect frames.
+- Neither crate depends on `botster-core`, `botster-core-daemon`, `botster-hub`, or `botster-hub-client`.
+
+This split is the enforceable answer to `finding_1786661988_522167`. A public `client` module on the Hub-consumable crate is forbidden.
+
+### Hub-consumable crate public API allowlist
+
+`botster-terminal-protocol` may export only:
+
+- `PROTOCOL`
+- `PROTOCOL_VERSION`
+- `CONFORMANCE_FIXTURE_REVISION`
+- `DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION`
+- `FEATURE_TERMINAL_STREAMING`
+- `FEATURE_RESIZE`
+- `FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY`
+- `TerminalCompatibility`
+- `TerminalCompatibilityRequirement` with `current()` and `for_ready_then_history_attach()`
+- `ensure_compatible`
+- `Attach`, `Detach`, `SendInput`, `Resize`
+- `TerminalFrame`
+
+`TerminalFrame` serializes and deserializes. It has no public `phase`, `state`, `history`, `payload`, or Snapshot-body accessor. Construction from bytes and emission of bytes are allowed.
+
+The crate must not export `Snapshot`, `SnapshotPhase`, `AttachState`, `TerminalOutput`, `ProcessExit`, or any decoded GHOSTSNP type.
+
+### Client crate public API
+
+`botster-terminal-protocol-client` owns the semantic event types and encodes them into `TerminalFrame`. TUI uses this crate. The TypeScript emitter lives here.
+
+### Pinned public compatibility vocabulary
+
+These values are decisions, not Implement choices. They map to the current producer and the new independent plane.
+
+| Item | Pinned value | Producer mapping |
+| --- | --- | --- |
+| Protocol name | `botster-terminal-v1` | Sibling of `botster-hub-daemon-v1`. New plane, not a Hub revision. |
+| `PROTOCOL_VERSION` | `1` | New plane. Exact equality, same rule as Hub. |
+| `CONFORMANCE_FIXTURE_REVISION` | `1` | New fixture set. Floor comparison. |
+| `DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION` | `1` | No prior published terminal-plane revision. |
+| Default required features | `terminal_streaming`, `resize` | Current Hub default includes these two terminal tokens plus host tokens that stay in Hub. |
+| Advertised support | default required plus `snapshot_delivery=ready_then_history` | Current Hub `current_feature_list` advertises that token without requiring it. |
+| Operation-specific requirement | `for_ready_then_history_attach()` adds `snapshot_delivery=ready_then_history` | Same split as Hub `DaemonCompatibilityRequirement::for_ready_then_history_attach()`. |
+| Attach request | `{ "type": "attach", "session_id", "subscription_id" }` | Current `DaemonRequest::Attach`. No delivery-mode field. |
+| Detach request | `{ "type": "detach", "session_id", "subscription_id" }` | Current `DaemonRequest::Detach`. |
+| Input request | `{ "type": "send_input", "session_id", "data" }` | Current `DaemonRequest::SendInput`. Ticket name is Input; wire tag stays `send_input`. |
+| Resize request | `{ "type": "resize", "session_id", "rows", "cols" }` | Current `DaemonRequest::Resize`. |
+| Snapshot event | `{ "type": "snapshot", "session_id", "subscription_id", "payload_base64", "payload_encoding": "base64", "bytes", "phase" }` | Current Snapshot envelope plus first-class `phase`. Current Hub Snapshot has no phase field; phases live in GHOSTSNP. The new plane adds `phase` so clients do not decode GHOSTSNP to learn READY/HISTORY/FINISH. |
+| Snapshot phase | `ready`, `history`, `finish` | `WorkerSnapshotPhase` / Ghostty READY, HISTORY, FINISH. |
+| TerminalOutput event | `{ "type": "terminal_output", "session_id", "subscription_id", "payload_base64", "payload_encoding": "base64", "bytes" }` | Current live envelope. Distinct type from Snapshot. Rejects `{ "data": "..." }`. |
+| Process exit event | `{ "type": "process_exit", "session_id", "subscription_id", "code"? }` | Current `DaemonEvent::ProcessExit` / Core `TransportEgress::ProcessExit`. Ticket/north-star name is ProcessExited; wire tag stays `process_exit`. |
+| AttachState event | `{ "type": "attach_state", "session_id", "subscription_id", "state" }` | Current Hub event. |
+| AttachState `state` | `attaching`, `attached`, `snapshot_history_incomplete`, `attach_failed` | Core produces attaching / attached / snapshot_history_incomplete. Hub currently maps pre-READY drain failure to `attach_failed`. Public wire keeps `attach_failed`. Do not publish `detached`. |
+| Envelope encoding | `payload_encoding` is the literal `base64` | Current `DaemonHistoryEncoding::Base64`. |
+| Crate / npm versions | `0.1.0` | Unpublished in this ticket. |
+
+Not in this plane: `sessions`, plugin/package/worktree/entity tokens, `terminal_readback`, `mode_gated_input`, `hub_source_update`, `Drain`, `ReadScreen`, `Scrollback`.
+
+`code` on `process_exit` is optional (`skip_serializing_if = Option::is_none`). Generated TypeScript must mark it optional.
+
+### Fixtures and generation
+
+- Copy Hub GHOSTSNP late-attach goldens into the protocol crate as opaque bytes. Keep history vs blank SHA distinctness. Do not regenerate at build time.
+- Client crate owns event-order fixtures that include `phase` and advertise `snapshot_delivery=ready_then_history` when they require it.
+- Generate TypeScript from the client crate serde source. Commit `crates/botster-terminal-protocol-client/generated/terminal-protocol.ts`.
+- Mirror that artifact into `packages/terminal-protocol` at version `0.1.0`.
+- Do not edit Hub in this run.
+
+### Docs
+
+- `docs/architecture/terminal-protocol.md` records the two-crate rule, pinned vocabulary, and consumer direction.
+- Root README workspace table lists both crates and states Hub may depend only on `botster-terminal-protocol`.
 
 ## Non-scope
 
 - Hub host-control protocol: hello, admission, spawn, packages, grants, status, entity frames, Drain, ReadScreen, ReadModeFlags, CaptureSnapshot, WebRTC delivery chunks.
-- Deleting or republishing `@trybotster/hub-test-support`. That is Hub successor work (`ticket_1786661010_198387` and related Hub tickets).
-- Transport adapter trait, WouldBlock/Full/Closed, or adapter conformance harness (`ticket_1786661004_133253`).
-- ClientWorker push path, teardown, or subscription inventory (`ticket_1786661004_845807`).
-- Wiring `botster-core`, `botster-core-daemon`, or Ghostty production paths to the new crate.
-- Web, TUI, or TUI Kit consumption (later tickets).
-- Publishing to crates.io or npm.
-- Changing `TransportEgress` / session-process SPH1 frames in this ticket.
-- Porting Hub `Scrollback` into the new plane. Incremental attach uses Snapshot phases.
-- Runtime-teardown proofs, live Hub pins, or authentic Ghostty production attach in this ticket.
+- Deleting or republishing `@trybotster/hub-test-support`. Hub successor work (`ticket_1786661010_198387`).
+- Transport adapter trait or adapter conformance harness (`ticket_1786661004_133253`).
+- ClientWorker push, teardown, or subscription inventory (`ticket_1786661004_845807`).
+- Wiring `botster-core`, `botster-core-daemon`, or Ghostty production paths to these crates.
+- Web, TUI, or TUI Kit consumption beyond in-repo consumer smokes.
+- Publishing to crates.io or the npm registry.
+- Changing `TransportEgress` / session-process SPH1 frames.
+- Porting Hub `Scrollback`.
+- Runtime-teardown proofs or live Hub attach.
 
 ## Repository ownership boundaries and cross-repo dependencies
 
-Core owns this crate, terminal feature tokens, terminal compatibility descriptors, generated terminal TypeScript, and terminal fixtures.
+Core owns both crates, terminal feature tokens, terminal descriptors, generated terminal TypeScript, and terminal fixtures.
 
-Hub still owns the host-control protocol and current combined `botster-hub-client` surface until later Hub tickets compose the two planes and drop terminal authority.
+Hub still owns the host-control protocol and the current combined `botster-hub-client` surface until later Hub tickets compose the two planes.
 
-Web and TUI will pin this crate or its generated package by version, not a Hub Git revision. That consumption is not this run.
+Hub successor tickets must depend only on `botster-terminal-protocol`. Web pins `@trybotster/terminal-protocol`. TUI pins `botster-terminal-protocol-client`. None of those pins is a Hub Git revision.
 
-Ghostty remains the snapshot-byte authority. This crate owns protocol envelopes and frozen goldens; it does not decode GHOSTSNP records.
+Ghostty remains the snapshot-byte authority. These crates do not decode GHOSTSNP records.
 
 Cross-repo:
 
-- No blocking prerequisite. This run can complete in `botster-core` alone.
+- No blocking prerequisite.
 - Do not broaden this run into Hub, Web, TUI, or TUI Kit.
-- Successor, not prerequisite: Hub must later stop owning terminal feature tokens, terminal TypeScript, and GHOSTSNP goldens. Register any Hub follow-up against `tgt_7e208a0c76a44980a83b63af976b1f22`, never this target.
-- Successor: Web `tgt_40abcf71ccf049f4ac0c99953a799869` and TUI `tgt_c3d470bab78549df920a41e8fb0e58d8` consume the published coordinate.
+- Successor Hub fixture deletion registers against `tgt_7e208a0c76a44980a83b63af976b1f22`.
+- Successor Web `tgt_40abcf71ccf049f4ac0c99953a799869` and TUI `tgt_c3d470bab78549df920a41e8fb0e58d8`.
 
 ## Assumptions and unknowns
 
 Assumptions:
 
-- The project north star plus this ticket authorizes the types-only protocol plane. It does not ratify adapter push or Hub cold-cut in this run.
-- Crate name is `botster-terminal-protocol`. Protocol identity is a new string such as `botster-terminal-v1`, starting at protocol version `1` and conformance revision `1`.
-- `SnapshotPhase` is a first-class field on the new plane's Snapshot type. Current Hub `DaemonEvent::Snapshot` has no phase field; phases live inside GHOSTSNP. The new plane makes phase visible to clients without GHOSTSNP decode, while Hub adapters see only `TerminalFrame`.
-- Public API split: `wire::TerminalFrame` is opaque serialize-only. A `client` module holds semantic request/event types for Web/TUI and TypeScript generation. Hub-shaped consumers must depend only on `wire` plus compatibility descriptors.
-- `ProcessExited` is the new-plane name. Current Hub/Core event name is `ProcessExit`. Mapping is a later Hub cutover concern.
-- `AttachState` vocabulary: `attaching`, `attached`, `snapshot_history_incomplete`, `attach_failed`. `detached` stays Core-internal unless a public wire need appears.
-- Default required terminal features are the baseline attach/detach/input/resize/output set. Additive tokens stay advertised-only.
-- External consumer smoke in this repo is a path-isolated Cargo consumer plus an `npm pack` / tarball or equivalent installed-artifact check. CI has no Node toolchain, so the Node pack check must be Rust-driven or skip-cleanly documented; the committed generated TS plus Cargo consumer are the required CI proof.
+- The project plus this ticket authorizes the types-only protocol plane only.
+- Two crates are required so Rust visibility cannot leak semantic bodies to Hub.
+- First-class Snapshot `phase` is an intentional new-plane addition. Successors must send it; current Hub Snapshot JSON is not the new plane.
+- Wire tags follow the current producer (`send_input`, `process_exit`) rather than ticket prose names.
+- Workspace crate versions stay independently at `0.1.0`. No release tooling.
 - Direct merge to `main`. No PR.
 
 Unknowns:
 
-- Exact default-required token names (`terminal_streaming` + `resize` vs one baseline token). Implementer should mirror current Hub baseline names that are terminal-owned and omit host tokens.
-- Whether later TUI Rust should use `client` types or only generated artifacts. This ticket exposes `client` so TUI is not blocked.
-- Whether workspace crate versions stay independently at `0.1.0` or later share a workspace version. Do not add release tooling here.
+- None that remain for Implement. Vocabulary, crate split, and proof commands are pinned.
 
 ## Affected surfaces and files
 
 Expected new:
 
-- `crates/botster-terminal-protocol/Cargo.toml`
-- `crates/botster-terminal-protocol/src/lib.rs`
-- `crates/botster-terminal-protocol/src/{wire,client,compat,typescript}.rs` or equivalent small modules
-- `crates/botster-terminal-protocol/generated/terminal-protocol.ts`
-- `crates/botster-terminal-protocol/fixtures/ghostsnp/*` copied from Hub test-support goldens
-- `crates/botster-terminal-protocol/fixtures/*.json` terminal compatibility / event-order fixtures
-- `crates/botster-terminal-protocol/tests/*` isolation, opacity, compatibility, drift, consumer-shaped proof
-- `crates/botster-terminal-protocol/examples/generate_typescript.rs` if that matches Hub prior art
-- `packages/terminal-protocol/**` versioned Node package mirror of generated TS, metadata, and fixtures
+- `crates/botster-terminal-protocol/**`
+- `crates/botster-terminal-protocol-client/**`
+- `crates/botster-terminal-protocol-client/generated/terminal-protocol.ts`
+- `crates/botster-terminal-protocol/fixtures/ghostsnp/*`
+- `crates/botster-terminal-protocol-client/fixtures/*.json`
+- Hub-shaped and TUI-shaped isolated consumer tests / trybuild cases
+- `packages/terminal-protocol/**`
+- `script/terminal-protocol-node-smoke.sh` or equivalent
 - `docs/architecture/terminal-protocol.md`
 
 Expected edits:
 
 - `Cargo.toml` workspace members
-- `README.md` workspace table and start-here note that clients pin this crate for terminal types
+- `README.md`
 - `Cargo.lock`
+- `.github/workflows/ci.yml` — install Node and run the Node pack smoke. Do not make the smoke optional.
 
 Do not touch:
 
@@ -189,100 +249,126 @@ Do not touch:
 
 ## Risks
 
-- Over-scoping into adapter/runtime tickets.
-- Copying Hub host-control types into the new crate and recreating a combined protocol.
-- Public semantic accessors that let Hub inspect Snapshot bodies or attach phases.
-- Putting `snapshot_delivery=ready_then_history` in the default requirement and breaking older unchanged clients.
-- Generating TypeScript with required fields that serde omits.
-- Treating crate-local tests as enough consumer proof.
-- Editing Hub to "finish the move" and violating repository ownership.
-- Placing the plan under retired `docs/plans/`.
+- Putting semantic event types on `botster-terminal-protocol` and reopening the opacity finding.
+- Exporting `phase` or `state` accessors on `TerminalFrame`.
+- Raising the default requirement to include `snapshot_delivery=ready_then_history`.
+- Including host tokens in this plane.
+- Weak TS drift checks or a skippable Node smoke.
+- Editing Hub to delete old assets in this run.
 - Dual-use of history-bearing GHOSTSNP goldens as no-history fixtures.
+- `#[non_exhaustive]` omitted on public enums, so later variant adds break TUI matches. Accept the break at `0.1.0` and document it; do not add `non_exhaustive` unless Implement finds a construction-literal need.
 
 ## Acceptance checks and tests
 
-Production entry point for this ticket is the new crate's public API and committed artifacts. Later runtime tickets will emit these frames. This ticket is intentionally scaffold-for-consumers, not a live attach path change.
+This ticket is scaffold-for-consumers. Later runtime tickets emit these frames. Production entry points in this run are the two crate public APIs, the committed generated package, and CI.
 
-Repository / CI (must pass on the worktree):
+Repository / CI (must pass; no skips):
 
 ```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --doc --workspace
+cargo doc --workspace --no-deps
 ```
+
+Plus the Node consumer smoke below. Add Node to `.github/workflows/ci.yml`. If `node` or `npm` is missing locally or in CI, the smoke fails.
 
 If the worktree path contains `:`, set colon-free `CARGO_TARGET_DIR` first. This worktree path does not.
 
-Crate-specific proof:
+Opacity and isolation:
 
-- `cargo tree -p botster-terminal-protocol` shows no `botster-core`, `botster-core-daemon`, `botster-hub`, or `botster-hub-client`.
-- Default compatibility requirement accepts a descriptor that omits `snapshot_delivery=ready_then_history`.
-- `for_ready_then_history_attach()` rejects that descriptor and accepts a current advertised descriptor.
+- `cargo tree -p botster-terminal-protocol` and `cargo tree -p botster-terminal-protocol-client` show no `botster-core`, `botster-core-daemon`, `botster-hub`, or `botster-hub-client`.
+- Public-item allowlist test on `botster-terminal-protocol` equals the allowlist above.
+- Hub-shaped trybuild / isolated crate depends only on `botster-terminal-protocol` and fails to compile if it names `SnapshotPhase`, `AttachState`, `TerminalOutput` payload fields, `phase`, `history`, or any client-crate path. The test searches the complete public API, not only `TerminalFrame` methods.
+- TUI-shaped isolated crate depends on `botster-terminal-protocol-client` and can construct and serialize Snapshot with `phase`, AttachState, TerminalOutput, and process_exit.
+
+Compatibility:
+
+- Default requirement accepts a descriptor that advertises `terminal_streaming` and `resize` and omits `snapshot_delivery=ready_then_history`.
+- `for_ready_then_history_attach()` rejects that descriptor and accepts the current advertised descriptor.
 - Feature-dependent fixtures advertise every optional token they require.
-- Snapshot and TerminalOutput share envelope field names but are distinct types. Live output rejects legacy `{ "data": "..." }`. Snapshot decoded bytes are not a render API.
-- `wire::TerminalFrame` has no public `phase()`, `history()`, `state()`, or Snapshot-body getter. A compile-fail or isolated consumer test proves a Hub-shaped crate cannot inspect those.
-- Generated TS drift test asserts bidirectional field sets, mapped types, and per-field optionality.
-- Committed generated artifact matches the emitter.
-- Package metadata version equals crate `0.1.0`.
-- Isolated external Cargo consumer depends on the crate by path/version and compiles against public types without Hub.
-- Copied GHOSTSNP goldens keep distinct SHAs for history vs blank and are not regenerated at build time.
 
-Downstream-shaped proof required by [[botster-core-playbook]] / [[botster core contract surface needs consumer proof]]:
+Wire:
 
-- The isolated Cargo consumer plus generated-TS token smoke are the in-repo stand-ins. Live Web/TUI attach is later tickets.
-- Do not claim Hub or browser production proof from this run.
+- Snapshot and TerminalOutput share envelope field names and remain distinct types.
+- Live output rejects `{ "data": "..." }`.
+- Snapshot `phase` is required on the new plane.
+- `process_exit.code` omits when `None`; generated TS marks `code?`.
 
-Not required here:
+Generated artifacts and Web-shaped smoke:
 
-- Authentic Ghostty encode/decode beyond frozen golden bytes.
-- Live Hub pin, Unix/WebRTC adapter harness, or teardown matrix.
+- Drift test asserts bidirectional field sets, mapped types, and per-field optionality against the committed TypeScript file.
+- `packages/terminal-protocol` version is `0.1.0` and matches both crate versions.
+- Required Node smoke, no skip:
+  1. `npm pack` the committed package.
+  2. Install that tarball in a clean temporary directory that is not the workspace.
+  3. Import the shipped package from the installed copy.
+  4. Compile representative generated TypeScript (at least Attach, Snapshot, `phase`, TerminalOutput, `process_exit`, AttachState).
+  5. Assert package metadata version `0.1.0`, protocol `botster-terminal-v1`, protocol version `1`, feature tokens `terminal_streaming`, `resize`, and `snapshot_delivery=ready_then_history`.
+
+GHOSTSNP goldens keep distinct SHAs for history vs blank and are not regenerated at build time.
+
+Downstream-shaped proof:
+
+- Hub-shaped Rust consumer: opaque crate only.
+- TUI-shaped Rust consumer: client crate.
+- Web-shaped Node consumer: installed tarball.
+- Live Web/TUI attach remains successor tickets.
+
+Not required here: authentic Ghostty encode/decode beyond frozen goldens; live Hub pin; adapter harness; teardown matrix.
+
+`teardown_class_applies`: false.
 
 ## Vault gaps
 
-- Capture after implement if useful: Core terminal protocol identity is independent of `botster-hub-daemon-v1`, including the exact protocol string and starting versions.
-- Capture if the `wire` vs `client` module split is the durable opacity rule, or if a second crate is later required.
-- Do not capture adapter-harness or ClientWorker-push decisions from this ticket.
+- After Implement, capture the two-crate opacity rule if it remains the durable boundary.
+- Capture `botster-terminal-v1` / version `1` / conf `1` if those constants ship as planned.
+- Do not capture adapter-harness or ClientWorker-push decisions.
 
 ## Worktree and target assumptions
 
-- Implement and later steps use spawn target `tgt_1f7bce66eb304881980f9b4a2a5ae3fe` and the pipeline-assigned worktree, not the ambient session directory and not Hub/Web/TUI checkouts.
+- Later steps use `tgt_1f7bce66eb304881980f9b4a2a5ae3fe` and the pipeline worktree.
 - Merge directly to `main`. Do not create a PR.
-- Restore tracked `.gitignore` from HEAD if a later step wipes it. Never truncate it.
+- Restore tracked `.gitignore` from HEAD if a later step wipes it.
 
 ## Runtime-teardown class
 
 `teardown_class_applies`: false.
 
-This ticket does not change peer lifecycle, SessionIo/ClientWorker teardown, multi-peer ownership, CPU/battery/FD spin, or terminal-state vs live-runtime divergence.
-
 ## Product decision ledger
 
-- Default: new independent protocol plane; copy Core-owned fixtures; keep Hub untouched.
+- Default: two-crate opacity split; pinned producer-aligned tags; first-class Snapshot `phase`; required Node pack smoke.
 - Non-goals: adapter contract, runtime push, Hub deletion of old assets, client cutover.
-- Follow-up-ok: Hub/Web/TUI successor tickets already exist on this project.
-- Ask-human threshold: only if Implement cannot keep the crate types-only without editing Hub or inventing host-control types.
+- Follow-up-ok: existing Hub/Web/TUI successor tickets.
+- Ask-human threshold: only if Implement cannot keep semantic bodies off the Hub-consumable crate.
+
+## Plan Review finding response
+
+1. `finding_1786661988_522167` — replaced the public `client` module with `botster-terminal-protocol` vs `botster-terminal-protocol-client`. Hub-shaped compile test covers the complete public API.
+2. `finding_1786661988_724616` — pinned protocol name, versions, feature sets, request/event tags, AttachState vocabulary, and producer mappings above. No remaining Implement vocabulary choice.
+3. `finding_1786661988_868062` — required clean `npm pack` install, TypeScript compile, and metadata/token asserts. Added `cargo doc --workspace --no-deps`. Smoke must not skip.
 
 ## Pipeline gates and artifacts
 
 - Plan artifact: this file.
-- Implement must leave a report artifact and command evidence for the acceptance commands above.
-- Review/Verify must reject URI-only Plan evidence and crate-local tests without consumer-shaped proof.
+- Reused ticket vault checklist `checklist_1786661438_736261`. No second checklist.
+- Implement must leave a report artifact and the command evidence above.
 
 ## Required docs
 
-- `docs/architecture/terminal-protocol.md` — living contract.
-- Root README workspace table.
-- Crate-level rustdoc start-here: types and compatibility only; no runtime.
+- `docs/architecture/terminal-protocol.md`
+- Root README workspace table
+- Crate rustdocs: Hub-safe crate documents the allowlist; client crate documents that Hub must not depend on it
 
 ## Implementation sketch
 
-1. Add the crate and workspace member with `serde`, `serde_json`, `base64`, `thiserror`. No runtime crates.
-2. Define compatibility constants and advertised/required split first, with the two-direction tests.
-3. Define client request/event types from the current terminal wire semantics, plus Snapshot phase.
-4. Define `TerminalFrame` as the only adapter-facing public body: encode/decode bytes, no semantic getters.
-5. Port the Hub TypeScript emitter pattern into a crate-local generator. Commit `generated/terminal-protocol.ts`.
-6. Copy GHOSTSNP goldens and terminal fixtures. Add SHA distinctness tests.
-7. Add `packages/terminal-protocol` metadata that mirrors crate version and generated artifact.
-8. Add isolated consumer test and architecture doc.
-9. Run the CI command set. Do not create a PR.
+1. Add `botster-terminal-protocol` with the allowlist only.
+2. Add compatibility constants and the two-direction tests.
+3. Add `botster-terminal-protocol-client` with semantic events, `phase`, and `TerminalFrame` encode/decode.
+4. Add allowlist and trybuild Hub-shaped negative tests against the complete protocol-crate public API.
+5. Generate and commit TypeScript. Drift-check optionality.
+6. Copy GHOSTSNP goldens. Add SHA tests.
+7. Add `packages/terminal-protocol` and the required Node pack smoke. Wire Node into CI.
+8. Add architecture doc and README rows.
+9. Run the full CI command set including `cargo doc --workspace --no-deps` and the Node smoke. Do not create a PR.
