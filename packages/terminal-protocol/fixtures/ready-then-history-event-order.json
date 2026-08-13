@@ -1,0 +1,71 @@
+{
+  "compatibility": {
+    "protocol": "botster-terminal-v1",
+    "protocol_version": 1,
+    "features": [
+      "terminal_streaming",
+      "resize",
+      "snapshot_delivery=ready_then_history"
+    ],
+    "conformance_fixture_revision": 1
+  },
+  "required_features": [
+    "terminal_streaming",
+    "resize",
+    "snapshot_delivery=ready_then_history"
+  ],
+  "events": [
+    {
+      "type": "attach_state",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "state": "attaching"
+    },
+    {
+      "type": "snapshot",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "payload_base64": "R0hPU1RTTlA=",
+      "payload_encoding": "base64",
+      "bytes": 8,
+      "phase": "ready"
+    },
+    {
+      "type": "snapshot",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "payload_base64": "R0hPU1RTTlA=",
+      "payload_encoding": "base64",
+      "bytes": 8,
+      "phase": "history"
+    },
+    {
+      "type": "snapshot",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "payload_base64": "R0hPU1RTTlA=",
+      "payload_encoding": "base64",
+      "bytes": 8,
+      "phase": "finish"
+    },
+    {
+      "type": "attach_state",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "state": "attached"
+    },
+    {
+      "type": "terminal_output",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription",
+      "payload_base64": "bGl2ZQ==",
+      "payload_encoding": "base64",
+      "bytes": 4
+    },
+    {
+      "type": "process_exit",
+      "session_id": "terminal-protocol-fixture-session",
+      "subscription_id": "terminal-protocol-fixture-subscription"
+    }
+  ]
+}

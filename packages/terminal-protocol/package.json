@@ -12,7 +12,8 @@
       "default": "./index.js"
     },
     "./terminal-protocol": "./terminal-protocol.ts",
-    "./metadata": "./metadata.json"
+    "./metadata": "./metadata.json",
+    "./ready-then-history-event-order": "./fixtures/ready-then-history-event-order.json"
   },
   "files": [
     "README.md",
@@ -20,6 +21,7 @@
     "index.js",
     "index.d.ts",
     "metadata.json",
-    "terminal-protocol.ts"
+    "terminal-protocol.ts",
+    "fixtures/ready-then-history-event-order.json"
   ]
 }
