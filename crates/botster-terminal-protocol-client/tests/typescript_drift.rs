@@ -62,18 +62,9 @@ fn emitted_constants_come_from_rust_protocol_constants() {
 #[test]
 fn serde_wire_shapes_match_generated_typescript() {
     let ts = terminal_protocol_typescript();
-    let phase_values = enum_values(&[
-        SnapshotPhase::Ready,
-        SnapshotPhase::History,
-        SnapshotPhase::Finish,
-    ]);
-    let state_values = enum_values(&[
-        AttachStateKind::Attaching,
-        AttachStateKind::Attached,
-        AttachStateKind::SnapshotHistoryIncomplete,
-        AttachStateKind::AttachFailed,
-    ]);
-    let encoding_values = enum_values(&[PayloadEncoding::Base64]);
+    let phase_values = enum_values(SnapshotPhase::ALL);
+    let state_values = enum_values(AttachStateKind::ALL);
+    let encoding_values = enum_values(PayloadEncoding::ALL);
     assert_ts_union(&ts, "SnapshotPhase", &phase_values);
     assert_ts_union(&ts, "AttachStateKind", &state_values);
     assert_ts_union(&ts, "PayloadEncoding", &encoding_values);
