@@ -472,9 +472,9 @@ impl CoreDaemon {
     /// Attach a client through the existing subscription path.
     ///
     /// The engine's attach output carries subscription setup and initial
-    /// history replay for late subscribers. Daemon embedders observe that
-    /// output through [`Self::drain`], so attach must retain it instead of
-    /// dropping the returned engine outcome.
+    /// history replay for late subscribers. The returned [`AttachedSession`]
+    /// owns output for the requested route. A later [`Self::drain`] call does
+    /// not repeat that route-owned initial output.
     pub fn attach(
         &mut self,
         client_id: ClientId,
@@ -491,7 +491,23 @@ impl CoreDaemon {
             now_seconds,
         )?;
         self.drop_pending_client_session_egress(&client_id, &session_id);
-        let pending = drain_result_from_engine_output(output);
+        let initial_output = drain_result_from_engine_output(output);
+        let mut client_egress = Vec::new();
+        let mut unmatched_egress = Vec::new();
+        for (pending_client, frame) in initial_output.client_egress {
+            if pending_client == client_id
+                && egress_route(&frame) == Some((&session_id, &subscription_id))
+            {
+                client_egress.push((pending_client, frame));
+            } else {
+                unmatched_egress.push((pending_client, frame));
+            }
+        }
+        let pending = DrainResult {
+            client_egress: unmatched_egress,
+            observations: initial_output.observations,
+            backpressure: initial_output.backpressure,
+        };
         if !drain_result_is_empty(&pending) {
             self.pending_drain.push(PendingDrainResult {
                 session_id: session_id.clone(),
@@ -502,6 +518,7 @@ impl CoreDaemon {
             client_id,
             session_id,
             subscription_id,
+            client_egress,
         })
     }
 
@@ -860,7 +877,7 @@ impl CoreDaemon {
         }
     }
 
-    /// Subscribe output by attaching a client; embedders drain through [`Self::drain`].
+    /// Subscribe output by attaching a client and returning its initial output.
     pub fn subscribe_output(
         &mut self,
         client_id: ClientId,
@@ -2118,7 +2135,7 @@ mod terminal_backend_failure_tests {
         assert!(daemon.pending_drain.is_empty());
 
         fail_snapshot.set(false);
-        daemon
+        let attached = daemon
             .attach(
                 client_id,
                 session_id.clone(),
@@ -2132,13 +2149,18 @@ mod terminal_backend_failure_tests {
             TransportEgress::AttachState { subscription_id, .. }
                 if subscription_id.0 == "failed-subscription"
         )));
-        assert!(drained.client_egress.iter().any(|(_, frame)| matches!(
+        assert!(attached.client_egress.iter().any(|(_, frame)| matches!(
             frame,
             TransportEgress::AttachState {
                 subscription_id,
                 state: TerminalAttachState::Attached,
                 ..
             } if subscription_id.0 == "fresh-subscription"
+        )));
+        assert!(drained.client_egress.iter().all(|(_, frame)| !matches!(
+            frame,
+            TransportEgress::AttachState { subscription_id, .. }
+                if subscription_id.0 == "fresh-subscription"
         )));
         let _ = daemon.shutdown(Some(session_id), 24);
         let _ = std::fs::remove_dir_all(&daemon.config.data_dir);

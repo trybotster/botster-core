@@ -265,15 +265,28 @@ impl DefaultBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
-        self.runtime.handle_client_ingress(
+        let mut output = self.runtime.handle_client_ingress(
             client_id.clone(),
             TransportIngress::SubscribeSession {
                 client_id,
-                session_id,
+                session_id: session_id.clone(),
                 subscription_id,
             },
             now_seconds,
-        )
+        )?;
+        let initial_snapshot = self.runtime.drain_runtime_once(&session_id, now_seconds)?;
+        output.client_egress.extend(initial_snapshot.client_egress);
+        output
+            .session_requests
+            .extend(initial_snapshot.session_requests);
+        output
+            .client_control_frames
+            .extend(initial_snapshot.client_control_frames);
+        output
+            .session_events
+            .extend(initial_snapshot.session_events);
+        output.observations.extend(initial_snapshot.observations);
+        Ok(output)
     }
 
     /// Detach a client from a session stream.
