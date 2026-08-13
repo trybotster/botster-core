@@ -7,40 +7,75 @@ use botster_terminal_protocol::TerminalFrame;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Snapshot delivery phase. Adding a variant at 0.1.0 is a breaking change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SnapshotPhase {
-    /// Snapshot prefix through READY.
-    Ready,
-    /// HISTORY records through one PAGE.
-    History,
-    /// Remaining zero-page HISTORY records through FINISH.
-    Finish,
-}
-
-/// Wire `attach_state.state` values. `detached` is not published.
+/// Define a public wire enum and its complete variant inventory together.
 ///
-/// Adding a variant at 0.1.0 is a breaking change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AttachStateKind {
-    /// Attach has been requested.
-    Attaching,
-    /// Initial snapshot completed and live output may flow.
-    Attached,
-    /// READY installed, but later snapshot history did not complete.
-    SnapshotHistoryIncomplete,
-    /// Attach failed before any READY snapshot.
-    AttachFailed,
+/// Adding a variant updates [`$name::ALL`] in the same expansion. The TypeScript
+/// generator and drift tests iterate that inventory.
+macro_rules! wire_enum {
+    (
+        $(#[$enum_meta:meta])*
+        pub enum $name:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $variant:ident
+            ),+ $(,)?
+        }
+    ) => {
+        $(#[$enum_meta])*
+        pub enum $name {
+            $(
+                $(#[$variant_meta])*
+                $variant,
+            )+
+        }
+
+        impl $name {
+            /// Every published variant, in definition order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+        }
+    };
 }
 
-/// Envelope encoding. The only published value is the literal `base64`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PayloadEncoding {
-    /// Standard base64.
-    Base64,
+wire_enum! {
+    /// Snapshot delivery phase. Adding a variant at 0.1.0 is a breaking change.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum SnapshotPhase {
+        /// Snapshot prefix through READY.
+        Ready,
+        /// HISTORY records through one PAGE.
+        History,
+        /// Remaining zero-page HISTORY records through FINISH.
+        Finish,
+    }
+}
+
+wire_enum! {
+    /// Wire `attach_state.state` values. `detached` is not published.
+    ///
+    /// Adding a variant at 0.1.0 is a breaking change.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum AttachStateKind {
+        /// Attach has been requested.
+        Attaching,
+        /// Initial snapshot completed and live output may flow.
+        Attached,
+        /// READY installed, but later snapshot history did not complete.
+        SnapshotHistoryIncomplete,
+        /// Attach failed before any READY snapshot.
+        AttachFailed,
+    }
+}
+
+wire_enum! {
+    /// Envelope encoding. The only published value is the literal `base64`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum PayloadEncoding {
+        /// Standard base64.
+        Base64,
+    }
 }
 
 /// Opaque Snapshot event. Clients must not render these bytes.

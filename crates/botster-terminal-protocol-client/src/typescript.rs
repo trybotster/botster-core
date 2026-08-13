@@ -114,28 +114,19 @@ pub fn terminal_protocol_typescript() -> String {
             ("cols", "number"),
         ],
     );
-    let phases = [
-        wire_string(&SnapshotPhase::Ready),
-        wire_string(&SnapshotPhase::History),
-        wire_string(&SnapshotPhase::Finish),
-    ];
+    let phases: Vec<String> = SnapshotPhase::ALL.iter().map(wire_string).collect();
     emit_string_union(
         &mut output,
         "SnapshotPhase",
         &phases.iter().map(String::as_str).collect::<Vec<_>>(),
     );
-    let attach_states = [
-        wire_string(&AttachStateKind::Attaching),
-        wire_string(&AttachStateKind::Attached),
-        wire_string(&AttachStateKind::SnapshotHistoryIncomplete),
-        wire_string(&AttachStateKind::AttachFailed),
-    ];
+    let attach_states: Vec<String> = AttachStateKind::ALL.iter().map(wire_string).collect();
     emit_string_union(
         &mut output,
         "AttachStateKind",
         &attach_states.iter().map(String::as_str).collect::<Vec<_>>(),
     );
-    let encodings = [wire_string(&PayloadEncoding::Base64)];
+    let encodings: Vec<String> = PayloadEncoding::ALL.iter().map(wire_string).collect();
     emit_string_union(
         &mut output,
         "PayloadEncoding",
