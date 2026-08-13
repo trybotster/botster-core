@@ -91,6 +91,9 @@ pub struct WorkerSnapshotRequest {
     /// Cancel the matching in-progress snapshot encode.
     #[serde(default)]
     pub cancel: bool,
+    /// Complete the matching snapshot barrier after any staged resize.
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub complete: bool,
 }
 
 /// Record-aware boundary for one opaque incremental snapshot frame.
@@ -118,6 +121,13 @@ pub struct WorkerSnapshotResult {
     /// Worker snapshot failure. The worker remains live when this field is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
+    /// The worker applied the staged resize and released the PTY barrier.
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub barrier_released: bool,
+}
+
+fn bool_is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Public freshness token for race-free mode-dependent input admission.

@@ -82,6 +82,7 @@ pub struct DefaultBotsterEngine {
 pub struct WorkerBackedBotsterEngine {
     runtime: ManagedSessionRuntime<WorkerProcessRuntime, Box<dyn TerminalScreenRuntime>>,
     incremental_attaches: HashMap<SessionId, IncrementalAttach>,
+    applied_attach_resizes: HashMap<SessionId, (u16, u16, u64)>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -545,6 +546,7 @@ impl WorkerBackedBotsterEngine {
         Self {
             runtime: runtime_with_plain_terminal_backend(WorkerProcessRuntime::new(worker_path)),
             incremental_attaches: HashMap::new(),
+            applied_attach_resizes: HashMap::new(),
         }
     }
 
@@ -556,6 +558,7 @@ impl WorkerBackedBotsterEngine {
                 options,
             )),
             incremental_attaches: HashMap::new(),
+            applied_attach_resizes: HashMap::new(),
         }
     }
 
@@ -576,6 +579,7 @@ impl WorkerBackedBotsterEngine {
                 factory,
             ),
             incremental_attaches: HashMap::new(),
+            applied_attach_resizes: HashMap::new(),
         }
     }
 
@@ -633,6 +637,13 @@ impl WorkerBackedBotsterEngine {
 
     /// Release workers without sending shutdown frames for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
+        for (session_id, attach) in std::mem::take(&mut self.incremental_attaches) {
+            let _ = self
+                .runtime
+                .session_runtime_mut()
+                .cancel_snapshot_boundary(&session_id, &attach.request_id);
+        }
+        self.applied_attach_resizes.clear();
         self.runtime.release_workers_for_restart();
     }
 
@@ -852,6 +863,20 @@ impl WorkerBackedBotsterEngine {
         )
     }
 
+    /// Return whether this session currently queues resize requests for attach.
+    #[must_use]
+    pub fn incremental_attach_active(&self, session_id: &SessionId) -> bool {
+        self.incremental_attaches.contains_key(session_id)
+    }
+
+    /// Take the latest resize that the worker applied inside an attach barrier.
+    pub fn take_applied_attach_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(u16, u16, u64)> {
+        self.applied_attach_resizes.remove(session_id)
+    }
+
     /// Drain currently available worker process output through subscription fanout.
     pub fn drain_runtime_once(
         &mut self,
@@ -891,6 +916,10 @@ impl WorkerBackedBotsterEngine {
                 });
             if let Some(error) = error {
                 if !attach.ready {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(session_id, &attach.request_id);
                     let _ = self
                         .runtime
                         .session_runtime_mut()
@@ -946,17 +975,25 @@ impl WorkerBackedBotsterEngine {
             return Ok(output);
         }
 
-        if let Some((resize_client, rows, cols, resize_at)) = attach.queued_resize.take() {
+        let applied_resize = attach.queued_resize.take();
+        if let Some((resize_client, rows, cols, resize_at)) = applied_resize.as_ref() {
             let resize_output = self.runtime.handle_client_ingress(
-                resize_client,
+                resize_client.clone(),
                 TransportIngress::Resize {
                     session_id: session_id.clone(),
-                    rows,
-                    cols,
+                    rows: *rows,
+                    cols: *cols,
                 },
-                resize_at,
+                *resize_at,
             )?;
             append_engine_output(&mut output, resize_output);
+        }
+        self.runtime
+            .session_runtime_mut()
+            .complete_snapshot_boundary(session_id, &attach.request_id)?;
+        if let Some((_, rows, cols, resize_at)) = applied_resize {
+            self.applied_attach_resizes
+                .insert(session_id.clone(), (rows, cols, resize_at));
         }
         let attached = self.runtime.complete_snapshot_attach(
             attach.client_id.clone(),
@@ -1104,6 +1141,12 @@ impl WorkerBackedBotsterEngine {
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        if let Some(attach) = self.incremental_attaches.remove(&session_id) {
+            self.runtime
+                .session_runtime_mut()
+                .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
+        }
+        self.applied_attach_resizes.remove(&session_id);
         self.runtime
             .shutdown_session(session_id, reason, now_seconds)
     }

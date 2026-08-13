@@ -5,7 +5,7 @@
 //! `botster-core`. This process owns worker-local Ghostty mode state and the
 //! atomic mode-gated PTY input admit barrier.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::fs::DirBuilder;
 use std::io::{self, Read, Write};
@@ -16,7 +16,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -134,12 +134,8 @@ fn run() -> Result<(), String> {
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
 
     let (frame_sender, frame_receiver) = mpsc::channel();
-    let cancelled_snapshots = Arc::new(Mutex::new(HashSet::new()));
-    control.spawn_readers(
-        initial_control,
-        frame_sender,
-        Arc::clone(&cancelled_snapshots),
-    );
+    let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
+    control.spawn_readers(initial_control, frame_sender, Arc::clone(&snapshot_barrier));
 
     let (egress, protected_receiver, metadata_receiver) =
         WorkerEgress::new(args.egress_capacity.max(1));
@@ -255,7 +251,7 @@ fn run() -> Result<(), String> {
                         match request {
                             Ok(request) => {
                                 let request_id = request.request_id;
-                                let cancelled = Arc::clone(&cancelled_snapshots);
+                                let barrier_control = Arc::clone(&snapshot_barrier);
                                 let result = runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
                                     let encoded = (|| {
                                         apply_barrier_outputs(
@@ -293,8 +289,9 @@ fn run() -> Result<(), String> {
                                                     )),
                                                     phase: Some(phase),
                                                     error_kind: None,
+                                                    barrier_released: false,
                                                 },
-                                                || snapshot_is_cancelled(&cancelled, &request_id),
+                                                || barrier_control.is_cancelled(&request_id),
                                             )
                                         }).map_err(|error| {
                                             botster_core::SessionRuntimeError::new(
@@ -311,9 +308,31 @@ fn run() -> Result<(), String> {
                                                 snapshot: None,
                                                 phase: None,
                                                 error_kind: Some(error.to_string()),
+                                                barrier_released: false,
                                             },
-                                            || snapshot_is_cancelled(&cancelled, &request_id),
+                                            || barrier_control.is_cancelled(&request_id),
                                         );
+                                    }
+                                    match barrier_control.wait_for_release(&request_id) {
+                                        SnapshotBarrierRelease::Cancel => return Ok(()),
+                                        SnapshotBarrierRelease::Complete(resize) => {
+                                            let release_error = if let Some(size) = resize {
+                                                ghostty.resize(TerminalScreenSize::new(size.rows, size.cols));
+                                                barrier.resize(size).err().map(|error| error.to_string())
+                                            } else {
+                                                None
+                                            };
+                                            let _ = egress.send_protected_json(
+                                                FRAME_SNAPSHOT,
+                                                &WorkerSnapshotResult {
+                                                    request_id: request_id.clone(),
+                                                    snapshot: None,
+                                                    phase: None,
+                                                    error_kind: release_error,
+                                                    barrier_released: true,
+                                                },
+                                            );
+                                        }
                                     }
                                     Ok(())
                                 });
@@ -325,12 +344,11 @@ fn run() -> Result<(), String> {
                                             snapshot: None,
                                             phase: None,
                                             error_kind: Some(error.to_string()),
+                                            barrier_released: false,
                                         },
                                     );
                                 }
-                                if let Ok(mut ids) = cancelled_snapshots.lock() {
-                                    ids.remove(&request_id);
-                                }
+                                snapshot_barrier.clear(&request_id);
                             }
                             Err(error) => {
                                 let _ = egress.send_protected_json(
@@ -342,6 +360,7 @@ fn run() -> Result<(), String> {
                                         error_kind: Some(format!(
                                             "malformed snapshot request: {error}"
                                         )),
+                                        barrier_released: false,
                                     },
                                 );
                             }
@@ -704,11 +723,94 @@ fn unix_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn snapshot_is_cancelled(cancelled: &Arc<Mutex<HashSet<String>>>, request_id: &str) -> bool {
-    cancelled
-        .lock()
-        .map(|ids| ids.contains(request_id))
-        .unwrap_or(true)
+#[derive(Default)]
+struct SnapshotBarrierState {
+    active_request: Option<String>,
+    staged_resize: Option<ResizePayload>,
+    release: Option<SnapshotBarrierRelease>,
+}
+
+#[derive(Clone)]
+enum SnapshotBarrierRelease {
+    Cancel,
+    Complete(Option<ResizePayload>),
+}
+
+#[derive(Default)]
+struct SnapshotBarrierControl {
+    state: Mutex<SnapshotBarrierState>,
+    wake: Condvar,
+}
+
+impl SnapshotBarrierControl {
+    fn begin(&self, request_id: String) {
+        if let Ok(mut state) = self.state.lock() {
+            state.active_request = Some(request_id);
+            state.staged_resize = None;
+            state.release = None;
+        }
+    }
+
+    fn stage_resize(&self, size: ResizePayload) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if state.active_request.is_none() {
+            return false;
+        }
+        state.staged_resize = Some(size);
+        true
+    }
+
+    fn request_cancel(&self, request_id: String) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.active_request.as_deref() == Some(request_id.as_str()) {
+                state.release = Some(SnapshotBarrierRelease::Cancel);
+                self.wake.notify_all();
+            }
+        }
+    }
+
+    fn request_complete(&self, request_id: String) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.active_request.as_deref() == Some(request_id.as_str()) {
+                let resize = state.staged_resize.take();
+                state.release = Some(SnapshotBarrierRelease::Complete(resize));
+                self.wake.notify_all();
+            }
+        }
+    }
+
+    fn is_cancelled(&self, request_id: &str) -> bool {
+        self.state.lock().map_or(true, |state| {
+            state.active_request.as_deref() != Some(request_id)
+                || matches!(state.release, Some(SnapshotBarrierRelease::Cancel))
+        })
+    }
+
+    fn wait_for_release(&self, request_id: &str) -> SnapshotBarrierRelease {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        loop {
+            if state.active_request.as_deref() != Some(request_id) {
+                return SnapshotBarrierRelease::Cancel;
+            }
+            if let Some(release) = state.release.take() {
+                return release;
+            }
+            state = self
+                .wake
+                .wait(state)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
+
+    fn clear(&self, request_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.active_request.as_deref() == Some(request_id) {
+                *state = SnapshotBarrierState::default();
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -766,7 +868,7 @@ fn send_metadata_observation(egress: &WorkerEgress, observation: TerminalMetadat
 fn spawn_control_reader(
     mut control: Box<dyn ReadWrite + Send>,
     sender: mpsc::Sender<Frame>,
-    cancelled_snapshots: Arc<Mutex<HashSet<String>>>,
+    snapshot_barrier: Arc<SnapshotBarrierControl>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut control) {
@@ -774,9 +876,19 @@ fn spawn_control_reader(
                 if let Ok(request) = serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload)
                 {
                     if request.cancel {
-                        if let Ok(mut ids) = cancelled_snapshots.lock() {
-                            ids.insert(request.request_id);
-                        }
+                        snapshot_barrier.request_cancel(request.request_id);
+                        continue;
+                    }
+                    if request.complete {
+                        snapshot_barrier.request_complete(request.request_id);
+                        continue;
+                    }
+                    snapshot_barrier.begin(request.request_id);
+                }
+            }
+            if frame.frame_type == FRAME_RESIZE {
+                if let Ok(size) = serde_json::from_slice::<ResizePayload>(&frame.payload) {
+                    if snapshot_barrier.stage_resize(size) {
                         continue;
                     }
                 }
@@ -901,9 +1013,9 @@ impl WorkerControl {
         &self,
         initial: Box<dyn ReadWrite + Send>,
         sender: mpsc::Sender<Frame>,
-        cancelled_snapshots: Arc<Mutex<HashSet<String>>>,
+        snapshot_barrier: Arc<SnapshotBarrierControl>,
     ) {
-        spawn_control_reader(initial, sender.clone(), Arc::clone(&cancelled_snapshots));
+        spawn_control_reader(initial, sender.clone(), Arc::clone(&snapshot_barrier));
         #[cfg(unix)]
         if let Self::Socket {
             listener, writer, ..
@@ -924,7 +1036,7 @@ impl WorkerControl {
                     spawn_control_reader(
                         Box::new(stream),
                         sender.clone(),
-                        Arc::clone(&cancelled_snapshots),
+                        Arc::clone(&snapshot_barrier),
                     );
                 }
             });
