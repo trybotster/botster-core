@@ -17,6 +17,8 @@ plugin runtime must agree on.
 | `botster-core-test-support` | Dev-dependency fixtures, fakes, and conformance helpers for consumers pinned to the same core version |
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
 | `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); stays outside the core crate |
+| `botster-terminal-protocol` | Types-only terminal protocol plane for Hub adapters: compatibility descriptors, forwardable requests, and opaque `TerminalFrame`. Hub may depend only on this crate. |
+| `botster-terminal-protocol-client` | Semantic Snapshot, phase, AttachState, TerminalOutput, and ProcessExit types for TUI. Hub must not depend on this crate. |
 
 Hubs and product hosts still own auth, persistence policy, config locations,
 cloud federation, marketplace and install/update policy, WebRTC/signaling/API
@@ -231,6 +233,7 @@ Depth lives in architecture docs:
 | [core-daemon.md](docs/architecture/core-daemon.md) | Production `CoreDaemon` supervisor and adoption |
 | [durable-session-worker-protocol.md](docs/architecture/durable-session-worker-protocol.md) | Durable session-worker protocol shapes |
 | [ghostty-shadow-terminal-adapter.md](docs/architecture/ghostty-shadow-terminal-adapter.md) | Ghostty adapter boundary (sibling crate) |
+| [terminal-protocol.md](docs/architecture/terminal-protocol.md) | Types-only terminal protocol crates, opacity rule, and pinned vocabulary |
 
 Living design notes live under `docs/architecture/`. Historical ticket plans under
 `docs/plans/` are archival context, not the start-here guide.
@@ -443,6 +446,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --doc --workspace
 cargo doc --workspace --no-deps
+script/terminal-protocol-node-smoke.sh
 ```
 
 For command-surface docs, also verify the contract-only feature set:

@@ -1,0 +1,25 @@
+{
+  "name": "@trybotster/terminal-protocol",
+  "version": "0.1.0",
+  "description": "Core-owned types-only Botster terminal protocol for Web consumers",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./terminal-protocol": "./terminal-protocol.ts",
+    "./metadata": "./metadata.json"
+  },
+  "files": [
+    "README.md",
+    "LICENSE",
+    "index.js",
+    "index.d.ts",
+    "metadata.json",
+    "terminal-protocol.ts"
+  ]
+}

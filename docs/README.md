@@ -16,7 +16,7 @@ When a plan graduates, its durable decisions belong in `architecture/` (or the r
 
 | Path | Role |
 |------|------|
-| [`architecture/`](architecture/) | Living architecture |
+| [`architecture/`](architecture/) | Living architecture, including [`architecture/terminal-protocol.md`](architecture/terminal-protocol.md) |
 | [`archive/plans/`](archive/plans/) | Archived plans |
 | [`examples/`](examples/) | Package config examples |
 | [`plans/`](plans/) | Stub only — see archive |

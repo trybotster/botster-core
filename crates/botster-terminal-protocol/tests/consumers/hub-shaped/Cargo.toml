@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "botster-terminal-protocol-hub-shaped-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+botster-terminal-protocol = { path = "../../.." }
+serde_json = "1.0"

@@ -5,5 +5,7 @@ members = [
     "crates/botster-core-dev",
     "crates/botster-core-test-support",
     "crates/botster-terminal-ghostty",
+    "crates/botster-terminal-protocol",
+    "crates/botster-terminal-protocol-client",
 ]
 resolver = "2"
