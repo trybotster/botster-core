@@ -1,5 +1,14 @@
 //! Deterministic TypeScript emitter for the terminal protocol plane.
 
+use botster_terminal_protocol::{
+    CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+    FEATURE_TERMINAL_STREAMING, PROTOCOL, PROTOCOL_VERSION,
+};
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::{AttachStateKind, PayloadEncoding, SnapshotPhase};
+
 /// Generate the committed TypeScript artifact from the Rust serde source.
 #[must_use]
 pub fn terminal_protocol_typescript() -> String {
@@ -15,22 +24,36 @@ pub fn terminal_protocol_typescript() -> String {
     line(&mut output, "");
     line(
         &mut output,
-        "export const PROTOCOL = \"botster-terminal-v1\";",
+        &format!("export const PROTOCOL = \"{PROTOCOL}\";"),
     );
-    line(&mut output, "export const PROTOCOL_VERSION = 1;");
     line(
         &mut output,
-        "export const CONFORMANCE_FIXTURE_REVISION = 1;",
+        &format!("export const PROTOCOL_VERSION = {PROTOCOL_VERSION};"),
     );
-    line(&mut output, "export const PACKAGE_VERSION = \"0.1.0\";");
     line(
         &mut output,
-        "export const FEATURE_TERMINAL_STREAMING = \"terminal_streaming\";",
+        &format!("export const CONFORMANCE_FIXTURE_REVISION = {CONFORMANCE_FIXTURE_REVISION};"),
     );
-    line(&mut output, "export const FEATURE_RESIZE = \"resize\";");
     line(
         &mut output,
-        "export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY = \"snapshot_delivery=ready_then_history\";",
+        &format!(
+            "export const PACKAGE_VERSION = \"{}\";",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    line(
+        &mut output,
+        &format!("export const FEATURE_TERMINAL_STREAMING = \"{FEATURE_TERMINAL_STREAMING}\";"),
+    );
+    line(
+        &mut output,
+        &format!("export const FEATURE_RESIZE = \"{FEATURE_RESIZE}\";"),
+    );
+    line(
+        &mut output,
+        &format!(
+            "export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY = \"{FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY}\";"
+        ),
     );
     line(&mut output, "");
     emit_interface(
@@ -91,22 +114,33 @@ pub fn terminal_protocol_typescript() -> String {
             ("cols", "number"),
         ],
     );
+    let phases = [
+        wire_string(&SnapshotPhase::Ready),
+        wire_string(&SnapshotPhase::History),
+        wire_string(&SnapshotPhase::Finish),
+    ];
     emit_string_union(
         &mut output,
         "SnapshotPhase",
-        &["ready", "history", "finish"],
+        &phases.iter().map(String::as_str).collect::<Vec<_>>(),
     );
+    let attach_states = [
+        wire_string(&AttachStateKind::Attaching),
+        wire_string(&AttachStateKind::Attached),
+        wire_string(&AttachStateKind::SnapshotHistoryIncomplete),
+        wire_string(&AttachStateKind::AttachFailed),
+    ];
     emit_string_union(
         &mut output,
         "AttachStateKind",
-        &[
-            "attaching",
-            "attached",
-            "snapshot_history_incomplete",
-            "attach_failed",
-        ],
+        &attach_states.iter().map(String::as_str).collect::<Vec<_>>(),
     );
-    emit_string_union(&mut output, "PayloadEncoding", &["base64"]);
+    let encodings = [wire_string(&PayloadEncoding::Base64)];
+    emit_string_union(
+        &mut output,
+        "PayloadEncoding",
+        &encodings.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
     emit_interface(
         &mut output,
         "Snapshot",
@@ -162,6 +196,14 @@ pub fn terminal_protocol_typescript() -> String {
         "export type TerminalEvent = Snapshot | TerminalOutput | ProcessExit | AttachState;",
     );
     output
+}
+
+fn wire_string<T: Serialize>(value: &T) -> String {
+    match serde_json::to_value(value) {
+        Ok(Value::String(text)) => text,
+        Ok(other) => panic!("expected string wire value, got {other}"),
+        Err(error) => panic!("serialize wire value: {error}"),
+    }
 }
 
 fn line(output: &mut String, text: &str) {

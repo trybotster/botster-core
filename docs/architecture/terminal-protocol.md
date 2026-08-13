@@ -13,7 +13,7 @@ the committed generated package, and CI.
 | --- | --- | --- |
 | `botster-terminal-protocol` 0.1.0 | Hub adapters and any content-blind forwarder | Compatibility descriptors, forwardable requests, opaque `TerminalFrame` |
 | `botster-terminal-protocol-client` 0.1.0 | TUI Rust and the TypeScript generator | Semantic Snapshot, phase, AttachState, TerminalOutput, and ProcessExit types |
-| `@trybotster/terminal-protocol` 0.1.0 | Web and other Node consumers | Generated TypeScript, metadata, and terminal fixtures |
+| `@trybotster/terminal-protocol` 0.1.0 | Web and other Node consumers | Generated TypeScript, metadata, and the ready-then-history event-order fixture |
 
 `botster-terminal-protocol-client` depends on `botster-terminal-protocol`.
 Hub must depend only on `botster-terminal-protocol`. Hub must not depend on
@@ -62,4 +62,9 @@ breaking change for exhaustive downstream matches.
 Ghostty remains the snapshot-byte authority. These crates do not decode
 GHOSTSNP records. Frozen late-attach goldens live in
 `crates/botster-terminal-protocol/fixtures/ghostsnp/` and are not regenerated
-at build time.
+at build time. Hub still contains copies until
+`ticket_1786664495_777899` deletes those goldens and the Hub generator and
+consumes the Core-owned files.
+
+The npm package ships the ready-then-history event-order JSON fixture. It
+does not ship GHOSTSNP bytes.

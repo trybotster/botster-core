@@ -139,5 +139,16 @@ const imported = await import("@trybotster/terminal-protocol/metadata", {
   with: { type: "json" },
 });
 assertEqual(imported.default.package_version, "0.1.0", "imported metadata version");
+
+const fixture = await import(
+  "@trybotster/terminal-protocol/ready-then-history-event-order",
+  { with: { type: "json" } }
+);
+if (!Array.isArray(fixture.default.events)) {
+  throw new Error("event-order fixture missing events");
+}
+if (!fixture.default.required_features.includes("snapshot_delivery=ready_then_history")) {
+  throw new Error("event-order fixture missing ready-then-history token");
+}
 console.log("terminal-protocol node smoke passed");
 EOF

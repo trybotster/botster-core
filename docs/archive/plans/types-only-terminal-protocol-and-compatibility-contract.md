@@ -201,7 +201,7 @@ Cross-repo:
 
 - No blocking prerequisite.
 - Do not broaden this run into Hub, Web, TUI, or TUI Kit.
-- Successor Hub fixture deletion registers against `tgt_7e208a0c76a44980a83b63af976b1f22`.
+- Successor Hub fixture deletion is `ticket_1786664495_777899` against `tgt_7e208a0c76a44980a83b63af976b1f22`. That Hub ticket depends on this Core ticket.
 - Successor Web `tgt_40abcf71ccf049f4ac0c99953a799869` and TUI `tgt_c3d470bab78549df920a41e8fb0e58d8`.
 
 ## Assumptions and unknowns
