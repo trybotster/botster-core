@@ -366,17 +366,20 @@ The vendored Ghostty fork is MIT licensed; preserve
 `crates/botster-terminal-ghostty/vendor/ghostty/LICENSE` in distributions that
 include it.
 
-Subscribe-time initial terminal snapshots use the core data-plane path. When a
-host requests an initial snapshot for a new subscription to a running session,
-the client stream emits subscription-scoped `Attaching`, then `SessionIo`
-delivers `InitialSnapshotReady` for that exact client and subscription. The
-client stream projects a non-empty payload as a renderable `Snapshot`, then
-emits `Attached`; live `TerminalOutput` follows. For empty initial history it
-emits `Attaching`, then `Attached`, without fabricating `Snapshot` or
-`Scrollback`. Stale or replaced subscription deliveries emit neither history
-nor `Attached`. Core currently produces `Attaching` and `Attached`; it does not
-yet produce `Detached`. Hub/host policy decides when to subscribe; core does not
-keep a duplicate product cache.
+Subscribe-time initial terminal snapshots use the Core data plane. A capable
+worker publishes `snapshot_delivery=ready_then_history`. Core emits
+subscription-scoped `Attaching`, a Snapshot through READY, zero or more
+Snapshots through one history PAGE each, a Snapshot through FINISH, and
+`Attached`. Empty history still emits READY and FINISH Snapshots. Live
+`TerminalOutput` follows `Attached`.
+
+The worker holds the full PTY barrier through FINISH. Core queues input during
+the barrier. Core also retains only the latest resize. It applies that resize
+after FINISH and before `Attached`. A post-READY failure emits
+`snapshot_history_incomplete`, then `Attached`. Snapshot bytes remain opaque
+outside `botster-terminal-ghostty`. Stale or replaced subscriptions receive no
+snapshot or `Attached`. Hub policy decides when to subscribe. Core does not keep
+a duplicate product cache.
 
 ## Ownership boundary
 

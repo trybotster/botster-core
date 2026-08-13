@@ -98,7 +98,7 @@ pub use session_protocol::{
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
     MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION, WELCOME_MAGIC,
 };
-pub use session_protocol::{WorkerSnapshotRequest, WorkerSnapshotResult};
+pub use session_protocol::{WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult};
 pub use terminal_metadata::{
     TerminalMetadataKind, TerminalMetadataLaneShaper, TerminalMetadataObservation,
     TerminalMetadataProducer, TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome,

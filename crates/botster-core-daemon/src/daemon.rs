@@ -93,6 +93,8 @@ pub struct CoreDaemonConfig {
     pub pty_reader_chunk_capacity: Option<usize>,
     /// Test-only parent worker egress capacity.
     pub test_worker_egress_capacity: Option<usize>,
+    /// Test-only: fail snapshot history after READY.
+    pub test_fail_snapshot_history_after_ready: bool,
 }
 
 impl CoreDaemonConfig {
@@ -116,6 +118,7 @@ impl CoreDaemonConfig {
             test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
+            test_fail_snapshot_history_after_ready: false,
         }
     }
 
@@ -165,6 +168,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_worker_egress_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_worker_egress_capacity = capacity;
+        self
+    }
+
+    /// Fail snapshot history after READY for a worker integration test.
+    #[must_use]
+    pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
+        self.test_fail_snapshot_history_after_ready = enabled;
         self
     }
 
@@ -282,8 +292,8 @@ pub struct CoreDaemon {
 }
 
 enum DaemonEngine {
-    Local(DefaultBotsterEngine),
-    Worker(WorkerBackedBotsterEngine),
+    Local(Box<DefaultBotsterEngine>),
+    Worker(Box<WorkerBackedBotsterEngine>),
 }
 
 struct PendingDrainResult {
@@ -328,23 +338,25 @@ impl CoreDaemon {
                 options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
                 options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
                 options.terminal_color_profile = terminal_color_profile.clone();
+                options.test_fail_snapshot_history_after_ready =
+                    config.test_fail_snapshot_history_after_ready;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
                     options.pty_reader_chunk_capacity = capacity;
                 }
                 if let Some(capacity) = config.test_worker_egress_capacity {
                     options.egress_capacity = capacity;
                 }
-                DaemonEngine::Worker(worker_engine(
+                DaemonEngine::Worker(Box::new(worker_engine(
                     options,
                     ghostty_max_scrollback_bytes,
                     terminal_color_profile.clone(),
-                ))
+                )))
             })
             .unwrap_or_else(|| {
-                DaemonEngine::Local(local_engine(
+                DaemonEngine::Local(Box::new(local_engine(
                     ghostty_max_scrollback_bytes,
                     terminal_color_profile,
-                ))
+                )))
             });
         let envelope_queue = config.routed_envelope_queue.clone();
         Self {
@@ -471,10 +483,10 @@ impl CoreDaemon {
 
     /// Attach a client through the existing subscription path.
     ///
-    /// The engine's attach output carries subscription setup and initial
-    /// history replay for late subscribers. The returned [`AttachedSession`]
-    /// owns output for the requested route. A later [`Self::drain`] call does
-    /// not repeat that route-owned initial output.
+    /// A local attach returns the complete route-owned bootstrap. A capable
+    /// worker attach returns `Attaching`. Later [`Self::drain`] calls return
+    /// route-owned incremental Snapshot frames, `Attached`, and then live
+    /// output. No other client receives these route-owned frames.
     pub fn attach(
         &mut self,
         client_id: ClientId,
@@ -613,6 +625,38 @@ impl CoreDaemon {
                 return Err(error);
             }
         }
+        Ok(result)
+    }
+
+    /// Drain one subscription without consuming frames for another route.
+    pub fn drain_subscription(
+        &mut self,
+        client_id: &ClientId,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        last_output_at: u64,
+    ) -> Result<DrainResult, CoreDaemonError> {
+        let mut result = self.drain(session_id, last_output_at)?;
+        let mut matched = Vec::new();
+        let mut unmatched = Vec::new();
+        for (target, frame) in result.client_egress {
+            if &target == client_id && egress_route(&frame) == Some((session_id, subscription_id)) {
+                matched.push((target, frame));
+            } else {
+                unmatched.push((target, frame));
+            }
+        }
+        if !unmatched.is_empty() {
+            self.pending_drain.push(PendingDrainResult {
+                session_id: session_id.clone(),
+                result: DrainResult {
+                    client_egress: unmatched,
+                    observations: Vec::new(),
+                    backpressure: Vec::new(),
+                },
+            });
+        }
+        result.client_egress = matched;
         Ok(result)
     }
 
@@ -1045,12 +1089,17 @@ impl CoreDaemon {
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
         let socket_path = worker_control_socket(&record)
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
-        let supports_snapshot_boundary = record
-            .recovery_identity
-            .as_ref()
-            .and_then(|identity| identity.get("atomic_snapshot_boundary"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+        let supports_snapshot_boundary =
+            record.recovery_identity.as_ref().is_some_and(|identity| {
+                identity
+                    .get("atomic_snapshot_boundary")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                    && identity
+                        .get("snapshot_delivery")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("ready_then_history")
+            });
         let session = self.engine.adopt_worker_process(
             session_id.clone(),
             process,
@@ -2265,7 +2314,7 @@ mod terminal_backend_failure_tests {
         });
         CoreDaemon {
             registry: SessionRegistry::new(&data_dir),
-            engine: DaemonEngine::Local(engine),
+            engine: DaemonEngine::Local(Box::new(engine)),
             config,
             notification_inbox: NotificationInbox::new(),
             envelope_router: RoutedEnvelopeRouter::new(),

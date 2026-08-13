@@ -309,6 +309,44 @@ where
             .attach_snapshot(client_id, session_id, subscription_id, snapshot)?)
     }
 
+    pub(crate) fn begin_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self
+            .engine
+            .begin_snapshot_attach(client_id, session_id, subscription_id)?)
+    }
+
+    pub(crate) fn snapshot_attach_frame(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        data: Vec<u8>,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self
+            .engine
+            .snapshot_attach_frame(client_id, session_id, subscription_id, data)?)
+    }
+
+    pub(crate) fn complete_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        history_incomplete: bool,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self.engine.complete_snapshot_attach(
+            client_id,
+            session_id,
+            subscription_id,
+            history_incomplete,
+        )?)
+    }
+
     pub(crate) fn capture_parent_snapshot(
         &mut self,
         session_id: &SessionId,
@@ -528,6 +566,15 @@ where
         self.flush_runtime_inputs_for_session(session_id)?;
 
         Ok(outcome)
+    }
+
+    pub(crate) fn route_worker_boundary_outputs(
+        &mut self,
+        session_id: &SessionId,
+        outputs: Vec<SessionRuntimeOutput>,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.route_runtime_outputs(session_id, outputs, last_output_at)
     }
 
     /// Classify one session's activity at the provided clock value.

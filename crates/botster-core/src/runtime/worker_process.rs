@@ -107,6 +107,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still critical.
     pub test_hold_after_enqueue_ms: Option<u64>,
+    /// Test-only: fail snapshot encode when the first history PAGE is ready.
+    pub test_fail_snapshot_history_after_ready: bool,
     /// Ghostty scrollback byte budget used by the worker snapshot authority.
     pub ghostty_max_scrollback_bytes: usize,
     /// Optional initial color policy used by the worker snapshot authority.
@@ -131,6 +133,7 @@ impl WorkerProcessRuntimeOptions {
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
+            test_fail_snapshot_history_after_ready: false,
             ghostty_max_scrollback_bytes: 10_000_000,
             terminal_color_profile: None,
         }
@@ -178,6 +181,13 @@ impl WorkerProcessRuntimeOptions {
         self
     }
 
+    /// Enable a deterministic post-READY history encode failure.
+    #[must_use]
+    pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
+        self.test_fail_snapshot_history_after_ready = enabled;
+        self
+    }
+
     /// Set the test-only post-enqueue hold while still under the admission fence.
     #[must_use]
     pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
@@ -202,6 +212,17 @@ pub struct WorkerHealth {
     pub worker_pid: u32,
     /// Last reconnect timeout seconds applied by the worker.
     pub reconnect_timeout_seconds: Option<u64>,
+}
+
+/// Nonblocking snapshot-boundary updates from one worker-owned encode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerSnapshotBoundaryPoll {
+    /// Correlated record-aware snapshot frames in worker FIFO order.
+    pub frames: Vec<WorkerSnapshotResult>,
+    /// PTY output that precedes READY and is already present in the snapshot.
+    pub before_ready: Vec<SessionRuntimeOutput>,
+    /// Whether FINISH or an encode error ended the worker barrier.
+    pub complete: bool,
 }
 
 /// Parent-side runtime adapter for one-worker-process-per-session local PTYs.
@@ -398,49 +419,45 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
     ) -> Result<(crate::TerminalSnapshotPayload, Vec<SessionRuntimeOutput>), SessionRuntimeError>
     {
-        let request_id = next_gated_request_id();
-        {
-            let session = self.session_mut(session_id)?;
-            session.snapshot_boundary = None;
-            session.control.write_json(
-                crate::FRAME_GET_SNAPSHOT,
-                &WorkerSnapshotRequest {
-                    request_id: request_id.clone(),
-                },
-            )?;
-            session.outstanding_snapshot_request = Some(request_id.clone());
-        }
+        let request_id = self.begin_snapshot_boundary(session_id)?;
 
         let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        let mut bytes = Vec::new();
+        let mut before_ready = Vec::new();
         loop {
-            if let Err(error) = self.pump_session_output(session_id) {
-                self.session_mut(session_id)?.outstanding_snapshot_request = None;
-                return Err(error);
-            }
-            let matched = {
-                let session = self.session_mut(session_id)?;
-                match session.snapshot_boundary.take() {
-                    Some((result, boundary_len)) if result.request_id == request_id => {
-                        session.outstanding_snapshot_request = None;
-                        // Validate before draining. A failed snapshot request must
-                        // leave pre-boundary output available to the next drain.
-                        let snapshot = validate_worker_snapshot_result(result)?;
-                        let before = session
-                            .pending_output
-                            .drain(..boundary_len.min(session.pending_output.len()))
-                            .map(|event| event.into_runtime_output(session_id))
-                            .collect();
-                        Some((snapshot, before))
-                    }
-                    Some(_) => None,
-                    None => None,
+            let poll = self.poll_snapshot_boundary(session_id, &request_id)?;
+            before_ready.extend(poll.before_ready);
+            for frame in poll.frames {
+                if let Some(error) = frame.error_kind {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        error,
+                    ));
                 }
-            };
-            if let Some(result) = matched {
-                return Ok(result);
+                let phase = frame.phase.ok_or_else(|| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "worker snapshot frame omitted its phase",
+                    )
+                })?;
+                let snapshot = frame.snapshot.ok_or_else(|| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "worker snapshot frame omitted its bytes",
+                    )
+                })?;
+                let size = snapshot.size;
+                let format = snapshot.format;
+                bytes.extend(snapshot.bytes);
+                if phase == crate::WorkerSnapshotPhase::Finish {
+                    return Ok((
+                        crate::TerminalSnapshotPayload::new(bytes, size, format),
+                        before_ready,
+                    ));
+                }
             }
             if Instant::now() >= deadline {
-                self.session_mut(session_id)?.outstanding_snapshot_request = None;
+                let _ = self.cancel_snapshot_boundary(session_id, &request_id);
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "worker snapshot request timed out",
@@ -455,6 +472,96 @@ impl WorkerProcessRuntime {
             }
             thread::sleep(GATED_POLL);
         }
+    }
+
+    /// Start one worker-owned snapshot encode without waiting for READY.
+    pub fn begin_snapshot_boundary(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, SessionRuntimeError> {
+        let request_id = next_gated_request_id();
+        let session = self.session_mut(session_id)?;
+        if session.outstanding_snapshot_request.is_some() {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "worker snapshot request already in flight",
+            ));
+        }
+        session.snapshot_boundary.clear();
+        session.control.write_json(
+            crate::FRAME_GET_SNAPSHOT,
+            &WorkerSnapshotRequest {
+                request_id: request_id.clone(),
+                cancel: false,
+            },
+        )?;
+        session.outstanding_snapshot_request = Some(request_id.clone());
+        Ok(request_id)
+    }
+
+    /// Poll ordered frames for one in-progress worker snapshot encode.
+    pub fn poll_snapshot_boundary(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Result<WorkerSnapshotBoundaryPoll, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        let session = self.session_mut(session_id)?;
+        if session.outstanding_snapshot_request.as_deref() != Some(request_id) {
+            return Ok(WorkerSnapshotBoundaryPoll {
+                frames: Vec::new(),
+                before_ready: Vec::new(),
+                complete: true,
+            });
+        }
+
+        let mut frames = Vec::new();
+        let mut before_ready = Vec::new();
+        let mut complete = false;
+        while let Some((frame, boundary_len)) = session.snapshot_boundary.pop_front() {
+            if frame.request_id != request_id {
+                continue;
+            }
+            if frame.phase == Some(crate::WorkerSnapshotPhase::Ready) {
+                before_ready.extend(
+                    session
+                        .pending_output
+                        .drain(..boundary_len.min(session.pending_output.len()))
+                        .map(|event| event.into_runtime_output(session_id)),
+                );
+            }
+            complete = frame.error_kind.is_some()
+                || frame.phase == Some(crate::WorkerSnapshotPhase::Finish);
+            frames.push(frame);
+            if complete {
+                session.outstanding_snapshot_request = None;
+                break;
+            }
+        }
+        Ok(WorkerSnapshotBoundaryPoll {
+            frames,
+            before_ready,
+            complete,
+        })
+    }
+
+    /// Cancel one in-progress encode and release the worker PTY barrier.
+    pub fn cancel_snapshot_boundary(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Result<(), SessionRuntimeError> {
+        let session = self.session_mut(session_id)?;
+        session.control.write_json(
+            crate::FRAME_GET_SNAPSHOT,
+            &WorkerSnapshotRequest {
+                request_id: request_id.to_owned(),
+                cancel: true,
+            },
+        )?;
+        session.outstanding_snapshot_request = None;
+        session.snapshot_boundary.clear();
+        Ok(())
     }
 
     /// Correlated mode-gated PTY input against the worker atomic admit barrier.
@@ -580,7 +687,12 @@ impl WorkerProcessRuntime {
                 }
                 WorkerChannelEvent::Snapshot(result) => {
                     if session.outstanding_snapshot_request.as_ref() == Some(&result.request_id) {
-                        session.snapshot_boundary = Some((result, session.pending_output.len()));
+                        session
+                            .snapshot_boundary
+                            .push_back((result, session.pending_output.len()));
+                        // Return one snapshot transport frame per parent poll.
+                        // This preserves client-paced, bounded history delivery.
+                        break;
                     }
                 }
                 WorkerChannelEvent::MalformedModeGated {
@@ -696,7 +808,7 @@ impl WorkerProcessRuntime {
                 mode_flags_slot: Arc::new(Mutex::new(None)),
                 outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
-                snapshot_boundary: None,
+                snapshot_boundary: std::collections::VecDeque::new(),
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
@@ -721,23 +833,6 @@ impl WorkerProcessRuntime {
             )
         })
     }
-}
-
-fn validate_worker_snapshot_result(
-    result: WorkerSnapshotResult,
-) -> Result<crate::TerminalSnapshotPayload, SessionRuntimeError> {
-    if let Some(error) = result.error_kind {
-        return Err(SessionRuntimeError::new(
-            SessionRuntimeErrorKind::OutputFailed,
-            error,
-        ));
-    }
-    result.snapshot.ok_or_else(|| {
-        SessionRuntimeError::new(
-            SessionRuntimeErrorKind::OutputFailed,
-            "worker snapshot response omitted the snapshot",
-        )
-    })
 }
 
 impl SessionRuntime for WorkerProcessRuntime {
@@ -800,6 +895,9 @@ impl SessionRuntime for WorkerProcessRuntime {
             command
                 .arg("--test-hold-after-enqueue-ms")
                 .arg(hold_ms.to_string());
+        }
+        if self.options.test_fail_snapshot_history_after_ready {
+            command.arg("--test-fail-snapshot-history-after-ready");
         }
 
         #[cfg(unix)]
@@ -928,12 +1026,17 @@ impl SessionRuntime for WorkerProcessRuntime {
                 .map(ToOwned::to_owned)
                 .or_else(|| Some(request.session_id.0.clone())),
         };
-        let supports_snapshot_boundary = metadata
-            .recovery_identity
-            .as_ref()
-            .and_then(|identity| identity.get("atomic_snapshot_boundary"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+        let supports_snapshot_boundary =
+            metadata.recovery_identity.as_ref().is_some_and(|identity| {
+                identity
+                    .get("atomic_snapshot_boundary")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                    && identity
+                        .get("snapshot_delivery")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("ready_then_history")
+            });
 
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
         let overflow = Arc::new(AtomicUsize::new(0));
@@ -964,7 +1067,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 mode_flags_slot: Arc::new(Mutex::new(None)),
                 outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
-                snapshot_boundary: None,
+                snapshot_boundary: std::collections::VecDeque::new(),
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
@@ -1085,7 +1188,7 @@ struct WorkerProcessSession {
     mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
     outstanding_mode_probe: Arc<Mutex<Option<String>>>,
     pending_output: std::collections::VecDeque<WorkerOutputEvent>,
-    snapshot_boundary: Option<(WorkerSnapshotResult, usize)>,
+    snapshot_boundary: std::collections::VecDeque<(WorkerSnapshotResult, usize)>,
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
@@ -1731,23 +1834,9 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        remove_socket_if_unchanged, socket_identity, validate_worker_snapshot_result,
-        worker_socket_path, ProcessIdentity, SessionId, SessionRuntimeErrorKind,
-        WorkerProcessRuntime, WorkerSnapshotResult, UNIX_SOCKET_PATH_MAX_BYTES,
+        remove_socket_if_unchanged, socket_identity, worker_socket_path, ProcessIdentity,
+        SessionId, SessionRuntimeErrorKind, WorkerProcessRuntime, UNIX_SOCKET_PATH_MAX_BYTES,
     };
-
-    #[test]
-    fn failed_worker_snapshot_result_is_rejected_before_output_drain() {
-        let error = validate_worker_snapshot_result(WorkerSnapshotResult {
-            request_id: "snapshot-error".to_string(),
-            snapshot: None,
-            error_kind: Some("snapshot export failed".to_string()),
-        })
-        .expect_err("snapshot error must fail closed");
-
-        assert_eq!(error.kind, SessionRuntimeErrorKind::OutputFailed);
-        assert_eq!(error.message, "snapshot export failed");
-    }
 
     #[test]
     fn cleanup_identity_includes_socket_lifetime_metadata() {

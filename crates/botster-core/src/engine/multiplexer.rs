@@ -436,6 +436,58 @@ where
         Ok(outcome)
     }
 
+    pub(crate) fn begin_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: crate::SubscriptionId,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(self.subscriptions.begin_snapshot_attach(
+            client_id,
+            session_id,
+            subscription_id,
+        ));
+        Ok(outcome)
+    }
+
+    pub(crate) fn snapshot_attach_frame(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: crate::SubscriptionId,
+        data: Vec<u8>,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(self.subscriptions.snapshot_attach_frame(
+            client_id,
+            session_id,
+            subscription_id,
+            data,
+        ));
+        Ok(outcome)
+    }
+
+    pub(crate) fn complete_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: crate::SubscriptionId,
+        history_incomplete: bool,
+    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
+        self.ensure_session(&session_id)?;
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        outcome.append_multiplexer(self.subscriptions.complete_snapshot_attach(
+            client_id,
+            session_id,
+            subscription_id,
+            history_incomplete,
+        ));
+        Ok(outcome)
+    }
+
     /// Route one session worker request directly through the assembled engine.
     pub fn handle_session_request(
         &mut self,

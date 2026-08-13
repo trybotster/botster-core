@@ -1,5 +1,8 @@
 //! Ergonomic embeddable Botster engine facade.
 
+#[cfg(feature = "local-runtime")]
+use std::collections::{HashMap, VecDeque};
+
 use crate::actor::{
     MailboxSendFailureReason, PluginCleanupResult, PluginInvocationRequest, PluginKey,
     PluginReloadSpec, PluginTimerCancellationResult, PluginTimerId, PluginTimerSchedule,
@@ -78,6 +81,18 @@ pub struct DefaultBotsterEngine {
 #[cfg(feature = "local-runtime")]
 pub struct WorkerBackedBotsterEngine {
     runtime: ManagedSessionRuntime<WorkerProcessRuntime, Box<dyn TerminalScreenRuntime>>,
+    incremental_attaches: HashMap<SessionId, IncrementalAttach>,
+}
+
+#[cfg(feature = "local-runtime")]
+struct IncrementalAttach {
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+    request_id: String,
+    ready: bool,
+    pending: VecDeque<(ClientId, SubscriptionId)>,
+    queued_input: Vec<(ClientId, Vec<u8>, u64)>,
+    queued_resize: Option<(ClientId, u16, u16, u64)>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -529,6 +544,7 @@ impl WorkerBackedBotsterEngine {
     pub fn new(worker_path: impl Into<std::path::PathBuf>) -> Self {
         Self {
             runtime: runtime_with_plain_terminal_backend(WorkerProcessRuntime::new(worker_path)),
+            incremental_attaches: HashMap::new(),
         }
     }
 
@@ -539,6 +555,7 @@ impl WorkerBackedBotsterEngine {
             runtime: runtime_with_plain_terminal_backend(WorkerProcessRuntime::with_options(
                 options,
             )),
+            incremental_attaches: HashMap::new(),
         }
     }
 
@@ -558,6 +575,7 @@ impl WorkerBackedBotsterEngine {
                 WorkerProcessRuntime::with_options(options),
                 factory,
             ),
+            incremental_attaches: HashMap::new(),
         }
     }
 
@@ -638,12 +656,65 @@ impl WorkerBackedBotsterEngine {
         let supports_snapshot_boundary = self
             .runtime
             .worker_supports_snapshot_boundary(&session_id)?;
-        let (mut output, attach_snapshot) = if supports_snapshot_boundary {
-            let (output, snapshot) = self
+        if supports_snapshot_boundary {
+            if self.incremental_attaches.contains_key(&session_id) {
+                let queued = self
+                    .incremental_attaches
+                    .get(&session_id)
+                    .expect("incremental attach was checked above")
+                    .pending
+                    .len();
+                if queued.saturating_add(1) >= QueueSource::ClientWorker.default_capacity() {
+                    return Err(ManagedSessionRuntimeError::Runtime(
+                        crate::SessionRuntimeError::new(
+                            crate::SessionRuntimeErrorKind::OutputFailed,
+                            "incremental attach queue is full; retry after drain",
+                        ),
+                    ));
+                }
+                self.runtime
+                    .session_runtime_mut()
+                    .attach_consumer(&session_id)?;
+                let output = self.runtime.begin_snapshot_attach(
+                    client_id.clone(),
+                    session_id.clone(),
+                    subscription_id.clone(),
+                )?;
+                self.incremental_attaches
+                    .get_mut(&session_id)
+                    .expect("incremental attach was checked above")
+                    .pending
+                    .push_back((client_id, subscription_id));
+                return Ok(output);
+            }
+            self.runtime
+                .session_runtime_mut()
+                .attach_consumer(&session_id)?;
+            let output = self.runtime.begin_snapshot_attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            )?;
+            let request_id = self
                 .runtime
-                .synchronize_worker_snapshot_boundary(&session_id, now_seconds)?;
-            (output, snapshot)
-        } else {
+                .session_runtime_mut()
+                .begin_snapshot_boundary(&session_id)?;
+            self.incremental_attaches.insert(
+                session_id,
+                IncrementalAttach {
+                    client_id,
+                    subscription_id,
+                    request_id,
+                    ready: false,
+                    pending: VecDeque::new(),
+                    queued_input: Vec::new(),
+                    queued_resize: None,
+                },
+            );
+            return Ok(output);
+        }
+
+        let (mut output, attach_snapshot) = {
             let output = self.runtime.drain_runtime_once(&session_id, now_seconds)?;
             let snapshot = self.runtime.capture_parent_snapshot(&session_id)?;
             (output, snapshot)
@@ -685,6 +756,36 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        if let Some(mut attach) = self.incremental_attaches.remove(&session_id) {
+            if attach.client_id == client_id && attach.subscription_id == subscription_id {
+                self.runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
+                attach
+                    .queued_input
+                    .retain(|(owner, _, _)| owner != &client_id);
+                if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+                    attach.client_id = next_client;
+                    attach.subscription_id = next_subscription;
+                    attach.request_id = self
+                        .runtime
+                        .session_runtime_mut()
+                        .begin_snapshot_boundary(&session_id)?;
+                    attach.ready = false;
+                    self.incremental_attaches.insert(session_id.clone(), attach);
+                }
+            } else {
+                attach
+                    .pending
+                    .retain(|(pending_client, pending_subscription)| {
+                        pending_client != &client_id || pending_subscription != &subscription_id
+                    });
+                attach
+                    .queued_input
+                    .retain(|(owner, _, _)| owner != &client_id);
+                self.incremental_attaches.insert(session_id.clone(), attach);
+            }
+        }
         self.runtime
             .session_runtime_mut()
             .detach_consumer(&session_id)?;
@@ -707,12 +808,22 @@ impl WorkerBackedBotsterEngine {
         data: impl Into<Vec<u8>>,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        let data = data.into();
+        if let Some(attach) = self.incremental_attaches.get_mut(&session_id) {
+            if attach.queued_input.len() >= QueueSource::ClientWorker.default_capacity() {
+                return Err(ManagedSessionRuntimeError::Runtime(
+                    crate::SessionRuntimeError::new(
+                        crate::SessionRuntimeErrorKind::InputFailed,
+                        "incremental attach input queue is full; retry after drain",
+                    ),
+                ));
+            }
+            attach.queued_input.push((client_id, data, now_seconds));
+            return Ok(BotsterEngineOutput::empty());
+        }
         self.runtime.handle_client_ingress(
             client_id,
-            TransportIngress::TerminalInput {
-                session_id,
-                data: data.into(),
-            },
+            TransportIngress::TerminalInput { session_id, data },
             now_seconds,
         )
     }
@@ -726,6 +837,10 @@ impl WorkerBackedBotsterEngine {
         cols: u16,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        if let Some(attach) = self.incremental_attaches.get_mut(&session_id) {
+            attach.queued_resize = Some((client_id, rows, cols, now_seconds));
+            return Ok(BotsterEngineOutput::empty());
+        }
         self.runtime.handle_client_ingress(
             client_id,
             TransportIngress::Resize {
@@ -743,7 +858,156 @@ impl WorkerBackedBotsterEngine {
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.runtime.drain_runtime_once(session_id, last_output_at)
+        let Some(mut attach) = self.incremental_attaches.remove(session_id) else {
+            return self.runtime.drain_runtime_once(session_id, last_output_at);
+        };
+        let poll = self
+            .runtime
+            .session_runtime_mut()
+            .poll_snapshot_boundary(session_id, &attach.request_id)?;
+        let mut output = self.runtime.route_worker_boundary_outputs(
+            session_id,
+            poll.before_ready,
+            last_output_at,
+        )?;
+        suppress_attach_terminal_output(&mut output, session_id, &attach);
+
+        let mut history_incomplete = false;
+        let mut finished = false;
+        for frame in poll.frames {
+            let error = frame
+                .error_kind
+                .or_else(|| {
+                    frame
+                        .phase
+                        .is_none()
+                        .then(|| "worker snapshot frame omitted its phase".to_string())
+                })
+                .or_else(|| {
+                    frame
+                        .snapshot
+                        .is_none()
+                        .then(|| "worker snapshot frame omitted its bytes".to_string())
+                });
+            if let Some(error) = error {
+                if !attach.ready {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .detach_consumer(session_id);
+                    let _ = self.runtime.handle_client_ingress(
+                        attach.client_id.clone(),
+                        TransportIngress::UnsubscribeSession {
+                            client_id: attach.client_id.clone(),
+                            session_id: session_id.clone(),
+                            subscription_id: attach.subscription_id.clone(),
+                        },
+                        last_output_at,
+                    );
+                    if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+                        attach.client_id = next_client;
+                        attach.subscription_id = next_subscription;
+                        attach.request_id = self
+                            .runtime
+                            .session_runtime_mut()
+                            .begin_snapshot_boundary(session_id)?;
+                        attach.ready = false;
+                        self.incremental_attaches.insert(session_id.clone(), attach);
+                    }
+                    return Err(ManagedSessionRuntimeError::Runtime(
+                        crate::SessionRuntimeError::new(
+                            crate::SessionRuntimeErrorKind::OutputFailed,
+                            error,
+                        ),
+                    ));
+                }
+                history_incomplete = true;
+                finished = true;
+                break;
+            }
+            let phase = frame.phase.expect("snapshot phase was validated above");
+            let snapshot = frame.snapshot.expect("snapshot bytes were validated above");
+            let frame_output = self.runtime.snapshot_attach_frame(
+                attach.client_id.clone(),
+                session_id.clone(),
+                attach.subscription_id.clone(),
+                snapshot.bytes,
+            )?;
+            append_engine_output(&mut output, frame_output);
+            match phase {
+                crate::WorkerSnapshotPhase::Ready => attach.ready = true,
+                crate::WorkerSnapshotPhase::History => {}
+                crate::WorkerSnapshotPhase::Finish => finished = true,
+            }
+        }
+
+        if !finished {
+            self.incremental_attaches.insert(session_id.clone(), attach);
+            return Ok(output);
+        }
+
+        if let Some((resize_client, rows, cols, resize_at)) = attach.queued_resize.take() {
+            let resize_output = self.runtime.handle_client_ingress(
+                resize_client,
+                TransportIngress::Resize {
+                    session_id: session_id.clone(),
+                    rows,
+                    cols,
+                },
+                resize_at,
+            )?;
+            append_engine_output(&mut output, resize_output);
+        }
+        let attached = self.runtime.complete_snapshot_attach(
+            attach.client_id.clone(),
+            session_id.clone(),
+            attach.subscription_id.clone(),
+            history_incomplete,
+        )?;
+        append_engine_output(&mut output, attached);
+
+        let mut deferred_input = Vec::new();
+        for (input_client, data, input_at) in std::mem::take(&mut attach.queued_input) {
+            if attach
+                .pending
+                .iter()
+                .any(|(pending_client, _)| pending_client == &input_client)
+            {
+                deferred_input.push((input_client, data, input_at));
+                continue;
+            }
+            let input_output = self.runtime.handle_client_ingress(
+                input_client,
+                TransportIngress::TerminalInput {
+                    session_id: session_id.clone(),
+                    data,
+                },
+                input_at,
+            )?;
+            append_engine_output(&mut output, input_output);
+        }
+
+        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+            attach.client_id = next_client;
+            attach.subscription_id = next_subscription;
+            attach.request_id = self
+                .runtime
+                .session_runtime_mut()
+                .begin_snapshot_boundary(session_id)?;
+            attach.ready = false;
+            attach.queued_input = deferred_input;
+            attach.queued_resize = None;
+            self.incremental_attaches.insert(session_id.clone(), attach);
+        }
+
+        let mut live = self
+            .runtime
+            .drain_runtime_once(session_id, last_output_at)?;
+        if let Some(current) = self.incremental_attaches.get(session_id) {
+            suppress_attach_terminal_output(&mut live, session_id, current);
+        }
+        append_engine_output(&mut output, live);
+        Ok(output)
     }
 
     /// Read a session's plain screen state through the worker-backed managed runtime.
@@ -843,6 +1107,44 @@ impl WorkerBackedBotsterEngine {
         self.runtime
             .shutdown_session(session_id, reason, now_seconds)
     }
+}
+
+#[cfg(feature = "local-runtime")]
+fn append_engine_output(target: &mut BotsterEngineOutput, source: BotsterEngineOutput) {
+    target.client_egress.extend(source.client_egress);
+    target.session_requests.extend(source.session_requests);
+    target
+        .client_control_frames
+        .extend(source.client_control_frames);
+    target.session_events.extend(source.session_events);
+    target.observations.extend(source.observations);
+}
+
+#[cfg(feature = "local-runtime")]
+fn suppress_attach_terminal_output(
+    output: &mut BotsterEngineOutput,
+    session_id: &SessionId,
+    attach: &IncrementalAttach,
+) {
+    output.client_egress.retain(|(routed_client, frame)| {
+        let TransportEgress::TerminalOutput {
+            session_id: routed_session,
+            subscription_id: routed_subscription,
+            ..
+        } = frame
+        else {
+            return true;
+        };
+        if routed_session != session_id {
+            return true;
+        }
+        let active =
+            routed_client == &attach.client_id && routed_subscription == &attach.subscription_id;
+        let pending = attach.pending.iter().any(|(client, subscription)| {
+            routed_client == client && routed_subscription == subscription
+        });
+        !active && !pending
+    });
 }
 
 #[cfg(feature = "local-runtime")]

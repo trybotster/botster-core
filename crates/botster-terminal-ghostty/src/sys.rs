@@ -66,6 +66,41 @@ pub(crate) type GhosttyFormatter = *mut c_void;
 /// Opaque snapshot decoder handle owned by libghostty-vt.
 pub(crate) type GhosttySnapshotDecoder = *mut c_void;
 
+/// Synchronous byte destination callback used by streaming snapshot encode.
+pub(crate) type GhosttyWriterFn =
+    unsafe extern "C" fn(userdata: *mut c_void, data: *const u8, len: usize) -> bool;
+
+/// Byte destination passed by value to libghostty-vt.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct GhosttyWriter {
+    pub(crate) write: Option<GhosttyWriterFn>,
+    pub(crate) userdata: *mut c_void,
+}
+
+/// Synchronous byte source callback used by incremental snapshot decode.
+pub(crate) type GhosttyReaderFn = unsafe extern "C" fn(
+    userdata: *mut c_void,
+    buffer: *mut u8,
+    capacity: usize,
+    out_read: *mut usize,
+) -> bool;
+
+/// Byte source passed by value to libghostty-vt.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct GhosttyReader {
+    pub(crate) read: Option<GhosttyReaderFn>,
+    pub(crate) userdata: *mut c_void,
+}
+
+/// Snapshot decoder option identifier.
+pub(crate) type GhosttySnapshotDecoderOption = c_int;
+
+/// Maximum accepted snapshot continuation bytes (`size_t*`).
+pub(crate) const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: GhosttySnapshotDecoderOption =
+    0;
+
 /// Terminal option identifier accepted by `ghostty_terminal_set`.
 pub(crate) type GhosttyTerminalOption = c_int;
 
@@ -497,6 +532,12 @@ unsafe extern "C" {
         out_len: *mut usize,
     ) -> GhosttyResult;
 
+    /// Encode a terminal snapshot through a synchronous writer callback.
+    pub(crate) fn ghostty_snapshot_encode(
+        terminal: GhosttyTerminal,
+        writer: GhosttyWriter,
+    ) -> GhosttyResult;
+
     /// Create a one-shot snapshot decoder over a caller-owned buffer.
     pub(crate) fn ghostty_snapshot_decoder_new_buf(
         allocator: *const c_void,
@@ -504,6 +545,29 @@ unsafe extern "C" {
         ptr: *const u8,
         len: usize,
     ) -> GhosttyResult;
+
+    /// Create an incremental decoder over a synchronous reader callback.
+    pub(crate) fn ghostty_snapshot_decoder_new(
+        allocator: *const c_void,
+        decoder: *mut GhosttySnapshotDecoder,
+        reader: GhosttyReader,
+    ) -> GhosttyResult;
+
+    /// Set an incremental decoder option before decoding starts.
+    pub(crate) fn ghostty_snapshot_decoder_set(
+        decoder: GhosttySnapshotDecoder,
+        option: GhosttySnapshotDecoderOption,
+        value: *const c_void,
+    ) -> GhosttyResult;
+
+    /// Decode and validate the renderable prefix through READY.
+    pub(crate) fn ghostty_snapshot_decoder_ready(
+        decoder: GhosttySnapshotDecoder,
+        terminal: *mut GhosttyTerminal,
+    ) -> GhosttyResult;
+
+    /// Decode one history PAGE or validate FINISH.
+    pub(crate) fn ghostty_snapshot_decoder_next(decoder: GhosttySnapshotDecoder) -> GhosttyResult;
 
     /// Decode a complete snapshot into a newly created, caller-owned terminal.
     pub(crate) fn ghostty_snapshot_decoder_decode(

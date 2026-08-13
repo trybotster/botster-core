@@ -206,6 +206,25 @@ impl ClientStreamHarness {
         subscription_id: SubscriptionId,
         snapshot: Vec<u8>,
     ) -> ClientStreamOutcome {
+        let mut outcome = self.begin_snapshot_attach(session_id.clone(), subscription_id.clone());
+        outcome.egress.push(self.snapshot_for_route(
+            session_id.clone(),
+            subscription_id.clone(),
+            snapshot,
+        ));
+        outcome.egress.push(TransportEgress::AttachState {
+            session_id,
+            subscription_id,
+            state: TerminalAttachState::Attached,
+        });
+        outcome
+    }
+
+    pub(crate) fn begin_snapshot_attach(
+        &mut self,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> ClientStreamOutcome {
         let observation = match self.subscriptions.get(&session_id) {
             Some(existing) if existing == &subscription_id => {
                 ClientStreamObservation::DuplicateSubscription {
@@ -232,18 +251,62 @@ impl ClientStreamHarness {
             subscription_id: subscription_id.clone(),
             state: TerminalAttachState::Attaching,
         });
-        outcome.egress.push(TransportEgress::Snapshot {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-            data: snapshot,
-        });
+        outcome.observations.push(observation);
+        outcome
+    }
+
+    pub(crate) fn snapshot_attach_frame(
+        &self,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        data: Vec<u8>,
+    ) -> ClientStreamOutcome {
+        if self.subscriptions.get(&session_id) != Some(&subscription_id) {
+            return ClientStreamOutcome::empty();
+        }
+        let mut outcome = ClientStreamOutcome::empty();
+        outcome
+            .egress
+            .push(self.snapshot_for_route(session_id, subscription_id, data));
+        outcome
+    }
+
+    pub(crate) fn complete_snapshot_attach(
+        &self,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        history_incomplete: bool,
+    ) -> ClientStreamOutcome {
+        if self.subscriptions.get(&session_id) != Some(&subscription_id) {
+            return ClientStreamOutcome::empty();
+        }
+        let mut outcome = ClientStreamOutcome::empty();
+        if history_incomplete {
+            outcome.egress.push(TransportEgress::AttachState {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+                state: TerminalAttachState::SnapshotHistoryIncomplete,
+            });
+        }
         outcome.egress.push(TransportEgress::AttachState {
             session_id,
             subscription_id,
             state: TerminalAttachState::Attached,
         });
-        outcome.observations.push(observation);
         outcome
+    }
+
+    fn snapshot_for_route(
+        &self,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        data: Vec<u8>,
+    ) -> TransportEgress {
+        TransportEgress::Snapshot {
+            session_id,
+            subscription_id,
+            data,
+        }
     }
 
     pub(crate) fn forget_session(&mut self, session_id: &SessionId) {

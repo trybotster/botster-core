@@ -173,6 +173,57 @@ impl SubscriptionMultiplexer {
         multiplexer_outcome
     }
 
+    pub(crate) fn begin_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> SubscriptionMultiplexerOutcome {
+        let outcome = self
+            .clients
+            .entry(client_id.clone())
+            .or_insert_with(|| ClientStreamHarness::new(client_id.clone()))
+            .begin_snapshot_attach(session_id.clone(), subscription_id);
+        self.sync_client_subscription(&client_id, &session_id);
+        let mut result = SubscriptionMultiplexerOutcome::empty();
+        result.append_client_outcome(&client_id, outcome);
+        result
+    }
+
+    pub(crate) fn snapshot_attach_frame(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        data: Vec<u8>,
+    ) -> SubscriptionMultiplexerOutcome {
+        let mut result = SubscriptionMultiplexerOutcome::empty();
+        if let Some(client) = self.clients.get(&client_id) {
+            result.append_client_outcome(
+                &client_id,
+                client.snapshot_attach_frame(session_id, subscription_id, data),
+            );
+        }
+        result
+    }
+
+    pub(crate) fn complete_snapshot_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        history_incomplete: bool,
+    ) -> SubscriptionMultiplexerOutcome {
+        let mut result = SubscriptionMultiplexerOutcome::empty();
+        if let Some(client) = self.clients.get(&client_id) {
+            result.append_client_outcome(
+                &client_id,
+                client.complete_snapshot_attach(session_id, subscription_id, history_incomplete),
+            );
+        }
+        result
+    }
+
     pub(crate) fn restore_subscription(
         &mut self,
         client_id: &ClientId,
