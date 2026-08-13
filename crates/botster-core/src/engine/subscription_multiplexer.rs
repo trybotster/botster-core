@@ -154,6 +154,25 @@ impl SubscriptionMultiplexer {
             .cloned()
     }
 
+    pub(crate) fn attach_snapshot(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        snapshot: Vec<u8>,
+    ) -> SubscriptionMultiplexerOutcome {
+        let outcome = self
+            .clients
+            .entry(client_id.clone())
+            .or_insert_with(|| ClientStreamHarness::new(client_id.clone()))
+            .attach_snapshot(session_id.clone(), subscription_id, snapshot);
+        self.sync_client_subscription(&client_id, &session_id);
+
+        let mut multiplexer_outcome = SubscriptionMultiplexerOutcome::empty();
+        multiplexer_outcome.append_client_outcome(&client_id, outcome);
+        multiplexer_outcome
+    }
+
     pub(crate) fn restore_subscription(
         &mut self,
         client_id: &ClientId,

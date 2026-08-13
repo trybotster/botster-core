@@ -408,15 +408,20 @@ impl WorkerProcessRuntime {
                     request_id: request_id.clone(),
                 },
             )?;
+            session.outstanding_snapshot_request = Some(request_id.clone());
         }
 
         let deadline = Instant::now() + self.options.mode_gated_input_timeout;
         loop {
-            self.pump_session_output(session_id)?;
+            if let Err(error) = self.pump_session_output(session_id) {
+                self.session_mut(session_id)?.outstanding_snapshot_request = None;
+                return Err(error);
+            }
             let matched = {
                 let session = self.session_mut(session_id)?;
                 match session.snapshot_boundary.take() {
                     Some((result, boundary_len)) if result.request_id == request_id => {
+                        session.outstanding_snapshot_request = None;
                         // Validate before draining. A failed snapshot request must
                         // leave pre-boundary output available to the next drain.
                         let snapshot = validate_worker_snapshot_result(result)?;
@@ -427,13 +432,7 @@ impl WorkerProcessRuntime {
                             .collect();
                         Some((snapshot, before))
                     }
-                    Some((result, boundary_len)) => {
-                        session.snapshot_boundary = Some((result, boundary_len));
-                        return Err(SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::OutputFailed,
-                            "worker snapshot response correlation mismatch",
-                        ));
-                    }
+                    Some(_) => None,
                     None => None,
                 }
             };
@@ -441,12 +440,14 @@ impl WorkerProcessRuntime {
                 return Ok(result);
             }
             if Instant::now() >= deadline {
+                self.session_mut(session_id)?.outstanding_snapshot_request = None;
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "worker snapshot request timed out",
                 ));
             }
             if self.session_reader_finished(session_id)? {
+                self.session_mut(session_id)?.outstanding_snapshot_request = None;
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
                     "worker disconnected before snapshot response",
@@ -578,7 +579,9 @@ impl WorkerProcessRuntime {
                     }
                 }
                 WorkerChannelEvent::Snapshot(result) => {
-                    session.snapshot_boundary = Some((result, session.pending_output.len()));
+                    if session.outstanding_snapshot_request.as_ref() == Some(&result.request_id) {
+                        session.snapshot_boundary = Some((result, session.pending_output.len()));
+                    }
                 }
                 WorkerChannelEvent::MalformedModeGated {
                     request_id,
@@ -694,6 +697,7 @@ impl WorkerProcessRuntime {
                 outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
                 snapshot_boundary: None,
+                outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
             },
@@ -961,6 +965,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 outstanding_mode_probe: Arc::new(Mutex::new(None)),
                 pending_output: std::collections::VecDeque::new(),
                 snapshot_boundary: None,
+                outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
             },
@@ -1081,6 +1086,7 @@ struct WorkerProcessSession {
     outstanding_mode_probe: Arc<Mutex<Option<String>>>,
     pending_output: std::collections::VecDeque<WorkerOutputEvent>,
     snapshot_boundary: Option<(WorkerSnapshotResult, usize)>,
+    outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
 }

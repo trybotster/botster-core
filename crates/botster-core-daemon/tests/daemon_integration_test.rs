@@ -235,6 +235,72 @@ fn daemon_late_attach_drains_initial_history_before_later_live_output() {
 
 #[cfg(unix)]
 #[test]
+fn rapid_reattach_drops_pending_egress_for_detached_subscription() {
+    let data_dir = temp_data_dir("rapid-reattach-drops-stale-egress");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("rapid-reattach-session".to_string());
+    let client_id = ClientId("rapid-reattach-client".to_string());
+    let old_subscription = SubscriptionId("rapid-reattach-old".to_string());
+    let new_subscription = SubscriptionId("rapid-reattach-new".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("daemon should spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            old_subscription.clone(),
+            11,
+        )
+        .expect("first attach should succeed");
+    daemon
+        .detach(
+            client_id.clone(),
+            session_id.clone(),
+            old_subscription.clone(),
+            12,
+        )
+        .expect("detach should succeed before drain");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            new_subscription.clone(),
+            13,
+        )
+        .expect("replacement attach should succeed");
+
+    let drained = daemon.drain(&session_id, 14).expect("drain attach egress");
+    assert!(drained
+        .client_egress
+        .iter()
+        .all(|(received_client, frame)| {
+            received_client != &client_id
+                || !matches!(
+                    frame,
+                    TransportEgress::Snapshot { subscription_id, .. }
+                        | TransportEgress::AttachState { subscription_id, .. }
+                        if subscription_id == &old_subscription
+                )
+        }));
+    assert!(drained
+        .client_egress
+        .iter()
+        .any(|(received_client, frame)| {
+            received_client == &client_id
+                && matches!(
+                    frame,
+                    TransportEgress::Snapshot { subscription_id, data, .. }
+                        if subscription_id == &new_subscription && data.starts_with(GHOSTSNP_MAGIC)
+                )
+        }));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn guarded_write_states_are_fail_closed_and_write_through_input_path() {
     let data_dir = temp_data_dir("daemon-guarded");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
@@ -1427,6 +1493,227 @@ fn worker_backed_attach_during_alt_screen_resize_gets_complete_current_state() {
         daemon.shutdown(Some(session_id), 15).ok();
         let _ = fs::remove_dir_all(data_dir);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_duplicate_attach_refreshes_same_subscription_with_current_snapshot() {
+    let data_dir = temp_data_dir("worker-duplicate-attach-refresh");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-duplicate-attach-session".to_string());
+    let client_id = ClientId("worker-duplicate-attach-client".to_string());
+    let subscription_id = SubscriptionId("worker-duplicate-attach-subscription".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn real worker");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("first attach");
+    let _ = drain_until(&mut daemon, &session_id, "ready");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"duplicate-current-state\n".to_vec(),
+            12,
+        )
+        .expect("write current-state marker");
+    let _ = drain_until(&mut daemon, &session_id, "echo:duplicate-current-state");
+
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            13,
+        )
+        .expect("duplicate attach must refresh the route");
+    let drained = daemon
+        .drain(&session_id, 14)
+        .expect("drain duplicate attach");
+    let (_, snapshot) = first_snapshot_for_client(&drained.client_egress, &client_id)
+        .expect("duplicate attach must deliver a fresh GHOSTSNP");
+    assert_ghostty_snapshot_replays_marker(&snapshot, "echo:duplicate-current-state");
+    assert!(drained
+        .client_egress
+        .iter()
+        .any(|(received_client, frame)| {
+            received_client == &client_id
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id: received_subscription,
+                        state: TerminalAttachState::Attached,
+                        ..
+                    } if received_subscription == &subscription_id
+                )
+        }));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_rapid_switch_attach_always_builds_complete_current_screen() {
+    let data_dir = temp_data_dir("worker-rapid-switch-attach");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-rapid-switch-session".to_string());
+    let client_id = ClientId("worker-rapid-switch-client".to_string());
+    let prefix_ack = data_dir.join("prefix-ack");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "stty -echo; printf '\\033[?1049h\\033[2J'; ",
+            "i=1; while [ $i -le 23 ]; do ",
+            "printf '\\033[%d;1HSWITCH-ROW-%02d-COMPLETE' \"$i\" \"$i\"; ",
+            "i=$((i+1)); done; ",
+            "printf '\\033[24;1HREADY'; ",
+            "while IFS= read -r line; do ",
+            "printf '\\033[24;1H%-40s' \"$line\"; ",
+            "printf '%s' \"$line\" > \"{}\"; done"
+        ),
+        prefix_ack.display()
+    );
+
+    daemon.spawn(request, 10).expect("spawn real worker");
+    let initial_subscription = SubscriptionId("rapid-switch-a".to_string());
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            initial_subscription,
+            11,
+        )
+        .expect("initial attach");
+    let _ = drain_until_for_client(&mut daemon, &session_id, &client_id, "READY");
+
+    for iteration in 0..20 {
+        let subscription_id = SubscriptionId(format!("rapid-switch-{}", (iteration / 2) % 2));
+        let prefix_marker = format!("PREFIX-SWITCH-{iteration:02}");
+        daemon
+            .input(
+                client_id.clone(),
+                session_id.clone(),
+                format!("{prefix_marker}\n").into_bytes(),
+                19 + iteration,
+            )
+            .expect("pre-attach marker");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while fs::read_to_string(&prefix_ack).ok().as_deref() != Some(prefix_marker.as_str())
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(
+            fs::read_to_string(&prefix_ack).ok().as_deref(),
+            Some(prefix_marker.as_str()),
+            "child must publish the pre-attach marker before attach"
+        );
+        if iteration % 3 == 0 {
+            let transient = SubscriptionId(format!("rapid-switch-transient-{iteration}"));
+            daemon
+                .attach(
+                    client_id.clone(),
+                    session_id.clone(),
+                    transient.clone(),
+                    20 + iteration,
+                )
+                .expect("transient attach");
+            daemon
+                .detach(
+                    client_id.clone(),
+                    session_id.clone(),
+                    transient,
+                    21 + iteration,
+                )
+                .expect("transient detach before drain");
+        }
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                22 + iteration,
+            )
+            .expect("rapid attach");
+
+        let live_marker = format!("LIVE-SWITCH-{iteration:02}");
+        daemon
+            .input(
+                client_id.clone(),
+                session_id.clone(),
+                format!("{live_marker}\n").into_bytes(),
+                23 + iteration,
+            )
+            .expect("post-attach live marker");
+        let drained = drain_until_for_client(&mut daemon, &session_id, &client_id, &live_marker);
+        assert!(drained
+            .client_egress
+            .iter()
+            .all(|(received_client, frame)| {
+                received_client != &client_id
+                    || match frame {
+                        TransportEgress::TerminalOutput {
+                            subscription_id: received,
+                            ..
+                        }
+                        | TransportEgress::Snapshot {
+                            subscription_id: received,
+                            ..
+                        }
+                        | TransportEgress::AttachState {
+                            subscription_id: received,
+                            ..
+                        } => received == &subscription_id,
+                        _ => true,
+                    }
+            }));
+
+        let (snapshot_index, snapshot) = first_snapshot_for_client_at_size(
+            &drained.client_egress,
+            &client_id,
+            TerminalScreenSize::new(24, 80),
+        )
+        .expect("each attach must deliver a current GHOSTSNP");
+        assert!(ghostty_snapshot_plain_text(&snapshot).contains(&prefix_marker));
+        assert!(drained.client_egress[..snapshot_index]
+            .iter()
+            .all(|(received_client, frame)| received_client != &client_id
+                || !matches!(frame, TransportEgress::TerminalOutput { .. })));
+        assert_ghostty_snapshot_authority(&snapshot);
+        let mut client = GhosttyTerminal::with_config(
+            snapshot.size,
+            GhosttyAdapterConfig::with_max_scrollback_bytes(DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES),
+        )
+        .expect("fresh client Ghostty");
+        client.import_snapshot(&snapshot).expect("install GHOSTSNP");
+        for (index, (received_client, frame)) in drained.client_egress.iter().enumerate() {
+            if index > snapshot_index && received_client == &client_id {
+                if let TransportEgress::TerminalOutput { data, .. } = frame {
+                    client.write_output_bytes(data);
+                }
+            }
+        }
+        let text = client.plain_text().expect("render client state");
+        for row in 1..=23 {
+            assert!(
+                text.contains(&format!("SWITCH-ROW-{row:02}-COMPLETE")),
+                "iteration {iteration} missed row {row}; text={text:?}"
+            );
+        }
+        assert!(text.contains(&live_marker));
+        assert!(client.read_mode_flags().expect("mode flags").alt_screen);
+    }
+
+    let _ = fs::remove_dir_all(data_dir);
 }
 
 #[cfg(unix)]
