@@ -200,6 +200,52 @@ impl ClientStreamHarness {
         }
     }
 
+    pub(crate) fn attach_snapshot(
+        &mut self,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        snapshot: Vec<u8>,
+    ) -> ClientStreamOutcome {
+        let observation = match self.subscriptions.get(&session_id) {
+            Some(existing) if existing == &subscription_id => {
+                ClientStreamObservation::DuplicateSubscription {
+                    session_id: session_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                }
+            }
+            Some(existing) => ClientStreamObservation::ReplacedSubscription {
+                session_id: session_id.clone(),
+                old_subscription_id: existing.clone(),
+                new_subscription_id: subscription_id.clone(),
+            },
+            None => ClientStreamObservation::Subscribed {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            },
+        };
+        self.subscriptions
+            .insert(session_id.clone(), subscription_id.clone());
+
+        let mut outcome = ClientStreamOutcome::empty();
+        outcome.egress.push(TransportEgress::AttachState {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            state: TerminalAttachState::Attaching,
+        });
+        outcome.egress.push(TransportEgress::Snapshot {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            data: snapshot,
+        });
+        outcome.egress.push(TransportEgress::AttachState {
+            session_id,
+            subscription_id,
+            state: TerminalAttachState::Attached,
+        });
+        outcome.observations.push(observation);
+        outcome
+    }
+
     pub(crate) fn forget_session(&mut self, session_id: &SessionId) {
         self.subscriptions.remove(session_id);
     }

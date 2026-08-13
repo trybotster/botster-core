@@ -17,8 +17,8 @@ use botster_core::{
     RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady,
     SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
-    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload, WorkerBackedBotsterEngine,
-    WorkerProcessRuntimeOptions,
+    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
@@ -490,6 +490,7 @@ impl CoreDaemon {
             subscription_id.clone(),
             now_seconds,
         )?;
+        self.drop_pending_client_session_egress(&client_id, &session_id);
         let pending = drain_result_from_engine_output(output);
         if !drain_result_is_empty(&pending) {
             self.pending_drain.push(PendingDrainResult {
@@ -514,8 +515,13 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
-        self.engine
-            .detach_client(client_id, session_id, subscription_id, now_seconds)?;
+        self.engine.detach_client(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            now_seconds,
+        )?;
+        self.drop_pending_subscription_egress(&client_id, &session_id, &subscription_id);
         Ok(())
     }
 
@@ -1382,6 +1388,34 @@ impl CoreDaemon {
         result
     }
 
+    fn drop_pending_client_session_egress(&mut self, client_id: &ClientId, session_id: &SessionId) {
+        for pending in &mut self.pending_drain {
+            pending
+                .result
+                .client_egress
+                .retain(|(pending_client, frame)| {
+                    pending_client != client_id || egress_session_id(frame) != Some(session_id)
+                });
+        }
+    }
+
+    fn drop_pending_subscription_egress(
+        &mut self,
+        client_id: &ClientId,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        for pending in &mut self.pending_drain {
+            pending
+                .result
+                .client_egress
+                .retain(|(pending_client, frame)| {
+                    pending_client != client_id
+                        || egress_route(frame) != Some((session_id, subscription_id))
+                });
+        }
+    }
+
     fn drop_pending_drain(&mut self, session_id: &SessionId) {
         self.pending_drain
             .retain(|pending| &pending.session_id != session_id);
@@ -1449,6 +1483,49 @@ impl CoreDaemon {
         while self.lifecycle_journal.len() > capacity {
             self.lifecycle_journal.pop_front();
         }
+    }
+}
+
+fn egress_session_id(frame: &TransportEgress) -> Option<&SessionId> {
+    egress_route(frame).map(|(session_id, _)| session_id)
+}
+
+fn egress_route(frame: &TransportEgress) -> Option<(&SessionId, &SubscriptionId)> {
+    match frame {
+        TransportEgress::TerminalOutput {
+            session_id,
+            subscription_id,
+            ..
+        }
+        | TransportEgress::Snapshot {
+            session_id,
+            subscription_id,
+            ..
+        }
+        | TransportEgress::Scrollback {
+            session_id,
+            subscription_id,
+            ..
+        }
+        | TransportEgress::ProcessExit {
+            session_id,
+            subscription_id,
+            ..
+        }
+        | TransportEgress::AttachState {
+            session_id,
+            subscription_id,
+            ..
+        }
+        | TransportEgress::FocusChanged {
+            session_id,
+            subscription_id,
+            ..
+        } => Some((session_id, subscription_id)),
+        TransportEgress::Binary { .. }
+        | TransportEgress::BoundaryPayload { .. }
+        | TransportEgress::Pong { .. }
+        | TransportEgress::Close { .. } => None,
     }
 }
 

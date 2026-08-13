@@ -8,7 +8,7 @@ use crate::actor::{
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
-use crate::contract::transport::TransportIngress;
+use crate::contract::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
 use crate::engine::command::DefaultEngineCommand;
 use crate::engine::command::{
@@ -622,26 +622,37 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let mut output = if self
+        let supports_snapshot_boundary = self
             .runtime
-            .worker_supports_snapshot_boundary(&session_id)?
-        {
-            self.runtime
-                .synchronize_worker_snapshot_boundary(&session_id, now_seconds)?
+            .worker_supports_snapshot_boundary(&session_id)?;
+        let (mut output, attach_snapshot) = if supports_snapshot_boundary {
+            let (output, snapshot) = self
+                .runtime
+                .synchronize_worker_snapshot_boundary(&session_id, now_seconds)?;
+            (output, snapshot)
         } else {
-            BotsterEngineOutput::empty()
+            let output = self.runtime.drain_runtime_once(&session_id, now_seconds)?;
+            let snapshot = self.runtime.capture_parent_snapshot(&session_id)?;
+            (output, snapshot)
         };
+        output.client_egress.retain(|(routed_client, frame)| {
+            routed_client != &client_id
+                || !matches!(
+                    frame,
+                    TransportEgress::TerminalOutput {
+                        session_id: routed_session,
+                        ..
+                    } if routed_session == &session_id
+                )
+        });
         self.runtime
             .session_runtime_mut()
             .attach_consumer(&session_id)?;
-        let attach = self.runtime.handle_client_ingress(
-            client_id.clone(),
-            TransportIngress::SubscribeSession {
-                client_id,
-                session_id,
-                subscription_id,
-            },
-            now_seconds,
+        let attach = self.runtime.attach_snapshot(
+            client_id,
+            session_id,
+            subscription_id,
+            attach_snapshot.bytes,
         )?;
         output.client_egress.extend(attach.client_egress);
         output.session_requests.extend(attach.session_requests);

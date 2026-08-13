@@ -138,7 +138,8 @@ where
         &mut self,
         session_id: &SessionId,
         last_output_at: u64,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+    ) -> Result<(MultiplexerEngineOutcome, TerminalSnapshotPayload), ManagedSessionRuntimeError>
+    {
         let (snapshot, output) = self
             .engine
             .session_runtime_mut()
@@ -149,9 +150,9 @@ where
                 session_id: session_id.clone(),
             }
         })?;
-        worker.replay_snapshot(snapshot)?;
+        worker.replay_snapshot(snapshot.clone())?;
         self.route_pending_runtime_events(&mut outcome)?;
-        Ok(outcome)
+        Ok((outcome, snapshot))
     }
 
     /// Return whether one worker supports atomic snapshot boundaries.
@@ -294,6 +295,29 @@ where
         };
         self.flush_runtime_inputs()?;
         Ok(outcome)
+    }
+
+    pub(crate) fn attach_snapshot(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        snapshot: Vec<u8>,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        Ok(self
+            .engine
+            .attach_snapshot(client_id, session_id, subscription_id, snapshot)?)
+    }
+
+    pub(crate) fn capture_parent_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<TerminalSnapshotPayload, ManagedSessionRuntimeError> {
+        self.engine_worker(session_id)
+            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            })?
+            .capture_snapshot_payload()
     }
 
     /// Route one session I/O request through the existing session worker path.
