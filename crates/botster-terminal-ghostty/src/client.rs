@@ -22,29 +22,31 @@ use crate::sys::{
     ghostty_render_state_row_cells_next, ghostty_render_state_row_get,
     ghostty_render_state_row_iterator_free, ghostty_render_state_row_iterator_new,
     ghostty_render_state_row_iterator_next, ghostty_render_state_update,
-    ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free,
-    ghostty_snapshot_decoder_new_buf, ghostty_terminal_free, ghostty_terminal_get,
-    ghostty_terminal_new, ghostty_terminal_resize, ghostty_terminal_scroll_viewport,
-    ghostty_terminal_set, ghostty_terminal_vt_write, GhosttyBuffer, GhosttyCell, GhosttyCellWide,
-    GhosttyColorRgb, GhosttyKittyKeyFlags, GhosttyMode, GhosttyRenderState,
-    GhosttyRenderStateCursorVisualStyle, GhosttyRenderStateRowCells, GhosttyRenderStateRowIterator,
-    GhosttySnapshotDecoder, GhosttyStyle, GhosttyStyleColor, GhosttyStyleColorTag,
-    GhosttyStyleColorValue, GhosttyTerminalModeConfig, GhosttyTerminalScrollViewport,
-    GhosttyTerminalScrollViewportTag, GhosttyTerminalScrollViewportValue, GhosttyTerminalScrollbar,
-    GHOSTTY_CELL_DATA_WIDE, GHOSTTY_INVALID_VALUE, GHOSTTY_MODE_ALT_SCREEN,
-    GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE, GHOSTTY_MODE_BRACKETED_PASTE,
-    GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE, GHOSTTY_MODE_DECCKM,
-    GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE, GHOSTTY_NO_VALUE,
-    GHOSTTY_OUT_OF_SPACE, GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND,
-    GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, GHOSTTY_RENDER_STATE_DATA_COLS,
-    GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE,
+    ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free, ghostty_snapshot_decoder_new,
+    ghostty_snapshot_decoder_new_buf, ghostty_snapshot_decoder_next,
+    ghostty_snapshot_decoder_ready, ghostty_snapshot_decoder_set, ghostty_terminal_free,
+    ghostty_terminal_get, ghostty_terminal_new, ghostty_terminal_resize,
+    ghostty_terminal_scroll_viewport, ghostty_terminal_set, ghostty_terminal_vt_write,
+    GhosttyBuffer, GhosttyCell, GhosttyCellWide, GhosttyColorRgb, GhosttyKittyKeyFlags,
+    GhosttyMode, GhosttyReader, GhosttyRenderState, GhosttyRenderStateCursorVisualStyle,
+    GhosttyRenderStateRowCells, GhosttyRenderStateRowIterator, GhosttySnapshotDecoder,
+    GhosttyStyle, GhosttyStyleColor, GhosttyStyleColorTag, GhosttyStyleColorValue,
+    GhosttyTerminalModeConfig, GhosttyTerminalScrollViewport, GhosttyTerminalScrollViewportTag,
+    GhosttyTerminalScrollViewportValue, GhosttyTerminalScrollbar, GHOSTTY_CELL_DATA_WIDE,
+    GHOSTTY_INVALID_VALUE, GHOSTTY_MODE_ALT_SCREEN, GHOSTTY_MODE_ALT_SCREEN_SAVE,
+    GHOSTTY_MODE_ANY_MOUSE, GHOSTTY_MODE_BRACKETED_PASTE, GHOSTTY_MODE_BUTTON_MOUSE,
+    GHOSTTY_MODE_CURSOR_VISIBLE, GHOSTTY_MODE_DECCKM, GHOSTTY_MODE_FOCUS_EVENT,
+    GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE, GHOSTTY_NO_VALUE, GHOSTTY_OUT_OF_SPACE,
+    GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND, GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND,
+    GHOSTTY_RENDER_STATE_DATA_COLS, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE,
     GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y,
     GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
     GHOSTTY_RENDER_STATE_DATA_ROWS, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR,
     GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR,
     GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW,
     GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
-    GHOSTTY_SUCCESS, GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND, GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+    GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES, GHOSTTY_SUCCESS,
+    GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND, GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
     GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND, GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
     GHOSTTY_TERMINAL_DATA_COLS, GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
     GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, GHOSTTY_TERMINAL_DATA_MODE,
@@ -173,6 +175,17 @@ pub struct ScrollbarState {
     pub len: usize,
 }
 
+/// Result of one incremental history decode step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GhosttySnapshotDecodeProgress {
+    /// READY was validated and the terminal is renderable.
+    Ready,
+    /// One history PAGE was validated and applied or safely discarded.
+    History,
+    /// FINISH was validated. The incremental snapshot is complete.
+    Finish,
+}
+
 /// Client-facing Ghostty projection without PTY ownership or OSC answering.
 ///
 /// # Install contract
@@ -194,6 +207,7 @@ pub struct GhosttyClientProjection {
     render_state: NonNull<c_void>,
     row_iter: NonNull<c_void>,
     row_cells: NonNull<c_void>,
+    incremental: Option<IncrementalSnapshotDecoder>,
 }
 
 impl fmt::Debug for GhosttyClientProjection {
@@ -286,6 +300,7 @@ impl GhosttyClientProjection {
             render_state,
             row_iter,
             row_cells,
+            incremental: None,
         };
 
         let max_scrollback = config.max_scrollback();
@@ -315,6 +330,12 @@ impl GhosttyClientProjection {
     /// Fail-closed: empty, non-`GHOSTSNP` magic, corrupt body, or decode
     /// failure leaves the previous handle intact.
     pub fn install_ghostsnp(&mut self, bytes: &[u8]) -> Result<(), GhosttyTerminalError> {
+        if self.incremental.is_some() {
+            return Err(GhosttyTerminalError::operation(
+                "install_ghostsnp_incremental_active",
+                GHOSTTY_INVALID_VALUE,
+            ));
+        }
         if bytes.is_empty() {
             return Err(GhosttyTerminalError::operation(
                 "install_ghostsnp_empty",
@@ -378,6 +399,123 @@ impl GhosttyClientProjection {
         Ok(())
     }
 
+    /// Install a record-aware GHOSTSNP prefix through READY.
+    ///
+    /// This method sets the decoder continuation limit to 1024 bytes before
+    /// `ready` runs. The terminal is renderable when this method returns.
+    pub fn install_ghostsnp_ready(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<GhosttySnapshotDecodeProgress, GhosttyTerminalError> {
+        if bytes.is_empty() || !bytes.starts_with(GHOSTSNP_MAGIC) {
+            return Err(GhosttyTerminalError::operation(
+                "snapshot_ready_magic",
+                GHOSTTY_INVALID_VALUE,
+            ));
+        }
+
+        let mut source = Box::new(IncrementalReader::new(bytes));
+        let reader = GhosttyReader {
+            read: Some(incremental_read),
+            userdata: (&raw mut *source).cast(),
+        };
+        let mut decoder: GhosttySnapshotDecoder = ptr::null_mut();
+        let result = unsafe { ghostty_snapshot_decoder_new(ptr::null(), &mut decoder, reader) };
+        if result != GHOSTTY_SUCCESS {
+            return Err(GhosttyTerminalError::operation("snapshot_decoder", result));
+        }
+        let owned = IncrementalSnapshotDecoder { decoder, source };
+        let continuation_limit = CONTINUATION_MAX_BYTES;
+        let result = unsafe {
+            ghostty_snapshot_decoder_set(
+                owned.decoder,
+                GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES,
+                (&raw const continuation_limit).cast(),
+            )
+        };
+        if result != GHOSTTY_SUCCESS {
+            return Err(GhosttyTerminalError::operation(
+                "snapshot_decoder_continuation",
+                result,
+            ));
+        }
+
+        let mut decoded = ptr::null_mut();
+        let result = unsafe { ghostty_snapshot_decoder_ready(owned.decoder, &mut decoded) };
+        if result != GHOSTTY_SUCCESS || !owned.source.exhausted() {
+            let code = if result == GHOSTTY_SUCCESS {
+                GHOSTTY_INVALID_VALUE
+            } else {
+                result
+            };
+            drop(owned);
+            if !decoded.is_null() {
+                unsafe { ghostty_terminal_free(decoded) };
+            }
+            return Err(GhosttyTerminalError::operation("snapshot_ready", code));
+        }
+        let Some(decoded) = NonNull::new(decoded) else {
+            return Err(GhosttyTerminalError::NullHandle {
+                operation: "snapshot_ready",
+            });
+        };
+
+        self.incremental = None;
+        let previous = std::mem::replace(&mut self.handle, decoded);
+        unsafe { ghostty_terminal_free(previous.as_ptr()) };
+        self.enable_continuation_tracking()?;
+        self.size = self.query_dimensions()?;
+        self.incremental = Some(owned);
+        Ok(GhosttySnapshotDecodeProgress::Ready)
+    }
+
+    /// Apply one frame that ends at a HISTORY PAGE or FINISH.
+    pub fn apply_ghostsnp_history(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<GhosttySnapshotDecodeProgress, GhosttyTerminalError> {
+        let Some(incremental) = self.incremental.as_mut() else {
+            return Err(GhosttyTerminalError::operation(
+                "snapshot_history_state",
+                GHOSTTY_INVALID_VALUE,
+            ));
+        };
+        incremental.source.reset(bytes);
+        let result = unsafe { ghostty_snapshot_decoder_next(incremental.decoder) };
+        if !incremental.source.exhausted() {
+            self.incremental = None;
+            return Err(GhosttyTerminalError::operation(
+                "snapshot_history_frame",
+                GHOSTTY_INVALID_VALUE,
+            ));
+        }
+        match result {
+            GHOSTTY_SUCCESS => Ok(GhosttySnapshotDecodeProgress::History),
+            GHOSTTY_NO_VALUE => {
+                self.incremental = None;
+                Ok(GhosttySnapshotDecodeProgress::Finish)
+            }
+            code => {
+                self.incremental = None;
+                Err(GhosttyTerminalError::operation("snapshot_history", code))
+            }
+        }
+    }
+
+    /// Return whether history decoding still waits for FINISH.
+    #[must_use]
+    pub const fn snapshot_history_pending(&self) -> bool {
+        self.incremental.is_some()
+    }
+
+    /// Stop history decoding and retain the renderable terminal from READY.
+    ///
+    /// A client calls this method after `snapshot_history_incomplete`. The
+    /// method releases decoder state so live output and resize can continue.
+    pub fn abort_ghostsnp_history(&mut self) -> bool {
+        self.incremental.take().is_some()
+    }
+
     /// Apply live TerminalOutput-shaped bytes into the installed state.
     pub fn apply_terminal_output(&mut self, bytes: &[u8]) {
         if bytes.is_empty() {
@@ -390,6 +528,12 @@ impl GhosttyClientProjection {
 
     /// Resize the client viewport (policy-owned size, not install authenticity).
     pub fn resize(&mut self, size: TerminalScreenSize) -> Result<(), GhosttyTerminalError> {
+        if self.incremental.is_some() {
+            return Err(GhosttyTerminalError::operation(
+                "resize_during_snapshot_history",
+                GHOSTTY_INVALID_VALUE,
+            ));
+        }
         let result =
             unsafe { ghostty_terminal_resize(self.handle.as_ptr(), size.cols, size.rows, 0, 0) };
         if result != GHOSTTY_SUCCESS {
@@ -954,6 +1098,7 @@ impl GhosttyClientProjection {
 
 impl Drop for GhosttyClientProjection {
     fn drop(&mut self) {
+        self.incremental = None;
         unsafe {
             ghostty_render_state_row_cells_free(self.row_cells.as_ptr());
             ghostty_render_state_row_iterator_free(self.row_iter.as_ptr());
@@ -961,6 +1106,57 @@ impl Drop for GhosttyClientProjection {
             ghostty_terminal_free(self.handle.as_ptr());
         }
     }
+}
+
+struct IncrementalReader {
+    bytes: Vec<u8>,
+    offset: usize,
+}
+
+impl IncrementalReader {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn reset(&mut self, bytes: Vec<u8>) {
+        self.bytes = bytes;
+        self.offset = 0;
+    }
+
+    fn exhausted(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+}
+
+struct IncrementalSnapshotDecoder {
+    decoder: GhosttySnapshotDecoder,
+    source: Box<IncrementalReader>,
+}
+
+impl Drop for IncrementalSnapshotDecoder {
+    fn drop(&mut self) {
+        unsafe { ghostty_snapshot_decoder_free(self.decoder) };
+    }
+}
+
+unsafe extern "C" fn incremental_read(
+    userdata: *mut c_void,
+    buffer: *mut u8,
+    capacity: usize,
+    out_read: *mut usize,
+) -> bool {
+    if userdata.is_null() || buffer.is_null() || out_read.is_null() || capacity == 0 {
+        return false;
+    }
+    let source = unsafe { &mut *userdata.cast::<IncrementalReader>() };
+    let remaining = &source.bytes[source.offset..];
+    let count = remaining.len().min(capacity);
+    unsafe {
+        ptr::copy_nonoverlapping(remaining.as_ptr(), buffer, count);
+        *out_read = count;
+    }
+    source.offset += count;
+    true
 }
 
 struct DecoderGuard(GhosttySnapshotDecoder);

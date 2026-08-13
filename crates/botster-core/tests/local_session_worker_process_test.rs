@@ -133,6 +133,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
+        test_fail_snapshot_history_after_ready: false,
         ghostty_max_scrollback_bytes: 10_000_000,
         terminal_color_profile: None,
     }

@@ -39,8 +39,8 @@ use botster_core_test_support::conformance::{
     GHOSTSNP_MAGIC,
 };
 use botster_terminal_ghostty::{
-    GhosttyAdapterConfig, GhosttyTerminal, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR,
-    COLOR_INDEX_FOREGROUND,
+    GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
+    COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
 };
 
 const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
@@ -925,10 +925,13 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
             17,
         )
         .expect("fresh client and subscription should reattach the running session");
+    let reattach_drain = drain_until_attached(&mut daemon, &session_id, &reattached_client);
+    let mut reattach_egress = reattached.client_egress;
+    reattach_egress.extend(reattach_drain.client_egress);
     let (snapshot_index, snapshot) =
-        first_snapshot_for_client(&reattached.client_egress, &reattached_client)
+        first_snapshot_for_client(&reattach_egress, &reattached_client)
             .expect("reattach should deliver the authoritative Ghostty snapshot");
-    let snapshot_subscription = match &reattached.client_egress[snapshot_index] {
+    let snapshot_subscription = match &reattach_egress[snapshot_index] {
         (
             _,
             TransportEgress::Snapshot {
@@ -957,8 +960,7 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
         "reattached snapshot should preserve marker order: {replayed:?}"
     );
 
-    let attaching_index = reattached
-        .client_egress
+    let attaching_index = reattach_egress
         .iter()
         .position(|(client_id, frame)| {
             client_id == &reattached_client
@@ -972,8 +974,7 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
                 )
         })
         .expect("fresh subscription should receive Attaching");
-    let attached_index = reattached
-        .client_egress
+    let attached_index = reattach_egress
         .iter()
         .position(|(client_id, frame)| {
             client_id == &reattached_client
@@ -990,15 +991,14 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
     assert!(
         attaching_index < snapshot_index && snapshot_index < attached_index,
         "reattach bootstrap must order Attaching, retained snapshot, then Attached: {:?}",
-        reattached.client_egress
+        reattach_egress
     );
     assert!(
-        reattached
-            .client_egress
+        reattach_egress
             .iter()
             .all(|(client_id, _)| client_id != &original_client),
         "detached client must not receive reattach-only delivery: {:?}",
-        reattached.client_egress
+        reattach_egress
     );
 
     let post_attach_drain = daemon
@@ -1036,6 +1036,560 @@ fn worker_backed_ghostty_same_session_reattach_restores_retained_history() {
         "post-attach live marker should be delivered exactly once"
     );
 
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output() {
+    let data_dir = temp_data_dir("worker-incremental-contract");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_worker_egress_capacity(Some(1)),
+    );
+    let session_id = SessionId("worker-incremental-contract-session".to_string());
+    let client_id = ClientId("worker-incremental-contract-client".to_string());
+    let subscription_id = SubscriptionId("worker-incremental-contract-sub".to_string());
+    let ready_path = data_dir.join("history-ready");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
+            "printf 'PRE-BARRIER-MARKER'; : > '{}'; ",
+            "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+        ),
+        ready_path.display()
+    );
+
+    daemon.spawn(request, 10).expect("spawn real worker");
+    wait_for_file(&ready_path);
+    let recovery = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load worker record")
+        .and_then(|record| record.recovery_identity)
+        .expect("worker recovery identity");
+    assert_eq!(
+        recovery
+            .get("snapshot_delivery")
+            .and_then(serde_json::Value::as_str),
+        Some("ready_then_history")
+    );
+
+    let attached = daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            12,
+        )
+        .expect("start incremental attach");
+    assert_eq!(attached.client_egress.len(), 1);
+    assert!(matches!(
+        &attached.client_egress[0],
+        (
+            target,
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attaching,
+                ..
+            }
+        ) if target == &client_id
+    ));
+
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"POST-BARRIER-MARKER\n".to_vec(),
+            13,
+        )
+        .expect("queue input");
+    daemon
+        .resize(client_id.clone(), session_id.clone(), 30, 90, 14)
+        .expect("queue first resize");
+    daemon
+        .resize(client_id.clone(), session_id.clone(), 40, 120, 15)
+        .expect("replace queued resize");
+
+    let mut projection = GhosttyClientProjection::new(TerminalScreenSize::new(24, 80))
+        .expect("create incremental client");
+    let mut sequence = vec!["attaching"];
+    let mut history_frames = 0;
+    let mut saw_ready = false;
+    let mut saw_finish = false;
+    let mut saw_attached = false;
+    let mut all_egress = attached.client_egress;
+    for tick in 0..10_000 {
+        let drained = daemon
+            .drain(&session_id, 20 + tick)
+            .expect("drain one incremental frame");
+        let snapshots_in_drain = drained
+            .client_egress
+            .iter()
+            .filter(|(target, frame)| {
+                target == &client_id && matches!(frame, TransportEgress::Snapshot { .. })
+            })
+            .count();
+        assert!(snapshots_in_drain <= 1, "one client-paced frame per drain");
+        for (target, frame) in &drained.client_egress {
+            if target != &client_id {
+                continue;
+            }
+            match frame {
+                TransportEgress::Snapshot { data, .. } if !saw_ready => {
+                    assert_eq!(
+                        projection
+                            .install_ghostsnp_ready(data.clone())
+                            .expect("READY must decode"),
+                        GhosttySnapshotDecodeProgress::Ready
+                    );
+                    assert!(viewport_contains_marker(
+                        &projection.project_viewport().expect("paint at READY"),
+                        "PRE-BARRIER-MARKER"
+                    ));
+                    saw_ready = true;
+                    sequence.push("ready");
+                }
+                TransportEgress::Snapshot { data, .. } => {
+                    match projection
+                        .apply_ghostsnp_history(data.clone())
+                        .expect("decode one PAGE or FINISH")
+                    {
+                        GhosttySnapshotDecodeProgress::History => {
+                            history_frames += 1;
+                            sequence.push("history");
+                        }
+                        GhosttySnapshotDecodeProgress::Finish => {
+                            saw_finish = true;
+                            sequence.push("finish");
+                        }
+                        GhosttySnapshotDecodeProgress::Ready => {
+                            panic!("READY must occur once")
+                        }
+                    }
+                }
+                TransportEgress::AttachState {
+                    state: TerminalAttachState::Attached,
+                    ..
+                } => {
+                    assert!(saw_finish, "Attached must follow FINISH");
+                    saw_attached = true;
+                    sequence.push("attached");
+                }
+                TransportEgress::TerminalOutput { .. } => {
+                    assert!(saw_attached, "live output must follow Attached")
+                }
+                _ => {}
+            }
+        }
+        all_egress.extend(drained.client_egress);
+        if saw_attached {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(saw_ready, "worker must emit READY");
+    assert!(history_frames > 0, "large history must emit PAGE frames");
+    assert!(saw_finish, "FINISH must map from decoder NO_VALUE");
+    assert!(saw_attached, "attach must complete");
+    assert_eq!(sequence.first(), Some(&"attaching"));
+    assert_eq!(sequence.last(), Some(&"attached"));
+
+    let live = drain_until_for_client(
+        &mut daemon,
+        &session_id,
+        &client_id,
+        "echo:POST-BARRIER-MARKER",
+    );
+    all_egress.extend(live.client_egress);
+    let attached_index = all_egress
+        .iter()
+        .position(|(_, frame)| {
+            matches!(
+                frame,
+                TransportEgress::AttachState {
+                    state: TerminalAttachState::Attached,
+                    ..
+                }
+            )
+        })
+        .expect("Attached index");
+    let post_index = first_terminal_output_index_for_client_containing(
+        &all_egress,
+        &client_id,
+        "echo:POST-BARRIER-MARKER",
+    )
+    .expect("queued input output");
+    assert!(attached_index < post_index);
+
+    let resized = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("incremental-resize-proof".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 50,
+        })
+        .expect("capture after queued resize");
+    assert_eq!(resized.payload.size, TerminalScreenSize::new(40, 120));
+    assert_ghostty_snapshot_replays_marker(&resized.payload, "echo:POST-BARRIER-MARKER");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_incremental_attach_blank_history_is_ready_finish_attached() {
+    let data_dir = temp_data_dir("worker-incremental-blank");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-incremental-blank-session".to_string());
+    let client_id = ClientId("worker-incremental-blank-client".to_string());
+    let subscription_id = SubscriptionId("worker-incremental-blank-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "while IFS= read -r line; do :; done".to_string();
+    daemon.spawn(request, 10).expect("spawn blank worker");
+    let initial = daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 11)
+        .expect("start blank attach");
+    let drained = drain_until_attached(&mut daemon, &session_id, &client_id);
+    let mut frames = initial.client_egress;
+    frames.extend(drained.client_egress);
+
+    let mut projection =
+        GhosttyClientProjection::new(TerminalScreenSize::new(24, 80)).expect("blank client");
+    let mut sequence = Vec::new();
+    for (target, frame) in frames {
+        if target != client_id {
+            continue;
+        }
+        match frame {
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attaching,
+                ..
+            } => sequence.push("attaching"),
+            TransportEgress::Snapshot { data, .. } if sequence == ["attaching"] => {
+                assert_eq!(
+                    projection
+                        .install_ghostsnp_ready(data)
+                        .expect("blank READY"),
+                    GhosttySnapshotDecodeProgress::Ready
+                );
+                sequence.push("ready");
+            }
+            TransportEgress::Snapshot { data, .. } => {
+                assert_eq!(
+                    projection
+                        .apply_ghostsnp_history(data)
+                        .expect("blank FINISH"),
+                    GhosttySnapshotDecodeProgress::Finish
+                );
+                sequence.push("finish");
+            }
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attached,
+                ..
+            } => sequence.push("attached"),
+            _ => {}
+        }
+    }
+    assert_eq!(sequence, ["attaching", "ready", "finish", "attached"]);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_subscription_drain_retains_foreign_route_frames() {
+    let data_dir = temp_data_dir("worker-route-drain");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-route-drain-session".to_string());
+    let client_a = ClientId("worker-route-drain-a".to_string());
+    let client_b = ClientId("worker-route-drain-b".to_string());
+    let subscription_a = SubscriptionId("worker-route-drain-sub-a".to_string());
+    let subscription_b = SubscriptionId("worker-route-drain-sub-b".to_string());
+
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn route worker");
+    daemon
+        .attach(
+            client_a.clone(),
+            session_id.clone(),
+            subscription_a.clone(),
+            11,
+        )
+        .expect("attach route A");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_a);
+    daemon
+        .attach(
+            client_b.clone(),
+            session_id.clone(),
+            subscription_b.clone(),
+            12,
+        )
+        .expect("attach route B");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_b);
+    daemon
+        .input(
+            client_a.clone(),
+            session_id.clone(),
+            b"ROUTE-DRAIN-MARKER\n".to_vec(),
+            13,
+        )
+        .expect("write route marker");
+
+    let mut route_a = botster_core_daemon::DrainResult::default();
+    for tick in 0..100 {
+        let drained = daemon
+            .drain_subscription(&client_a, &session_id, &subscription_a, 20 + tick)
+            .expect("drain route A");
+        assert!(drained.client_egress.iter().all(|(target, frame)| {
+            target == &client_a
+                && matches!(
+                    frame,
+                    TransportEgress::TerminalOutput {
+                        session_id: routed_session,
+                        subscription_id: routed_subscription,
+                        ..
+                    }
+                    | TransportEgress::Snapshot {
+                        session_id: routed_session,
+                        subscription_id: routed_subscription,
+                        ..
+                    }
+                    | TransportEgress::AttachState {
+                        session_id: routed_session,
+                        subscription_id: routed_subscription,
+                        ..
+                    } if routed_session == &session_id
+                        && routed_subscription == &subscription_a
+                )
+        }));
+        route_a.client_egress.extend(drained.client_egress);
+        if renderable_output_for_client(&route_a.client_egress, &client_a)
+            .contains("echo:ROUTE-DRAIN-MARKER")
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        renderable_output_for_client(&route_a.client_egress, &client_a)
+            .contains("echo:ROUTE-DRAIN-MARKER")
+    );
+
+    let route_b = daemon
+        .drain_subscription(&client_b, &session_id, &subscription_b, 200)
+        .expect("drain retained route B");
+    assert!(
+        renderable_output_for_client(&route_b.client_egress, &client_b)
+            .contains("echo:ROUTE-DRAIN-MARKER")
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_concurrent_attaches_serialize_without_pre_attached_live_output() {
+    let data_dir = temp_data_dir("worker-concurrent-attach");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-concurrent-attach-session".to_string());
+    let client_a = ClientId("worker-concurrent-attach-a".to_string());
+    let client_b = ClientId("worker-concurrent-attach-b".to_string());
+    let sub_a = SubscriptionId("worker-concurrent-attach-sub-a".to_string());
+    let sub_b = SubscriptionId("worker-concurrent-attach-sub-b".to_string());
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn concurrent worker");
+    let first = daemon
+        .attach(client_a.clone(), session_id.clone(), sub_a, 11)
+        .expect("start first attach");
+    let second = daemon
+        .attach(client_b.clone(), session_id.clone(), sub_b, 12)
+        .expect("queue second attach");
+    daemon
+        .input(
+            client_b.clone(),
+            session_id.clone(),
+            b"CONCURRENT-POST\n".to_vec(),
+            13,
+        )
+        .expect("queue second client input");
+
+    let mut egress = first.client_egress;
+    egress.extend(second.client_egress);
+    let mut attached_a = false;
+    let mut attached_b = false;
+    for tick in 0..10_000 {
+        let drained = daemon
+            .drain(&session_id, 20 + tick)
+            .expect("drain serialized attaches");
+        for (target, frame) in &drained.client_egress {
+            match frame {
+                TransportEgress::AttachState {
+                    state: TerminalAttachState::Attached,
+                    ..
+                } if target == &client_a => attached_a = true,
+                TransportEgress::AttachState {
+                    state: TerminalAttachState::Attached,
+                    ..
+                } if target == &client_b => {
+                    assert!(attached_a, "the first worker encode must finish first");
+                    attached_b = true;
+                }
+                TransportEgress::TerminalOutput { .. } if target == &client_a => {
+                    assert!(attached_a, "client A output must follow Attached")
+                }
+                TransportEgress::TerminalOutput { .. } if target == &client_b => {
+                    assert!(attached_b, "client B output must follow Attached")
+                }
+                _ => {}
+            }
+        }
+        egress.extend(drained.client_egress);
+        if attached_b
+            && renderable_output_for_client(&egress, &client_b).contains("echo:CONCURRENT-POST")
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(attached_a && attached_b);
+    assert!(renderable_output_for_client(&egress, &client_b).contains("echo:CONCURRENT-POST"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_incremental_attach_history_failure_reports_incomplete_then_attached() {
+    let data_dir = temp_data_dir("worker-incremental-history-failure");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_fail_snapshot_history_after_ready(true),
+    );
+    let session_id = SessionId("worker-incremental-history-failure-session".to_string());
+    let client_id = ClientId("worker-incremental-history-failure-client".to_string());
+    let subscription_id = SubscriptionId("worker-incremental-history-failure-sub".to_string());
+    let ready_path = data_dir.join("failure-ready");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "i=0; while [ $i -lt 1000 ]; do printf 'failure-history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
+            "printf 'FAILURE-READY'; : > '{}'; ",
+            "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+        ),
+        ready_path.display()
+    );
+    daemon.spawn(request, 10).expect("spawn failure worker");
+    wait_for_file(&ready_path);
+    let initial = daemon
+        .attach(client_id.clone(), session_id.clone(), subscription_id, 12)
+        .expect("start failure attach");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"FAILURE-POST\n".to_vec(),
+            13,
+        )
+        .expect("queue post-failure input");
+    let drained = drain_until_attached(&mut daemon, &session_id, &client_id);
+    let mut frames = initial.client_egress;
+    frames.extend(drained.client_egress);
+    let states = frames
+        .iter()
+        .filter_map(|(target, frame)| match frame {
+            TransportEgress::AttachState { state, .. } if target == &client_id => Some(state),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        states,
+        [
+            &TerminalAttachState::Attaching,
+            &TerminalAttachState::SnapshotHistoryIncomplete,
+            &TerminalAttachState::Attached,
+        ]
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|(target, frame)| {
+                target == &client_id && matches!(frame, TransportEgress::Snapshot { .. })
+            })
+            .count(),
+        1,
+        "history failure must occur after READY and before any PAGE delivery"
+    );
+    let live = drain_until_for_client(&mut daemon, &session_id, &client_id, "echo:FAILURE-POST");
+    assert!(
+        renderable_output_for_client(&live.client_egress, &client_id).contains("echo:FAILURE-POST")
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_incremental_attach_cancel_releases_snapshot_barrier() {
+    let data_dir = temp_data_dir("worker-incremental-cancel");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_worker_egress_capacity(Some(1)),
+    );
+    let session_id = SessionId("worker-incremental-cancel-session".to_string());
+    let client_id = ClientId("worker-incremental-cancel-client".to_string());
+    let subscription_id = SubscriptionId("worker-incremental-cancel-sub".to_string());
+    let ready_path = data_dir.join("cancel-ready");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "i=0; while [ $i -lt 2000 ]; do printf 'cancel-history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
+            "printf 'CANCEL-READY'; : > '{}'; ",
+            "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+        ),
+        ready_path.display()
+    );
+    daemon.spawn(request, 10).expect("spawn cancel worker");
+    wait_for_file(&ready_path);
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            12,
+        )
+        .expect("start cancel attach");
+    let ready = drain_until_snapshot(&mut daemon, &session_id, &client_id);
+    assert_eq!(
+        ready
+            .client_egress
+            .iter()
+            .filter(|(_, frame)| matches!(frame, TransportEgress::Snapshot { .. }))
+            .count(),
+        1
+    );
+    daemon
+        .detach(client_id, session_id.clone(), subscription_id, 13)
+        .expect("cancel attach");
+
+    let started = Instant::now();
+    let snapshot = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("cancel-release-proof".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 14,
+        })
+        .expect("capture after cancel");
+    assert!(snapshot.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cancel must release the worker barrier"
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -1089,15 +1643,19 @@ fn worker_backed_daemon_default_ghostty_path_replays_configured_scrollback_windo
         visible.screen.text
     );
 
+    let late_subscription = SubscriptionId("dwgs-late-subscription".to_string());
     let late_attach = daemon
         .attach(
             late_client.clone(),
             session_id.clone(),
-            SubscriptionId("dwgs-late-subscription".to_string()),
+            late_subscription,
             101,
         )
         .expect("late attach should receive a scrollback snapshot");
-    let (_, snapshot) = first_snapshot_for_client(&late_attach.client_egress, &late_client)
+    let late_drain = drain_until_attached(&mut daemon, &session_id, &late_client);
+    let mut late_egress = late_attach.client_egress;
+    late_egress.extend(late_drain.client_egress);
+    let (_, snapshot) = first_snapshot_for_client(&late_egress, &late_client)
         .expect("late Ghostty attach should include a snapshot frame");
     assert_ghostty_snapshot_replays_marker(&snapshot, "echo:scrollback-line-0000");
 
@@ -1155,15 +1713,19 @@ fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
     }
     let newest_marker = format!("echo:scrollback-line-{:05}", marker_count - 1);
 
+    let late_subscription = SubscriptionId("dwgs-override-late-subscription".to_string());
     let late_attach = daemon
         .attach(
             late_client.clone(),
             session_id.clone(),
-            SubscriptionId("dwgs-override-late-subscription".to_string()),
+            late_subscription,
             101,
         )
         .expect("late attach should receive a scrollback snapshot");
-    let (_, snapshot) = first_snapshot_for_client(&late_attach.client_egress, &late_client)
+    let late_drain = drain_until_attached(&mut daemon, &session_id, &late_client);
+    let mut late_egress = late_attach.client_egress;
+    late_egress.extend(late_drain.client_egress);
+    let (_, snapshot) = first_snapshot_for_client(&late_egress, &late_client)
         .expect("late Ghostty attach should include a snapshot frame");
     let plain_text = ghostty_snapshot_plain_text(&snapshot);
     let retained_markers = retained_ghostty_scrollback_markers(&plain_text, marker_count);
@@ -1549,30 +2111,26 @@ fn worker_backed_duplicate_attach_refreshes_same_subscription_with_current_snaps
             13,
         )
         .expect("duplicate attach must refresh the route");
-    let drained = daemon
-        .drain(&session_id, 14)
-        .expect("drain duplicate attach");
-    let (_, snapshot) = first_snapshot_for_client(&duplicate_attach.client_egress, &client_id)
+    let duplicate_drain = drain_until_attached(&mut daemon, &session_id, &client_id);
+    let mut duplicate_egress = duplicate_attach.client_egress;
+    duplicate_egress.extend(duplicate_drain.client_egress);
+    let (_, snapshot) = first_snapshot_for_client(&duplicate_egress, &client_id)
         .expect("duplicate attach must deliver a fresh GHOSTSNP");
     assert_ghostty_snapshot_replays_marker(&snapshot, "echo:duplicate-current-state");
-    assert!(duplicate_attach
-        .client_egress
-        .iter()
-        .all(|(received_client, frame)| {
-            received_client == &client_id
-                && matches!(
-                    frame,
-                    TransportEgress::Snapshot {
-                        subscription_id: received_subscription,
-                        ..
-                    } | TransportEgress::AttachState {
-                        subscription_id: received_subscription,
-                        ..
-                    } if received_subscription == &subscription_id
-                )
-        }));
-    let attaching_index = duplicate_attach
-        .client_egress
+    assert!(duplicate_egress.iter().all(|(received_client, frame)| {
+        received_client == &client_id
+            && matches!(
+                frame,
+                TransportEgress::Snapshot {
+                    subscription_id: received_subscription,
+                    ..
+                } | TransportEgress::AttachState {
+                    subscription_id: received_subscription,
+                    ..
+                } if received_subscription == &subscription_id
+            )
+    }));
+    let attaching_index = duplicate_egress
         .iter()
         .position(|(_, frame)| {
             matches!(
@@ -1584,13 +2142,11 @@ fn worker_backed_duplicate_attach_refreshes_same_subscription_with_current_snaps
             )
         })
         .expect("duplicate attach must return Attaching");
-    let snapshot_index = duplicate_attach
-        .client_egress
+    let snapshot_index = duplicate_egress
         .iter()
         .position(|(_, frame)| matches!(frame, TransportEgress::Snapshot { .. }))
         .expect("duplicate attach must return Snapshot");
-    let attached_index = duplicate_attach
-        .client_egress
+    let attached_index = duplicate_egress
         .iter()
         .position(|(_, frame)| {
             matches!(
@@ -1603,37 +2159,17 @@ fn worker_backed_duplicate_attach_refreshes_same_subscription_with_current_snaps
         })
         .expect("duplicate attach must return Attached");
     assert!(attaching_index < snapshot_index && snapshot_index < attached_index);
-    assert!(duplicate_attach
-        .client_egress
-        .iter()
-        .any(|(received_client, frame)| {
-            received_client == &client_id
-                && matches!(
-                    frame,
-                    TransportEgress::AttachState {
-                        subscription_id: received_subscription,
-                        state: TerminalAttachState::Attached,
-                        ..
-                    } if received_subscription == &subscription_id
-                )
-        }));
-    assert!(drained
-        .client_egress
-        .iter()
-        .all(|(received_client, frame)| {
-            received_client != &client_id
-                || !matches!(
-                    frame,
-                    TransportEgress::Snapshot {
-                        subscription_id: received_subscription,
-                        ..
-                    } | TransportEgress::AttachState {
-                        subscription_id: received_subscription,
-                        ..
-                    } if received_subscription == &subscription_id
-                )
-        }));
-
+    assert!(duplicate_egress.iter().any(|(received_client, frame)| {
+        received_client == &client_id
+            && matches!(
+                frame,
+                TransportEgress::AttachState {
+                    subscription_id: received_subscription,
+                    state: TerminalAttachState::Attached,
+                    ..
+                } if received_subscription == &subscription_id
+            )
+    }));
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -1671,7 +2207,7 @@ fn worker_backed_rapid_switch_attach_always_builds_complete_current_screen() {
             11,
         )
         .expect("initial attach");
-    let _ = drain_until_for_client(&mut daemon, &session_id, &client_id, "READY");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
 
     for iteration in 0..20 {
         let subscription_id = SubscriptionId(format!("rapid-switch-{}", (iteration / 2) % 2));
@@ -5589,6 +6125,89 @@ fn drain_until(
     aggregate
 }
 
+fn wait_for_file(path: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if path.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    panic!("child readiness file did not appear: {}", path.display());
+}
+
+fn drain_until_attached(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    client_id: &ClientId,
+) -> botster_core_daemon::DrainResult {
+    let mut aggregate = botster_core_daemon::DrainResult::default();
+    for tick in 0..10_000 {
+        let drained = daemon
+            .drain(session_id, 20 + tick)
+            .expect("daemon attach drain should succeed");
+        let attached = drained.client_egress.iter().any(|(target, frame)| {
+            target == client_id
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        state: TerminalAttachState::Attached,
+                        ..
+                    }
+                )
+        });
+        aggregate.client_egress.extend(drained.client_egress);
+        aggregate.observations.extend(drained.observations);
+        aggregate.backpressure.extend(drained.backpressure);
+        if attached {
+            return aggregate;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    panic!("worker attach did not reach Attached");
+}
+
+fn drain_until_snapshot(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    client_id: &ClientId,
+) -> botster_core_daemon::DrainResult {
+    let mut aggregate = botster_core_daemon::DrainResult::default();
+    for tick in 0..10_000 {
+        let drained = daemon
+            .drain(session_id, 20 + tick)
+            .expect("daemon snapshot drain should succeed");
+        let snapshot = drained.client_egress.iter().any(|(target, frame)| {
+            target == client_id && matches!(frame, TransportEgress::Snapshot { .. })
+        });
+        aggregate.client_egress.extend(drained.client_egress);
+        aggregate.observations.extend(drained.observations);
+        aggregate.backpressure.extend(drained.backpressure);
+        if snapshot {
+            return aggregate;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    panic!("worker attach did not emit READY");
+}
+
+fn viewport_contains_marker(
+    projection: &botster_terminal_ghostty::ViewportProjection,
+    marker: &str,
+) -> bool {
+    let mut row = String::new();
+    for (index, cell) in projection.cells.iter().enumerate() {
+        if index > 0 && index % projection.cols as usize == 0 {
+            if row.contains(marker) {
+                return true;
+            }
+            row.clear();
+        }
+        row.push_str(&cell.grapheme);
+    }
+    row.contains(marker)
+}
+
 fn drain_until_for_client(
     daemon: &mut CoreDaemon,
     session_id: &SessionId,
@@ -6009,25 +6628,30 @@ fn first_snapshot_for_client(
     frames: &[(ClientId, TransportEgress)],
     client_id: &ClientId,
 ) -> Option<(usize, botster_core::TerminalSnapshotPayload)> {
-    frames
+    let index = frames
         .iter()
         .enumerate()
-        .find_map(|(index, (frame_client_id, frame))| {
-            if frame_client_id != client_id {
-                return None;
-            }
-            match frame {
-                TransportEgress::Snapshot { data, .. } => Some((
-                    index,
-                    botster_core::TerminalSnapshotPayload::new(
-                        data.clone(),
-                        TerminalScreenSize::new(24, 80),
-                        Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
-                    ),
-                )),
-                _ => None,
-            }
+        .find_map(|(index, (target, frame))| {
+            (target == client_id && matches!(frame, TransportEgress::Snapshot { .. }))
+                .then_some(index)
+        })?;
+    let bytes = frames
+        .iter()
+        .filter_map(|(target, frame)| match frame {
+            TransportEgress::Snapshot { data, .. } if target == client_id => Some(data.as_slice()),
+            _ => None,
         })
+        .flatten()
+        .copied()
+        .collect();
+    Some((
+        index,
+        botster_core::TerminalSnapshotPayload::new(
+            bytes,
+            TerminalScreenSize::new(24, 80),
+            Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
+        ),
+    ))
 }
 
 fn first_snapshot_for_client_at_size(
@@ -6035,24 +6659,30 @@ fn first_snapshot_for_client_at_size(
     client_id: &ClientId,
     size: TerminalScreenSize,
 ) -> Option<(usize, botster_core::TerminalSnapshotPayload)> {
-    frames
+    let index = frames
         .iter()
         .enumerate()
         .find_map(|(index, (target, frame))| {
-            if target == client_id {
-                if let TransportEgress::Snapshot { data, .. } = frame {
-                    return Some((
-                        index,
-                        botster_core::TerminalSnapshotPayload::new(
-                            data.clone(),
-                            size,
-                            Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
-                        ),
-                    ));
-                }
-            }
-            None
+            (target == client_id && matches!(frame, TransportEgress::Snapshot { .. }))
+                .then_some(index)
+        })?;
+    let bytes = frames
+        .iter()
+        .filter_map(|(target, frame)| match frame {
+            TransportEgress::Snapshot { data, .. } if target == client_id => Some(data.as_slice()),
+            _ => None,
         })
+        .flatten()
+        .copied()
+        .collect();
+    Some((
+        index,
+        botster_core::TerminalSnapshotPayload::new(
+            bytes,
+            size,
+            Some(EXPECTED_SNAPSHOT_FORMAT.to_string()),
+        ),
+    ))
 }
 
 fn first_terminal_output_index_for_client_containing(

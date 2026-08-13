@@ -150,6 +150,54 @@ fn regression_shape_snapshot_precedes_live_output_without_mode_event_variants() 
 }
 
 #[test]
+fn regression_shape_incremental_snapshot_reuses_snapshot_event_kind() {
+    let egress = regression_shapes::incremental_snapshot_before_live_output(session_id());
+
+    assert_eq!(egress, round_trip(&egress));
+    assert!(matches!(
+        &egress[..],
+        [
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attaching,
+                ..
+            },
+            TransportEgress::Snapshot { data: ready, .. },
+            TransportEgress::Snapshot { data: page, .. },
+            TransportEgress::Snapshot { data: finish, .. },
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attached,
+                ..
+            },
+            TransportEgress::TerminalOutput { data: live, .. },
+        ] if ready == b"ready" && page == b"one-page" && finish == b"finish" && live == b"live"
+    ));
+}
+
+#[test]
+fn regression_shape_history_failure_serializes_before_attached() {
+    let egress = regression_shapes::incomplete_snapshot_history(session_id());
+
+    assert_eq!(egress, round_trip(&egress));
+    assert!(matches!(
+        &egress[2],
+        TransportEgress::AttachState {
+            state: TerminalAttachState::SnapshotHistoryIncomplete,
+            ..
+        }
+    ));
+    assert!(serde_json::to_string(&egress[2])
+        .expect("serialize incomplete state")
+        .contains("snapshot_history_incomplete"));
+    assert!(matches!(
+        &egress[3],
+        TransportEgress::AttachState {
+            state: TerminalAttachState::Attached,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn regression_shape_entity_scoped_hydration_uses_existing_entity_frames() {
     let frames = regression_shapes::entity_scoped_hydration("project-pipelines", "project-1");
 

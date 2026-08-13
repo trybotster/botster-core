@@ -88,6 +88,21 @@ pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
 pub struct WorkerSnapshotRequest {
     /// Parent-issued correlation id.
     pub request_id: String,
+    /// Cancel the matching in-progress snapshot encode.
+    #[serde(default)]
+    pub cancel: bool,
+}
+
+/// Record-aware boundary for one opaque incremental snapshot frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerSnapshotPhase {
+    /// Snapshot prefix through READY.
+    Ready,
+    /// HISTORY records through one PAGE.
+    History,
+    /// Remaining zero-page HISTORY records through FINISH.
+    Finish,
 }
 
 /// Correlated worker-owned terminal snapshot response.
@@ -95,8 +110,11 @@ pub struct WorkerSnapshotRequest {
 pub struct WorkerSnapshotResult {
     /// Echo of the request correlation id.
     pub request_id: String,
-    /// Snapshot captured after all pre-boundary PTY output was applied.
+    /// Opaque snapshot frame captured after pre-boundary PTY output was applied.
     pub snapshot: Option<crate::TerminalSnapshotPayload>,
+    /// Record boundary identified only by the Ghostty authority worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<WorkerSnapshotPhase>,
     /// Worker snapshot failure. The worker remains live when this field is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,

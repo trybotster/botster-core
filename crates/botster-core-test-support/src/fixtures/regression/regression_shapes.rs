@@ -163,6 +163,67 @@ pub fn snapshot_before_live_output(
     ]
 }
 
+/// Preserve incremental snapshot order without adding a transport event kind.
+#[must_use]
+pub fn incremental_snapshot_before_live_output(session_id: SessionId) -> Vec<TransportEgress> {
+    let subscription_id = SubscriptionId("sub-regression-incremental".to_string());
+    let state = |state| TransportEgress::AttachState {
+        session_id: session_id.clone(),
+        subscription_id: subscription_id.clone(),
+        state,
+    };
+    let snapshot = |data: &[u8]| TransportEgress::Snapshot {
+        session_id: session_id.clone(),
+        subscription_id: subscription_id.clone(),
+        data: data.to_vec(),
+    };
+    vec![
+        state(TerminalAttachState::Attaching),
+        snapshot(b"ready"),
+        snapshot(b"one-page"),
+        snapshot(b"finish"),
+        state(TerminalAttachState::Attached),
+        TransportEgress::TerminalOutput {
+            session_id,
+            subscription_id,
+            data: b"live".to_vec(),
+        },
+    ]
+}
+
+/// Preserve the post-READY history failure state before attach completes.
+#[must_use]
+pub fn incomplete_snapshot_history(session_id: SessionId) -> Vec<TransportEgress> {
+    let subscription_id = SubscriptionId("sub-regression-incomplete".to_string());
+    vec![
+        TransportEgress::AttachState {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            state: TerminalAttachState::Attaching,
+        },
+        TransportEgress::Snapshot {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            data: b"ready".to_vec(),
+        },
+        TransportEgress::AttachState {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            state: TerminalAttachState::SnapshotHistoryIncomplete,
+        },
+        TransportEgress::AttachState {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+            state: TerminalAttachState::Attached,
+        },
+        TransportEgress::TerminalOutput {
+            session_id,
+            subscription_id,
+            data: b"live".to_vec(),
+        },
+    ]
+}
+
 /// Translate plugin-scoped hydration into existing entity frame variants.
 ///
 /// Verdict: translate. Scope is encoded in plugin-owned kind/id/record data;

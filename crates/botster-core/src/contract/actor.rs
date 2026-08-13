@@ -348,6 +348,8 @@ pub enum TerminalAttachState {
     Detached,
     /// Attach has been requested but initial data has not arrived.
     Attaching,
+    /// READY installed, but later snapshot history did not complete.
+    SnapshotHistoryIncomplete,
     /// Initial snapshot has arrived and live output may flow.
     Attached,
 }

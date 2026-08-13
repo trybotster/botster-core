@@ -5,7 +5,7 @@
 //! `botster-core`. This process owns worker-local Ghostty mode state and the
 //! atomic mode-gated PTY input admit barrier.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
 use std::fs::DirBuilder;
 use std::io::{self, Read, Write};
@@ -28,14 +28,16 @@ use botster_core::{
     SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
     TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
     TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth,
-    WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED,
-    FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS,
-    FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
-    FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
-    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
-    FRAME_TITLE_CHANGED,
+    WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL,
+    FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
+    FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT,
+    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
+    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
+    FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
-use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal};
+use botster_terminal_ghostty::{
+    GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
+};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(10);
 
@@ -126,12 +128,18 @@ fn run() -> Result<(), String> {
             "worker_control_socket": args.control_socket,
             "mode_generation": mode_owner.token().mode_generation,
             "atomic_snapshot_boundary": true,
+            "snapshot_delivery": "ready_then_history",
         })),
     };
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
 
     let (frame_sender, frame_receiver) = mpsc::channel();
-    control.spawn_readers(initial_control, frame_sender);
+    let cancelled_snapshots = Arc::new(Mutex::new(HashSet::new()));
+    control.spawn_readers(
+        initial_control,
+        frame_sender,
+        Arc::clone(&cancelled_snapshots),
+    );
 
     let (egress, protected_receiver, metadata_receiver) =
         WorkerEgress::new(args.egress_capacity.max(1));
@@ -244,43 +252,100 @@ fn run() -> Result<(), String> {
                     FRAME_GET_SNAPSHOT => {
                         let request =
                             serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload);
-                        let result = match request {
+                        match request {
                             Ok(request) => {
-                                match runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
-                                    apply_barrier_outputs(
-                                        barrier,
-                                        &mut ghostty,
-                                        &mut mode_owner,
-                                        &mut metadata_producer,
-                                        &mut metadata_shaper,
-                                        &egress,
-                                    )?;
-                                    ghostty.export_snapshot().map_err(|error| {
-                                        botster_core::SessionRuntimeError::new(
-                                            botster_core::SessionRuntimeErrorKind::OutputFailed,
-                                            error.to_string(),
-                                        )
-                                    })
-                                }) {
-                                    Ok(snapshot) => WorkerSnapshotResult {
-                                        request_id: request.request_id,
-                                        snapshot: Some(snapshot),
-                                        error_kind: None,
-                                    },
-                                    Err(error) => WorkerSnapshotResult {
-                                        request_id: request.request_id,
-                                        snapshot: None,
-                                        error_kind: Some(error.to_string()),
-                                    },
+                                let request_id = request.request_id;
+                                let cancelled = Arc::clone(&cancelled_snapshots);
+                                let result = runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
+                                    let encoded = (|| {
+                                        apply_barrier_outputs(
+                                            barrier,
+                                            &mut ghostty,
+                                            &mut mode_owner,
+                                            &mut metadata_producer,
+                                            &mut metadata_shaper,
+                                            &egress,
+                                        )?;
+                                        let size = ghostty.size();
+                                        ghostty.export_snapshot_frames(|frame| {
+                                            let phase = match frame.kind {
+                                                GhosttySnapshotFrameKind::Ready => WorkerSnapshotPhase::Ready,
+                                                GhosttySnapshotFrameKind::History => {
+                                                    WorkerSnapshotPhase::History
+                                                }
+                                                GhosttySnapshotFrameKind::Finish => {
+                                                    WorkerSnapshotPhase::Finish
+                                                }
+                                            };
+                                            if args.test_fail_snapshot_history_after_ready
+                                                && phase == WorkerSnapshotPhase::History
+                                            {
+                                                return false;
+                                            }
+                                            egress.send_protected_json_cancellable(
+                                                FRAME_SNAPSHOT,
+                                                &WorkerSnapshotResult {
+                                                    request_id: request_id.clone(),
+                                                    snapshot: Some(botster_core::TerminalSnapshotPayload::new(
+                                                        frame.bytes,
+                                                        size,
+                                                        Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
+                                                    )),
+                                                    phase: Some(phase),
+                                                    error_kind: None,
+                                                },
+                                                || snapshot_is_cancelled(&cancelled, &request_id),
+                                            )
+                                        }).map_err(|error| {
+                                            botster_core::SessionRuntimeError::new(
+                                                botster_core::SessionRuntimeErrorKind::OutputFailed,
+                                                error.to_string(),
+                                            )
+                                        })
+                                    })();
+                                    if let Err(error) = encoded {
+                                        let _ = egress.send_protected_json_cancellable(
+                                            FRAME_SNAPSHOT,
+                                            &WorkerSnapshotResult {
+                                                request_id: request_id.clone(),
+                                                snapshot: None,
+                                                phase: None,
+                                                error_kind: Some(error.to_string()),
+                                            },
+                                            || snapshot_is_cancelled(&cancelled, &request_id),
+                                        );
+                                    }
+                                    Ok(())
+                                });
+                                if let Err(error) = result {
+                                    let _ = egress.send_protected_json(
+                                        FRAME_SNAPSHOT,
+                                        &WorkerSnapshotResult {
+                                            request_id: request_id.clone(),
+                                            snapshot: None,
+                                            phase: None,
+                                            error_kind: Some(error.to_string()),
+                                        },
+                                    );
+                                }
+                                if let Ok(mut ids) = cancelled_snapshots.lock() {
+                                    ids.remove(&request_id);
                                 }
                             }
-                            Err(error) => WorkerSnapshotResult {
-                                request_id: String::new(),
-                                snapshot: None,
-                                error_kind: Some(format!("malformed snapshot request: {error}")),
-                            },
-                        };
-                        egress.send_protected_json(FRAME_SNAPSHOT, &result);
+                            Err(error) => {
+                                let _ = egress.send_protected_json(
+                                    FRAME_SNAPSHOT,
+                                    &WorkerSnapshotResult {
+                                        request_id: String::new(),
+                                        snapshot: None,
+                                        phase: None,
+                                        error_kind: Some(format!(
+                                            "malformed snapshot request: {error}"
+                                        )),
+                                    },
+                                );
+                            }
+                        }
                     }
                     FRAME_PING => {
                         let health = WorkerHealth {
@@ -390,8 +455,7 @@ fn new_mode_generation() -> u64 {
     // Keep the token in `(1 ..= JSON_SAFE_INTEGER_MAX)` so Web clients can
     // ModeGatedInput without a send_input fallback.
     let next = NEXT.fetch_add(1, Ordering::Relaxed);
-    let token = (next % JSON_SAFE_INTEGER_MAX).max(1);
-    token
+    (next % JSON_SAFE_INTEGER_MAX).max(1)
 }
 
 fn apply_pty_output_chunk(
@@ -640,6 +704,13 @@ fn unix_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn snapshot_is_cancelled(cancelled: &Arc<Mutex<HashSet<String>>>, request_id: &str) -> bool {
+    cancelled
+        .lock()
+        .map(|ids| ids.contains(request_id))
+        .unwrap_or(true)
+}
+
 #[derive(Default)]
 enum WorkerLifecycle {
     #[default]
@@ -692,9 +763,24 @@ fn send_metadata_observation(egress: &WorkerEgress, observation: TerminalMetadat
     }
 }
 
-fn spawn_control_reader(mut control: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
+fn spawn_control_reader(
+    mut control: Box<dyn ReadWrite + Send>,
+    sender: mpsc::Sender<Frame>,
+    cancelled_snapshots: Arc<Mutex<HashSet<String>>>,
+) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut control) {
+            if frame.frame_type == FRAME_GET_SNAPSHOT {
+                if let Ok(request) = serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload)
+                {
+                    if request.cancel {
+                        if let Ok(mut ids) = cancelled_snapshots.lock() {
+                            ids.insert(request.request_id);
+                        }
+                        continue;
+                    }
+                }
+            }
             if sender.send(frame).is_err() {
                 break;
             }
@@ -811,8 +897,13 @@ impl WorkerControl {
         }
     }
 
-    fn spawn_readers(&self, initial: Box<dyn ReadWrite + Send>, sender: mpsc::Sender<Frame>) {
-        spawn_control_reader(initial, sender.clone());
+    fn spawn_readers(
+        &self,
+        initial: Box<dyn ReadWrite + Send>,
+        sender: mpsc::Sender<Frame>,
+        cancelled_snapshots: Arc<Mutex<HashSet<String>>>,
+    ) {
+        spawn_control_reader(initial, sender.clone(), Arc::clone(&cancelled_snapshots));
         #[cfg(unix)]
         if let Self::Socket {
             listener, writer, ..
@@ -830,7 +921,11 @@ impl WorkerControl {
                             *slot = Some(clone);
                         }
                     }
-                    spawn_control_reader(Box::new(stream), sender.clone());
+                    spawn_control_reader(
+                        Box::new(stream),
+                        sender.clone(),
+                        Arc::clone(&cancelled_snapshots),
+                    );
                 }
             });
         }
@@ -1109,15 +1204,45 @@ impl WorkerEgress {
         )
     }
 
-    fn send_protected_frame(&self, frame_type: u8, payload: Vec<u8>) {
+    fn send_protected_frame(&self, frame_type: u8, payload: Vec<u8>) -> bool {
         if let Ok(frame) = botster_core::encode_frame(frame_type, &payload) {
-            let _ = self.protected_sender.send(frame);
+            return self.protected_sender.send(frame).is_ok();
         }
+        false
     }
 
-    fn send_protected_json<T: serde::Serialize>(&self, frame_type: u8, payload: &T) {
+    fn send_protected_json<T: serde::Serialize>(&self, frame_type: u8, payload: &T) -> bool {
         if let Ok(frame) = botster_core::encode_json(frame_type, payload) {
-            let _ = self.protected_sender.send(frame);
+            return self.protected_sender.send(frame).is_ok();
+        }
+        false
+    }
+
+    fn send_protected_json_cancellable<T, F>(
+        &self,
+        frame_type: u8,
+        payload: &T,
+        mut cancelled: F,
+    ) -> bool
+    where
+        T: serde::Serialize,
+        F: FnMut() -> bool,
+    {
+        let Ok(mut frame) = botster_core::encode_json(frame_type, payload) else {
+            return false;
+        };
+        loop {
+            if cancelled() {
+                return false;
+            }
+            match self.protected_sender.try_send(frame) {
+                Ok(()) => return true,
+                Err(TrySendError::Full(returned)) => {
+                    frame = returned;
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(TrySendError::Disconnected(_)) => return false,
+            }
         }
     }
 
@@ -1192,6 +1317,7 @@ struct WorkerArgs {
     test_write_max_chunk: Option<usize>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
+    test_fail_snapshot_history_after_ready: bool,
     ghostty_max_scrollback_bytes: usize,
     terminal_color_profile: Option<botster_core::TerminalColorProfile>,
 }
@@ -1208,6 +1334,7 @@ impl WorkerArgs {
         let mut test_write_max_chunk = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
+        let mut test_fail_snapshot_history_after_ready = false;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
         let mut terminal_color_profile = None;
         let mut index = 0;
@@ -1262,6 +1389,9 @@ impl WorkerArgs {
                     test_hold_after_enqueue_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
+                "--test-fail-snapshot-history-after-ready" => {
+                    test_fail_snapshot_history_after_ready = true;
+                }
                 "--ghostty-max-scrollback-bytes" => {
                     index += 1;
                     ghostty_max_scrollback_bytes =
@@ -1294,6 +1424,7 @@ impl WorkerArgs {
             test_write_max_chunk,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
+            test_fail_snapshot_history_after_ready,
             ghostty_max_scrollback_bytes,
             terminal_color_profile,
         })

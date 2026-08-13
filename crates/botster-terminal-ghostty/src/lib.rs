@@ -153,7 +153,7 @@ pub(crate) mod native {
         ghostty_terminal_vt_write, GhosttyColorRgb, GhosttyFormatter, GhosttyFormatterFormat,
         GhosttyFormatterScreenExtra, GhosttyFormatterTerminalExtra,
         GhosttyFormatterTerminalOptions, GhosttyKittyKeyFlags, GhosttyMode, GhosttyResult,
-        GhosttySnapshotDecoder, GhosttyTerminalModeConfig, GHOSTTY_MODE_ALT_SCREEN,
+        GhosttySnapshotDecoder, GhosttyTerminalModeConfig, GhosttyWriter, GHOSTTY_MODE_ALT_SCREEN,
         GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE, GHOSTTY_MODE_BRACKETED_PASTE,
         GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE, GHOSTTY_MODE_DECCKM,
         GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
@@ -177,6 +177,32 @@ pub(crate) mod native {
     /// terminal this wrapper owns enables it before any VT byte is written.
     /// The value matches upstream's `c-vt-snapshot` reference example.
     const CONTINUATION_MAX_BYTES: usize = 1024;
+
+    const SNAPSHOT_ENVELOPE_LEN: usize = 10;
+    const SNAPSHOT_RECORD_HEADER_LEN: usize = 10;
+    const SNAPSHOT_TAG_PAGE: u16 = 3;
+    const SNAPSHOT_TAG_READY: u16 = 5;
+    const SNAPSHOT_TAG_FINISH: u16 = 6;
+
+    /// A record-aware incremental GHOSTSNP delivery boundary.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct GhosttySnapshotFrame {
+        /// The semantic boundary that ends this opaque byte frame.
+        pub kind: GhosttySnapshotFrameKind,
+        /// Opaque GHOSTSNP bytes. Only this crate interprets their records.
+        pub bytes: Vec<u8>,
+    }
+
+    /// Semantic boundary for one incremental GHOSTSNP frame.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum GhosttySnapshotFrameKind {
+        /// Envelope and active terminal state through READY.
+        Ready,
+        /// Zero or more HISTORY manifests through exactly one PAGE.
+        History,
+        /// Remaining zero-page HISTORY manifests through FINISH.
+        Finish,
+    }
 
     /// Special `TerminalColorProfile` index for default foreground.
     pub const COLOR_INDEX_FOREGROUND: u16 = 0x1000;
@@ -389,6 +415,38 @@ pub(crate) mod native {
             let bytes = copy_ghostty_buffer(out_ptr, out_len);
             self.clear_last_error();
             Ok(bytes)
+        }
+
+        /// Encode one GHOSTSNP and emit record-aware incremental frames.
+        ///
+        /// Ghostty writer callback boundaries are arbitrary. This method parses
+        /// the fixed envelope and record headers before it emits any frame.
+        /// The callback runs synchronously inside `ghostty_snapshot_encode`.
+        pub fn export_snapshot_frames<F>(&self, emit: F) -> Result<(), GhosttyTerminalError>
+        where
+            F: FnMut(GhosttySnapshotFrame) -> bool,
+        {
+            let mut writer = SnapshotFrameWriter::new(emit);
+            let destination = GhosttyWriter {
+                write: Some(snapshot_frame_write::<F>),
+                userdata: (&raw mut writer).cast(),
+            };
+            let result =
+                unsafe { crate::sys::ghostty_snapshot_encode(self.handle.as_ptr(), destination) };
+            if result != GHOSTTY_SUCCESS {
+                return Err(GhosttyTerminalError::operation(
+                    "snapshot_export_stream",
+                    result,
+                ));
+            }
+            if !writer.finished || !writer.buffer.is_empty() {
+                return Err(GhosttyTerminalError::operation(
+                    "snapshot_export_framing",
+                    crate::sys::GHOSTTY_INVALID_VALUE,
+                ));
+            }
+            self.clear_last_error();
+            Ok(())
         }
 
         /// Import an opaque Ghostty terminal snapshot.
@@ -743,6 +801,115 @@ pub(crate) mod native {
         }
     }
 
+    struct SnapshotFrameWriter<F> {
+        emit: F,
+        buffer: Vec<u8>,
+        parsed: usize,
+        envelope_seen: bool,
+        ready_seen: bool,
+        finished: bool,
+    }
+
+    impl<F> SnapshotFrameWriter<F>
+    where
+        F: FnMut(GhosttySnapshotFrame) -> bool,
+    {
+        fn new(emit: F) -> Self {
+            Self {
+                emit,
+                buffer: Vec::new(),
+                parsed: 0,
+                envelope_seen: false,
+                ready_seen: false,
+                finished: false,
+            }
+        }
+
+        fn write(&mut self, bytes: &[u8]) -> bool {
+            if self.finished {
+                return false;
+            }
+            self.buffer.extend_from_slice(bytes);
+            self.parse_complete_records()
+        }
+
+        fn parse_complete_records(&mut self) -> bool {
+            if !self.envelope_seen {
+                if self.buffer.len() < SNAPSHOT_ENVELOPE_LEN {
+                    return true;
+                }
+                if &self.buffer[..8] != b"GHOSTSNP" || self.buffer[8..10] != [1, 0] {
+                    return false;
+                }
+                self.parsed = SNAPSHOT_ENVELOPE_LEN;
+                self.envelope_seen = true;
+            }
+
+            loop {
+                let remaining = &self.buffer[self.parsed..];
+                if remaining.len() < SNAPSHOT_RECORD_HEADER_LEN {
+                    return true;
+                }
+                let tag = u16::from_le_bytes([remaining[0], remaining[1]]);
+                let payload_len =
+                    u32::from_le_bytes([remaining[2], remaining[3], remaining[4], remaining[5]])
+                        as usize;
+                let Some(record_len) = SNAPSHOT_RECORD_HEADER_LEN.checked_add(payload_len) else {
+                    return false;
+                };
+                if remaining.len() < record_len {
+                    return true;
+                }
+                self.parsed += record_len;
+
+                let kind = if tag == SNAPSHOT_TAG_READY {
+                    if self.ready_seen || payload_len != 0 {
+                        return false;
+                    }
+                    self.ready_seen = true;
+                    Some(GhosttySnapshotFrameKind::Ready)
+                } else if tag == SNAPSHOT_TAG_PAGE && self.ready_seen {
+                    Some(GhosttySnapshotFrameKind::History)
+                } else if tag == SNAPSHOT_TAG_FINISH {
+                    if !self.ready_seen || payload_len != 0 {
+                        return false;
+                    }
+                    self.finished = true;
+                    Some(GhosttySnapshotFrameKind::Finish)
+                } else {
+                    None
+                };
+
+                if let Some(kind) = kind {
+                    let frame = GhosttySnapshotFrame {
+                        kind,
+                        bytes: self.buffer.drain(..self.parsed).collect(),
+                    };
+                    self.parsed = 0;
+                    if !(self.emit)(frame) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    unsafe extern "C" fn snapshot_frame_write<F>(
+        userdata: *mut c_void,
+        data: *const u8,
+        len: usize,
+    ) -> bool
+    where
+        F: FnMut(GhosttySnapshotFrame) -> bool,
+    {
+        if userdata.is_null() || data.is_null() || len == 0 {
+            return false;
+        }
+        let writer = unsafe { &mut *userdata.cast::<SnapshotFrameWriter<F>>() };
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+        writer.write(bytes)
+    }
+
     impl TerminalScreenRuntime for GhosttyTerminal {
         fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
             self.write_output_bytes(bytes)
@@ -935,6 +1102,83 @@ pub(crate) mod native {
 
     #[cfg(test)]
     mod tests {
+        use super::{
+            GhosttySnapshotFrameKind, SnapshotFrameWriter, SNAPSHOT_TAG_FINISH, SNAPSHOT_TAG_PAGE,
+            SNAPSHOT_TAG_READY,
+        };
+
+        fn framed_record(tag: u16, payload: &[u8]) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(10 + payload.len());
+            bytes.extend_from_slice(&tag.to_le_bytes());
+            bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&0_u32.to_le_bytes());
+            bytes.extend_from_slice(payload);
+            bytes
+        }
+
+        fn callback_boundary_fixture() -> Vec<u8> {
+            let mut bytes = b"GHOSTSNP\x01\x00".to_vec();
+            bytes.extend(framed_record(1, b"terminal"));
+            bytes.extend(framed_record(SNAPSHOT_TAG_READY, b""));
+            bytes.extend(framed_record(4, b"history"));
+            bytes.extend(framed_record(SNAPSHOT_TAG_PAGE, b"page-one"));
+            bytes.extend(framed_record(SNAPSHOT_TAG_PAGE, b"page-two"));
+            bytes.extend(framed_record(SNAPSHOT_TAG_FINISH, b""));
+            bytes
+        }
+
+        #[test]
+        fn snapshot_framer_ignores_writer_callback_boundaries() {
+            let fixture = callback_boundary_fixture();
+            let mut one_callback = Vec::new();
+            let mut writer = SnapshotFrameWriter::new(|frame| {
+                one_callback.push(frame);
+                true
+            });
+            assert!(writer.write(&fixture));
+            assert!(writer.finished);
+            assert!(writer.buffer.is_empty());
+
+            let mut one_byte_callbacks = Vec::new();
+            let mut writer = SnapshotFrameWriter::new(|frame| {
+                one_byte_callbacks.push(frame);
+                true
+            });
+            for byte in fixture.iter().copied() {
+                assert!(writer.write(&[byte]));
+            }
+            assert!(writer.finished);
+            assert!(writer.buffer.is_empty());
+
+            assert_eq!(one_callback, one_byte_callbacks);
+            assert_eq!(
+                one_callback
+                    .iter()
+                    .map(|frame| frame.kind)
+                    .collect::<Vec<_>>(),
+                vec![
+                    GhosttySnapshotFrameKind::Ready,
+                    GhosttySnapshotFrameKind::History,
+                    GhosttySnapshotFrameKind::History,
+                    GhosttySnapshotFrameKind::Finish,
+                ]
+            );
+            assert_eq!(
+                one_callback
+                    .iter()
+                    .filter(|frame| frame.kind == GhosttySnapshotFrameKind::History)
+                    .map(|frame| {
+                        frame
+                            .bytes
+                            .windows(2)
+                            .filter(|bytes| *bytes == SNAPSHOT_TAG_PAGE.to_le_bytes())
+                            .count()
+                    })
+                    .collect::<Vec<_>>(),
+                vec![1, 1]
+            );
+        }
+
         use botster_core::contract::terminal_screen::TerminalScreenSize;
         use botster_core::engine::TerminalScreenRuntime;
 
@@ -1121,12 +1365,12 @@ pub(crate) mod native {
 
 #[cfg(feature = "libghostty-vt")]
 pub use client::{
-    CursorProjection, CursorStyle, GhosttyClientProjection, ProjectedCell, ProjectedWide, ScrollOp,
-    ScrollbarState, ViewportProjection, GHOSTSNP_MAGIC,
+    CursorProjection, CursorStyle, GhosttyClientProjection, GhosttySnapshotDecodeProgress,
+    ProjectedCell, ProjectedWide, ScrollOp, ScrollbarState, ViewportProjection, GHOSTSNP_MAGIC,
 };
 
 #[cfg(feature = "libghostty-vt")]
 pub use native::{
-    GhosttyTerminal, GhosttyTerminalError, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR,
-    COLOR_INDEX_FOREGROUND,
+    GhosttySnapshotFrame, GhosttySnapshotFrameKind, GhosttyTerminal, GhosttyTerminalError,
+    COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
 };

@@ -6,8 +6,9 @@
 use botster_core::contract::terminal_screen::TerminalScreenSize;
 use botster_core::Rgb;
 use botster_terminal_ghostty::{
-    CursorStyle, GhosttyAdapterConfig, GhosttyClientProjection, GhosttyTerminal, ProjectedWide,
-    ScrollOp, COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND, GHOSTSNP_MAGIC,
+    CursorStyle, GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress,
+    GhosttySnapshotFrameKind, GhosttyTerminal, ProjectedWide, ScrollOp, COLOR_INDEX_BACKGROUND,
+    COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND, GHOSTSNP_MAGIC,
 };
 
 /// Local Ratatui-shaped cell: mirrors buffer cell fields without botster-tui.
@@ -90,6 +91,131 @@ fn find_cell_with_grapheme<'a>(
     needle: &str,
 ) -> Option<&'a botster_terminal_ghostty::ProjectedCell> {
     projection.cells.iter().find(|c| c.grapheme == needle)
+}
+
+#[test]
+fn incremental_frames_restore_ready_then_one_page_steps_then_finish() {
+    let size = TerminalScreenSize::new(2, 215);
+    let mut source = producer(size);
+    for index in 0..1000 {
+        source.write_output_bytes(format!("history-{index:04}\r\n").as_bytes());
+    }
+    source.write_output_bytes(b"visible-ready-marker");
+
+    let mut frames = Vec::new();
+    let mut encode_returned = false;
+    source
+        .export_snapshot_frames(|frame| {
+            assert!(!encode_returned, "frames must arrive before encode returns");
+            frames.push(frame);
+            true
+        })
+        .expect("stream one real Ghostty snapshot");
+    encode_returned = true;
+    assert!(encode_returned);
+    assert_eq!(
+        frames.first().map(|frame| frame.kind),
+        Some(GhosttySnapshotFrameKind::Ready)
+    );
+    assert_eq!(
+        frames.last().map(|frame| frame.kind),
+        Some(GhosttySnapshotFrameKind::Finish)
+    );
+    assert!(frames
+        .iter()
+        .any(|frame| frame.kind == GhosttySnapshotFrameKind::History));
+
+    let mut client = client(TerminalScreenSize::new(24, 80));
+    let ready = frames.remove(0);
+    assert_eq!(
+        client
+            .install_ghostsnp_ready(ready.bytes)
+            .expect("decode through READY"),
+        GhosttySnapshotDecodeProgress::Ready
+    );
+    assert!(viewport_contains(
+        &client.project_viewport().expect("paint at READY"),
+        "visible-ready-marker"
+    ));
+
+    for frame in frames {
+        let progress = client
+            .apply_ghostsnp_history(frame.bytes)
+            .expect("decode one transport frame");
+        match frame.kind {
+            GhosttySnapshotFrameKind::History => {
+                assert_eq!(progress, GhosttySnapshotDecodeProgress::History)
+            }
+            GhosttySnapshotFrameKind::Finish => {
+                assert_eq!(progress, GhosttySnapshotDecodeProgress::Finish)
+            }
+            GhosttySnapshotFrameKind::Ready => panic!("READY must appear once"),
+        }
+    }
+    assert!(!client.snapshot_history_pending());
+}
+
+#[test]
+fn blank_incremental_snapshot_is_ready_then_finish() {
+    let size = TerminalScreenSize::new(24, 80);
+    let source = producer(size);
+    let mut frames = Vec::new();
+    source
+        .export_snapshot_frames(|frame| {
+            frames.push(frame);
+            true
+        })
+        .expect("stream blank snapshot");
+    assert_eq!(
+        frames.iter().map(|frame| frame.kind).collect::<Vec<_>>(),
+        vec![
+            GhosttySnapshotFrameKind::Ready,
+            GhosttySnapshotFrameKind::Finish
+        ]
+    );
+
+    let mut client = client(size);
+    assert_eq!(
+        client
+            .install_ghostsnp_ready(frames.remove(0).bytes)
+            .expect("blank READY"),
+        GhosttySnapshotDecodeProgress::Ready
+    );
+    assert_eq!(
+        client
+            .apply_ghostsnp_history(frames.remove(0).bytes)
+            .expect("blank FINISH returns NO_VALUE"),
+        GhosttySnapshotDecodeProgress::Finish
+    );
+}
+
+#[test]
+fn abort_incremental_history_retains_ready_terminal_and_allows_resize() {
+    let size = TerminalScreenSize::new(24, 80);
+    let mut source = producer(size);
+    source.write_output_bytes(b"ready-state-survives");
+    let mut frames = Vec::new();
+    source
+        .export_snapshot_frames(|frame| {
+            frames.push(frame);
+            true
+        })
+        .expect("stream snapshot");
+
+    let mut client = client(size);
+    client
+        .install_ghostsnp_ready(frames.remove(0).bytes)
+        .expect("install READY");
+    assert!(client.abort_ghostsnp_history());
+    assert!(!client.snapshot_history_pending());
+    assert!(viewport_contains(
+        &client.project_viewport().expect("paint retained READY"),
+        "ready-state-survives"
+    ));
+    client
+        .resize(TerminalScreenSize::new(30, 100))
+        .expect("resize after abort");
+    assert_eq!(client.dimensions(), TerminalScreenSize::new(30, 100));
 }
 
 #[test]

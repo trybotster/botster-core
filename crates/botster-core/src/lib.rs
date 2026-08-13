@@ -168,7 +168,7 @@ pub use client::{ClientId, ClientScope, ClientState};
 pub use client_stream::{
     ClientStreamGeneration, ClientStreamHarness, ClientStreamObservation, ClientStreamOutcome,
 };
-pub use contract::{WorkerSnapshotRequest, WorkerSnapshotResult};
+pub use contract::{WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult};
 pub use crypto::{
     decrypt_aes_gcm, encrypt_aes_gcm, AesGcmEnvelope, AesGcmKey, CryptoError, CryptoOperation,
     IdentityOperation,

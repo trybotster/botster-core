@@ -94,6 +94,33 @@ Fail closed on empty, non-`GHOSTSNP` magic, corrupt body, or decode failure
 (previous handle stays usable). **Never** pass `DaemonEvent::Scrollback`
 payloads to `install_ghostsnp`.
 
+### Incremental READY and history install
+
+Late attach uses the same Snapshot event kind for all opaque frames. The first
+frame ends at READY. Each middle frame ends at one PAGE. The last frame ends at
+FINISH.
+
+```rust
+use botster_terminal_ghostty::GhosttySnapshotDecodeProgress;
+
+assert_eq!(
+    client.install_ghostsnp_ready(ready_bytes)?,
+    GhosttySnapshotDecodeProgress::Ready,
+);
+let viewport = client.project_viewport()?; // Paint now.
+
+for frame in history_and_finish_frames {
+    if client.apply_ghostsnp_history(frame)? == GhosttySnapshotDecodeProgress::Finish {
+        break;
+    }
+}
+```
+
+Do not resize between READY and FINISH. If Core sends
+`snapshot_history_incomplete`, call `abort_ghostsnp_history`. This method drops
+only decoder state. It retains the terminal created at READY. The client can
+then apply live output and the queued resize.
+
 ### Scrollback budget after install
 
 `GhosttyAdapterConfig::max_scrollback` is a **client-side override**, not the
