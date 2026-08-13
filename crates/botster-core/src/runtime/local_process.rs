@@ -346,6 +346,19 @@ impl PtyIoBarrier<'_> {
             Some(hooks.as_ref()),
         )
     }
+
+    /// Resize the PTY while the reader remains paused.
+    pub fn resize(&mut self, size: ResizePayload) -> Result<(), SessionRuntimeError> {
+        self.session
+            .master
+            .resize(pty_size(Some(&size)))
+            .map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::InputFailed,
+                    format!("resize pty failed: {error}"),
+                )
+            })
+    }
 }
 
 /// Failure from a deadline-aware PTY write.

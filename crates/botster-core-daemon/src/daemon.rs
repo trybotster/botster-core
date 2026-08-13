@@ -580,16 +580,30 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session_mutable(&session_id)?;
+        let resize_is_queued = self.engine.incremental_attach_active(&session_id);
         self.engine
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
-        if let Some(mut record) = self.registry.load(&session_id)? {
+        if !resize_is_queued {
+            self.persist_session_size(&session_id, rows, cols, now_seconds)?;
+        }
+        Ok(())
+    }
+
+    fn persist_session_size(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+        updated_at: u64,
+    ) -> Result<(), CoreDaemonError> {
+        if let Some(mut record) = self.registry.load(session_id)? {
             record.rows = rows;
             record.cols = cols;
-            record.updated_at = now_seconds;
+            record.updated_at = updated_at;
             self.registry.save(&record)?;
             let lifecycle = self
                 .engine
-                .session(&session_id)
+                .session(session_id)
                 .map(|session| session.lifecycle.clone());
             self.append_lifecycle_upsert(&record, lifecycle);
         }
@@ -615,6 +629,9 @@ impl CoreDaemon {
                 self.retain_pending_drain_result(session_id, result);
                 return Err(error.into());
             }
+        }
+        if let Some((rows, cols, resize_at)) = self.engine.take_applied_attach_resize(session_id) {
+            self.persist_session_size(session_id, rows, cols, resize_at)?;
         }
         self.reconcile_lifecycle_observations(&result.observations, last_output_at)?;
         if self.engine_session_exited(session_id)
@@ -1863,6 +1880,20 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.resize(client_id, session_id, rows, cols, now_seconds),
             Self::Worker(engine) => engine.resize(client_id, session_id, rows, cols, now_seconds),
+        }
+    }
+
+    fn incremental_attach_active(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(_) => false,
+            Self::Worker(engine) => engine.incremental_attach_active(session_id),
+        }
+    }
+
+    fn take_applied_attach_resize(&mut self, session_id: &SessionId) -> Option<(u16, u16, u64)> {
+        match self {
+            Self::Local(_) => None,
+            Self::Worker(engine) => engine.take_applied_attach_resize(session_id),
         }
     }
 

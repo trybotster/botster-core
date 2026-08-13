@@ -1144,8 +1144,11 @@ fn worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_liv
                             .expect("READY must decode"),
                         GhosttySnapshotDecodeProgress::Ready
                     );
+                    let ready_viewport = projection.project_viewport().expect("paint at READY");
+                    assert_eq!(ready_viewport.rows, 24);
+                    assert_eq!(ready_viewport.cols, 80);
                     assert!(viewport_contains_marker(
-                        &projection.project_viewport().expect("paint at READY"),
+                        &ready_viewport,
                         "PRE-BARRIER-MARKER"
                     ));
                     saw_ready = true;
@@ -1195,6 +1198,19 @@ fn worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_liv
     assert!(saw_attached, "attach must complete");
     assert_eq!(sequence.first(), Some(&"attaching"));
     assert_eq!(sequence.last(), Some(&"attached"));
+
+    let barrier_resized = daemon
+        .capture_snapshot(CaptureSnapshotRequest {
+            request_id: RequestId("incremental-barrier-resize-proof".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 49,
+        })
+        .expect("capture immediately after Attached");
+    assert_eq!(
+        barrier_resized.payload.size,
+        TerminalScreenSize::new(40, 120),
+        "the worker must apply the latest resize before Attached"
+    );
 
     let live = drain_until_for_client(
         &mut daemon,
@@ -1574,7 +1590,10 @@ fn worker_incremental_attach_cancel_releases_snapshot_barrier() {
         1
     );
     daemon
-        .detach(client_id, session_id.clone(), subscription_id, 13)
+        .resize(client_id.clone(), session_id.clone(), 40, 120, 13)
+        .expect("queue resize before cancel");
+    daemon
+        .detach(client_id, session_id.clone(), subscription_id, 14)
         .expect("cancel attach");
 
     let started = Instant::now();
@@ -1582,10 +1601,17 @@ fn worker_incremental_attach_cancel_releases_snapshot_barrier() {
         .capture_snapshot(CaptureSnapshotRequest {
             request_id: RequestId("cancel-release-proof".to_string()),
             session_id: session_id.clone(),
-            now_seconds: 14,
+            now_seconds: 15,
         })
         .expect("capture after cancel");
     assert!(snapshot.payload.bytes.starts_with(GHOSTSNP_MAGIC));
+    assert_eq!(snapshot.payload.size, TerminalScreenSize::new(24, 80));
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load registry after cancelled resize")
+        .expect("worker registry record");
+    assert_eq!((record.rows, record.cols), (24, 80));
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "cancel must release the worker barrier"
@@ -3382,6 +3408,7 @@ fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync()
             11,
         )
         .expect("overflow fixture should attach");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
     daemon
         .resize(client_id.clone(), session_id.clone(), 25, 80, 12)
         .expect("first material row update");

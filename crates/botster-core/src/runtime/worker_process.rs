@@ -450,6 +450,7 @@ impl WorkerProcessRuntime {
                 let format = snapshot.format;
                 bytes.extend(snapshot.bytes);
                 if phase == crate::WorkerSnapshotPhase::Finish {
+                    self.complete_snapshot_boundary(session_id, &request_id)?;
                     return Ok((
                         crate::TerminalSnapshotPayload::new(bytes, size, format),
                         before_ready,
@@ -493,6 +494,7 @@ impl WorkerProcessRuntime {
             &WorkerSnapshotRequest {
                 request_id: request_id.clone(),
                 cancel: false,
+                complete: false,
             },
         )?;
         session.outstanding_snapshot_request = Some(request_id.clone());
@@ -530,13 +532,15 @@ impl WorkerProcessRuntime {
                         .map(|event| event.into_runtime_output(session_id)),
                 );
             }
-            complete = frame.error_kind.is_some()
-                || frame.phase == Some(crate::WorkerSnapshotPhase::Finish);
-            frames.push(frame);
-            if complete {
+            if frame.barrier_released {
+                if frame.error_kind.is_some() {
+                    frames.push(frame);
+                }
                 session.outstanding_snapshot_request = None;
+                complete = true;
                 break;
             }
+            frames.push(frame);
         }
         Ok(WorkerSnapshotBoundaryPoll {
             frames,
@@ -557,11 +561,59 @@ impl WorkerProcessRuntime {
             &WorkerSnapshotRequest {
                 request_id: request_id.to_owned(),
                 cancel: true,
+                complete: false,
             },
         )?;
         session.outstanding_snapshot_request = None;
         session.snapshot_boundary.clear();
         Ok(())
+    }
+
+    /// Apply any staged resize and wait for the worker to release the PTY barrier.
+    pub fn complete_snapshot_boundary(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Result<(), SessionRuntimeError> {
+        {
+            let session = self.session_mut(session_id)?;
+            session.control.write_json(
+                crate::FRAME_GET_SNAPSHOT,
+                &WorkerSnapshotRequest {
+                    request_id: request_id.to_owned(),
+                    cancel: false,
+                    complete: true,
+                },
+            )?;
+        }
+        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        loop {
+            let poll = self.poll_snapshot_boundary(session_id, request_id)?;
+            if let Some(error) = poll.frames.into_iter().find_map(|frame| frame.error_kind) {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    error,
+                ));
+            }
+            if poll.complete {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                let _ = self.cancel_snapshot_boundary(session_id, request_id);
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker snapshot barrier release timed out",
+                ));
+            }
+            if self.session_reader_finished(session_id)? {
+                self.session_mut(session_id)?.outstanding_snapshot_request = None;
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker disconnected before snapshot barrier release",
+                ));
+            }
+            thread::sleep(GATED_POLL);
+        }
     }
 
     /// Correlated mode-gated PTY input against the worker atomic admit barrier.
