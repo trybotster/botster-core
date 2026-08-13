@@ -25,6 +25,11 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install Zig 0.16.0
         run: |
           curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o zig.tar.xz
@@ -53,6 +58,9 @@ jobs:
 
       - name: Build docs
         run: cargo doc --workspace --no-deps
+
+      - name: Node terminal protocol consumer smoke
+        run: script/terminal-protocol-node-smoke.sh
 
       - name: Verify local PTY runtime
         if: runner.os == 'Linux'

@@ -1,0 +1,342 @@
+//! Semantic terminal event types.
+
+use std::collections::BTreeMap;
+
+use base64::Engine as _;
+use botster_terminal_protocol::TerminalFrame;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Snapshot delivery phase. Adding a variant at 0.1.0 is a breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotPhase {
+    /// Snapshot prefix through READY.
+    Ready,
+    /// HISTORY records through one PAGE.
+    History,
+    /// Remaining zero-page HISTORY records through FINISH.
+    Finish,
+}
+
+/// Wire `attach_state.state` values. `detached` is not published.
+///
+/// Adding a variant at 0.1.0 is a breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachStateKind {
+    /// Attach has been requested.
+    Attaching,
+    /// Initial snapshot completed and live output may flow.
+    Attached,
+    /// READY installed, but later snapshot history did not complete.
+    SnapshotHistoryIncomplete,
+    /// Attach failed before any READY snapshot.
+    AttachFailed,
+}
+
+/// Envelope encoding. The only published value is the literal `base64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PayloadEncoding {
+    /// Standard base64.
+    Base64,
+}
+
+/// Opaque Snapshot event. Clients must not render these bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Snapshot {
+    /// Session that produced the snapshot.
+    pub session_id: String,
+    /// Subscription that receives the snapshot.
+    pub subscription_id: String,
+    /// Base64-encoded opaque engine state.
+    pub payload_base64: String,
+    /// Envelope encoding. Always `base64`.
+    pub payload_encoding: PayloadEncoding,
+    /// Declared decoded byte length.
+    pub bytes: usize,
+    /// First-class snapshot phase on this plane.
+    pub phase: SnapshotPhase,
+}
+
+/// Live terminal output. Decoded bytes are renderable PTY data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TerminalOutput {
+    /// Session that produced the output.
+    pub session_id: String,
+    /// Subscription that receives the output.
+    pub subscription_id: String,
+    /// Base64-encoded live PTY bytes.
+    pub payload_base64: String,
+    /// Envelope encoding. Always `base64`.
+    pub payload_encoding: PayloadEncoding,
+    /// Declared decoded byte length.
+    pub bytes: usize,
+}
+
+/// Process exit event. Wire tag stays `process_exit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessExit {
+    /// Session that exited.
+    pub session_id: String,
+    /// Subscription that observes the exit.
+    pub subscription_id: String,
+    /// Optional exit code. Omitted from JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<i32>,
+}
+
+/// Attach state event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachState {
+    /// Session whose attach state changed.
+    pub session_id: String,
+    /// Subscription that observes the state.
+    pub subscription_id: String,
+    /// Public attach-state vocabulary.
+    pub state: AttachStateKind,
+}
+
+/// Semantic terminal event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalEvent {
+    /// Opaque snapshot with a first-class phase.
+    Snapshot(Snapshot),
+    /// Live renderable output.
+    TerminalOutput(TerminalOutput),
+    /// Process exit.
+    ProcessExit(ProcessExit),
+    /// Attach state.
+    AttachState(AttachState),
+}
+
+/// Envelope or frame conversion error.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EnvelopeError {
+    /// Base64 payload is invalid.
+    #[error("{0}")]
+    Invalid(String),
+    /// Opaque frame conversion failed.
+    #[error("{0}")]
+    Frame(String),
+}
+
+impl Snapshot {
+    /// Build a Snapshot from opaque bytes and a required phase.
+    #[must_use]
+    pub fn from_bytes(
+        session_id: impl Into<String>,
+        subscription_id: impl Into<String>,
+        payload: &[u8],
+        phase: SnapshotPhase,
+    ) -> Self {
+        Self {
+            session_id: session_id.into(),
+            subscription_id: subscription_id.into(),
+            payload_base64: encode_base64(payload),
+            payload_encoding: PayloadEncoding::Base64,
+            bytes: payload.len(),
+            phase,
+        }
+    }
+
+    /// Decode and validate the opaque snapshot bytes.
+    pub fn decoded_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
+        decode_validated_base64(&self.payload_base64, self.bytes, "opaque snapshot")
+    }
+
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        frame_from_tagged("snapshot", self)
+    }
+}
+
+impl TerminalOutput {
+    /// Build live output from renderable PTY bytes.
+    #[must_use]
+    pub fn from_bytes(
+        session_id: impl Into<String>,
+        subscription_id: impl Into<String>,
+        payload: &[u8],
+    ) -> Self {
+        Self {
+            session_id: session_id.into(),
+            subscription_id: subscription_id.into(),
+            payload_base64: encode_base64(payload),
+            payload_encoding: PayloadEncoding::Base64,
+            bytes: payload.len(),
+        }
+    }
+
+    /// Decode and validate the live output bytes.
+    pub fn decoded_bytes(&self) -> Result<Vec<u8>, EnvelopeError> {
+        decode_validated_base64(&self.payload_base64, self.bytes, "live output")
+    }
+
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        frame_from_tagged("terminal_output", self)
+    }
+}
+
+impl ProcessExit {
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        frame_from_tagged("process_exit", self)
+    }
+}
+
+impl AttachState {
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        frame_from_tagged("attach_state", self)
+    }
+}
+
+impl TerminalEvent {
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        match self {
+            Self::Snapshot(event) => event.to_frame(),
+            Self::TerminalOutput(event) => event.to_frame(),
+            Self::ProcessExit(event) => event.to_frame(),
+            Self::AttachState(event) => event.to_frame(),
+        }
+    }
+
+    /// Decode an opaque frame into a semantic event.
+    pub fn from_frame(frame: &TerminalFrame) -> Result<Self, EnvelopeError> {
+        let value: Value = serde_json::from_slice(&frame.to_bytes().map_err(frame_err)?)
+            .map_err(|error| EnvelopeError::Invalid(error.to_string()))?;
+        let event_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| EnvelopeError::Invalid("terminal event is missing type".into()))?;
+        match event_type {
+            "snapshot" => Ok(Self::Snapshot(
+                serde_json::from_value(value).map_err(json_err)?,
+            )),
+            "terminal_output" => Ok(Self::TerminalOutput(
+                serde_json::from_value(value).map_err(json_err)?,
+            )),
+            "process_exit" => Ok(Self::ProcessExit(
+                serde_json::from_value(value).map_err(json_err)?,
+            )),
+            "attach_state" => Ok(Self::AttachState(
+                serde_json::from_value(value).map_err(json_err)?,
+            )),
+            other => Err(EnvelopeError::Invalid(format!(
+                "unsupported terminal event type {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct Tagged<'a, T> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(flatten)]
+    body: &'a T,
+}
+
+fn frame_from_tagged<T: Serialize>(
+    kind: &'static str,
+    body: &T,
+) -> Result<TerminalFrame, EnvelopeError> {
+    let bytes = serde_json::to_vec(&Tagged { kind, body }).map_err(json_err)?;
+    TerminalFrame::from_bytes(&bytes).map_err(frame_err)
+}
+
+#[derive(Deserialize)]
+struct SnapshotWire {
+    session_id: String,
+    subscription_id: String,
+    payload_base64: String,
+    payload_encoding: PayloadEncoding,
+    bytes: usize,
+    phase: SnapshotPhase,
+}
+
+impl<'de> Deserialize<'de> for Snapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = SnapshotWire::deserialize(deserializer)?;
+        decode_validated_base64(&wire.payload_base64, wire.bytes, "opaque snapshot")
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            session_id: wire.session_id,
+            subscription_id: wire.subscription_id,
+            payload_base64: wire.payload_base64,
+            payload_encoding: wire.payload_encoding,
+            bytes: wire.bytes,
+            phase: wire.phase,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct TerminalOutputWire {
+    session_id: String,
+    subscription_id: String,
+    payload_base64: String,
+    payload_encoding: PayloadEncoding,
+    bytes: usize,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for TerminalOutput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = TerminalOutputWire::deserialize(deserializer)?;
+        if wire.extra.contains_key("data") {
+            return Err(serde::de::Error::custom(
+                "legacy terminal_output data field is rejected",
+            ));
+        }
+        decode_validated_base64(&wire.payload_base64, wire.bytes, "live output")
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            session_id: wire.session_id,
+            subscription_id: wire.subscription_id,
+            payload_base64: wire.payload_base64,
+            payload_encoding: wire.payload_encoding,
+            bytes: wire.bytes,
+        })
+    }
+}
+
+fn encode_base64(payload: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(payload)
+}
+
+fn decode_validated_base64(
+    payload_base64: &str,
+    bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let payload = base64::engine::general_purpose::STANDARD
+        .decode(payload_base64)
+        .map_err(|error| EnvelopeError::Invalid(format!("invalid {label} base64: {error}")))?;
+    if payload.len() != bytes {
+        return Err(EnvelopeError::Invalid(format!(
+            "{label} byte length mismatch: declared {bytes}, decoded {}",
+            payload.len()
+        )));
+    }
+    Ok(payload)
+}
+
+fn json_err(error: serde_json::Error) -> EnvelopeError {
+    EnvelopeError::Invalid(error.to_string())
+}
+
+fn frame_err(error: botster_terminal_protocol::TerminalFrameError) -> EnvelopeError {
+    EnvelopeError::Frame(error.to_string())
+}

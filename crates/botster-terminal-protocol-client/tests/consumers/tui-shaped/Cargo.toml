@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "botster-terminal-protocol-tui-shaped-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+botster-terminal-protocol-client = { path = "../../.." }

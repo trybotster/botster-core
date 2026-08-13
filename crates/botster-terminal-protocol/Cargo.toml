@@ -1,0 +1,35 @@
+[package]
+name = "botster-terminal-protocol"
+version = "0.1.0"
+edition = "2021"
+authors = ["Botster contributors"]
+description = "Hub-safe types-only Botster terminal protocol: compatibility descriptors, forwardable requests, and opaque event frames"
+repository = "https://github.com/trybotster/botster-core"
+homepage = "https://github.com/trybotster/botster-core"
+documentation = "https://docs.rs/botster-terminal-protocol"
+license-file = "../../LICENSE"
+readme = "../../README.md"
+keywords = ["terminal", "protocol", "botster"]
+categories = ["encoding"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+sha2 = "0.11.0"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+unwrap_used = "warn"
