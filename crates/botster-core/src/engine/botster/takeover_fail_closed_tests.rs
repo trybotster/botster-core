@@ -398,3 +398,120 @@ fn detach_promotion_begin_failure_detaches_the_pending_owner() {
         "pending input bypassed the attach barrier after detach"
     );
 }
+
+fn setup_active_stale_and_pending(
+    engine: &mut WorkerBackedBotsterEngine,
+    label: &str,
+) -> (
+    SessionId,
+    ClientId,
+    ClientId,
+    SubscriptionId,
+    SubscriptionId,
+) {
+    let session_id = SessionId(format!("{label}-session"));
+    let first = ClientId(format!("{label}-a"));
+    let pending = ClientId(format!("{label}-b"));
+    let first_sub = SubscriptionId(format!("{label}-sub-a"));
+    let pending_sub = SubscriptionId(format!("{label}-sub-b"));
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(first.clone(), session_id.clone(), first_sub.clone(), 11)
+        .expect("attach first");
+    engine
+        .write_bytes(first.clone(), session_id.clone(), b"STALE-A\n".to_vec(), 12)
+        .expect("queue stale input");
+    engine
+        .resize(first.clone(), session_id.clone(), 30, 100, 14)
+        .expect("queue stale resize");
+    engine
+        .attach_client(pending.clone(), session_id.clone(), pending_sub.clone(), 15)
+        .expect("queue pending sibling");
+    (session_id, first, pending, first_sub, pending_sub)
+}
+
+fn assert_promoted_sibling_did_not_inherit_stale(
+    engine: &mut WorkerBackedBotsterEngine,
+    session_id: &SessionId,
+    pending: &ClientId,
+    pending_sub: &SubscriptionId,
+) {
+    let frames = drain_until_attached(engine, session_id, pending);
+    assert!(
+        engine.take_applied_attach_resize(session_id).is_none(),
+        "removed owner resize applied to the promoted sibling"
+    );
+    let (screen, _, _) = engine
+        .capture_terminal_state(session_id)
+        .expect("screen after promotion");
+    assert_eq!(
+        screen.size,
+        TerminalScreenSize { rows: 24, cols: 80 },
+        "removed owner resize changed the promoted sibling screen"
+    );
+    assert!(
+        !output_text(&frames).contains("echo:STALE-A"),
+        "removed owner input reached the PTY: {:?}",
+        output_text(&frames)
+    );
+    let live = engine.list_terminal_subscriptions();
+    assert!(live
+        .iter()
+        .any(|row| &row.client_id == pending && &row.subscription_id == pending_sub));
+}
+
+#[test]
+fn generation_detach_discards_removed_owner_queues() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let (session_id, first, pending, first_sub, pending_sub) =
+        setup_active_stale_and_pending(&mut engine, "gen-detach");
+    let generation = engine
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.client_id == first && row.subscription_id == first_sub)
+        .expect("first inventory")
+        .generation;
+    engine
+        .detach_terminal_subscription(first, session_id.clone(), first_sub, generation, 16)
+        .expect("generation detach");
+    assert_promoted_sibling_did_not_inherit_stale(&mut engine, &session_id, &pending, &pending_sub);
+}
+
+#[test]
+fn pre_ready_failure_discards_removed_owner_queues() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let (session_id, _, pending, _, pending_sub) =
+        setup_active_stale_and_pending(&mut engine, "pre-ready");
+    engine.session_runtime_mut().fail_next_pre_ready_snapshot();
+    let drain_error = engine
+        .drain_runtime_once(&session_id, 16)
+        .expect_err("pre-ready failure");
+    assert!(
+        drain_error
+            .to_string()
+            .contains("injected pre-ready failure"),
+        "unexpected drain error: {drain_error}"
+    );
+    assert_promoted_sibling_did_not_inherit_stale(&mut engine, &session_id, &pending, &pending_sub);
+}
+
+#[test]
+fn teardown_reconcile_discards_removed_owner_queues() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let (session_id, first, pending, first_sub, pending_sub) =
+        setup_active_stale_and_pending(&mut engine, "reconcile");
+    engine
+        .runtime
+        .detach_live_subscription(first, session_id.clone(), first_sub, 16)
+        .expect("inventory teardown without IncrementalAttach sweep");
+    engine
+        .session_runtime_mut()
+        .cancel_outstanding_snapshot(&session_id)
+        .expect("stop the removed owner encode before reconcile");
+    engine
+        .drain_runtime_once(&session_id, 17)
+        .expect("reconcile after inventory teardown");
+    assert_promoted_sibling_did_not_inherit_stale(&mut engine, &session_id, &pending, &pending_sub);
+}

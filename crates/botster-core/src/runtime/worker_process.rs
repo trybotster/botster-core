@@ -234,6 +234,8 @@ pub struct WorkerProcessRuntime {
     fail_next_snapshot_cancel_count: usize,
     #[cfg(test)]
     fail_next_snapshot_begin_count: usize,
+    #[cfg(test)]
+    fail_next_pre_ready_error: bool,
 }
 
 impl WorkerProcessRuntime {
@@ -269,6 +271,8 @@ impl WorkerProcessRuntime {
             fail_next_snapshot_cancel_count: 0,
             #[cfg(test)]
             fail_next_snapshot_begin_count: 0,
+            #[cfg(test)]
+            fail_next_pre_ready_error: false,
         }
     }
 
@@ -282,6 +286,28 @@ impl WorkerProcessRuntime {
     #[cfg(test)]
     pub(crate) fn fail_next_snapshot_begins(&mut self, count: usize) {
         self.fail_next_snapshot_begin_count = count;
+    }
+
+    /// Fail the next snapshot poll before READY. Crate tests use this for fail-closed promotion.
+    #[cfg(test)]
+    pub(crate) fn fail_next_pre_ready_snapshot(&mut self) {
+        self.fail_next_pre_ready_error = true;
+    }
+
+    /// Cancel the live snapshot request without completing attach. Crate tests use this to reach reconcile.
+    #[cfg(test)]
+    pub(crate) fn cancel_outstanding_snapshot(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), SessionRuntimeError> {
+        let request_id = self
+            .session_mut(session_id)?
+            .outstanding_snapshot_request
+            .clone();
+        if let Some(request_id) = request_id {
+            self.cancel_snapshot_boundary(session_id, &request_id)?;
+        }
+        Ok(())
     }
 
     /// Return worker welcome metadata captured after spawning a session.
@@ -556,6 +582,21 @@ impl WorkerProcessRuntime {
         request_id: &str,
     ) -> Result<WorkerSnapshotBoundaryPoll, SessionRuntimeError> {
         self.pump_session_output(session_id)?;
+        #[cfg(test)]
+        if self.fail_next_pre_ready_error {
+            self.fail_next_pre_ready_error = false;
+            return Ok(WorkerSnapshotBoundaryPoll {
+                frames: vec![crate::WorkerSnapshotResult {
+                    request_id: request_id.to_owned(),
+                    snapshot: None,
+                    phase: None,
+                    error_kind: Some("injected pre-ready failure".to_string()),
+                    barrier_released: false,
+                }],
+                before_ready: Vec::new(),
+                complete: false,
+            });
+        }
         let session = self.session_mut(session_id)?;
         if session.outstanding_snapshot_request.as_deref() != Some(request_id) {
             return Ok(WorkerSnapshotBoundaryPoll {
