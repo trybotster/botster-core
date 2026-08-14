@@ -1331,6 +1331,7 @@ impl SessionRuntime for WorkerProcessRuntime {
 
         if let Some(payload) = completed {
             if let Some(mut removed) = self.sessions.remove(session_id) {
+                removed.close_before_blocking_shutdown();
                 if let Some(mut child) = removed.child.take() {
                     let _ = child.wait();
                 }
@@ -1352,6 +1353,7 @@ impl Drop for WorkerProcessRuntime {
             return;
         }
         for (_, mut session) in self.sessions.drain() {
+            session.close_before_blocking_shutdown();
             if let Some(request_id) = session.outstanding_snapshot_request.take() {
                 let _ = session.control.write_json(
                     crate::FRAME_GET_SNAPSHOT,
@@ -1512,6 +1514,17 @@ struct WorkerProcessSession {
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
     stall: Arc<EgressStall>,
+}
+
+impl WorkerProcessSession {
+    /// Wake stall waiters before child.wait() or other blocking close work.
+    ///
+    /// Attached capacity-one pressure can fill the worker pipe while the
+    /// parent stdout reader waits on the condvar. Closing after wait deadlocks
+    /// shutdown.
+    fn close_before_blocking_shutdown(&self) {
+        self.stall.close();
+    }
 }
 
 impl Drop for WorkerProcessSession {

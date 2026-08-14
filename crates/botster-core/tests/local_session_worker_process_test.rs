@@ -3,6 +3,8 @@
 
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1047,6 +1049,21 @@ fn attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep() {
         source.contains("struct EgressStall"),
         "attached stall must use the std Condvar gate"
     );
+    let drop_impl = source
+        .split("impl Drop for WorkerProcessRuntime")
+        .nth(1)
+        .and_then(|rest| rest.split("impl WorkerProcessSession").next())
+        .expect("WorkerProcessRuntime Drop must exist");
+    let close_at = drop_impl
+        .find("close_before_blocking_shutdown")
+        .expect("runtime Drop must notify EgressStall before blocking close");
+    let wait_at = drop_impl
+        .find("child.wait()")
+        .expect("runtime Drop must wait for the worker child");
+    assert!(
+        close_at < wait_at,
+        "EgressStall close must run before child.wait so attached pressure cannot deadlock shutdown"
+    );
 }
 
 #[test]
@@ -1067,6 +1084,80 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
         (worker_pid, metadata.pid)
     };
 
+    assert!(
+        wait_until(|| !process_exists(worker_pid)),
+        "dropping parent runtime should reap worker process {worker_pid}"
+    );
+    assert!(
+        wait_until(|| !process_exists(pty_child_pid)),
+        "dropping parent runtime should clean worker PTY child {pty_child_pid}"
+    );
+}
+
+#[test]
+fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
+    let mut options = worker_options();
+    options.egress_capacity = 1;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-attached-close-stall");
+
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "i=0; while :; do printf \"tick:%s\\n\" \"$i\"; i=$((i+1)); done",
+        ))
+        .expect("spawn sustained PTY producer");
+    runtime
+        .attach_consumer(&session)
+        .expect("attach parent consumer so live output stalls");
+
+    let started_output = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("tick:")
+    });
+    assert!(
+        output_text(&started_output).contains("tick:"),
+        "sustained producer must emit live PTY bytes before close"
+    );
+    // Stop draining so the one-slot channel stays full and the attached
+    // stdout reader waits on EgressStall. Keep producing until the worker
+    // pipe fills; that is the shutdown cycle the close notification breaks.
+    thread::sleep(Duration::from_millis(300));
+
+    let metadata = runtime.metadata(&session).expect("worker metadata").clone();
+    let worker_pid = metadata
+        .recovery_identity
+        .as_ref()
+        .and_then(|identity| identity.get("worker_pid"))
+        .and_then(serde_json::Value::as_u64)
+        .expect("worker pid in recovery identity") as u32;
+    let pty_child_pid = metadata.pid;
+
+    let dropped = Arc::new(AtomicBool::new(false));
+    let drop_flag = Arc::clone(&dropped);
+    let started = Instant::now();
+    thread::spawn(move || {
+        drop(runtime);
+        drop_flag.store(true, Ordering::SeqCst);
+    });
+
+    let drop_finished = wait_until(|| dropped.load(Ordering::SeqCst));
+    if !drop_finished {
+        // SAFETY: signal 9 is SIGKILL. The parent drop is stuck, so the test
+        // must reap leftovers before later cases observe leaked PIDs.
+        unsafe {
+            let _ = kill(worker_pid as i32, 9);
+            let _ = kill(pty_child_pid as i32, 9);
+        }
+    }
+    assert!(
+        drop_finished,
+        "parent drop must finish while attached capacity-one stall is under sustained PTY pressure"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "parent drop must stay bounded; elapsed={:?}",
+        started.elapsed()
+    );
     assert!(
         wait_until(|| !process_exists(worker_pid)),
         "dropping parent runtime should reap worker process {worker_pid}"
