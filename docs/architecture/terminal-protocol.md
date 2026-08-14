@@ -23,6 +23,10 @@ inspect frames.
 `TerminalFrame` serializes and deserializes. It has no public `phase`, `state`,
 `history`, `payload`, or Snapshot-body accessor.
 
+The content-blind write/close/pressure adapter that consumes these opaque
+frames lives in `botster-core`, not this crate. See
+[`terminal-adapter.md`](terminal-adapter.md).
+
 Neither crate depends on `botster-core`, `botster-core-daemon`, `botster-hub`,
 or `botster-hub-client`.
 

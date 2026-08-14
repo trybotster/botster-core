@@ -88,8 +88,8 @@ pub mod runtime;
 /// for ordinary session I/O.
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
-    notification, routed_envelope, session, session_protocol, terminal_metadata, terminal_screen,
-    transport,
+    notification, routed_envelope, session, session_protocol, terminal_adapter, terminal_metadata,
+    terminal_screen, transport,
 };
 
 /// Engine submodules. Prefer [`engine::BotsterEngine`] / `DefaultBotsterEngine`

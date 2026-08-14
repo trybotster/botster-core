@@ -1,4 +1,8 @@
 //! Transport-neutral ingress and egress frames.
+//!
+//! These enums are semantic drain-path frames. They are not the content-blind
+//! adapter trait. That contract lives in
+//! [`crate::contract::terminal_adapter`].
 
 use serde::{Deserialize, Serialize};
 
