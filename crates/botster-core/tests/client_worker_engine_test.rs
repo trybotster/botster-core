@@ -14,7 +14,7 @@ use botster_core::{
     BindTerminalAdapterError, ClientId, ClientWorker, CoreSessionMetadata, DefaultBotsterEngine,
     DetachTerminalSubscriptionResult, QueueSource, RequestId, ResizePayload, SessionId,
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalSubscriptionGeneration, TransportEgress,
+    TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::TerminalFrame;
@@ -911,6 +911,158 @@ fn rejected_attach_does_not_publish_inventory() {
         .expect_err("unknown session");
     assert!(engine.list_terminal_subscriptions().is_empty());
     let _ = error;
+}
+
+#[test]
+fn second_client_same_subscription_hard_stops_the_first_owner() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("shared-sub");
+    let first = client("first");
+    let second = client("second");
+    let subscription = sub("shared");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), "printf 'second-owner\\n'; sleep 30"),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(first.clone(), session.clone(), subscription.clone(), 1)
+        .expect("attach first");
+    let first_gen = engine
+        .terminal_subscription_generation(&session, &subscription)
+        .expect("first gen");
+    let first_dropped = Arc::new(AtomicBool::new(false));
+    let first_adapter = SharedFakeTerminalAdapter::auto_complete();
+    struct DropFlag(Arc<AtomicBool>, SharedFakeTerminalAdapter);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    impl TerminalAdapter for DropFlag {
+        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            self.1.try_write(frame)
+        }
+        fn close(&mut self) {
+            self.1.close();
+        }
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.1.pressure()
+        }
+    }
+    engine
+        .bind_terminal_adapter(
+            first,
+            session.clone(),
+            subscription.clone(),
+            first_gen,
+            Box::new(DropFlag(Arc::clone(&first_dropped), first_adapter.clone())),
+        )
+        .expect("bind first");
+    let first_before = first_adapter.snapshot_delivered_frame_bytes().len();
+    engine
+        .attach_client(second.clone(), session.clone(), subscription.clone(), 2)
+        .expect("attach second");
+    assert!(first_dropped.load(Ordering::SeqCst));
+    let second_gen = engine
+        .terminal_subscription_generation(&session, &subscription)
+        .expect("second gen");
+    assert_eq!(second_gen, TerminalSubscriptionGeneration(first_gen.0 + 1));
+    let row = engine
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("live row");
+    assert_eq!(row.client_id, second);
+    let second_adapter = SharedFakeTerminalAdapter::auto_complete();
+    engine
+        .bind_terminal_adapter(
+            second,
+            session.clone(),
+            subscription,
+            second_gen,
+            Box::new(second_adapter.clone()),
+        )
+        .expect("bind second");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        engine.drain_runtime_once(&session, 3).expect("drain");
+        if second_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| frame_payload_text(bytes).contains("second-owner"))
+        {
+            assert_eq!(
+                first_adapter.snapshot_delivered_frame_bytes().len(),
+                first_before,
+                "first adapter must not receive the second client's frames"
+            );
+            return;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    panic!("second owner never received live output");
+}
+
+#[test]
+fn unbound_snapshot_phase_does_not_survive_teardown() {
+    let mut worker = ClientWorker::new();
+    let session = session("stale-phase");
+    let owner = client("phase");
+    let subscription = sub("phase");
+    worker.record_attach(owner.clone(), session.clone(), subscription.clone());
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::History);
+    let mut frames = vec![(
+        owner.clone(),
+        TransportEgress::Snapshot {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            data: b"unbound-ready".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    assert_eq!(frames.len(), 1);
+    let _ = worker.detach_live(&session, &subscription);
+
+    worker.record_attach(owner.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("new gen");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &owner,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let mut reuse = vec![(
+        owner,
+        TransportEgress::Snapshot {
+            session_id: session,
+            subscription_id: subscription,
+            data: b"reused".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut reuse);
+    let _ = worker.pump();
+    let phases: Vec<String> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| {
+            serde_json::from_slice::<Value>(bytes)
+                .ok()
+                .and_then(|value| value.get("phase")?.as_str().map(str::to_string))
+        })
+        .collect();
+    assert_eq!(
+        phases,
+        vec!["ready".to_string()],
+        "reused Snapshot must not inherit a leftover History phase: {phases:?}"
+    );
 }
 
 #[allow(dead_code)]

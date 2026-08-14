@@ -102,6 +102,71 @@ struct IncrementalAttach {
 }
 
 #[cfg(feature = "local-runtime")]
+impl IncrementalAttach {
+    fn replace_pending_client(
+        &mut self,
+        client_id: &ClientId,
+        subscription_id: SubscriptionId,
+    ) -> usize {
+        let removed = self
+            .pending
+            .iter()
+            .filter(|(pending_client, _)| pending_client == client_id)
+            .count();
+        self.pending
+            .retain(|(pending_client, _)| pending_client != client_id);
+        self.pending.push_back((client_id.clone(), subscription_id));
+        removed
+    }
+}
+
+#[cfg(all(test, feature = "local-runtime"))]
+mod incremental_pending_tests {
+    use super::{ClientId, IncrementalAttach, SubscriptionId};
+    use std::collections::VecDeque;
+
+    #[test]
+    fn replace_pending_client_drops_that_clients_older_tuples() {
+        let mut attach = IncrementalAttach {
+            client_id: ClientId("active".to_string()),
+            subscription_id: SubscriptionId("active-sub".to_string()),
+            request_id: "req".to_string(),
+            ready: false,
+            pending: VecDeque::from([
+                (
+                    ClientId("pending".to_string()),
+                    SubscriptionId("old-sub".to_string()),
+                ),
+                (
+                    ClientId("other".to_string()),
+                    SubscriptionId("other-sub".to_string()),
+                ),
+            ]),
+            queued_input: Vec::new(),
+            queued_resize: None,
+        };
+        let removed = attach.replace_pending_client(
+            &ClientId("pending".to_string()),
+            SubscriptionId("new-sub".to_string()),
+        );
+        assert_eq!(removed, 1);
+        assert_eq!(
+            attach.pending.into_iter().collect::<Vec<_>>(),
+            vec![
+                (
+                    ClientId("other".to_string()),
+                    SubscriptionId("other-sub".to_string()),
+                ),
+                (
+                    ClientId("pending".to_string()),
+                    SubscriptionId("new-sub".to_string()),
+                ),
+            ]
+        );
+    }
+}
+
+#[cfg(feature = "local-runtime")]
 fn runtime_with_plain_terminal_backend<R>(
     runtime: R,
 ) -> ManagedSessionRuntime<R, Box<dyn TerminalScreenRuntime>>
@@ -766,19 +831,24 @@ impl WorkerBackedBotsterEngine {
                         ),
                     ));
                 }
+                let removed_pending = self
+                    .incremental_attaches
+                    .get_mut(&session_id)
+                    .expect("incremental attach was checked above")
+                    .replace_pending_client(&client_id, subscription_id.clone());
+                for _ in 0..removed_pending {
+                    self.runtime
+                        .session_runtime_mut()
+                        .detach_consumer(&session_id)?;
+                }
                 self.runtime
                     .session_runtime_mut()
                     .attach_consumer(&session_id)?;
                 let output = self.runtime.begin_snapshot_attach(
                     client_id.clone(),
                     session_id.clone(),
-                    subscription_id.clone(),
+                    subscription_id,
                 )?;
-                self.incremental_attaches
-                    .get_mut(&session_id)
-                    .expect("incremental attach was checked above")
-                    .pending
-                    .push_back((client_id, subscription_id));
                 return Ok(output);
             }
             self.runtime
