@@ -1,6 +1,6 @@
 //! Local session runtime backed by a separate worker process.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 #[cfg(unix)]
@@ -26,12 +26,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, Frame, ModeFlagsPayload,
-    ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult, NotificationPayload,
-    ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource, SessionId,
-    SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame,
+    ModeFlagsPayload, ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult,
+    NotificationPayload, ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource,
+    SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    TerminalMetadataShapingObservation, TimeoutPayload, WorkerSnapshotRequest,
+    SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload, WorkerSnapshotRequest,
     WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS,
     FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT,
     FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
@@ -330,24 +330,49 @@ impl WorkerProcessRuntime {
     }
 
     /// Mark a parent-side consumer attached to worker egress.
+    ///
+    /// Direct runtime tests use this without a subscription identity. Engine
+    /// attach paths should call [`Self::replace_named_consumers`] from live
+    /// subscription ownership instead of incrementing a scalar.
     pub fn attach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
-        session.consumer_count.fetch_add(1, Ordering::AcqRel);
+        session
+            .consumers
+            .lock()
+            .map_err(lock_error)?
+            .insert(ConsumerKey::Direct);
         Ok(())
     }
 
     /// Mark a parent-side consumer detached from worker egress.
     ///
-    /// No attach/detach wire frames are sent; this is parent-side delivery
-    /// registration around the worker egress stream. A detached parent may
-    /// drop live PTY bytes and report overflow. An attached parent stalls.
+    /// Removes only the direct test consumer. Named subscription owners are
+    /// replaced as a set from live attach state.
     pub fn detach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
-        let _ = session
-            .consumer_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                Some(count.saturating_sub(1))
+        session
+            .consumers
+            .lock()
+            .map_err(lock_error)?
+            .remove(&ConsumerKey::Direct);
+        Ok(())
+    }
+
+    /// Replace named live consumers for one session from subscription ownership.
+    pub fn replace_named_consumers(
+        &mut self,
+        session_id: &SessionId,
+        owners: impl IntoIterator<Item = (ClientId, SubscriptionId)>,
+    ) -> Result<(), SessionRuntimeError> {
+        let session = self.session_mut(session_id)?;
+        let mut consumers = session.consumers.lock().map_err(lock_error)?;
+        consumers.retain(|key| matches!(key, ConsumerKey::Direct));
+        for (client_id, subscription_id) in owners {
+            consumers.insert(ConsumerKey::Named {
+                client: client_id.0,
+                subscription: subscription_id.0,
             });
+        }
         Ok(())
     }
 
@@ -930,7 +955,7 @@ impl WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let consumer_count = Arc::new(AtomicUsize::new(0));
+        let consumers = Arc::new(Mutex::new(HashSet::new()));
         spawn_stdout_reader(
             control.try_clone().map_err(|error| {
                 SessionRuntimeError::new(
@@ -943,7 +968,7 @@ impl WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
-            Arc::clone(&consumer_count),
+            Arc::clone(&consumers),
         );
         let metadata = SessionMetadata {
             session_uuid: session_id.0.clone(),
@@ -985,7 +1010,7 @@ impl WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
-                consumer_count,
+                consumers,
             },
         );
 
@@ -1217,7 +1242,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let consumer_count = Arc::new(AtomicUsize::new(0));
+        let consumers = Arc::new(Mutex::new(HashSet::new()));
         spawn_stdout_reader(
             reader,
             sender,
@@ -1225,7 +1250,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
-            Arc::clone(&consumer_count),
+            Arc::clone(&consumers),
         );
 
         self.sessions.insert(
@@ -1247,7 +1272,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
-                consumer_count,
+                consumers,
             },
         );
 
@@ -1362,6 +1387,19 @@ impl Drop for WorkerProcessRuntime {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ConsumerKey {
+    Direct,
+    Named {
+        client: String,
+        subscription: String,
+    },
+}
+
+fn consumers_active(consumers: &Mutex<HashSet<ConsumerKey>>) -> bool {
+    consumers.lock().map(|set| !set.is_empty()).unwrap_or(false)
+}
+
 struct WorkerProcessSession {
     child: Option<Child>,
     control: WorkerControl,
@@ -1379,7 +1417,7 @@ struct WorkerProcessSession {
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
-    consumer_count: Arc<AtomicUsize>,
+    consumers: Arc<Mutex<HashSet<ConsumerKey>>>,
 }
 
 struct GatedInFlight {
@@ -1794,7 +1832,7 @@ fn spawn_stdout_reader(
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
-    consumer_count: Arc<AtomicUsize>,
+    consumers: Arc<Mutex<HashSet<ConsumerKey>>>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
@@ -1802,7 +1840,7 @@ fn spawn_stdout_reader(
                 FRAME_PTY_OUTPUT => send_worker_event(
                     &sender,
                     &overflow,
-                    &consumer_count,
+                    &consumers,
                     WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                 ),
                 FRAME_PROCESS_EXITED => {
@@ -1817,7 +1855,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
                     }
@@ -1827,7 +1865,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
                         );
                     }
@@ -1837,7 +1875,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
                     }
@@ -1846,7 +1884,7 @@ fn spawn_stdout_reader(
                     send_worker_event(
                         &sender,
                         &overflow,
-                        &consumer_count,
+                        &consumers,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
                 }
@@ -1855,7 +1893,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
                     }
@@ -1865,7 +1903,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
                             )),
@@ -1878,7 +1916,7 @@ fn spawn_stdout_reader(
                             send_worker_event(
                                 &sender,
                                 &overflow,
-                                &consumer_count,
+                                &consumers,
                                 WorkerChannelEvent::ModeFlags(payload),
                             );
                         }
@@ -1893,13 +1931,13 @@ fn spawn_stdout_reader(
                         Ok(result) => send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::ModeGatedResult(result),
                         ),
                         Err(error) => send_worker_event(
                             &sender,
                             &overflow,
-                            &consumer_count,
+                            &consumers,
                             WorkerChannelEvent::MalformedModeGated {
                                 request_id: String::new(),
                                 message: format!("malformed mode-gated result: {error}"),
@@ -1936,7 +1974,7 @@ fn spawn_stdout_reader(
 fn send_worker_event(
     sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
-    consumer_count: &AtomicUsize,
+    consumers: &Mutex<HashSet<ConsumerKey>>,
     event: WorkerChannelEvent,
 ) {
     // Live PTY bytes are not replayable. While a parent consumer is attached,
@@ -1948,7 +1986,7 @@ fn send_worker_event(
     ) {
         let mut event = event;
         loop {
-            if consumer_count.load(Ordering::Acquire) == 0 {
+            if !consumers_active(consumers) {
                 match sender.try_send(event) {
                     Ok(()) => return,
                     Err(TrySendError::Full(_)) => {

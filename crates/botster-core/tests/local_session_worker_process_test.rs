@@ -786,6 +786,241 @@ fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
     );
 }
 
+fn capacity_one_engine() -> WorkerBackedBotsterEngine {
+    let mut options = worker_options();
+    options.egress_capacity = 1;
+    WorkerBackedBotsterEngine::with_options(options)
+}
+
+fn echo_script() -> &'static str {
+    "printf 'ready\\n'; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+}
+
+fn drain_until_attached(
+    engine: &mut WorkerBackedBotsterEngine,
+    session: &SessionId,
+    client: &botster_core::ClientId,
+) {
+    for tick in 0..5_000u64 {
+        let outcome = engine
+            .drain_runtime_once(session, 20 + tick)
+            .expect("drain until Attached");
+        let attached = outcome.client_egress.iter().any(|(target, frame)| {
+            target == client
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        state: botster_core::TerminalAttachState::Attached,
+                        ..
+                    }
+                )
+        });
+        if attached {
+            return;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("attach did not reach Attached");
+}
+
+fn drain_engine_text_for(
+    engine: &mut WorkerBackedBotsterEngine,
+    session: &SessionId,
+    client: &botster_core::ClientId,
+    subscription: &SubscriptionId,
+    expected: &str,
+) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut bytes = Vec::new();
+    while Instant::now() < deadline {
+        let outcome = engine
+            .drain_runtime_once(session, 20)
+            .expect("drain worker-backed engine");
+        bytes.extend(terminal_output_bytes(
+            &outcome,
+            client,
+            subscription,
+            session,
+        ));
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        if text.contains(expected) {
+            return text;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn write_and_hold(
+    engine: &mut WorkerBackedBotsterEngine,
+    client: &botster_core::ClientId,
+    session: &SessionId,
+    data: &[u8],
+) {
+    engine
+        .write_bytes(client.clone(), session.clone(), data.to_vec(), 30)
+        .expect("write bytes");
+    thread::sleep(Duration::from_millis(80));
+}
+
+#[test]
+fn takeover_then_full_detach_restores_overflow_progress() {
+    let mut engine = capacity_one_engine();
+    let session = session_id("owner-takeover-detach");
+    let first = client_id("owner-takeover-a");
+    let second = client_id("owner-takeover-b");
+    let subscription = subscription_id("owner-takeover-sub");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), echo_script()),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(first, session.clone(), subscription.clone(), 10)
+        .expect("attach first");
+    drain_until_attached(&mut engine, &session, &client_id("owner-takeover-a"));
+    engine
+        .attach_client(second.clone(), session.clone(), subscription.clone(), 11)
+        .expect("same-key takeover");
+    drain_until_attached(&mut engine, &session, &second);
+    engine
+        .detach_client(second.clone(), session.clone(), subscription, 12)
+        .expect("full detach after takeover");
+
+    write_and_hold(&mut engine, &second, &session, b"FILL-SLOT\n");
+    write_and_hold(&mut engine, &second, &session, b"POST-BARRIER-MARKER\n");
+    let started = Instant::now();
+    let _ = engine
+        .drain_runtime_once(&session, 40)
+        .expect("drain after detach");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "detached overflow must not stall the parent drain"
+    );
+}
+
+#[test]
+fn generation_detach_restores_overflow_progress() {
+    let mut engine = capacity_one_engine();
+    let session = session_id("owner-generation-detach");
+    let client = client_id("owner-generation-client");
+    let subscription = subscription_id("owner-generation-sub");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), echo_script()),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session.clone(), subscription.clone(), 10)
+        .expect("attach");
+    drain_until_attached(&mut engine, &session, &client);
+    let generation = engine
+        .terminal_subscription_generation(&session, &subscription)
+        .expect("live generation");
+    engine
+        .detach_terminal_subscription(
+            client.clone(),
+            session.clone(),
+            subscription,
+            generation,
+            11,
+        )
+        .expect("generation detach");
+
+    write_and_hold(&mut engine, &client, &session, b"FILL-SLOT\n");
+    write_and_hold(&mut engine, &client, &session, b"POST-BARRIER-MARKER\n");
+    let started = Instant::now();
+    let _ = engine.drain_runtime_once(&session, 40).expect("drain");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "generation detach must not leave a leaked stall"
+    );
+}
+
+#[test]
+fn stale_detach_keeps_sibling_process_echo() {
+    let mut engine = capacity_one_engine();
+    let session = session_id("owner-stale-sibling");
+    let first = client_id("owner-stale-a");
+    let sibling = client_id("owner-stale-b");
+    let first_sub = subscription_id("owner-stale-a-sub");
+    let sibling_sub = subscription_id("owner-stale-b-sub");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), echo_script()),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(first.clone(), session.clone(), first_sub.clone(), 10)
+        .expect("attach first");
+    engine
+        .attach_client(sibling.clone(), session.clone(), sibling_sub.clone(), 11)
+        .expect("attach sibling");
+    drain_until_attached(&mut engine, &session, &first);
+    drain_until_attached(&mut engine, &session, &sibling);
+    engine
+        .detach_client(first.clone(), session.clone(), first_sub.clone(), 12)
+        .expect("detach first");
+    engine
+        .detach_client(first, session.clone(), first_sub, 13)
+        .expect("stale second detach");
+
+    write_and_hold(&mut engine, &sibling, &session, b"FILL-SLOT\n");
+    write_and_hold(&mut engine, &sibling, &session, b"POST-BARRIER-MARKER\n");
+    let text = drain_engine_text_for(
+        &mut engine,
+        &session,
+        &sibling,
+        &sibling_sub,
+        "echo:POST-BARRIER-MARKER",
+    );
+    assert!(
+        text.contains("echo:POST-BARRIER-MARKER"),
+        "live sibling must keep process echo after stale detach; last output: {text:?}"
+    );
+}
+
+#[test]
+fn detach_while_stalled_unblocks_parent() {
+    let mut engine = capacity_one_engine();
+    let session = session_id("owner-detach-stalled");
+    let client = client_id("owner-detach-stalled-client");
+    let subscription = subscription_id("owner-detach-stalled-sub");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), echo_script()),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session.clone(), subscription.clone(), 10)
+        .expect("attach");
+    drain_until_attached(&mut engine, &session, &client);
+    write_and_hold(&mut engine, &client, &session, b"FILL-SLOT\n");
+    engine
+        .write_bytes(
+            client.clone(),
+            session.clone(),
+            b"POST-BARRIER-MARKER\n".to_vec(),
+            31,
+        )
+        .expect("second write while the one-slot channel is full");
+    let started = Instant::now();
+    engine
+        .detach_client(client, session.clone(), subscription, 32)
+        .expect("detach while sender is stalled");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "detach must stop the attached stall"
+    );
+    let _ = engine
+        .drain_runtime_once(&session, 40)
+        .expect("drain after stalled detach");
+}
+
 #[test]
 fn dropping_parent_runtime_reaps_worker_and_pty_child() {
     let session = session_id("worker-parent-drop-cleanup");

@@ -1,7 +1,7 @@
 //! Ergonomic embeddable Botster engine facade.
 
 #[cfg(feature = "local-runtime")]
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::actor::{
     MailboxSendFailureReason, PluginAdmissionResult, PluginCleanupResult, PluginCompletionDrain,
@@ -927,40 +927,36 @@ impl WorkerBackedBotsterEngine {
                         ),
                     ));
                 }
-                let removed_pending = self
-                    .incremental_attaches
+                self.incremental_attaches
                     .get_mut(&session_id)
                     .expect("incremental attach was checked above")
                     .replace_pending_client(&client_id, subscription_id.clone());
-                for _ in 0..removed_pending {
-                    self.runtime
-                        .session_runtime_mut()
-                        .detach_consumer(&session_id)?;
-                }
-                self.runtime
-                    .session_runtime_mut()
-                    .attach_consumer(&session_id)?;
                 let output = self.runtime.begin_snapshot_attach(
                     client_id.clone(),
                     session_id.clone(),
                     subscription_id,
                 )?;
+                self.sync_worker_consumers(&session_id)?;
                 return Ok(output);
             }
-            self.runtime
-                .session_runtime_mut()
-                .attach_consumer(&session_id)?;
             let output = self.runtime.begin_snapshot_attach(
                 client_id.clone(),
                 session_id.clone(),
                 subscription_id.clone(),
             )?;
-            let request_id = self
+            let request_id = match self
                 .runtime
                 .session_runtime_mut()
-                .begin_snapshot_boundary(&session_id)?;
+                .begin_snapshot_boundary(&session_id)
+            {
+                Ok(request_id) => request_id,
+                Err(error) => {
+                    let _ = self.sync_worker_consumers(&session_id);
+                    return Err(error.into());
+                }
+            };
             self.incremental_attaches.insert(
-                session_id,
+                session_id.clone(),
                 IncrementalAttach {
                     client_id,
                     subscription_id,
@@ -971,6 +967,7 @@ impl WorkerBackedBotsterEngine {
                     queued_resize: None,
                 },
             );
+            self.sync_worker_consumers(&session_id)?;
             return Ok(output);
         }
 
@@ -989,12 +986,9 @@ impl WorkerBackedBotsterEngine {
                     } if routed_session == &session_id
                 )
         });
-        self.runtime
-            .session_runtime_mut()
-            .attach_consumer(&session_id)?;
         let attach = self.runtime.attach_snapshot(
             client_id,
-            session_id,
+            session_id.clone(),
             subscription_id,
             attach_snapshot.bytes,
         )?;
@@ -1005,6 +999,7 @@ impl WorkerBackedBotsterEngine {
             .extend(attach.client_control_frames);
         output.session_events.extend(attach.session_events);
         output.observations.extend(attach.observations);
+        self.sync_worker_consumers(&session_id)?;
         Ok(output)
     }
 
@@ -1073,13 +1068,15 @@ impl WorkerBackedBotsterEngine {
                 }
             }
         }
-        self.runtime.detach_terminal_subscription(
+        let result = self.runtime.detach_terminal_subscription(
             client_id,
-            session_id,
+            session_id.clone(),
             subscription_id,
             generation,
             now_seconds,
-        )
+        );
+        let _ = self.sync_worker_consumers(&session_id);
+        result
     }
 
     /// Live generation for a subscription, if any.
@@ -1128,18 +1125,17 @@ impl WorkerBackedBotsterEngine {
                 self.incremental_attaches.insert(session_id.clone(), attach);
             }
         }
-        self.runtime
-            .session_runtime_mut()
-            .detach_consumer(&session_id)?;
-        self.runtime.handle_client_ingress(
+        let output = self.runtime.handle_client_ingress(
             client_id.clone(),
             TransportIngress::UnsubscribeSession {
                 client_id,
-                session_id,
+                session_id: session_id.clone(),
                 subscription_id,
             },
             now_seconds,
-        )
+        );
+        let _ = self.sync_worker_consumers(&session_id);
+        output
     }
 
     /// Write terminal bytes from a client into the worker-owned PTY.
@@ -1270,10 +1266,6 @@ impl WorkerBackedBotsterEngine {
                         .runtime
                         .session_runtime_mut()
                         .cancel_snapshot_boundary(session_id, &attach.request_id);
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .detach_consumer(session_id);
                     let _ = self.runtime.handle_client_ingress(
                         attach.client_id.clone(),
                         TransportIngress::UnsubscribeSession {
@@ -1366,6 +1358,7 @@ impl WorkerBackedBotsterEngine {
             history_incomplete,
         )?;
         append_engine_output(&mut output, attached);
+        self.sync_worker_consumers(session_id)?;
 
         // Barrier release can leave producer bytes in the capacity-one worker
         // egress. Drain them as live output after Attached so the child can
@@ -1452,9 +1445,6 @@ impl WorkerBackedBotsterEngine {
         };
         self.discard_takeover_pending(&mut attach, &session_id, &client_id)?;
         attach.discard_replaced_owner_queues(&replaced_client, &client_id);
-        self.runtime
-            .session_runtime_mut()
-            .attach_consumer(&session_id)?;
         let output = match self.runtime.begin_snapshot_attach(
             client_id.clone(),
             session_id.clone(),
@@ -1479,7 +1469,8 @@ impl WorkerBackedBotsterEngine {
         attach.subscription_id = subscription_id;
         attach.request_id = request_id;
         attach.ready = false;
-        self.incremental_attaches.insert(session_id, attach);
+        self.incremental_attaches.insert(session_id.clone(), attach);
+        self.sync_worker_consumers(&session_id)?;
         Ok(output)
     }
 
@@ -1489,12 +1480,8 @@ impl WorkerBackedBotsterEngine {
         session_id: &SessionId,
         client_id: &ClientId,
     ) -> Result<(), WorkerBackedBotsterEngineError> {
-        let removed_pending = attach.drop_pending_client(client_id);
-        for _ in 0..removed_pending {
-            self.runtime
-                .session_runtime_mut()
-                .detach_consumer(session_id)?;
-        }
+        let _ = session_id;
+        attach.drop_pending_client(client_id);
         Ok(())
     }
 
@@ -1515,6 +1502,7 @@ impl WorkerBackedBotsterEngine {
             0,
         );
         self.promote_pending_fail_closed(attach, &session_id);
+        let _ = self.sync_worker_consumers(&session_id);
         Err(error.into())
     }
 
@@ -1537,14 +1525,11 @@ impl WorkerBackedBotsterEngine {
                     attach.request_id = request_id;
                     attach.ready = false;
                     self.incremental_attaches.insert(session_id.clone(), attach);
+                    let _ = self.sync_worker_consumers(session_id);
                     return;
                 }
                 Err(_) => {
                     attach.discard_client_queues(&next_client);
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .detach_consumer(session_id);
                     let _ = self.runtime.detach_live_subscription(
                         next_client,
                         session_id.clone(),
@@ -1554,6 +1539,34 @@ impl WorkerBackedBotsterEngine {
                 }
             }
         }
+        let _ = self.sync_worker_consumers(session_id);
+    }
+
+    fn sync_worker_consumers(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        // Stall only after Attached. An in-progress incremental owner still
+        // has an inventory row, but the parent may stop pumping at READY.
+        let mut excluded = HashSet::new();
+        if let Some(attach) = self.incremental_attaches.get(session_id) {
+            excluded.insert((attach.client_id.clone(), attach.subscription_id.clone()));
+            excluded.extend(attach.pending.iter().cloned());
+        }
+        let owners = self
+            .runtime
+            .list_terminal_subscriptions()
+            .into_iter()
+            .filter(|row| {
+                row.session_id == *session_id
+                    && !excluded.contains(&(row.client_id.clone(), row.subscription_id.clone()))
+            })
+            .map(|row| (row.client_id, row.subscription_id))
+            .collect::<Vec<_>>();
+        self.runtime
+            .session_runtime_mut()
+            .replace_named_consumers(session_id, owners)
+            .map_err(Into::into)
     }
 
     fn reconcile_incremental_attach_after_teardown(

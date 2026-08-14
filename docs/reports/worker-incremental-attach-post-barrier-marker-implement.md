@@ -52,9 +52,9 @@ Not loaded:
 
 ## Files changed
 
-- `crates/botster-core/src/engine/botster.rs` — after `Attached`, drain leftover producer output before flushing queued `FRAME_PTY_INPUT`
-- `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a parent consumer is attached; detach returns to overflow
-- `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo pressure test
+- `crates/botster-core/src/engine/botster.rs` — leftover drain after `Attached`; named consumer set synced from live Attached ownership
+- `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a named or direct consumer is present
+- `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo and ownership-transition pressure tests
 - `docs/reports/worker-incremental-attach-post-barrier-marker-implement.md` — this report
 - `docs/archive/plans/worker-incremental-attach-post-barrier-marker.md` — approved plan already in the worktree (Plan artifact)
 
@@ -81,7 +81,7 @@ FINISH → latest queued resize → barrier release → Attached → leftover dr
 
 The leftover drain remains. Review `review_1786739081_180992` reproduced the miss after leftover drain alone: iteration 9 of the focused oracle lost `echo:POST-BARRIER-MARKER`.
 
-This revision stalls live `PtyOutput` only while `attach_consumer` is active. Detach returns the send path to try-send plus overflow so cancel and detached workers still progress. A blocking `send` is not used, so detach can stop a stall without a parent drain.
+This revision stalls live `PtyOutput` only for subscriptions that have reached `Attached`. In-progress incremental owners are excluded so READY-then-cancel still progresses. The set is rebuilt from live inventory after attach, detach, takeover, promotion, and generation detach. A scalar increment/decrement is not used.
 
 ## Tests and downstream proof run
 
@@ -121,7 +121,7 @@ BOTSTER_ENV=test cargo test --workspace
 BOTSTER_ENV=test cargo test --doc --workspace
 ```
 
-Review-response workspace gates:
+Ownership-balance workspace gates:
 
 - `cargo fmt --all -- --check` — pass
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — pass
@@ -139,9 +139,9 @@ No new Hub consumer. The authentic worker PTY + Ghostty daemon test remains the 
 
 ## Missing vault guidance discovered
 
-Captured to inbox after Review's remaining drop diagnosis:
+Captured after the ownership-balance finding:
 
-- `attached parent must stall live PTY bytes`
+- `attached stall follows live subscription ownership`
 
 Do not recapture [[capacity one attach proofs drain pre attach producer output]] or [[incremental GHOSTSNP clients defer resize and input until FINISH and attached]].
 
