@@ -101,6 +101,12 @@ Registered Hub consumers, not implemented here:
 - Facade and `botster-core-dev` consumer proof retry the same typed reason only.
 - Exact ticket command `BOTSTER_ENV=test cargo test --workspace` now exits 0. No `--test-threads=1`.
 
+## Review findings addressed (`review_1786670268_662272`)
+
+- `interval_timer_retries_after_backpressure` starts one occupier and waits until that job is in flight before starting the next occupier. Then it fills the queue and asserts timer backpressure.
+- This matches the worker-engine occupier pattern. Starting both occupiers together could backpressure the second invoke while the first job was still queued (queue capacity 1).
+- Exact ticket command `BOTSTER_ENV=test cargo test --workspace` exits 0, including `interval_timer_retries_after_backpressure`.
+
 ## Deviations from plan
 
 None in product behavior. Implementation details required by correctness:
@@ -113,11 +119,11 @@ None in product behavior. Implementation details required by correctness:
 
 Human correction `question_1786664489_333289`: repository-documented CI Cargo commands. No replacement wrapper.
 
-Passed after Review return `review_1786669717_243333`:
+Passed after Review return `review_1786670268_662272`:
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `BOTSTER_ENV=test cargo test --workspace` (exit 0; includes `drain_completions_honors_item_and_byte_caps`, changed admission tests, doc-tests, and `many_pty_load_adversarial_noisy_reports_reader_backpressure`)
+- `BOTSTER_ENV=test cargo test --workspace` (exit 0; includes `interval_timer_retries_after_backpressure`, `drain_completions_honors_item_and_byte_caps`, changed admission tests, doc-tests, and `many_pty_load_adversarial_noisy_reports_reader_backpressure`)
 
 Production entry points:
 
