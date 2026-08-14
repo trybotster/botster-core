@@ -54,13 +54,10 @@ fn page_until_caught_up(
     loop {
         let after = match &projection.cursor {
             Some(cursor) => cursor.clone(),
-            None => match daemon.lifecycle_baseline() {
-                Ok(baseline) => {
-                    replace_projection(projection, &baseline.sessions, baseline.cursor);
-                    return Ok(());
-                }
-                Err(_) => return Err(HubLifecycleConsumeError::UnknownPageError),
-            },
+            None => {
+                install_baseline(daemon, projection)?;
+                return Ok(());
+            }
         };
         let page = match daemon.lifecycle_changes_page(&after, max_changes, max_bytes) {
             Ok(page) => page,
@@ -71,20 +68,34 @@ fn page_until_caught_up(
                 SessionLifecycleResyncReason::SourceChanged
                 | SessionLifecycleResyncReason::CursorExpired { .. }
                 | SessionLifecycleResyncReason::CursorAhead => {
-                    let baseline = daemon
-                        .lifecycle_baseline()
-                        .map_err(|_| HubLifecycleConsumeError::UnknownPageError)?;
-                    replace_projection(projection, &baseline.sessions, baseline.cursor);
+                    install_baseline(daemon, projection)?;
                     return Ok(());
                 }
                 _ => return Err(HubLifecycleConsumeError::UnknownPageError),
             }
         }
         apply_page(projection, &page);
-        if page.next == page.source_watermark || page.changes.is_empty() {
+        if page.next == page.source_watermark {
+            return Ok(());
+        }
+        if page.changes.is_empty() {
+            // First change cannot fit a valid budget, or max_changes is 0.
+            // This is not catch-up. Recovery is a fresh baseline, not sleep.
+            install_baseline(daemon, projection)?;
             return Ok(());
         }
     }
+}
+
+fn install_baseline(
+    daemon: &CoreDaemon,
+    projection: &mut HubLifecycleProjection,
+) -> Result<(), HubLifecycleConsumeError> {
+    let baseline = daemon
+        .lifecycle_baseline()
+        .map_err(|_| HubLifecycleConsumeError::UnknownPageError)?;
+    replace_projection(projection, &baseline.sessions, baseline.cursor);
+    Ok(())
 }
 
 fn map_page_error(error: SessionLifecyclePageError) -> HubLifecycleConsumeError {
@@ -182,6 +193,54 @@ mod tests {
             mapped,
             HubLifecycleConsumeError::BudgetTooSmall { minimum_bytes } if minimum_bytes > 0
         ));
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hub_shaped_consumer_baselines_when_first_change_does_not_fit() {
+        let data_dir = temp_data_dir("hub-lifecycle-no-progress");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session_id = SessionId("hub-life-no-progress".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("spawn a change larger than the empty page");
+        let source = daemon
+            .lifecycle_baseline()
+            .expect("watermark after spawn")
+            .cursor;
+        let after = SessionLifecycleCursor {
+            source_id: source.source_id.clone(),
+            sequence: 0,
+        };
+        let minimum_bytes = match daemon.lifecycle_changes_page(&after, 8, 0) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("expected BudgetTooSmall, got {other:?}"),
+        };
+        let empty = daemon
+            .lifecycle_changes_page(&after, 8, minimum_bytes)
+            .expect("exact minimum is an empty successful page");
+        assert!(empty.resync_required.is_none());
+        assert!(empty.changes.is_empty());
+        assert_ne!(empty.next, empty.source_watermark);
+
+        let mut projection = HubLifecycleProjection {
+            cursor: Some(after),
+            sessions: BTreeMap::new(),
+        };
+        consume_lifecycle_until_caught_up(&mut daemon, &mut projection, 8, minimum_bytes)
+            .expect("no-progress page must recover, not report catch-up");
+        assert_eq!(
+            projection.cursor.as_ref(),
+            Some(&empty.source_watermark),
+            "baseline recovery must reach the source watermark"
+        );
+        assert!(
+            projection.sessions.contains_key(&session_id.0),
+            "baseline recovery must apply the oversized first change"
+        );
+
+        let _ = daemon.shutdown(Some(session_id), 20);
         let _ = fs::remove_dir_all(data_dir);
     }
 

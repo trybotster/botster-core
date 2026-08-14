@@ -223,7 +223,10 @@ generic facade for custom runtimes.
 6. **Lifecycle projection** — establish one lifecycle baseline, then drive
    `observe_lifecycle` and consume bounded pages through the take / page /
    take-again loop instead of polling `list()`. Resync from a fresh baseline
-   whenever a page returns a resync reason. Raise `max_bytes` to the reported
+   whenever a page returns a resync reason, or when a successful page is
+   empty while `next` is still behind `source_watermark` (the next change
+   does not fit, or `max_changes` is 0). That empty page is not catch-up
+   and must not be followed by sleep. Raise `max_bytes` to the reported
    `minimum_bytes` on `BudgetTooSmall`.
 
 Depth lives in architecture docs:
