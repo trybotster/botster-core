@@ -23,12 +23,17 @@ down the host session.
 ## Bind sequence
 
 1. `attach` assigns a monotonic generation and publishes an inventory row with
-   `adapter_bound=false`.
-2. `bind_terminal_adapter` must present that live generation. Pre-attach bind
-   is a typed error. There is no reservation generation.
+   `adapter_bound=false` and `capabilities=None`.
+2. `bind_terminal_adapter` must present that live generation and a required
+   `TerminalCapabilitySet`. Omission does not compile. An empty set is valid.
+   Pre-attach bind is a typed error. There is no reservation generation. A
+   second bind of the live generation returns `AlreadyBound` and does not
+   replace the adapter or the set.
 3. After bind, that route's terminal frames leave only through
    `TerminalAdapter::try_write`. `drain` / `drain_subscription` do not also
-   return those terminal frames.
+   return those terminal frames. Snapshot frames encode only when the stored
+   set contains `snapshot_delivery=ready_then_history`. Live `TerminalOutput`
+   and `Scrollback` still encode for an empty set.
 4. Unbound subscriptions keep today's `TransportEgress` drain path.
 
 ## Queue and retry
@@ -68,8 +73,11 @@ published conformance harness.
 ## Inventory
 
 `list_terminal_subscriptions()` reports `client_id`, `session_id`,
-`subscription_id`, `generation`, and `adapter_bound`. It does not report
-attach phases, snapshot bytes, queue contents, or decoder state.
+`subscription_id`, `generation`, `adapter_bound`, and `capabilities`. Unbound
+rows report `capabilities=None`. Bound rows report `Some` of the stored set,
+including `Some` empty. Inventory does not report attach phases, snapshot
+bytes, queue contents, or decoder state. The set is protocol tokens only.
+Core does not store host grants.
 
 ## Production path
 

@@ -48,6 +48,13 @@ or `botster-hub-client`.
 Attach field. The default client requirement does not include it.
 `TerminalCompatibilityRequirement::for_ready_then_history_attach()` adds it.
 
+`TerminalCapabilitySet` is the Hub-safe opaque token set for a bound
+subscription. Hub constructs it from advertised feature tokens, including an
+empty intersection. Unknown tokens fail at construction. Core bind stores the
+set and does not inspect host grants. Snapshot encode uses
+`snapshot_delivery=ready_then_history` from this set. `resize` and
+`terminal_streaming` remain protocol tokens for Hub negotiation.
+
 Snapshot `phase` is required on this plane. Current Hub Snapshot JSON is not
 this plane.
 

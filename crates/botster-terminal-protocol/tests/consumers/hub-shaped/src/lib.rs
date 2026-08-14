@@ -1,6 +1,8 @@
 //! Isolated Hub-shaped consumer. Depends only on the opaque protocol crate.
 
-use botster_terminal_protocol::{Attach, TerminalFrame};
+use botster_terminal_protocol::{
+    Attach, TerminalCapabilitySet, TerminalFrame, FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING,
+};
 
 pub fn forward_attach(session_id: &str, subscription_id: &str) -> String {
     let request = Attach {
@@ -15,4 +17,16 @@ pub fn forward_frame(bytes: &[u8]) -> Vec<u8> {
         .expect("opaque frame")
         .to_bytes()
         .expect("emit frame")
+}
+
+pub fn negotiated_capabilities(tokens: &[&str]) -> TerminalCapabilitySet {
+    TerminalCapabilitySet::from_tokens(tokens.iter().copied()).expect("advertised tokens")
+}
+
+pub fn empty_capabilities() -> TerminalCapabilitySet {
+    TerminalCapabilitySet::empty()
+}
+
+pub fn baseline_capabilities() -> TerminalCapabilitySet {
+    negotiated_capabilities(&[FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE])
 }

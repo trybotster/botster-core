@@ -7,7 +7,8 @@ ClientWorker now pushes bound-subscription frames through this trait. See
 [`client-worker-terminal-egress.md`](client-worker-terminal-egress.md). The
 production entry points are `CoreDaemon::bind_terminal_adapter` /
 `DefaultBotsterEngine::bind_terminal_adapter` plus the existing host drain
-tick. Hub Unix and WebRTC adapters are later Hub tickets.
+tick. Bind requires a live generation and an immutable
+`TerminalCapabilitySet`. Hub Unix and WebRTC adapters are later Hub tickets.
 
 ## Adapter vs `TransportEgress`
 

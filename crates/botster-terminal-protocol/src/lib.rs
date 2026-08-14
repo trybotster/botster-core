@@ -11,10 +11,12 @@
 //! Public items are the allowlist below. Adding a public name is a contract
 //! change.
 
+mod capabilities;
 mod compatibility;
 mod frame;
 mod requests;
 
+pub use capabilities::{TerminalCapabilitySet, TerminalCapabilitySetError};
 pub use compatibility::{
     ensure_compatible, TerminalCompatibility, TerminalCompatibilityError,
     TerminalCompatibilityRequirement,
@@ -50,6 +52,8 @@ pub const PUBLIC_API_ALLOWLIST: &[&str] = &[
     "FEATURE_RESIZE",
     "FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY",
     "PUBLIC_API_ALLOWLIST",
+    "TerminalCapabilitySet",
+    "TerminalCapabilitySetError",
     "TerminalCompatibility",
     "TerminalCompatibilityError",
     "TerminalCompatibilityRequirement",

@@ -25,8 +25,8 @@ pub use api::{
     SessionLifecycleSourceId, SpawnSessionRequest,
 };
 pub use botster_core::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
+    TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use daemon::{
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,
