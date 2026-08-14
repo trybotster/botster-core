@@ -5,11 +5,12 @@ use std::time::{Duration, Instant};
 
 use super::{ClientId, SessionId, SubscriptionId, WorkerBackedBotsterEngine};
 use crate::contract::transport::TransportEgress;
-use crate::runtime::SessionSpawnRequest;
+use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::CoreSessionMetadata;
 use crate::{
-    RequestId, ResizePayload, SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState,
-    TerminalScreenSize,
+    QueueSource, RequestId, ResizePayload, SessionRuntimeInput, SessionRuntimeOutput,
+    SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState, TerminalScreenSize,
+    WorkerProcessRuntimeOptions,
 };
 
 fn worker_path() -> std::path::PathBuf {
@@ -123,6 +124,86 @@ fn begin_failure_does_not_publish_the_new_owner() {
     assert!(
         !live.contains(&first),
         "cancelled owner stayed published: {live:?}"
+    );
+}
+
+#[test]
+fn initial_begin_failure_restores_detached_overflow() {
+    let mut options = WorkerProcessRuntimeOptions::new(worker_path());
+    options.egress_capacity = 1;
+    let mut engine = WorkerBackedBotsterEngine::with_options(options);
+    let session_id = SessionId("initial-begin-fail".to_string());
+    let client = ClientId("initial-begin-fail-client".to_string());
+    let subscription = SubscriptionId("initial-begin-fail-sub".to_string());
+    engine
+        .spawn_session(
+            SessionSpawnRequest {
+                request_id: RequestId(format!("{}-spawn", session_id.0)),
+                session_id: session_id.clone(),
+                executable: "sh".to_string(),
+                arguments: vec![
+                    "-c".to_string(),
+                    "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string(),
+                ],
+                working_directory: SpawnWorkingDirectory {
+                    path: ".".to_string(),
+                },
+                environment: SpawnEnvironment::default(),
+                initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+            },
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine.session_runtime_mut().fail_next_snapshot_begins(1);
+    let error = engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect_err("initial begin failure must fail attach");
+    assert!(
+        error
+            .to_string()
+            .contains("injected snapshot begin failure"),
+        "unexpected error: {error}"
+    );
+    let live = engine.list_terminal_subscriptions();
+    assert!(
+        live.is_empty(),
+        "failed pre-boundary attach must leave empty inventory: {live:?}"
+    );
+
+    engine
+        .session_runtime_mut()
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session_id.clone(),
+            data: b"FILL-SLOT\n".to_vec(),
+        })
+        .expect("fill the one-slot parent channel");
+    thread::sleep(Duration::from_millis(80));
+    engine
+        .session_runtime_mut()
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session_id.clone(),
+            data: b"OVERFLOW-MARKER\n".to_vec(),
+        })
+        .expect("second write under capacity one");
+    thread::sleep(Duration::from_millis(80));
+
+    let health = engine
+        .session_runtime_mut()
+        .ping(&session_id)
+        .expect("worker must progress without a parent drain");
+    assert_eq!(health.session_id, session_id);
+
+    let detached = engine
+        .session_runtime_mut()
+        .drain_output(&session_id)
+        .expect("detached drain after failed attach");
+    assert!(
+        detached.iter().any(|event| matches!(
+            event,
+            SessionRuntimeOutput::Backpressure(summary)
+                if summary.source == QueueSource::SessionIo
+        )),
+        "failed initial attach must restore typed detached overflow; drained={detached:?}"
     );
 }
 

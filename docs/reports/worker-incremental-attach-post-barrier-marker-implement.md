@@ -52,8 +52,9 @@ Not loaded:
 
 ## Files changed
 
-- `crates/botster-core/src/engine/botster.rs` — leftover drain after `Attached`; named consumer set synced from live Attached ownership
+- `crates/botster-core/src/engine/botster.rs` — leftover drain after `Attached`; named consumer set synced from live Attached ownership; initial `begin_snapshot_boundary` failure removes the recorded subscription before `sync_worker_consumers`
 - `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a named or direct consumer is present
+- `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs` — injected initial begin-failure rollback: empty inventory, ping without parent drain, typed detached overflow
 - `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo and ownership-transition pressure tests
 - `docs/reports/worker-incremental-attach-post-barrier-marker-implement.md` — this report
 - `docs/archive/plans/worker-incremental-attach-post-barrier-marker.md` — approved plan already in the worktree (Plan artifact)
@@ -82,6 +83,8 @@ FINISH → latest queued resize → barrier release → Attached → leftover dr
 The leftover drain remains. Review `review_1786739081_180992` reproduced the miss after leftover drain alone: iteration 9 of the focused oracle lost `echo:POST-BARRIER-MARKER`.
 
 This revision stalls live `PtyOutput` only for subscriptions that have reached `Attached`. In-progress incremental owners are excluded so READY-then-cancel still progresses. The set is rebuilt from live inventory after attach, detach, takeover, promotion, and generation detach. A scalar increment/decrement is not used.
+
+Initial attach records the subscription inventory row in `begin_snapshot_attach` before `begin_snapshot_boundary`. If that begin fails, the recorded row is detached before `sync_worker_consumers`. Without that rollback the failed pre-boundary row is treated as an Attached owner and stall activates with no drainer.
 
 ## Tests and downstream proof run
 
@@ -128,7 +131,12 @@ Ownership-balance workspace gates:
 - `BOTSTER_ENV=test cargo test --workspace` — exit 0, including `worker_incremental_attach_cancel_releases_snapshot_barrier` and `attached_capacity_one_retains_process_echo_after_terminal_echo`
 - `BOTSTER_ENV=test cargo test --doc --workspace` — pass
 
-Production-path proof: `CoreDaemon::attach` increments the parent consumer count. Later `input` / `resize` / `drain` call `WorkerBackedBotsterEngine::drain_runtime_once`, which drains leftover live bytes after `Attached` and then flushes queued `FRAME_PTY_INPUT`. Live `PtyOutput` stalls while that consumer count is above zero.
+Initial-boundary rollback:
+
+- `BOTSTER_ENV=test cargo test -p botster-core --lib -- initial_begin_failure_restores_detached_overflow` — pass
+- Ablation: removing only the `detach_live_subscription` rollback left inventory `[TerminalSubscriptionRecord { client_id: initial-begin-fail-client, ... }]` and the test failed. Rollback restored after that red run.
+
+Production-path proof: `CoreDaemon::attach` / `input` / `resize` / `drain` call `WorkerBackedBotsterEngine`. After `Attached`, detach, takeover, promotion, generation detach, and failed initial begin, `sync_worker_consumers` rebuilds the named consumer set from live subscription inventory. In-progress incremental owners and pending replacements are excluded until they reach `Attached`. `replace_named_consumers` then installs that set. Live `PtyOutput` retries only while a named or direct consumer remains. There is no scalar consumer count.
 
 No new Hub consumer. The authentic worker PTY + Ghostty daemon test remains the charter proof.
 
