@@ -9,13 +9,11 @@ This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
 Living design belongs here under `docs/architecture/`, not under the retired
 `docs/plans/` stub. See `docs/README.md`.
 
-Revision 3 answers Plan Review `review_1786683591_164254` and human
-answer `question_1786683509_729694`. It does not re-litigate repository
-routing, teardown classification, the Hub dependency, or the already
-resolved revision-2 findings. The remaining product contradiction is the
-undersized-budget case: a successful page must never encode larger than
-`max_bytes`. The human selected a typed minimum-budget error. Do not
-exclude the fixed page envelope from `max_bytes`.
+Revision 4 answers Plan Review `review_1786683950_871736`. It does not
+re-litigate routing, teardown classification, the Hub dependency, the
+BudgetTooSmall algorithm, or resolved earlier findings. The remaining
+product gap is the public-enum compatibility contract for
+`SessionLifecyclePageError`.
 
 This ticket is **runtime-teardown class** because it changes
 terminal-state versus live-runtime observation: session exit must advance
@@ -30,11 +28,9 @@ answers are in this document and must appear in Plan gate evidence.
 - Spawn-target name: `botster-core`
 - Spawn-target path is the admitted `botster-core` target, not the ambient
   pipeline session directory.
-- Current subject revision: `4cdc5d9` on branch
+- Current subject revision: `0f89b01` on branch
   `project-pipelines/ticket_1786663581_962361`
-- Addresses open findings `finding_1786683591_529445` and
-  `finding_1786682974_103248` via human answer
-  `question_1786683509_729694`
+- Addresses open finding `finding_1786683950_438902`
 - Repository playbook: [[botster-core-playbook]]
 - Hub session-type eligibility parent: does not apply
 - Project Pipelines package/plugin paths: out of scope
@@ -222,8 +218,15 @@ Surgical change on the existing `CoreDaemon` lifecycle source:
    Result<SessionLifecyclePage, SessionLifecyclePageError>`.
    `SessionLifecyclePage` carries ordered changes, next cursor, source
    watermark, and the existing explicit resync reasons.
-   `SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }` is the
-   only page error. Algorithm:
+   Publish `SessionLifecyclePageError` as `#[non_exhaustive]` with the
+   first variant `BudgetTooSmall { minimum_bytes }`. This is an explicit
+   compatibility decision under [[botster core public enums are breaking
+   until non exhaustive is decided]]: first publication stays open to
+   later typed page errors without an exhaustive-match break. Do not
+   publish the enum as exhaustive. Downstream matches must handle
+   `BudgetTooSmall` and include a wildcard. Existing
+   `SessionLifecycleChangeKind` and `SessionLifecycleResyncReason` are
+   already `#[non_exhaustive]`; follow that contract. Algorithm:
    1. Validate the cursor first. A changed source, expired cursor, or
       cursor-ahead returns `Ok` with empty `changes` and the exact
       resync reason. That is a control outcome, not a successful page.
@@ -329,6 +332,9 @@ Assumptions:
 - Worktree path has no `:`. Tracked `.gitignore` is present and non-empty.
   No `CARGO_TARGET_DIR` override is required.
 - This is not a Hub session-type eligibility consumer.
+- `SessionLifecyclePageError` is `#[non_exhaustive]` at first publish.
+  That is the compatibility decision. It is not an accepted exhaustive
+  break.
 
 Unknowns Implement must not invent:
 
@@ -479,8 +485,11 @@ Focused during development (no wrapper):
   attach+drain lifecycle test still pass. Drain may still update the
   journal; it is no longer required.
 - Hub-shaped isolated consumer in test-support compiles against
-  observe / wake / page only, never calls Drain, and owns the safe
-  consume loop plus interleaving harness above.
+  observe / wake / page only, never calls Drain, owns the safe
+  consume loop plus interleaving harness above, and matches
+  `SessionLifecyclePageError` as `BudgetTooSmall { .. }` plus a
+  wildcard for unknown future variants. An exhaustive match without
+  `_` is a consumer defect.
 
 Repository gates ([[botster-core uses CI-owned Cargo commands because it
 has no test script]]):
@@ -510,12 +519,13 @@ Capture after implement, not during Plan:
 
 No inbox capture in this Plan visit. The gap is known and named.
 
-## Plan Review findings (revision 3)
+## Plan Review findings (revision 4)
 
 | Finding | Resolution |
 | --- | --- |
-| `finding_1786683591_529445` undersized budgets violate the page bound | Human answer `question_1786683509_729694`: typed `BudgetTooSmall { minimum_bytes }` after cursor validation. Successful pages always encode to `<= max_bytes`. Resync remains a control outcome. |
-| `finding_1786682974_103248` full encoded-page byte bound | Closed by the same contract. `max_bytes` includes the complete successful-page envelope. Tests serialize every successful page. |
+| `finding_1786683950_438902` public page error enum has no compatibility decision | Publish `SessionLifecyclePageError` as `#[non_exhaustive]`. First variant is `BudgetTooSmall`. Hub-shaped consumer matches that variant plus a wildcard. Not an exhaustive break. |
+| `finding_1786683591_529445` undersized budgets violate the page bound | Resolved in revision 3 via human answer `question_1786683509_729694`. |
+| `finding_1786682974_103248` full encoded-page byte bound | Resolved in revision 3. |
 | `finding_1786682974_155478` zero limits hide resync | Resolved in revision 2. Revision 3 keeps resync ahead of `BudgetTooSmall`. |
 | `finding_1786682974_138502` wake/page race | Resolved in revision 2. Unchanged. |
 | `finding_1786682974_859083` sibling isolation | Resolved in revision 2. Unchanged. |
