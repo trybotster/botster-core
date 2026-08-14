@@ -72,6 +72,8 @@ let mut daemon = CoreDaemon::new(
     CoreDaemonConfig::new(data_dir).with_worker_path(session_worker_path),
 );
 // spawn → attach → drain → input → shutdown via CoreDaemon methods
+// bind_terminal_adapter is the advanced bound-adapter path; see
+// docs/architecture/client-worker-terminal-egress.md
 ```
 
 Workers own PTYs and control sockets. Intentional daemon restart can call

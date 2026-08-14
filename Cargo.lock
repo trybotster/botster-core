@@ -78,6 +78,7 @@ dependencies = [
  "base64",
  "botster-core-test-support",
  "botster-terminal-protocol",
+ "botster-terminal-protocol-client",
  "libc",
  "portable-pty",
  "serde",

@@ -11,6 +11,11 @@ use crate::actor::{
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
+use crate::contract::terminal_adapter::TerminalAdapter;
+use crate::contract::terminal_subscription::{
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord,
+};
 use crate::contract::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
 use crate::engine::command::DefaultEngineCommand;
@@ -303,6 +308,70 @@ impl DefaultBotsterEngine {
             .extend(initial_snapshot.session_events);
         output.observations.extend(initial_snapshot.observations);
         Ok(output)
+    }
+
+    /// Bind a content-blind adapter to a live attach generation.
+    pub fn bind_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        adapter: Box<dyn TerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        self.runtime.bind_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            adapter,
+        )
+    }
+
+    /// Control-plane subscription inventory.
+    #[must_use]
+    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+        self.runtime.list_terminal_subscriptions()
+    }
+
+    /// Detach one live generation if present.
+    pub fn detach_terminal_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        now_seconds: u64,
+    ) -> Result<(DetachTerminalSubscriptionResult, BotsterEngineOutput), DefaultBotsterEngineError>
+    {
+        self.runtime.detach_terminal_subscription(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            now_seconds,
+        )
+    }
+
+    /// Live generation for a subscription, if any.
+    #[must_use]
+    pub fn terminal_subscription_generation(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<TerminalSubscriptionGeneration> {
+        self.runtime
+            .terminal_subscription_generation(session_id, subscription_id)
+    }
+
+    /// Whether a bound adapter is still held.
+    #[must_use]
+    pub fn adapter_is_bound(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.runtime.adapter_is_bound(session_id, subscription_id)
     }
 
     /// Detach a client from a session stream.
@@ -759,6 +828,107 @@ impl WorkerBackedBotsterEngine {
         Ok(output)
     }
 
+    /// Bind a content-blind adapter to a live attach generation.
+    pub fn bind_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        adapter: Box<dyn TerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        self.runtime.bind_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            adapter,
+        )
+    }
+
+    /// Control-plane subscription inventory.
+    #[must_use]
+    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+        self.runtime.list_terminal_subscriptions()
+    }
+
+    /// Detach one live generation if present.
+    pub fn detach_terminal_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        now_seconds: u64,
+    ) -> Result<
+        (DetachTerminalSubscriptionResult, BotsterEngineOutput),
+        WorkerBackedBotsterEngineError,
+    > {
+        if self
+            .runtime
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| {
+                row.session_id == session_id
+                    && row.subscription_id == subscription_id
+                    && row.generation == generation
+            })
+        {
+            if let Some(mut attach) = self.incremental_attaches.remove(&session_id) {
+                if attach.client_id == client_id && attach.subscription_id == subscription_id {
+                    self.runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
+                    if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+                        attach.client_id = next_client;
+                        attach.subscription_id = next_subscription;
+                        attach.request_id = self
+                            .runtime
+                            .session_runtime_mut()
+                            .begin_snapshot_boundary(&session_id)?;
+                        attach.ready = false;
+                        self.incremental_attaches.insert(session_id.clone(), attach);
+                    }
+                } else {
+                    attach
+                        .pending
+                        .retain(|(pending_client, pending_subscription)| {
+                            pending_client != &client_id || pending_subscription != &subscription_id
+                        });
+                    self.incremental_attaches.insert(session_id.clone(), attach);
+                }
+            }
+        }
+        self.runtime.detach_terminal_subscription(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            now_seconds,
+        )
+    }
+
+    /// Live generation for a subscription, if any.
+    #[must_use]
+    pub fn terminal_subscription_generation(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<TerminalSubscriptionGeneration> {
+        self.runtime
+            .terminal_subscription_generation(session_id, subscription_id)
+    }
+
+    /// Whether a bound adapter is still held.
+    #[must_use]
+    pub fn adapter_is_bound(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.runtime.adapter_is_bound(session_id, subscription_id)
+    }
+
     /// Detach a client from a session stream.
     pub fn detach_client(
         &mut self,
@@ -975,6 +1145,8 @@ impl WorkerBackedBotsterEngine {
             }
             let phase = frame.phase.expect("snapshot phase was validated above");
             let snapshot = frame.snapshot.expect("snapshot bytes were validated above");
+            self.runtime
+                .note_snapshot_phase(session_id, &attach.subscription_id, phase);
             let frame_output = match self.runtime.snapshot_attach_frame(
                 attach.client_id.clone(),
                 session_id.clone(),
@@ -1000,6 +1172,9 @@ impl WorkerBackedBotsterEngine {
 
         if !finished {
             self.incremental_attaches.insert(session_id.clone(), attach);
+            self.reconcile_incremental_attach_after_teardown(session_id)?;
+            let pumped = self.runtime.pump_bound_adapters()?;
+            append_engine_output(&mut output, pumped);
             return Ok(output);
         }
 
@@ -1081,7 +1256,43 @@ impl WorkerBackedBotsterEngine {
             suppress_attach_terminal_output(&mut live, session_id, current);
         }
         append_engine_output(&mut output, live);
+        self.reconcile_incremental_attach_after_teardown(session_id)?;
+        let pumped = self.runtime.pump_bound_adapters()?;
+        append_engine_output(&mut output, pumped);
         Ok(output)
+    }
+
+    fn reconcile_incremental_attach_after_teardown(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        let Some(attach) = self.incremental_attaches.get(session_id) else {
+            return Ok(());
+        };
+        if self
+            .runtime
+            .has_terminal_subscription(session_id, &attach.subscription_id)
+        {
+            return Ok(());
+        }
+        let mut attach = self
+            .incremental_attaches
+            .remove(session_id)
+            .expect("incremental attach existed above");
+        self.runtime
+            .session_runtime_mut()
+            .cancel_snapshot_boundary(session_id, &attach.request_id)?;
+        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+            attach.client_id = next_client;
+            attach.subscription_id = next_subscription;
+            attach.request_id = self
+                .runtime
+                .session_runtime_mut()
+                .begin_snapshot_boundary(session_id)?;
+            attach.ready = false;
+            self.incremental_attaches.insert(session_id.clone(), attach);
+        }
+        Ok(())
     }
 
     /// Read a session's plain screen state through the worker-backed managed runtime.

@@ -7,6 +7,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-botster-core = { path = "../../../../botster-core", default-features = false }
+botster-core = { path = "../../../../botster-core" }
 botster-core-test-support = { path = "../../..", default-features = false }
 botster-terminal-protocol = { path = "../../../../botster-terminal-protocol" }

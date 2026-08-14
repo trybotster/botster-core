@@ -38,6 +38,7 @@ use botster_core_test_support::conformance::{
     assert_color_profile_authority, assert_ghostty_snapshot_authority, assert_mode_flags_authority,
     GHOSTSNP_MAGIC,
 };
+use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
     COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
@@ -1311,6 +1312,139 @@ fn worker_incremental_attach_blank_history_is_ready_finish_attached() {
         }
     }
     assert_eq!(sequence, ["attaching", "ready", "finish", "attached"]);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
+    let data_dir = temp_data_dir("worker-bound-adapter");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-bound-adapter-session".to_string());
+    let client_id = ClientId("worker-bound-adapter-client".to_string());
+    let subscription_id = SubscriptionId("worker-bound-adapter-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string();
+    daemon.spawn(request, 10).expect("spawn bound worker");
+    let initial = daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("start bound attach");
+    assert!(matches!(
+        &initial.client_egress[0],
+        (_, TransportEgress::AttachState { .. })
+    ));
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory after attach")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            Box::new(adapter.clone()),
+        )
+        .expect("bind worker adapter");
+
+    let started = Instant::now();
+    let mut phases = Vec::new();
+    let mut sent_live_input = false;
+    let mut saw_live = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let drained = daemon.drain(&session_id, 20).expect("drain bound worker");
+        assert!(
+            drained.client_egress.iter().all(|(_, frame)| {
+                !matches!(
+                    frame,
+                    TransportEgress::Snapshot {
+                        subscription_id: route,
+                        ..
+                    }
+                    | TransportEgress::TerminalOutput {
+                        subscription_id: route,
+                        ..
+                    }
+                    | TransportEgress::AttachState {
+                        subscription_id: route,
+                        ..
+                    } if route == &subscription_id
+                )
+            }),
+            "bound route must not appear on drain: {:?}",
+            drained.client_egress
+        );
+        for bytes in adapter.snapshot_delivered_frame_bytes() {
+            let value: serde_json::Value =
+                serde_json::from_slice(&bytes).expect("opaque frame is JSON");
+            match value.get("type").and_then(serde_json::Value::as_str) {
+                Some("snapshot") => {
+                    if let Some(phase) = value.get("phase").and_then(serde_json::Value::as_str) {
+                        if !phases.iter().any(|seen| seen == phase) {
+                            phases.push(phase.to_string());
+                        }
+                    }
+                }
+                Some("attach_state") => {
+                    if value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+                        && !phases.iter().any(|seen| seen == "attached")
+                    {
+                        phases.push("attached".to_string());
+                    }
+                }
+                Some("terminal_output") => {
+                    if sent_live_input {
+                        saw_live = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if phases.iter().any(|phase| phase == "attached") && !sent_live_input {
+            daemon
+                .input(
+                    client_id.clone(),
+                    session_id.clone(),
+                    b"BOUND-LIVE\n".to_vec(),
+                    21,
+                )
+                .expect("post-attach live input");
+            sent_live_input = true;
+        }
+        if phases
+            .windows(2)
+            .any(|window| window == ["ready", "finish"])
+            && saw_live
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        phases
+            .windows(2)
+            .any(|window| window == ["ready", "finish"]),
+        "bound adapter must receive READY then FINISH: {phases:?}"
+    );
+    assert!(saw_live, "bound adapter must receive live output");
+    assert!(daemon
+        .list()
+        .expect("list")
+        .iter()
+        .any(|row| row.session_id == session_id));
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -6241,20 +6375,36 @@ fn drain_until_for_client(
     client_id: &ClientId,
     expected: &str,
 ) -> botster_core_daemon::DrainResult {
+    let started = Instant::now();
+    let mut last_progress = started;
+    let mut last_output_length = 0;
+    let mut tick = 0;
     let mut aggregate = botster_core_daemon::DrainResult::default();
-    for tick in 0..100 {
+    loop {
         let drained = daemon
             .drain(session_id, 20 + tick)
             .expect("daemon drain should succeed");
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        if renderable_output_for_client(&aggregate.client_egress, client_id).contains(expected) {
+        let output = renderable_output_for_client(&aggregate.client_egress, client_id);
+        if output.contains(expected) {
             return aggregate;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let now = Instant::now();
+        if output.len() != last_output_length {
+            last_progress = now;
+            last_output_length = output.len();
+        }
+        assert!(
+            now.duration_since(last_progress) < REAL_WORKER_IDLE_TIMEOUT
+                && now.duration_since(started) < REAL_WORKER_COMPLETION_TIMEOUT,
+            "queued client output never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last output: {output:?}"
+        );
+        tick += 1;
+        std::thread::sleep(Duration::from_millis(10));
     }
-    aggregate
 }
 
 fn read_screen_until(
