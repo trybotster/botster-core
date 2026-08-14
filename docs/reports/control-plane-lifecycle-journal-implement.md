@@ -93,6 +93,12 @@ recovery: an empty successful page behind the watermark installs a
 fresh baseline. The consume loop now does that; it is not a new
 product decision.
 
+Verify finding `finding_1786686896_451624` is a merge conflict, not a
+product change. This visit merged current `origin/main` (`f4f6bf5`) and
+kept both `SessionRuntimeErrorKind` (this ticket) and
+`TerminalCapabilitySet` (main) in the daemon integration-test import
+list.
+
 Implementation details inside the contract:
 
 - `ObserveLifecycleResult` lives next to `CoreDaemonError` rather than in `api.rs`, to avoid an `api`/`daemon` module cycle.

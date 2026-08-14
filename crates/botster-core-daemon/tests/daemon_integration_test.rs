@@ -19,8 +19,8 @@ use botster_core::{
     RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
     SessionId, SessionLifecycleState, SessionRuntimeErrorKind, SessionSpawnRequest,
     SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalAttachState, TerminalColorProfile, TransportEgress,
-    MAX_CORE_SESSION_METADATA_LEN,
+    SubscriptionId, TerminalAttachState, TerminalCapabilitySet, TerminalColorProfile,
+    TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest,
@@ -1438,6 +1438,8 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
             session_id.clone(),
             subscription_id.clone(),
             generation,
+            TerminalCapabilitySet::from_tokens(["snapshot_delivery=ready_then_history"])
+                .expect("advertised optional token"),
             Box::new(adapter.clone()),
         )
         .expect("bind worker adapter");
