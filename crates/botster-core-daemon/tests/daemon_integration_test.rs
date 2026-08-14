@@ -4368,7 +4368,7 @@ fn observe_slice_dropped_cursor_is_resync_not_a_complete_suffix() {
         .expect("partial");
     let foreign = ObserveLifecycleCursor {
         pass_id: ObserveLifecyclePassId("foreign-pass".to_string()),
-        last_visited: first.clone(),
+        last_visited: Some(first.clone()),
     };
     let dropped = daemon
         .observe_lifecycle_slice(13, Some(&foreign), observe_item_budget(8))
@@ -4419,7 +4419,7 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
 
     let stale_earlier = ObserveLifecycleCursor {
         pass_id: second_slice.pass_id.clone(),
-        last_visited: first.clone(),
+        last_visited: Some(first.clone()),
     };
     let earlier = daemon
         .observe_lifecycle_slice(13, Some(&stale_earlier), observe_item_budget(8))
@@ -4433,7 +4433,7 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
 
     let forged_later = ObserveLifecycleCursor {
         pass_id: second_slice.pass_id.clone(),
-        last_visited: third.clone(),
+        last_visited: Some(third.clone()),
     };
     let later = daemon
         .observe_lifecycle_slice(14, Some(&forged_later), observe_item_budget(8))
@@ -4465,7 +4465,10 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
 #[test]
 fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
     let data_dir = temp_data_dir("lifecycle-observe-frozen-remaining");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let born = SessionId("s05a-mid-pass-birth".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_fail_runtime_drain_for(Some(born.clone())),
+    );
     let mut ids = Vec::new();
     for index in 0..12 {
         let session_id = SessionId(format!("s{index:02}-frozen-remaining"));
@@ -4477,7 +4480,6 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
     let first = daemon
         .observe_lifecycle_slice(11, None, observe_item_budget(1))
         .expect("mint snapshot");
-    let born = SessionId("s99-mid-pass-birth".to_string());
     daemon
         .spawn(spawn_request(&born), 12)
         .expect("mid-pass birth");
@@ -4487,6 +4489,10 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
             .observe_lifecycle_slice(13 + tick, Some(&resume), observe_item_budget(1))
             .expect("resume from snapshot");
         assert_ne!(slice.last_visited.as_ref(), Some(&born));
+        assert!(slice
+            .session_errors
+            .iter()
+            .all(|error| error.session_id != born));
         if slice.complete {
             assert_eq!(slice.last_visited.as_ref(), ids.last());
             break;
@@ -4496,8 +4502,11 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
     let new_pass = daemon
         .observe_lifecycle_slice(30, None, observe_item_budget(32))
         .expect("new pass sees the birth");
-    assert_eq!(new_pass.last_visited.as_ref(), Some(&born));
     assert!(new_pass.complete);
+    assert!(new_pass
+        .session_errors
+        .iter()
+        .any(|error| error.session_id == born));
 
     for session_id in ids {
         daemon.shutdown(Some(session_id), 40).ok();
@@ -4617,7 +4626,7 @@ fn observe_slice_publishes_zero_client_exit_without_drain() {
             .as_ref()
             .map(|last_visited| ObserveLifecycleCursor {
                 pass_id: slice.pass_id.clone(),
-                last_visited: last_visited.clone(),
+                last_visited: Some(last_visited.clone()),
             });
         if complete {
             break;
@@ -7300,10 +7309,7 @@ fn observe_item_budget(max_sessions: usize) -> ObserveLifecycleBudget {
 fn observe_resume(slice: &ObserveLifecycleSlice) -> ObserveLifecycleCursor {
     ObserveLifecycleCursor {
         pass_id: slice.pass_id.clone(),
-        last_visited: slice
-            .last_visited
-            .clone()
-            .expect("resume requires a visited session"),
+        last_visited: slice.last_visited.clone(),
     }
 }
 

@@ -310,19 +310,23 @@ post-visit message.
 
 Other slice rules:
 
-- `resume = None` mints a new pass id and starts at the first live
-  `SessionId`.
+- `resume = None` mints a new pass id over the daemon's ordered
+  live-session index. The pass records the current generation and
+  final `SessionId` without listing or sorting the full engine set.
 - `resume = Some(cursor)` continues that pass only when
-  `cursor.pass_id` matches the daemon's open pass. Otherwise return
+  `cursor.pass_id` and optional `cursor.last_visited` match the
+  daemon's open pass. Otherwise return
   `resync_required` with empty progress and `complete = false`.
   Never present a guessed suffix as `complete = true`.
+- Elapsed setup can yield before the first visit. That result has
+  `last_visited = None` and remains resumable through the same pass.
 - After a visit, `last_visited` is that `SessionId` even if the
-  session then exits or is absent from the next live list.
+  session then exits or leaves the ordered index.
 - `complete = true` only when this pass has attempted every live
-  session that existed in deterministic order from the pass start
-  (sessions that appear after the start are included only if they
-  sort after `last_visited`; do not go back). After `complete`, the
-  next useful call is a new pass.
+  session in the generation recorded at pass start. Generation tags
+  exclude every mid-pass birth. Later calls scan only the ordered
+  suffix after `last_visited`. After `complete`, the next useful call
+  is a new pass.
 - If `last_visited` is no longer live, resume at the first live id
   strictly greater than it. That is still the same pass.
 - Per-session drain errors stay retained on the typed outcome and
@@ -401,14 +405,14 @@ bounded journal page. No `CoreDaemon::drain`. No terminal client.
 | `teardown_bounds` | One slice is one non-blocking host tick bounded by item, encoded-result, and elapsed budgets. It must not `block_on(close)`, wait for PTY death, or call `drain_runtime_all_once`. Existing ClientWorker hard-stop remains synchronous close+drop on the tick that observes `ProcessExited` for a visited bound subscription. An unvisited exiting session waits for a later slice or a new pass. Page/baseline reads do not block. |
 | `late_message_matrix` | Revision 4 matrix plus the rows below. |
 | `production_path_proof` | Worker-backed or local self-exit, zero attaches, no `CoreDaemon::drain`. Host runs sliced observe (N, yield, resume) until a later slice publishes `Exited`, then a bounded journal page shows that upsert. Dropped observe cursor returns resync or requires a new pass; a suffix walk must not report `complete`. Paged baseline at one snapshot reconstructs `lifecycle_baseline()` when read to `complete`. Red-on-revert: switching the slice to `drain_runtime_all_once`, restarting the walk on resume, or marking an incomplete baseline `complete` fails those tests. |
-| `ownership_identity` | Observe pass identity is an opaque `ObserveLifecyclePassId` plus `last_visited SessionId`. Journal identity remains `(source_id, sequence)`. Baseline snapshot identity is that journal cursor at mint. Terminal subscription identity remains `(session_id, subscription_id, generation)`. Delayed Drain or a late `ProcessExited` must not append a second identical `Exited` upsert. A stale observe pass id must not complete a different pass. |
+| `ownership_identity` | Observe pass identity is an opaque `ObserveLifecyclePassId` plus optional `last_visited SessionId`; `None` identifies a setup-only yield. The pass stores a live-session generation watermark and final key. Journal identity remains `(source_id, sequence)`. Baseline snapshot identity is that journal cursor at mint. Terminal subscription identity remains `(session_id, subscription_id, generation)`. Delayed Drain or a late `ProcessExited` must not append a second identical `Exited` upsert. A stale observe pass id must not complete a different pass. |
 | `sibling_fail_closed_policy` | Success: siblings keep running. A retained observe error does not fail the daemon or unvisited siblings. An incomplete slice is not a sibling sacrifice. Ultimate wrapper/slice failure does not kill sibling sessions. |
 
 Late-message matrix additions:
 
 | Message | Tag / owner | After terminal failure / exit | Residual sweep |
 | --- | --- | --- | --- |
-| `observe_lifecycle_slice` | `(pass_id, last_visited)` | stale pass → resync, `complete = false`; per-session drain errors retained | later ids in the slice still run; unvisited ids wait |
+| `observe_lifecycle_slice` | `(pass_id, optional last_visited)` | stale pass → resync, `complete = false`; per-session drain errors retained | later ids in the slice still run; unvisited ids wait |
 | `observe_lifecycle` wrapper | new unbounded pass | same per-session retain as today | full remaining live set |
 | `lifecycle_baseline_page` | snapshot `SessionLifecycleCursor` | unknown/dropped snapshot → resync, `complete = false` | recover with `snapshot = None` |
 | Spawn / Attach / Bind / Drain / Input / `remove_session` / `lifecycle_changes_page` | unchanged from Revision 4 | unchanged | unchanged |
@@ -429,11 +433,12 @@ Late-message matrix additions:
 ### Assumptions and unknowns
 
 - Assumed: Hub Stage A will call `resume = None` to start a pass and
-  pass the returned cursor to continue. That matches "caller requests
-  a new pass."
+  pass the returned cursor to continue. The cursor contains an optional
+  `last_visited`, because elapsed setup can yield before the first
+  visit. That matches "caller requests a new pass."
 - Assumed: `max_elapsed` uses `std::time::Instant` as a yield bound.
-  Tests prove the elapsed stop with `Duration::ZERO` (visits none
-  remaining) rather than a flaky sleep. If Plan Review requires a
+  Tests prove the elapsed stop with `Duration::ZERO` on the first call
+  and on resumed work rather than a flaky sleep. If Plan Review requires a
   injected clock, add a test-only deadline override on
   `CoreDaemonConfig` without making production policy clocked.
 - Assumed: freezing one baseline snapshot in daemon memory is
@@ -503,7 +508,10 @@ Focused during development (no wrapper script):
   resume the same pass, assert the second slice does not re-visit the
   first N ids, and a later slice reports `complete`.
 - Each budget stops remaining visits: item count, reserved-error
-  encoded bytes, and `max_elapsed = Duration::ZERO`.
+  encoded bytes, and `max_elapsed = Duration::ZERO`. A deterministic
+  large-index test proves the first call yields before an index scan,
+  returns `complete = false`, and supplies the `last_visited = None`
+  continuation. Later owner turns complete from the ordered suffix.
 - Long-error and JSON-escape boundary: inject drain errors whose
   `Display` text is (a) longer than 256 bytes, (b) 256 NULs, (c)
   quotes and backslashes, (d) control bytes, and (e) multibyte

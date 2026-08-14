@@ -1,8 +1,9 @@
 //! Core daemon supervisor and typed API implementation.
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, VecDeque},
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap, VecDeque},
     hash::{Hash, Hasher},
+    ops::Bound::{Excluded, Included, Unbounded},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -340,15 +341,25 @@ pub struct CoreDaemon {
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
     journal_advanced: bool,
     observe_pass: Option<ObservePassState>,
+    observe_live_sessions: BTreeMap<String, u64>,
+    observe_live_generation: u64,
     baseline_freeze: Option<BaselineFreeze>,
-    observe_live_lists: u64,
+    #[cfg(test)]
+    observe_index_scans: u64,
     running: bool,
 }
 
 struct ObservePassState {
     pass_id: ObserveLifecyclePassId,
     last_visited: Option<SessionId>,
-    remaining: Vec<SessionId>,
+    generation: u64,
+    final_session_id: Option<String>,
+}
+
+enum NextObserveSession {
+    Session(SessionId),
+    Complete,
+    Elapsed,
 }
 
 #[derive(Clone)]
@@ -444,8 +455,11 @@ impl CoreDaemon {
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
             observe_pass: None,
+            observe_live_sessions: BTreeMap::new(),
+            observe_live_generation: 0,
             baseline_freeze: None,
-            observe_live_lists: 0,
+            #[cfg(test)]
+            observe_index_scans: 0,
             running: true,
         }
     }
@@ -473,6 +487,7 @@ impl CoreDaemon {
         let spawn = self
             .engine
             .spawn_session(request.request, request.metadata)?;
+        self.track_live_session(&session_id);
         let mut record = RegistryRecord::running(
             session_id,
             Some(spawn.handle.process),
@@ -732,14 +747,15 @@ impl CoreDaemon {
     /// Advance a bounded slice of live sessions in deterministic `SessionId`
     /// order.
     ///
-    /// `resume = None` mints a new pass and snapshots the ordered live set.
+    /// `resume = None` mints a new pass over the ordered live-session index.
     /// `resume = Some(cursor)` continues only when `pass_id` and
     /// `last_visited` both match that snapshot; otherwise the result is a
     /// resync with `complete = false` and no suffix. Later slices walk the
-    /// remaining snapshot and do not rescan or sort the live set. Sessions
-    /// that appear after mint wait for a new pass. Item, encoded-result, and
-    /// elapsed limits each stop before remaining sessions are visited.
-    /// Elapsed starts at API entry and includes snapshot setup. Byte
+    /// unvisited ordered suffix and do not list or sort the full live set.
+    /// Generation tags exclude sessions that appear after mint. Item,
+    /// encoded-result, and elapsed limits each stop before remaining sessions
+    /// are visited. Elapsed starts at API entry and includes pass setup. A
+    /// setup-only yield resumes with `last_visited = None`. Byte
     /// admission uses a reserved 256-`x` error before each visit because
     /// `observe_session` cannot be rolled back.
     pub fn observe_lifecycle_slice(
@@ -1473,6 +1489,7 @@ impl CoreDaemon {
             supports_snapshot_boundary,
             record.metadata.clone(),
         )?;
+        self.track_live_session(session_id);
         if let Some(mut record) = self.registry.load(session_id)? {
             record.mark(RegistrySessionState::Running, now_seconds);
             self.registry.save(&record)?;
@@ -1513,6 +1530,7 @@ impl CoreDaemon {
             );
         }
         self.retained_terminal.remove(session_id);
+        self.observe_live_sessions.remove(&session_id.0);
         self.drop_pending_drain(session_id);
         self.append_lifecycle_change(SessionLifecycleChangeKind::Removed {
             session_id: session_id.clone(),
@@ -1922,56 +1940,80 @@ impl CoreDaemon {
         budget: ObserveLifecycleBudget,
     ) -> Result<ObserveLifecycleWalk, SessionLifecyclePageError> {
         let started = Instant::now();
-        let (pass_id, last_visited, remaining) = match resume {
-            None => (new_observe_pass_id(), None, self.live_session_ids()),
+        let mut pass = match resume {
+            None => ObservePassState {
+                pass_id: new_observe_pass_id(),
+                last_visited: None,
+                generation: self.observe_live_generation,
+                final_session_id: self
+                    .observe_live_sessions
+                    .last_key_value()
+                    .map(|(id, _)| id.clone()),
+            },
             Some(cursor) => {
                 let matches_open = self.observe_pass.as_ref().is_some_and(|pass| {
                     pass.pass_id == cursor.pass_id
-                        && pass.last_visited.as_ref() == Some(&cursor.last_visited)
+                        && pass.last_visited.as_ref() == cursor.last_visited.as_ref()
                 });
                 if !matches_open {
                     return Ok(observe_pass_unavailable(cursor.pass_id.clone()));
                 }
-                let pass = self
-                    .observe_pass
+                self.observe_pass
                     .take()
-                    .expect("open observe pass matched resume identity");
-                (pass.pass_id, pass.last_visited, pass.remaining)
+                    .expect("open observe pass matched resume identity")
             }
         };
 
-        if let Some(next) = remaining.first() {
-            let candidate = reserved_observe_slice(&pass_id, next, remaining.len() == 1, &[]);
-            let minimum_bytes = encoded_observe_slice_len(&candidate);
-            if budget.max_encoded_result_bytes < minimum_bytes {
-                if resume.is_some() {
-                    self.observe_pass = Some(ObservePassState {
-                        pass_id,
-                        last_visited,
-                        remaining,
-                    });
-                }
-                return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
-            }
-        }
-
         let mut committed_errors = Vec::new();
         let mut typed_errors = Vec::new();
-        let mut visited = last_visited;
-        let mut remaining_iter = remaining.into_iter().peekable();
         let mut remaining_visits = budget.max_sessions;
+        let mut visited_this_call = false;
+        let mut complete = false;
 
-        while let Some(next) = remaining_iter.peek().cloned() {
-            if remaining_visits == 0 || started.elapsed() >= budget.max_elapsed {
+        loop {
+            if pass.final_session_id.is_none() {
+                complete = true;
                 break;
             }
-            let complete = remaining_iter.len() == 1;
-            let candidate = reserved_observe_slice(&pass_id, &next, complete, &committed_errors);
-            if encoded_observe_slice_len(&candidate) > budget.max_encoded_result_bytes {
+            if remaining_visits == 0 {
                 break;
             }
-            remaining_iter.next();
+            let next = match self.next_observe_session(&pass, started, budget.max_elapsed) {
+                NextObserveSession::Session(next) => next,
+                NextObserveSession::Complete => {
+                    complete = true;
+                    break;
+                }
+                NextObserveSession::Elapsed => break,
+            };
+            let candidate_completes = pass.final_session_id.as_deref() == Some(next.0.as_str());
+            let candidate = reserved_observe_slice(
+                &pass.pass_id,
+                &next,
+                candidate_completes,
+                &committed_errors,
+            );
+            let candidate_bytes = encoded_observe_slice_len(&candidate);
+            if candidate_bytes > budget.max_encoded_result_bytes {
+                if !visited_this_call {
+                    let minimum_bytes = encoded_observe_slice_len(&reserved_observe_slice(
+                        &pass.pass_id,
+                        &next,
+                        candidate_completes,
+                        &[],
+                    ));
+                    if resume.is_some() {
+                        self.observe_pass = Some(pass);
+                    }
+                    return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
+                }
+                break;
+            }
+            if started.elapsed() >= budget.max_elapsed {
+                break;
+            }
             remaining_visits = remaining_visits.saturating_sub(1);
+            visited_this_call = true;
             if let Err(error) = self.observe_session(&next, now_seconds) {
                 committed_errors.push(ObserveLifecycleSliceError {
                     session_id: next.clone(),
@@ -1982,20 +2024,20 @@ impl CoreDaemon {
                     error,
                 });
             }
-            visited = Some(next);
+            pass.last_visited = Some(next);
+            if candidate_completes {
+                complete = true;
+                break;
+            }
         }
 
-        let leftover: Vec<SessionId> = remaining_iter.collect();
-        let complete = leftover.is_empty();
-        self.observe_pass = Some(ObservePassState {
-            pass_id: pass_id.clone(),
-            last_visited: visited.clone(),
-            remaining: leftover,
-        });
+        let pass_id = pass.pass_id.clone();
+        let last_visited = pass.last_visited.clone();
+        self.observe_pass = Some(pass);
         Ok(ObserveLifecycleWalk {
             slice: ObserveLifecycleSlice {
                 pass_id,
-                last_visited: visited,
+                last_visited,
                 complete,
                 session_errors: committed_errors,
                 resync_required: None,
@@ -2004,16 +2046,51 @@ impl CoreDaemon {
         })
     }
 
-    fn live_session_ids(&mut self) -> Vec<SessionId> {
-        self.observe_live_lists = self.observe_live_lists.saturating_add(1);
-        let mut session_ids: Vec<SessionId> = self
-            .engine
-            .list_sessions()
-            .into_iter()
-            .map(|session| session.session_id)
-            .collect();
-        session_ids.sort_by(|left, right| left.0.cmp(&right.0));
-        session_ids
+    fn track_live_session(&mut self, session_id: &SessionId) {
+        self.observe_live_generation = self.observe_live_generation.saturating_add(1);
+        self.observe_live_sessions
+            .insert(session_id.0.clone(), self.observe_live_generation);
+    }
+
+    fn next_observe_session(
+        &mut self,
+        pass: &ObservePassState,
+        started: Instant,
+        max_elapsed: Duration,
+    ) -> NextObserveSession {
+        let Some(final_session_id) = pass.final_session_id.as_ref() else {
+            return NextObserveSession::Complete;
+        };
+        let (next, scans) = {
+            let mut scans = 0_u64;
+            let mut next = NextObserveSession::Complete;
+            let start = pass
+                .last_visited
+                .as_ref()
+                .map_or(Unbounded, |last| Excluded(last.0.clone()));
+            for (session_id, generation) in self
+                .observe_live_sessions
+                .range((start, Included(final_session_id.clone())))
+            {
+                if started.elapsed() >= max_elapsed {
+                    next = NextObserveSession::Elapsed;
+                    break;
+                }
+                scans = scans.saturating_add(1);
+                if *generation <= pass.generation {
+                    next = NextObserveSession::Session(SessionId(session_id.clone()));
+                    break;
+                }
+            }
+            (next, scans)
+        };
+        #[cfg(test)]
+        {
+            self.observe_index_scans = self.observe_index_scans.saturating_add(scans);
+        }
+        #[cfg(not(test))]
+        let _ = scans;
+        next
     }
 
     fn mint_baseline_freeze(&self) -> Result<BaselineFreeze, CoreDaemonError> {
@@ -3042,8 +3119,10 @@ mod terminal_backend_failure_tests {
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
             observe_pass: None,
+            observe_live_sessions: BTreeMap::new(),
+            observe_live_generation: 0,
             baseline_freeze: None,
-            observe_live_lists: 0,
+            observe_index_scans: 0,
             running: true,
         }
     }
@@ -3117,7 +3196,60 @@ mod observe_pass_snapshot_tests {
     use botster_core::{CoreSessionMetadata, SpawnEnvironment, SpawnWorkingDirectory};
 
     #[test]
-    fn resume_does_not_list_live_sessions_again() {
+    fn first_pass_can_yield_before_scanning_a_large_live_index() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-observe-large-index-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        for index in 0..100_000_u64 {
+            daemon.observe_live_generation = index + 1;
+            daemon
+                .observe_live_sessions
+                .insert(format!("session-{index:06}"), index + 1);
+        }
+
+        let first_slice = daemon
+            .observe_lifecycle_slice(
+                12,
+                None,
+                ObserveLifecycleBudget {
+                    max_sessions: usize::MAX,
+                    max_encoded_result_bytes: usize::MAX,
+                    max_elapsed: Duration::ZERO,
+                },
+            )
+            .expect("first elapsed yield");
+        assert!(!first_slice.complete);
+        assert!(first_slice.last_visited.is_none());
+        assert!(first_slice.resync_required.is_none());
+        assert_eq!(daemon.observe_index_scans, 0);
+        let resume = ObserveLifecycleCursor {
+            pass_id: first_slice.pass_id,
+            last_visited: None,
+        };
+        let resumed = daemon
+            .observe_lifecycle_slice(
+                13,
+                Some(&resume),
+                ObserveLifecycleBudget {
+                    max_sessions: usize::MAX,
+                    max_encoded_result_bytes: usize::MAX,
+                    max_elapsed: Duration::ZERO,
+                },
+            )
+            .expect("resumed elapsed yield");
+        assert!(!resumed.complete);
+        assert!(resumed.last_visited.is_none());
+        assert_eq!(daemon.observe_index_scans, 0);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn resume_scans_only_the_unvisited_live_suffix() {
         let data_dir = std::env::temp_dir().join(format!(
             "botster-observe-list-count-{}",
             SystemTime::now()
@@ -3139,19 +3271,37 @@ mod observe_pass_snapshot_tests {
             max_encoded_result_bytes: 16 * 1024,
             max_elapsed: Duration::MAX,
         };
-        let first_slice = daemon
-            .observe_lifecycle_slice(12, None, budget)
-            .expect("mint");
-        assert_eq!(daemon.observe_live_lists, 1);
+        let yielded = daemon
+            .observe_lifecycle_slice(
+                12,
+                None,
+                ObserveLifecycleBudget {
+                    max_sessions: 1,
+                    max_encoded_result_bytes: 16 * 1024,
+                    max_elapsed: Duration::ZERO,
+                },
+            )
+            .expect("yield before first visit");
+        assert_eq!(daemon.observe_index_scans, 0);
         let resume = ObserveLifecycleCursor {
-            pass_id: first_slice.pass_id.clone(),
-            last_visited: first_slice.last_visited.clone().expect("visited"),
+            pass_id: yielded.pass_id,
+            last_visited: None,
         };
-        let second_slice = daemon
+        let first_slice = daemon
             .observe_lifecycle_slice(13, Some(&resume), budget)
             .expect("resume");
-        assert_eq!(daemon.observe_live_lists, 1);
+        assert_eq!(daemon.observe_index_scans, 1);
+        assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
+        let resume = ObserveLifecycleCursor {
+            pass_id: first_slice.pass_id.clone(),
+            last_visited: first_slice.last_visited.clone(),
+        };
+        let second_slice = daemon
+            .observe_lifecycle_slice(14, Some(&resume), budget)
+            .expect("second resume");
+        assert_eq!(daemon.observe_index_scans, 2);
         assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
+        assert!(second_slice.complete);
         daemon.shutdown(Some(first), 20).ok();
         daemon.shutdown(Some(second), 21).ok();
         let _ = std::fs::remove_dir_all(data_dir);
