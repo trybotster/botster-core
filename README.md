@@ -173,7 +173,9 @@ Production hosts that maintain a session projection start with
 `CoreDaemon::lifecycle_baseline_page` until `complete`, retain that snapshot
 sequence, and call `CoreDaemon::observe_lifecycle_slice` to advance
 control-plane facts without a terminal client or Hub terminal Drain. A slice
-returns a resume cursor; the next call continues that pass until `complete`.
+returns a resume cursor; the next call continues that pass only when
+`pass_id` and `last_visited` match the open snapshot. Later slices do
+not rescan the live set. Mid-pass births wait for a new pass.
 An incomplete baseline page is not finished ended evidence.
 `lifecycle_baseline` and `observe_lifecycle` remain unbounded compatibility
 wrappers. Consume `CoreDaemon::lifecycle_changes_page` after taking the

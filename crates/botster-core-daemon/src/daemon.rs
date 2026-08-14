@@ -341,13 +341,14 @@ pub struct CoreDaemon {
     journal_advanced: bool,
     observe_pass: Option<ObservePassState>,
     baseline_freeze: Option<BaselineFreeze>,
+    observe_live_lists: u64,
     running: bool,
 }
 
 struct ObservePassState {
     pass_id: ObserveLifecyclePassId,
-    #[allow(dead_code)]
     last_visited: Option<SessionId>,
+    remaining: Vec<SessionId>,
 }
 
 #[derive(Clone)]
@@ -444,6 +445,7 @@ impl CoreDaemon {
             journal_advanced: false,
             observe_pass: None,
             baseline_freeze: None,
+            observe_live_lists: 0,
             running: true,
         }
     }
@@ -730,12 +732,16 @@ impl CoreDaemon {
     /// Advance a bounded slice of live sessions in deterministic `SessionId`
     /// order.
     ///
-    /// `resume = None` mints a new pass. `resume = Some(cursor)` continues
-    /// that pass only when `cursor.pass_id` matches the open pass; otherwise
-    /// the result is a resync with `complete = false` and no suffix. Item,
-    /// encoded-result, and elapsed limits each stop before remaining sessions
-    /// are visited. Byte admission uses a reserved 256-`x` error before each
-    /// visit because `observe_session` cannot be rolled back.
+    /// `resume = None` mints a new pass and snapshots the ordered live set.
+    /// `resume = Some(cursor)` continues only when `pass_id` and
+    /// `last_visited` both match that snapshot; otherwise the result is a
+    /// resync with `complete = false` and no suffix. Later slices walk the
+    /// remaining snapshot and do not rescan or sort the live set. Sessions
+    /// that appear after mint wait for a new pass. Item, encoded-result, and
+    /// elapsed limits each stop before remaining sessions are visited.
+    /// Elapsed starts at API entry and includes snapshot setup. Byte
+    /// admission uses a reserved 256-`x` error before each visit because
+    /// `observe_session` cannot be rolled back.
     pub fn observe_lifecycle_slice(
         &mut self,
         now_seconds: u64,
@@ -755,6 +761,14 @@ impl CoreDaemon {
         }
         self.observe_lifecycle_walk(now_seconds, resume, budget)
             .map(|walk| walk.slice)
+    }
+
+    /// How many times this daemon listed and sorted live sessions for observe.
+    ///
+    /// A pass snapshots that set once. Resume slices must not increment this.
+    #[must_use]
+    pub const fn observe_live_list_count(&self) -> u64 {
+        self.observe_live_lists
     }
 
     /// Take the coalesced journal-advanced wake bit.
@@ -1915,46 +1929,40 @@ impl CoreDaemon {
         resume: Option<&ObserveLifecycleCursor>,
         budget: ObserveLifecycleBudget,
     ) -> Result<ObserveLifecycleWalk, SessionLifecyclePageError> {
-        let (pass_id, last_visited) = match resume {
-            None => (new_observe_pass_id(), None),
+        let started = Instant::now();
+        let (pass_id, last_visited, remaining) = match resume {
+            None => (new_observe_pass_id(), None, self.live_session_ids()),
             Some(cursor) => {
-                let matches_open = self
-                    .observe_pass
-                    .as_ref()
-                    .is_some_and(|pass| pass.pass_id == cursor.pass_id);
+                let matches_open = self.observe_pass.as_ref().is_some_and(|pass| {
+                    pass.pass_id == cursor.pass_id
+                        && pass.last_visited.as_ref() == Some(&cursor.last_visited)
+                });
                 if !matches_open {
-                    return Ok(ObserveLifecycleWalk {
-                        slice: ObserveLifecycleSlice {
-                            pass_id: cursor.pass_id.clone(),
-                            last_visited: None,
-                            complete: false,
-                            session_errors: Vec::new(),
-                            resync_required: Some(
-                                SessionLifecycleResyncReason::ObservePassUnavailable,
-                            ),
-                        },
-                        session_errors: Vec::new(),
-                    });
+                    return Ok(observe_pass_unavailable(cursor.pass_id.clone()));
                 }
-                (cursor.pass_id.clone(), Some(cursor.last_visited.clone()))
+                let pass = self
+                    .observe_pass
+                    .take()
+                    .expect("open observe pass matched resume identity");
+                (pass.pass_id, pass.last_visited, pass.remaining)
             }
         };
-
-        let remaining: Vec<SessionId> = self
-            .live_session_ids()
-            .into_iter()
-            .filter(|session_id| session_id_after(session_id, last_visited.as_ref()))
-            .collect();
 
         if let Some(next) = remaining.first() {
             let candidate = reserved_observe_slice(&pass_id, next, remaining.len() == 1, &[]);
             let minimum_bytes = encoded_observe_slice_len(&candidate);
             if budget.max_encoded_result_bytes < minimum_bytes {
+                if resume.is_some() {
+                    self.observe_pass = Some(ObservePassState {
+                        pass_id,
+                        last_visited,
+                        remaining,
+                    });
+                }
                 return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
             }
         }
 
-        let started = Instant::now();
         let mut committed_errors = Vec::new();
         let mut typed_errors = Vec::new();
         let mut visited = last_visited;
@@ -1985,10 +1993,12 @@ impl CoreDaemon {
             visited = Some(next);
         }
 
-        let complete = remaining_iter.peek().is_none();
+        let leftover: Vec<SessionId> = remaining_iter.collect();
+        let complete = leftover.is_empty();
         self.observe_pass = Some(ObservePassState {
             pass_id: pass_id.clone(),
             last_visited: visited.clone(),
+            remaining: leftover,
         });
         Ok(ObserveLifecycleWalk {
             slice: ObserveLifecycleSlice {
@@ -2002,7 +2012,8 @@ impl CoreDaemon {
         })
     }
 
-    fn live_session_ids(&self) -> Vec<SessionId> {
+    fn live_session_ids(&mut self) -> Vec<SessionId> {
+        self.observe_live_lists = self.observe_live_lists.saturating_add(1);
         let mut session_ids: Vec<SessionId> = self
             .engine
             .list_sessions()
@@ -2147,10 +2158,16 @@ fn reserved_observe_slice(
     }
 }
 
-fn session_id_after(session_id: &SessionId, after: Option<&SessionId>) -> bool {
-    match after {
-        None => true,
-        Some(after) => session_id.0.as_str() > after.0.as_str(),
+fn observe_pass_unavailable(pass_id: ObserveLifecyclePassId) -> ObserveLifecycleWalk {
+    ObserveLifecycleWalk {
+        slice: ObserveLifecycleSlice {
+            pass_id,
+            last_visited: None,
+            complete: false,
+            session_errors: Vec::new(),
+            resync_required: Some(SessionLifecycleResyncReason::ObservePassUnavailable),
+        },
+        session_errors: Vec::new(),
     }
 }
 
@@ -3034,6 +3051,7 @@ mod terminal_backend_failure_tests {
             journal_advanced: false,
             observe_pass: None,
             baseline_freeze: None,
+            observe_live_lists: 0,
             running: true,
         }
     }

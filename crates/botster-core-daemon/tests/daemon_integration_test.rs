@@ -4394,6 +4394,123 @@ fn observe_slice_dropped_cursor_is_resync_not_a_complete_suffix() {
 
 #[cfg(unix)]
 #[test]
+fn observe_slice_same_pass_cursor_must_match_last_visited() {
+    let data_dir = temp_data_dir("lifecycle-observe-cursor-identity");
+    let first = SessionId("a-cursor-identity".to_string());
+    let second = SessionId("b-cursor-identity".to_string());
+    let third = SessionId("c-cursor-identity".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    for session_id in [&first, &second, &third] {
+        daemon
+            .spawn(spawn_request(session_id), 10)
+            .expect("identity spawn");
+    }
+    let first_slice = daemon
+        .observe_lifecycle_slice(11, None, observe_item_budget(1))
+        .expect("first");
+    let second_slice = daemon
+        .observe_lifecycle_slice(
+            12,
+            Some(&observe_resume(&first_slice)),
+            observe_item_budget(1),
+        )
+        .expect("second");
+    assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
+
+    let stale_earlier = ObserveLifecycleCursor {
+        pass_id: second_slice.pass_id.clone(),
+        last_visited: first.clone(),
+    };
+    let earlier = daemon
+        .observe_lifecycle_slice(13, Some(&stale_earlier), observe_item_budget(8))
+        .expect("stale earlier");
+    assert!(!earlier.complete);
+    assert!(earlier.last_visited.is_none());
+    assert!(matches!(
+        earlier.resync_required,
+        Some(SessionLifecycleResyncReason::ObservePassUnavailable)
+    ));
+
+    let forged_later = ObserveLifecycleCursor {
+        pass_id: second_slice.pass_id.clone(),
+        last_visited: third.clone(),
+    };
+    let later = daemon
+        .observe_lifecycle_slice(14, Some(&forged_later), observe_item_budget(8))
+        .expect("forged later");
+    assert!(!later.complete);
+    assert!(later.last_visited.is_none());
+    assert!(matches!(
+        later.resync_required,
+        Some(SessionLifecycleResyncReason::ObservePassUnavailable)
+    ));
+
+    let resumed = daemon
+        .observe_lifecycle_slice(
+            15,
+            Some(&observe_resume(&second_slice)),
+            observe_item_budget(8),
+        )
+        .expect("honest resume still works");
+    assert!(resumed.complete);
+    assert_eq!(resumed.last_visited.as_ref(), Some(&third));
+
+    for session_id in [first, second, third] {
+        daemon.shutdown(Some(session_id), 20).ok();
+    }
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
+    let data_dir = temp_data_dir("lifecycle-observe-frozen-remaining");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut ids = Vec::new();
+    for index in 0..12 {
+        let session_id = SessionId(format!("s{index:02}-frozen-remaining"));
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("bulk spawn");
+        ids.push(session_id);
+    }
+    let first = daemon
+        .observe_lifecycle_slice(11, None, observe_item_budget(1))
+        .expect("mint snapshot");
+    assert_eq!(daemon.observe_live_list_count(), 1);
+    let born = SessionId("s99-mid-pass-birth".to_string());
+    daemon
+        .spawn(spawn_request(&born), 12)
+        .expect("mid-pass birth");
+    let mut resume = observe_resume(&first);
+    for tick in 0..11 {
+        let slice = daemon
+            .observe_lifecycle_slice(13 + tick, Some(&resume), observe_item_budget(1))
+            .expect("resume from snapshot");
+        assert_eq!(daemon.observe_live_list_count(), 1);
+        assert_ne!(slice.last_visited.as_ref(), Some(&born));
+        if slice.complete {
+            assert_eq!(slice.last_visited.as_ref(), ids.last());
+            break;
+        }
+        resume = observe_resume(&slice);
+    }
+    let new_pass = daemon
+        .observe_lifecycle_slice(30, None, observe_item_budget(32))
+        .expect("new pass sees the birth");
+    assert_eq!(daemon.observe_live_list_count(), 2);
+    assert_eq!(new_pass.last_visited.as_ref(), Some(&born));
+    assert!(new_pass.complete);
+
+    for session_id in ids {
+        daemon.shutdown(Some(session_id), 40).ok();
+    }
+    daemon.shutdown(Some(born), 41).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn lifecycle_baseline_pages_reconstruct_the_full_snapshot() {
     let data_dir = temp_data_dir("lifecycle-baseline-pages");
     let first = SessionId("a-baseline-page".to_string());

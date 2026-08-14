@@ -26,6 +26,12 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         "Stage A baseline install must use the paged freeze"
     );
     assert!(
+        source.contains("fn observe_lifecycle_stage_a")
+            && source.contains("observe_lifecycle_resume_cursor")
+            && !source.contains("let mut resume = None;"),
+        "Stage A observe must be one slice per owner turn"
+    );
+    assert!(
         source.contains("lifecycle_changes_page"),
         "consumer must page through the bounded API"
     );

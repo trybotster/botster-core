@@ -136,31 +136,28 @@ fn install_baseline(
     }
 }
 
-/// Stage A observe: slice until complete or a zero-progress yield.
+/// Stage A observe: one owner-turn slice. The caller owns the resume cursor.
 pub fn observe_lifecycle_stage_a(
     daemon: &mut CoreDaemon,
     now_seconds: u64,
+    resume: Option<&ObserveLifecycleCursor>,
     budget: ObserveLifecycleBudget,
 ) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError> {
-    let mut resume = None;
-    loop {
-        let slice = daemon.observe_lifecycle_slice(now_seconds, resume.as_ref(), budget)?;
-        if slice.resync_required.is_some() {
-            return Ok(slice);
-        }
-        if slice.complete {
-            return Ok(slice);
-        }
-        match &slice.last_visited {
-            Some(last_visited) => {
-                resume = Some(ObserveLifecycleCursor {
-                    pass_id: slice.pass_id.clone(),
-                    last_visited: last_visited.clone(),
-                });
-            }
-            None => return Ok(slice),
-        }
+    daemon.observe_lifecycle_slice(now_seconds, resume, budget)
+}
+
+/// Resume cursor from a progressing slice, if this pass can continue.
+#[must_use]
+pub fn observe_lifecycle_resume_cursor(
+    slice: &ObserveLifecycleSlice,
+) -> Option<ObserveLifecycleCursor> {
+    if slice.complete || slice.resync_required.is_some() {
+        return None;
     }
+    Some(ObserveLifecycleCursor {
+        pass_id: slice.pass_id.clone(),
+        last_visited: slice.last_visited.clone()?,
+    })
 }
 
 fn map_page_error(error: SessionLifecyclePageError) -> HubLifecycleConsumeError {
@@ -236,6 +233,7 @@ mod tests {
         let observed = observe_lifecycle_stage_a(
             &mut daemon,
             11,
+            None,
             ObserveLifecycleBudget {
                 max_sessions: 8,
                 max_encoded_result_bytes: 16 * 1024,
@@ -247,6 +245,45 @@ mod tests {
         assert!(observed.session_errors.is_empty());
         let _ = daemon.take_journal_advanced_wake();
         let _ = daemon.shutdown(Some(session_id), 20);
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hub_shaped_stage_a_yields_between_owner_turns() {
+        let data_dir = temp_data_dir("hub-lifecycle-owner-turns");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let first = SessionId("a-hub-owner-turn".to_string());
+        let second = SessionId("b-hub-owner-turn".to_string());
+        daemon
+            .spawn(spawn_request(&first), 10)
+            .expect("first owner-turn spawn");
+        daemon
+            .spawn(spawn_request(&second), 11)
+            .expect("second owner-turn spawn");
+        let budget = ObserveLifecycleBudget {
+            max_sessions: 1,
+            max_encoded_result_bytes: 16 * 1024,
+            max_elapsed: std::time::Duration::from_secs(1),
+        };
+        let first_slice = observe_lifecycle_stage_a(&mut daemon, 12, None, budget)
+            .expect("first owner turn");
+        assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
+        assert!(!first_slice.complete);
+        let resume = observe_lifecycle_resume_cursor(&first_slice)
+            .expect("caller owns the resume cursor");
+        let _ = daemon.take_journal_advanced_wake();
+        let listed = daemon
+            .list()
+            .expect("host can do ready work between owner turns");
+        assert!(listed.iter().any(|session| session.session_id == first));
+        let second_slice =
+            observe_lifecycle_stage_a(&mut daemon, 13, Some(&resume), budget)
+                .expect("second owner turn");
+        assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
+        assert!(second_slice.complete);
+        let _ = daemon.shutdown(Some(first), 20);
+        let _ = daemon.shutdown(Some(second), 21);
         let _ = fs::remove_dir_all(data_dir);
     }
 

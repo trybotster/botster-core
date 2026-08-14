@@ -135,9 +135,12 @@ visits live sessions in deterministic `SessionId` order under item, encoded-
 result, and elapsed budgets. It drains and reconciles each visited session
 independently, retains incidental terminal egress for a later `drain`, and
 continues after a per-session error. A later call with the returned cursor
-resumes that pass; `resume = None` starts a new pass. A dropped pass cursor
-returns a resync with `complete = false` and never presents a suffix as
-finished. It does not call `drain_runtime_all_once` and returns no terminal
+resumes that pass only when `pass_id` and `last_visited` both match the
+open snapshot; otherwise the result is a resync with `complete = false`.
+`resume = None` starts a new pass and snapshots the ordered live set.
+Later slices walk that remaining snapshot and do not rescan. Sessions that
+appear after mint wait for a new pass. Elapsed starts at API entry and
+includes snapshot setup. It does not call `drain_runtime_all_once` and returns no terminal
 bytes, phases, snapshots, attach state, or `ProcessExited` frames.
 `observe_lifecycle` remains the unbounded compatibility wrapper that starts a
 new pass and visits every remaining live session. Page, wake, and baseline
