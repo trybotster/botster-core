@@ -43,6 +43,8 @@ import {
   type TerminalOutput,
   type ProcessExit,
   type AttachState,
+  type TerminalCompatibilityRequirement,
+  type TerminalEvent,
 } from "@trybotster/terminal-protocol";
 
 const phase: SnapshotPhase = "ready";
@@ -79,12 +81,22 @@ const attachState: AttachState = {
   subscription_id: "sub",
   state: "attached",
 };
+const requirement: TerminalCompatibilityRequirement = {
+  protocol: PROTOCOL,
+  protocol_version: PROTOCOL_VERSION,
+  required_features: [FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE],
+  minimum_conformance_fixture_revision: 1,
+  client_name: "terminal-protocol-node-smoke",
+};
+const events: TerminalEvent[] = [snapshot, output, exitEvent, attachState];
 
 void attach;
 void snapshot;
 void output;
 void exitEvent;
 void attachState;
+void requirement;
+void events;
 void PROTOCOL;
 void PROTOCOL_VERSION;
 void FEATURE_TERMINAL_STREAMING;
