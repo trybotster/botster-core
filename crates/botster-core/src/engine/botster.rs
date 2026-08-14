@@ -130,16 +130,20 @@ impl IncrementalAttach {
         removed
     }
 
-    fn discard_replaced_owner_queues(&mut self, replaced_client: &ClientId, new_client: &ClientId) {
-        self.queued_input
-            .retain(|(owner, _, _)| owner != replaced_client && owner != new_client);
+    fn discard_client_queues(&mut self, client_id: &ClientId) {
+        self.queued_input.retain(|(owner, _, _)| owner != client_id);
         if self
             .queued_resize
             .as_ref()
-            .is_some_and(|(owner, ..)| owner == replaced_client || owner == new_client)
+            .is_some_and(|(owner, ..)| owner == client_id)
         {
             self.queued_resize = None;
         }
+    }
+
+    fn discard_replaced_owner_queues(&mut self, replaced_client: &ClientId, new_client: &ClientId) {
+        self.discard_client_queues(replaced_client);
+        self.discard_client_queues(new_client);
     }
 }
 
@@ -226,6 +230,26 @@ mod incremental_pending_tests {
             attach.queued_resize,
             Some((ClientId("sibling".to_string()), 30, 100, 2))
         );
+    }
+
+    #[test]
+    fn discard_client_queues_drops_only_that_client() {
+        let mut attach = IncrementalAttach {
+            client_id: ClientId("active".to_string()),
+            subscription_id: SubscriptionId("active-sub".to_string()),
+            request_id: "req".to_string(),
+            ready: false,
+            pending: VecDeque::new(),
+            queued_input: vec![
+                (ClientId("failed".to_string()), b"stale".to_vec(), 1),
+                (ClientId("kept".to_string()), b"keep".to_vec(), 2),
+            ],
+            queued_resize: Some((ClientId("failed".to_string()), 30, 100, 3)),
+        };
+        attach.discard_client_queues(&ClientId("failed".to_string()));
+        assert_eq!(attach.queued_input.len(), 1);
+        assert_eq!(attach.queued_input[0].0, ClientId("kept".to_string()));
+        assert_eq!(attach.queued_resize, None);
     }
 }
 
@@ -1531,6 +1555,7 @@ impl WorkerBackedBotsterEngine {
                     return Err(error.into());
                 }
                 Err(_) => {
+                    attach.discard_client_queues(&next_client);
                     let _ = self
                         .runtime
                         .session_runtime_mut()
