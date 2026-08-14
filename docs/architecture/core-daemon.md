@@ -87,11 +87,15 @@ and pending drains before publishing the lifecycle `Removed` change.
 Hosts that maintain a session projection use the public `CoreDaemon` lifecycle
 source instead of repeatedly polling `list()`. `lifecycle_baseline_page`
 returns one frozen snapshot sequence, bounded rows, bounded encoded bytes,
-a next-row cursor, and an explicit `complete` flag. `snapshot = None` mints
-the freeze from `load_all()` and the current journal watermark. Later pages
-at that sequence must not re-read a mutated registry. An incomplete page is
-not finished ended evidence. `lifecycle_baseline()` remains the unbounded
-compatibility reader that loads every row in one call. Each
+a bounded elapsed yield, a next-row cursor, and an explicit `complete`
+flag. `snapshot = None` mints the freeze at the current journal watermark
+and walks the registry directory under the call budget. Later pages at
+that sequence continue the same freeze and must not re-read a mutated
+registry. Setup-only and index-in-progress yields keep the freeze
+identity and are not complete. An incomplete page is not finished ended
+evidence. `lifecycle_baseline()` remains the unbounded compatibility
+reader that loads every row in one call. Hub Stage A must not call it.
+Each
 row carries durable `DaemonSession` facts, the exact opaque host metadata from
 the authoritative registry record, and, when this daemon currently owns or
 adopted the runtime, its in-memory `SessionLifecycleState`. A fresh daemon can

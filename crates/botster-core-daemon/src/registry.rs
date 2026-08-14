@@ -168,6 +168,24 @@ impl SessionRegistry {
         Ok(Some(serde_json::from_slice(&data)?))
     }
 
+    /// Load one record, skipping malformed JSON like [`Self::load_all`].
+    ///
+    /// Missing and malformed files return `Ok(None)`. Only I/O fails.
+    pub fn load_skip_malformed(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<RegistryRecord>, SessionRegistryError> {
+        let path = self.record_path(session_id);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let data = fs::read(path)?;
+        match serde_json::from_slice(&data) {
+            Ok(record) => Ok(Some(record)),
+            Err(_) => Ok(None),
+        }
+    }
+
     /// Load every registry record.
     pub fn load_all(&self) -> Result<Vec<RegistryRecord>, SessionRegistryError> {
         if !self.root.exists() {
