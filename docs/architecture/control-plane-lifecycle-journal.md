@@ -1,0 +1,414 @@
+# Control-plane lifecycle journal wake and page API
+
+Plan for ticket `ticket_1786663581_962361`: make session lifecycle
+progress independent of Hub terminal Drain by updating the existing
+control-plane journal from Core runtime and ClientWorker lifecycle facts,
+then publishing one coalesced journal-advanced wake and a bounded page API.
+
+This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
+Living design belongs here under `docs/architecture/`, not under the retired
+`docs/plans/` stub. See `docs/README.md`.
+
+This ticket is **runtime-teardown class** because it changes
+terminal-state versus live-runtime observation: session exit must advance
+the control-plane journal without a terminal client and without Hub
+terminal Drain. [[botster runtime teardown lenses]] applies. Required lens
+answers are in this document and must appear in Plan gate evidence.
+
+## Target
+
+- Target repository: `botster-core`
+- Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
+- Spawn-target name: `botster-core`
+- Spawn-target path is the admitted `botster-core` target, not the ambient
+  pipeline session directory.
+- Current subject revision: `ce7474a` on branch
+  `project-pipelines/ticket_1786663581_962361`
+- Repository playbook: [[botster-core-playbook]]
+- Hub session-type eligibility parent: does not apply
+- Project Pipelines package/plugin paths: out of scope
+
+Resolved from `list_spawn_targets` via ticket `target_id`. Not inferred from
+the process working directory.
+
+## Playbooks and notes loaded
+
+Role and overlay:
+
+- [[planner-playbook]]
+- [[botster-planner-playbook]]
+- [[botster-core-playbook]]
+- [[botster-architecture]]
+- [[cli-patterns]] (mixed-generation index only; ownership from the charter)
+- [[spa-patterns]] (loaded per planner overlay; no SPA surface in this ticket)
+- [[botster runtime teardown lenses]]
+- [[botster-runtime-reviewer-playbook]]
+- [[botster-runtime-verifier-playbook]]
+- [[project pipeline orchestration belongs in a device-level botster plugin]]
+- [[project pipelines needs an operator workbench not more primitives]]
+- [[project pipelines ui contract belongs in the plugin readme]]
+- [[botster orchestration should spawn agents with explicit target ids]]
+- [[botster orchestration prompts must bind agents to explicit worktrees]]
+- [[plan steps need reviewable plan artifacts]]
+- [[vault example paths are not repository placement conventions]]
+- [[botster core historical plan docs should not sit beside living architecture]]
+- [[plan agents must author vault context as wikilinks not home paths]]
+- [[pipeline vault checklists must cite exact resolvable note titles]]
+- [[pipeline artifacts should cite vault notes by wikilink not home path]]
+- [[pipeline artifacts should use path neutral worktree references]]
+- [[botster-core uses CI-owned Cargo commands because it has no test script]]
+- [[prefer framework and library components over custom solutions]]
+- [[colon worktree paths break cargo dyld library paths]]
+- [[hearth gate runs require restoring a pipeline wiped gitignore before attribution]]
+
+Not loaded:
+
+- [[project-pipelines-playbook]] — Project Pipelines package/plugin paths
+  are out of scope.
+- [[botster-hub-playbook]] / [[botster-hub-client-playbook]] /
+  [[botster-web-playbook]] / [[botster-tui-playbook]] /
+  [[botster-tui-kit-playbook]] / [[botster-terminal-ghostty-playbook]] —
+  not the target repository charter. Cross-repo seams are named below
+  without substituting those charters.
+
+Targeted atomic notes:
+
+- [[hub drain advances non attached session lifecycle]]
+- [[lifecycle guards evaluated before the reconciling drain are one call stale]]
+- [[botster core hosts need an explicit drain loop contract]]
+- [[proposed ProcessExited closes terminal subscriptions but not the host session]]
+- [[proposed transport lifecycle lets control connections outlive terminal subscriptions]]
+- [[transport ownership north star for modular Botster is proposed]]
+- [[terminal subscription lifecycle is Core owned while host session policy is Hub owned]]
+- [[public protocol versions host control and Core terminal planes independently]]
+- [[botster core contract surface needs consumer proof]]
+- [[botster core public surface needs a narrow start here path]]
+- [[botster core public enums are breaking until non exhaustive is decided]]
+- [[public dto field additions are source breaking without non exhaustive]]
+- [[core daemon lifecycle metadata is registry backed restart state]]
+- [[persisted core session metadata is revalidated against the current size cap]]
+- [[botster engine command surface uses botsterengine as facade]]
+- [[Hub embeds CoreDaemon behind one client admission point]]
+- [[Core terminal subscription ownership is session, subscription, and generation]]
+- [[Core ClientWorker bind requires a live attach generation]]
+- [[Core subscription hard-stop is synchronous close and drop on the host tick]]
+- [[sessionio hard socket death must fan process exited to clientworkers]]
+- [[botster durable terminal egress is owned by sessionio and clientworker actors]]
+- [[botster data plane bypasses the hub through session and client actors]]
+- [[Hub synchronizes plugin workers with session lifecycle events and a baseline]]
+- [[Core class-aware plugin admission reserves request-response executors]]
+  (sibling Event Plane work; do not change here)
+
+## Context loaded
+
+### Ticket and project
+
+Project `project_1786663508_823105` (`Botster Non-Blocking Event Plane`)
+assigns Core the control-plane session lifecycle journal, bounded journal
+pages, and one coalesced lifecycle wake. Hub later owns one canonical
+session projection over those pages. Hub must never use terminal Drain,
+terminal silence, terminal output, ProcessExited decoding, or attach state
+to infer lifecycle.
+
+This ticket's closed parent is
+`ticket_1786661004_845807` (`Core: push ClientWorker terminal egress and
+own terminal subscription teardown`). That work shipped adapter-bound
+ClientWorker push, ProcessExited-as-final-terminal-frame, and subscription
+hard-stop. It did not decouple control-plane journal progress from
+`CoreDaemon::drain`.
+
+Hub consumer ticket `ticket_1786663582_169720` already depends on this
+ticket. Do not implement Hub projection, package events, or client event
+subscriptions here.
+
+### Current Core code
+
+`CoreDaemon` already has an in-memory lifecycle journal:
+
+- `lifecycle_baseline()` returns registry rows plus a source-generation
+  watermark.
+- `lifecycle_changes(after)` returns every retained change after a cursor,
+  or an empty list with `source_changed`, `cursor_expired`, or
+  `cursor_ahead`.
+- Journal capacity defaults to 1,024. Duplicate repeated observations do
+  not append.
+- `SessionLifecycleChange` is already control-plane-only: upsert/remove of
+  `DaemonSession` + host metadata + optional `SessionLifecycleState`.
+
+The journal does **not** yet have:
+
+- a coalesced journal-advanced wake bit
+- `lifecycle_changes_page(after, max_changes, max_bytes)`
+- a next-cursor-plus-watermark page type
+- a control-plane progress path that can observe exit without
+  `CoreDaemon::drain`
+
+Today `append_lifecycle_upsert` runs from spawn, adoption, resize persist,
+shutdown, explicit remove, and `reconcile_lifecycle_observations`.
+Reconciliation of natural process exit is reached only from
+`CoreDaemon::drain` / `drain_subscription` and shutdown. The existing
+worker-backed proof
+`worker_backed_lifecycle_source_drives_projection_through_exit_and_removal`
+attaches a client and loops `drain` until the journal shows `Exited`.
+
+Engine lifecycle itself still advances when `drain_runtime_once` routes
+`SessionIoEvent::ProcessExited` through `apply_session_event_activity`.
+`drain_runtime_once` also calls `apply_client_worker`, which delivers
+terminal-plane `ProcessExited` and then hard-stops bound subscriptions.
+Those facts already exist. The missing production entry is a daemon method
+that observes them without returning terminal Drain results to the host.
+
+Current docs still say lifecycle consumption does not advance runtimes and
+that the host must drain first. That sentence is the defect this ticket
+removes for control-plane observation. Page/baseline reads stay
+side-effect-free.
+
+Hub already forwards `lifecycle_baseline` / `lifecycle_changes` and seeds
+entity reconciliation from the baseline. Hub still discovers natural exit
+by draining. This run does not change Hub.
+
+### Convention conflict
+
+[[botster-runtime-reviewer-playbook]] still says no-Attach fast-exit proof
+must use `Drain` to emit the exact exited lifecycle event before
+`ListSessions` reports exited. [[hub drain advances non attached session
+lifecycle]] records that same historical daemon contract.
+
+This ticket and the Event Plane project charter supersede that Drain
+requirement. Implement must not keep Drain as the required no-Attach
+progress oracle. After this change lands, those two notes become capture
+candidates (see Vault gaps). Do not rewrite the vault in this Plan visit.
+
+## Scope
+
+Surgical change on the existing `CoreDaemon` lifecycle source:
+
+1. Keep Core authoritative for session and process lifecycle. Do not move
+   host retention, worktree, or plugin policy into Core.
+2. Add `CoreDaemon::observe_lifecycle(now_seconds)` as the control-plane
+   progress tick. One call is one bounded pass: internally drive
+   `drain_runtime_all_once` (or equivalent per live session), reconcile
+   `SessionLifecycle` observations into the journal, retain any incidental
+   terminal egress on the existing pending-drain path, and return no
+   terminal bytes, phases, snapshots, attach state, or `ProcessExited`
+   frames.
+3. Update the journal from those Core runtime and ClientWorker lifecycle
+   facts. Repeat observations still do not append.
+4. Set one coalesced `journal_advanced` pending bit inside
+   `append_lifecycle_change`. The wake is one bit, not a queue. Duplicate
+   appends before take stay one bit.
+5. Add `take_journal_advanced_wake() -> bool` that clears the bit.
+6. Add `lifecycle_changes_page(after, max_changes, max_bytes)` returning a
+   new `SessionLifecyclePage` with ordered changes, next cursor, source
+   watermark, and the existing explicit resync reasons. Resync still
+   returns no partial suffix.
+7. Keep `lifecycle_changes(after)` as the compatibility unbounded reader
+   so current Hub source keeps compiling. Do not add fields to
+   `SessionLifecycleChanges`.
+8. Preserve `TransportEgress::ProcessExit` / ClientWorker `ProcessExited`
+   as the terminal-plane frame. Do not require attach or
+   `CoreDaemon::drain` to observe exit on the control plane.
+9. Update living docs: this file, `docs/architecture/core-daemon.md`, and
+   the README host-loop / lifecycle-projection paragraphs.
+
+### Non-scope
+
+- Hub session projection, maintenance slices, plugin session-family
+  consumption, or removing Hub's current Drain-based discovery.
+- Package events, `events.emit`, client event subscriptions, Web, TUI.
+- Changing ClientWorker queue policy, bind/generation rules, or adapter
+  close hard-stop.
+- Moving `ProcessExited` onto the control plane or putting terminal bytes
+  in journal records.
+- Automatic host-session cleanup or `remove_session` policy.
+- A replacement test wrapper. Use the repository Cargo gates.
+- Ratifying every proposed north-star vault note.
+
+## Repository ownership and cross-repo dependencies
+
+Core owns:
+
+- Session/process lifecycle facts
+- The in-memory journal, wake bit, and page API
+- Terminal-plane `ProcessExited` delivery and subscription close
+
+Hub owns:
+
+- Whether and when to consume the wake and pages
+- Host retention, worktrees, plugin publication, and cleanup after exit
+- Unix/WebRTC adapters and route policy
+
+Do not implement Hub in this run. The Hub consumer is already registered:
+`ticket_1786663582_169720` depends on this ticket
+(`dependency_1786663627_206668`). No additional dependency is required.
+
+Downstream-shaped proof stays in `botster-core-test-support` consumers,
+not in a Hub checkout.
+
+## Assumptions and unknowns
+
+Assumptions:
+
+- `observe_lifecycle` is the implied production entry. The ticket names
+  wake and page, not the progress method. Page/wake/baseline stay
+  side-effect-free; without a non-Drain progress tick the journal cannot
+  advance for zero-client sessions. This is required, not speculative
+  configurability.
+- Encoded page bytes are `serde_json` of each `SessionLifecycleChange`,
+  matching the existing serialized lifecycle tests.
+- `max_changes == 0` or `max_bytes == 0` returns an empty page, next
+  cursor equal to `after`, current watermark, and no resync.
+- If the next change cannot fit `max_bytes` after some items, stop. If
+  the first candidate alone exceeds `max_bytes`, return empty and do not
+  advance next. Recovery is a fresh baseline. Hosts must set `max_bytes`
+  above one max-size record (`MAX_CORE_SESSION_METADATA_LEN` is 64 KiB
+  plus record envelope).
+- Existing `lifecycle_changes` remains an unbounded compatibility reader.
+  Hub's later ticket switches to page + wake.
+- Worktree path has no `:`. Tracked `.gitignore` is present and non-empty.
+  No `CARGO_TARGET_DIR` override is required.
+- This is not a Hub session-type eligibility consumer.
+
+Unknowns Implement must not invent:
+
+- Hub maintenance-slice budgets and owner-turn numbers belong to the Hub
+  ticket.
+- Whether Jason later ratifies the broader north-star vault set. This
+  slice is authorized by the Event Plane project and this ticket.
+
+## Affected surfaces and files
+
+Expected production path:
+
+`worker / local runtime ProcessExited`
+→ `ManagedSessionRuntime::drain_runtime_all_once`
+→ multiplexer lifecycle + `apply_client_worker`
+→ `CoreDaemon::observe_lifecycle`
+→ `reconcile_lifecycle_observations` / `append_lifecycle_change`
+→ coalesced wake bit
+→ host `take_journal_advanced_wake` + `lifecycle_changes_page`
+
+Primary files:
+
+- `crates/botster-core-daemon/src/api.rs` — `SessionLifecyclePage`, keep
+  existing resync reasons
+- `crates/botster-core-daemon/src/daemon.rs` — observe, wake, page,
+  append-time wake set
+- `crates/botster-core-daemon/src/lib.rs` — re-export the new page type
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs` — zero-client
+  exit, wake coalesce, dropped-wake convergence, page bounds, resync
+- `crates/botster-core-test-support/tests/consumers/` — new Hub-shaped
+  isolated consumer of the public observe/wake/page types
+- `docs/architecture/core-daemon.md`, `README.md`, this file
+
+Likely untouched unless a compile forces it:
+
+- ClientWorker, terminal adapter traits, terminal protocol crates
+- Plugin admission (already shipped on a sibling ticket)
+- Hub, Web, TUI, Workspaces
+
+## Runtime-teardown lens answers
+
+| Field | Answer |
+| --- | --- |
+| `teardown_class_applies` | yes — terminal-state vs live-runtime divergence; journal must advance from runtime/ClientWorker facts without Hub terminal Drain or a terminal client |
+| `teardown_isolation` | One session exit updates only that session's journal row and closes only that session's terminal subscriptions. The wake bit is process-wide by ticket contract (one pending bit, not a per-session queue). Sibling sessions stay live. |
+| `teardown_bounds` | `observe_lifecycle` is one non-blocking host tick. It must not wait for PTY death, adapter I/O, or Hub Drain. Page/wake/baseline do not block. Existing ClientWorker hard-stop remains synchronous close+drop on the tick that observes `ProcessExited` for bound subscriptions. Do not add `block_on(close)` or a closer thread. |
+| `late_message_matrix` | See table below. |
+| `production_path_proof` | Worker-backed self-exit, zero attaches, no `CoreDaemon::drain`. Host calls `observe_lifecycle` until `take_journal_advanced_wake` is true, then `lifecycle_changes_page` shows `Exited`. A second proof drops the wake and still converges by paging from the last cursor. Red-on-revert: removing observe-to-journal wiring fails those tests. Terminal Drain and attach remain available but are not the oracle. |
+| `ownership_identity` | Journal identity is `(source_id, sequence)`. Session identity is `SessionId`. Terminal subscription identity remains `(session_id, subscription_id, generation)`. Delayed Drain or a late `ProcessExited` must not append a second identical `Exited` upsert. Daemon restart mints a new `source_id`; old cursors resync with `SourceChanged`. |
+| `sibling_fail_closed_policy` | Success: siblings keep running and their journal rows are unchanged. Observe failure on one session must not skip remaining sessions in the same tick and must not publish a silent truncated suffix. Registry save failure fails that session's projection without corrupting previously appended sequences. Ultimate observe failure does not kill sibling sessions or the daemon. |
+
+Late-message matrix (ownership-creating or lifecycle-visible messages):
+
+| Message | Tag / owner | After terminal failure / exit | Residual sweep |
+| --- | --- | --- | --- |
+| Spawn | new `SessionId` | N/A; creates a new row | journal upsert `Running` |
+| Attach | `(session, subscription, generation)` | `SessionNotReadable` / unknown after remove | no new generation |
+| Bind | live generation | `BindBeforeAttach` or `StaleGeneration` | no new owner |
+| `observe_lifecycle` | daemon control plane | idempotent; no duplicate `Exited` | wake coalesces |
+| `CoreDaemon::drain` | terminal plane | still returns retained/pending egress; must not be required to learn exit | ProcessExited stays here for attached clients |
+| Input / resize | live mutable session | rejected after stopping/exited/failed | no journal noise |
+| `remove_session` | explicit host forget | allowed only when terminal | journal `Removed` |
+| `lifecycle_changes_page` | cursor `(source_id, sequence)` | `SourceChanged` / `CursorExpired` / `CursorAhead` with empty changes | recover via `lifecycle_baseline` |
+
+## Risks
+
+- Hiding observe inside page/wake would violate the existing
+  "consumption does not advance runtimes" rule and make reads
+  non-idempotent. Keep observe separate.
+- Using `drain_runtime_all_once` internally can produce terminal egress.
+  That egress must stay on `pending_drain` for later Drain. If it leaks
+  into the page API, the architecture tests fail.
+- Byte-budget livelock if `max_bytes` is smaller than one legal change.
+  Fail closed to empty page + baseline recovery; document the floor.
+- Adding fields to `SessionLifecycleChanges` would break Hub struct
+  literals ([[public dto field additions are source breaking without non
+  exhaustive]]). New `SessionLifecyclePage` avoids that.
+- Keeping unbounded `lifecycle_changes` forever can become a second
+  path. Accept it as compatibility only; Hub's ticket owns the cutover.
+- Stale reviewer guidance may cause Plan Review to demand Drain proof.
+  The charter and this lens table are the override. Product proof is
+  observe + wake + page.
+
+## Acceptance checks and tests
+
+Focused during development (no wrapper):
+
+- New daemon test: worker-backed self-exit, **zero attaches**, **no**
+  `CoreDaemon::drain`, `observe_lifecycle` until wake, page shows
+  `Exited` with registry `Exited` and engine `Exited { code: Some(0) }`.
+- Dropped wake: leave the bit uncleared (or take and discard), later
+  page from the last good cursor still returns the `Exited` upsert.
+- Duplicate wakes: two journal appends before take; `take` is true once,
+  then false until another append.
+- Page limits: `max_changes` and encoded `max_bytes` both stop the page;
+  next cursor is the last included change; watermark is the source head.
+- Resync: foreign source, expired, and ahead cursors return the matching
+  reason and zero changes.
+- Control-plane-only architecture test: `SessionLifecyclePage` /
+  change kinds cannot carry `TransportEgress`, snapshot payloads, attach
+  phases, or terminal bytes. Source-scan the daemon API lifecycle types.
+- ProcessExited preservation: an attached bound-adapter (or unbound
+  Drain) path still delivers terminal-plane `ProcessExited` after
+  observe has already published control-plane `Exited`.
+- Compatibility: existing `lifecycle_changes` tests and the current
+  attach+drain lifecycle test still pass. Drain may still update the
+  journal; it is no longer required.
+- Hub-shaped isolated consumer in test-support compiles against
+  observe / wake / page only and never calls Drain.
+
+Repository gates ([[botster-core uses CI-owned Cargo commands because it
+has no test script]]):
+
+```sh
+BOTSTER_ENV=test cargo test --workspace
+cargo fmt --all -- --check
+BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings
+BOTSTER_ENV=test cargo test --doc --workspace
+```
+
+Do not create `cli/test.sh` or any replacement wrapper.
+
+## Vault gaps
+
+Capture after implement, not during Plan:
+
+- [[hub drain advances non attached session lifecycle]] is the old
+  no-Attach contract. Replace or supersede with: observe + wake + page
+  is the control-plane progress path; Drain is terminal-plane only.
+- [[botster core hosts need an explicit drain loop contract]] should
+  split control-plane observe from terminal Drain in the host loop.
+- [[botster-runtime-reviewer-playbook]] no-Attach Drain bullet becomes
+  stale the moment this ticket lands.
+- New durable claim: Core control-plane lifecycle journal advances
+  without a terminal client or Hub terminal Drain.
+
+No inbox capture in this Plan visit. The gap is known and named.
+
+## Delivery
+
+- Direct-merge pipeline into `main`.
+- Do not open a pull request.
+- Do not require human PR sign-off.
+- One Plan → Implement path. No dual pipeline for planner variety.
