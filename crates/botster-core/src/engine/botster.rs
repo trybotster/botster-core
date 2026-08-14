@@ -951,6 +951,12 @@ impl WorkerBackedBotsterEngine {
             {
                 Ok(request_id) => request_id,
                 Err(error) => {
+                    let _ = self.runtime.detach_live_subscription(
+                        client_id,
+                        session_id.clone(),
+                        subscription_id,
+                        now_seconds,
+                    );
                     let _ = self.sync_worker_consumers(&session_id);
                     return Err(error.into());
                 }
