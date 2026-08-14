@@ -4,7 +4,7 @@
 //! [`crate::contract::client_stream::ClientStreamHarness`]. Hosts pump it from
 //! the existing drain tick. There is no ClientWorker OS thread.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use botster_terminal_protocol::TerminalFrame;
 use botster_terminal_protocol_client::{
@@ -85,19 +85,24 @@ impl ClientWorker {
     }
 
     /// Assign or reuse a generation on attach and publish the inventory row.
+    ///
+    /// A client that attaches a new subscription for the same session hard-stops
+    /// the previous owner for that client and session.
     pub fn record_attach(
         &mut self,
         client_id: ClientId,
         session_id: SessionId,
         subscription_id: SubscriptionId,
-    ) -> TerminalSubscriptionGeneration {
+    ) -> (TerminalSubscriptionGeneration, Vec<ClientWorkerTeardown>) {
+        let replacements =
+            self.teardown_replaced_client_session(&client_id, &session_id, &subscription_id);
         let key = OwnerKey {
             session_id,
             subscription_id,
         };
         if let Some(existing) = self.live.get_mut(&key) {
             existing.client_id = client_id;
-            return existing.generation;
+            return (existing.generation, replacements);
         }
         let generation = TerminalSubscriptionGeneration(
             self.last_generation
@@ -119,7 +124,28 @@ impl ClientWorker {
                 process_exit_delivered: false,
             },
         );
-        generation
+        (generation, replacements)
+    }
+
+    fn teardown_replaced_client_session(
+        &mut self,
+        client_id: &ClientId,
+        session_id: &SessionId,
+        keep_subscription: &SubscriptionId,
+    ) -> Vec<ClientWorkerTeardown> {
+        let keys: Vec<_> = self
+            .live
+            .iter()
+            .filter(|(key, owner)| {
+                &key.session_id == session_id
+                    && &owner.client_id == client_id
+                    && &key.subscription_id != keep_subscription
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.into_iter()
+            .filter_map(|key| hard_stop(&mut self.live, &key))
+            .collect()
     }
 
     /// Bind a content-blind adapter to a live attach generation.
@@ -253,6 +279,8 @@ impl ClientWorker {
     ) -> Vec<ClientWorkerTeardown> {
         let mut retained = Vec::with_capacity(egress.len());
         let mut teardowns = Vec::new();
+        let mut failed_routes = HashSet::new();
+        let mut unbound_process_exits = Vec::new();
         for (client_id, frame) in egress.drain(..) {
             let Some((session_id, subscription_id)) = terminal_route(&frame) else {
                 retained.push((client_id, frame));
@@ -262,11 +290,21 @@ impl ClientWorker {
                 session_id: session_id.clone(),
                 subscription_id: subscription_id.clone(),
             };
+            if failed_routes.contains(&key) {
+                continue;
+            }
             let Some(owner) = self.live.get_mut(&key) else {
                 retained.push((client_id, frame));
                 continue;
             };
-            if owner.adapter.is_none() || owner.client_id != client_id {
+            if owner.client_id != client_id {
+                retained.push((client_id, frame));
+                continue;
+            }
+            if owner.adapter.is_none() {
+                if matches!(frame, TransportEgress::ProcessExit { .. }) {
+                    unbound_process_exits.push(key);
+                }
                 retained.push((client_id, frame));
                 continue;
             }
@@ -276,6 +314,7 @@ impl ClientWorker {
             match encode_terminal_frame(&key, &frame, self.next_snapshot_phase.remove(&key)) {
                 Ok(Some(queued)) => {
                     if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
+                        failed_routes.insert(key.clone());
                         if let Some(teardown) = hard_stop(&mut self.live, &key) {
                             teardowns.push(teardown);
                         }
@@ -289,10 +328,16 @@ impl ClientWorker {
                 }
                 Ok(None) => retained.push((client_id, frame)),
                 Err(()) => {
+                    failed_routes.insert(key.clone());
                     if let Some(teardown) = hard_stop(&mut self.live, &key) {
                         teardowns.push(teardown);
                     }
                 }
+            }
+        }
+        for key in unbound_process_exits {
+            if let Some(teardown) = hard_stop(&mut self.live, &key) {
+                teardowns.push(teardown);
             }
         }
         *egress = retained;
@@ -415,7 +460,13 @@ fn pump_one(
                 owner.unsuccessful_writes = 0;
             }
             TerminalAdapterPressure::Closed => return hard_stop(live, key),
-            TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => return None,
+            TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
+                owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
+                if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+                    return hard_stop(live, key);
+                }
+                return None;
+            }
         }
     }
 

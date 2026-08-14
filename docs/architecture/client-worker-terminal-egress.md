@@ -36,8 +36,8 @@ down the host session.
 ClientWorker queue capacity is `QueueSource::ClientWorker.default_capacity()`
 (512). A new frame that would exceed 512 fails the subscription. The same head
 frame fails after 512 unsuccessful `try_write` results (`WouldBlock` or
-`Full`) on host pump ticks. Terminal frames never retry. Recovery is detach
-plus a fresh attach.
+`Full`), or 512 host ticks where an accepted write stays non-Ready, on host
+pump ticks. Terminal frames never retry. Recovery is detach plus a fresh attach.
 
 A lost READY / PAGE / FINISH / other snapshot frame fails that subscription.
 There is no terminal-frame replay helper.

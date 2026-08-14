@@ -737,6 +737,20 @@ impl WorkerBackedBotsterEngine {
             .runtime
             .worker_supports_snapshot_boundary(&session_id)?;
         if supports_snapshot_boundary {
+            if let Some((current_client, current_subscription)) = self
+                .incremental_attaches
+                .get(&session_id)
+                .map(|attach| (attach.client_id.clone(), attach.subscription_id.clone()))
+            {
+                if current_client == client_id && current_subscription != subscription_id {
+                    self.detach_client(
+                        client_id.clone(),
+                        session_id.clone(),
+                        current_subscription,
+                        now_seconds,
+                    )?;
+                }
+            }
             if self.incremental_attaches.contains_key(&session_id) {
                 let queued = self
                     .incremental_attaches

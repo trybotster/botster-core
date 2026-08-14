@@ -290,18 +290,6 @@ where
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_ingress(&ingress)?;
         let backend_operation = terminal_backend_ingress_operation(&ingress);
-        if let TransportIngress::SubscribeSession {
-            client_id: ref subscribe_client,
-            ref session_id,
-            ref subscription_id,
-        } = ingress
-        {
-            self.client_worker.record_attach(
-                subscribe_client.clone(),
-                session_id.clone(),
-                subscription_id.clone(),
-            );
-        }
         let mut outcome =
             match self
                 .engine
@@ -315,6 +303,20 @@ where
                     return Err(error.into());
                 }
             };
+        let mut attach_teardowns = Vec::new();
+        if let TransportIngress::SubscribeSession {
+            client_id: ref subscribe_client,
+            ref session_id,
+            ref subscription_id,
+        } = ingress
+        {
+            let (_, replacements) = self.client_worker.record_attach(
+                subscribe_client.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            );
+            attach_teardowns.extend(replacements);
+        }
         if let TransportIngress::UnsubscribeSession {
             session_id,
             subscription_id,
@@ -324,7 +326,7 @@ where
             let _ = self.client_worker.detach_live(session_id, subscription_id);
         }
         self.flush_runtime_inputs()?;
-        self.apply_client_worker(&mut outcome)?;
+        self.apply_client_worker_with(&mut outcome, attach_teardowns)?;
         Ok(outcome)
     }
 
@@ -335,15 +337,16 @@ where
         subscription_id: SubscriptionId,
         snapshot: Vec<u8>,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.client_worker.record_attach(
+        let mut outcome = self.engine.attach_snapshot(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
-        );
-        let mut outcome =
-            self.engine
-                .attach_snapshot(client_id, session_id, subscription_id, snapshot)?;
-        self.apply_client_worker(&mut outcome)?;
+            snapshot,
+        )?;
+        let (_, replacements) =
+            self.client_worker
+                .record_attach(client_id, session_id, subscription_id);
+        self.apply_client_worker_with(&mut outcome, replacements)?;
         Ok(outcome)
     }
 
@@ -353,15 +356,15 @@ where
         session_id: SessionId,
         subscription_id: SubscriptionId,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.client_worker.record_attach(
+        let mut outcome = self.engine.begin_snapshot_attach(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
-        );
-        let mut outcome =
-            self.engine
-                .begin_snapshot_attach(client_id, session_id, subscription_id)?;
-        self.apply_client_worker(&mut outcome)?;
+        )?;
+        let (_, replacements) =
+            self.client_worker
+                .record_attach(client_id, session_id, subscription_id);
+        self.apply_client_worker_with(&mut outcome, replacements)?;
         Ok(outcome)
     }
 
@@ -946,9 +949,18 @@ where
         &mut self,
         outcome: &mut MultiplexerEngineOutcome,
     ) -> Result<(), ManagedSessionRuntimeError> {
-        let mut teardowns = self
-            .client_worker
-            .ingest_bound_terminal_frames(&mut outcome.client_egress);
+        self.apply_client_worker_with(outcome, Vec::new())
+    }
+
+    fn apply_client_worker_with(
+        &mut self,
+        outcome: &mut MultiplexerEngineOutcome,
+        mut teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        teardowns.extend(
+            self.client_worker
+                .ingest_bound_terminal_frames(&mut outcome.client_egress),
+        );
         teardowns.extend(self.client_worker.pump());
         for teardown in teardowns {
             let step = self.engine.handle_client_ingress(
