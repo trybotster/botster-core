@@ -4250,6 +4250,152 @@ fn observe_slice_each_budget_stops_remaining_visits() {
 
 #[cfg(unix)]
 #[test]
+fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
+    let empty_data_dir = temp_data_dir("lifecycle-observe-empty-result-budget");
+    let mut empty_daemon = CoreDaemon::new(CoreDaemonConfig::new(&empty_data_dir));
+    let empty_minimum = match empty_daemon.observe_lifecycle_slice(
+        1,
+        None,
+        ObserveLifecycleBudget {
+            max_sessions: 1,
+            max_encoded_result_bytes: 0,
+            max_elapsed: Duration::MAX,
+        },
+    ) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+        other => panic!("empty slice must enforce its byte budget: {other:?}"),
+    };
+    let empty = empty_daemon
+        .observe_lifecycle_slice(
+            2,
+            None,
+            ObserveLifecycleBudget {
+                max_sessions: 1,
+                max_encoded_result_bytes: empty_minimum,
+                max_elapsed: Duration::MAX,
+            },
+        )
+        .expect("exact empty budget");
+    assert!(empty.complete);
+    assert_eq!(
+        serde_json::to_vec(&empty).expect("encode").len(),
+        empty_minimum
+    );
+
+    let data_dir = temp_data_dir("lifecycle-observe-no-visit-result-budget");
+    let first = SessionId("a-no-visit-budget".to_string());
+    let second = SessionId("b-no-visit-budget".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon
+        .spawn(spawn_request(&first), 10)
+        .expect("first spawn");
+    daemon
+        .spawn(spawn_request(&second), 11)
+        .expect("second spawn");
+
+    let zero_items_minimum = match daemon.observe_lifecycle_slice(
+        12,
+        None,
+        ObserveLifecycleBudget {
+            max_sessions: 0,
+            max_encoded_result_bytes: 0,
+            max_elapsed: Duration::MAX,
+        },
+    ) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+        other => panic!("zero-item slice must enforce its byte budget: {other:?}"),
+    };
+    let zero_items = daemon
+        .observe_lifecycle_slice(
+            13,
+            None,
+            ObserveLifecycleBudget {
+                max_sessions: 0,
+                max_encoded_result_bytes: zero_items_minimum,
+                max_elapsed: Duration::MAX,
+            },
+        )
+        .expect("exact zero-item budget");
+    assert!(!zero_items.complete);
+    assert!(zero_items.last_visited.is_none());
+    assert_eq!(
+        serde_json::to_vec(&zero_items).expect("encode").len(),
+        zero_items_minimum
+    );
+
+    let first_elapsed_minimum = match daemon.observe_lifecycle_slice(
+        14,
+        None,
+        ObserveLifecycleBudget {
+            max_sessions: usize::MAX,
+            max_encoded_result_bytes: 0,
+            max_elapsed: Duration::ZERO,
+        },
+    ) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+        other => panic!("first elapsed yield must enforce its byte budget: {other:?}"),
+    };
+    let first_elapsed = daemon
+        .observe_lifecycle_slice(
+            15,
+            None,
+            ObserveLifecycleBudget {
+                max_sessions: usize::MAX,
+                max_encoded_result_bytes: first_elapsed_minimum,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("exact first elapsed budget");
+    assert!(!first_elapsed.complete);
+    assert!(first_elapsed.last_visited.is_none());
+    assert_eq!(
+        serde_json::to_vec(&first_elapsed).expect("encode").len(),
+        first_elapsed_minimum
+    );
+
+    let progressed = daemon
+        .observe_lifecycle_slice(16, None, observe_item_budget(1))
+        .expect("progress before resumed yield");
+    let resume = observe_resume(&progressed);
+    let resumed_minimum = match daemon.observe_lifecycle_slice(
+        17,
+        Some(&resume),
+        ObserveLifecycleBudget {
+            max_sessions: usize::MAX,
+            max_encoded_result_bytes: 0,
+            max_elapsed: Duration::ZERO,
+        },
+    ) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+        other => panic!("resumed elapsed yield must enforce its byte budget: {other:?}"),
+    };
+    let resumed = daemon
+        .observe_lifecycle_slice(
+            18,
+            Some(&resume),
+            ObserveLifecycleBudget {
+                max_sessions: usize::MAX,
+                max_encoded_result_bytes: resumed_minimum,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("exact resumed elapsed budget preserves the pass");
+    assert_eq!(resumed.pass_id, progressed.pass_id);
+    assert_eq!(resumed.last_visited, progressed.last_visited);
+    assert!(!resumed.complete);
+    assert_eq!(
+        serde_json::to_vec(&resumed).expect("encode").len(),
+        resumed_minimum
+    );
+
+    daemon.shutdown(Some(first), 20).ok();
+    daemon.shutdown(Some(second), 21).ok();
+    let _ = fs::remove_dir_all(empty_data_dir);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn observe_slice_preserves_typed_wrapper_errors_and_blocks_over_budget_visits() {
     let messages = [
         "a".repeat(300),
