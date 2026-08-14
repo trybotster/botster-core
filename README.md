@@ -12,11 +12,13 @@ plugin runtime must agree on.
 
 | Crate | Role |
 | --- | --- |
-| `botster-core` | Production contracts, engine facades, and local PTY/process runtime library surface |
+| `botster-core` | Production contracts, engine facades, local PTY/process runtime library surface, and the content-blind `TerminalAdapter` write/close/pressure contract |
 | `botster-core-daemon` | Production supervisor (registry, adoption, guarded writes, typed daemon API) and Ghostty-hosted `botster-session-worker` binary |
-| `botster-core-test-support` | Dev-dependency fixtures, fakes, and conformance helpers for consumers pinned to the same core version |
+| `botster-core-test-support` | Dev-dependency fixtures, fakes, PTY conformance helpers, and the always-on `TerminalAdapter` harness for consumers pinned to the same core version |
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
 | `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); stays outside the core crate |
+| `botster-terminal-protocol` | Types-only terminal protocol plane for Hub adapters: compatibility descriptors, forwardable requests, and opaque `TerminalFrame`. Hub may depend only on this crate. |
+| `botster-terminal-protocol-client` | Semantic Snapshot, phase, AttachState, TerminalOutput, and ProcessExit types for TUI. Hub must not depend on this crate. |
 
 Hubs and product hosts still own auth, persistence policy, config locations,
 cloud federation, marketplace and install/update policy, WebRTC/signaling/API
@@ -231,6 +233,7 @@ Depth lives in architecture docs:
 | [core-daemon.md](docs/architecture/core-daemon.md) | Production `CoreDaemon` supervisor and adoption |
 | [durable-session-worker-protocol.md](docs/architecture/durable-session-worker-protocol.md) | Durable session-worker protocol shapes |
 | [ghostty-shadow-terminal-adapter.md](docs/architecture/ghostty-shadow-terminal-adapter.md) | Ghostty adapter boundary (sibling crate) |
+| [terminal-protocol.md](docs/architecture/terminal-protocol.md) | Types-only terminal protocol crates, opacity rule, and pinned vocabulary |
 
 Living design notes live under `docs/architecture/`. Historical ticket plans under
 `docs/plans/` are archival context, not the start-here guide.
@@ -287,7 +290,8 @@ For new code and gradual cleanups:
   variant) plus production supervision through `CoreDaemon`
 - subscription fanout, activity/lifecycle observations, notification inbox, and
   plugin worker invocation composed under the engine facades
-- consumer test harnesses and fakes in `botster-core-test-support`
+- consumer test harnesses and fakes in `botster-core-test-support`, including
+  the transport-neutral `TerminalAdapter` conformance harness
 
 Host-profile admission is a policy-free core helper:
 `admit_host_profile(manifest, enabled, host_botster_version)`. A trusted host or
@@ -454,6 +458,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test --doc --workspace
 cargo doc --workspace --no-deps
+script/terminal-protocol-node-smoke.sh
 ```
 
 For command-surface docs, also verify the contract-only feature set:
@@ -483,7 +488,11 @@ crates. Add it only under `dev-dependencies`, at the same release version as
 `botster-core`.
 
 It exposes managed local conformance harnesses and a many-PTY load harness over
-the public `DefaultBotsterEngine` facade. CI-safe adversarial proof:
+the public `DefaultBotsterEngine` facade. The `terminal_adapter` module is
+always available, including with `--no-default-features`, and publishes the
+content-blind adapter harness later Hub adapters import. See
+[`docs/architecture/terminal-adapter.md`](docs/architecture/terminal-adapter.md).
+CI-safe adversarial proof:
 
 ```sh
 BOTSTER_ENV=test cargo test -p botster-core-test-support adversarial_hot_path -- --nocapture
