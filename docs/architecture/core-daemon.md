@@ -138,6 +138,10 @@ reads stay side-effect-free.
 stay one bit. Page and baseline never clear it. The safe consume order is
 take, page until `next == source_watermark` or resync, take again, and
 re-page if that second take is true. Never page-then-take-then-sleep.
+An empty successful page with `next != source_watermark` is not catch-up:
+the first remaining change does not fit the valid budget, or `max_changes`
+is 0. Recovery is a fresh `lifecycle_baseline`, not sleep. Do not treat
+`changes.is_empty()` alone as caught up.
 
 `SessionLifecycleChange` contains session projection facts only;
 `TransportEgress`, PTY bytes, snapshots, and attach ordering remain exclusively

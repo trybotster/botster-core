@@ -488,7 +488,10 @@ Focused during development (no wrapper):
   consume loop plus interleaving harness above, and matches
   `SessionLifecyclePageError` as `BudgetTooSmall { .. }` plus a
   wildcard for unknown future variants. An exhaustive match without
-  `_` is a consumer defect.
+  `_` is a consumer defect. An empty successful page with
+  `next != source_watermark` installs a fresh baseline. A consumer
+  test uses `max_changes > 0` and `max_bytes` equal to the empty-page
+  minimum and asserts the projection reaches the watermark.
 
 Repository gates ([[botster-core uses CI-owned Cargo commands because it
 has no test script]]):

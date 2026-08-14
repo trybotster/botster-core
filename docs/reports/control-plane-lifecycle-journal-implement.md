@@ -53,7 +53,7 @@ Targeted notes:
 ## Botster layers changed
 
 - `botster-core-daemon` public observe / wake / page API and journal bit
-- `botster-core-test-support` isolated Hub-shaped consume-loop consumer
+- `botster-core-test-support` isolated Hub-shaped consume-loop consumer, including baseline recovery when an empty successful page is still behind the watermark
 - Living architecture and README host-loop / lifecycle-projection paragraphs
 
 No Hub, Web, TUI, Ghostty crate, plugin-admission, or Project Pipelines product layer.
@@ -87,7 +87,11 @@ Hub consumer `ticket_1786663582_169720` already depends on this ticket. No addit
 
 ## Deviations from plan
 
-None that change the published contract.
+None that change the published contract. Review finding
+`finding_1786685857_728125` required the already-planned no-progress
+recovery: an empty successful page behind the watermark installs a
+fresh baseline. The consume loop now does that; it is not a new
+product decision.
 
 Implementation details inside the contract:
 

@@ -29,6 +29,11 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         source.contains("_ =>"),
         "consumer must wildcard unknown SessionLifecyclePageError variants"
     );
+    assert!(
+        source.contains("install_baseline")
+            && source.contains("page.changes.is_empty()"),
+        "consumer must recover via baseline when an empty successful page is still behind the watermark"
+    );
     for forbidden in [".drain(", "drain_runtime_once", "drain_runtime_all_once"] {
         assert!(
             !source.contains(forbidden),
