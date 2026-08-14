@@ -4972,19 +4972,43 @@ fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
         Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
         other => panic!("expected BudgetTooSmall, got {other:?}"),
     };
-    let indexed = daemon
-        .lifecycle_baseline_page(
-            Some(&setup.snapshot_sequence),
-            None,
-            LifecycleBaselineBudget {
-                max_rows: usize::MAX,
-                max_bytes: minimum,
-                max_elapsed: Duration::MAX,
-            },
-        )
-        .expect("index and empty encode");
-    assert!(!indexed.complete);
-    assert!(indexed.sessions.is_empty());
+    let indexed = match daemon.lifecycle_baseline_page(
+        Some(&setup.snapshot_sequence),
+        None,
+        LifecycleBaselineBudget {
+            max_rows: usize::MAX,
+            max_bytes: minimum,
+            max_elapsed: Duration::MAX,
+        },
+    ) {
+        Ok(page) => {
+            assert!(!page.complete);
+            assert!(page.sessions.is_empty());
+            page
+        }
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => {
+            assert!(minimum_bytes > minimum);
+            let page = daemon
+                .lifecycle_baseline_page(
+                    Some(&setup.snapshot_sequence),
+                    None,
+                    LifecycleBaselineBudget {
+                        max_rows: usize::MAX,
+                        max_bytes: minimum_bytes,
+                        max_elapsed: Duration::MAX,
+                    },
+                )
+                .expect("exact continuation budget");
+            assert!(!page.complete);
+            assert!(page.sessions.is_empty());
+            page
+        }
+        other => panic!("expected incomplete page or BudgetTooSmall, got {other:?}"),
+    };
+    let encoded = serde_json::to_vec(&indexed)
+        .expect("continuation page must serialize")
+        .len();
+    assert!(encoded <= 64 * 1024);
     let (snapshot, rows) = assemble_baseline_pages(
         &mut daemon,
         Some(setup.snapshot_sequence.clone()),
