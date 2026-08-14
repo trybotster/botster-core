@@ -130,6 +130,10 @@ Review `review_1786675180_532728` required one further product fix that fulfills
 
 - Worker-backed same-key owner replacement cancels the live IncrementalAttach owner's snapshot boundary and starts the replacement boundary on the attach path. Reconcile uses `(client_id, subscription_id)`, not subscription_id alone. `WorkerProcessRuntime` Drop cancels any outstanding snapshot before `SHUTDOWN` so a fenced worker cannot hang `child.wait()`.
 
+Review `review_1786678909_717793` required one further product fix:
+
+- When a pending owner's recovery begin fails, Core now drops that client's queued input and queued resize so a later successful sibling and a fresh C reattach cannot reuse the rejected generation's work.
+
 Review `review_1786678096_983456` required two further fixes:
 
 - Recovery begin failure now detaches every remaining pending owner instead of dropping IncrementalAttach while those owners stay published.
@@ -173,7 +177,7 @@ Focused production-path proofs:
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_bound_adapter_receives_ready_finish_without_drain_snapshots`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- --exact worker_same_key_owner_replacement_cancels_the_active_boundary`
-- `BOTSTER_ENV=test cargo test -p botster-core --lib takeover_fail_closed_tests`
+- `BOTSTER_ENV=test cargo test -p botster-core --lib takeover_fail_closed_tests` — includes failed C queues vs D recovery and a fresh C reattach
 - `worker_same_key_takeover_preserves_pending_sibling_input_and_resize`
 - `worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription`
 - Isolated Hub-shaped consumer via `botster-core-test-support` `terminal_adapter_conformance_test`
