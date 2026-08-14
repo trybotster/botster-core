@@ -48,22 +48,30 @@ slice strings.
 
 ## Baseline
 
-`lifecycle_baseline_page(snapshot, after, max_rows, max_bytes)` pages a
-frozen registry snapshot.
+`lifecycle_baseline_page(snapshot, after, budget)` pages a frozen
+registry snapshot. `LifecycleBaselineBudget` supplies `max_rows`,
+`max_bytes`, and `max_elapsed`. Elapsed starts at API entry.
 
-- `snapshot = None` mints from `load_all()` and the current journal
-  watermark. One freeze is cached. A new mint replaces it.
-- Later pages at that snapshot return frozen rows. They do not re-read
-  a mutated registry. Observe between pages does not change already
-  minted rows.
-- `after` is inclusive of `next`. `complete` is true only on the page
-  that includes the last frozen row, or on an empty snapshot. An
-  incomplete page is not finished ended evidence.
+- `snapshot = None` mints at the current journal watermark and walks
+  the registry directory under the call budget. It does not
+  `load_all()` or sort the remaining name set. One freeze is cached. A
+  new mint replaces it.
+- Later pages at that snapshot continue the same directory iterator
+  and then walk only the next frozen suffix. They do not re-read a
+  mutated registry. Observe between pages does not change already
+  decided freeze rows.
+- Setup-only and index-in-progress yields keep the freeze identity,
+  return no rows, set `next = None`, and have `complete = false`.
+- `after` is inclusive of `next` after the index is complete.
+  `complete` is true only on the page that includes the last frozen
+  row, or on an empty sealed snapshot. An incomplete page is not
+  finished ended evidence.
 - A dropped or foreign freeze returns `SnapshotUnavailable` or
   `SourceChanged` with `complete = false` and no rows.
 - A complete page drops the freeze.
 
-`lifecycle_baseline()` remains the unbounded one-shot reader.
+`lifecycle_baseline()` remains the unbounded one-shot reader. Hub
+Stage A must not call it.
 
 ## Wake and journal pages
 

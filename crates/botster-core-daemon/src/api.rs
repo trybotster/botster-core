@@ -204,6 +204,20 @@ pub struct ObserveLifecycleBudget {
     pub max_elapsed: Duration,
 }
 
+/// Item, encoded-page, and elapsed budgets for one baseline page call.
+///
+/// `max_elapsed` is a host-tick yield bound. Core may read `Instant` only
+/// to honor it. It is not session policy and does not use `now_seconds`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LifecycleBaselineBudget {
+    /// Maximum directory entries or suffix rows this call may examine.
+    pub max_rows: usize,
+    /// Maximum `serde_json` size of a successful [`SessionLifecycleBaselinePage`].
+    pub max_bytes: usize,
+    /// Yield bound measured from the start of this call.
+    pub max_elapsed: Duration,
+}
+
 /// Public sanitized per-session error on an observe slice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObserveLifecycleSliceError {
@@ -245,7 +259,8 @@ pub struct SessionLifecycleBaselinePage {
     pub snapshot_sequence: SessionLifecycleCursor,
     /// Frozen rows in this page, ordered by stable [`SessionId`].
     pub sessions: Vec<SessionLifecycleRecord>,
-    /// Next [`SessionId`] to request, or `None` when complete.
+    /// Next [`SessionId`] to request. `None` when complete, or when a
+    /// setup-only or index-in-progress yield keeps the freeze identity.
     pub next: Option<SessionId>,
     /// True only on the page that includes the last frozen row, or on an
     /// empty snapshot.

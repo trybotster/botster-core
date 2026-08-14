@@ -27,14 +27,14 @@ use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest,
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
     CoreDaemonError, DaemonSession, DrainNotificationsRequest, DrainRoutedEnvelopesRequest,
-    GuardedWriteDecision, GuardedWriteDeliveryState, GuardedWriteRequest, ModeGatedInputOutcome,
-    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
-    PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadModeFlagsRequest, ReadScreenRequest,
-    ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
-    SessionLifecycleBaseline, SessionLifecycleChangeKind, SessionLifecycleChanges,
-    SessionLifecycleCursor, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
+    GuardedWriteDecision, GuardedWriteDeliveryState, GuardedWriteRequest, LifecycleBaselineBudget,
+    ModeGatedInputOutcome, ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId,
+    ObserveLifecycleSlice, PostNotificationRequest, PublishRoutedEnvelopeRequest,
+    ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
+    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -168,6 +168,7 @@ fn lifecycle_api_types_are_control_plane_only() {
     assert!(section.contains("pub struct SessionLifecyclePage"));
     assert!(section.contains("pub struct ObserveLifecycleSlice"));
     assert!(section.contains("pub struct SessionLifecycleBaselinePage"));
+    assert!(section.contains("pub struct LifecycleBaselineBudget"));
     assert!(section.contains("#[non_exhaustive]"));
     assert!(section.contains("BudgetTooSmall"));
 }
@@ -4680,12 +4681,9 @@ fn lifecycle_baseline_pages_reconstruct_the_full_snapshot() {
     let mut after = None;
     loop {
         let page = daemon
-            .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), 1, 64 * 1024)
+            .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
             .expect("baseline page");
         assert!(page.resync_required.is_none());
-        if !page.complete {
-            assert!(!page.sessions.is_empty() || full.sessions.is_empty());
-        }
         rows.extend(page.sessions.iter().cloned());
         if page.complete {
             assert!(page.next.is_none());
@@ -4714,15 +4712,29 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
     daemon
         .spawn(immediate_exit_spawn_request(&second), 11)
         .expect("second");
-    let first_page = daemon
-        .lifecycle_baseline_page(None, None, 1, 64 * 1024)
-        .expect("mint");
+    let mut snapshot = None;
+    let mut after = None;
+    let first_page = loop {
+        let page = daemon
+            .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
+            .expect("mint");
+        assert!(page.resync_required.is_none());
+        snapshot = Some(page.snapshot_sequence.clone());
+        if !page.sessions.is_empty() || page.complete {
+            break page;
+        }
+        after = page.next;
+    };
     assert!(!first_page.complete);
     let snapshot = first_page.snapshot_sequence.clone();
     std::thread::sleep(Duration::from_millis(50));
     let _ = daemon.observe_lifecycle(20).expect("observe after mint");
     let second_page = daemon
-        .lifecycle_baseline_page(Some(&snapshot), first_page.next.as_ref(), 8, 64 * 1024)
+        .lifecycle_baseline_page(
+            Some(&snapshot),
+            first_page.next.as_ref(),
+            baseline_item_budget(8),
+        )
         .expect("frozen second page");
     assert!(second_page.complete);
     assert_eq!(second_page.sessions.len(), 1);
@@ -4734,7 +4746,7 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
     );
 
     let unknown = daemon
-        .lifecycle_baseline_page(Some(&snapshot), None, 8, 64 * 1024)
+        .lifecycle_baseline_page(Some(&snapshot), None, baseline_item_budget(8))
         .expect("dropped freeze");
     assert!(!unknown.complete);
     assert!(unknown.sessions.is_empty());
@@ -4745,6 +4757,241 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
 
     daemon.shutdown(Some(first), 30).ok();
     daemon.shutdown(Some(second), 31).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+fn baseline_item_budget(max_rows: usize) -> LifecycleBaselineBudget {
+    LifecycleBaselineBudget {
+        max_rows,
+        max_bytes: 64 * 1024,
+        max_elapsed: Duration::MAX,
+    }
+}
+
+fn seed_registry_records(daemon: &CoreDaemon, ids: &[&SessionId], now: u64) {
+    for session_id in ids {
+        let record = botster_core_daemon::RegistryRecord::running(
+            (*session_id).clone(),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            now,
+        );
+        daemon
+            .registry()
+            .save(&record)
+            .expect("seed registry record");
+    }
+}
+
+fn assemble_baseline_pages(
+    daemon: &mut CoreDaemon,
+    snapshot: Option<SessionLifecycleCursor>,
+    budget: LifecycleBaselineBudget,
+) -> (
+    SessionLifecycleCursor,
+    Vec<botster_core_daemon::SessionLifecycleRecord>,
+) {
+    let mut rows = Vec::new();
+    let mut snapshot = snapshot;
+    let mut after = None;
+    loop {
+        let page = daemon
+            .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), budget)
+            .expect("baseline page");
+        assert!(page.resync_required.is_none());
+        snapshot = Some(page.snapshot_sequence.clone());
+        rows.extend(page.sessions.iter().cloned());
+        if page.complete {
+            return (page.snapshot_sequence, rows);
+        }
+        after = page.next;
+    }
+}
+
+#[test]
+fn lifecycle_baseline_page_setup_only_elapsed_keeps_freeze_identity() {
+    let data_dir = temp_data_dir("lifecycle-baseline-setup-only");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let first = SessionId("a-setup-only".to_string());
+    let second = SessionId("b-setup-only".to_string());
+    seed_registry_records(&daemon, &[&first, &second], 1);
+    let page = daemon
+        .lifecycle_baseline_page(
+            None,
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: 64 * 1024,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("setup-only mint");
+    assert!(page.resync_required.is_none());
+    assert!(!page.complete);
+    assert!(page.sessions.is_empty());
+    assert!(page.next.is_none());
+    let (snapshot, rows) = assemble_baseline_pages(
+        &mut daemon,
+        Some(page.snapshot_sequence.clone()),
+        baseline_item_budget(8),
+    );
+    assert_eq!(snapshot, page.snapshot_sequence);
+    assert_eq!(
+        rows.iter()
+            .map(|record| record.session.session_id.clone())
+            .collect::<Vec<_>>(),
+        vec![first, second]
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_baseline_page_spawn_after_open_is_excluded() {
+    let data_dir = temp_data_dir("lifecycle-baseline-spawn-fence");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let first = SessionId("a-spawn-fence".to_string());
+    let second = SessionId("b-spawn-fence".to_string());
+    seed_registry_records(&daemon, &[&first, &second], 1);
+    let minted = daemon
+        .lifecycle_baseline_page(
+            None,
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: 64 * 1024,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("mint before spawn");
+    let born = SessionId("c-spawn-fence".to_string());
+    daemon
+        .spawn(spawn_request(&born), 2)
+        .expect("post-mint spawn");
+    let (snapshot, rows) = assemble_baseline_pages(
+        &mut daemon,
+        Some(minted.snapshot_sequence.clone()),
+        baseline_item_budget(8),
+    );
+    assert_eq!(snapshot, minted.snapshot_sequence);
+    let ids: Vec<_> = rows
+        .iter()
+        .map(|record| record.session.session_id.0.clone())
+        .collect();
+    assert_eq!(ids, vec![first.0, second.0]);
+    assert!(!ids.contains(&born.0));
+    daemon.shutdown(Some(born), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_baseline_page_remove_before_visit_keeps_pre_change_row() {
+    let data_dir = temp_data_dir("lifecycle-baseline-remove-fence");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let first = SessionId("a-remove-fence".to_string());
+    let second = SessionId("b-remove-fence".to_string());
+    for session_id in [&first, &second] {
+        let mut record = botster_core_daemon::RegistryRecord::running(
+            session_id.clone(),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            1,
+        );
+        record.mark(RegistrySessionState::Exited, 1);
+        daemon.registry().save(&record).expect("seed exited record");
+    }
+    let minted = daemon
+        .lifecycle_baseline_page(
+            None,
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: 64 * 1024,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("mint before remove");
+    assert!(daemon.remove_session(&second).expect("remove unseen"));
+    let (snapshot, rows) = assemble_baseline_pages(
+        &mut daemon,
+        Some(minted.snapshot_sequence.clone()),
+        baseline_item_budget(8),
+    );
+    assert_eq!(snapshot, minted.snapshot_sequence);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].session.session_id, second);
+    assert_eq!(rows[1].session.registry_state, RegistrySessionState::Exited);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_baseline_page_skips_malformed_records_without_blocking_good_rows() {
+    let data_dir = temp_data_dir("lifecycle-baseline-malformed");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let good = SessionId("a-good-baseline".to_string());
+    seed_registry_records(&daemon, &[&good], 1);
+    fs::write(
+        data_dir.join("sessions").join("b-bad-baseline.json"),
+        b"not json",
+    )
+    .expect("malformed registry fixture");
+    let (_, rows) = assemble_baseline_pages(&mut daemon, None, baseline_item_budget(8));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].session.session_id, good);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
+    let data_dir = temp_data_dir("lifecycle-baseline-bytes");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let first = SessionId("a-byte-budget".to_string());
+    let second = SessionId("b-byte-budget".to_string());
+    seed_registry_records(&daemon, &[&first, &second], 1);
+    let setup = daemon
+        .lifecycle_baseline_page(
+            None,
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: 64 * 1024,
+                max_elapsed: Duration::ZERO,
+            },
+        )
+        .expect("setup mint");
+    let minimum = match daemon.lifecycle_baseline_page(
+        Some(&setup.snapshot_sequence),
+        None,
+        LifecycleBaselineBudget {
+            max_rows: usize::MAX,
+            max_bytes: 0,
+            max_elapsed: Duration::MAX,
+        },
+    ) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+        other => panic!("expected BudgetTooSmall, got {other:?}"),
+    };
+    let indexed = daemon
+        .lifecycle_baseline_page(
+            Some(&setup.snapshot_sequence),
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: minimum,
+                max_elapsed: Duration::MAX,
+            },
+        )
+        .expect("index and empty encode");
+    assert!(!indexed.complete);
+    assert!(indexed.sessions.is_empty());
+    let (snapshot, rows) = assemble_baseline_pages(
+        &mut daemon,
+        Some(setup.snapshot_sequence.clone()),
+        baseline_item_budget(8),
+    );
+    assert_eq!(snapshot, setup.snapshot_sequence);
+    assert_eq!(rows.len(), 2);
     let _ = fs::remove_dir_all(data_dir);
 }
 

@@ -1,8 +1,9 @@
 //! Core daemon supervisor and typed API implementation.
 
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeMap, HashMap, VecDeque},
+    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap, VecDeque},
     hash::{Hash, Hasher},
+    io,
     ops::Bound::{Excluded, Included, Unbounded},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
@@ -33,8 +34,8 @@ use crate::api::{
     CaptureColorAndSnapshotRequest, CaptureColorAndSnapshotResult, CaptureSnapshotRequest,
     CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
     DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
-    GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult, ObserveLifecycleBudget,
-    ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
+    GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult,
+    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, ReadModeFlagsRequest,
     ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
@@ -108,6 +109,9 @@ pub struct CoreDaemonConfig {
     pub test_fail_runtime_drain_for: Option<SessionId>,
     /// Test-only: `Display` text for the injected observe drain failure.
     pub test_fail_runtime_drain_message: Option<String>,
+    /// Test-only: add this duration after each counted baseline step.
+    #[cfg(test)]
+    pub test_baseline_elapsed_per_op: Option<Duration>,
 }
 
 impl CoreDaemonConfig {
@@ -134,6 +138,8 @@ impl CoreDaemonConfig {
             test_fail_snapshot_history_after_ready: false,
             test_fail_runtime_drain_for: None,
             test_fail_runtime_drain_message: None,
+            #[cfg(test)]
+            test_baseline_elapsed_per_op: None,
         }
     }
 
@@ -204,6 +210,14 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_test_fail_runtime_drain_message(mut self, message: Option<String>) -> Self {
         self.test_fail_runtime_drain_message = message;
+        self
+    }
+
+    /// Expire baseline elapsed after this many counted index, load, clone, or encode steps.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn with_test_baseline_elapsed_per_op(mut self, per_op: Duration) -> Self {
+        self.test_baseline_elapsed_per_op = Some(per_op);
         self
     }
 
@@ -346,6 +360,12 @@ pub struct CoreDaemon {
     baseline_freeze: Option<BaselineFreeze>,
     #[cfg(test)]
     observe_index_scans: u64,
+    #[cfg(test)]
+    baseline_index_scans: u64,
+    #[cfg(test)]
+    baseline_row_copies: u64,
+    #[cfg(test)]
+    baseline_page_encodes: u64,
     running: bool,
 }
 
@@ -362,10 +382,12 @@ enum NextObserveSession {
     Elapsed,
 }
 
-#[derive(Clone)]
 struct BaselineFreeze {
     snapshot_sequence: SessionLifecycleCursor,
-    rows: Vec<SessionLifecycleRecord>,
+    dir: Option<std::fs::ReadDir>,
+    excluded: BTreeSet<String>,
+    membership: BTreeMap<String, Option<SessionLifecycleRecord>>,
+    index_complete: bool,
 }
 
 struct ObserveLifecycleWalk {
@@ -460,6 +482,12 @@ impl CoreDaemon {
             baseline_freeze: None,
             #[cfg(test)]
             observe_index_scans: 0,
+            #[cfg(test)]
+            baseline_index_scans: 0,
+            #[cfg(test)]
+            baseline_row_copies: 0,
+            #[cfg(test)]
+            baseline_page_encodes: 0,
             running: true,
         }
     }
@@ -496,6 +524,7 @@ impl CoreDaemon {
             now_seconds,
         );
         record.metadata = spawn.session.metadata.clone();
+        self.fence_baseline_before_save(&record.session_id)?;
         if let Some(metadata) = self.engine.worker_metadata(&record.session_id) {
             if let Some(identity) = metadata.recovery_identity.clone() {
                 record.observe_restart_contract(identity, now_seconds);
@@ -535,106 +564,87 @@ impl CoreDaemon {
 
     /// Return one page of a frozen lifecycle baseline snapshot.
     ///
-    /// `snapshot = None` mints a freeze from `load_all()` and the current
-    /// journal watermark. Later pages with that snapshot cursor return the
-    /// next frozen rows and must not re-read a mutated registry. An
-    /// incomplete page has `complete = false` and is not finished ended
-    /// evidence. One freeze is cached at a time; a new mint replaces it.
-    /// A complete page drops the freeze.
+    /// `snapshot = None` mints a freeze at the current journal watermark and
+    /// walks the registry directory under the supplied item, encoded-byte,
+    /// and elapsed budgets. Later pages with that snapshot continue the same
+    /// freeze. An incomplete page has `complete = false` and is not finished
+    /// ended evidence. Setup-only and index-in-progress yields keep the
+    /// freeze identity and set `next = None`. One freeze is cached at a
+    /// time; a new mint replaces it. A complete page drops the freeze.
     pub fn lifecycle_baseline_page(
         &mut self,
         snapshot: Option<&SessionLifecycleCursor>,
         after: Option<&SessionId>,
-        max_rows: usize,
-        max_bytes: usize,
+        budget: LifecycleBaselineBudget,
     ) -> Result<SessionLifecycleBaselinePage, SessionLifecyclePageError> {
-        let freeze = match snapshot {
-            None => match self.mint_baseline_freeze() {
-                Ok(freeze) => freeze,
-                Err(_) => {
-                    return Ok(SessionLifecycleBaselinePage {
-                        snapshot_sequence: self.lifecycle_cursor(),
-                        sessions: Vec::new(),
-                        next: None,
-                        complete: false,
-                        resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
-                    });
-                }
-            },
-            Some(requested) => {
-                if requested.source_id != self.lifecycle_source_id {
-                    return Ok(SessionLifecycleBaselinePage {
-                        snapshot_sequence: requested.clone(),
-                        sessions: Vec::new(),
-                        next: None,
-                        complete: false,
-                        resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
-                    });
-                }
-                match self.baseline_freeze.as_ref() {
-                    Some(freeze) if freeze.snapshot_sequence == *requested => freeze.clone(),
-                    _ => {
-                        return Ok(SessionLifecycleBaselinePage {
-                            snapshot_sequence: requested.clone(),
-                            sessions: Vec::new(),
-                            next: None,
-                            complete: false,
-                            resync_required: Some(
-                                SessionLifecycleResyncReason::SnapshotUnavailable,
-                            ),
-                        });
-                    }
+        let started = Instant::now();
+        let mut ops = 0_u64;
+
+        if let Some(requested) = snapshot {
+            if requested.source_id != self.lifecycle_source_id {
+                return Ok(baseline_resync_page(
+                    requested.clone(),
+                    SessionLifecycleResyncReason::SourceChanged,
+                ));
+            }
+            match self.baseline_freeze.as_ref() {
+                Some(freeze) if freeze.snapshot_sequence == *requested => {}
+                _ => {
+                    return Ok(baseline_resync_page(
+                        requested.clone(),
+                        SessionLifecycleResyncReason::SnapshotUnavailable,
+                    ));
                 }
             }
-        };
+        } else {
+            self.baseline_freeze = Some(BaselineFreeze {
+                snapshot_sequence: self.lifecycle_cursor(),
+                dir: None,
+                excluded: BTreeSet::new(),
+                membership: BTreeMap::new(),
+                index_complete: false,
+            });
+        }
 
-        let remaining: Vec<SessionLifecycleRecord> = freeze
-            .rows
-            .iter()
-            .filter(|record| session_id_on_or_after(&record.session.session_id, after))
-            .cloned()
-            .collect();
-
+        let snapshot_sequence = self
+            .baseline_freeze
+            .as_ref()
+            .expect("freeze exists after mint or match")
+            .snapshot_sequence
+            .clone();
         let empty = SessionLifecycleBaselinePage {
-            snapshot_sequence: freeze.snapshot_sequence.clone(),
+            snapshot_sequence: snapshot_sequence.clone(),
             sessions: Vec::new(),
-            next: remaining
-                .first()
-                .map(|record| record.session.session_id.clone()),
-            complete: remaining.is_empty(),
+            next: None,
+            complete: false,
             resync_required: None,
         };
         let minimum_bytes = encoded_lifecycle_baseline_page_len(&empty);
-        if max_bytes < minimum_bytes {
+        if budget.max_bytes < minimum_bytes {
             return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
         }
-
-        let mut page = empty;
-        for (index, record) in remaining.iter().enumerate() {
-            if page.sessions.len() >= max_rows {
-                break;
-            }
-            let mut candidate = page.clone();
-            candidate.sessions.push(record.clone());
-            let exhausted = index + 1 == remaining.len();
-            candidate.complete = exhausted;
-            candidate.next = if exhausted {
-                None
-            } else {
-                Some(remaining[index + 1].session.session_id.clone())
-            };
-            if encoded_lifecycle_baseline_page_len(&candidate) > max_bytes {
-                break;
-            }
-            page = candidate;
+        if self.baseline_elapsed(started, ops) >= budget.max_elapsed {
+            return Ok(empty);
         }
 
-        if page.complete {
+        let mut items_used = 0_usize;
+        if let Err(()) = self.advance_baseline_index(started, &mut ops, &mut items_used, &budget) {
             self.baseline_freeze = None;
-        } else if snapshot.is_none() {
-            self.baseline_freeze = Some(freeze);
+            return Ok(baseline_resync_page(
+                snapshot_sequence,
+                SessionLifecycleResyncReason::SourceChanged,
+            ));
         }
-        Ok(page)
+
+        let index_complete = self
+            .baseline_freeze
+            .as_ref()
+            .is_some_and(|freeze| freeze.index_complete);
+        if !index_complete {
+            return Ok(empty);
+        }
+
+        self.emit_baseline_suffix(after, started, &mut ops, &mut items_used, budget, empty)
     }
 
     /// Return ordered lifecycle changes after a source cursor.
@@ -965,6 +975,7 @@ impl CoreDaemon {
             record.rows = rows;
             record.cols = cols;
             record.updated_at = updated_at;
+            self.fence_baseline_before_save(session_id)?;
             self.registry.save(&record)?;
             let lifecycle = self
                 .engine
@@ -1439,6 +1450,7 @@ impl CoreDaemon {
         if let Some(mut record) = self.registry.load(session_id)? {
             if record.state != RegistrySessionState::Stale {
                 record.mark(RegistrySessionState::Stale, now_seconds);
+                self.fence_baseline_before_save(session_id)?;
                 self.registry.save(&record)?;
                 let lifecycle = self
                     .engine
@@ -1492,6 +1504,7 @@ impl CoreDaemon {
         self.track_live_session(session_id);
         if let Some(mut record) = self.registry.load(session_id)? {
             record.mark(RegistrySessionState::Running, now_seconds);
+            self.fence_baseline_before_save(session_id)?;
             self.registry.save(&record)?;
             self.append_lifecycle_upsert(&record, Some(session.lifecycle.clone()));
         }
@@ -1521,6 +1534,7 @@ impl CoreDaemon {
             return Ok(false);
         }
 
+        self.fence_baseline_before_remove(session_id)?;
         self.registry.remove(session_id)?;
         if self.engine.session(session_id).is_some() {
             let forgotten = self.engine.forget_terminal_session(session_id);
@@ -1621,6 +1635,7 @@ impl CoreDaemon {
         if let Some(mut record) = self.registry.load(&session_id)? {
             if record.state != RegistrySessionState::Exited {
                 record.mark(RegistrySessionState::Exited, now_seconds);
+                self.fence_baseline_before_save(&session_id)?;
                 self.registry.save(&record)?;
                 let lifecycle = self
                     .engine
@@ -1658,6 +1673,7 @@ impl CoreDaemon {
                         RegistrySessionState::Exited | RegistrySessionState::Stale
                     );
                     record.mark(registry_state, now_seconds);
+                    self.fence_baseline_before_save(session_id)?;
                     self.registry.save(&record)?;
                     self.append_lifecycle_upsert(&record, Some(state.clone()));
                 }
@@ -2098,18 +2114,310 @@ impl CoreDaemon {
         next
     }
 
-    fn mint_baseline_freeze(&self) -> Result<BaselineFreeze, CoreDaemonError> {
-        let mut rows: Vec<SessionLifecycleRecord> = self
+    fn advance_baseline_index(
+        &mut self,
+        started: Instant,
+        ops: &mut u64,
+        items_used: &mut usize,
+        budget: &LifecycleBaselineBudget,
+    ) -> Result<(), ()> {
+        if self
+            .baseline_freeze
+            .as_ref()
+            .is_some_and(|freeze| freeze.index_complete)
+        {
+            return Ok(());
+        }
+        if self
+            .baseline_freeze
+            .as_ref()
+            .is_some_and(|freeze| freeze.dir.is_none())
+        {
+            match std::fs::read_dir(self.registry.root()) {
+                Ok(dir) => {
+                    if let Some(freeze) = self.baseline_freeze.as_mut() {
+                        freeze.dir = Some(dir);
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if let Some(freeze) = self.baseline_freeze.as_mut() {
+                        freeze.index_complete = true;
+                    }
+                    return Ok(());
+                }
+                Err(_) => return Err(()),
+            }
+        }
+
+        loop {
+            if *items_used >= budget.max_rows {
+                break;
+            }
+            if self.baseline_elapsed(started, *ops) >= budget.max_elapsed {
+                break;
+            }
+            let next = self
+                .baseline_freeze
+                .as_mut()
+                .and_then(|freeze| freeze.dir.as_mut())
+                .and_then(Iterator::next);
+            match next {
+                None => {
+                    if let Some(freeze) = self.baseline_freeze.as_mut() {
+                        freeze.dir = None;
+                        freeze.index_complete = true;
+                    }
+                    break;
+                }
+                Some(Err(_)) => return Err(()),
+                Some(Ok(entry)) => {
+                    *items_used = items_used.saturating_add(1);
+                    *ops = ops.saturating_add(1);
+                    self.record_baseline_index_scan();
+                    let path = entry.path();
+                    if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                        continue;
+                    }
+                    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                        continue;
+                    };
+                    let id = stem.to_string();
+                    if let Some(freeze) = self.baseline_freeze.as_mut() {
+                        if freeze.excluded.contains(&id) || freeze.membership.contains_key(&id) {
+                            continue;
+                        }
+                        freeze.membership.insert(id, None);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_baseline_suffix(
+        &mut self,
+        after: Option<&SessionId>,
+        started: Instant,
+        ops: &mut u64,
+        items_used: &mut usize,
+        budget: LifecycleBaselineBudget,
+        empty: SessionLifecycleBaselinePage,
+    ) -> Result<SessionLifecycleBaselinePage, SessionLifecyclePageError> {
+        let membership_empty = self
+            .baseline_freeze
+            .as_ref()
+            .is_some_and(|freeze| freeze.membership.is_empty());
+        if membership_empty {
+            self.baseline_freeze = None;
+            return Ok(SessionLifecycleBaselinePage {
+                complete: true,
+                ..empty
+            });
+        }
+
+        let mut page = empty;
+        let mut cursor = after.cloned();
+        let inclusive = after.is_some();
+        loop {
+            let next_id = self.next_baseline_membership_id(
+                cursor.as_ref(),
+                inclusive && page.sessions.is_empty(),
+            );
+            let Some(next_id) = next_id else {
+                page.complete = true;
+                page.next = None;
+                break;
+            };
+            if *items_used >= budget.max_rows
+                || self.baseline_elapsed(started, *ops) >= budget.max_elapsed
+            {
+                page.next = Some(SessionId(next_id));
+                page.complete = false;
+                break;
+            }
+            *items_used = items_used.saturating_add(1);
+            *ops = ops.saturating_add(1);
+            let record = match self.materialize_baseline_row(&next_id) {
+                Ok(Some(record)) => record,
+                Ok(None) => {
+                    cursor = Some(SessionId(next_id));
+                    continue;
+                }
+                Err(()) => {
+                    self.baseline_freeze = None;
+                    return Ok(baseline_resync_page(
+                        page.snapshot_sequence,
+                        SessionLifecycleResyncReason::SourceChanged,
+                    ));
+                }
+            };
+            let mut candidate = page.clone();
+            candidate.sessions.push(record);
+            let following =
+                self.next_baseline_membership_id(Some(&SessionId(next_id.clone())), false);
+            candidate.complete = following.is_none();
+            candidate.next = following.map(SessionId);
+            *ops = ops.saturating_add(1);
+            self.record_baseline_page_encode();
+            if encoded_lifecycle_baseline_page_len(&candidate) > budget.max_bytes {
+                page.next = Some(SessionId(next_id));
+                page.complete = false;
+                break;
+            }
+            page = candidate;
+            cursor = Some(SessionId(next_id));
+            if self.baseline_elapsed(started, *ops) >= budget.max_elapsed && !page.complete {
+                break;
+            }
+        }
+
+        if page.complete {
+            self.baseline_freeze = None;
+        }
+        Ok(page)
+    }
+
+    fn next_baseline_membership_id(
+        &self,
+        after: Option<&SessionId>,
+        inclusive: bool,
+    ) -> Option<String> {
+        let freeze = self.baseline_freeze.as_ref()?;
+        let start = match (after, inclusive) {
+            (None, _) => Unbounded,
+            (Some(id), true) => Included(id.0.clone()),
+            (Some(id), false) => Excluded(id.0.clone()),
+        };
+        freeze
+            .membership
+            .range((start, Unbounded))
+            .map(|(id, _)| id.clone())
+            .next()
+    }
+
+    fn materialize_baseline_row(
+        &mut self,
+        session_id: &str,
+    ) -> Result<Option<SessionLifecycleRecord>, ()> {
+        let cached = self
+            .baseline_freeze
+            .as_ref()
+            .and_then(|freeze| freeze.membership.get(session_id))
+            .and_then(Clone::clone);
+        if let Some(record) = cached {
+            self.record_baseline_row_copy();
+            return Ok(Some(record));
+        }
+        let loaded = self
             .registry
-            .load_all()?
-            .iter()
-            .map(|record| self.lifecycle_record(record))
-            .collect();
-        rows.sort_by(|left, right| left.session.session_id.0.cmp(&right.session.session_id.0));
-        Ok(BaselineFreeze {
-            snapshot_sequence: self.lifecycle_cursor(),
-            rows,
-        })
+            .load_skip_malformed(&SessionId(session_id.to_string()))
+            .map_err(|_| ())?;
+        let Some(raw) = loaded else {
+            if let Some(freeze) = self.baseline_freeze.as_mut() {
+                freeze.membership.remove(session_id);
+            }
+            return Ok(None);
+        };
+        let mapped = self.lifecycle_record(&raw);
+        self.record_baseline_row_copy();
+        if let Some(freeze) = self.baseline_freeze.as_mut() {
+            freeze
+                .membership
+                .insert(session_id.to_string(), Some(mapped.clone()));
+        }
+        Ok(Some(mapped))
+    }
+
+    fn fence_baseline_before_save(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), CoreDaemonError> {
+        let Some(freeze) = self.baseline_freeze.as_ref() else {
+            return Ok(());
+        };
+        if freeze.excluded.contains(&session_id.0)
+            || freeze
+                .membership
+                .get(&session_id.0)
+                .is_some_and(Option::is_some)
+        {
+            return Ok(());
+        }
+        match self.registry.load_skip_malformed(session_id)? {
+            Some(record) => {
+                let mapped = self.lifecycle_record(&record);
+                self.record_baseline_row_copy();
+                if let Some(freeze) = self.baseline_freeze.as_mut() {
+                    freeze.membership.insert(session_id.0.clone(), Some(mapped));
+                }
+            }
+            None => {
+                if let Some(freeze) = self.baseline_freeze.as_mut() {
+                    freeze.excluded.insert(session_id.0.clone());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn fence_baseline_before_remove(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), CoreDaemonError> {
+        let Some(freeze) = self.baseline_freeze.as_ref() else {
+            return Ok(());
+        };
+        if freeze.excluded.contains(&session_id.0)
+            || freeze
+                .membership
+                .get(&session_id.0)
+                .is_some_and(Option::is_some)
+        {
+            return Ok(());
+        }
+        if let Some(record) = self.registry.load_skip_malformed(session_id)? {
+            let mapped = self.lifecycle_record(&record);
+            self.record_baseline_row_copy();
+            if let Some(freeze) = self.baseline_freeze.as_mut() {
+                freeze.membership.insert(session_id.0.clone(), Some(mapped));
+            }
+        }
+        Ok(())
+    }
+
+    fn baseline_elapsed(&self, started: Instant, ops: u64) -> Duration {
+        let wall = started.elapsed();
+        #[cfg(test)]
+        {
+            if let Some(per_op) = self.config.test_baseline_elapsed_per_op {
+                let extra = per_op.saturating_mul(u32::try_from(ops).unwrap_or(u32::MAX));
+                return wall.saturating_add(extra);
+            }
+        }
+        #[cfg(not(test))]
+        let _ = ops;
+        wall
+    }
+
+    fn record_baseline_index_scan(&mut self) {
+        #[cfg(test)]
+        {
+            self.baseline_index_scans = self.baseline_index_scans.saturating_add(1);
+        }
+    }
+
+    fn record_baseline_row_copy(&mut self) {
+        #[cfg(test)]
+        {
+            self.baseline_row_copies = self.baseline_row_copies.saturating_add(1);
+        }
+    }
+
+    fn record_baseline_page_encode(&mut self) {
+        #[cfg(test)]
+        {
+            self.baseline_page_encodes = self.baseline_page_encodes.saturating_add(1);
+        }
     }
 
     fn observe_session(
@@ -2209,6 +2517,19 @@ fn encoded_lifecycle_baseline_page_len(page: &SessionLifecycleBaselinePage) -> u
         .len()
 }
 
+fn baseline_resync_page(
+    snapshot_sequence: SessionLifecycleCursor,
+    resync_required: SessionLifecycleResyncReason,
+) -> SessionLifecycleBaselinePage {
+    SessionLifecycleBaselinePage {
+        snapshot_sequence,
+        sessions: Vec::new(),
+        next: None,
+        complete: false,
+        resync_required: Some(resync_required),
+    }
+}
+
 fn encoded_observe_slice_len(slice: &ObserveLifecycleSlice) -> usize {
     serde_json::to_vec(slice)
         .expect("observe lifecycle slice must serialize")
@@ -2242,13 +2563,6 @@ fn observe_pass_unavailable(pass_id: ObserveLifecyclePassId) -> ObserveLifecycle
             resync_required: Some(SessionLifecycleResyncReason::ObservePassUnavailable),
         },
         session_errors: Vec::new(),
-    }
-}
-
-fn session_id_on_or_after(session_id: &SessionId, after: Option<&SessionId>) -> bool {
-    match after {
-        None => true,
-        Some(after) => session_id.0.as_str() >= after.0.as_str(),
     }
 }
 
@@ -3128,6 +3442,9 @@ mod terminal_backend_failure_tests {
             observe_live_generation: 0,
             baseline_freeze: None,
             observe_index_scans: 0,
+            baseline_index_scans: 0,
+            baseline_row_copies: 0,
+            baseline_page_encodes: 0,
             running: true,
         }
     }
@@ -3327,5 +3644,187 @@ mod observe_pass_snapshot_tests {
             },
             metadata: CoreSessionMetadata::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod baseline_freeze_bound_tests {
+    use super::*;
+    use botster_core::SessionId;
+
+    fn seed_records(daemon: &CoreDaemon, count: usize) {
+        for index in 0..count {
+            let record = RegistryRecord::running(
+                SessionId(format!("sess-{index:04}")),
+                None,
+                ResizePayload { rows: 24, cols: 80 },
+                "seed".to_string(),
+                1,
+            );
+            daemon.registry.save(&record).expect("seed");
+        }
+    }
+
+    fn data_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "botster-baseline-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn setup_only_elapsed_does_not_scan_or_copy() {
+        let data_dir = data_dir("setup-only");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        seed_records(&daemon, 8);
+        let page = daemon
+            .lifecycle_baseline_page(
+                None,
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::ZERO,
+                },
+            )
+            .expect("setup-only");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert!(page.next.is_none());
+        assert_eq!(daemon.baseline_index_scans, 0);
+        assert_eq!(daemon.baseline_row_copies, 0);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn first_call_item_limit_examines_one_directory_entry() {
+        let data_dir = data_dir("index-item");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        seed_records(&daemon, 8);
+        let page = daemon
+            .lifecycle_baseline_page(
+                None,
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("index item");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert_eq!(daemon.baseline_index_scans, 1);
+        assert_eq!(daemon.baseline_row_copies, 0);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn mid_work_elapsed_hook_stops_after_partial_index_progress() {
+        let data_dir = data_dir("elapsed-hook");
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+        );
+        seed_records(&daemon, 8);
+        let minted = daemon
+            .lifecycle_baseline_page(
+                None,
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::ZERO,
+                },
+            )
+            .expect("setup mint");
+        assert_eq!(daemon.baseline_index_scans, 0);
+        let page = daemon
+            .lifecycle_baseline_page(
+                Some(&minted.snapshot_sequence),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::from_millis(1),
+                },
+            )
+            .expect("one counted op");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert_eq!(daemon.baseline_index_scans, 1);
+        assert_eq!(daemon.baseline_row_copies, 0);
+        let later = daemon
+            .lifecycle_baseline_page(
+                Some(&minted.snapshot_sequence),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::from_millis(1),
+                },
+            )
+            .expect("later suffix");
+        assert!(!later.complete);
+        assert_eq!(daemon.baseline_index_scans, 2);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn later_page_item_limit_copies_one_suffix_row() {
+        let data_dir = data_dir("later-item");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        seed_records(&daemon, 4);
+        let indexed = daemon
+            .lifecycle_baseline_page(
+                None,
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: 4,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("finish index");
+        assert!(!indexed.complete);
+        assert!(indexed.sessions.is_empty());
+        assert_eq!(daemon.baseline_index_scans, 4);
+        let first = daemon
+            .lifecycle_baseline_page(
+                Some(&indexed.snapshot_sequence),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("first suffix row");
+        assert_eq!(first.sessions.len(), 1);
+        assert!(!first.complete);
+        assert_eq!(daemon.baseline_row_copies, 1);
+        let scans_after_first = daemon.baseline_index_scans;
+        let second = daemon
+            .lifecycle_baseline_page(
+                Some(&indexed.snapshot_sequence),
+                first.next.as_ref(),
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("second suffix row");
+        assert_eq!(second.sessions.len(), 1);
+        assert_ne!(
+            second.sessions[0].session.session_id,
+            first.sessions[0].session.session_id
+        );
+        assert_eq!(daemon.baseline_index_scans, scans_after_first);
+        assert_eq!(daemon.baseline_row_copies, 2);
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }

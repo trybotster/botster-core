@@ -22,8 +22,14 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         "Stage A must not call the unbounded observe wrapper"
     );
     assert!(
-        source.contains("fn install_baseline") && source.contains("lifecycle_baseline_page"),
-        "Stage A baseline install must use the paged freeze"
+        source.contains("fn install_baseline")
+            && source.contains("lifecycle_baseline_page")
+            && source.contains("LifecycleBaselineBudget"),
+        "Stage A baseline install must use the paged freeze budget"
+    );
+    assert!(
+        source.contains("index-in-progress") && source.contains("next = None"),
+        "Stage A baseline install must retry setup-only and index-in-progress yields"
     );
     assert!(
         source.contains("fn observe_lifecycle_stage_a")

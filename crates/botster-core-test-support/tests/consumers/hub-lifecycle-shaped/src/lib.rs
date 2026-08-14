@@ -2,9 +2,11 @@
 
 use std::collections::BTreeMap;
 
+use std::time::Duration;
+
 use botster_core_daemon::{
-    CoreDaemon, ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecycleSlice,
-    SessionLifecycleCursor, SessionLifecyclePage,
+    CoreDaemon, LifecycleBaselineBudget, ObserveLifecycleBudget, ObserveLifecycleCursor,
+    ObserveLifecycleSlice, SessionLifecycleCursor, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
 };
 
@@ -100,8 +102,11 @@ fn install_baseline(
         let page = match daemon.lifecycle_baseline_page(
             snapshot.as_ref(),
             after.as_ref(),
-            32,
-            64 * 1024,
+            LifecycleBaselineBudget {
+                max_rows: 32,
+                max_bytes: 64 * 1024,
+                max_elapsed: Duration::MAX,
+            },
         ) {
             Ok(page) => page,
             Err(error) => return Err(map_page_error(error)),
@@ -130,9 +135,8 @@ fn install_baseline(
         }
         snapshot = Some(page.snapshot_sequence);
         after = page.next;
-        if after.is_none() {
-            return Err(HubLifecycleConsumeError::UnknownPageError);
-        }
+        // Setup-only and index-in-progress yields keep the freeze identity
+        // and set next = None. Retry the same snapshot.
     }
 }
 

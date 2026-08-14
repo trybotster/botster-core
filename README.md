@@ -170,16 +170,20 @@ The same lifecycle verbs on the production path are `CoreDaemon::spawn`,
 guarded writes). Prefer those methods over assembling lower-level engines.
 
 Production hosts that maintain a session projection start with
-`CoreDaemon::lifecycle_baseline_page` until `complete`, retain that snapshot
-sequence, and call `CoreDaemon::observe_lifecycle_slice` to advance
-control-plane facts without a terminal client or Hub terminal Drain. A slice
-returns a resume cursor; the next call continues that pass only when
-`pass_id` and optional `last_visited` match the open pass. Later slices do
-not list or sort the full live set. A setup-only elapsed yield has
-`last_visited = None` and remains resumable. Mid-pass births wait for a new pass.
-An incomplete baseline page is not finished ended evidence.
-`lifecycle_baseline` and `observe_lifecycle` remain unbounded compatibility
-wrappers. Consume `CoreDaemon::lifecycle_changes_page` after taking the
+`CoreDaemon::lifecycle_baseline_page` and a `LifecycleBaselineBudget`
+until `complete`, retain that snapshot sequence, and call
+`CoreDaemon::observe_lifecycle_slice` to advance control-plane facts
+without a terminal client or Hub terminal Drain. A baseline call that
+expires during mint setup or directory indexing keeps the freeze
+identity, returns `next = None`, and is not complete. Retry the same
+snapshot. A slice returns a resume cursor; the next call continues that
+pass only when `pass_id` and optional `last_visited` match the open
+pass. Later slices do not list or sort the full live set. A setup-only
+elapsed yield has `last_visited = None` and remains resumable. Mid-pass
+births wait for a new pass. An incomplete baseline page is not finished
+ended evidence. `lifecycle_baseline` and `observe_lifecycle` remain
+unbounded compatibility wrappers. Hub Stage A must not call
+`lifecycle_baseline`. Consume `CoreDaemon::lifecycle_changes_page` after taking the
 coalesced `take_journal_advanced_wake` bit: take, page until `next` equals
 the source watermark or a resync reason appears, take again, and re-page if
 that second take is true. `lifecycle_changes` remains the unbounded
