@@ -69,6 +69,7 @@ Create:
 - `crates/botster-core-test-support/tests/terminal_adapter_conformance_test.rs`
 - `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.toml`
 - `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/src/lib.rs`
+- `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.lock`
 - `docs/architecture/terminal-adapter.md`
 - `docs/reports/content-blind-terminal-adapter-contract-implement.md`
 - `docs/archive/plans/content-blind-terminal-adapter-contract-and-conformance-harness.md`
