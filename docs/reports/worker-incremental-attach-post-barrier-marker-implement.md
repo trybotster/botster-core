@@ -8,11 +8,11 @@ Step: `botster_stack_implement`
 
 - Target repository: `botster-core` (`trybotster/botster-core`)
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
-- Spawn-target path from `list_spawn_targets`: `/Users/jasonconigliari/Projects/botster-core`
+- Spawn-target path from `list_spawn_targets`: admitted `botster-core` target
 - Worktree: Botster-managed ticket worktree
-  `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1786735252_213191`
 - Approved plan routing: same `botster-core` / `tgt_1f7bce66eb304881980f9b4a2a5ae3fe` at subject `159d926`
 - Merge policy: `direct`. No pull request.
+- Committed-artifact PII scan on this report and the ticket plan: no home or session paths.
 
 ## Repository playbook and other playbooks/notes applied
 
@@ -53,7 +53,8 @@ Not loaded:
 ## Files changed
 
 - `crates/botster-core/src/engine/botster.rs` — after `Attached`, drain leftover producer output before flushing queued `FRAME_PTY_INPUT`
-- `crates/botster-core/src/runtime/worker_process.rs` — no lasting edit. A first stall-on-full attempt hung cancel and broke detached overflow; it was reverted.
+- `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a parent consumer is attached; detach returns to overflow
+- `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo pressure test
 - `docs/reports/worker-incremental-attach-post-barrier-marker-implement.md` — this report
 - `docs/archive/plans/worker-incremental-attach-post-barrier-marker.md` — approved plan already in the worktree (Plan artifact)
 
@@ -78,9 +79,9 @@ FINISH → latest queued resize → barrier release → Attached → leftover dr
 
 `FRAME_PTY_INPUT` stays after `Attached`.
 
-The leftover drain is the plan's stated repair. A first attempt to stall live `PtyOutput` on the parent channel restored process echo, but a global stall broke detached overflow and an attached stall hung `worker_incremental_attach_cancel_releases_snapshot_barrier`. Those worker_process edits were reverted.
+The leftover drain remains. Review `review_1786739081_180992` reproduced the miss after leftover drain alone: iteration 9 of the focused oracle lost `echo:POST-BARRIER-MARKER`.
 
-The production finish path now drains leftover live bytes after `Attached` and before `FRAME_PTY_INPUT`, so the capacity-one slot is empty when the child consumes queued input.
+This revision stalls live `PtyOutput` only while `attach_consumer` is active. Detach returns the send path to try-send plus overflow so cancel and detached workers still progress. A blocking `send` is not used, so detach can stop a stall without a parent drain.
 
 ## Tests and downstream proof run
 
@@ -92,7 +93,9 @@ queued client output never observed "echo:POST-BARRIER-MARKER" within 180s or af
 
 Plan Review's fourth isolated run is the same shape.
 
-Focused oracle, 10 consecutive passes after the fix, all exit 0:
+Review `review_1786739081_180992` failed leftover-only on focused run 9. After the attached-consumer stall:
+
+Focused oracle, 10 consecutive passes, all exit 0:
 
 ```bash
 BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output
@@ -105,7 +108,9 @@ Sibling incremental attach tests, all exit 0:
 - `worker_incremental_attach_cancel_releases_snapshot_barrier`
 - `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
 
-Revert-once negative control: production files restored to `159d926`, focused test passed 4 times, failed on run 5 with the same assertion and last output `POST-BARRIER-MARKER\r\n`. Fix restored after that red run.
+Pressure-test ablation: `attached_capacity_one_retains_process_echo_after_terminal_echo` failed after the stall loop was removed. Last output was `FILL-SLOT\r\necho:FILL-SLOT\r\n` with `echo:POST-BARRIER-MARKER` absent. Stall restored after that red run.
+
+Pre-fix focused miss on `159d926` (Implement run 5 and Review run 9) remains the live-oracle negative control.
 
 Workspace gates:
 
@@ -116,29 +121,27 @@ BOTSTER_ENV=test cargo test --workspace
 BOTSTER_ENV=test cargo test --doc --workspace
 ```
 
-All four workspace gates passed on this Implement session:
+Review-response workspace gates:
 
 - `cargo fmt --all -- --check` — pass
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — pass
-- `BOTSTER_ENV=test cargo test --workspace` — first run failed `bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation` (plugin-worker, isolated rerun exit 0). Second default-concurrency workspace run exit 0, including `worker_incremental_attach_*`.
+- `BOTSTER_ENV=test cargo test --workspace` — exit 0, including `worker_incremental_attach_cancel_releases_snapshot_barrier` and `attached_capacity_one_retains_process_echo_after_terminal_echo`
 - `BOTSTER_ENV=test cargo test --doc --workspace` — pass
 
-Production-path proof: `CoreDaemon::attach` / `input` / `resize` / `drain` call `WorkerBackedBotsterEngine::drain_runtime_once`. That function now drains leftover live bytes after `Attached` and before queued `FRAME_PTY_INPUT`.
+Production-path proof: `CoreDaemon::attach` increments the parent consumer count. Later `input` / `resize` / `drain` call `WorkerBackedBotsterEngine::drain_runtime_once`, which drains leftover live bytes after `Attached` and then flushes queued `FRAME_PTY_INPUT`. Live `PtyOutput` stalls while that consumer count is above zero.
 
 No new Hub consumer. The authentic worker PTY + Ghostty daemon test remains the charter proof.
 
 ## Unverified behavior or residual risk
 
-- The isolated miss is timing-dependent. Ten consecutive focused passes plus a revert-red run reduce, but do not eliminate, residual race risk if later live `PtyOutput` is dropped after leftover drain.
-- A parent `try_send` drop of the process echo remains possible. A stall-on-full repair hung cancel and broke detached overflow, so it was not kept.
-- `plugin_worker` load flakes remain diagnostic only. The first workspace run exposed `bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation`; isolated and the next workspace run passed.
+- `plugin_worker` load flakes remain diagnostic only.
 - `daemon.capture_snapshot` after `Attached` uses the parent shadow. It does not re-fence the worker PTY.
 
 ## Missing vault guidance discovered
 
-Captured to inbox after the proven diagnosis:
+Captured to inbox after Review's remaining drop diagnosis:
 
-- `incremental attach must drain leftover producer output after Attached`
+- `attached parent must stall live PTY bytes`
 
 Do not recapture [[capacity one attach proofs drain pre attach producer output]] or [[incremental GHOSTSNP clients defer resize and input until FINISH and attached]].
 

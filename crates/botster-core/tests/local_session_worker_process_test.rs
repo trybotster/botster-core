@@ -735,6 +735,58 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
 }
 
 #[test]
+fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
+    let mut options = worker_options();
+    options.egress_capacity = 1;
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-attached-process-echo");
+
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "printf 'ready\\n'; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        ))
+        .expect("spawn capacity-one echo worker");
+    runtime
+        .attach_consumer(&session)
+        .expect("attach parent consumer before live output");
+
+    let ready = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("ready")
+    });
+    assert!(
+        output_text(&ready).contains("ready"),
+        "pre-input ready marker should drain"
+    );
+
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"FILL-SLOT\n".to_vec(),
+        })
+        .expect("fill the one-slot parent channel");
+    thread::sleep(Duration::from_millis(80));
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"POST-BARRIER-MARKER\n".to_vec(),
+        })
+        .expect("write queued marker into the PTY");
+    // Hold the parent drain so the marker races a full one-slot channel.
+    // A try_send drop keeps FILL-SLOT and loses echo:POST-BARRIER-MARKER.
+    thread::sleep(Duration::from_millis(80));
+
+    let live = collect_until(&mut runtime, &session, |output| {
+        output_text(output).contains("echo:POST-BARRIER-MARKER")
+    });
+    let text = output_text(&live);
+    assert!(
+        text.contains("echo:POST-BARRIER-MARKER"),
+        "attached capacity-one egress must retain process echo after terminal echo; last output: {text:?}"
+    );
+}
+
+#[test]
 fn dropping_parent_runtime_reaps_worker_and_pty_child() {
     let session = session_id("worker-parent-drop-cleanup");
     let (worker_pid, pty_child_pid) = {
