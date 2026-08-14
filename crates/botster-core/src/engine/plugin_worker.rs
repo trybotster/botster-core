@@ -2685,6 +2685,25 @@ mod tests {
         }
     }
 
+    fn try_admit_retrying_lock_busy(
+        engine: &PluginWorkerEngine,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        let started = Instant::now();
+        loop {
+            match engine.try_admit(class, request.clone()) {
+                PluginAdmissionResult::Backpressured { reason, .. }
+                    if reason == ADMISSION_LOCK_BUSY
+                        && started.elapsed() < Duration::from_millis(100) =>
+                {
+                    std::thread::yield_now();
+                }
+                other => return other,
+            }
+        }
+    }
+
     fn load(engine: &PluginWorkerEngine, plugin: &PluginKey, delay: Duration) {
         engine.load_plugin(PluginWorkerRegistration {
             load: PluginLoadSpec {
@@ -2725,7 +2744,8 @@ mod tests {
         let plugin = PluginKey("deadline-first".into());
         load(&engine, &plugin, Duration::from_millis(200));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 10),
             ),
@@ -2769,7 +2789,8 @@ mod tests {
         let plugin = PluginKey("unload-first".into());
         load(&engine, &plugin, Duration::from_secs(2));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 5_000),
             ),
@@ -2801,7 +2822,8 @@ mod tests {
         let plugin = PluginKey("late".into());
         load(&engine, &plugin, Duration::from_millis(80));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 5),
             ),
@@ -2836,7 +2858,8 @@ mod tests {
         let plugin = PluginKey("future-drop".into());
         load(&engine, &plugin, Duration::from_secs(30));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 30_000),
             ),
@@ -2900,7 +2923,8 @@ mod tests {
         let plugin = PluginKey("reload-deadline".into());
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("same", handler(&plugin), 40),
             ),
@@ -2908,7 +2932,8 @@ mod tests {
         ));
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("same", handler(&plugin), 5_000),
             ),
@@ -2942,30 +2967,22 @@ mod tests {
         let plugin = PluginKey("bounded".into());
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("occupy", handler(&plugin), 5_000),
             ),
             PluginAdmissionResult::Queued { .. }
         ));
         for index in 0..8 {
-            let started = Instant::now();
-            let admitted = loop {
-                match engine.try_admit(
+            assert!(matches!(
+                try_admit_retrying_lock_busy(
+                    &engine,
                     PluginInvocationClass::Background,
                     request(&format!("expire-{index}"), handler(&plugin), 20),
-                ) {
-                    PluginAdmissionResult::Queued { .. } => break true,
-                    PluginAdmissionResult::Backpressured { reason, .. }
-                        if reason == ADMISSION_LOCK_BUSY
-                            && started.elapsed() < Duration::from_millis(100) =>
-                    {
-                        continue;
-                    }
-                    other => panic!("expected queued expire job, got {other:?}"),
-                }
-            };
-            assert!(admitted);
+                ),
+                PluginAdmissionResult::Queued { .. }
+            ));
         }
         let started = Instant::now();
         let mut timed_out = 0;
@@ -2992,7 +3009,8 @@ mod tests {
         let fast = PluginKey("fast".into());
         load(&engine, &fast, Duration::from_millis(1));
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 request("fast", handler(&fast), 30_000),
             ),

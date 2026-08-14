@@ -248,26 +248,33 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
         resources: Vec::new(),
     });
 
-    let admitted = matches!(
-        engine.try_admit_plugin(
-            PluginInvocationClass::Background,
-            PluginInvocationRequest {
-                request_id: RequestId("core-dev-timeout".to_string()),
-                handler,
-                timeout_ms: 10,
-                context: PluginInvocationContext {
-                    client_id: None,
-                    session_id: None,
-                    subscription_id: None,
-                    surface_id: None,
-                    origin: Some("core-dev".to_string()),
-                    metadata: None,
-                },
-                payload: BoundaryJson(serde_json::json!({ "op": "slow" })),
-            },
-        ),
-        PluginAdmissionResult::Queued { .. }
-    );
+    let request = PluginInvocationRequest {
+        request_id: RequestId("core-dev-timeout".to_string()),
+        handler,
+        timeout_ms: 10,
+        context: PluginInvocationContext {
+            client_id: None,
+            session_id: None,
+            subscription_id: None,
+            surface_id: None,
+            origin: Some("core-dev".to_string()),
+            metadata: None,
+        },
+        payload: BoundaryJson(serde_json::json!({ "op": "slow" })),
+    };
+    let admit_started = Instant::now();
+    let admitted = loop {
+        match engine.try_admit_plugin(PluginInvocationClass::Background, request.clone()) {
+            PluginAdmissionResult::Queued { .. } => break true,
+            PluginAdmissionResult::Backpressured { reason, .. }
+                if reason == "admission lock busy"
+                    && admit_started.elapsed() < Duration::from_millis(100) =>
+            {
+                std::thread::yield_now();
+            }
+            _ => break false,
+        }
+    };
 
     let started = Instant::now();
     let mut completion = None;

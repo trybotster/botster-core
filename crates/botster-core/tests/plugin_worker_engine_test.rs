@@ -409,6 +409,8 @@ fn network_capability() -> Capability {
     }
 }
 
+const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
+
 fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
     let started = std::time::Instant::now();
     while started.elapsed() < deadline {
@@ -418,6 +420,25 @@ fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert!(predicate(), "condition did not become true before deadline");
+}
+
+fn try_admit_retrying_lock_busy(
+    engine: &PluginWorkerEngine,
+    class: PluginInvocationClass,
+    request: PluginInvocationRequest,
+) -> PluginAdmissionResult {
+    let started = std::time::Instant::now();
+    loop {
+        match engine.try_admit(class, request.clone()) {
+            PluginAdmissionResult::Backpressured { reason, .. }
+                if reason == ADMISSION_LOCK_BUSY
+                    && started.elapsed() < Duration::from_millis(100) =>
+            {
+                std::thread::yield_now();
+            }
+            other => return other,
+        }
+    }
 }
 
 #[test]
@@ -1722,7 +1743,8 @@ fn saturated_background_cannot_occupy_reserved_request_response_executor() {
 
     for index in 0..2 {
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 invocation(&format!("bg-{index}"), command.clone(), 2_000),
             ),
@@ -1771,21 +1793,36 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("slow", command.clone(), 1_000),
         ),
         PluginAdmissionResult::Queued { .. }
     ));
     let started = std::time::Instant::now();
-    assert!(matches!(
-        engine.try_admit(
+    loop {
+        let call_started = std::time::Instant::now();
+        match engine.try_admit(
             PluginInvocationClass::Background,
-            invocation("second", command, 1_000),
-        ),
-        PluginAdmissionResult::Queued { .. }
-    ));
-    assert!(started.elapsed() < Duration::from_millis(50));
+            invocation("second", command.clone(), 1_000),
+        ) {
+            PluginAdmissionResult::Queued { .. } => {
+                assert!(call_started.elapsed() < Duration::from_millis(50));
+                break;
+            }
+            PluginAdmissionResult::Backpressured { reason, .. }
+                if reason == ADMISSION_LOCK_BUSY =>
+            {
+                assert!(call_started.elapsed() < Duration::from_millis(50));
+                assert!(
+                    started.elapsed() < Duration::from_millis(100),
+                    "typed admission lock busy persisted"
+                );
+            }
+            other => panic!("expected queued second admission, got {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -1803,7 +1840,8 @@ fn drain_completions_honors_item_and_byte_caps() {
     ));
     for index in 0..3 {
         assert!(matches!(
-            engine.try_admit(
+            try_admit_retrying_lock_busy(
+                &engine,
                 PluginInvocationClass::Background,
                 invocation(&format!("drain-{index}"), command.clone(), 1_000),
             ),
@@ -1839,7 +1877,8 @@ fn admitted_slow_job_times_out_through_engine_deadline_waiter() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("engine-timeout", command, 10),
         ),
@@ -1875,14 +1914,16 @@ fn completion_reservation_is_one_slot_until_drained() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("first", command.clone(), 2_000),
         ),
         PluginAdmissionResult::Queued { .. }
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("second", command.clone(), 2_000),
         ),
@@ -1891,7 +1932,8 @@ fn completion_reservation_is_one_slot_until_drained() {
     runtime.release();
     let _ = wait_for_completion(&engine, "first");
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("after-drain", command, 1_000),
         ),
@@ -1913,7 +1955,8 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("open-job", command.clone(), 5_000),
         ),
@@ -1943,7 +1986,8 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("timeout-then-unload", command, 10),
         ),
@@ -1975,7 +2019,8 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("same", command.clone(), 40),
         ),
@@ -1990,7 +2035,8 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("same", command, 5_000),
         ),
@@ -2035,7 +2081,7 @@ fn large_context_metadata_is_counted_in_class_byte_budget() {
         "blob": "m".repeat(512)
     })));
     assert!(matches!(
-        engine.try_admit(PluginInvocationClass::Background, huge),
+        try_admit_retrying_lock_busy(&engine, PluginInvocationClass::Background, huge),
         PluginAdmissionResult::RejectedBudget { .. }
     ));
 }
@@ -2071,11 +2117,13 @@ fn short_and_long_correlation_fields_reserve_fitting_fallbacks() {
         )
     });
 
-    let short = engine.try_admit(
+    let short = try_admit_retrying_lock_busy(
+        &engine,
         PluginInvocationClass::Background,
         invocation("a", short_handler, 1_000),
     );
-    let long = engine.try_admit(
+    let long = try_admit_retrying_lock_busy(
+        &engine,
         PluginInvocationClass::Background,
         invocation(&"r".repeat(128), long_handler, 1_000),
     );
@@ -2119,7 +2167,7 @@ fn oversize_handler_result_uses_prebuilt_compact_failure() {
     let mut request = invocation("oversize-result", command, 1_000);
     request.payload = BoundaryJson(serde_json::json!({ "tiny": true }));
     assert!(matches!(
-        engine.try_admit(PluginInvocationClass::Background, request),
+        try_admit_retrying_lock_busy(&engine, PluginInvocationClass::Background, request),
         PluginAdmissionResult::Queued { .. }
     ));
     let completion = wait_for_completion(&engine, "oversize-result");
@@ -2146,7 +2194,8 @@ fn debug_snapshot_reports_live_class_fields() {
         None,
     ));
     assert!(matches!(
-        engine.try_admit(
+        try_admit_retrying_lock_busy(
+            &engine,
             PluginInvocationClass::Background,
             invocation("snap-bg", command, 2_000),
         ),
