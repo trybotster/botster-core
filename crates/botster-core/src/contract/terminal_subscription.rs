@@ -1,0 +1,98 @@
+//! Control-plane terminal subscription inventory and bind/detach types.
+//!
+//! These records are identity only. They do not duplicate attach phases,
+//! snapshot bytes, queue contents, or decoder state.
+
+use serde::{Deserialize, Serialize};
+
+use crate::client::ClientId;
+use crate::session::{SessionId, SubscriptionId};
+
+/// Monotonic generation assigned by Core on attach.
+///
+/// Reuse of the same `subscription_id` after teardown receives `generation + 1`.
+/// Adding fields later is additive; this newtype is exhaustive at `0.1.0`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TerminalSubscriptionGeneration(pub u64);
+
+/// Control-plane inventory row for one live terminal subscription.
+///
+/// Forbidden fields: READY/PAGE/FINISH, attach phase, snapshot bytes, queue
+/// contents, and decoder state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalSubscriptionRecord {
+    /// Client that owns the subscription.
+    pub client_id: ClientId,
+    /// Session the subscription is attached to.
+    pub session_id: SessionId,
+    /// Host-chosen subscription identity.
+    pub subscription_id: SubscriptionId,
+    /// Core-assigned generation for this live owner.
+    pub generation: TerminalSubscriptionGeneration,
+    /// Whether a [`crate::contract::terminal_adapter::TerminalAdapter`] is bound.
+    pub adapter_bound: bool,
+}
+
+/// Typed rejection from `bind_terminal_adapter`.
+///
+/// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BindTerminalAdapterError {
+    /// Bind was attempted before attach created an inventory row.
+    #[error("bind before attach for session {session_id:?} subscription {subscription_id:?}")]
+    BindBeforeAttach {
+        /// Session presented to bind.
+        session_id: SessionId,
+        /// Subscription presented to bind.
+        subscription_id: SubscriptionId,
+    },
+    /// No live inventory row matches the presented identity.
+    #[error("unknown terminal subscription {subscription_id:?} on session {session_id:?}")]
+    UnknownSubscription {
+        /// Session presented to bind.
+        session_id: SessionId,
+        /// Subscription presented to bind.
+        subscription_id: SubscriptionId,
+    },
+    /// Bind carried a generation that is not the live attach generation.
+    #[error("stale terminal subscription generation: live {live:?}, requested {requested:?}")]
+    StaleGeneration {
+        /// Live generation, if any.
+        live: Option<TerminalSubscriptionGeneration>,
+        /// Generation presented to bind.
+        requested: TerminalSubscriptionGeneration,
+    },
+    /// The live generation already has a bound adapter.
+    #[error(
+        "adapter already bound for session {session_id:?} subscription {subscription_id:?} generation {generation:?}"
+    )]
+    AlreadyBound {
+        /// Session of the live owner.
+        session_id: SessionId,
+        /// Subscription of the live owner.
+        subscription_id: SubscriptionId,
+        /// Live generation that already holds an adapter.
+        generation: TerminalSubscriptionGeneration,
+    },
+}
+
+/// Result of a generation-aware detach.
+///
+/// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetachTerminalSubscriptionResult {
+    /// The matching live generation was torn down.
+    Detached {
+        /// Generation that was removed.
+        generation: TerminalSubscriptionGeneration,
+    },
+    /// No live owner existed for that identity.
+    AlreadyGone,
+    /// A live owner exists, but it is a different generation.
+    GenerationMismatch {
+        /// Generation currently live.
+        live: TerminalSubscriptionGeneration,
+        /// Generation presented to detach.
+        requested: TerminalSubscriptionGeneration,
+    },
+}

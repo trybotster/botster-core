@@ -3,11 +3,11 @@
 Core owns a content-blind terminal egress adapter contract and a
 transport-neutral conformance harness.
 
-This ticket is scaffold-for-consumers. The production entry points added here
-are the public `TerminalAdapter` API and the published
-`botster-core-test-support` harness. ClientWorker does not push through this
-trait until `ticket_1786661004_845807`. Hub Unix and WebRTC adapters are later
-Hub tickets.
+ClientWorker now pushes bound-subscription frames through this trait. See
+[`client-worker-terminal-egress.md`](client-worker-terminal-egress.md). The
+production entry points are `CoreDaemon::bind_terminal_adapter` /
+`DefaultBotsterEngine::bind_terminal_adapter` plus the existing host drain
+tick. Hub Unix and WebRTC adapters are later Hub tickets.
 
 ## Adapter vs `TransportEgress`
 
@@ -35,8 +35,10 @@ not in the prelude.
 
 Additional laws:
 
-- `close()` is idempotent. After `close()`, `try_write` returns `Closed` and
-  `pressure()` is `Closed`.
+- `close()` is idempotent and non-blocking. After `close()`, `try_write`
+  returns `Closed` and `pressure()` is `Closed`. `close()` and `Drop` must
+  return without waiting for transport I/O or a lock held by the transport
+  writer.
 - Transport-side death has the same `Closed` effect as local `close()`.
 - The one in-flight slot is transport state, not a second policy queue.
 - The adapter must not retry a rejected write, reorder accepted frames, or
@@ -91,13 +93,14 @@ Published Core test adapters:
 
 Hub test support does not own this harness. Later Hub tickets import it.
 
-## Scaffold boundary
+## Out of this crate's adapter contract
 
 Not implemented here:
 
-- ClientWorker production push, subscription queues, or detach generation
-- Binding adapters to subscriptions or negotiated capabilities
 - Real Unix sockets or WebRTC DataChannels
 - Ingress adapter trait
 - Changing `TransportIngress` / `TransportEgress` enums
 - Changing `botster-terminal-protocol` public accessors
+
+ClientWorker bind, queues, and subscription teardown live in
+[`client-worker-terminal-egress.md`](client-worker-terminal-egress.md).

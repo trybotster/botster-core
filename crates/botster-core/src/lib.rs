@@ -89,16 +89,16 @@ pub mod runtime;
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
     notification, routed_envelope, session, session_protocol, terminal_adapter, terminal_metadata,
-    terminal_screen, transport,
+    terminal_screen, terminal_subscription, transport,
 };
 
 /// Engine submodules. Prefer [`engine::BotsterEngine`] / `DefaultBotsterEngine`
 /// over assembling lower-level engines (`multiplexer`, `session_worker`,
 /// `subscription_multiplexer`, `managed_session_runtime`) directly.
 pub use engine::{
-    botster, command as engine_command, managed_session_runtime, multiplexer, plugin_timer,
-    plugin_worker, routed_envelope as routed_envelope_engine, session_activity, session_worker,
-    subscription_multiplexer, terminal_screen as terminal_screen_engine,
+    botster, client_worker, command as engine_command, managed_session_runtime, multiplexer,
+    plugin_timer, plugin_worker, routed_envelope as routed_envelope_engine, session_activity,
+    session_worker, subscription_multiplexer, terminal_screen as terminal_screen_engine,
 };
 
 pub use identity::{crypto, device, keyring};
@@ -202,13 +202,13 @@ pub use encrypted_stream::{
 };
 pub use engine::{
     apply_session_activity_event, classify_session_activity, BotsterEngine, BotsterEngineError,
-    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, EngineClientId,
-    EngineCommand, EngineCommandError, EngineCommandEvent, EngineCommandKind, EngineCommandOutcome,
-    EngineCommandResult, EngineNotificationId, EngineNotificationItem, EngineNotificationTarget,
-    EngineReplaySnapshotRequest, EngineRequestId, EngineSessionId, EngineSessionInspection,
-    EngineSessionIoRequest, EngineSpawnSessionMetadata, EngineSpawnSessionRequest,
-    EngineSpawnSessionResult, EngineSubscriptionId, ManagedSessionRuntime,
-    ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
+    BotsterEngineObservation, BotsterEngineOutput, BotsterSpawnOutcome, ClientWorker,
+    ClientWorkerTeardown, EngineClientId, EngineCommand, EngineCommandError, EngineCommandEvent,
+    EngineCommandKind, EngineCommandOutcome, EngineCommandResult, EngineNotificationId,
+    EngineNotificationItem, EngineNotificationTarget, EngineReplaySnapshotRequest, EngineRequestId,
+    EngineSessionId, EngineSessionInspection, EngineSessionIoRequest, EngineSpawnSessionMetadata,
+    EngineSpawnSessionRequest, EngineSpawnSessionResult, EngineSubscriptionId,
+    ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginHandlerRegistration, PluginInvocationOutcome, PluginTimerDrainOutcome,
     PluginTimerScheduleOutcome, PluginTimerScheduler, PluginWorkerDebugSnapshot,
@@ -286,5 +286,9 @@ pub use terminal_metadata::{
 pub use terminal_screen::{
     TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
     TerminalScreenState, TerminalSnapshotPayload,
+};
+pub use terminal_subscription::{
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord,
 };
 pub use transport::{TransportEgress, TransportIngress};

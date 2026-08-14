@@ -44,6 +44,10 @@ fn isolated_hub_shaped_consumer_runs_harness_against_its_own_adapter() {
         source.contains("assert_terminal_adapter_conformance"),
         "consumer must run the published harness"
     );
+    assert!(
+        source.contains("bind_terminal_adapter"),
+        "consumer must bind through the public Core API"
+    );
     for forbidden in [
         "FakeTerminalAdapter",
         "UnixShapedTerminalAdapter",

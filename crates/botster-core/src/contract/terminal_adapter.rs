@@ -4,9 +4,8 @@
 //! spawn → attach → drain → input → shutdown through [`crate::prelude`].
 //!
 //! [`TerminalAdapter`] is not a replacement for [`super::transport::TransportEgress`].
-//! Those enums remain the current semantic drain-path frames. This trait is the
-//! bounded, content-blind write/close/pressure contract later ClientWorker and
-//! Hub adapters will implement.
+//! Those enums remain the current semantic drain-path frames for unbound
+//! subscriptions. Bound subscriptions leave through ClientWorker `try_write`.
 //!
 //! Public enums in this module are exhaustive at `0.1.0`. Adding a variant is a
 //! breaking change.
@@ -26,6 +25,13 @@ use botster_terminal_protocol::TerminalFrame;
 ///
 /// Close, whether local [`Self::close`] or transport-side death, abandons any
 /// in-flight frame. Terminal frames do not retry.
+///
+/// [`Self::close`] and [`Drop`] must return without waiting for transport I/O.
+/// They set [`TerminalAdapterPressure::Closed`] and abandon the in-flight slot.
+/// They must not perform transport I/O waits or take a lock that can wait on
+/// the transport writer. A blocking `close()` is an illegal adapter and fails
+/// the published conformance harness. Core calls `close()` synchronously and
+/// does not spawn a closer thread.
 pub trait TerminalAdapter {
     /// Attempt a non-blocking write of one opaque terminal frame.
     ///
@@ -39,10 +45,11 @@ pub trait TerminalAdapter {
 
     /// Close the adapter.
     ///
-    /// Idempotent. After close, [`Self::try_write`] returns
+    /// Idempotent and non-blocking. After close, [`Self::try_write`] returns
     /// [`TerminalAdapterWriteError::Closed`] and [`Self::pressure`] is
     /// [`TerminalAdapterPressure::Closed`]. An in-flight frame is abandoned and
-    /// must not be delivered later.
+    /// must not be delivered later. Must return without waiting for transport
+    /// I/O or for a lock held by the transport writer.
     fn close(&mut self);
 
     /// Current transport pressure.

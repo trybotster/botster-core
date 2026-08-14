@@ -12,6 +12,12 @@ use crate::contract::actor::{
     QueueSource, ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionIoRequest,
     SnapshotReady,
 };
+use crate::contract::terminal_adapter::TerminalAdapter;
+use crate::contract::terminal_subscription::{
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord,
+};
+use crate::engine::client_worker::ClientWorker;
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
@@ -81,7 +87,7 @@ type TerminalBackendFactory<T> =
 /// into `SessionRuntimeInput` and draining runtime output through the existing
 /// session worker and subscription multiplexer path. Terminal snapshot and
 /// screen reads come from core-owned state updated by drained runtime output.
-#[derive(Clone)]
+/// Bound-adapter egress is owned by the embedded [`ClientWorker`].
 pub struct ManagedSessionRuntime<R, T = PlainTerminalScreenRuntime>
 where
     R: SessionRuntime,
@@ -89,6 +95,7 @@ where
 {
     engine: MultiplexerEngine<R, SessionRuntimeWorkerAdapter<T>>,
     terminal_backend_factory: TerminalBackendFactory<T>,
+    client_worker: ClientWorker,
 }
 
 impl<R> ManagedSessionRuntime<R, PlainTerminalScreenRuntime>
@@ -220,6 +227,7 @@ where
             terminal_backend_factory: Rc::new(move |size| {
                 factory(size).map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
             }),
+            client_worker: ClientWorker::new(),
         }
     }
 
@@ -237,6 +245,7 @@ where
 
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        let _ = self.client_worker.teardown_session(session_id);
         self.engine.forget_terminal_session(session_id)
     }
 
@@ -281,19 +290,41 @@ where
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_ingress(&ingress)?;
         let backend_operation = terminal_backend_ingress_operation(&ingress);
-        let outcome = match self
-            .engine
-            .handle_client_ingress(client_id, ingress, now_seconds)
+        if let TransportIngress::SubscribeSession {
+            client_id: ref subscribe_client,
+            ref session_id,
+            ref subscription_id,
+        } = ingress
         {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                if let Some((session_id, operation)) = backend_operation {
-                    self.ensure_terminal_backend_ok(&session_id, operation)?;
+            self.client_worker.record_attach(
+                subscribe_client.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            );
+        }
+        let mut outcome =
+            match self
+                .engine
+                .handle_client_ingress(client_id.clone(), ingress.clone(), now_seconds)
+            {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    if let Some((session_id, operation)) = backend_operation {
+                        self.ensure_terminal_backend_ok(&session_id, operation)?;
+                    }
+                    return Err(error.into());
                 }
-                return Err(error.into());
-            }
-        };
+            };
+        if let TransportIngress::UnsubscribeSession {
+            session_id,
+            subscription_id,
+            ..
+        } = &ingress
+        {
+            let _ = self.client_worker.detach_live(session_id, subscription_id);
+        }
         self.flush_runtime_inputs()?;
+        self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
 
@@ -304,9 +335,16 @@ where
         subscription_id: SubscriptionId,
         snapshot: Vec<u8>,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        Ok(self
-            .engine
-            .attach_snapshot(client_id, session_id, subscription_id, snapshot)?)
+        self.client_worker.record_attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        );
+        let mut outcome =
+            self.engine
+                .attach_snapshot(client_id, session_id, subscription_id, snapshot)?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
     }
 
     pub(crate) fn begin_snapshot_attach(
@@ -315,9 +353,16 @@ where
         session_id: SessionId,
         subscription_id: SubscriptionId,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        Ok(self
-            .engine
-            .begin_snapshot_attach(client_id, session_id, subscription_id)?)
+        self.client_worker.record_attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        );
+        let mut outcome =
+            self.engine
+                .begin_snapshot_attach(client_id, session_id, subscription_id)?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
     }
 
     pub(crate) fn snapshot_attach_frame(
@@ -327,9 +372,11 @@ where
         subscription_id: SubscriptionId,
         data: Vec<u8>,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        Ok(self
-            .engine
-            .snapshot_attach_frame(client_id, session_id, subscription_id, data)?)
+        let mut outcome =
+            self.engine
+                .snapshot_attach_frame(client_id, session_id, subscription_id, data)?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
     }
 
     pub(crate) fn complete_snapshot_attach(
@@ -339,12 +386,133 @@ where
         subscription_id: SubscriptionId,
         history_incomplete: bool,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        Ok(self.engine.complete_snapshot_attach(
+        let mut outcome = self.engine.complete_snapshot_attach(
             client_id,
             session_id,
             subscription_id,
             history_incomplete,
-        )?)
+        )?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
+    }
+
+    pub(crate) fn note_snapshot_phase(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        phase: crate::WorkerSnapshotPhase,
+    ) {
+        self.client_worker
+            .note_snapshot_phase(session_id, subscription_id, phase);
+    }
+
+    /// Bind a content-blind adapter to a live attach generation.
+    pub fn bind_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        adapter: Box<dyn TerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        self.client_worker.bind_terminal_adapter(
+            &client_id,
+            session_id,
+            subscription_id,
+            generation,
+            adapter,
+        )
+    }
+
+    /// Control-plane subscription inventory.
+    #[must_use]
+    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+        self.client_worker.list_terminal_subscriptions()
+    }
+
+    /// Detach the live generation if present.
+    pub fn detach_live_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        now_seconds: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let _ = self
+            .client_worker
+            .detach_live(&session_id, &subscription_id);
+        self.handle_client_ingress(
+            client_id.clone(),
+            TransportIngress::UnsubscribeSession {
+                client_id,
+                session_id,
+                subscription_id,
+            },
+            now_seconds,
+        )
+    }
+
+    /// Generation-aware detach.
+    pub fn detach_terminal_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        now_seconds: u64,
+    ) -> Result<
+        (DetachTerminalSubscriptionResult, MultiplexerEngineOutcome),
+        ManagedSessionRuntimeError,
+    > {
+        let result =
+            self.client_worker
+                .detach_generation(&session_id, &subscription_id, generation);
+        let outcome = match result {
+            DetachTerminalSubscriptionResult::Detached { .. } => self.handle_client_ingress(
+                client_id.clone(),
+                TransportIngress::UnsubscribeSession {
+                    client_id,
+                    session_id,
+                    subscription_id,
+                },
+                now_seconds,
+            )?,
+            _ => MultiplexerEngineOutcome::empty(),
+        };
+        Ok((result, outcome))
+    }
+
+    /// Whether this subscription still has a live inventory row.
+    #[must_use]
+    pub fn has_terminal_subscription(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.client_worker
+            .has_subscription(session_id, subscription_id)
+    }
+
+    /// Live generation for a subscription, if any.
+    #[must_use]
+    pub fn terminal_subscription_generation(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<TerminalSubscriptionGeneration> {
+        self.client_worker
+            .live_generation(session_id, subscription_id)
+    }
+
+    /// Whether a bound adapter is still held.
+    #[must_use]
+    pub fn adapter_is_bound(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.client_worker
+            .adapter_is_bound(session_id, subscription_id)
     }
 
     pub(crate) fn capture_parent_snapshot(
@@ -387,8 +555,9 @@ where
                 })?;
             worker.prepare_color_profile(color_profile.clone())?;
         }
-        let outcome = self.engine.handle_session_request(request, now_seconds)?;
+        let mut outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
+        self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
 
@@ -450,8 +619,18 @@ where
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let mut outcome = self.drain_runtime_output_for_session(session_id, last_output_at)?;
+        let mut outcome = match self.drain_runtime_output_for_session(session_id, last_output_at) {
+            Ok(outcome) => outcome,
+            Err(ManagedSessionRuntimeError::Runtime(error))
+                if error.kind == SessionRuntimeErrorKind::SessionNotFound
+                    && self.session_exited(session_id) =>
+            {
+                MultiplexerEngineOutcome::empty()
+            }
+            Err(error) => return Err(error),
+        };
         self.route_pending_runtime_events(&mut outcome)?;
+        self.apply_client_worker(&mut outcome)?;
 
         Ok(outcome)
     }
@@ -482,6 +661,7 @@ where
         }
 
         self.route_pending_runtime_events(&mut outcome)?;
+        self.apply_client_worker(&mut outcome)?;
 
         Ok(outcome)
     }
@@ -574,7 +754,18 @@ where
         outputs: Vec<SessionRuntimeOutput>,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.route_runtime_outputs(session_id, outputs, last_output_at)
+        let mut outcome = self.route_runtime_outputs(session_id, outputs, last_output_at)?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
+    }
+
+    /// Pump bound adapters without draining new runtime output.
+    pub fn pump_bound_adapters(
+        &mut self,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
     }
 
     /// Classify one session's activity at the provided clock value.
@@ -729,11 +920,12 @@ where
             &previous_lifecycle,
             SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping
         ) {
+            let _ = self.client_worker.teardown_session(&session_id);
             return Ok(self
                 .engine
                 .shutdown_session(session_id, reason, now_seconds)?);
         }
-        let outcome = self
+        let mut outcome = self
             .engine
             .shutdown_session(session_id.clone(), reason, now_seconds)?;
 
@@ -745,7 +937,32 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
+        let _ = self.client_worker.teardown_session(&session_id);
+        self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
+    }
+
+    fn apply_client_worker(
+        &mut self,
+        outcome: &mut MultiplexerEngineOutcome,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let mut teardowns = self
+            .client_worker
+            .ingest_bound_terminal_frames(&mut outcome.client_egress);
+        teardowns.extend(self.client_worker.pump());
+        for teardown in teardowns {
+            let step = self.engine.handle_client_ingress(
+                teardown.client_id.clone(),
+                TransportIngress::UnsubscribeSession {
+                    client_id: teardown.client_id,
+                    session_id: teardown.session_id,
+                    subscription_id: teardown.subscription_id,
+                },
+                0,
+            )?;
+            append_outcome(outcome, step);
+        }
+        Ok(())
     }
 
     fn flush_runtime_inputs(&mut self) -> Result<(), SessionRuntimeError> {

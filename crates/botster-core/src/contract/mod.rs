@@ -18,6 +18,7 @@ pub mod session_protocol;
 pub mod terminal_adapter;
 pub mod terminal_metadata;
 pub mod terminal_screen;
+pub mod terminal_subscription;
 pub mod transport;
 
 pub use actor::{
@@ -107,5 +108,9 @@ pub use terminal_metadata::{
 pub use terminal_screen::{
     TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
     TerminalScreenState, TerminalSnapshotPayload,
+};
+pub use terminal_subscription::{
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord,
 };
 pub use transport::{TransportEgress, TransportIngress};

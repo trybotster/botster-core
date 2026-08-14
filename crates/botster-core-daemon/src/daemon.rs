@@ -9,16 +9,19 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use botster_core::contract::terminal_adapter::TerminalAdapter;
 use botster_core::TerminalScreenSize;
 use botster_core::{
-    BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession, DefaultBotsterEngine,
-    DefaultBotsterEngineError, EnvelopeId, EnvelopeTarget, ModeFlags, ModeFlagsReady,
-    ModeFreshnessToken, ModeGatedPtyInputResult, NotificationId, NotificationInbox, QueueSource,
-    RequestId, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady,
-    SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
-    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload, TransportEgress,
-    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
+    BindTerminalAdapterError, BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession,
+    DefaultBotsterEngine, DefaultBotsterEngineError, DetachTerminalSubscriptionResult, EnvelopeId,
+    EnvelopeTarget, ModeFlags, ModeFlagsReady, ModeFreshnessToken, ModeGatedPtyInputResult,
+    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
+    RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
+    SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalColorProfile,
+    TerminalScreenState, TerminalSnapshotPayload, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord, TransportEgress, WorkerBackedBotsterEngine,
+    WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
@@ -273,6 +276,9 @@ pub enum CoreDaemonError {
     /// Core did not return the expected mode-flags response.
     #[error("mode flags response missing for request: {0:?}")]
     MissingModeFlagsResponse(RequestId),
+    /// Bind rejected a terminal adapter.
+    #[error(transparent)]
+    BindTerminalAdapter(#[from] BindTerminalAdapterError),
 }
 
 /// Production core daemon supervisor.
@@ -532,6 +538,60 @@ impl CoreDaemon {
             subscription_id,
             client_egress,
         })
+    }
+
+    /// Bind a content-blind adapter to a live attach generation.
+    ///
+    /// After bind, this route's terminal frames leave only through the adapter.
+    /// `drain` / `drain_subscription` do not also return those terminal frames.
+    pub fn bind_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        adapter: Box<dyn TerminalAdapter + Send>,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session(&session_id)?;
+        self.engine.bind_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            adapter,
+        )?;
+        Ok(())
+    }
+
+    /// Control-plane subscription inventory. No terminal state is included.
+    #[must_use]
+    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+        self.engine.list_terminal_subscriptions()
+    }
+
+    /// Detach one subscription generation. Mismatch does not delete a newer owner.
+    pub fn detach_terminal_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        now_seconds: u64,
+    ) -> Result<DetachTerminalSubscriptionResult, CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session(&session_id)?;
+        let (result, _) = self.engine.detach_terminal_subscription(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            now_seconds,
+        )?;
+        if matches!(result, DetachTerminalSubscriptionResult::Detached { .. }) {
+            self.drop_pending_subscription_egress(&client_id, &session_id, &subscription_id);
+        }
+        Ok(result)
     }
 
     /// Detach a client through the existing subscription path.
@@ -1817,6 +1877,71 @@ impl DaemonEngine {
             Self::Worker(engine) => {
                 engine.attach_client(client_id, session_id, subscription_id, now_seconds)
             }
+        }
+    }
+
+    fn bind_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        adapter: Box<dyn TerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        match self {
+            Self::Local(engine) => engine.bind_terminal_adapter(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                adapter,
+            ),
+            Self::Worker(engine) => engine.bind_terminal_adapter(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                adapter,
+            ),
+        }
+    }
+
+    fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+        match self {
+            Self::Local(engine) => engine.list_terminal_subscriptions(),
+            Self::Worker(engine) => engine.list_terminal_subscriptions(),
+        }
+    }
+
+    fn detach_terminal_subscription(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        now_seconds: u64,
+    ) -> Result<
+        (
+            DetachTerminalSubscriptionResult,
+            botster_core::BotsterEngineOutput,
+        ),
+        DefaultBotsterEngineError,
+    > {
+        match self {
+            Self::Local(engine) => engine.detach_terminal_subscription(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                now_seconds,
+            ),
+            Self::Worker(engine) => engine.detach_terminal_subscription(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                now_seconds,
+            ),
         }
     }
 

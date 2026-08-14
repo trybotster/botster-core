@@ -12,6 +12,7 @@
 //! [`subscription_multiplexer`] are advanced assembly pieces under the facade.
 
 pub mod botster;
+pub mod client_worker;
 pub mod command;
 pub mod managed_session_runtime;
 pub mod multiplexer;
@@ -32,6 +33,7 @@ pub use botster::{
     DefaultBotsterEngine, DefaultBotsterEngineError, WorkerBackedBotsterEngine,
     WorkerBackedBotsterEngineError,
 };
+pub use client_worker::{ClientWorker, ClientWorkerTeardown};
 #[cfg(feature = "local-runtime")]
 pub use command::DefaultEngineCommand;
 pub use command::{

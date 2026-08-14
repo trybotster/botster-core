@@ -73,3 +73,9 @@ impl OneSlotCore {
         &self.delivered
     }
 }
+
+impl Drop for OneSlotCore {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
