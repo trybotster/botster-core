@@ -1,5 +1,7 @@
 //! Typed daemon API contracts.
 
+use std::time::Duration;
+
 use botster_core::{
     BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, EnvelopeCursor,
     EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, ModeFlagsReady, NotificationDeliveryStatus,
@@ -115,6 +117,10 @@ pub enum SessionLifecycleResyncReason {
     },
     /// The cursor claims a sequence this source has not emitted.
     CursorAhead,
+    /// The requested in-process baseline freeze is gone or was replaced.
+    SnapshotUnavailable,
+    /// The requested observe pass is not the daemon's open pass.
+    ObservePassUnavailable,
 }
 
 /// Changes after a cursor, or an explicit instruction to fetch a fresh baseline.
@@ -166,6 +172,141 @@ pub enum SessionLifecyclePageError {
         /// Exact encoded size of the empty successful page for this metadata.
         minimum_bytes: usize,
     },
+}
+
+/// Maximum public observe-slice error message length after sanitization.
+pub const OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES: usize = 256;
+
+/// Opaque identity for one [`crate::CoreDaemon::observe_lifecycle_slice`] pass.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ObserveLifecyclePassId(pub String);
+
+/// Resume cursor for a later observe slice in the same pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserveLifecycleCursor {
+    /// Pass that produced [`Self::last_visited`].
+    pub pass_id: ObserveLifecyclePassId,
+    /// Last session this pass attempted, even if it later exited.
+    pub last_visited: SessionId,
+}
+
+/// Item, encoded-result, and elapsed budgets for one observe slice.
+///
+/// `max_elapsed` is a host-tick yield bound. Core may read `Instant` only
+/// to honor it. It is not session policy and does not use `now_seconds`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObserveLifecycleBudget {
+    /// Maximum sessions this slice may visit.
+    pub max_sessions: usize,
+    /// Maximum `serde_json` size of a successful [`ObserveLifecycleSlice`].
+    pub max_encoded_result_bytes: usize,
+    /// Yield bound measured from the start of this call.
+    pub max_elapsed: Duration,
+}
+
+/// Public sanitized per-session error on an observe slice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserveLifecycleSliceError {
+    /// Session whose observe step failed.
+    pub session_id: SessionId,
+    /// Sanitized, length-capped message. Not a typed [`crate::CoreDaemonError`].
+    pub message: String,
+}
+
+/// Bounded control-plane result of one observe slice.
+///
+/// Successful slices have [`Self::resync_required`] unset. Their complete
+/// `serde_json` encoding is at most the caller-supplied
+/// `max_encoded_result_bytes`. Resync outcomes are control results and are
+/// not required to satisfy the byte budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserveLifecycleSlice {
+    /// Pass this slice belongs to.
+    pub pass_id: ObserveLifecyclePassId,
+    /// Last session this slice or earlier slices in the pass attempted.
+    pub last_visited: Option<SessionId>,
+    /// True only when this pass has attempted every remaining live session.
+    pub complete: bool,
+    /// Sanitized errors from sessions visited in this call.
+    pub session_errors: Vec<ObserveLifecycleSliceError>,
+    /// Explicit dropped or foreign pass, when a new pass is required.
+    pub resync_required: Option<SessionLifecycleResyncReason>,
+}
+
+/// One page of a frozen lifecycle baseline snapshot.
+///
+/// Successful pages have [`Self::resync_required`] unset. Their complete
+/// `serde_json` encoding is at most the caller-supplied `max_bytes`.
+/// An incomplete page has [`Self::complete`] false and is not finished
+/// ended evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecycleBaselinePage {
+    /// Journal watermark captured when this snapshot was minted.
+    pub snapshot_sequence: SessionLifecycleCursor,
+    /// Frozen rows in this page, ordered by stable [`SessionId`].
+    pub sessions: Vec<SessionLifecycleRecord>,
+    /// Next [`SessionId`] to request, or `None` when complete.
+    pub next: Option<SessionId>,
+    /// True only on the page that includes the last frozen row, or on an
+    /// empty snapshot.
+    pub complete: bool,
+    /// Explicit dropped or foreign snapshot, when a fresh mint is required.
+    pub resync_required: Option<SessionLifecycleResyncReason>,
+}
+
+/// Bytes allowed in a public observe-slice error message.
+///
+/// The alphabet is JSON-safe: no quotes, backslashes, controls, or
+/// multibyte code points. Unsafe input bytes become `?`, and `?` is
+/// part of the output alphabet.
+pub fn is_observe_slice_error_message_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b' '
+            | b'.'
+            | b':'
+            | b'_'
+            | b'/'
+            | b'+'
+            | b'-'
+            | b'?'
+    )
+}
+
+/// Sanitize a drain error `Display` into the public observe-slice alphabet.
+///
+/// Each input byte is kept or replaced with `?`, then truncated to
+/// [`OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES`]. The typed wrapper
+/// still keeps the original [`crate::CoreDaemonError`].
+#[must_use]
+pub fn sanitize_observe_slice_error_message(raw: &str) -> String {
+    let mut out = String::new();
+    for &byte in raw.as_bytes() {
+        if out.len() >= OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES {
+            break;
+        }
+        if is_observe_slice_error_message_byte(byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push('?');
+        }
+    }
+    out
+}
+
+/// Worst-case reserved public error for pre-visit byte admission.
+///
+/// The message is 256 `x` bytes. Every sanitized actual message encodes
+/// no larger than this reservation for the same `session_id`.
+#[must_use]
+pub fn reserved_observe_slice_error(session_id: SessionId) -> ObserveLifecycleSliceError {
+    ObserveLifecycleSliceError {
+        session_id,
+        message: "x".repeat(OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES),
+    }
 }
 
 /// Result of attaching a client to a session.

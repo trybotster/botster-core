@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use botster_core_daemon::{
-    CoreDaemon, SessionLifecycleCursor, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason,
+    CoreDaemon, ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecycleSlice,
+    SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
 };
 
 /// In-memory Hub-shaped session projection rebuilt from Core pages.
@@ -67,7 +68,8 @@ fn page_until_caught_up(
             match reason {
                 SessionLifecycleResyncReason::SourceChanged
                 | SessionLifecycleResyncReason::CursorExpired { .. }
-                | SessionLifecycleResyncReason::CursorAhead => {
+                | SessionLifecycleResyncReason::CursorAhead
+                | SessionLifecycleResyncReason::SnapshotUnavailable => {
                     install_baseline(daemon, projection)?;
                     return Ok(());
                 }
@@ -88,14 +90,77 @@ fn page_until_caught_up(
 }
 
 fn install_baseline(
-    daemon: &CoreDaemon,
+    daemon: &mut CoreDaemon,
     projection: &mut HubLifecycleProjection,
 ) -> Result<(), HubLifecycleConsumeError> {
-    let baseline = daemon
-        .lifecycle_baseline()
-        .map_err(|_| HubLifecycleConsumeError::UnknownPageError)?;
-    replace_projection(projection, &baseline.sessions, baseline.cursor);
-    Ok(())
+    let mut snapshot = None;
+    let mut after = None;
+    let mut rows = Vec::new();
+    loop {
+        let page = match daemon.lifecycle_baseline_page(
+            snapshot.as_ref(),
+            after.as_ref(),
+            32,
+            64 * 1024,
+        ) {
+            Ok(page) => page,
+            Err(error) => return Err(map_page_error(error)),
+        };
+        if let Some(reason) = &page.resync_required {
+            match reason {
+                SessionLifecycleResyncReason::SourceChanged
+                | SessionLifecycleResyncReason::CursorExpired { .. }
+                | SessionLifecycleResyncReason::CursorAhead
+                | SessionLifecycleResyncReason::SnapshotUnavailable => {
+                    if snapshot.is_none() {
+                        return Err(HubLifecycleConsumeError::UnknownPageError);
+                    }
+                    snapshot = None;
+                    after = None;
+                    rows.clear();
+                    continue;
+                }
+                _ => return Err(HubLifecycleConsumeError::UnknownPageError),
+            }
+        }
+        rows.extend(page.sessions.iter().cloned());
+        if page.complete {
+            replace_projection(projection, &rows, page.snapshot_sequence);
+            return Ok(());
+        }
+        snapshot = Some(page.snapshot_sequence);
+        after = page.next;
+        if after.is_none() {
+            return Err(HubLifecycleConsumeError::UnknownPageError);
+        }
+    }
+}
+
+/// Stage A observe: slice until complete or a zero-progress yield.
+pub fn observe_lifecycle_stage_a(
+    daemon: &mut CoreDaemon,
+    now_seconds: u64,
+    budget: ObserveLifecycleBudget,
+) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError> {
+    let mut resume = None;
+    loop {
+        let slice = daemon.observe_lifecycle_slice(now_seconds, resume.as_ref(), budget)?;
+        if slice.resync_required.is_some() {
+            return Ok(slice);
+        }
+        if slice.complete {
+            return Ok(slice);
+        }
+        match &slice.last_visited {
+            Some(last_visited) => {
+                resume = Some(ObserveLifecycleCursor {
+                    pass_id: slice.pass_id.clone(),
+                    last_visited: last_visited.clone(),
+                });
+            }
+            None => return Ok(slice),
+        }
+    }
 }
 
 fn map_page_error(error: SessionLifecyclePageError) -> HubLifecycleConsumeError {
@@ -168,9 +233,17 @@ mod tests {
         daemon
             .spawn(spawn_request(&session_id), 10)
             .expect("observe fixture spawn");
-        let observed = daemon
-            .observe_lifecycle(11)
-            .expect("hub-shaped observe is the control-plane tick");
+        let observed = observe_lifecycle_stage_a(
+            &mut daemon,
+            11,
+            ObserveLifecycleBudget {
+                max_sessions: 8,
+                max_encoded_result_bytes: 16 * 1024,
+                max_elapsed: std::time::Duration::from_secs(1),
+            },
+        )
+        .expect("hub-shaped observe is the control-plane tick");
+        assert!(observed.complete);
         assert!(observed.session_errors.is_empty());
         let _ = daemon.take_journal_advanced_wake();
         let _ = daemon.shutdown(Some(session_id), 20);

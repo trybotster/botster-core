@@ -10,8 +10,20 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/consumers/hub-lifecycle-shaped");
     let source = fs::read_to_string(consumer.join("src/lib.rs")).expect("read consumer source");
     assert!(
-        source.contains("observe_lifecycle"),
-        "consumer must compile against observe_lifecycle"
+        source.contains("observe_lifecycle_slice"),
+        "consumer must compile against observe_lifecycle_slice"
+    );
+    assert!(
+        source.contains("lifecycle_baseline_page"),
+        "consumer must page the frozen baseline"
+    );
+    assert!(
+        !source.contains(".observe_lifecycle("),
+        "Stage A must not call the unbounded observe wrapper"
+    );
+    assert!(
+        source.contains("fn install_baseline") && source.contains("lifecycle_baseline_page"),
+        "Stage A baseline install must use the paged freeze"
     );
     assert!(
         source.contains("lifecycle_changes_page"),

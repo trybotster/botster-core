@@ -1,24 +1,556 @@
 # Control-plane lifecycle journal wake and page API
 
-Plan for ticket `ticket_1786663581_962361`: make session lifecycle
-progress independent of Hub terminal Drain by updating the existing
-control-plane journal from Core runtime and ClientWorker lifecycle facts,
-then publishing one coalesced journal-advanced wake and a bounded page API.
+Living design for the Core control-plane lifecycle journal. Belongs here
+under `docs/architecture/`, not under the retired `docs/plans/` stub. See
+`docs/README.md`.
 
-This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
-Living design belongs here under `docs/architecture/`, not under the retired
-`docs/plans/` stub. See `docs/README.md`.
+Revision 4 shipped `observe_lifecycle`, `take_journal_advanced_wake`, and
+`lifecycle_changes_page`. That work made zero-client exit independent of
+Hub terminal Drain. It still visits every live session and every baseline
+row in one call.
 
-Revision 4 is the approved implementation contract. Core now publishes
-`observe_lifecycle`, `take_journal_advanced_wake`, and
-`lifecycle_changes_page` on `CoreDaemon`. `SessionLifecyclePageError` is
-`#[non_exhaustive]` with first variant `BudgetTooSmall`.
+**Revision 5 is the approved implementation contract for ticket
+`ticket_1786690597_161141`.** It bounds observe and baseline by item,
+encoded-byte, and elapsed budgets so Hub Stage A can keep owner-turn
+budgets. Hub ticket `ticket_1786663582_169720` consumes this surface and
+must not be implemented here. This revision includes Plan Review
+corrections: pre-visit reserved-error admission
+(`finding_1786691714_228412`) and JSON-safe reservation
+(`finding_1786692121_415346`). Slice messages are sanitized to a
+fixed alphabet so encoded size cannot exceed the reservation.
 
-This ticket is **runtime-teardown class** because it changes
-terminal-state versus live-runtime observation: session exit must advance
-the control-plane journal without a terminal client and without Hub
-terminal Drain. [[botster runtime teardown lenses]] applies. Required lens
-answers are in this document and must appear in Plan gate evidence.
+This ticket is **runtime-teardown class** because it changes the
+production observe walk that discovers terminal-state versus live-runtime
+facts. Session exit must still advance the journal without a terminal
+client and without Hub terminal Drain. Slicing must not hide an exit or
+present a partial suffix as a finished pass. [[botster runtime teardown
+lenses]] applies. Required lens answers are in the Revision 5 section
+and must appear in Plan gate evidence.
+
+## Revision 5 — bound observe and baseline
+
+### Target
+
+- Target repository: `botster-core`
+- Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
+- Spawn-target name: `botster-core`
+- Spawn-target path is the admitted `botster-core` target, not the
+  ambient pipeline session directory.
+- Subject revision at Plan: `a047574` on branch
+  `project-pipelines/ticket_1786690597_161141`
+- Repository playbook: [[botster-core-playbook]]
+- Hub session-type eligibility parent: does not apply
+- Project Pipelines package/plugin paths: out of scope
+
+Resolved from `list_spawn_targets` via ticket `target_id`. Not inferred
+from the process working directory.
+
+### Playbooks and notes loaded
+
+Role and overlay:
+
+- [[planner-playbook]]
+- [[botster-planner-playbook]]
+- [[botster-core-playbook]]
+- [[botster-architecture]]
+- [[cli-patterns]] (mixed-generation index only; ownership from the charter)
+- [[spa-patterns]] (loaded per planner overlay; no SPA surface in this ticket)
+- [[botster runtime teardown lenses]]
+- [[botster-runtime-reviewer-playbook]]
+- [[botster-runtime-verifier-playbook]]
+- [[project pipeline orchestration belongs in a device-level botster plugin]]
+- [[project pipelines needs an operator workbench not more primitives]]
+- [[project pipelines ui contract belongs in the plugin readme]]
+- [[botster orchestration should spawn agents with explicit target ids]]
+- [[botster orchestration prompts must bind agents to explicit worktrees]]
+- [[plan steps need reviewable plan artifacts]]
+- [[vault example paths are not repository placement conventions]]
+- [[botster core historical plan docs should not sit beside living architecture]]
+- [[plan agents must author vault context as wikilinks not home paths]]
+- [[pipeline vault checklists must cite exact resolvable note titles]]
+- [[pipeline artifacts should cite vault notes by wikilink not home path]]
+- [[pipeline artifacts should use path neutral worktree references]]
+- [[botster-core uses CI-owned Cargo commands because it has no test script]]
+- [[prefer framework and library components over custom solutions]]
+- [[colon worktree paths break cargo dyld library paths]]
+- [[hearth gate runs require restoring a pipeline wiped gitignore before attribution]]
+- [[cross repo dependency registration must use dependency repo target]]
+
+Not loaded:
+
+- [[project-pipelines-playbook]] — Project Pipelines package/plugin paths
+  are out of scope.
+- [[botster-hub-playbook]] / [[botster-hub-client-playbook]] /
+  [[botster-web-playbook]] / [[botster-tui-playbook]] /
+  [[botster-tui-kit-playbook]] / [[botster-terminal-ghostty-playbook]] —
+  not the target repository charter. Cross-repo seams are named below
+  without substituting those charters.
+
+Targeted atomic notes:
+
+- [[Core control-plane lifecycle journal advances without a terminal client or Hub terminal Drain]]
+- [[lifecycle guards evaluated before the reconciling drain are one call stale]]
+- [[botster core hosts need an explicit drain loop contract]]
+- [[terminal subscription lifecycle is Core owned while host session policy is Hub owned]]
+- [[botster core contract surface needs consumer proof]]
+- [[botster core public surface needs a narrow start here path]]
+  (read this Plan revisit; new DTOs stay on the daemon facade, not
+  crate-root mechanism sprawl)
+- [[botster core public enums are breaking until non exhaustive is decided]]
+- [[public dto field additions are source breaking without non exhaustive]]
+- [[Hub embeds CoreDaemon behind one client admission point]]
+- [[Core terminal subscription ownership is session, subscription, and generation]]
+- [[Core ClientWorker bind requires a live attach generation]]
+  (read this Plan revisit; slicing must not change bind/generation
+  admission)
+- [[Core subscription hard-stop is synchronous close and drop on the host tick]]
+- [[botster data plane bypasses the hub through session and client actors]]
+- [[Hub synchronizes plugin workers with session lifecycle events and a baseline]]
+
+Implicated by the charter but not independently re-read this visit
+(constraints already applied via the charter and Revision 4):
+
+- [[core daemon lifecycle metadata is registry backed restart state]]
+- [[persisted core session metadata is revalidated against the current size cap]]
+- [[proposed ProcessExited closes terminal subscriptions but not the host session]]
+
+### Context loaded
+
+Project `project_1786663508_823105` (`Botster Non-Blocking Event Plane`)
+assigns Core the control-plane lifecycle journal, bounded journal pages,
+and one coalesced wake. Hub later owns one canonical session projection
+over those pages. Hub must never use terminal Drain, terminal silence,
+terminal output, `ProcessExited` decoding, or attach state to infer
+lifecycle.
+
+Revision 4 (`5e1c1fa`) already shipped:
+
+- `CoreDaemon::observe_lifecycle(now_seconds)` walks **every** live
+  engine session in deterministic `SessionId` order, calls per-session
+  `drain_runtime_once`, reconciles independently, retains incidental
+  terminal egress on `pending_drain`, and returns
+  `ObserveLifecycleResult { session_errors }`. It does not call
+  `drain_runtime_all_once`.
+- `take_journal_advanced_wake` and `lifecycle_changes_page` are the
+  bounded consume path. Safe order is take, page until caught up or
+  resync, take, re-page if woke.
+- `lifecycle_baseline()` loads **every** registry row plus the journal
+  watermark. `lifecycle_changes(after)` remains the unbounded
+  compatibility reader.
+- Isolated Hub-shaped consumer in
+  `crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped`
+  still calls unbounded `lifecycle_baseline()` to install a projection.
+- Architecture test `lifecycle_api_types_are_control_plane_only` rejects
+  terminal bodies on the lifecycle types in `api.rs`.
+
+Hub Stage A (`ticket_1786663582_169720`) cannot keep owner-turn and
+ready-operation budgets if one observe or baseline call still visits
+every live session. That Hub ticket is the consumer. This run only
+publishes the bounded Core surface.
+
+### Scope
+
+Surgical change on the shipped `CoreDaemon` lifecycle source:
+
+1. Keep Core authoritative for lifecycle facts. Do not move Hub
+   projection, host retention, worktree membership, or plugin policy
+   into Core.
+2. Add a sliced observe path that visits live sessions in deterministic
+   `SessionId` order under `max_sessions`, `max_encoded_result_bytes`,
+   and `max_elapsed`.
+3. Return the last visited `SessionId`, whether this pass completed,
+   retained per-session errors, and an explicit resync reason when the
+   resume cursor cannot be honored.
+4. A later observe call with that cursor resumes after the last visited
+   id. Do not restart the full walk unless the caller requests a new
+   pass (`resume = None`).
+5. Do not call `drain_runtime_all_once`. Keep per-session
+   `observe_session` / `drain_runtime_once`. Keep incidental terminal
+   egress on the pending-drain path. Return no terminal bytes, phases,
+   snapshots, attach state, or `ProcessExited` frames.
+6. Add a paged `lifecycle_baseline` that returns one snapshot sequence,
+   bounded rows, bounded encoded bytes, next row cursor, and an explicit
+   `complete` flag. Freeze the row set at snapshot mint so later pages
+   at that sequence reconstruct today's full baseline. An incomplete
+   page must have `complete = false` and must not be usable as finished
+   ended evidence.
+7. Keep existing `observe_lifecycle` and `lifecycle_baseline` as
+   compatibility wrappers that perform one unbounded pass / one full
+   snapshot. Document the unbounded cost in rustdoc. Hub Stage A and
+   the isolated Hub-shaped consumer must call the bounded forms.
+8. Keep `take_journal_advanced_wake` and `lifecycle_changes_page`
+   unchanged except snapshot-sequence glue: the paged baseline snapshot
+   identity is the journal watermark (`SessionLifecycleCursor`) at mint
+   time so Hub can apply `lifecycle_changes_page` after `snapshot_end`.
+
+### Non-scope
+
+- Hub projection, host-bridge fulfillment, plugin session-family
+  delivery, `snapshot_begin` / `snapshot_chunk` / `snapshot_end` Hub
+  frames, or Workspaces cleanup.
+- ClientWorker, terminal adapters, terminal protocol, attach, or Drain
+  semantics, except preserving pending-drain retention.
+- Changing `lifecycle_changes` field layout or the wake bit contract.
+- Project Pipelines package/plugin work.
+- Inventing a repository test wrapper.
+
+### API contract
+
+Publish new types next to the existing lifecycle types in `api.rs` so
+the control-plane architecture scan covers them. Do not add fields to
+`ObserveLifecycleResult`, `SessionLifecycleBaseline`, or
+`SessionLifecycleChanges` ([[public dto field additions are source
+breaking without non exhaustive]]).
+
+Sliced observe:
+
+```text
+observe_lifecycle_slice(
+    now_seconds,
+    resume: Option<&ObserveLifecycleCursor>,
+    budget: ObserveLifecycleBudget { max_sessions, max_encoded_result_bytes, max_elapsed },
+) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError>
+```
+
+Reuse `SessionLifecyclePageError::BudgetTooSmall` for an undersized
+successful-slice envelope. Do not invent a second page-error enum.
+
+The walk has two representations of the same outcomes:
+
+1. **Typed internal outcome** (not a public DTO):
+   `last_visited`, `complete`, `resync_required`, and
+   `Vec<ObserveLifecycleSessionError>` with the existing typed
+   `CoreDaemonError`. `observe_session` writes only into this
+   structure. The compatibility wrapper returns it as
+   `ObserveLifecycleResult`. It never reconstructs a
+   `CoreDaemonError` from a string.
+2. **Public slice DTO** derived from that outcome after the walk:
+   serializable `{ session_id, message }` errors. `message` is
+   **not** raw UTF-8 truncation. Every public message is passed
+   through `sanitize_observe_slice_error_message` before it is
+   stored or encoded. Sanitization is lossy for Hub logs only. It
+   is not the wrapper's error type.
+
+Sanitize rule (finding `finding_1786692121_415346`):
+
+A 256-byte UTF-8 cap does not bound `serde_json` size. Quotes,
+backslashes, and control bytes expand (`"` → `\"`, NUL →
+`\u0000`, 256 NULs → 1,538 JSON bytes). The reservation is
+therefore defined in **encoded JSON bytes**, not raw message
+bytes.
+
+- Safe alphabet: ASCII
+  `A-Z a-z 0-9` space `.` `:` `_` `/` `+` `-`.
+  No `"`, `\`, controls, or multibyte code points.
+- Map each input **byte**: keep it if it is in the alphabet,
+  otherwise replace it with `?`. Take at most
+  `OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES` (256) bytes.
+  The result is always 0..=256 bytes of the safe alphabet.
+- `reserved_error(session_id)` uses that same `session_id` and a
+  message of exactly 256 `x` bytes. Because `x` is in the
+  alphabet, `serde_json` encodes the message as a 258-byte JSON
+  string (`"` + 256 + `"`). Every sanitized actual message encodes
+  as a JSON string of length `2 + actual.len()` with
+  `actual.len() <= 256`, so
+  `encoded(actual_error) <= encoded(reserved_error)` for the same
+  `session_id`.
+- Do not put unsanitized `Display` text on the slice DTO. The
+  typed wrapper still keeps the original `CoreDaemonError`.
+
+Pre-visit byte admission (finding `finding_1786691714_228412`):
+
+`observe_session` mutates the journal and `pending_drain`. Core
+cannot roll back a visit. Therefore the byte budget is decided
+**before** the visit, using `reserved_error`, not the unknown
+post-visit message.
+
+- After cursor validation, if there is at least one remaining live
+  session, `minimum_bytes` is the `serde_json` length of a
+  successful slice that contains the current pass/cursor,
+  `last_visited = next_session`, `complete` as it would be if that
+  visit finished the pass, and `session_errors = [reserved_error
+  (next_session)]`. If `max_encoded_result_bytes < minimum_bytes`,
+  return `Err(BudgetTooSmall { minimum_bytes })` and visit nothing.
+- If there are no remaining live sessions, `minimum_bytes` is the
+  empty successful slice (`complete = true` when the pass is
+  already done).
+- Before each later visit of session `S`, build that same
+  reserved-error candidate on top of the **already committed**
+  slice (actual sanitized errors from prior visits in this call,
+  never reserved placeholders). Visit `S` only when
+  `encoded(candidate) <= max_encoded_result_bytes`, remaining
+  `max_sessions > 0`, and elapsed has not expired.
+- After a visit, replace the reservation with the typed outcome:
+  on success, no slice error row; on failure, the sanitized
+  message. The committed encoding is always `<=` the reserved
+  candidate, so a successful slice always fits.
+- Never drop a retained error to make the encoding fit. If the
+  reserved candidate does not fit, do not visit.
+- Zero item or zero elapsed still visit no remaining session.
+  Zero byte budget fails `BudgetTooSmall` when any session remains.
+- Resync outcomes are control results and are not required to
+  satisfy the byte budget, matching `lifecycle_changes_page`.
+
+Other slice rules:
+
+- `resume = None` mints a new pass id and starts at the first live
+  `SessionId`.
+- `resume = Some(cursor)` continues that pass only when
+  `cursor.pass_id` matches the daemon's open pass. Otherwise return
+  `resync_required` with empty progress and `complete = false`.
+  Never present a guessed suffix as `complete = true`.
+- After a visit, `last_visited` is that `SessionId` even if the
+  session then exits or is absent from the next live list.
+- `complete = true` only when this pass has attempted every live
+  session that existed in deterministic order from the pass start
+  (sessions that appear after the start are included only if they
+  sort after `last_visited`; do not go back). After `complete`, the
+  next useful call is a new pass.
+- If `last_visited` is no longer live, resume at the first live id
+  strictly greater than it. That is still the same pass.
+- Per-session drain errors stay retained on the typed outcome and
+  on the slice DTO. A sibling later in the same slice still runs.
+- Elapsed is a host-tick yield bound, not session policy. Core may
+  read `Instant` only to honor `max_elapsed`. Do not use
+  `now_seconds` as the elapsed clock.
+
+`observe_lifecycle(now_seconds)` becomes a wrapper over the same
+typed walk: new pass, unbounded item/byte/elapsed budgets, return
+`ObserveLifecycleResult` from the typed internal errors. Existing
+full-pass tests keep working. Do not serialize and re-parse.
+
+Paged baseline:
+
+```text
+lifecycle_baseline_page(
+    snapshot: Option<&SessionLifecycleCursor>,
+    after: Option<&SessionId>,
+    max_rows,
+    max_bytes,
+) -> Result<SessionLifecycleBaselinePage, SessionLifecyclePageError>
+```
+
+- `snapshot = None` mints a frozen snapshot: `load_all()`, sort by
+  `SessionId`, record the current journal watermark as
+  `snapshot_sequence`, retain the row vec in daemon memory.
+- Later pages with that snapshot cursor return the next rows from the
+  freeze. They must not re-read a mutated registry. Hub Stage A
+  interleaves observe slices between baseline pages; observe may append
+  journal changes. Those changes are live deltas after the snapshot
+  watermark, not mutations of the frozen rows.
+- `complete = true` only on the page that includes the last frozen
+  row, or on an empty snapshot that has no rows. Every earlier page
+  has `complete = false`.
+- `next` is the next `SessionId` to request, or `None` when complete.
+- Reuse `SessionLifecyclePageError::BudgetTooSmall` for an undersized
+  successful-page envelope. Reuse `SessionLifecycleResyncReason` for a
+  dropped or foreign snapshot (`SourceChanged` when `source_id`
+  mismatches). Add `#[non_exhaustive]` variant
+  `SnapshotUnavailable` only if SourceChanged/CursorExpired cannot
+  name a dropped in-process freeze without lying. Downstream matches
+  already wildcard unknown reasons.
+- Unknown snapshot + caller did not request a new snapshot: resync,
+  `complete = false`, no rows. Recovery is `snapshot = None`.
+- One cached freeze at a time. A new snapshot request replaces an
+  incomplete freeze. Drop the freeze after a complete page.
+- `lifecycle_baseline()` stays the full one-shot reader and must equal
+  the concatenation of pages at the snapshot minted from the same
+  `load_all()`.
+
+Method is `&mut self` because it owns the freeze. That is new surface,
+not a change to the existing `&self` wrapper.
+
+### Production path
+
+Hub (later) and the isolated consumer (this ticket):
+
+1. `observe_lifecycle_slice` until `complete` or budget yield.
+2. `take_journal_advanced_wake`.
+3. `lifecycle_baseline_page` until `complete` when installing or
+   resyncing a projection. Treat `complete = false` as not finished
+   ended evidence.
+4. `lifecycle_changes_page` after the snapshot watermark.
+5. Take again; re-page if woke.
+
+Zero-client natural exit still uses observe (sliced or wrapper) plus a
+bounded journal page. No `CoreDaemon::drain`. No terminal client.
+
+### Runtime-teardown lens answers
+
+| Field | Answer |
+| --- | --- |
+| `teardown_class_applies` | yes — this ticket changes the production observe walk that reconciles SessionIo/ClientWorker exit into the control-plane journal; terminal-state vs live-runtime divergence remains the defect class |
+| `teardown_isolation` | One session observe updates only that session's journal row and may hard-stop only that session's terminal subscriptions. A per-session drain error is retained and does not stop later ids in the same slice. Unvisited sessions in this pass are simply not yet observed; they stay live. The wake bit stays process-wide. |
+| `teardown_bounds` | One slice is one non-blocking host tick bounded by item, encoded-result, and elapsed budgets. It must not `block_on(close)`, wait for PTY death, or call `drain_runtime_all_once`. Existing ClientWorker hard-stop remains synchronous close+drop on the tick that observes `ProcessExited` for a visited bound subscription. An unvisited exiting session waits for a later slice or a new pass. Page/baseline reads do not block. |
+| `late_message_matrix` | Revision 4 matrix plus the rows below. |
+| `production_path_proof` | Worker-backed or local self-exit, zero attaches, no `CoreDaemon::drain`. Host runs sliced observe (N, yield, resume) until a later slice publishes `Exited`, then a bounded journal page shows that upsert. Dropped observe cursor returns resync or requires a new pass; a suffix walk must not report `complete`. Paged baseline at one snapshot reconstructs `lifecycle_baseline()` when read to `complete`. Red-on-revert: switching the slice to `drain_runtime_all_once`, restarting the walk on resume, or marking an incomplete baseline `complete` fails those tests. |
+| `ownership_identity` | Observe pass identity is an opaque `ObserveLifecyclePassId` plus `last_visited SessionId`. Journal identity remains `(source_id, sequence)`. Baseline snapshot identity is that journal cursor at mint. Terminal subscription identity remains `(session_id, subscription_id, generation)`. Delayed Drain or a late `ProcessExited` must not append a second identical `Exited` upsert. A stale observe pass id must not complete a different pass. |
+| `sibling_fail_closed_policy` | Success: siblings keep running. A retained observe error does not fail the daemon or unvisited siblings. An incomplete slice is not a sibling sacrifice. Ultimate wrapper/slice failure does not kill sibling sessions. |
+
+Late-message matrix additions:
+
+| Message | Tag / owner | After terminal failure / exit | Residual sweep |
+| --- | --- | --- | --- |
+| `observe_lifecycle_slice` | `(pass_id, last_visited)` | stale pass → resync, `complete = false`; per-session drain errors retained | later ids in the slice still run; unvisited ids wait |
+| `observe_lifecycle` wrapper | new unbounded pass | same per-session retain as today | full remaining live set |
+| `lifecycle_baseline_page` | snapshot `SessionLifecycleCursor` | unknown/dropped snapshot → resync, `complete = false` | recover with `snapshot = None` |
+| Spawn / Attach / Bind / Drain / Input / `remove_session` / `lifecycle_changes_page` | unchanged from Revision 4 | unchanged | unchanged |
+
+### Repository ownership and cross-repo seams
+
+- Core owns the sliced observe walk, the frozen baseline snapshot, and
+  the control-plane DTOs.
+- Hub owns projection, host retention, plugin session-family
+  publication, and Stage A slice scheduling. Register Hub
+  `ticket_1786663582_169720` as depending on this ticket / this
+  `target_id`. Do not implement Hub here.
+- Web and TUI consume Hub entity/state later. Out of scope.
+- Isolated Hub-shaped consumer in `botster-core-test-support` is the
+  required downstream-shaped proof
+  ([[botster core contract surface needs consumer proof]]).
+
+### Assumptions and unknowns
+
+- Assumed: Hub Stage A will call `resume = None` to start a pass and
+  pass the returned cursor to continue. That matches "caller requests
+  a new pass."
+- Assumed: `max_elapsed` uses `std::time::Instant` as a yield bound.
+  Tests prove the elapsed stop with `Duration::ZERO` (visits none
+  remaining) rather than a flaky sleep. If Plan Review requires a
+  injected clock, add a test-only deadline override on
+  `CoreDaemonConfig` without making production policy clocked.
+- Assumed: freezing one baseline snapshot in daemon memory is
+  acceptable. Hundreds of sessions is the same working set as today's
+  full `lifecycle_baseline()`.
+- Assumed: adding `SnapshotUnavailable` to the existing
+  `#[non_exhaustive]` resync enum is allowed glue if SourceChanged
+  cannot describe a dropped freeze.
+- Unknown until Implement measures encodings: exact
+  reserved-error `minimum_bytes` (256 `x` plus the next
+  `session_id` JSON) and empty-baseline-page `minimum_bytes`.
+  Tests compute them from `reserved_error` the same way
+  `lifecycle_changes_page` already does.
+- Not assumed: Hub in-tree compilation against this worktree. Isolated
+  consumer is the in-repo proof. Live Hub pin remains Hub's ticket.
+
+### Affected surfaces
+
+- `crates/botster-core-daemon/src/api.rs` — new slice/page DTOs,
+  budget type, pass/cursor types, optional resync variant.
+- `crates/botster-core-daemon/src/daemon.rs` — slice walk, pass state,
+  frozen baseline, wrappers, rustdoc unbounded-cost warnings.
+- `crates/botster-core-daemon/src/lib.rs` — re-exports.
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs` —
+  slice budgets, resume, dropped cursor, paged baseline reconstruct,
+  incomplete `complete = false`, existing zero-client and sibling
+  tests still pass through the wrapper.
+- `crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped`
+  and `lifecycle_journal_consumer_test.rs` — Stage A uses sliced
+  observe + paged baseline; must not be forced through unbounded
+  forms.
+- `docs/architecture/control-plane-lifecycle-journal.md` (this file),
+  `docs/architecture/core-daemon.md`, root `README.md` host-loop
+  section.
+
+Likely untouched: ClientWorker, terminal adapters, terminal protocol,
+plugin admission, Hub/Web/TUI/Workspaces trees.
+
+### Risks
+
+- Resume without a pass id would let a dropped cursor walk a suffix
+  and report `complete`. Pass identity is required.
+- Re-reading the registry per baseline page would mix post-snapshot
+  observe mutations into a snapshot that Hub treats as one sequence.
+  Freeze is required.
+- Post-visit encoding of an unbounded error cannot be the admission
+  oracle: `observe_session` already mutated state. Reserved-error
+  admission before the visit is required. A raw UTF-8 cap is not
+  an encoded-size cap; sanitize to the safe alphabet so JSON
+  escaping cannot blow the reservation. Sanitized slice messages
+  must not become the wrapper's `CoreDaemonError`.
+- Using `Instant` contradicts "Core does not call wall clocks for
+  policy." Document elapsed as a yield bound, not policy. Do not
+  drive lifecycle state from it.
+- Compatibility wrappers that stay cheap-to-call can keep Hub on the
+  unbounded path. Isolated consumer and rustdoc must make the bounded
+  path the Stage A entry. Do not delete the wrappers.
+- Slicing can delay `Exited` for an unvisited session until a later
+  slice. That is the product trade. Tests must show resume eventually
+  publishes it without Drain.
+
+### Acceptance checks and tests
+
+Focused during development (no wrapper script):
+
+- Resume: observe `max_sessions = N` over `> N` live sessions, yield,
+  resume the same pass, assert the second slice does not re-visit the
+  first N ids, and a later slice reports `complete`.
+- Each budget stops remaining visits: item count, reserved-error
+  encoded bytes, and `max_elapsed = Duration::ZERO`.
+- Long-error and JSON-escape boundary: inject drain errors whose
+  `Display` text is (a) longer than 256 bytes, (b) 256 NULs, (c)
+  quotes and backslashes, (d) control bytes, and (e) multibyte
+  UTF-8. For each case, `encoded(actual_error) <=
+  encoded(reserved_error(session_id))`, the slice message contains
+  only the safe alphabet and is at most 256 bytes, the full slice
+  encodes `<= max_encoded_result_bytes`, and the wrapper still
+  returns the original typed `CoreDaemonError`. A budget that fits
+  the empty envelope but not `reserved_error(next_session)` returns
+  `BudgetTooSmall` and visits nothing. After one committed error, a
+  remaining budget too small for another reserved error does not
+  visit the sibling; the sibling still exits on the next slice. No
+  retained error is dropped.
+- Dropped / foreign pass cursor: `complete = false`, explicit resync,
+  no suffix presented as complete.
+- New pass (`resume = None`) after a partial pass restarts from the
+  first live id.
+- Paged baseline pages at one snapshot reconstruct
+  `lifecycle_baseline()` row set and order when read until
+  `complete = true`.
+- Every incomplete page has `complete = false`.
+- Observe between baseline pages does not change already-minted
+  snapshot rows.
+- Zero-client natural exit: sliced observe (not Drain, not attach)
+  plus `lifecycle_changes_page` shows `Exited`. Wrapper
+  `observe_lifecycle` still satisfies the existing full-pass tests.
+- Architecture scan still rejects terminal bodies on lifecycle types,
+  including the new slice/page DTOs.
+- Isolated Hub-shaped consumer compiles against slice + paged
+  baseline + wake + `lifecycle_changes_page`, never calls Drain or
+  the unbounded baseline/observe forms on the Stage A path, and
+  wildcards unknown page/resync variants.
+
+Repository gates ([[botster-core uses CI-owned Cargo commands because
+it has no test script]]):
+
+```sh
+BOTSTER_ENV=test cargo test --workspace
+cargo fmt --all -- --check
+BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings
+BOTSTER_ENV=test cargo test --doc --workspace
+```
+
+Worktree hygiene: this ticket worktree path has no `:`. Tracked
+`.gitignore` is present and matches HEAD; restore from HEAD if a later
+step wipes it. Never truncate it.
+
+Delivery: direct-merge into `main`. No pull request.
+
+### Vault gaps
+
+- [[Core control-plane lifecycle journal advances without a terminal client or Hub terminal Drain]]
+  still says one observe call visits every live session. After this
+  lands, capture that Stage A uses the sliced form and that the
+  wrapper is the unbounded compatibility path.
+- [[botster core hosts need an explicit drain loop contract]] should
+  mention observe/baseline budgets as part of the host loop.
+- Do not rewrite those notes in this Plan visit.
+
+## Revision 4 — shipped wake and page API
+
+Revision 4 remains the parent contract for wake, page, resync, and
+zero-client observe-without-Drain. The text below is the shipped
+Revision 4 plan, kept as historical contract for those surfaces.
 
 ## Target
 
