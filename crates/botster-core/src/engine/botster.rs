@@ -1510,6 +1510,8 @@ impl WorkerBackedBotsterEngine {
         mut attach: IncrementalAttach,
         session_id: &SessionId,
     ) {
+        let outgoing = attach.client_id.clone();
+        attach.discard_client_queues(&outgoing);
         while let Some((next_client, next_subscription)) = attach.pending.pop_front() {
             match self
                 .runtime
