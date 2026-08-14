@@ -156,7 +156,7 @@ pub fn observe_lifecycle_resume_cursor(
     }
     Some(ObserveLifecycleCursor {
         pass_id: slice.pass_id.clone(),
-        last_visited: slice.last_visited.clone()?,
+        last_visited: slice.last_visited.clone(),
     })
 }
 
@@ -266,8 +266,23 @@ mod tests {
             max_encoded_result_bytes: 16 * 1024,
             max_elapsed: std::time::Duration::from_secs(1),
         };
-        let first_slice = observe_lifecycle_stage_a(&mut daemon, 12, None, budget)
-            .expect("first owner turn");
+        let setup_slice = observe_lifecycle_stage_a(
+            &mut daemon,
+            12,
+            None,
+            ObserveLifecycleBudget {
+                max_sessions: 1,
+                max_encoded_result_bytes: 16 * 1024,
+                max_elapsed: std::time::Duration::ZERO,
+            },
+        )
+        .expect("first owner turn can yield during setup");
+        assert!(setup_slice.last_visited.is_none());
+        assert!(!setup_slice.complete);
+        let setup_resume = observe_lifecycle_resume_cursor(&setup_slice)
+            .expect("setup yield has a resume cursor");
+        let first_slice = observe_lifecycle_stage_a(&mut daemon, 13, Some(&setup_resume), budget)
+            .expect("second owner turn visits first session");
         assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
         assert!(!first_slice.complete);
         let resume = observe_lifecycle_resume_cursor(&first_slice)
@@ -278,8 +293,8 @@ mod tests {
             .expect("host can do ready work between owner turns");
         assert!(listed.iter().any(|session| session.session_id == first));
         let second_slice =
-            observe_lifecycle_stage_a(&mut daemon, 13, Some(&resume), budget)
-                .expect("second owner turn");
+            observe_lifecycle_stage_a(&mut daemon, 14, Some(&resume), budget)
+                .expect("third owner turn");
         assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
         assert!(second_slice.complete);
         let _ = daemon.shutdown(Some(first), 20);

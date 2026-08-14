@@ -186,8 +186,8 @@ pub struct ObserveLifecyclePassId(pub String);
 pub struct ObserveLifecycleCursor {
     /// Pass that produced [`Self::last_visited`].
     pub pass_id: ObserveLifecyclePassId,
-    /// Last session this pass attempted, even if it later exited.
-    pub last_visited: SessionId,
+    /// Last session this pass attempted, or `None` when setup yielded first.
+    pub last_visited: Option<SessionId>,
 }
 
 /// Item, encoded-result, and elapsed budgets for one observe slice.

@@ -13,19 +13,21 @@ projection, host retention, and plugin policy stay in Hub.
 `CoreDaemon::observe_lifecycle_slice(now_seconds, resume, budget)` is
 the production progress tick.
 
-- `resume = None` mints a pass id and snapshots live engine sessions in
-  deterministic `SessionId` order.
+- `resume = None` mints a pass id over the ordered live-session index.
+  The pass records a generation watermark and a final `SessionId`.
 - `resume = Some(cursor)` continues only when `cursor.pass_id` and
   `cursor.last_visited` both match that open snapshot. Otherwise the
   result is `resync_required = ObservePassUnavailable`, `complete =
   false`, and no suffix.
-- Later slices walk the remaining snapshot. They do not list or sort
-  the live set again. Sessions that appear after mint wait for a new
-  pass (`resume = None`).
+- Later slices walk only the unvisited ordered suffix. They do not list
+  or sort the full live set. Generation tags exclude sessions that
+  appear after mint. Those sessions wait for a new pass.
 - `max_sessions`, `max_encoded_result_bytes`, and `max_elapsed` each
-  stop before remaining snapshot ids are visited. Elapsed starts at API
-  entry and includes snapshot setup. `max_elapsed` is a host-tick yield
-  bound, not session policy. Do not use `now_seconds` as that clock.
+  stop before remaining pass ids are visited. Elapsed starts at API
+  entry and includes pass setup. `max_elapsed` is a host-tick yield
+  bound, not session policy. A setup-only yield returns
+  `last_visited = None`. The caller resumes with that exact cursor. Do
+  not use `now_seconds` as the elapsed clock.
 - Byte admission uses a reserved 256-`x` public error before each
   visit. `observe_session` mutates the journal and pending drain and
   cannot be rolled back. Public slice messages are sanitized to
@@ -101,8 +103,9 @@ This surface is runtime-teardown class. Shipped answers:
   are unchanged.
 - Production proof: sliced observe plus `lifecycle_changes_page` shows
   `Exited` with zero attaches and no `CoreDaemon::drain`.
-- Ownership: observe identity is `(pass_id, last_visited)` plus the
-  remaining snapshot. Journal identity is `(source_id, sequence)`.
+- Ownership: observe identity is `(pass_id, optional last_visited)` plus
+  the generation watermark and final key. Journal identity is
+  `(source_id, sequence)`.
   Terminal identity remains `(session_id, subscription_id, generation)`.
 - Siblings: a retained observe error does not fail the daemon or
   unvisited siblings. An incomplete slice is not sibling sacrifice.
