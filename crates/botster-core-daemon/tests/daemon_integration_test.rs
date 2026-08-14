@@ -1517,6 +1517,95 @@ fn worker_pending_replacement_does_not_start_the_old_subscription() {
 
 #[cfg(unix)]
 #[test]
+fn worker_same_key_owner_replacement_cancels_the_active_boundary() {
+    let data_dir = temp_data_dir("worker-same-key-replace");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-same-key-replace-session".to_string());
+    let first = ClientId("worker-same-key-replace-a".to_string());
+    let second = ClientId("worker-same-key-replace-b".to_string());
+    let subscription = SubscriptionId("worker-same-key-replace-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf ready; while IFS= read -r line; do :; done".to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(first.clone(), session_id.clone(), subscription.clone(), 11)
+        .expect("attach first owner");
+    let first_gen = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("first inventory")
+        .generation;
+    let replaced = daemon
+        .attach(second.clone(), session_id.clone(), subscription.clone(), 12)
+        .expect("replace owner before first boundary finishes");
+    assert!(
+        replaced.client_egress.iter().any(|(client_id, frame)| {
+            client_id == &second
+                && matches!(
+                    frame,
+                    TransportEgress::AttachState {
+                        subscription_id,
+                        state: TerminalAttachState::Attaching,
+                        ..
+                    } if subscription_id == &subscription
+                )
+        }),
+        "replacement must start its attach immediately: {:?}",
+        replaced.client_egress
+    );
+    assert!(
+        replaced
+            .client_egress
+            .iter()
+            .all(|(client_id, _)| client_id != &first),
+        "cancelled owner must not receive the replacement attach frames"
+    );
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].client_id, second);
+    assert_eq!(live[0].subscription_id, subscription);
+    assert_eq!(
+        live[0].generation,
+        botster_core::TerminalSubscriptionGeneration(first_gen.0 + 1)
+    );
+
+    let mut saw_first_after_replace = false;
+    let replacement = drain_until_attached(&mut daemon, &session_id, &second);
+    for (client_id, frame) in &replacement.client_egress {
+        if client_id == &first
+            && matches!(
+                frame,
+                TransportEgress::Snapshot { .. } | TransportEgress::AttachState { .. }
+            )
+        {
+            saw_first_after_replace = true;
+        }
+    }
+    assert!(
+        !saw_first_after_replace,
+        "cancelled owner must not receive later snapshot or attach frames: {:?}",
+        replacement.client_egress
+    );
+    assert!(
+        replacement.client_egress.iter().any(|(client_id, frame)| {
+            client_id == &second && matches!(frame, TransportEgress::Snapshot { .. })
+        }),
+        "replacement must start its own snapshot boundary: {:?}",
+        replacement.client_egress
+    );
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].client_id, second);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_subscription_drain_retains_foreign_route_frames() {
     let data_dir = temp_data_dir("worker-route-drain");
     let mut daemon =

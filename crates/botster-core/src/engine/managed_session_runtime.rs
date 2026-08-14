@@ -496,6 +496,24 @@ where
             .has_subscription(session_id, subscription_id)
     }
 
+    /// Whether the live inventory owner is exactly this client and subscription.
+    #[must_use]
+    pub fn terminal_subscription_matches(
+        &self,
+        session_id: &SessionId,
+        client_id: &ClientId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.client_worker
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| {
+                &row.session_id == session_id
+                    && &row.client_id == client_id
+                    && &row.subscription_id == subscription_id
+            })
+    }
+
     /// Live generation for a subscription, if any.
     #[must_use]
     pub fn terminal_subscription_generation(

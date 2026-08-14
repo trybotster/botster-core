@@ -814,6 +814,12 @@ impl WorkerBackedBotsterEngine {
                         current_subscription,
                         now_seconds,
                     )?;
+                } else if current_client != client_id && current_subscription == subscription_id {
+                    return self.takeover_current_incremental_attach(
+                        client_id,
+                        session_id,
+                        subscription_id,
+                    );
                 }
             }
             if self.incremental_attaches.contains_key(&session_id) {
@@ -1346,6 +1352,39 @@ impl WorkerBackedBotsterEngine {
         Ok(output)
     }
 
+    fn takeover_current_incremental_attach(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        let Some(mut attach) = self.incremental_attaches.remove(&session_id) else {
+            return self.attach_client(client_id, session_id, subscription_id, 0);
+        };
+        self.runtime
+            .session_runtime_mut()
+            .attach_consumer(&session_id)?;
+        let output = self.runtime.begin_snapshot_attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )?;
+        self.runtime
+            .session_runtime_mut()
+            .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
+        attach.request_id = self
+            .runtime
+            .session_runtime_mut()
+            .begin_snapshot_boundary(&session_id)?;
+        attach.client_id = client_id;
+        attach.subscription_id = subscription_id;
+        attach.ready = false;
+        attach.queued_input.clear();
+        attach.queued_resize = None;
+        self.incremental_attaches.insert(session_id, attach);
+        Ok(output)
+    }
+
     fn reconcile_incremental_attach_after_teardown(
         &mut self,
         session_id: &SessionId,
@@ -1353,10 +1392,11 @@ impl WorkerBackedBotsterEngine {
         let Some(attach) = self.incremental_attaches.get(session_id) else {
             return Ok(());
         };
-        if self
-            .runtime
-            .has_terminal_subscription(session_id, &attach.subscription_id)
-        {
+        if self.runtime.terminal_subscription_matches(
+            session_id,
+            &attach.client_id,
+            &attach.subscription_id,
+        ) {
             return Ok(());
         }
         let mut attach = self

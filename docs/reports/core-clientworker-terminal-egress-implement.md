@@ -75,6 +75,7 @@ Edit:
 - `crates/botster-core/src/engine/mod.rs`
 - `crates/botster-core/src/engine/botster.rs`
 - `crates/botster-core/src/engine/managed_session_runtime.rs`
+- `crates/botster-core/src/runtime/worker_process.rs`
 - `crates/botster-core/src/lib.rs`
 - `crates/botster-core-daemon/src/daemon.rs`
 - `crates/botster-core-daemon/src/lib.rs`
@@ -124,6 +125,10 @@ Review `review_1786673068_686714` required five product fixes that fulfill the e
 
 Typed bind errors remain `BindBeforeAttach`, `UnknownSubscription`, `StaleGeneration`, `AlreadyBound`. The committed plan's teardown-bound and attach-matrix wording was updated to match.
 
+Review `review_1786675180_532728` required one further product fix that fulfills the existing ownership-identity lens:
+
+- Worker-backed same-key owner replacement cancels the live IncrementalAttach owner's snapshot boundary and starts the replacement boundary on the attach path. Reconcile uses `(client_id, subscription_id)`, not subscription_id alone. `WorkerProcessRuntime` Drop cancels any outstanding snapshot before `SHUTDOWN` so a fenced worker cannot hang `child.wait()`.
+
 ## Runtime-teardown lenses implemented
 
 | Lens | Implementation |
@@ -132,7 +137,7 @@ Typed bind errors remain `BindBeforeAttach`, `UnknownSubscription`, `StaleGenera
 | Bounded teardown | 512 unsuccessful writes fail that subscription. Hard stop is ownership remove + synchronous non-blocking `close()` + drop on the same host tick. No closer thread. |
 | Late-message matrix | Attach assigns generation. Bind requires the live generation. Pre-attach bind is typed. Detach and Closed are idempotent. Input/output after teardown cannot recreate the owner. |
 | Production-path proof | `CoreDaemon::drain` / `DefaultBotsterEngine::drain_runtime_once` pump ClientWorker. Fake `delivered_frame_bytes` contains remaining output then `process_exit` before Closed. Inventory row is gone. Adapter is dropped. Sibling still pumps. Session stays listed. |
-| Ownership identity | `(session_id, subscription_id, generation)`. Reattach is generation + 1. Stale detach does not delete N+1. |
+| Ownership identity | `(session_id, subscription_id, generation)`. Reattach is generation + 1. Stale detach does not delete N+1. A different `client_id` on the same key cancels the previous IncrementalAttach request_id and starts generation + 1. |
 | Sibling / fail-closed | Successful close and write-budget failure isolate one subscription. ProcessExited closes every subscription on that session by design. |
 
 Human answer `question_1786670811_244393` is implemented as a contract bound, not a waiver: Core calls `close()` synchronously; a blocking close is an adapter defect.
@@ -155,6 +160,7 @@ Focused production-path proofs:
 - `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — includes in-flight stall budget, replacement attach, unbound ProcessExit teardown, rejected-attach inventory absence, and capacity-plus-two drain isolation
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_bound_adapter_receives_ready_finish_without_drain_snapshots`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
+- `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- --exact worker_same_key_owner_replacement_cancels_the_active_boundary`
 - Isolated Hub-shaped consumer via `botster-core-test-support` `terminal_adapter_conformance_test`
 
 `drain_until_for_client` now uses `REAL_WORKER_IDLE_TIMEOUT` / `REAL_WORKER_COMPLETION_TIMEOUT` and fails with the last observed output.
@@ -164,6 +170,7 @@ Focused production-path proofs:
 - Real Hub Unix and WebRTC adapters are not in this repository. They must run the same close conformance proof on their later tickets.
 - A production adapter that violates the non-blocking `close()` contract can still block the host tick. That is an adapter defect, not a Core closer thread.
 - Process-thread-count equality is not asserted under workspace parallelism; the production-path test asserts thread count does not grow across ProcessExited close+drop.
+- `WorkerProcessRuntime` Drop now sends snapshot `cancel` before `SHUTDOWN`. `child.wait()` is still unbounded if Ghostty encode never returns. That encode hang is outside this ticket.
 
 ## Missing vault guidance discovered
 
