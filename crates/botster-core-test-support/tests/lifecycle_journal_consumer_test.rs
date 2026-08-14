@@ -41,10 +41,11 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         );
     }
 
+    let workspace_target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
     let output = Command::new(env!("CARGO"))
         .args(["test", "--quiet", "--offline"])
         .current_dir(&consumer)
-        .env("CARGO_TARGET_DIR", consumer.join("target"))
+        .env("CARGO_TARGET_DIR", workspace_target)
         .output()
         .expect("cargo test hub-lifecycle-shaped consumer");
     assert!(

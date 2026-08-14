@@ -1147,6 +1147,10 @@ fn worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_liv
 
     daemon.spawn(request, 10).expect("spawn real worker");
     wait_for_file(&ready_path);
+    // Capacity-one worker egress can block the child on leftover producer
+    // output. Drain that output before attach so later queued input can
+    // reach the child's read loop instead of only echoing on the terminal.
+    drain_pre_attach_producer_output(&mut daemon, &session_id, 11);
     let recovery = daemon
         .registry()
         .load(&session_id)
@@ -3919,8 +3923,7 @@ fn worker_backed_observe_advances_exit_without_attach_or_drain() {
 fn worker_backed_dropped_wake_still_converges_by_page() {
     let data_dir = temp_data_dir("lifecycle-dropped-wake");
     let session_id = SessionId("lifecycle-dropped-wake".to_string());
-    let mut daemon =
-        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let baseline = daemon
         .lifecycle_baseline()
         .expect("dropped-wake baseline")
@@ -4111,8 +4114,7 @@ fn observe_then_drain_still_delivers_terminal_process_exited() {
     let session_id = SessionId("lifecycle-observe-process-exit".to_string());
     let client_id = ClientId("lifecycle-observe-process-exit-client".to_string());
     let subscription_id = SubscriptionId("lifecycle-observe-process-exit-sub".to_string());
-    let mut daemon =
-        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     daemon
         .spawn(self_exit_spawn_request(&session_id), 10)
         .expect("process-exit fixture spawn");
@@ -6996,6 +6998,30 @@ fn drain_until(
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     aggregate
+}
+
+fn drain_pre_attach_producer_output(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    now_seconds: u64,
+) {
+    let mut idle = 0;
+    for tick in 0..256 {
+        let drained = daemon
+            .drain(session_id, now_seconds + tick)
+            .expect("pre-attach producer drain should succeed");
+        if drained.client_egress.is_empty()
+            && drained.observations.is_empty()
+            && drained.backpressure.is_empty()
+        {
+            idle += 1;
+            if idle >= 3 {
+                return;
+            }
+        } else {
+            idle = 0;
+        }
+    }
 }
 
 fn wait_for_file(path: &std::path::Path) {

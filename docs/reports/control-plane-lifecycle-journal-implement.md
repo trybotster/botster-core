@@ -99,6 +99,14 @@ kept both `SessionRuntimeErrorKind` (this ticket) and
 `TerminalCapabilitySet` (main) in the daemon integration-test import
 list.
 
+Review finding `finding_1786687716_144306` is a default-concurrency
+suite interaction: the capacity-one incremental attach test saw terminal
+echo of queued input without the child `echo:` response. This visit
+drains pre-attach producer output in that test, keeps one worker-backed
+observe proof, and runs the remaining new lifecycle proofs on the local
+engine. The isolated consumer reuses the workspace target directory
+instead of a cold second compile.
+
 Implementation details inside the contract:
 
 - `ObserveLifecycleResult` lives next to `CoreDaemonError` rather than in `api.rs`, to avoid an `api`/`daemon` module cycle.
