@@ -9,12 +9,13 @@ This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
 Living design belongs here under `docs/architecture/`, not under the retired
 `docs/plans/` stub. See `docs/README.md`.
 
-Revision 2 answers Plan Review `review_1786682974_611546`. It does not
-re-litigate repository routing, teardown classification, or the Hub
-dependency. Product findings `103248`, `155478`, `138502`, and `859083`
-are answered below. Process finding `452064` is repaired by resubmitting
-full gate and advance evidence against the existing artifact and
-checklist.
+Revision 3 answers Plan Review `review_1786683591_164254` and human
+answer `question_1786683509_729694`. It does not re-litigate repository
+routing, teardown classification, the Hub dependency, or the already
+resolved revision-2 findings. The remaining product contradiction is the
+undersized-budget case: a successful page must never encode larger than
+`max_bytes`. The human selected a typed minimum-budget error. Do not
+exclude the fixed page envelope from `max_bytes`.
 
 This ticket is **runtime-teardown class** because it changes
 terminal-state versus live-runtime observation: session exit must advance
@@ -29,11 +30,11 @@ answers are in this document and must appear in Plan gate evidence.
 - Spawn-target name: `botster-core`
 - Spawn-target path is the admitted `botster-core` target, not the ambient
   pipeline session directory.
-- Current subject revision: `e642716` on branch
+- Current subject revision: `4cdc5d9` on branch
   `project-pipelines/ticket_1786663581_962361`
-- Addresses Plan Review findings `finding_1786682974_103248`,
-  `finding_1786682974_155478`, `finding_1786682974_138502`,
-  `finding_1786682974_859083`, and process `finding_1786682974_452064`
+- Addresses open findings `finding_1786683591_529445` and
+  `finding_1786682974_103248` via human answer
+  `question_1786683509_729694`
 - Repository playbook: [[botster-core-playbook]]
 - Hub session-type eligibility parent: does not apply
 - Project Pipelines package/plugin paths: out of scope
@@ -217,14 +218,30 @@ Surgical change on the existing `CoreDaemon` lifecycle source:
    appends before take stay one bit.
 5. Add `take_journal_advanced_wake() -> bool` that clears the bit. Page
    and baseline never clear the bit. Append always sets it.
-6. Add `lifecycle_changes_page(after, max_changes, max_bytes)` returning a
-   new `SessionLifecyclePage` with ordered changes, next cursor, source
-   watermark, and the existing explicit resync reasons. Validate the
-   cursor **before** applying page limits. Resync still returns no
-   partial suffix. `max_bytes` bounds the complete `serde_json`
-   encoding of the returned `SessionLifecyclePage`, including next,
-   watermark, resync, list delimiters, and separators — not the sum of
-   isolated change encodings.
+6. Add `lifecycle_changes_page(after, max_changes, max_bytes) ->
+   Result<SessionLifecyclePage, SessionLifecyclePageError>`.
+   `SessionLifecyclePage` carries ordered changes, next cursor, source
+   watermark, and the existing explicit resync reasons.
+   `SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }` is the
+   only page error. Algorithm:
+   1. Validate the cursor first. A changed source, expired cursor, or
+      cursor-ahead returns `Ok` with empty `changes` and the exact
+      resync reason. That is a control outcome, not a successful page.
+      It is not required to satisfy `max_bytes`. Never return a
+      partial suffix.
+   2. For a valid cursor, encode the empty successful page (no resync,
+      empty changes, next = `after`, current watermark). Let
+      `minimum_bytes` be that exact encoded length.
+   3. If `max_bytes < minimum_bytes`, return
+      `Err(BudgetTooSmall { minimum_bytes })`. Do not return a
+      successful page or a partial page.
+   4. Otherwise greedily include the next change only when the fully
+      encoded successful page still has `len() <= max_bytes` and the
+      item count is still `<= max_changes`.
+   `max_bytes` is the maximum encoded size of a **successful**
+   `SessionLifecyclePage`. It includes metadata, cursors, watermark,
+   the resync field, list delimiters, separators, and changes. Do not
+   exclude the fixed page envelope.
 7. Keep `lifecycle_changes(after)` as the compatibility unbounded reader
    so current Hub source keeps compiling. Do not add fields to
    `SessionLifecycleChanges`.
@@ -277,30 +294,36 @@ Assumptions:
   side-effect-free; without a non-Drain progress tick the journal cannot
   advance for zero-client sessions. This is required, not speculative
   configurability.
-- Encoded page bytes are `serde_json::to_vec` of the complete
-  `SessionLifecyclePage` value that is returned. Include next cursor,
-  watermark, `resync_required`, the changes array, and JSON separators.
-  Greedy include the next change only when the fully encoded page with
-  that change still has `len() <= max_bytes` and the item count is still
-  `<= max_changes`.
-- Cursor validation precedes limits. A foreign, expired, or ahead cursor
-  always returns empty `changes` plus the exact resync reason, even when
-  `max_changes == 0` or `max_bytes == 0`. Limits never hide invalidity.
-- After a valid cursor: `max_changes == 0` returns empty changes, next
-  equal to `after`, current watermark, no resync. If `max_bytes` is
-  smaller than the empty-success envelope, same empty-success result.
-  Hosts must set `max_bytes` at least to that empty-success size plus one
-  max-size record (`MAX_CORE_SESSION_METADATA_LEN` is 64 KiB plus record
-  and page envelope). A resync page is a recovery signal; its envelope
-  is not required to satisfy `max_bytes`.
+- Encoded successful-page bytes are `serde_json::to_vec` of the complete
+  `SessionLifecyclePage`. Include metadata, next cursor, watermark,
+  `resync_required`, the changes array, and JSON separators. Human
+  answer `question_1786683509_729694` forbids excluding the envelope.
+- Cursor validation precedes the successful-page byte budget. A foreign,
+  expired, or ahead cursor returns `Ok` with empty `changes` and the
+  exact resync reason even when `max_bytes` is undersized. Resync is a
+  control outcome, not a successful page.
+- After a valid cursor, compute the exact encoded size of the empty
+  successful page. If `max_bytes` is below that size — including
+  `max_bytes == 0` and `minimum_bytes - 1` — return
+  `Err(BudgetTooSmall { minimum_bytes })`. Never return a successful
+  page that encodes larger than `max_bytes`.
+- After a valid cursor with `max_bytes >= minimum_bytes` and
+  `max_changes == 0`, return the empty successful page. Its encoded
+  length equals `minimum_bytes` and is `<= max_bytes`.
 - If the next change cannot fit the remaining full-page budget after
-  some items, stop. If the first candidate alone would make the complete
-  page exceed `max_bytes`, return empty-success and do not advance next.
-  Recovery is a fresh baseline.
+  some items, stop with the last fitting successful page. If the first
+  candidate alone would exceed `max_bytes` after a valid budget, return
+  the empty successful page and do not advance next. Recovery from an
+  oversized single change is a fresh baseline. Hosts that want at least
+  one change must set `max_bytes` to `minimum_bytes` plus one max-size
+  record (`MAX_CORE_SESSION_METADATA_LEN` is 64 KiB plus record and
+  remaining page envelope).
 - Wake is a coalesced hint. The page watermark is the source of truth.
   Safe consumer order: take, page until `next == watermark` or resync,
   take again, and re-page if that second take is true. Never page-then-
   take-then-sleep. Page never clears the wake. Append always sets it.
+  `BudgetTooSmall` is not catch-up and not sleep; the host must raise
+  `max_bytes` to `minimum_bytes`.
 - Existing `lifecycle_changes` remains an unbounded compatibility reader.
   Hub's later ticket switches to page + wake.
 - Worktree path has no `:`. Tracked `.gitignore` is present and non-empty.
@@ -334,7 +357,8 @@ non-exited error.
 Primary files:
 
 - `crates/botster-core-daemon/src/api.rs` — `SessionLifecyclePage`,
-  `ObserveLifecycleResult`, keep existing resync reasons
+  `SessionLifecyclePageError::BudgetTooSmall`, `ObserveLifecycleResult`,
+  keep existing resync reasons
 - `crates/botster-core-daemon/src/daemon.rs` — per-session observe,
   wake, full-page byte budget, cursor-before-limits page
 - `crates/botster-core-daemon/src/lib.rs` — re-export the new types
@@ -375,7 +399,8 @@ Late-message matrix (ownership-creating or lifecycle-visible messages):
 | `CoreDaemon::drain` | terminal plane | still returns retained/pending egress; must not be required to learn exit | ProcessExited stays here for attached clients |
 | Input / resize | live mutable session | rejected after stopping/exited/failed | no journal noise |
 | `remove_session` | explicit host forget | allowed only when terminal | journal `Removed` |
-| `lifecycle_changes_page` | cursor `(source_id, sequence)` | `SourceChanged` / `CursorExpired` / `CursorAhead` with empty changes | recover via `lifecycle_baseline` |
+| `lifecycle_changes_page` | cursor `(source_id, sequence)` | `SourceChanged` / `CursorExpired` / `CursorAhead` with empty changes, even when `max_bytes` is undersized | recover via `lifecycle_baseline` |
+| `lifecycle_changes_page` undersized budget | valid cursor + `max_bytes < minimum_bytes` | `Err(BudgetTooSmall { minimum_bytes })`; no page | raise `max_bytes` to `minimum_bytes` |
 
 ## Risks
 
@@ -388,9 +413,10 @@ Late-message matrix (ownership-creating or lifecycle-visible messages):
 - Calling `drain_runtime_all_once` would abort the tick on the first
   drain error (`managed_session_runtime.rs` first-error return). Observe
   must not use that aggregate primitive.
-- Byte-budget livelock if `max_bytes` is smaller than one complete page
-  that includes the next legal change. Fail closed to empty-success plus
-  baseline recovery; measure the whole encoded page.
+- An undersized `max_bytes` used to return an empty successful page that
+  itself exceeded the budget. That is forbidden. Return
+  `BudgetTooSmall { minimum_bytes }` after cursor validation. Resync
+  still wins over the budget.
 - Page-then-take-then-sleep can clear a wake that arrived after the page
   snapshot and leave the cursor behind. The published consumer loop and
   interleaving test exist so Hub cannot invent that order.
@@ -414,13 +440,20 @@ Focused during development (no wrapper):
   page from the last good cursor still returns the `Exited` upsert.
 - Duplicate wakes: two journal appends before take; `take` is true once,
   then false until another append.
-- Full-page byte budget: serialize every returned `SessionLifecyclePage`
-  with `serde_json` and assert `encoded.len() <= max_bytes` whenever
-  `resync_required` is `None`. Prove both item-count and encoded-page
+- Full-page byte budget: every `Ok` page with `resync_required == None`
+  is a successful page. Serialize it and assert
+  `encoded.len() <= max_bytes`. Prove item-count stops and encoded-page
   stops. Next is the last included change; watermark is the source head.
-- Zero-limit resync: for each of `SourceChanged`, `CursorExpired`, and
-  `CursorAhead`, call the page API with `max_changes = 0` and again with
-  `max_bytes = 0`. Require empty changes and the exact resync reason.
+- Undersized budget: with a valid cursor, `max_bytes = 0` and
+  `max_bytes = minimum_bytes - 1` return
+  `Err(BudgetTooSmall { minimum_bytes })`. `max_bytes = minimum_bytes`
+  returns the empty successful page whose encoding equals
+  `minimum_bytes`.
+- Resync with undersized budget: for each of `SourceChanged`,
+  `CursorExpired`, and `CursorAhead`, call the page API with
+  `max_bytes = 0` (and again below the empty-success minimum). Require
+  `Ok` with empty changes and the exact resync reason, not
+  `BudgetTooSmall`.
 - Wake/page race: Hub-shaped consumer implements the safe loop (take,
   page until `next == watermark` or resync, take, re-page if woke).
   Interleave journal appends before take, between take and page, after
@@ -477,15 +510,16 @@ Capture after implement, not during Plan:
 
 No inbox capture in this Plan visit. The gap is known and named.
 
-## Plan Review findings (revision 2)
+## Plan Review findings (revision 3)
 
 | Finding | Resolution |
 | --- | --- |
-| `finding_1786682974_103248` full encoded-page byte bound | `max_bytes` is the complete serialized `SessionLifecyclePage`. Tests encode the returned page. |
-| `finding_1786682974_155478` zero limits hide resync | Cursor validation runs first. Zero limits still return the exact resync reason. |
-| `finding_1786682974_138502` wake/page race | Safe consume loop plus Hub-shaped interleaving proof. Page never clears the wake. |
-| `finding_1786682974_859083` sibling isolation | Observe is a per-session continue-and-retain pass. Same-tick sibling test required. |
-| `finding_1786682974_452064` empty Plan completion evidence | Process-only. Resubmit gate and advance evidence with `plan_uri`, `artifact_id`, `checklist_id`, `target_id`, and `target_repository`. Reuse ticket checklist `checklist_1786682346_769728`; do not create a second vault checklist. |
+| `finding_1786683591_529445` undersized budgets violate the page bound | Human answer `question_1786683509_729694`: typed `BudgetTooSmall { minimum_bytes }` after cursor validation. Successful pages always encode to `<= max_bytes`. Resync remains a control outcome. |
+| `finding_1786682974_103248` full encoded-page byte bound | Closed by the same contract. `max_bytes` includes the complete successful-page envelope. Tests serialize every successful page. |
+| `finding_1786682974_155478` zero limits hide resync | Resolved in revision 2. Revision 3 keeps resync ahead of `BudgetTooSmall`. |
+| `finding_1786682974_138502` wake/page race | Resolved in revision 2. Unchanged. |
+| `finding_1786682974_859083` sibling isolation | Resolved in revision 2. Unchanged. |
+| `finding_1786682974_452064` empty Plan completion evidence | Resolved in revision 2. This visit again submits full gate and advance evidence. Reuse ticket checklist `checklist_1786682346_769728`; do not create a second vault checklist. |
 
 ## Delivery
 
