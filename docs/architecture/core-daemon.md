@@ -85,8 +85,13 @@ and pending drains before publishing the lifecycle `Removed` change.
 ## Authoritative lifecycle source
 
 Hosts that maintain a session projection use the public `CoreDaemon` lifecycle
-source instead of repeatedly polling `list()`. `lifecycle_baseline()` returns
-registry rows in deterministic `SessionId` order plus a watermark cursor. Each
+source instead of repeatedly polling `list()`. `lifecycle_baseline_page`
+returns one frozen snapshot sequence, bounded rows, bounded encoded bytes,
+a next-row cursor, and an explicit `complete` flag. `snapshot = None` mints
+the freeze from `load_all()` and the current journal watermark. Later pages
+at that sequence must not re-read a mutated registry. An incomplete page is
+not finished ended evidence. `lifecycle_baseline()` remains the unbounded
+compatibility reader that loads every row in one call. Each
 row carries durable `DaemonSession` facts, the exact opaque host metadata from
 the authoritative registry record, and, when this daemon currently owns or
 adopted the runtime, its in-memory `SessionLifecycleState`. A fresh daemon can
@@ -125,12 +130,17 @@ minimum_bytes }`. `SessionLifecyclePageError` is `#[non_exhaustive]` at first
 publish; consumers must match `BudgetTooSmall` and a wildcard. Recovery is
 always a new baseline; replay is not durable across daemon restart.
 
-Control-plane progress is `CoreDaemon::observe_lifecycle`. One call is one
-bounded pass over live sessions in deterministic `SessionId` order. It drains
-and reconciles each session independently, retains incidental terminal egress
-for a later `drain`, and continues after a per-session error. It does not
-call `drain_runtime_all_once` and returns no terminal bytes, phases,
-snapshots, attach state, or `ProcessExited` frames. Page, wake, and baseline
+Control-plane progress is `CoreDaemon::observe_lifecycle_slice`. One call
+visits live sessions in deterministic `SessionId` order under item, encoded-
+result, and elapsed budgets. It drains and reconciles each visited session
+independently, retains incidental terminal egress for a later `drain`, and
+continues after a per-session error. A later call with the returned cursor
+resumes that pass; `resume = None` starts a new pass. A dropped pass cursor
+returns a resync with `complete = false` and never presents a suffix as
+finished. It does not call `drain_runtime_all_once` and returns no terminal
+bytes, phases, snapshots, attach state, or `ProcessExited` frames.
+`observe_lifecycle` remains the unbounded compatibility wrapper that starts a
+new pass and visits every remaining live session. Page, wake, and baseline
 reads stay side-effect-free.
 
 `append_lifecycle_change` sets one coalesced `journal_advanced` bit.

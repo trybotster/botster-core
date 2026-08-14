@@ -170,12 +170,16 @@ The same lifecycle verbs on the production path are `CoreDaemon::spawn`,
 guarded writes). Prefer those methods over assembling lower-level engines.
 
 Production hosts that maintain a session projection start with
-`CoreDaemon::lifecycle_baseline`, retain its source-generation cursor, and call
-`CoreDaemon::observe_lifecycle` to advance control-plane facts without a
-terminal client or Hub terminal Drain. Consume `CoreDaemon::lifecycle_changes_page`
-after taking the coalesced `take_journal_advanced_wake` bit: take, page until
-`next` equals the source watermark or a resync reason appears, take again, and
-re-page if that second take is true. `lifecycle_changes` remains the unbounded
+`CoreDaemon::lifecycle_baseline_page` until `complete`, retain that snapshot
+sequence, and call `CoreDaemon::observe_lifecycle_slice` to advance
+control-plane facts without a terminal client or Hub terminal Drain. A slice
+returns a resume cursor; the next call continues that pass until `complete`.
+An incomplete baseline page is not finished ended evidence.
+`lifecycle_baseline` and `observe_lifecycle` remain unbounded compatibility
+wrappers. Consume `CoreDaemon::lifecycle_changes_page` after taking the
+coalesced `take_journal_advanced_wake` bit: take, page until `next` equals
+the source watermark or a resync reason appears, take again, and re-page if
+that second take is true. `lifecycle_changes` remains the unbounded
 compatibility reader.
 Each lifecycle row includes the opaque, host-owned `CoreSessionMetadata` map
 supplied at spawn. The daemon persists that map in its registry and restores it
@@ -210,7 +214,8 @@ generic facade for custom runtimes.
    `CoreDaemon::drain` (production) regularly while attached terminal clients
    need output. Terminal bytes, snapshots, attach phases, and `ProcessExited`
    frames surface on drain. Control-plane lifecycle progress uses
-   `CoreDaemon::observe_lifecycle` instead of Drain.
+   `CoreDaemon::observe_lifecycle_slice` instead of Drain.
+   `observe_lifecycle` is the unbounded compatibility wrapper.
 3. **Deliver** — route returned client egress and session requests to transports;
    do not re-inject already-routed session requests as new work.
 4. **Backpressure** — honor bounded queue / backpressure summaries from drain and
@@ -220,14 +225,16 @@ generic facade for custom runtimes.
 5. **Other drains** — if you use notifications or routed envelopes on
    `CoreDaemon`, drain those APIs separately; they are daemon process memory,
    not registry-durable across process restart.
-6. **Lifecycle projection** — establish one lifecycle baseline, then drive
-   `observe_lifecycle` and consume bounded pages through the take / page /
-   take-again loop instead of polling `list()`. Resync from a fresh baseline
-   whenever a page returns a resync reason, or when a successful page is
-   empty while `next` is still behind `source_watermark` (the next change
-   does not fit, or `max_changes` is 0). That empty page is not catch-up
-   and must not be followed by sleep. Raise `max_bytes` to the reported
-   `minimum_bytes` on `BudgetTooSmall`.
+6. **Lifecycle projection** — install one paged lifecycle baseline until
+   `complete`, then drive `observe_lifecycle_slice` and consume bounded
+   journal pages through the take / page / take-again loop instead of
+   polling `list()`. Yield and resume a slice when item, encoded-byte, or
+   elapsed budgets stop the walk. Resync from a fresh baseline whenever a
+   page returns a resync reason, when a baseline snapshot is unavailable,
+   or when a successful journal page is empty while `next` is still behind
+   `source_watermark` (the next change does not fit, or `max_changes` is
+   0). That empty page is not catch-up and must not be followed by sleep.
+   Raise `max_bytes` to the reported `minimum_bytes` on `BudgetTooSmall`.
 
 Depth lives in architecture docs:
 

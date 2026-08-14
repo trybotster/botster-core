@@ -27,15 +27,18 @@ use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTer
 use thiserror::Error;
 
 use crate::api::{
+    reserved_observe_slice_error, sanitize_observe_slice_error_message,
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
     CaptureColorAndSnapshotRequest, CaptureColorAndSnapshotResult, CaptureSnapshotRequest,
     CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
     DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
-    GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult, PostNotificationRequest,
-    PostNotificationResult, PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult,
-    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
-    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
-    SessionLifecycleBaseline, SessionLifecycleChange, SessionLifecycleChangeKind,
+    GuardedWriteRequest, GuardedWriteResult, NotificationStatusResult, ObserveLifecycleBudget,
+    ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
+    ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, ReadModeFlagsRequest,
+    ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
+    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
     SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
     SessionLifecycleSourceId, SpawnSessionRequest,
@@ -57,6 +60,7 @@ pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
 pub const DEFAULT_LIFECYCLE_JOURNAL_CAPACITY: usize = 1_024;
 
 static NEXT_LIFECYCLE_SOURCE_ORDINAL: AtomicU64 = AtomicU64::new(1);
+static NEXT_OBSERVE_PASS_ORDINAL: AtomicU64 = AtomicU64::new(1);
 
 /// Daemon configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +105,8 @@ pub struct CoreDaemonConfig {
     pub test_fail_snapshot_history_after_ready: bool,
     /// Test-only: make observe's per-session runtime drain fail for this id.
     pub test_fail_runtime_drain_for: Option<SessionId>,
+    /// Test-only: `Display` text for the injected observe drain failure.
+    pub test_fail_runtime_drain_message: Option<String>,
 }
 
 impl CoreDaemonConfig {
@@ -126,6 +132,7 @@ impl CoreDaemonConfig {
             test_worker_egress_capacity: None,
             test_fail_snapshot_history_after_ready: false,
             test_fail_runtime_drain_for: None,
+            test_fail_runtime_drain_message: None,
         }
     }
 
@@ -189,6 +196,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_test_fail_runtime_drain_for(mut self, session_id: Option<SessionId>) -> Self {
         self.test_fail_runtime_drain_for = session_id;
+        self
+    }
+
+    /// Override the injected observe drain failure `Display` text.
+    #[must_use]
+    pub fn with_test_fail_runtime_drain_message(mut self, message: Option<String>) -> Self {
+        self.test_fail_runtime_drain_message = message;
         self
     }
 
@@ -325,7 +339,26 @@ pub struct CoreDaemon {
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
     journal_advanced: bool,
+    observe_pass: Option<ObservePassState>,
+    baseline_freeze: Option<BaselineFreeze>,
     running: bool,
+}
+
+struct ObservePassState {
+    pass_id: ObserveLifecyclePassId,
+    #[allow(dead_code)]
+    last_visited: Option<SessionId>,
+}
+
+#[derive(Clone)]
+struct BaselineFreeze {
+    snapshot_sequence: SessionLifecycleCursor,
+    rows: Vec<SessionLifecycleRecord>,
+}
+
+struct ObserveLifecycleWalk {
+    slice: ObserveLifecycleSlice,
+    session_errors: Vec<ObserveLifecycleSessionError>,
 }
 
 enum DaemonEngine {
@@ -409,6 +442,8 @@ impl CoreDaemon {
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
+            observe_pass: None,
+            baseline_freeze: None,
             running: true,
         }
     }
@@ -465,6 +500,9 @@ impl CoreDaemon {
     }
 
     /// Return a deterministic authoritative lifecycle baseline.
+    ///
+    /// This compatibility wrapper loads **every** registry row in one call.
+    /// Production Stage A hosts must use [`Self::lifecycle_baseline_page`].
     pub fn lifecycle_baseline(&self) -> Result<SessionLifecycleBaseline, CoreDaemonError> {
         let sessions = self
             .registry
@@ -476,6 +514,110 @@ impl CoreDaemon {
             cursor: self.lifecycle_cursor(),
             sessions,
         })
+    }
+
+    /// Return one page of a frozen lifecycle baseline snapshot.
+    ///
+    /// `snapshot = None` mints a freeze from `load_all()` and the current
+    /// journal watermark. Later pages with that snapshot cursor return the
+    /// next frozen rows and must not re-read a mutated registry. An
+    /// incomplete page has `complete = false` and is not finished ended
+    /// evidence. One freeze is cached at a time; a new mint replaces it.
+    /// A complete page drops the freeze.
+    pub fn lifecycle_baseline_page(
+        &mut self,
+        snapshot: Option<&SessionLifecycleCursor>,
+        after: Option<&SessionId>,
+        max_rows: usize,
+        max_bytes: usize,
+    ) -> Result<SessionLifecycleBaselinePage, SessionLifecyclePageError> {
+        let freeze = match snapshot {
+            None => match self.mint_baseline_freeze() {
+                Ok(freeze) => freeze,
+                Err(_) => {
+                    return Ok(SessionLifecycleBaselinePage {
+                        snapshot_sequence: self.lifecycle_cursor(),
+                        sessions: Vec::new(),
+                        next: None,
+                        complete: false,
+                        resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
+                    });
+                }
+            },
+            Some(requested) => {
+                if requested.source_id != self.lifecycle_source_id {
+                    return Ok(SessionLifecycleBaselinePage {
+                        snapshot_sequence: requested.clone(),
+                        sessions: Vec::new(),
+                        next: None,
+                        complete: false,
+                        resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
+                    });
+                }
+                match self.baseline_freeze.as_ref() {
+                    Some(freeze) if freeze.snapshot_sequence == *requested => freeze.clone(),
+                    _ => {
+                        return Ok(SessionLifecycleBaselinePage {
+                            snapshot_sequence: requested.clone(),
+                            sessions: Vec::new(),
+                            next: None,
+                            complete: false,
+                            resync_required: Some(
+                                SessionLifecycleResyncReason::SnapshotUnavailable,
+                            ),
+                        });
+                    }
+                }
+            }
+        };
+
+        let remaining: Vec<SessionLifecycleRecord> = freeze
+            .rows
+            .iter()
+            .filter(|record| session_id_on_or_after(&record.session.session_id, after))
+            .cloned()
+            .collect();
+
+        let empty = SessionLifecycleBaselinePage {
+            snapshot_sequence: freeze.snapshot_sequence.clone(),
+            sessions: Vec::new(),
+            next: remaining
+                .first()
+                .map(|record| record.session.session_id.clone()),
+            complete: remaining.is_empty(),
+            resync_required: None,
+        };
+        let minimum_bytes = encoded_lifecycle_baseline_page_len(&empty);
+        if max_bytes < minimum_bytes {
+            return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
+        }
+
+        let mut page = empty;
+        for (index, record) in remaining.iter().enumerate() {
+            if page.sessions.len() >= max_rows {
+                break;
+            }
+            let mut candidate = page.clone();
+            candidate.sessions.push(record.clone());
+            let exhausted = index + 1 == remaining.len();
+            candidate.complete = exhausted;
+            candidate.next = if exhausted {
+                None
+            } else {
+                Some(remaining[index + 1].session.session_id.clone())
+            };
+            if encoded_lifecycle_baseline_page_len(&candidate) > max_bytes {
+                break;
+            }
+            page = candidate;
+        }
+
+        if page.complete {
+            self.baseline_freeze = None;
+        } else if snapshot.is_none() {
+            self.baseline_freeze = Some(freeze);
+        }
+        Ok(page)
     }
 
     /// Return ordered lifecycle changes after a source cursor.
@@ -558,32 +700,61 @@ impl CoreDaemon {
 
     /// Advance session lifecycle facts without returning terminal Drain results.
     ///
-    /// One call is one bounded pass over live engine sessions in deterministic
-    /// `SessionId` order. Each session is drained and reconciled independently.
-    /// Incidental terminal egress stays on the pending-drain path for a later
-    /// [`Self::drain`]. This method does not call `drain_runtime_all_once`.
+    /// This compatibility wrapper starts a new pass and visits every remaining
+    /// live session in one call. Production Stage A hosts must use
+    /// [`Self::observe_lifecycle_slice`]. Each session is drained and
+    /// reconciled independently. Incidental terminal egress stays on the
+    /// pending-drain path for a later [`Self::drain`]. This method does not
+    /// call `drain_runtime_all_once`.
     pub fn observe_lifecycle(
         &mut self,
         now_seconds: u64,
     ) -> Result<ObserveLifecycleResult, CoreDaemonError> {
         self.ensure_running()?;
-        let mut session_ids: Vec<SessionId> = self
-            .engine
-            .list_sessions()
-            .into_iter()
-            .map(|session| session.session_id)
-            .collect();
-        session_ids.sort_by(|left, right| left.0.cmp(&right.0));
+        let walk = self
+            .observe_lifecycle_walk(
+                now_seconds,
+                None,
+                ObserveLifecycleBudget {
+                    max_sessions: usize::MAX,
+                    max_encoded_result_bytes: usize::MAX,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("unbounded observe wrapper cannot exceed the encoded-result budget");
+        Ok(ObserveLifecycleResult {
+            session_errors: walk.session_errors,
+        })
+    }
 
-        let mut result = ObserveLifecycleResult::default();
-        for session_id in session_ids {
-            if let Err(error) = self.observe_session(&session_id, now_seconds) {
-                result
-                    .session_errors
-                    .push(ObserveLifecycleSessionError { session_id, error });
-            }
+    /// Advance a bounded slice of live sessions in deterministic `SessionId`
+    /// order.
+    ///
+    /// `resume = None` mints a new pass. `resume = Some(cursor)` continues
+    /// that pass only when `cursor.pass_id` matches the open pass; otherwise
+    /// the result is a resync with `complete = false` and no suffix. Item,
+    /// encoded-result, and elapsed limits each stop before remaining sessions
+    /// are visited. Byte admission uses a reserved 256-`x` error before each
+    /// visit because `observe_session` cannot be rolled back.
+    pub fn observe_lifecycle_slice(
+        &mut self,
+        now_seconds: u64,
+        resume: Option<&ObserveLifecycleCursor>,
+        budget: ObserveLifecycleBudget,
+    ) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError> {
+        if !self.running {
+            return Ok(ObserveLifecycleSlice {
+                pass_id: resume
+                    .map(|cursor| cursor.pass_id.clone())
+                    .unwrap_or_else(new_observe_pass_id),
+                last_visited: None,
+                complete: false,
+                session_errors: Vec::new(),
+                resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
+            });
         }
-        Ok(result)
+        self.observe_lifecycle_walk(now_seconds, resume, budget)
+            .map(|walk| walk.slice)
     }
 
     /// Take the coalesced journal-advanced wake bit.
@@ -1738,6 +1909,124 @@ impl CoreDaemon {
         }
     }
 
+    fn observe_lifecycle_walk(
+        &mut self,
+        now_seconds: u64,
+        resume: Option<&ObserveLifecycleCursor>,
+        budget: ObserveLifecycleBudget,
+    ) -> Result<ObserveLifecycleWalk, SessionLifecyclePageError> {
+        let (pass_id, last_visited) = match resume {
+            None => (new_observe_pass_id(), None),
+            Some(cursor) => {
+                let matches_open = self
+                    .observe_pass
+                    .as_ref()
+                    .is_some_and(|pass| pass.pass_id == cursor.pass_id);
+                if !matches_open {
+                    return Ok(ObserveLifecycleWalk {
+                        slice: ObserveLifecycleSlice {
+                            pass_id: cursor.pass_id.clone(),
+                            last_visited: None,
+                            complete: false,
+                            session_errors: Vec::new(),
+                            resync_required: Some(
+                                SessionLifecycleResyncReason::ObservePassUnavailable,
+                            ),
+                        },
+                        session_errors: Vec::new(),
+                    });
+                }
+                (cursor.pass_id.clone(), Some(cursor.last_visited.clone()))
+            }
+        };
+
+        let remaining: Vec<SessionId> = self
+            .live_session_ids()
+            .into_iter()
+            .filter(|session_id| session_id_after(session_id, last_visited.as_ref()))
+            .collect();
+
+        if let Some(next) = remaining.first() {
+            let candidate = reserved_observe_slice(&pass_id, next, remaining.len() == 1, &[]);
+            let minimum_bytes = encoded_observe_slice_len(&candidate);
+            if budget.max_encoded_result_bytes < minimum_bytes {
+                return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
+            }
+        }
+
+        let started = Instant::now();
+        let mut committed_errors = Vec::new();
+        let mut typed_errors = Vec::new();
+        let mut visited = last_visited;
+        let mut remaining_iter = remaining.into_iter().peekable();
+        let mut remaining_visits = budget.max_sessions;
+
+        while let Some(next) = remaining_iter.peek().cloned() {
+            if remaining_visits == 0 || started.elapsed() >= budget.max_elapsed {
+                break;
+            }
+            let complete = remaining_iter.len() == 1;
+            let candidate = reserved_observe_slice(&pass_id, &next, complete, &committed_errors);
+            if encoded_observe_slice_len(&candidate) > budget.max_encoded_result_bytes {
+                break;
+            }
+            remaining_iter.next();
+            remaining_visits = remaining_visits.saturating_sub(1);
+            if let Err(error) = self.observe_session(&next, now_seconds) {
+                committed_errors.push(ObserveLifecycleSliceError {
+                    session_id: next.clone(),
+                    message: sanitize_observe_slice_error_message(&error.to_string()),
+                });
+                typed_errors.push(ObserveLifecycleSessionError {
+                    session_id: next.clone(),
+                    error,
+                });
+            }
+            visited = Some(next);
+        }
+
+        let complete = remaining_iter.peek().is_none();
+        self.observe_pass = Some(ObservePassState {
+            pass_id: pass_id.clone(),
+            last_visited: visited.clone(),
+        });
+        Ok(ObserveLifecycleWalk {
+            slice: ObserveLifecycleSlice {
+                pass_id,
+                last_visited: visited,
+                complete,
+                session_errors: committed_errors,
+                resync_required: None,
+            },
+            session_errors: typed_errors,
+        })
+    }
+
+    fn live_session_ids(&self) -> Vec<SessionId> {
+        let mut session_ids: Vec<SessionId> = self
+            .engine
+            .list_sessions()
+            .into_iter()
+            .map(|session| session.session_id)
+            .collect();
+        session_ids.sort_by(|left, right| left.0.cmp(&right.0));
+        session_ids
+    }
+
+    fn mint_baseline_freeze(&self) -> Result<BaselineFreeze, CoreDaemonError> {
+        let mut rows: Vec<SessionLifecycleRecord> = self
+            .registry
+            .load_all()?
+            .iter()
+            .map(|record| self.lifecycle_record(record))
+            .collect();
+        rows.sort_by(|left, right| left.session.session_id.0.cmp(&right.session.session_id.0));
+        Ok(BaselineFreeze {
+            snapshot_sequence: self.lifecycle_cursor(),
+            rows,
+        })
+    }
+
     fn observe_session(
         &mut self,
         session_id: &SessionId,
@@ -1752,7 +2041,12 @@ impl CoreDaemon {
             return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
                 SessionRuntimeError::new(
                     SessionRuntimeErrorKind::OutputFailed,
-                    format!("test-injected observe drain failure: {}", session_id.0),
+                    self.config
+                        .test_fail_runtime_drain_message
+                        .clone()
+                        .unwrap_or_else(|| {
+                            format!("test-injected observe drain failure: {}", session_id.0)
+                        }),
                 ),
             )));
         } else {
@@ -1822,6 +2116,65 @@ fn encoded_lifecycle_page_len(page: &SessionLifecyclePage) -> usize {
     serde_json::to_vec(page)
         .expect("session lifecycle page must serialize")
         .len()
+}
+
+fn encoded_lifecycle_baseline_page_len(page: &SessionLifecycleBaselinePage) -> usize {
+    serde_json::to_vec(page)
+        .expect("session lifecycle baseline page must serialize")
+        .len()
+}
+
+fn encoded_observe_slice_len(slice: &ObserveLifecycleSlice) -> usize {
+    serde_json::to_vec(slice)
+        .expect("observe lifecycle slice must serialize")
+        .len()
+}
+
+fn reserved_observe_slice(
+    pass_id: &ObserveLifecyclePassId,
+    next: &SessionId,
+    complete: bool,
+    committed_errors: &[ObserveLifecycleSliceError],
+) -> ObserveLifecycleSlice {
+    let mut session_errors = committed_errors.to_vec();
+    session_errors.push(reserved_observe_slice_error(next.clone()));
+    ObserveLifecycleSlice {
+        pass_id: pass_id.clone(),
+        last_visited: Some(next.clone()),
+        complete,
+        session_errors,
+        resync_required: None,
+    }
+}
+
+fn session_id_after(session_id: &SessionId, after: Option<&SessionId>) -> bool {
+    match after {
+        None => true,
+        Some(after) => session_id.0.as_str() > after.0.as_str(),
+    }
+}
+
+fn session_id_on_or_after(session_id: &SessionId, after: Option<&SessionId>) -> bool {
+    match after {
+        None => true,
+        Some(after) => session_id.0.as_str() >= after.0.as_str(),
+    }
+}
+
+fn new_observe_pass_id() -> ObserveLifecyclePassId {
+    // Fixed width so reserved-error admission has a stable encoded size
+    // across resume=None retries after BudgetTooSmall.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let ordinal = NEXT_OBSERVE_PASS_ORDINAL.fetch_add(1, Ordering::Relaxed);
+    ObserveLifecyclePassId(format!(
+        "{:08x}-{:032x}-{:016x}",
+        std::process::id(),
+        nanos,
+        ordinal
+    ))
 }
 
 fn egress_session_id(frame: &TransportEgress) -> Option<&SessionId> {
@@ -2679,6 +3032,8 @@ mod terminal_backend_failure_tests {
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
+            observe_pass: None,
+            baseline_freeze: None,
             running: true,
         }
     }
