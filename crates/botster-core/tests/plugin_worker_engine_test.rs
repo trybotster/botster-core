@@ -644,8 +644,11 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
                 2_000,
             ))
         }));
+        let expected = index + 1;
+        wait_until(Duration::from_secs(2), || {
+            runtime.started() == expected && engine.debug_snapshot().in_flight_jobs == expected
+        });
     }
-    wait_until(Duration::from_millis(250), || runtime.started() == 2);
 
     let queued = engine.invoke(invocation("queued-timeout", command, 10));
     assert!(matches!(
@@ -1452,14 +1455,17 @@ fn backpressure_is_isolated_by_plugin_identity() {
                 2_000,
             ))
         }));
+        let expected = index + 1;
+        wait_until(Duration::from_secs(2), || {
+            runtime_a.started() == expected && engine.debug_snapshot().in_flight_jobs == expected
+        });
     }
-    wait_until(Duration::from_millis(250), || runtime_a.started() == 2);
     let queued_engine = engine.clone();
     let queued_handler = handler_a.clone();
     let queued = std::thread::spawn(move || {
         queued_engine.invoke(invocation("req-a-queued", queued_handler, 2_000))
     });
-    wait_until(Duration::from_millis(250), || {
+    wait_until(Duration::from_secs(2), || {
         engine.backpressure_for(&plugin_a).depth == 1
     });
 
@@ -1645,8 +1651,12 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
                 2_000,
             ))
         }));
+        let expected = index + 1;
+        wait_until(Duration::from_secs(2), || {
+            pressure_runtime.started() == expected
+                && pressure_engine.debug_snapshot().in_flight_jobs == expected
+        });
     }
-    wait_until(Duration::from_secs(1), || pressure_runtime.started() == 2);
     let queued_engine = pressure_engine.clone();
     let queued_handler = command.clone();
     let queued = std::thread::spawn(move || {
@@ -1945,6 +1955,56 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         plugin_key: plugin,
         cleanup: PluginCleanupScope::DescriptorsAndResources,
     });
+    assert!(engine
+        .drain_completions(8, usize::MAX)
+        .completions
+        .is_empty());
+}
+
+#[test]
+fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
+    let plugin = plugin_key("reload-same-id");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::delayed(Duration::from_secs(5)),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("same", command.clone(), 40),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::delayed(Duration::from_secs(5)),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("same", command, 5_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let first = engine.drain_completions(8, usize::MAX);
+    assert!(first.completions.iter().all(|completion| {
+        matches!(
+            completion.result,
+            PluginInvocationResult::Failed(ref failure)
+                if failure.kind == PluginInvocationFailureKind::WorkerStopped
+        )
+    }));
+    std::thread::sleep(Duration::from_millis(80));
     assert!(engine
         .drain_completions(8, usize::MAX)
         .completions
