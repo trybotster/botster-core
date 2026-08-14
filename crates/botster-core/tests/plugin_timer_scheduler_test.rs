@@ -35,6 +35,10 @@ impl OccupiedRuntime {
     fn invocation_count(&self) -> usize {
         self.invocations.load(Ordering::SeqCst)
     }
+
+    fn started(&self) -> usize {
+        self.started.load(Ordering::SeqCst)
+    }
 }
 
 impl PluginRuntime for OccupiedRuntime {
@@ -481,10 +485,12 @@ fn interval_timer_retries_after_backpressure() {
                 5_000,
             ))
         }));
+        let expected = index + 1;
+        wait_for_snapshot(&engine, |debug| {
+            debug.in_flight_jobs == expected && debug.queued_jobs == 0
+        });
+        assert_eq!(occupy.started(), expected);
     }
-    wait_for_snapshot(&engine, |debug| {
-        debug.in_flight_jobs == 2 && debug.queued_jobs == 0
-    });
 
     let queued_engine = engine.clone();
     let queued_handler = handler.clone();
