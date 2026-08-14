@@ -332,7 +332,7 @@ mod tests {
                 request_id: RequestId(format!("{}-spawn", session_id.0)),
                 session_id: session_id.clone(),
                 executable: "sh".to_string(),
-                arguments: vec!["-c".to_string(), "while :; do sleep 1; done".to_string()],
+                arguments: vec!["-c".to_string(), "sleep 8".to_string()],
                 working_directory: SpawnWorkingDirectory {
                     path: ".".to_string(),
                 },
