@@ -1253,6 +1253,16 @@ impl Drop for WorkerProcessRuntime {
             return;
         }
         for (_, mut session) in self.sessions.drain() {
+            if let Some(request_id) = session.outstanding_snapshot_request.take() {
+                let _ = session.control.write_json(
+                    crate::FRAME_GET_SNAPSHOT,
+                    &WorkerSnapshotRequest {
+                        request_id,
+                        cancel: true,
+                        complete: false,
+                    },
+                );
+            }
             let _ = session.control.write_frame(FRAME_SHUTDOWN, &[]);
             if let Some(mut child) = session.child.take() {
                 let _ = child.wait();
