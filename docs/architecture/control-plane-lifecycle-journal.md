@@ -32,6 +32,9 @@ the production progress tick.
   visit. `observe_session` mutates the journal and pending drain and
   cannot be rolled back. Public slice messages are sanitized to
   `A-Za-z0-9` space `. : _ / + - ?` and truncated to 256 bytes.
+- Core checks the exact encoded size of every successful slice. This
+  check includes empty, zero-item, and elapsed-yield slices. An
+  undersized resumed call keeps the pass open for a later retry.
 - Per-session drain errors stay on the typed internal outcome and on
   the sanitized slice DTO. A later id in the same slice still runs.
 - The walk does not call `drain_runtime_all_once`. Incidental terminal

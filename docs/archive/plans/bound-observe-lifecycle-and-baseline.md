@@ -305,6 +305,10 @@ post-visit message.
   reserved candidate does not fit, do not visit.
 - Zero item or zero elapsed still visit no remaining session.
   Zero byte budget fails `BudgetTooSmall` when any session remains.
+- Before returning any successful slice, encode the exact final slice.
+  Return `BudgetTooSmall` if that size exceeds the byte budget. This
+  rule includes empty, zero-item, and elapsed-yield slices. Keep an
+  open pass when an undersized resumed call fails this check.
 - Resync outcomes are control results and are not required to
   satisfy the byte budget, matching `lifecycle_changes_page`.
 
@@ -512,6 +516,10 @@ Focused during development (no wrapper script):
   large-index test proves the first call yields before an index scan,
   returns `complete = false`, and supplies the `last_visited = None`
   continuation. Later owner turns complete from the ordered suffix.
+- Successful no-visit slices: empty, zero-item, first elapsed-yield,
+  and resumed elapsed-yield results fail below the exact encoded
+  minimum and pass at that minimum. A failed resumed call keeps the
+  same pass and cursor.
 - Long-error and JSON-escape boundary: inject drain errors whose
   `Display` text is (a) longer than 256 bytes, (b) 256 NULs, (c)
   quotes and backslashes, (d) control bytes, and (e) multibyte

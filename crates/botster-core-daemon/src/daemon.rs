@@ -2033,15 +2033,20 @@ impl CoreDaemon {
 
         let pass_id = pass.pass_id.clone();
         let last_visited = pass.last_visited.clone();
+        let slice = ObserveLifecycleSlice {
+            pass_id,
+            last_visited,
+            complete,
+            session_errors: committed_errors,
+            resync_required: None,
+        };
+        let minimum_bytes = encoded_observe_slice_len(&slice);
         self.observe_pass = Some(pass);
+        if minimum_bytes > budget.max_encoded_result_bytes {
+            return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
+        }
         Ok(ObserveLifecycleWalk {
-            slice: ObserveLifecycleSlice {
-                pass_id,
-                last_visited,
-                complete,
-                session_errors: committed_errors,
-                resync_required: None,
-            },
+            slice,
             session_errors: typed_errors,
         })
     }
