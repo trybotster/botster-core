@@ -1367,6 +1367,14 @@ impl WorkerBackedBotsterEngine {
         )?;
         append_engine_output(&mut output, attached);
 
+        // Barrier release can leave producer bytes in the capacity-one worker
+        // egress. Drain them as live output after Attached so the child can
+        // consume the later FRAME_PTY_INPUT instead of only echoing it.
+        let leftover = self
+            .runtime
+            .drain_runtime_once(session_id, last_output_at)?;
+        append_engine_output(&mut output, leftover);
+
         let mut deferred_input = Vec::new();
         for (input_client, data, input_at) in std::mem::take(&mut attach.queued_input) {
             if attach
