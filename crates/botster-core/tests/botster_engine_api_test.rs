@@ -13,14 +13,16 @@ use botster_core::{
     EngineCommandOutcome, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
     InitialSnapshotReady, NotificationContent, NotificationItem, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp, PackageManifest,
-    PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
-    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
-    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
-    PluginLoadSpec, PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
-    PluginUnloadSpec, PluginWorkerEvent, PluginWorkerRegistration, PreparedSnapshotRequest,
-    ProcessExitedPayload, QueueSource, RequestId, SessionActivityStatus, SessionId, SessionIoEvent,
-    SessionIoRequest, SessionLifecycleState, SessionSpawnRequest, SessionWorkerRuntimeEvent,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TransportEgress, ENGINE_COMMAND_KINDS,
+    PluginAdmissionResult, PluginCleanupScope, PluginCompletion, PluginDescriptorKind,
+    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
+    PluginInvocationClass, PluginInvocationContext, PluginInvocationFailureKind,
+    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef,
+    PluginUnloadSpec, PluginWorkerEngineConfig, PluginWorkerEvent, PluginWorkerRegistration,
+    PreparedSnapshotRequest, ProcessExitedPayload, QueueSource, RequestId, SessionActivityStatus,
+    SessionId, SessionIoEvent, SessionIoRequest, SessionLifecycleState, SessionSpawnRequest,
+    SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+    TransportEgress, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 use botster_core::{DefaultBotsterEngine, DefaultEngineCommand, ResizePayload};
@@ -427,7 +429,8 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
                 per_plugin_queue_capacity: 1,
-                per_plugin_executor_concurrency: 1,
+                per_plugin_executor_concurrency: 2,
+                ..PluginWorkerEngineConfig::default()
             },
         );
     let plugin = plugin_key();
@@ -465,6 +468,20 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
         .expect("queued timeout returns plugin outcome");
     assert!(matches!(
         queued,
+        EngineCommandOutcome::PluginInvoked(outcome)
+            if matches!(
+                outcome.events.as_slice(),
+                [PluginWorkerEvent::InvocationTimedOut(_)]
+            )
+    ));
+
+    let still_queued = engine
+        .execute_command(EngineCommand::InvokePlugin {
+            request: plugin_invocation_with_timeout("command-still-queued", handler.clone(), 10),
+        })
+        .expect("second queued timeout returns plugin outcome");
+    assert!(matches!(
+        still_queued,
         EngineCommandOutcome::PluginInvoked(outcome)
             if matches!(
                 outcome.events.as_slice(),
@@ -563,7 +580,8 @@ fn botster_engine_invoke_plugin_exposes_timeout_events() {
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
                 per_plugin_queue_capacity: 1,
-                per_plugin_executor_concurrency: 1,
+                per_plugin_executor_concurrency: 2,
+                ..PluginWorkerEngineConfig::default()
             },
         );
     let plugin = plugin_key();
@@ -589,6 +607,51 @@ fn botster_engine_invoke_plugin_exposes_timeout_events() {
         [PluginWorkerEvent::InvocationTimedOut(failure)]
             if failure.request_id == request_id("botster-plugin-timeout")
                 && failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+}
+
+#[test]
+fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
+    let engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin = plugin_key();
+    let handler = plugin_handler(&plugin);
+    engine.load_plugin(plugin_registration(
+        FakePluginRuntime::delayed(Duration::from_millis(200)),
+        &plugin,
+        &handler,
+    ));
+
+    assert!(matches!(
+        engine.try_admit_plugin(
+            PluginInvocationClass::Background,
+            plugin_invocation_with_timeout("facade-timeout", handler, 10),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let started = std::time::Instant::now();
+    let mut completion = None;
+    while started.elapsed() < Duration::from_secs(1) {
+        let drain = engine.drain_plugin_completions(8, usize::MAX);
+        if let Some(item) = drain.completions.into_iter().next() {
+            completion = Some(item);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let snapshot = engine.plugin_workers().debug_snapshot();
+    assert_eq!(snapshot.configured_reserved_request_response_executors, 1);
+    assert!(snapshot
+        .plugins
+        .iter()
+        .any(|plugin| { plugin.reserved_request_response_executors == 1 }));
+    assert!(matches!(
+        completion,
+        Some(PluginCompletion {
+            class: PluginInvocationClass::Background,
+            result: PluginInvocationResult::Failed(failure),
+        }) if failure.kind == PluginInvocationFailureKind::TimedOut
+            && failure.request_id == request_id("facade-timeout")
     ));
 }
 

@@ -7,8 +7,9 @@ use std::time::Duration;
 use botster_core::{
     BoundaryJson, Capability, CapabilitySurface, ExtensionEntrypoint, ExtensionKind,
     ExtensionRuntime, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
-    PluginCancellationToken, PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef,
-    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
+    PluginAdmissionResult, PluginCancellationToken, PluginCleanupScope, PluginCompletion,
+    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
+    PluginHandlerRegistration, PluginInvocationClass, PluginInvocationContext,
     PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
     PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec,
     PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef, PluginRuntime,
@@ -461,7 +462,8 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     assert!(std::panic::catch_unwind(|| {
         PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 0,
-            per_plugin_executor_concurrency: 1,
+            per_plugin_executor_concurrency: 2,
+            ..PluginWorkerEngineConfig::default()
         })
     })
     .is_err());
@@ -469,6 +471,25 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
         PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
             per_plugin_executor_concurrency: 0,
+            ..PluginWorkerEngineConfig::default()
+        })
+    })
+    .is_err());
+    assert!(std::panic::catch_unwind(|| {
+        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+            per_plugin_queue_capacity: 1,
+            per_plugin_executor_concurrency: 2,
+            reserved_request_response_executors: 0,
+            ..PluginWorkerEngineConfig::default()
+        })
+    })
+    .is_err());
+    assert!(std::panic::catch_unwind(|| {
+        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+            per_plugin_queue_capacity: 1,
+            per_plugin_executor_concurrency: 2,
+            reserved_request_response_executors: 2,
+            ..PluginWorkerEngineConfig::default()
         })
     })
     .is_err());
@@ -483,7 +504,8 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     let slow_runtime = GatedRuntime::default();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 4,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
         &slow_plugin,
@@ -503,7 +525,7 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     ));
 
     let mut callers = Vec::new();
-    for index in 0..5 {
+    for index in 0..6 {
         let caller_engine = engine.clone();
         let caller_handler = slow_handler.clone();
         callers.push(std::thread::spawn(move || {
@@ -519,7 +541,7 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     }
     wait_until(Duration::from_millis(250), || {
         let snapshot = engine.debug_snapshot();
-        snapshot.queued_jobs == 4 && snapshot.in_flight_jobs == 1
+        snapshot.queued_jobs == 4 && snapshot.in_flight_jobs == 2
     });
 
     let pressured = engine.invoke(invocation("overflow", slow_handler, 2_000));
@@ -556,6 +578,7 @@ fn executor_concurrency_allows_two_slow_invocations_to_overlap() {
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 4,
         per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
         &plugin,
@@ -598,7 +621,8 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
     let runtime = GatedRuntime::default();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
         &plugin,
@@ -609,12 +633,19 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
         None,
     ));
 
-    let active_engine = engine.clone();
-    let active_handler = command.clone();
-    let active = std::thread::spawn(move || {
-        active_engine.invoke(invocation("active", active_handler, 2_000))
-    });
-    wait_until(Duration::from_millis(250), || runtime.started() == 1);
+    let mut actives = Vec::new();
+    for index in 0..2 {
+        let active_engine = engine.clone();
+        let active_handler = command.clone();
+        actives.push(std::thread::spawn(move || {
+            active_engine.invoke(invocation(
+                &format!("active-{index}"),
+                active_handler,
+                2_000,
+            ))
+        }));
+    }
+    wait_until(Duration::from_millis(250), || runtime.started() == 2);
 
     let queued = engine.invoke(invocation("queued-timeout", command, 10));
     assert!(matches!(
@@ -627,11 +658,13 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
     assert_eq!(engine.debug_snapshot().queued_jobs, 1);
 
     runtime.release();
-    active.join().expect("active caller should join");
+    for active in actives {
+        active.join().expect("active caller should join");
+    }
     wait_until(Duration::from_millis(250), || {
         engine.debug_snapshot().queued_jobs == 0
     });
-    assert_eq!(runtime.started(), 1);
+    assert_eq!(runtime.started(), 2);
 }
 
 #[test]
@@ -640,6 +673,7 @@ fn repeated_load_unload_cycles_join_workers_and_return_debug_counts_to_zero() {
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     for cycle in 0..5 {
@@ -674,7 +708,8 @@ fn retiring_generation_remains_observable_until_unload_joins_its_worker() {
     let runtime = RetirementGatedRuntime::default();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
         &plugin,
@@ -733,6 +768,7 @@ fn final_engine_drop_stops_runtime_and_joins_idle_workers() {
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 256,
         per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
         &plugin,
@@ -818,7 +854,8 @@ fn timeout_cancels_runtime_invocation_and_releases_plugin_capacity() {
     let runtime = FakeRuntime::waits_for_cancellation();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -866,7 +903,8 @@ fn unload_cancels_in_flight_invocations_before_cleanup() {
     let runtime = FakeRuntime::waits_for_cancellation();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1032,7 +1070,8 @@ fn reload_cancels_only_replaced_plugin_and_keeps_neighbor_alive() {
     let runtime_a = FakeRuntime::waits_for_cancellation();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1103,7 +1142,8 @@ fn reload_drops_stale_results_from_previous_plugin_generation() {
     let new_handler = handler(&plugin, "new");
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1380,7 +1420,8 @@ fn backpressure_is_isolated_by_plugin_identity() {
     let runtime_a = GatedRuntime::default();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1400,12 +1441,19 @@ fn backpressure_is_isolated_by_plugin_identity() {
         None,
     ));
 
-    let active_engine = engine.clone();
-    let active_handler = handler_a.clone();
-    let active = std::thread::spawn(move || {
-        active_engine.invoke(invocation("req-a-active", active_handler, 2_000))
-    });
-    wait_until(Duration::from_millis(250), || runtime_a.started() == 1);
+    let mut actives = Vec::new();
+    for index in 0..2 {
+        let active_engine = engine.clone();
+        let active_handler = handler_a.clone();
+        actives.push(std::thread::spawn(move || {
+            active_engine.invoke(invocation(
+                &format!("req-a-active-{index}"),
+                active_handler,
+                2_000,
+            ))
+        }));
+    }
+    wait_until(Duration::from_millis(250), || runtime_a.started() == 2);
     let queued_engine = engine.clone();
     let queued_handler = handler_a.clone();
     let queued = std::thread::spawn(move || {
@@ -1433,7 +1481,9 @@ fn backpressure_is_isolated_by_plugin_identity() {
         PluginInvocationResult::Completed(_)
     ));
     runtime_a.release();
-    active.join().expect("active plugin A caller should join");
+    for active in actives {
+        active.join().expect("active plugin A caller should join");
+    }
     queued.join().expect("queued plugin A caller should join");
 }
 
@@ -1444,7 +1494,8 @@ fn late_runtime_completion_after_timeout_does_not_double_release_capacity() {
     let runtime = FakeRuntime::ignores_cancellation_then_returns(Duration::from_millis(80));
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1488,7 +1539,8 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
     let runtime_a = FakeRuntime::waits_for_cancellation();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 2,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     engine.load_plugin(registration(
@@ -1519,6 +1571,8 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
         ));
         wait_until(Duration::from_millis(250), || {
             runtime_a.cancellations_observed() == index + 1
+                && engine.debug_snapshot().in_flight_jobs == 0
+                && engine.debug_snapshot().queued_jobs == 0
         });
     }
     wait_until(Duration::from_millis(250), || {
@@ -1528,7 +1582,7 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
     let snapshot = engine.debug_snapshot();
     assert_eq!(runtime_a.invocations().len(), 3);
     assert_eq!(snapshot.live_plugin_executors, 2);
-    assert_eq!(snapshot.live_executor_workers, 2);
+    assert_eq!(snapshot.live_executor_workers, 4);
     assert_eq!(snapshot.queued_jobs, 0);
     assert_eq!(snapshot.in_flight_jobs, 0);
     assert!(matches!(
@@ -1543,7 +1597,8 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
     let command = handler(&plugin, "slow");
     let timeout_engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
 
     timeout_engine.load_plugin(registration(
@@ -1568,7 +1623,8 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
     let pressure_runtime = GatedRuntime::default();
     let pressure_engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
-        per_plugin_executor_concurrency: 1,
+        per_plugin_executor_concurrency: 2,
+        ..PluginWorkerEngineConfig::default()
     });
     pressure_engine.load_plugin(registration(
         &plugin,
@@ -1578,20 +1634,25 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
         Vec::new(),
         None,
     ));
-    let active_engine = pressure_engine.clone();
-    let active_handler = command.clone();
-    let active = std::thread::spawn(move || {
-        active_engine.invoke(invocation("req-active", active_handler, 2_000))
-    });
-    wait_until(Duration::from_millis(250), || {
-        pressure_runtime.started() == 1
-    });
+    let mut actives = Vec::new();
+    for index in 0..2 {
+        let active_engine = pressure_engine.clone();
+        let active_handler = command.clone();
+        actives.push(std::thread::spawn(move || {
+            active_engine.invoke(invocation(
+                &format!("req-active-{index}"),
+                active_handler,
+                2_000,
+            ))
+        }));
+    }
+    wait_until(Duration::from_secs(1), || pressure_runtime.started() == 2);
     let queued_engine = pressure_engine.clone();
     let queued_handler = command.clone();
     let queued = std::thread::spawn(move || {
         queued_engine.invoke(invocation("req-queued", queued_handler, 2_000))
     });
-    wait_until(Duration::from_millis(250), || {
+    wait_until(Duration::from_secs(1), || {
         pressure_engine.debug_snapshot().queued_jobs == 1
     });
 
@@ -1604,6 +1665,441 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
                 && summary.route.plugin_key == Some(plugin)
     ));
     pressure_runtime.release();
-    active.join().expect("active caller should join");
+    for active in actives {
+        active.join().expect("active caller should join");
+    }
     queued.join().expect("queued caller should join");
+}
+
+fn wait_for_completion(engine: &PluginWorkerEngine, request: &str) -> PluginCompletion {
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(1) {
+        let drain = engine.drain_completions(8, usize::MAX);
+        if let Some(completion) = drain
+            .completions
+            .into_iter()
+            .find(|completion| match &completion.result {
+                PluginInvocationResult::Completed(success) => success.request_id.0 == request,
+                PluginInvocationResult::Failed(failure) => failure.request_id.0 == request,
+            })
+        {
+            return completion;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    panic!("did not drain completion for {request}");
+}
+
+#[test]
+fn saturated_background_cannot_occupy_reserved_request_response_executor() {
+    let plugin = plugin_key("reserved");
+    let command = handler(&plugin, "run");
+    let runtime = GatedRuntime::default();
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 8,
+        per_plugin_executor_concurrency: 2,
+        reserved_request_response_executors: 1,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        runtime.clone(),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    for index in 0..2 {
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                invocation(&format!("bg-{index}"), command.clone(), 2_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+    }
+    wait_until(Duration::from_millis(250), || runtime.started() == 1);
+    let snapshot = engine.debug_snapshot();
+    assert_eq!(snapshot.background_in_flight_jobs, 1);
+    assert_eq!(snapshot.background_queued_jobs, 1);
+    assert_eq!(snapshot.request_response_in_flight_jobs, 0);
+
+    let rr_engine = engine.clone();
+    let rr_handler = command.clone();
+    let rr =
+        std::thread::spawn(move || rr_engine.invoke(invocation("rr-reserved", rr_handler, 2_000)));
+    wait_until(Duration::from_millis(250), || runtime.started() == 2);
+    let snapshot = engine.debug_snapshot();
+    assert_eq!(snapshot.request_response_in_flight_jobs, 1);
+    assert_eq!(snapshot.background_in_flight_jobs, 1);
+    assert_eq!(snapshot.background_queued_jobs, 1);
+
+    runtime.release();
+    assert!(matches!(
+        rr.join().expect("reserved request-response caller").result,
+        PluginInvocationResult::Completed(_)
+    ));
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().background_queued_jobs == 0
+            && engine.debug_snapshot().in_flight_jobs == 0
+    });
+}
+
+#[test]
+fn try_admit_never_waits_on_slow_in_flight_work() {
+    let plugin = plugin_key("non-blocking");
+    let command = handler(&plugin, "run");
+    let runtime = FakeRuntime::delayed(Duration::from_millis(200));
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        runtime,
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("slow", command.clone(), 1_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("second", command, 1_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    assert!(started.elapsed() < Duration::from_millis(50));
+}
+
+#[test]
+fn drain_completions_honors_item_and_byte_caps() {
+    let plugin = plugin_key("drain");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("ok"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    for index in 0..3 {
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                invocation(&format!("drain-{index}"), command.clone(), 1_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+    }
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().undrained_completions == 3
+    });
+    let first = engine.drain_completions(1, usize::MAX);
+    assert_eq!(first.item_count, 1);
+    assert_eq!(first.completions.len(), 1);
+    assert_eq!(engine.debug_snapshot().undrained_completions, 2);
+    let too_small = engine.drain_completions(8, 1);
+    assert_eq!(too_small.item_count, 0);
+    assert!(too_small.completions.is_empty());
+    assert_eq!(engine.debug_snapshot().undrained_completions, 2);
+    let rest = engine.drain_completions(8, usize::MAX);
+    assert_eq!(rest.item_count, 2);
+}
+
+#[test]
+fn admitted_slow_job_times_out_through_engine_deadline_waiter() {
+    let plugin = plugin_key("deadline");
+    let command = handler(&plugin, "slow");
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::delayed(Duration::from_millis(200)),
+        command.clone(),
+        vec![descriptor(&plugin, "slow", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("engine-timeout", command, 10),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let completion = wait_for_completion(&engine, "engine-timeout");
+    assert!(matches!(
+        completion,
+        PluginCompletion {
+            class: PluginInvocationClass::Background,
+            result: PluginInvocationResult::Failed(failure),
+        } if failure.kind == PluginInvocationFailureKind::TimedOut && failure.timeout_ms == Some(10)
+    ));
+}
+
+#[test]
+fn completion_reservation_is_one_slot_until_drained() {
+    let plugin = plugin_key("reserve");
+    let command = handler(&plugin, "run");
+    let runtime = GatedRuntime::default();
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 8,
+        per_plugin_executor_concurrency: 2,
+        completion_queue_capacity: 1,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        runtime.clone(),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("first", command.clone(), 2_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("second", command.clone(), 2_000),
+        ),
+        PluginAdmissionResult::Backpressured { .. }
+    ));
+    runtime.release();
+    let _ = wait_for_completion(&engine, "first");
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("after-drain", command, 1_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+#[test]
+fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_timeout() {
+    let plugin = plugin_key("stopped");
+    let command = handler(&plugin, "slow");
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::delayed(Duration::from_millis(200)),
+        command.clone(),
+        vec![descriptor(&plugin, "slow", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("open-job", command.clone(), 5_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    engine.unload_plugin(PluginUnloadSpec {
+        request_id: request_id("unload-open"),
+        plugin_key: plugin.clone(),
+        cleanup: PluginCleanupScope::DescriptorsAndResources,
+    });
+    let stopped = engine.drain_completions(8, usize::MAX);
+    assert!(matches!(
+        stopped.completions.as_slice(),
+        [PluginCompletion {
+            result: PluginInvocationResult::Failed(failure),
+            ..
+        }] if failure.kind == PluginInvocationFailureKind::WorkerStopped
+            && failure.request_id.0 == "open-job"
+    ));
+
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::delayed(Duration::from_millis(200)),
+        command.clone(),
+        vec![descriptor(&plugin, "slow", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("timeout-then-unload", command, 10),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let _ = wait_for_completion(&engine, "timeout-then-unload");
+    engine.unload_plugin(PluginUnloadSpec {
+        request_id: request_id("unload-after-timeout"),
+        plugin_key: plugin,
+        cleanup: PluginCleanupScope::DescriptorsAndResources,
+    });
+    assert!(engine
+        .drain_completions(8, usize::MAX)
+        .completions
+        .is_empty());
+}
+
+#[test]
+fn large_context_metadata_is_counted_in_class_byte_budget() {
+    let plugin = plugin_key("bytes");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 8,
+        per_plugin_executor_concurrency: 2,
+        background_queue_byte_capacity: 256,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("ok"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    let mut huge = invocation("huge-meta", command, 1_000);
+    huge.payload = BoundaryJson(serde_json::json!({ "ok": true }));
+    huge.context.metadata = Some(BoundaryJson(serde_json::json!({
+        "blob": "m".repeat(512)
+    })));
+    assert!(matches!(
+        engine.try_admit(PluginInvocationClass::Background, huge),
+        PluginAdmissionResult::RejectedBudget { .. }
+    ));
+}
+
+#[test]
+fn short_and_long_correlation_fields_reserve_fitting_fallbacks() {
+    let plugin = plugin_key("corr");
+    let short_handler = handler(&plugin, "s");
+    let long_handler = PluginHandlerRef {
+        plugin_key: plugin.clone(),
+        kind: PluginHandlerKind::Command,
+        handler_id: "h".repeat(128),
+    };
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(PluginWorkerRegistration {
+        handlers: vec![
+            PluginHandlerRegistration {
+                handler: short_handler.clone(),
+                required_capability: None,
+            },
+            PluginHandlerRegistration {
+                handler: long_handler.clone(),
+                required_capability: None,
+            },
+        ],
+        ..registration(
+            &plugin,
+            FakeRuntime::success("ok"),
+            short_handler.clone(),
+            vec![descriptor(&plugin, "s", short_handler.clone())],
+            Vec::new(),
+            None,
+        )
+    });
+
+    let short = engine.try_admit(
+        PluginInvocationClass::Background,
+        invocation("a", short_handler, 1_000),
+    );
+    let long = engine.try_admit(
+        PluginInvocationClass::Background,
+        invocation(&"r".repeat(128), long_handler, 1_000),
+    );
+    match (short, long) {
+        (
+            PluginAdmissionResult::Queued {
+                reservation_bytes: short_bytes,
+                ..
+            },
+            PluginAdmissionResult::Queued {
+                reservation_bytes: long_bytes,
+                ..
+            },
+        ) => {
+            assert!(long_bytes > short_bytes);
+        }
+        other => panic!("expected queued reservations, got {other:?}"),
+    }
+}
+
+#[test]
+fn oversize_handler_result_uses_prebuilt_compact_failure() {
+    let plugin = plugin_key("oversize");
+    let command = handler(&plugin, "run");
+    let huge = BoundaryJson(serde_json::json!({ "blob": "x".repeat(8_192) }));
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 8,
+        per_plugin_executor_concurrency: 2,
+        background_queue_byte_capacity: 2_048,
+        completion_queue_byte_capacity: 4_096,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::new(FakeBehavior::Success(huge)),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    let mut request = invocation("oversize-result", command, 1_000);
+    request.payload = BoundaryJson(serde_json::json!({ "tiny": true }));
+    assert!(matches!(
+        engine.try_admit(PluginInvocationClass::Background, request),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    let completion = wait_for_completion(&engine, "oversize-result");
+    assert!(matches!(
+        completion.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::HandlerFailed
+                && failure.reason == "completion exceeded reserved byte budget"
+    ));
+}
+
+#[test]
+fn debug_snapshot_reports_live_class_fields() {
+    let plugin = plugin_key("snap");
+    let command = handler(&plugin, "run");
+    let runtime = GatedRuntime::default();
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        runtime.clone(),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("snap-bg", command, 2_000),
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().background_in_flight_jobs == 1
+    });
+    let snapshot = engine.debug_snapshot();
+    assert_eq!(snapshot.configured_reserved_request_response_executors, 1);
+    assert_eq!(snapshot.configured_background_queue_capacity, 256);
+    assert_eq!(snapshot.reserved_completion_count, 1);
+    assert_eq!(snapshot.plugins[0].background_in_flight_jobs, 1);
+    assert_eq!(snapshot.plugins[0].reserved_request_response_executors, 1);
+    runtime.release();
 }
