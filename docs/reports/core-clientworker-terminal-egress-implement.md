@@ -130,6 +130,11 @@ Review `review_1786675180_532728` required one further product fix that fulfills
 
 - Worker-backed same-key owner replacement cancels the live IncrementalAttach owner's snapshot boundary and starts the replacement boundary on the attach path. Reconcile uses `(client_id, subscription_id)`, not subscription_id alone. `WorkerProcessRuntime` Drop cancels any outstanding snapshot before `SHUTDOWN` so a fenced worker cannot hang `child.wait()`.
 
+Review `review_1786679644_592711` required two further fixes:
+
+- Every fallible pending promotion now uses `promote_pending_fail_closed`. A begin failure detaches that owner and discards its queues, then continues.
+- The stale-queue test reattaches C while D's recovered boundary is still active, then completes both.
+
 Review `review_1786678909_717793` required one further product fix:
 
 - When a pending owner's recovery begin fails, Core now drops that client's queued input and queued resize so a later successful sibling and a fresh C reattach cannot reuse the rejected generation's work.

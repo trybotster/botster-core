@@ -263,6 +263,9 @@ fn failed_pending_owner_queues_do_not_follow_a_fresh_reattach() {
         .iter()
         .any(|row| row.client_id == recovered && row.subscription_id == recovered_sub));
     assert!(live.iter().all(|row| row.client_id != failed));
+    engine
+        .attach_client(failed.clone(), session_id.clone(), fresh_sub, 17)
+        .expect("fresh reattach while recovered boundary is still active");
     let mut frames = drain_until_attached(&mut engine, &session_id, &recovered);
     let (screen, _, _) = engine
         .capture_terminal_state(&session_id)
@@ -272,9 +275,6 @@ fn failed_pending_owner_queues_do_not_follow_a_fresh_reattach() {
         TerminalScreenSize { rows: 24, cols: 80 },
         "failed sibling resize must not apply to the recovered owner"
     );
-    engine
-        .attach_client(failed.clone(), session_id.clone(), fresh_sub, 17)
-        .expect("fresh reattach");
     frames.extend(drain_until_attached(&mut engine, &session_id, &failed));
     engine
         .write_bytes(failed, session_id.clone(), b"FRESH-C\n".to_vec(), 18)
@@ -300,5 +300,101 @@ fn failed_pending_owner_queues_do_not_follow_a_fresh_reattach() {
     assert!(
         text.contains("echo:FRESH-C"),
         "fresh reattach input never reached the PTY: {text:?}"
+    );
+}
+
+#[test]
+fn finish_promotion_begin_failure_detaches_the_pending_owner() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("finish-promote-fail".to_string());
+    let first = ClientId("finish-promote-a".to_string());
+    let pending = ClientId("finish-promote-c".to_string());
+    let first_sub = SubscriptionId("finish-promote-x".to_string());
+    let pending_sub = SubscriptionId("finish-promote-c-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(first.clone(), session_id.clone(), first_sub, 11)
+        .expect("attach first");
+    engine
+        .attach_client(pending.clone(), session_id.clone(), pending_sub.clone(), 12)
+        .expect("queue pending");
+    engine
+        .write_bytes(
+            pending.clone(),
+            session_id.clone(),
+            b"STALE-C\n".to_vec(),
+            13,
+        )
+        .expect("queue stale input");
+    engine.session_runtime_mut().fail_next_snapshot_begins(1);
+    let mut frames = drain_until_attached(&mut engine, &session_id, &first);
+    for tick in 30..40 {
+        let output = engine
+            .drain_runtime_once(&session_id, tick)
+            .expect("drain after finish");
+        frames.extend(output.client_egress);
+    }
+    let live = engine.list_terminal_subscriptions();
+    assert!(
+        live.iter().all(|row| row.client_id != pending),
+        "failed FINISH promotion left the pending owner published: {live:?}"
+    );
+    assert!(
+        live.iter().all(|row| row.subscription_id != pending_sub),
+        "failed FINISH promotion left the pending route: {live:?}"
+    );
+    assert!(
+        !output_text(&frames).contains("echo:STALE-C"),
+        "pending input bypassed the attach barrier: {:?}",
+        output_text(&frames)
+    );
+}
+
+#[test]
+fn detach_promotion_begin_failure_detaches_the_pending_owner() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("detach-promote-fail".to_string());
+    let first = ClientId("detach-promote-a".to_string());
+    let pending = ClientId("detach-promote-c".to_string());
+    let first_sub = SubscriptionId("detach-promote-x".to_string());
+    let pending_sub = SubscriptionId("detach-promote-c-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(first.clone(), session_id.clone(), first_sub.clone(), 11)
+        .expect("attach first");
+    engine
+        .attach_client(pending.clone(), session_id.clone(), pending_sub.clone(), 12)
+        .expect("queue pending");
+    engine
+        .write_bytes(
+            pending.clone(),
+            session_id.clone(),
+            b"STALE-C\n".to_vec(),
+            13,
+        )
+        .expect("queue stale input");
+    engine.session_runtime_mut().fail_next_snapshot_begins(1);
+    engine
+        .detach_client(first, session_id.clone(), first_sub, 14)
+        .expect("detach current owner");
+    let live = engine.list_terminal_subscriptions();
+    assert!(
+        live.iter().all(|row| row.client_id != pending),
+        "failed detach promotion left the pending owner published: {live:?}"
+    );
+    assert!(
+        live.iter().all(|row| row.subscription_id != pending_sub),
+        "failed detach promotion left the pending route: {live:?}"
+    );
+    let output = engine
+        .drain_runtime_once(&session_id, 20)
+        .expect("drain after detach");
+    assert!(
+        !output_text(&output.client_egress).contains("echo:STALE-C"),
+        "pending input bypassed the attach barrier after detach"
     );
 }
