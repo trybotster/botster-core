@@ -94,15 +94,19 @@ impl ClientWorker {
         session_id: SessionId,
         subscription_id: SubscriptionId,
     ) -> (TerminalSubscriptionGeneration, Vec<ClientWorkerTeardown>) {
-        let replacements =
+        let mut replacements =
             self.teardown_replaced_client_session(&client_id, &session_id, &subscription_id);
         let key = OwnerKey {
             session_id,
             subscription_id,
         };
-        if let Some(existing) = self.live.get_mut(&key) {
-            existing.client_id = client_id;
-            return (existing.generation, replacements);
+        if let Some(existing) = self.live.get(&key) {
+            if existing.client_id == client_id {
+                return (existing.generation, replacements);
+            }
+            if let Some(stolen) = self.hard_stop_key(&key) {
+                replacements.push(stolen);
+            }
         }
         let generation = TerminalSubscriptionGeneration(
             self.last_generation
@@ -144,8 +148,13 @@ impl ClientWorker {
             .map(|(key, _)| key.clone())
             .collect();
         keys.into_iter()
-            .filter_map(|key| hard_stop(&mut self.live, &key))
+            .filter_map(|key| self.hard_stop_key(&key))
             .collect()
+    }
+
+    fn hard_stop_key(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        self.next_snapshot_phase.remove(key);
+        hard_stop(&mut self.live, key)
     }
 
     /// Bind a content-blind adapter to a live attach generation.
@@ -294,6 +303,7 @@ impl ClientWorker {
                 continue;
             }
             let Some(owner) = self.live.get_mut(&key) else {
+                self.next_snapshot_phase.remove(&key);
                 retained.push((client_id, frame));
                 continue;
             };
@@ -302,6 +312,9 @@ impl ClientWorker {
                 continue;
             }
             if owner.adapter.is_none() {
+                if matches!(frame, TransportEgress::Snapshot { .. }) {
+                    self.next_snapshot_phase.remove(&key);
+                }
                 if matches!(frame, TransportEgress::ProcessExit { .. }) {
                     unbound_process_exits.push(key);
                 }
@@ -315,7 +328,7 @@ impl ClientWorker {
                 Ok(Some(queued)) => {
                     if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
                         failed_routes.insert(key.clone());
-                        if let Some(teardown) = hard_stop(&mut self.live, &key) {
+                        if let Some(teardown) = self.hard_stop_key(&key) {
                             teardowns.push(teardown);
                         }
                     } else {
@@ -329,14 +342,14 @@ impl ClientWorker {
                 Ok(None) => retained.push((client_id, frame)),
                 Err(()) => {
                     failed_routes.insert(key.clone());
-                    if let Some(teardown) = hard_stop(&mut self.live, &key) {
+                    if let Some(teardown) = self.hard_stop_key(&key) {
                         teardowns.push(teardown);
                     }
                 }
             }
         }
         for key in unbound_process_exits {
-            if let Some(teardown) = hard_stop(&mut self.live, &key) {
+            if let Some(teardown) = self.hard_stop_key(&key) {
                 teardowns.push(teardown);
             }
         }
@@ -352,7 +365,7 @@ impl ClientWorker {
         let keys: Vec<_> = self.live.keys().cloned().collect();
         let mut teardowns = Vec::new();
         for key in keys {
-            if let Some(teardown) = pump_one(&mut self.live, &key) {
+            if let Some(teardown) = pump_one(&mut self.live, &mut self.next_snapshot_phase, &key) {
                 teardowns.push(teardown);
             }
         }
@@ -365,13 +378,10 @@ impl ClientWorker {
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
     ) -> Option<ClientWorkerTeardown> {
-        hard_stop(
-            &mut self.live,
-            &OwnerKey {
-                session_id: session_id.clone(),
-                subscription_id: subscription_id.clone(),
-            },
-        )
+        self.hard_stop_key(&OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        })
     }
 
     /// Generation-aware detach. Mismatch does not delete a newer owner.
@@ -394,7 +404,7 @@ impl ClientWorker {
                 }
             }
             Some(_) => {
-                let _ = hard_stop(&mut self.live, &key);
+                let _ = self.hard_stop_key(&key);
                 DetachTerminalSubscriptionResult::Detached { generation }
             }
         }
@@ -409,7 +419,7 @@ impl ClientWorker {
             .cloned()
             .collect();
         keys.into_iter()
-            .filter_map(|key| hard_stop(&mut self.live, &key))
+            .filter_map(|key| self.hard_stop_key(&key))
             .collect()
     }
 
@@ -417,7 +427,7 @@ impl ClientWorker {
     pub fn teardown_all(&mut self) -> Vec<ClientWorkerTeardown> {
         let keys: Vec<_> = self.live.keys().cloned().collect();
         keys.into_iter()
-            .filter_map(|key| hard_stop(&mut self.live, &key))
+            .filter_map(|key| self.hard_stop_key(&key))
             .collect()
     }
 
@@ -439,12 +449,14 @@ impl ClientWorker {
 
 fn pump_one(
     live: &mut HashMap<OwnerKey, SubscriptionOwner>,
+    phases: &mut HashMap<OwnerKey, SnapshotPhase>,
     key: &OwnerKey,
 ) -> Option<ClientWorkerTeardown> {
     let owner = live.get_mut(key)?;
     let adapter = owner.adapter.as_mut()?;
 
     if adapter.pressure() == TerminalAdapterPressure::Closed {
+        phases.remove(key);
         return hard_stop(live, key);
     }
 
@@ -459,10 +471,14 @@ fn pump_one(
                 owner.in_flight = false;
                 owner.unsuccessful_writes = 0;
             }
-            TerminalAdapterPressure::Closed => return hard_stop(live, key),
+            TerminalAdapterPressure::Closed => {
+                phases.remove(key);
+                return hard_stop(live, key);
+            }
             TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
                 owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                 if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+                    phases.remove(key);
                     return hard_stop(live, key);
                 }
                 return None;
@@ -473,10 +489,12 @@ fn pump_one(
     loop {
         let owner = live.get_mut(key)?;
         if owner.process_exit_delivered {
+            phases.remove(key);
             return hard_stop(live, key);
         }
         let adapter = owner.adapter.as_mut()?;
         if adapter.pressure() == TerminalAdapterPressure::Closed {
+            phases.remove(key);
             return hard_stop(live, key);
         }
         let head = owner.queue.front()?;
@@ -498,11 +516,15 @@ fn pump_one(
             Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
                 owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                 if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+                    phases.remove(key);
                     return hard_stop(live, key);
                 }
                 return None;
             }
-            Err(TerminalAdapterWriteError::Closed) => return hard_stop(live, key),
+            Err(TerminalAdapterWriteError::Closed) => {
+                phases.remove(key);
+                return hard_stop(live, key);
+            }
         }
     }
 }

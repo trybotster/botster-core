@@ -1450,6 +1450,73 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
 
 #[cfg(unix)]
 #[test]
+fn worker_pending_replacement_does_not_start_the_old_subscription() {
+    let data_dir = temp_data_dir("worker-pending-replace");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-pending-replace-session".to_string());
+    let active = ClientId("worker-pending-replace-active".to_string());
+    let pending = ClientId("worker-pending-replace-pending".to_string());
+    let active_sub = SubscriptionId("worker-pending-replace-active-sub".to_string());
+    let old_sub = SubscriptionId("worker-pending-replace-old-sub".to_string());
+    let new_sub = SubscriptionId("worker-pending-replace-new-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "while IFS= read -r line; do :; done".to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(active.clone(), session_id.clone(), active_sub.clone(), 11)
+        .expect("active attach");
+    daemon
+        .attach(pending.clone(), session_id.clone(), old_sub.clone(), 12)
+        .expect("queue old pending");
+    daemon
+        .attach(pending, session_id.clone(), new_sub.clone(), 13)
+        .expect("replace pending");
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .map(|row| row.subscription_id)
+        .collect();
+    assert!(live.contains(&active_sub));
+    assert!(live.contains(&new_sub));
+    assert!(
+        !live.contains(&old_sub),
+        "replaced pending subscription must not stay in inventory: {live:?}"
+    );
+
+    let started = Instant::now();
+    let mut saw_old_after_replace = false;
+    while started.elapsed() < Duration::from_secs(2) {
+        let drained = daemon.drain(&session_id, 20).expect("drain");
+        for (_, frame) in drained.client_egress {
+            if matches!(
+                frame,
+                TransportEgress::Snapshot {
+                    subscription_id,
+                    ..
+                }
+                | TransportEgress::AttachState {
+                    subscription_id,
+                    ..
+                } if subscription_id == old_sub
+            ) {
+                saw_old_after_replace = true;
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !saw_old_after_replace,
+        "old pending subscription must never start a snapshot boundary"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_subscription_drain_retains_foreign_route_frames() {
     let data_dir = temp_data_dir("worker-route-drain");
     let mut daemon =

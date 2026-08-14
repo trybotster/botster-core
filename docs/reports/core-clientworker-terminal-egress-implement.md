@@ -108,7 +108,13 @@ Hub still owns adapter admission, Unix/WebRTC instances, route reconciliation, a
 
 ## Deviations from plan
 
-None. Review `review_1786673068_686714` required five product fixes that fulfill the existing plan rather than change scope:
+None. Review `review_1786673745_713182` required three further product fixes that fulfill the existing plan:
+
+- A second client attaching the same `(session_id, subscription_id)` hard-stops the first owner and assigns generation + 1.
+- Snapshot phase rows are removed on unbound Snapshot delivery and on every hard-stop.
+- A pending client's replacement subscription drops that client's older incremental-attach tuples.
+
+Review `review_1786673068_686714` required five product fixes that fulfill the existing plan rather than change scope:
 
 1. In-flight accepted writes that stay Full/WouldBlock count toward the 512-tick bound.
 2. A client attaching a new subscription for the same session hard-stops the previous owner.

@@ -173,7 +173,7 @@ Every message that creates or can recreate durable terminal-subscription ownersh
 
 | Message | Grant / owner tag | After terminal failure | Sweep if it races close |
 | --- | --- | --- | --- |
-| `attach` / `AttachClient` | Host-chosen `client_id` + `session_id` + `subscription_id`; Core assigns or records `generation` | Same id + stale generation rejected. Same id + new generation is a new owner. A new `subscription_id` for the same client and session hard-stops the previous owner. Pre-READY / failed subscribe creates no attach ownership | Cancel snapshot barrier; do not leave a bind-pending row |
+| `attach` / `AttachClient` | Host-chosen `client_id` + `session_id` + `subscription_id`; Core assigns or records `generation` | Same id + stale generation rejected. Same id + new generation is a new owner. A new `subscription_id` for the same client and session hard-stops the previous owner. A different client attaching the same `subscription_id` hard-stops the live owner and assigns generation + 1. Pre-READY / failed subscribe creates no attach ownership | Cancel snapshot barrier; do not leave a bind-pending row |
 | `bind_terminal_adapter` | Live attach `subscription_id` + attach-assigned `generation` | Reject unknown, pre-attach, stale generation, already-bound, or closed. Core does not create ownership from bind | If bind races detach, detach wins for that generation. Bind returns a typed error. Core calls `close()` on the rejected adapter on the same stack, then drops it |
 | Existing `detach` without generation | Live generation for that `subscription_id` if present | Idempotent no-op when already gone | None |
 | Generation-aware detach | `subscription_id` + `generation` | Idempotent no-op on mismatch or already gone | None |
