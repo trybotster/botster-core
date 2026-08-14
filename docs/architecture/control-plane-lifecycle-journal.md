@@ -9,6 +9,13 @@ This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
 Living design belongs here under `docs/architecture/`, not under the retired
 `docs/plans/` stub. See `docs/README.md`.
 
+Revision 2 answers Plan Review `review_1786682974_611546`. It does not
+re-litigate repository routing, teardown classification, or the Hub
+dependency. Product findings `103248`, `155478`, `138502`, and `859083`
+are answered below. Process finding `452064` is repaired by resubmitting
+full gate and advance evidence against the existing artifact and
+checklist.
+
 This ticket is **runtime-teardown class** because it changes
 terminal-state versus live-runtime observation: session exit must advance
 the control-plane journal without a terminal client and without Hub
@@ -22,8 +29,11 @@ answers are in this document and must appear in Plan gate evidence.
 - Spawn-target name: `botster-core`
 - Spawn-target path is the admitted `botster-core` target, not the ambient
   pipeline session directory.
-- Current subject revision: `ce7474a` on branch
+- Current subject revision: `e642716` on branch
   `project-pipelines/ticket_1786663581_962361`
+- Addresses Plan Review findings `finding_1786682974_103248`,
+  `finding_1786682974_155478`, `finding_1786682974_138502`,
+  `finding_1786682974_859083`, and process `finding_1786682974_452064`
 - Repository playbook: [[botster-core-playbook]]
 - Hub session-type eligibility parent: does not apply
 - Project Pipelines package/plugin paths: out of scope
@@ -186,22 +196,35 @@ Surgical change on the existing `CoreDaemon` lifecycle source:
 1. Keep Core authoritative for session and process lifecycle. Do not move
    host retention, worktree, or plugin policy into Core.
 2. Add `CoreDaemon::observe_lifecycle(now_seconds)` as the control-plane
-   progress tick. One call is one bounded pass: internally drive
-   `drain_runtime_all_once` (or equivalent per live session), reconcile
-   `SessionLifecycle` observations into the journal, retain any incidental
-   terminal egress on the existing pending-drain path, and return no
-   terminal bytes, phases, snapshots, attach state, or `ProcessExited`
-   frames.
+   progress tick. One call is one bounded pass over live sessions in
+   deterministic `SessionId` order. **Do not call
+   `drain_runtime_all_once`.** That primitive returns on the first
+   non-exited `SessionNotFound` error and would skip later siblings.
+   Observe must call per-session `drain_runtime_once` (or the same
+   per-session output/route/apply sequence), reconcile that session's
+   lifecycle observations, retain incidental terminal egress on the
+   existing pending-drain path, then continue to the next session.
+   `SessionNotFound` plus engine-exited is a continue. Any other error
+   is retained for that session and does not stop the remaining pass.
+   After every session has been attempted, return a control-plane
+   `ObserveLifecycleResult` that reports retained per-session errors.
+   Return no terminal bytes, phases, snapshots, attach state, or
+   `ProcessExited` frames.
 3. Update the journal from those Core runtime and ClientWorker lifecycle
    facts. Repeat observations still do not append.
 4. Set one coalesced `journal_advanced` pending bit inside
    `append_lifecycle_change`. The wake is one bit, not a queue. Duplicate
    appends before take stay one bit.
-5. Add `take_journal_advanced_wake() -> bool` that clears the bit.
+5. Add `take_journal_advanced_wake() -> bool` that clears the bit. Page
+   and baseline never clear the bit. Append always sets it.
 6. Add `lifecycle_changes_page(after, max_changes, max_bytes)` returning a
    new `SessionLifecyclePage` with ordered changes, next cursor, source
-   watermark, and the existing explicit resync reasons. Resync still
-   returns no partial suffix.
+   watermark, and the existing explicit resync reasons. Validate the
+   cursor **before** applying page limits. Resync still returns no
+   partial suffix. `max_bytes` bounds the complete `serde_json`
+   encoding of the returned `SessionLifecyclePage`, including next,
+   watermark, resync, list delimiters, and separators — not the sum of
+   isolated change encodings.
 7. Keep `lifecycle_changes(after)` as the compatibility unbounded reader
    so current Hub source keeps compiling. Do not add fields to
    `SessionLifecycleChanges`.
@@ -254,15 +277,30 @@ Assumptions:
   side-effect-free; without a non-Drain progress tick the journal cannot
   advance for zero-client sessions. This is required, not speculative
   configurability.
-- Encoded page bytes are `serde_json` of each `SessionLifecycleChange`,
-  matching the existing serialized lifecycle tests.
-- `max_changes == 0` or `max_bytes == 0` returns an empty page, next
-  cursor equal to `after`, current watermark, and no resync.
-- If the next change cannot fit `max_bytes` after some items, stop. If
-  the first candidate alone exceeds `max_bytes`, return empty and do not
-  advance next. Recovery is a fresh baseline. Hosts must set `max_bytes`
-  above one max-size record (`MAX_CORE_SESSION_METADATA_LEN` is 64 KiB
-  plus record envelope).
+- Encoded page bytes are `serde_json::to_vec` of the complete
+  `SessionLifecyclePage` value that is returned. Include next cursor,
+  watermark, `resync_required`, the changes array, and JSON separators.
+  Greedy include the next change only when the fully encoded page with
+  that change still has `len() <= max_bytes` and the item count is still
+  `<= max_changes`.
+- Cursor validation precedes limits. A foreign, expired, or ahead cursor
+  always returns empty `changes` plus the exact resync reason, even when
+  `max_changes == 0` or `max_bytes == 0`. Limits never hide invalidity.
+- After a valid cursor: `max_changes == 0` returns empty changes, next
+  equal to `after`, current watermark, no resync. If `max_bytes` is
+  smaller than the empty-success envelope, same empty-success result.
+  Hosts must set `max_bytes` at least to that empty-success size plus one
+  max-size record (`MAX_CORE_SESSION_METADATA_LEN` is 64 KiB plus record
+  and page envelope). A resync page is a recovery signal; its envelope
+  is not required to satisfy `max_bytes`.
+- If the next change cannot fit the remaining full-page budget after
+  some items, stop. If the first candidate alone would make the complete
+  page exceed `max_bytes`, return empty-success and do not advance next.
+  Recovery is a fresh baseline.
+- Wake is a coalesced hint. The page watermark is the source of truth.
+  Safe consumer order: take, page until `next == watermark` or resync,
+  take again, and re-page if that second take is true. Never page-then-
+  take-then-sleep. Page never clears the wake. Append always sets it.
 - Existing `lifecycle_changes` remains an unbounded compatibility reader.
   Hub's later ticket switches to page + wake.
 - Worktree path has no `:`. Tracked `.gitignore` is present and non-empty.
@@ -281,24 +319,31 @@ Unknowns Implement must not invent:
 Expected production path:
 
 `worker / local runtime ProcessExited`
-→ `ManagedSessionRuntime::drain_runtime_all_once`
-→ multiplexer lifecycle + `apply_client_worker`
 → `CoreDaemon::observe_lifecycle`
+→ per-session `drain_runtime_once` in `SessionId` order
+→ multiplexer lifecycle + `apply_client_worker` for that session
 → `reconcile_lifecycle_observations` / `append_lifecycle_change`
 → coalesced wake bit
-→ host `take_journal_advanced_wake` + `lifecycle_changes_page`
+→ host safe loop: take → page until caught up → take → re-page if woke
+
+`ObserveLifecycleResult` carries retained per-session errors after the
+full pass. Sibling journal upserts from the same tick remain visible
+even when an earlier session's drain returns `OutputFailed` or another
+non-exited error.
 
 Primary files:
 
-- `crates/botster-core-daemon/src/api.rs` — `SessionLifecyclePage`, keep
-  existing resync reasons
-- `crates/botster-core-daemon/src/daemon.rs` — observe, wake, page,
-  append-time wake set
-- `crates/botster-core-daemon/src/lib.rs` — re-export the new page type
+- `crates/botster-core-daemon/src/api.rs` — `SessionLifecyclePage`,
+  `ObserveLifecycleResult`, keep existing resync reasons
+- `crates/botster-core-daemon/src/daemon.rs` — per-session observe,
+  wake, full-page byte budget, cursor-before-limits page
+- `crates/botster-core-daemon/src/lib.rs` — re-export the new types
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs` — zero-client
-  exit, wake coalesce, dropped-wake convergence, page bounds, resync
-- `crates/botster-core-test-support/tests/consumers/` — new Hub-shaped
-  isolated consumer of the public observe/wake/page types
+  exit, wake coalesce, dropped-wake, full-page byte bounds, zero-limit
+  resync, same-tick sibling progress after one drain error
+- `crates/botster-core-test-support/tests/consumers/` — Hub-shaped
+  isolated consumer of observe / wake / page plus the safe consume loop
+  and wake/page interleaving harness
 - `docs/architecture/core-daemon.md`, `README.md`, this file
 
 Likely untouched unless a compile forces it:
@@ -315,9 +360,9 @@ Likely untouched unless a compile forces it:
 | `teardown_isolation` | One session exit updates only that session's journal row and closes only that session's terminal subscriptions. The wake bit is process-wide by ticket contract (one pending bit, not a per-session queue). Sibling sessions stay live. |
 | `teardown_bounds` | `observe_lifecycle` is one non-blocking host tick. It must not wait for PTY death, adapter I/O, or Hub Drain. Page/wake/baseline do not block. Existing ClientWorker hard-stop remains synchronous close+drop on the tick that observes `ProcessExited` for bound subscriptions. Do not add `block_on(close)` or a closer thread. |
 | `late_message_matrix` | See table below. |
-| `production_path_proof` | Worker-backed self-exit, zero attaches, no `CoreDaemon::drain`. Host calls `observe_lifecycle` until `take_journal_advanced_wake` is true, then `lifecycle_changes_page` shows `Exited`. A second proof drops the wake and still converges by paging from the last cursor. Red-on-revert: removing observe-to-journal wiring fails those tests. Terminal Drain and attach remain available but are not the oracle. |
+| `production_path_proof` | Worker-backed self-exit, zero attaches, no `CoreDaemon::drain`. Host runs the safe loop (take, page until caught up, take, re-page if woke) until the page shows `Exited`. A second proof drops the wake and still converges by paging from the last cursor. Same-tick sibling proof: earlier session drain errors, later sibling still exits into the journal on that observe. Red-on-revert: removing observe-to-journal wiring or switching observe to `drain_runtime_all_once` fails those tests. Terminal Drain and attach remain available but are not the oracle. |
 | `ownership_identity` | Journal identity is `(source_id, sequence)`. Session identity is `SessionId`. Terminal subscription identity remains `(session_id, subscription_id, generation)`. Delayed Drain or a late `ProcessExited` must not append a second identical `Exited` upsert. Daemon restart mints a new `source_id`; old cursors resync with `SourceChanged`. |
-| `sibling_fail_closed_policy` | Success: siblings keep running and their journal rows are unchanged. Observe failure on one session must not skip remaining sessions in the same tick and must not publish a silent truncated suffix. Registry save failure fails that session's projection without corrupting previously appended sequences. Ultimate observe failure does not kill sibling sessions or the daemon. |
+| `sibling_fail_closed_policy` | Success: siblings keep running and their journal rows are unchanged. Observe walks sessions itself and continues after a per-session drain error. It does not use `drain_runtime_all_once`. A retained error is reported after the full pass; later siblings in the same tick still reconcile. Registry save failure fails that session's projection without corrupting previously appended sequences. Ultimate observe failure does not kill sibling sessions or the daemon. |
 
 Late-message matrix (ownership-creating or lifecycle-visible messages):
 
@@ -326,7 +371,7 @@ Late-message matrix (ownership-creating or lifecycle-visible messages):
 | Spawn | new `SessionId` | N/A; creates a new row | journal upsert `Running` |
 | Attach | `(session, subscription, generation)` | `SessionNotReadable` / unknown after remove | no new generation |
 | Bind | live generation | `BindBeforeAttach` or `StaleGeneration` | no new owner |
-| `observe_lifecycle` | daemon control plane | idempotent; no duplicate `Exited` | wake coalesces |
+| `observe_lifecycle` | daemon control plane | idempotent; no duplicate `Exited`; per-session drain errors are retained and later siblings still run | wake coalesces |
 | `CoreDaemon::drain` | terminal plane | still returns retained/pending egress; must not be required to learn exit | ProcessExited stays here for attached clients |
 | Input / resize | live mutable session | rejected after stopping/exited/failed | no journal noise |
 | `remove_session` | explicit host forget | allowed only when terminal | journal `Removed` |
@@ -337,11 +382,18 @@ Late-message matrix (ownership-creating or lifecycle-visible messages):
 - Hiding observe inside page/wake would violate the existing
   "consumption does not advance runtimes" rule and make reads
   non-idempotent. Keep observe separate.
-- Using `drain_runtime_all_once` internally can produce terminal egress.
-  That egress must stay on `pending_drain` for later Drain. If it leaks
-  into the page API, the architecture tests fail.
-- Byte-budget livelock if `max_bytes` is smaller than one legal change.
-  Fail closed to empty page + baseline recovery; document the floor.
+- Per-session `drain_runtime_once` can produce terminal egress. That
+  egress must stay on `pending_drain` for later Drain. If it leaks into
+  the page API, the architecture tests fail.
+- Calling `drain_runtime_all_once` would abort the tick on the first
+  drain error (`managed_session_runtime.rs` first-error return). Observe
+  must not use that aggregate primitive.
+- Byte-budget livelock if `max_bytes` is smaller than one complete page
+  that includes the next legal change. Fail closed to empty-success plus
+  baseline recovery; measure the whole encoded page.
+- Page-then-take-then-sleep can clear a wake that arrived after the page
+  snapshot and leave the cursor behind. The published consumer loop and
+  interleaving test exist so Hub cannot invent that order.
 - Adding fields to `SessionLifecycleChanges` would break Hub struct
   literals ([[public dto field additions are source breaking without non
   exhaustive]]). New `SessionLifecyclePage` avoids that.
@@ -362,10 +414,28 @@ Focused during development (no wrapper):
   page from the last good cursor still returns the `Exited` upsert.
 - Duplicate wakes: two journal appends before take; `take` is true once,
   then false until another append.
-- Page limits: `max_changes` and encoded `max_bytes` both stop the page;
-  next cursor is the last included change; watermark is the source head.
-- Resync: foreign source, expired, and ahead cursors return the matching
-  reason and zero changes.
+- Full-page byte budget: serialize every returned `SessionLifecyclePage`
+  with `serde_json` and assert `encoded.len() <= max_bytes` whenever
+  `resync_required` is `None`. Prove both item-count and encoded-page
+  stops. Next is the last included change; watermark is the source head.
+- Zero-limit resync: for each of `SourceChanged`, `CursorExpired`, and
+  `CursorAhead`, call the page API with `max_changes = 0` and again with
+  `max_bytes = 0`. Require empty changes and the exact resync reason.
+- Wake/page race: Hub-shaped consumer implements the safe loop (take,
+  page until `next == watermark` or resync, take, re-page if woke).
+  Interleave journal appends before take, between take and page, after
+  page before the second take, and after the second take. After every
+  completed loop iteration, either the latest change is applied or a
+  wake remains pending. The unsafe page-then-take-then-sleep order is
+  documented as forbidden and is not the consumer under test.
+- Same-tick sibling isolation: two live sessions, deterministic
+  `SessionId` order. The earlier session's `drain_runtime_once` returns a
+  non-exited error (`OutputFailed` or equivalent worker I/O failure, not
+  the exited-`SessionNotFound` continue path). The later sibling
+  self-exits with zero attaches and no `CoreDaemon::drain`. One
+  `observe_lifecycle` tick retains the first error in
+  `ObserveLifecycleResult` and still publishes the later sibling's
+  `Exited` journal upsert.
 - Control-plane-only architecture test: `SessionLifecyclePage` /
   change kinds cannot carry `TransportEgress`, snapshot payloads, attach
   phases, or terminal bytes. Source-scan the daemon API lifecycle types.
@@ -376,7 +446,8 @@ Focused during development (no wrapper):
   attach+drain lifecycle test still pass. Drain may still update the
   journal; it is no longer required.
 - Hub-shaped isolated consumer in test-support compiles against
-  observe / wake / page only and never calls Drain.
+  observe / wake / page only, never calls Drain, and owns the safe
+  consume loop plus interleaving harness above.
 
 Repository gates ([[botster-core uses CI-owned Cargo commands because it
 has no test script]]):
@@ -405,6 +476,16 @@ Capture after implement, not during Plan:
   without a terminal client or Hub terminal Drain.
 
 No inbox capture in this Plan visit. The gap is known and named.
+
+## Plan Review findings (revision 2)
+
+| Finding | Resolution |
+| --- | --- |
+| `finding_1786682974_103248` full encoded-page byte bound | `max_bytes` is the complete serialized `SessionLifecyclePage`. Tests encode the returned page. |
+| `finding_1786682974_155478` zero limits hide resync | Cursor validation runs first. Zero limits still return the exact resync reason. |
+| `finding_1786682974_138502` wake/page race | Safe consume loop plus Hub-shaped interleaving proof. Page never clears the wake. |
+| `finding_1786682974_859083` sibling isolation | Observe is a per-session continue-and-retain pass. Same-tick sibling test required. |
+| `finding_1786682974_452064` empty Plan completion evidence | Process-only. Resubmit gate and advance evidence with `plan_uri`, `artifact_id`, `checklist_id`, `target_id`, and `target_repository`. Reuse ticket checklist `checklist_1786682346_769728`; do not create a second vault checklist. |
 
 ## Delivery
 
