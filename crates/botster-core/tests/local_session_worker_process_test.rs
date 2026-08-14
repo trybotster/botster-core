@@ -1022,6 +1022,34 @@ fn detach_while_stalled_unblocks_parent() {
 }
 
 #[test]
+fn attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep() {
+    let source = include_str!("../src/runtime/worker_process.rs");
+    let start = source
+        .find("fn send_worker_event(")
+        .expect("send_worker_event must exist");
+    let body = source[start..]
+        .split("fn next_gated_request_id")
+        .next()
+        .expect("send_worker_event body");
+    assert!(
+        !body.contains("thread::sleep"),
+        "attached PtyOutput stall must not poll with a fixed sleep"
+    );
+    assert!(
+        !body.contains("from_millis(1)"),
+        "attached PtyOutput stall must not use a 1 ms interval"
+    );
+    assert!(
+        source.contains("wait_for_space_or_detach"),
+        "attached stall must wait on the drain/detach condvar"
+    );
+    assert!(
+        source.contains("struct EgressStall"),
+        "attached stall must use the std Condvar gate"
+    );
+}
+
+#[test]
 fn dropping_parent_runtime_reaps_worker_and_pty_child() {
     let session = session_id("worker-parent-drop-cleanup");
     let (worker_pid, pty_child_pid) = {

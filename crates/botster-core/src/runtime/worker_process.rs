@@ -8,7 +8,7 @@ use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -335,13 +335,7 @@ impl WorkerProcessRuntime {
     /// attach paths should call [`Self::replace_named_consumers`] from live
     /// subscription ownership instead of incrementing a scalar.
     pub fn attach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        session
-            .consumers
-            .lock()
-            .map_err(lock_error)?
-            .insert(ConsumerKey::Direct);
-        Ok(())
+        self.session_mut(session_id)?.stall.insert_direct()
     }
 
     /// Mark a parent-side consumer detached from worker egress.
@@ -349,13 +343,7 @@ impl WorkerProcessRuntime {
     /// Removes only the direct test consumer. Named subscription owners are
     /// replaced as a set from live attach state.
     pub fn detach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        session
-            .consumers
-            .lock()
-            .map_err(lock_error)?
-            .remove(&ConsumerKey::Direct);
-        Ok(())
+        self.session_mut(session_id)?.stall.remove_direct()
     }
 
     /// Replace named live consumers for one session from subscription ownership.
@@ -364,16 +352,7 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
         owners: impl IntoIterator<Item = (ClientId, SubscriptionId)>,
     ) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        let mut consumers = session.consumers.lock().map_err(lock_error)?;
-        consumers.retain(|key| matches!(key, ConsumerKey::Direct));
-        for (client_id, subscription_id) in owners {
-            consumers.insert(ConsumerKey::Named {
-                client: client_id.0,
-                subscription: subscription_id.0,
-            });
-        }
-        Ok(())
+        self.session_mut(session_id)?.stall.replace_named(owners)
     }
 
     /// Send a ping frame and wait for typed worker health evidence.
@@ -861,7 +840,9 @@ impl WorkerProcessRuntime {
 
     fn pump_session_output(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
+        let mut drained = false;
         while let Ok(event) = session.output.try_recv() {
+            drained = true;
             match event {
                 WorkerChannelEvent::Output(output) => session.pending_output.push_back(output),
                 WorkerChannelEvent::ModeFlags(payload) => {
@@ -906,6 +887,9 @@ impl WorkerProcessRuntime {
                     }
                 }
             }
+        }
+        if drained {
+            session.stall.note_space();
         }
         Ok(())
     }
@@ -955,7 +939,7 @@ impl WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let consumers = Arc::new(Mutex::new(HashSet::new()));
+        let stall = Arc::new(EgressStall::new());
         spawn_stdout_reader(
             control.try_clone().map_err(|error| {
                 SessionRuntimeError::new(
@@ -968,7 +952,7 @@ impl WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
-            Arc::clone(&consumers),
+            Arc::clone(&stall),
         );
         let metadata = SessionMetadata {
             session_uuid: session_id.0.clone(),
@@ -1010,7 +994,7 @@ impl WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
-                consumers,
+                stall,
             },
         );
 
@@ -1242,7 +1226,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let consumers = Arc::new(Mutex::new(HashSet::new()));
+        let stall = Arc::new(EgressStall::new());
         spawn_stdout_reader(
             reader,
             sender,
@@ -1250,7 +1234,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
-            Arc::clone(&consumers),
+            Arc::clone(&stall),
         );
 
         self.sessions.insert(
@@ -1272,7 +1256,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
-                consumers,
+                stall,
             },
         );
 
@@ -1396,8 +1380,118 @@ enum ConsumerKey {
     },
 }
 
-fn consumers_active(consumers: &Mutex<HashSet<ConsumerKey>>) -> bool {
-    consumers.lock().map(|set| !set.is_empty()).unwrap_or(false)
+enum StallWait {
+    Retry,
+    Detached,
+    Closed,
+}
+
+struct EgressStallState {
+    owners: HashSet<ConsumerKey>,
+    drain_seq: u64,
+    closed: bool,
+}
+
+/// Detach-aware wait for attached live PTY stall.
+///
+/// Wakes when the parent drains a slot, the live owner set becomes empty, or
+/// the session is dropped. A blocking `SyncSender::send` cannot observe detach.
+struct EgressStall {
+    state: Mutex<EgressStallState>,
+    wait: Condvar,
+}
+
+impl EgressStall {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(EgressStallState {
+                owners: HashSet::new(),
+                drain_seq: 0,
+                closed: false,
+            }),
+            wait: Condvar::new(),
+        }
+    }
+
+    fn insert_direct(&self) -> Result<(), SessionRuntimeError> {
+        let mut state = self.state.lock().map_err(lock_error)?;
+        state.owners.insert(ConsumerKey::Direct);
+        self.wait.notify_all();
+        Ok(())
+    }
+
+    fn remove_direct(&self) -> Result<(), SessionRuntimeError> {
+        let mut state = self.state.lock().map_err(lock_error)?;
+        state.owners.remove(&ConsumerKey::Direct);
+        self.wait.notify_all();
+        Ok(())
+    }
+
+    fn replace_named(
+        &self,
+        owners: impl IntoIterator<Item = (ClientId, SubscriptionId)>,
+    ) -> Result<(), SessionRuntimeError> {
+        let mut state = self.state.lock().map_err(lock_error)?;
+        state
+            .owners
+            .retain(|key| matches!(key, ConsumerKey::Direct));
+        for (client_id, subscription_id) in owners {
+            state.owners.insert(ConsumerKey::Named {
+                client: client_id.0,
+                subscription: subscription_id.0,
+            });
+        }
+        self.wait.notify_all();
+        Ok(())
+    }
+
+    fn note_space(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.drain_seq = state.drain_seq.wrapping_add(1);
+            self.wait.notify_all();
+        }
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+            self.wait.notify_all();
+        }
+    }
+
+    fn owners_present(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| !state.closed && !state.owners.is_empty())
+            .unwrap_or(false)
+    }
+
+    fn wait_for_space_or_detach(&self, seen_seq: &mut u64) -> StallWait {
+        let Ok(state) = self.state.lock() else {
+            return StallWait::Closed;
+        };
+        if state.closed {
+            return StallWait::Closed;
+        }
+        if state.owners.is_empty() {
+            return StallWait::Detached;
+        }
+        if state.drain_seq != *seen_seq {
+            *seen_seq = state.drain_seq;
+            return StallWait::Retry;
+        }
+        let Ok(state) = self.wait.wait(state) else {
+            return StallWait::Closed;
+        };
+        *seen_seq = state.drain_seq;
+        if state.closed {
+            StallWait::Closed
+        } else if state.owners.is_empty() {
+            StallWait::Detached
+        } else {
+            StallWait::Retry
+        }
+    }
 }
 
 struct WorkerProcessSession {
@@ -1417,7 +1511,13 @@ struct WorkerProcessSession {
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
-    consumers: Arc<Mutex<HashSet<ConsumerKey>>>,
+    stall: Arc<EgressStall>,
+}
+
+impl Drop for WorkerProcessSession {
+    fn drop(&mut self) {
+        self.stall.close();
+    }
 }
 
 struct GatedInFlight {
@@ -1832,7 +1932,7 @@ fn spawn_stdout_reader(
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
-    consumers: Arc<Mutex<HashSet<ConsumerKey>>>,
+    stall: Arc<EgressStall>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
@@ -1840,7 +1940,7 @@ fn spawn_stdout_reader(
                 FRAME_PTY_OUTPUT => send_worker_event(
                     &sender,
                     &overflow,
-                    &consumers,
+                    &stall,
                     WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                 ),
                 FRAME_PROCESS_EXITED => {
@@ -1855,7 +1955,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
                     }
@@ -1865,7 +1965,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
                         );
                     }
@@ -1875,7 +1975,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
                     }
@@ -1884,7 +1984,7 @@ fn spawn_stdout_reader(
                     send_worker_event(
                         &sender,
                         &overflow,
-                        &consumers,
+                        &stall,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
                 }
@@ -1893,7 +1993,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
                     }
@@ -1903,7 +2003,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
                             )),
@@ -1916,7 +2016,7 @@ fn spawn_stdout_reader(
                             send_worker_event(
                                 &sender,
                                 &overflow,
-                                &consumers,
+                                &stall,
                                 WorkerChannelEvent::ModeFlags(payload),
                             );
                         }
@@ -1931,13 +2031,13 @@ fn spawn_stdout_reader(
                         Ok(result) => send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::ModeGatedResult(result),
                         ),
                         Err(error) => send_worker_event(
                             &sender,
                             &overflow,
-                            &consumers,
+                            &stall,
                             WorkerChannelEvent::MalformedModeGated {
                                 request_id: String::new(),
                                 message: format!("malformed mode-gated result: {error}"),
@@ -1974,19 +2074,21 @@ fn spawn_stdout_reader(
 fn send_worker_event(
     sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
-    consumers: &Mutex<HashSet<ConsumerKey>>,
+    stall: &EgressStall,
     event: WorkerChannelEvent,
 ) {
     // Live PTY bytes are not replayable. While a parent consumer is attached,
     // stall instead of dropping them. Detach must stop the stall so cancel and
-    // detached workers can still make progress.
+    // detached workers can still make progress. Wait on the drain/detach
+    // condvar; a blocking send cannot observe detach.
     if matches!(
         event,
         WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
     ) {
         let mut event = event;
+        let mut seen_seq = 0;
         loop {
-            if !consumers_active(consumers) {
+            if !stall.owners_present() {
                 match sender.try_send(event) {
                     Ok(()) => return,
                     Err(TrySendError::Full(_)) => {
@@ -2000,7 +2102,18 @@ fn send_worker_event(
                 Ok(()) => return,
                 Err(TrySendError::Full(returned)) => {
                     event = returned;
-                    thread::sleep(Duration::from_millis(1));
+                    match stall.wait_for_space_or_detach(&mut seen_seq) {
+                        StallWait::Retry => {}
+                        StallWait::Detached => match sender.try_send(event) {
+                            Ok(()) => return,
+                            Err(TrySendError::Full(_)) => {
+                                overflow.fetch_add(1, Ordering::AcqRel);
+                                return;
+                            }
+                            Err(TrySendError::Disconnected(_)) => return,
+                        },
+                        StallWait::Closed => return,
+                    }
                 }
                 Err(TrySendError::Disconnected(_)) => return,
             }

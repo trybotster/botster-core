@@ -27,6 +27,9 @@ Role and charter:
 - [[botster-core uses CI-owned Cargo commands because it has no test script]]
 - [[implement gate must verify committed work and pr link before review]]
 - [[pipeline vault checklists must cite exact resolvable note titles]]
+- [[prefer framework and library components over custom solutions]]
+- [[capacity-one parent worker channels must stall live PTY bytes after attach]]
+- [[live PTY stall state follows attached subscription ownership]]
 
 Targeted attach and proof notes:
 
@@ -53,9 +56,9 @@ Not loaded:
 ## Files changed
 
 - `crates/botster-core/src/engine/botster.rs` — leftover drain after `Attached`; named consumer set synced from live Attached ownership; initial `begin_snapshot_boundary` failure removes the recorded subscription before `sync_worker_consumers`
-- `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a named or direct consumer is present
+- `crates/botster-core/src/runtime/worker_process.rs` — stall live `PtyOutput` while a named or direct consumer is present; attached stall waits on a `std::sync::Condvar` for parent drain, detach, or session close instead of `thread::sleep(Duration::from_millis(1))`
 - `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs` — injected initial begin-failure rollback: empty inventory, ping without parent drain, typed detached overflow
-- `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo and ownership-transition pressure tests
+- `crates/botster-core/tests/local_session_worker_process_test.rs` — capacity-one process-echo and ownership-transition pressure tests; source census that `send_worker_event` has no fixed sleep
 - `docs/reports/worker-incremental-attach-post-barrier-marker-implement.md` — this report
 - `docs/archive/plans/worker-incremental-attach-post-barrier-marker.md` — approved plan already in the worktree (Plan artifact)
 
@@ -85,6 +88,8 @@ The leftover drain remains. Review `review_1786739081_180992` reproduced the mis
 This revision stalls live `PtyOutput` only for subscriptions that have reached `Attached`. In-progress incremental owners are excluded so READY-then-cancel still progresses. The set is rebuilt from live inventory after attach, detach, takeover, promotion, and generation detach. A scalar increment/decrement is not used.
 
 Initial attach records the subscription inventory row in `begin_snapshot_attach` before `begin_snapshot_boundary`. If that begin fails, the recorded row is detached before `sync_worker_consumers`. Without that rollback the failed pre-boundary row is treated as an Attached owner and stall activates with no drainer.
+
+Merge blocker `artifact_1786742760_206522` rejected the 1 ms `thread::sleep` on the attached live `PtyOutput` retry. The stall now waits on `std::sync::Condvar` (`EgressStall`). Parent `try_recv` increments a drain sequence and notifies. Detach, named-owner replace, and session drop notify the same condvar. A blocking `SyncSender::send` is still rejected because it cannot observe detach. Attached `PtyOutput` still retries until delivery or detach; detach still returns to overflow.
 
 ## Tests and downstream proof run
 
@@ -136,9 +141,78 @@ Initial-boundary rollback:
 - `BOTSTER_ENV=test cargo test -p botster-core --lib -- initial_begin_failure_restores_detached_overflow` — pass
 - Ablation: removing only the `detach_live_subscription` rollback left inventory `[TerminalSubscriptionRecord { client_id: initial-begin-fail-client, ... }]` and the test failed. Rollback restored after that red run.
 
-Production-path proof: `CoreDaemon::attach` / `input` / `resize` / `drain` call `WorkerBackedBotsterEngine`. After `Attached`, detach, takeover, promotion, generation detach, and failed initial begin, `sync_worker_consumers` rebuilds the named consumer set from live subscription inventory. In-progress incremental owners and pending replacements are excluded until they reach `Attached`. `replace_named_consumers` then installs that set. Live `PtyOutput` retries only while a named or direct consumer remains. There is no scalar consumer count.
+Production-path proof: `CoreDaemon::attach` / `input` / `resize` / `drain` call `WorkerBackedBotsterEngine`. After `Attached`, detach, takeover, promotion, generation detach, and failed initial begin, `sync_worker_consumers` rebuilds the named consumer set from live subscription inventory. In-progress incremental owners and pending replacements are excluded until they reach `Attached`. `replace_named_consumers` then installs that set. Live `PtyOutput` retries only while a named or direct consumer remains. There is no scalar consumer count. The retry waits on `std::sync::Condvar` for drain, detach, or session close.
 
 No new Hub consumer. The authentic worker PTY + Ghostty daemon test remains the charter proof.
+
+## Merge blocker artifact_1786742760_206522
+
+Required: remove the fixed 1 ms sleep or justify that interval with attach/input latency and retry-loop CPU measurements. This revision removes the sleep.
+
+Replacement: `EgressStall` (`std::sync::Mutex` + `std::sync::Condvar`). `send_worker_event` waits for parent drain, empty owner set, or session close. It does not use `SyncSender::send`. Ownership and overflow behavior are unchanged.
+
+Commands and results for this revision:
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test -- --test-threads=1 \
+  attached_capacity_one_retains_process_echo_after_terminal_echo \
+  detach_while_stalled_unblocks_parent \
+  takeover_then_full_detach_restores_overflow_progress \
+  generation_detach_restores_overflow_progress \
+  stale_detach_keeps_sibling_process_echo \
+  attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep
+```
+
+Exit 0. 6 passed. `attached_capacity_one_retains_process_echo_after_terminal_echo` still observes `echo:POST-BARRIER-MARKER`. `detach_while_stalled_unblocks_parent` still returns in under 1s.
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core --lib -- initial_begin_failure_restores_detached_overflow
+```
+
+Exit 0. Failed initial begin still restores typed detached overflow. Ping still progresses without a parent drain.
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- \
+  worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output
+```
+
+10 consecutive runs, all exit 0. Each observed `echo:POST-BARRIER-MARKER` after READY, FINISH, and Attached.
+
+```bash
+cargo fmt --all -- --check
+```
+
+Exit 0.
+
+```bash
+BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Exit 0.
+
+```bash
+BOTSTER_ENV=test cargo test --workspace
+```
+
+First run failed `engine::plugin_worker::tests::unload_first_then_deadline_keeps_only_worker_stopped`. That test is outside this diff (`plugin_worker.rs` unchanged). Isolated rerun:
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core --lib -- unload_first_then_deadline_keeps_only_worker_stopped
+```
+
+Exit 0. Second default-concurrency workspace run exit 0.
+
+```bash
+BOTSTER_ENV=test cargo test --doc --workspace
+```
+
+Exit 0.
+
+```bash
+git diff --check origin/main..HEAD
+```
+
+Exit 0. No `thread::sleep(Duration::from_millis(1))` remains in `worker_process.rs`. `send_worker_event` contains no `thread::sleep`.
 
 ## Unverified behavior or residual risk
 
