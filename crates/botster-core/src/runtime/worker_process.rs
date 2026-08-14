@@ -230,8 +230,10 @@ pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
     release_on_drop: bool,
-    fail_next_snapshot_cancel: bool,
-    fail_next_snapshot_begin: bool,
+    #[cfg(test)]
+    fail_next_snapshot_cancel_count: usize,
+    #[cfg(test)]
+    fail_next_snapshot_begin_count: usize,
 }
 
 impl WorkerProcessRuntime {
@@ -263,19 +265,23 @@ impl WorkerProcessRuntime {
             options,
             sessions: HashMap::new(),
             release_on_drop: false,
-            fail_next_snapshot_cancel: false,
-            fail_next_snapshot_begin: false,
+            #[cfg(test)]
+            fail_next_snapshot_cancel_count: 0,
+            #[cfg(test)]
+            fail_next_snapshot_begin_count: 0,
         }
     }
 
-    /// Fail the next snapshot cancel write. Tests use this to prove fail-closed takeover.
-    pub fn fail_next_snapshot_cancel(&mut self) {
-        self.fail_next_snapshot_cancel = true;
+    /// Fail the next snapshot cancel write. Crate tests use this to prove fail-closed takeover.
+    #[cfg(test)]
+    pub(crate) fn fail_next_snapshot_cancel(&mut self) {
+        self.fail_next_snapshot_cancel_count = 1;
     }
 
-    /// Fail the next snapshot begin write. Tests use this to prove fail-closed takeover.
-    pub fn fail_next_snapshot_begin(&mut self) {
-        self.fail_next_snapshot_begin = true;
+    /// Fail the next `count` snapshot begin writes.
+    #[cfg(test)]
+    pub(crate) fn fail_next_snapshot_begins(&mut self, count: usize) {
+        self.fail_next_snapshot_begin_count = count;
     }
 
     /// Return worker welcome metadata captured after spawning a session.
@@ -514,8 +520,9 @@ impl WorkerProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<String, SessionRuntimeError> {
-        if self.fail_next_snapshot_begin {
-            self.fail_next_snapshot_begin = false;
+        #[cfg(test)]
+        if self.fail_next_snapshot_begin_count > 0 {
+            self.fail_next_snapshot_begin_count -= 1;
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::OutputFailed,
                 "injected snapshot begin failure",
@@ -596,8 +603,9 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
         request_id: &str,
     ) -> Result<(), SessionRuntimeError> {
-        if self.fail_next_snapshot_cancel {
-            self.fail_next_snapshot_cancel = false;
+        #[cfg(test)]
+        if self.fail_next_snapshot_cancel_count > 0 {
+            self.fail_next_snapshot_cancel_count -= 1;
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::OutputFailed,
                 "injected snapshot cancel failure",

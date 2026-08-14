@@ -1516,17 +1516,32 @@ impl WorkerBackedBotsterEngine {
             replaced_subscription,
             0,
         );
-        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-            if let Ok(request_id) = self
+        while let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+            match self
                 .runtime
                 .session_runtime_mut()
                 .begin_snapshot_boundary(&session_id)
             {
-                attach.client_id = next_client;
-                attach.subscription_id = next_subscription;
-                attach.request_id = request_id;
-                attach.ready = false;
-                self.incremental_attaches.insert(session_id, attach);
+                Ok(request_id) => {
+                    attach.client_id = next_client;
+                    attach.subscription_id = next_subscription;
+                    attach.request_id = request_id;
+                    attach.ready = false;
+                    self.incremental_attaches.insert(session_id, attach);
+                    return Err(error.into());
+                }
+                Err(_) => {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .detach_consumer(&session_id);
+                    let _ = self.runtime.detach_live_subscription(
+                        next_client,
+                        session_id.clone(),
+                        next_subscription,
+                        0,
+                    );
+                }
             }
         }
         Err(error.into())
@@ -2362,3 +2377,6 @@ where
         Self::new(R::default())
     }
 }
+
+#[cfg(all(test, unix, feature = "local-runtime"))]
+mod takeover_fail_closed_tests;
