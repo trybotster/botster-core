@@ -131,6 +131,43 @@ pub struct SessionLifecycleChanges {
     pub resync_required: Option<SessionLifecycleResyncReason>,
 }
 
+/// Bounded lifecycle page after a cursor.
+///
+/// Successful pages have [`Self::resync_required`] unset. Their complete
+/// `serde_json` encoding is at most the caller-supplied `max_bytes`.
+/// Resync outcomes are control results, not successful pages, and are not
+/// required to satisfy the byte budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionLifecyclePage {
+    /// Strictly ordered changes after the requested cursor.
+    ///
+    /// Empty when [`Self::resync_required`] is present or when no change
+    /// fits the remaining item and encoded-page budget.
+    pub changes: Vec<SessionLifecycleChange>,
+    /// Cursor immediately after the last included change, or the requested
+    /// cursor when the page is empty.
+    pub next: SessionLifecycleCursor,
+    /// Current source watermark.
+    pub source_watermark: SessionLifecycleCursor,
+    /// Explicit loss or generation mismatch, when a fresh baseline is required.
+    pub resync_required: Option<SessionLifecycleResyncReason>,
+}
+
+/// Why a successful lifecycle page cannot be encoded inside `max_bytes`.
+///
+/// First publication is `#[non_exhaustive]`. Downstream matches must handle
+/// [`Self::BudgetTooSmall`] and include a wildcard for later variants.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SessionLifecyclePageError {
+    /// `max_bytes` is smaller than the encoded empty successful page.
+    #[error("lifecycle page budget too small; need at least {minimum_bytes} bytes")]
+    BudgetTooSmall {
+        /// Exact encoded size of the empty successful page for this metadata.
+        minimum_bytes: usize,
+    },
+}
+
 /// Result of attaching a client to a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachedSession {

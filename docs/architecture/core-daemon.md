@@ -115,16 +115,34 @@ the process completes synchronously, the truthful collapsed sequence is only
 The journal is process-memory-only and bounded to 1,024 changes by default;
 tests and specialized embedders can set
 `CoreDaemonConfig::with_lifecycle_journal_capacity`. `lifecycle_changes()`
-returns an explicit `source_changed`, `cursor_expired`, or `cursor_ahead`
-resync reason with an empty change list when continuity cannot be proven. It
-never returns a silently truncated suffix. Recovery is always a new baseline;
-replay is not durable across daemon restart.
+remains the unbounded compatibility reader. `lifecycle_changes_page(after,
+max_changes, max_bytes)` is the bounded reader: it validates the cursor first,
+returns the exact `source_changed`, `cursor_expired`, or `cursor_ahead`
+resync reason with empty changes when continuity cannot be proven, and never
+returns a silently truncated suffix. A valid cursor whose empty successful
+page encodes larger than `max_bytes` returns typed `BudgetTooSmall {
+minimum_bytes }`. `SessionLifecyclePageError` is `#[non_exhaustive]` at first
+publish; consumers must match `BudgetTooSmall` and a wildcard. Recovery is
+always a new baseline; replay is not durable across daemon restart.
 
-Lifecycle consumption does not advance runtimes. The host still drives normal
-`drain` calls (or other existing progress paths), then consumes lifecycle
-changes. `SessionLifecycleChange` contains session projection facts only;
+Control-plane progress is `CoreDaemon::observe_lifecycle`. One call is one
+bounded pass over live sessions in deterministic `SessionId` order. It drains
+and reconciles each session independently, retains incidental terminal egress
+for a later `drain`, and continues after a per-session error. It does not
+call `drain_runtime_all_once` and returns no terminal bytes, phases,
+snapshots, attach state, or `ProcessExited` frames. Page, wake, and baseline
+reads stay side-effect-free.
+
+`append_lifecycle_change` sets one coalesced `journal_advanced` bit.
+`take_journal_advanced_wake` clears that bit. Duplicate appends before take
+stay one bit. Page and baseline never clear it. The safe consume order is
+take, page until `next == source_watermark` or resync, take again, and
+re-page if that second take is true. Never page-then-take-then-sleep.
+
+`SessionLifecycleChange` contains session projection facts only;
 `TransportEgress`, PTY bytes, snapshots, and attach ordering remain exclusively
-on the existing drain/data plane.
+on the existing drain/data plane. `CoreDaemon::drain` may still update the
+journal; it is no longer required to learn exit.
 
 Snapshot payloads are Ghostty-owned opaque terminal state. Production
 `CoreDaemon::capture_snapshot` and the snapshot half of

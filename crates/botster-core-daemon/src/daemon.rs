@@ -36,8 +36,9 @@ use crate::api::{
     ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
     RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
     SessionLifecycleBaseline, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleRecord,
-    SessionLifecycleResyncReason, SessionLifecycleSourceId, SpawnSessionRequest,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -98,6 +99,8 @@ pub struct CoreDaemonConfig {
     pub test_worker_egress_capacity: Option<usize>,
     /// Test-only: fail snapshot history after READY.
     pub test_fail_snapshot_history_after_ready: bool,
+    /// Test-only: make observe's per-session runtime drain fail for this id.
+    pub test_fail_runtime_drain_for: Option<SessionId>,
 }
 
 impl CoreDaemonConfig {
@@ -122,6 +125,7 @@ impl CoreDaemonConfig {
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
             test_fail_snapshot_history_after_ready: false,
+            test_fail_runtime_drain_for: None,
         }
     }
 
@@ -178,6 +182,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
         self.test_fail_snapshot_history_after_ready = enabled;
+        self
+    }
+
+    /// Fail observe's per-session runtime drain for this session id.
+    #[must_use]
+    pub fn with_test_fail_runtime_drain_for(mut self, session_id: Option<SessionId>) -> Self {
+        self.test_fail_runtime_drain_for = session_id;
         self
     }
 
@@ -281,6 +292,25 @@ pub enum CoreDaemonError {
     BindTerminalAdapter(#[from] BindTerminalAdapterError),
 }
 
+/// One session's retained error from a control-plane observe tick.
+#[derive(Debug)]
+pub struct ObserveLifecycleSessionError {
+    /// Session whose observe step failed.
+    pub session_id: SessionId,
+    /// Drain, persist, or reconcile error for this session.
+    pub error: CoreDaemonError,
+}
+
+/// Control-plane result of one [`CoreDaemon::observe_lifecycle`] tick.
+///
+/// This type carries no terminal bytes, phases, snapshots, attach state, or
+/// `ProcessExited` frames. Per-session errors do not abort the remaining pass.
+#[derive(Debug, Default)]
+pub struct ObserveLifecycleResult {
+    /// Errors retained after every live session was attempted.
+    pub session_errors: Vec<ObserveLifecycleSessionError>,
+}
+
 /// Production core daemon supervisor.
 pub struct CoreDaemon {
     config: CoreDaemonConfig,
@@ -294,6 +324,7 @@ pub struct CoreDaemon {
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
+    journal_advanced: bool,
     running: bool,
 }
 
@@ -377,6 +408,7 @@ impl CoreDaemon {
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
+            journal_advanced: false,
             running: true,
         }
     }
@@ -453,24 +485,7 @@ impl CoreDaemon {
     #[must_use]
     pub fn lifecycle_changes(&self, after: &SessionLifecycleCursor) -> SessionLifecycleChanges {
         let cursor = self.lifecycle_cursor();
-        let resync_required = if after.source_id != self.lifecycle_source_id {
-            Some(SessionLifecycleResyncReason::SourceChanged)
-        } else if after.sequence > self.lifecycle_sequence {
-            Some(SessionLifecycleResyncReason::CursorAhead)
-        } else if self
-            .lifecycle_journal
-            .front()
-            .is_some_and(|oldest| after.sequence < oldest.cursor.sequence.saturating_sub(1))
-        {
-            Some(SessionLifecycleResyncReason::CursorExpired {
-                oldest_available_sequence: self
-                    .lifecycle_journal
-                    .front()
-                    .map_or(self.lifecycle_sequence, |change| change.cursor.sequence),
-            })
-        } else {
-            None
-        };
+        let resync_required = self.lifecycle_resync_reason(after);
         let changes = if resync_required.is_some() {
             Vec::new()
         } else {
@@ -485,6 +500,101 @@ impl CoreDaemon {
             changes,
             resync_required,
         }
+    }
+
+    /// Return one bounded lifecycle page after a source cursor.
+    ///
+    /// Cursor identity is validated before the successful-page byte budget.
+    /// Resync outcomes return empty `changes` and the exact reason even when
+    /// `max_bytes` is undersized. They are control outcomes, not successful
+    /// pages. A valid cursor whose empty successful page encodes larger than
+    /// `max_bytes` returns [`SessionLifecyclePageError::BudgetTooSmall`].
+    pub fn lifecycle_changes_page(
+        &self,
+        after: &SessionLifecycleCursor,
+        max_changes: usize,
+        max_bytes: usize,
+    ) -> Result<SessionLifecyclePage, SessionLifecyclePageError> {
+        let source_watermark = self.lifecycle_cursor();
+        if let Some(resync_required) = self.lifecycle_resync_reason(after) {
+            return Ok(SessionLifecyclePage {
+                changes: Vec::new(),
+                next: after.clone(),
+                source_watermark,
+                resync_required: Some(resync_required),
+            });
+        }
+
+        let empty = SessionLifecyclePage {
+            changes: Vec::new(),
+            next: after.clone(),
+            source_watermark: source_watermark.clone(),
+            resync_required: None,
+        };
+        let minimum_bytes = encoded_lifecycle_page_len(&empty);
+        if max_bytes < minimum_bytes {
+            return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
+        }
+
+        let mut page = empty;
+        for change in self
+            .lifecycle_journal
+            .iter()
+            .filter(|change| change.cursor.sequence > after.sequence)
+        {
+            if page.changes.len() >= max_changes {
+                break;
+            }
+            let mut candidate = page.clone();
+            candidate.next = change.cursor.clone();
+            candidate.changes.push(change.clone());
+            if encoded_lifecycle_page_len(&candidate) > max_bytes {
+                break;
+            }
+            page = candidate;
+        }
+        Ok(page)
+    }
+
+    /// Advance session lifecycle facts without returning terminal Drain results.
+    ///
+    /// One call is one bounded pass over live engine sessions in deterministic
+    /// `SessionId` order. Each session is drained and reconciled independently.
+    /// Incidental terminal egress stays on the pending-drain path for a later
+    /// [`Self::drain`]. This method does not call `drain_runtime_all_once`.
+    pub fn observe_lifecycle(
+        &mut self,
+        now_seconds: u64,
+    ) -> Result<ObserveLifecycleResult, CoreDaemonError> {
+        self.ensure_running()?;
+        let mut session_ids: Vec<SessionId> = self
+            .engine
+            .list_sessions()
+            .into_iter()
+            .map(|session| session.session_id)
+            .collect();
+        session_ids.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut result = ObserveLifecycleResult::default();
+        for session_id in session_ids {
+            if let Err(error) = self.observe_session(&session_id, now_seconds) {
+                result
+                    .session_errors
+                    .push(ObserveLifecycleSessionError { session_id, error });
+            }
+        }
+        Ok(result)
+    }
+
+    /// Take the coalesced journal-advanced wake bit.
+    ///
+    /// The wake is one pending bit, not a queue. Page and baseline never clear
+    /// it. Append always sets it. Safe consumer order is take, page until
+    /// caught up or resync, take again, and re-page if that second take is
+    /// true.
+    #[must_use]
+    pub fn take_journal_advanced_wake(&mut self) -> bool {
+        std::mem::take(&mut self.journal_advanced)
     }
 
     /// Attach a client through the existing subscription path.
@@ -1602,6 +1712,82 @@ impl CoreDaemon {
         }
     }
 
+    fn lifecycle_resync_reason(
+        &self,
+        after: &SessionLifecycleCursor,
+    ) -> Option<SessionLifecycleResyncReason> {
+        if after.source_id != self.lifecycle_source_id {
+            Some(SessionLifecycleResyncReason::SourceChanged)
+        } else if after.sequence > self.lifecycle_sequence {
+            Some(SessionLifecycleResyncReason::CursorAhead)
+        } else if self
+            .lifecycle_journal
+            .front()
+            .is_some_and(|oldest| after.sequence < oldest.cursor.sequence.saturating_sub(1))
+        {
+            Some(SessionLifecycleResyncReason::CursorExpired {
+                oldest_available_sequence: self
+                    .lifecycle_journal
+                    .front()
+                    .map_or(self.lifecycle_sequence, |change| change.cursor.sequence),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn observe_session(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        let output = if self
+            .config
+            .test_fail_runtime_drain_for
+            .as_ref()
+            .is_some_and(|failed| failed == session_id)
+        {
+            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    format!("test-injected observe drain failure: {}", session_id.0),
+                ),
+            )));
+        } else {
+            match self.engine.drain_runtime_once(session_id, now_seconds) {
+                Ok(output) => output,
+                Err(error)
+                    if is_session_not_found(&error) && self.engine_session_exited(session_id) =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let result = drain_result_from_engine_output(output);
+        if let Some((rows, cols, resize_at)) = self.engine.take_applied_attach_resize(session_id) {
+            if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
+                self.retain_pending_drain_result(session_id, result);
+                return Err(error);
+            }
+        }
+        if let Err(error) = self.reconcile_lifecycle_observations(&result.observations, now_seconds)
+        {
+            self.retain_pending_drain_result(session_id, result);
+            return Err(error);
+        }
+        if self.engine_session_exited(session_id)
+            && !self.retained_terminal.contains_key(session_id)
+        {
+            if let Err(error) = self.retain_final_terminal_state(session_id) {
+                self.retain_pending_drain_result(session_id, result);
+                return Err(error);
+            }
+        }
+        self.retain_pending_drain_result(session_id, result);
+        Ok(())
+    }
+
     fn append_lifecycle_upsert(
         &mut self,
         record: &RegistryRecord,
@@ -1626,7 +1812,14 @@ impl CoreDaemon {
         while self.lifecycle_journal.len() > capacity {
             self.lifecycle_journal.pop_front();
         }
+        self.journal_advanced = true;
     }
+}
+
+fn encoded_lifecycle_page_len(page: &SessionLifecyclePage) -> usize {
+    serde_json::to_vec(page)
+        .expect("session lifecycle page must serialize")
+        .len()
 }
 
 fn egress_session_id(frame: &TransportEgress) -> Option<&SessionId> {
@@ -2480,6 +2673,7 @@ mod terminal_backend_failure_tests {
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
+            journal_advanced: false,
             running: true,
         }
     }
