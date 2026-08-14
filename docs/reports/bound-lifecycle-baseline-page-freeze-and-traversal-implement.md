@@ -41,7 +41,16 @@ Targeted notes:
 - [[public dto field additions are source breaking without non exhaustive]]
 - [[plugin worker unload deadline can flake under default-concurrency workspace load]]
 
-Checklist: `checklist_1786745907_996770`
+Checklists: `checklist_1786745907_996770`, `checklist_1786747666_979153`
+
+## Review repair
+
+`review_1786747612_446998` sent Implement back for
+`finding_1786747612_443951`. Suffix emission now checks elapsed after
+each counted load or clone and before the next encode. It no longer
+clones the accumulated page. First-page and later-page unit tests
+assert item, encoded-byte, and positive elapsed limits, including
+`baseline_page_encodes` and an elapsed-before-encode negative control.
 
 ## Botster layers changed
 
@@ -95,6 +104,9 @@ Edit:
   unmaterialized `membership` entry (`None` row) before save or remove.
   That keeps copy-on-write correct after the index lists an id and
   observe later writes that file.
+- Suffix emission now matches the planned per-step elapsed checks.
+  Review `finding_1786747612_443951` required this; it is not a new
+  product deviation.
 - Command set follows the ticket and current CI, not the vault note
   prefix of `BOTSTER_ENV=test` on Clippy and doctest.
 
