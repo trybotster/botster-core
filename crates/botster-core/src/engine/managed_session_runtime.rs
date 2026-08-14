@@ -14,8 +14,8 @@ use crate::contract::actor::{
 };
 use crate::contract::terminal_adapter::TerminalAdapter;
 use crate::contract::terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 use crate::engine::client_worker::ClientWorker;
 use crate::engine::command::EngineSessionInspection;
@@ -416,6 +416,7 @@ where
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
         self.client_worker.bind_terminal_adapter(
@@ -423,6 +424,7 @@ where
             session_id,
             subscription_id,
             generation,
+            capabilities,
             adapter,
         )
     }

@@ -289,7 +289,7 @@ pub use terminal_screen::{
     TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
+    TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use transport::{TransportEgress, TransportIngress};

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::client::ClientId;
 use crate::session::{SessionId, SubscriptionId};
 
+pub use botster_terminal_protocol::{TerminalCapabilitySet, TerminalCapabilitySetError};
+
 /// Monotonic generation assigned by Core on attach.
 ///
 /// Reuse of the same `subscription_id` after teardown receives `generation + 1`.
@@ -31,6 +33,8 @@ pub struct TerminalSubscriptionRecord {
     pub generation: TerminalSubscriptionGeneration,
     /// Whether a [`crate::contract::terminal_adapter::TerminalAdapter`] is bound.
     pub adapter_bound: bool,
+    /// Bound negotiated tokens. `None` before bind. Bound empty is `Some` empty.
+    pub capabilities: Option<TerminalCapabilitySet>,
 }
 
 /// Typed rejection from `bind_terminal_adapter`.

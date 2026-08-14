@@ -24,8 +24,8 @@ pub use api::{
     SessionLifecycleResyncReason, SessionLifecycleSourceId, SpawnSessionRequest,
 };
 pub use botster_core::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
+    TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome};
 pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};
