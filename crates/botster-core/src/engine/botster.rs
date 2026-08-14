@@ -4,9 +4,10 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::actor::{
-    MailboxSendFailureReason, PluginCleanupResult, PluginInvocationRequest, PluginKey,
-    PluginReloadSpec, PluginTimerCancellationResult, PluginTimerId, PluginTimerSchedule,
-    PluginUnloadSpec, PreparedSnapshotRequest, QueueSource,
+    MailboxSendFailureReason, PluginAdmissionResult, PluginCleanupResult, PluginCompletionDrain,
+    PluginInvocationClass, PluginInvocationRequest, PluginKey, PluginReloadSpec,
+    PluginTimerCancellationResult, PluginTimerId, PluginTimerSchedule, PluginUnloadSpec,
+    PreparedSnapshotRequest, QueueSource,
 };
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
@@ -2281,6 +2282,25 @@ where
     /// Invoke a registered plugin handler.
     pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.multiplexer.invoke_plugin(request)
+    }
+
+    /// Admit one plugin invocation without waiting for execution or completion.
+    pub fn try_admit_plugin(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        self.multiplexer.try_admit_plugin(class, request)
+    }
+
+    /// Drain previously published async plugin completions without waiting.
+    pub fn drain_plugin_completions(
+        &self,
+        max_items: usize,
+        max_bytes: usize,
+    ) -> PluginCompletionDrain {
+        self.multiplexer
+            .drain_plugin_completions(max_items, max_bytes)
     }
 
     /// Schedule plugin timer work without invoking plugin code inline.

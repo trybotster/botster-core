@@ -302,26 +302,37 @@ plugins that declare host-profile metadata are rejected by the admission helper;
 plugin-worker capability checks continue to use only
 `PackageManifest.capabilities`.
 
-`PluginWorkerEngineConfig` separates each plugin's bounded waiting queue from
-its executor width. `per_plugin_queue_capacity` defaults to 256 and
-`per_plugin_executor_concurrency` defaults to 2; both must be greater than
-zero. Queue capacity controls waiting jobs, while executor concurrency controls
-simultaneously running handlers, so loading a plugin does not allocate one OS
-thread per queue slot.
+`PluginWorkerEngineConfig` separates each plugin's bounded waiting queues from
+its executor width. `per_plugin_queue_capacity` (RequestResponse count, default
+256) and `per_plugin_executor_concurrency` (default 2) remain the original
+knobs. Class-aware admission adds Background count/byte bounds, RequestResponse
+byte bounds, a completion reservation pool, and
+`reserved_request_response_executors` (default 1). Reservation must be at least
+1 and strictly less than executor concurrency so a valid engine always has a
+Background execution slot. Queue capacity controls waiting jobs; executor
+concurrency controls simultaneously running handlers, so loading a plugin does
+not allocate one OS thread per queue slot.
+
+`BotsterEngine::invoke_plugin` stays the blocking RequestResponse path.
+`BotsterEngine::try_admit_plugin` never waits: it returns queued,
+backpressured, rejected_budget, or worker_stopped immediately. Admitted async
+jobs have a Core-owned deadline and exactly one typed completion, drained
+through `BotsterEngine::drain_plugin_completions`. Hosts own the poll loop.
 
 Hosts can observe this mechanism through
 `BotsterEngine::plugin_workers().debug_snapshot()`. The snapshot reports the
-configured queue/executor values plus aggregate and sorted per-plugin counts for
-live executors/workers, queued jobs, and in-flight jobs. Aggregate counts include
-retiring generations until their executor workers join; per-plugin rows cover
-currently registered generations. `BackpressureSummary.depth` for a plugin
-worker counts waiting jobs only, with executing jobs reported separately as
-`in_flight_jobs`. Replacement, reload, unload, and final engine drop reject new
-work, cancel queued and running jobs, call `PluginRuntime::stop`, and join the
-executor workers before teardown returns. Runtime implementations must make
-`stop` promptly unblock cancelled work. A panic escaping `PluginRuntime::invoke`
-retires that executor thread and narrows the plugin's concurrency until its next
-reload.
+configured queue/executor/class/completion values plus aggregate and sorted
+per-plugin counts for live executors/workers, queued jobs, in-flight jobs,
+reserved completions, and pressure. Aggregate counts include retiring
+generations until their executor workers join; per-plugin rows cover currently
+registered generations. `BackpressureSummary.depth` for a plugin worker counts
+waiting jobs only, with executing jobs reported separately as `in_flight_jobs`.
+Replacement, reload, unload, and final engine drop reject new work, cancel
+queued and running jobs, call `PluginRuntime::stop`, join the deadline waiter
+without waiting for a future deadline, and join the executor workers before
+teardown returns. Runtime implementations must make `stop` promptly unblock
+cancelled work. A panic escaping `PluginRuntime::invoke` retires that executor
+thread and narrows the plugin's concurrency until its next reload.
 
 ## Package contracts (summary)
 

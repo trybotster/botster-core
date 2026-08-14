@@ -29,6 +29,8 @@
 //! | Reload plugin | [`PluginReloadSpec`] plus [`PluginWorkerRegistration`] | [`PluginCleanupResult`] | [`BotsterEngine::reload_plugin`](crate::BotsterEngine::reload_plugin) |
 //! | Unload plugin | [`PluginUnloadSpec`] | [`PluginCleanupResult`] | [`BotsterEngine::unload_plugin`](crate::BotsterEngine::unload_plugin) |
 //! | Invoke plugin | [`PluginInvocationRequest`] | [`PluginInvocationOutcome`] | [`BotsterEngine::invoke_plugin`](crate::BotsterEngine::invoke_plugin) |
+//! | Admit plugin | [`PluginInvocationClass`](crate::PluginInvocationClass) plus [`PluginInvocationRequest`] | [`PluginAdmissionResult`](crate::PluginAdmissionResult) | [`BotsterEngine::try_admit_plugin`](crate::BotsterEngine::try_admit_plugin) |
+//! | Drain plugin completions | item and byte caps | [`PluginCompletionDrain`](crate::PluginCompletionDrain) | [`BotsterEngine::drain_plugin_completions`](crate::BotsterEngine::drain_plugin_completions) |
 //!
 //! Core methods are synchronous and deterministic: they return typed outcomes
 //! for the caller to deliver. Hosts own executors, queues, retry policy,

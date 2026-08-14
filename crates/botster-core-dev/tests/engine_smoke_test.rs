@@ -1,6 +1,6 @@
 //! Smoke tests for the dev-only engine harness.
 
-use botster_core_dev::run_engine_smoke;
+use botster_core_dev::{run_engine_smoke, run_plugin_admission_proof};
 
 #[cfg(unix)]
 #[test]
@@ -74,4 +74,14 @@ fn dev_harness_exercises_non_hub_host_profile_engine_path() {
         ]
     );
     assert!(report.shutdown_observed);
+}
+
+#[test]
+fn public_facade_admits_background_work_and_drains_typed_timeout() {
+    let proof = run_plugin_admission_proof().expect("admission consumer should run");
+    assert!(proof.admitted);
+    assert!(proof.timed_out);
+    assert!(proof.class_is_background);
+    assert_eq!(proof.reserved_executors, 1);
+    assert!(proof.live_class_fields_present);
 }
