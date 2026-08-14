@@ -15,6 +15,7 @@ pub mod notification;
 pub mod routed_envelope;
 pub mod session;
 pub mod session_protocol;
+pub mod terminal_adapter;
 pub mod terminal_metadata;
 pub mod terminal_screen;
 pub mod transport;

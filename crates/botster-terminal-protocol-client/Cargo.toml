@@ -1,37 +1,26 @@
 [package]
-name = "botster-core"
+name = "botster-terminal-protocol-client"
 version = "0.1.0"
 edition = "2021"
 authors = ["Botster contributors"]
-description = "Reusable Botster runtime contracts and transport-neutral primitives"
+description = "Semantic Botster terminal protocol types for TUI consumers and TypeScript generation"
 repository = "https://github.com/trybotster/botster-core"
 homepage = "https://github.com/trybotster/botster-core"
-documentation = "https://docs.rs/botster-core"
+documentation = "https://docs.rs/botster-terminal-protocol-client"
 license-file = "../../LICENSE"
 readme = "../../README.md"
-keywords = ["terminal", "pty", "multiplexer", "agents", "runtime"]
-categories = ["command-line-utilities", "development-tools"]
-
-[features]
-default = ["local-runtime"]
-local-runtime = ["dep:portable-pty", "dep:libc"]
+keywords = ["terminal", "protocol", "botster"]
+categories = ["encoding"]
 
 [dependencies]
-aes-gcm = "0.10.3"
 base64 = "0.22.1"
 botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.1.0" }
-libc = { version = "0.2", optional = true }
-portable-pty = { version = "0.9.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.11.0"
 thiserror = "2.0"
-uuid = { version = "1.10", features = ["serde", "v4"] }
-zeroize = { version = "1.8.2", features = ["derive"] }
 
 [dev-dependencies]
-botster-core-test-support = { path = "../botster-core-test-support", default-features = false }
-serde_json = "1.0"
+sha2 = "0.11.0"
 
 [package.metadata.docs.rs]
 all-features = true
