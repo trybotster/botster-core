@@ -763,14 +763,6 @@ impl CoreDaemon {
             .map(|walk| walk.slice)
     }
 
-    /// How many times this daemon listed and sorted live sessions for observe.
-    ///
-    /// A pass snapshots that set once. Resume slices must not increment this.
-    #[must_use]
-    pub const fn observe_live_list_count(&self) -> u64 {
-        self.observe_live_lists
-    }
-
     /// Take the coalesced journal-advanced wake bit.
     ///
     /// The wake is one pending bit, not a queue. Page and baseline never clear
@@ -3116,5 +3108,69 @@ fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {
         SessionWorkerStaleReason::WorkerDied
     } else {
         SessionWorkerStaleReason::ProcessMissing
+    }
+}
+
+#[cfg(all(test, unix))]
+mod observe_pass_snapshot_tests {
+    use super::*;
+    use botster_core::{CoreSessionMetadata, SpawnEnvironment, SpawnWorkingDirectory};
+
+    #[test]
+    fn resume_does_not_list_live_sessions_again() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-observe-list-count-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let first = SessionId("a-observe-list".to_string());
+        let second = SessionId("b-observe-list".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&first), 10)
+            .expect("first spawn");
+        daemon
+            .spawn(snapshot_spawn_request(&second), 11)
+            .expect("second spawn");
+        let budget = ObserveLifecycleBudget {
+            max_sessions: 1,
+            max_encoded_result_bytes: 16 * 1024,
+            max_elapsed: Duration::MAX,
+        };
+        let first_slice = daemon
+            .observe_lifecycle_slice(12, None, budget)
+            .expect("mint");
+        assert_eq!(daemon.observe_live_lists, 1);
+        let resume = ObserveLifecycleCursor {
+            pass_id: first_slice.pass_id.clone(),
+            last_visited: first_slice.last_visited.clone().expect("visited"),
+        };
+        let second_slice = daemon
+            .observe_lifecycle_slice(13, Some(&resume), budget)
+            .expect("resume");
+        assert_eq!(daemon.observe_live_lists, 1);
+        assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
+        daemon.shutdown(Some(first), 20).ok();
+        daemon.shutdown(Some(second), 21).ok();
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    fn snapshot_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+        SpawnSessionRequest {
+            request: botster_core::SessionSpawnRequest {
+                request_id: RequestId(format!("spawn-{}", session_id.0)),
+                session_id: session_id.clone(),
+                executable: "sh".to_string(),
+                arguments: vec!["-c".to_string(), "while :; do sleep 1; done".to_string()],
+                working_directory: SpawnWorkingDirectory {
+                    path: ".".to_string(),
+                },
+                environment: SpawnEnvironment::default(),
+                initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+            },
+            metadata: CoreSessionMetadata::new(),
+        }
     }
 }
