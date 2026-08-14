@@ -274,6 +274,7 @@ struct DeadlineBook {
 struct DeadlineEntry {
     at: Instant,
     plugin_key: PluginKey,
+    generation: u64,
     request_id: RequestId,
 }
 
@@ -614,7 +615,7 @@ impl PluginWorkerEngine {
                     class,
                     request,
                     ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_for(&plugin_key)),
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
                 );
             }
         };
@@ -634,7 +635,7 @@ impl PluginWorkerEngine {
                 class,
                 request,
                 "plugin worker class queue is at capacity",
-                Some(self.backpressure_for(&plugin_key)),
+                Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
         if admission.reserved_completion_count + 1
@@ -655,7 +656,7 @@ impl PluginWorkerEngine {
                 class,
                 request,
                 "plugin completion reservation pool is at capacity",
-                Some(self.backpressure_for(&plugin_key)),
+                Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
 
@@ -666,7 +667,18 @@ impl PluginWorkerEngine {
                     class,
                     request,
                     ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_for(&plugin_key)),
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
+                );
+            }
+        };
+        let mut cancellations = match worker.executor.cancellations.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return self.admission_backpressured(
+                    class,
+                    request,
+                    ADMISSION_LOCK_BUSY,
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
                 );
             }
         };
@@ -676,7 +688,6 @@ impl PluginWorkerEngine {
         let already_expired = timeout_ms == 0;
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let cancellation = PluginCancellationToken::new();
-        worker.track_invocation(request_id.clone(), cancellation.clone());
 
         let async_state = Arc::new(AsyncJobState {
             class,
@@ -714,34 +725,23 @@ impl PluginWorkerEngine {
             .fetch_add(reservation_bytes, Ordering::SeqCst);
 
         if already_expired {
-            admission.jobs.insert(
-                request_id.clone(),
-                TrackedJob {
-                    phase: JobPhase::Queued,
-                    completion: JobCompletion::Async(async_state.clone()),
-                    cancellation: cancellation.clone(),
-                },
-            );
-            drop(deadlines);
-            drop(admission);
             cancellation.cancel();
-            seal_and_publish(
+            publish_prepared_into(
+                &mut admission,
                 &async_state,
-                async_state.fallbacks.timed_out.result.clone(),
-                Some(async_state.fallbacks.timed_out.clone()),
+                async_state.fallbacks.timed_out.clone(),
             );
-            remove_tracked_job(&worker, &request_id);
         } else {
+            cancellations.insert(request_id.clone(), cancellation.clone());
             admission.push_queued(class, job, &worker);
             deadlines.entries.push(DeadlineEntry {
                 at: deadline,
                 plugin_key,
+                generation: worker.generation,
                 request_id: request_id.clone(),
             });
-            drop(deadlines);
             worker.work_cvar.notify_one();
             self.inner.shared.deadline_cvar.notify_one();
-            drop(admission);
         }
 
         PluginAdmissionResult::Queued {
@@ -1189,6 +1189,20 @@ impl PluginWorkerEngine {
         }
     }
 
+    fn backpressure_snapshot(&self, plugin_key: &PluginKey, depth: usize) -> BackpressureSummary {
+        BackpressureSummary {
+            source: QueueSource::PluginWorker,
+            capacity: self.inner.shared.config.per_plugin_queue_capacity,
+            depth,
+            route: BackpressureRoute {
+                session_id: None,
+                client_id: None,
+                subscription_id: None,
+                plugin_key: Some(plugin_key.clone()),
+            },
+        }
+    }
+
     fn record_class_pressure(&self, class: PluginInvocationClass, worker: &WorkerState) {
         if is_background(class) {
             worker
@@ -1244,7 +1258,7 @@ impl PluginWorkerEngine {
                     class,
                     request,
                     ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_for(&plugin_key)),
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
                 );
             }
         };
@@ -1264,7 +1278,7 @@ impl PluginWorkerEngine {
                 class,
                 request,
                 "plugin completion reservation pool is at capacity",
-                Some(self.backpressure_for(&plugin_key)),
+                Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
         admission.reserved_completion_count += 1;
@@ -1287,10 +1301,8 @@ impl PluginWorkerEngine {
             .metrics
             .reserved_completion_bytes
             .fetch_add(reservation_bytes, Ordering::SeqCst);
-        drop(admission);
 
         let request_id = request.request_id.clone();
-        let failure = handler_failed_result(&request, reason);
         let async_state = Arc::new(AsyncJobState {
             class,
             reservation_bytes,
@@ -1298,7 +1310,9 @@ impl PluginWorkerEngine {
             fallbacks,
             worker: worker.clone(),
         });
-        seal_and_publish(&async_state, failure, None);
+        let prepared = prepared_completion(class, handler_failed_result(&request, reason))
+            .unwrap_or_else(|_| async_state.fallbacks.oversize.clone());
+        publish_prepared_into(&mut admission, &async_state, prepared);
         PluginAdmissionResult::Queued {
             request_id,
             class,
@@ -1311,6 +1325,7 @@ impl PluginWorkerEngine {
 #[derive(Clone)]
 struct WorkerState {
     plugin_key: PluginKey,
+    generation: u64,
     manifest: PackageManifest,
     runtime: Arc<dyn PluginRuntime>,
     handlers: HashMap<PluginHandlerRef, PluginHandlerRegistration>,
@@ -1431,6 +1446,7 @@ impl WorkerState {
 
         Self {
             plugin_key,
+            generation,
             manifest: registration.manifest,
             runtime,
             handlers,
@@ -1480,6 +1496,7 @@ impl WorkerState {
         for token in tokens {
             token.cancel();
         }
+        remove_deadlines_for_generation(&self.shared, &self.plugin_key, self.generation);
 
         let (queued, open_async) = {
             let mut admission = self
@@ -2066,6 +2083,56 @@ fn prepared_completion(
     })
 }
 
+fn publish_prepared_into(
+    admission: &mut WorkerAdmission,
+    state: &AsyncJobState,
+    prepared: PreparedCompletion,
+) {
+    if !state.terminal.try_seal() {
+        return;
+    }
+    admission.mailbox.push_back(MailboxItem {
+        completion: prepared.completion,
+        encoded_len: prepared.encoded.len(),
+        reservation_bytes: state.reservation_bytes,
+    });
+    state
+        .worker
+        .metrics
+        .undrained_completions
+        .fetch_add(1, Ordering::SeqCst);
+    state
+        .worker
+        .shared
+        .metrics
+        .undrained_completions
+        .fetch_add(1, Ordering::SeqCst);
+}
+
+fn remove_deadline_entry(
+    shared: &EngineShared,
+    plugin_key: &PluginKey,
+    generation: u64,
+    request_id: &RequestId,
+) {
+    let Ok(mut book) = shared.deadlines.lock() else {
+        return;
+    };
+    book.entries.retain(|entry| {
+        !(entry.plugin_key == *plugin_key
+            && entry.generation == generation
+            && entry.request_id == *request_id)
+    });
+}
+
+fn remove_deadlines_for_generation(shared: &EngineShared, plugin_key: &PluginKey, generation: u64) {
+    if let Ok(mut book) = shared.deadlines.lock() {
+        book.entries
+            .retain(|entry| !(entry.plugin_key == *plugin_key && entry.generation == generation));
+        shared.deadline_cvar.notify_all();
+    }
+}
+
 fn seal_and_publish(
     state: &AsyncJobState,
     result: PluginInvocationResult,
@@ -2110,20 +2177,23 @@ fn seal_and_publish(
         .fetch_add(1, Ordering::SeqCst);
 }
 
-fn remove_tracked_job(worker: &WorkerState, request_id: &RequestId) {
-    if let Ok(mut admission) = worker.admission.lock() {
-        admission.jobs.remove(request_id);
-    }
-    worker.finish_invocation(request_id);
-}
-
 fn complete_job(completion: JobCompletion, result: PluginInvocationResult) {
     match completion {
         JobCompletion::Blocking { result_sender } => {
             let _ = result_sender.send(result);
         }
         JobCompletion::Async(state) => {
+            let request_id = match &result {
+                PluginInvocationResult::Completed(success) => success.request_id.clone(),
+                PluginInvocationResult::Failed(failure) => failure.request_id.clone(),
+            };
             seal_and_publish(&state, result, None);
+            remove_deadline_entry(
+                &state.worker.shared,
+                &state.worker.plugin_key,
+                state.worker.generation,
+                &request_id,
+            );
         }
     }
 }
@@ -2320,15 +2390,20 @@ fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
             None => return,
         }
     };
+    if worker.generation != entry.generation {
+        return;
+    }
     let mut admission = match worker.admission.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let Some(tracked) = admission.jobs.get(&entry.request_id).cloned() else {
+    let Some(tracked) = admission.jobs.remove(&entry.request_id) else {
         return;
     };
     let JobCompletion::Async(state) = tracked.completion else {
         tracked.cancellation.cancel();
+        drop(admission);
+        worker.finish_invocation(&entry.request_id);
         return;
     };
     if matches!(tracked.phase, JobPhase::Queued) {
@@ -2338,6 +2413,7 @@ fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
     }
     tracked.cancellation.cancel();
     drop(admission);
+    worker.finish_invocation(&entry.request_id);
     seal_and_publish(
         &state,
         state.fallbacks.timed_out.result.clone(),
@@ -2427,6 +2503,84 @@ impl PluginWorkerEngine {
             .lock()
             .expect("plugin worker admission mutex poisoned");
         self.try_admit(class, request)
+    }
+
+    fn try_admit_while_holding_registry_lock(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        let _guard = self
+            .inner
+            .shared
+            .workers
+            .lock()
+            .expect("plugin worker engine mutex poisoned");
+        self.try_admit(class, request)
+    }
+
+    fn try_admit_while_holding_deadline_lock(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        let _guard = self
+            .inner
+            .shared
+            .deadlines
+            .lock()
+            .expect("plugin deadline book mutex poisoned");
+        self.try_admit(class, request)
+    }
+
+    fn try_admit_while_holding_cancellation_lock(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        let worker = self
+            .worker_for(&request.handler.plugin_key)
+            .expect("plugin must be loaded for lock-contention proof");
+        let _guard = worker
+            .executor
+            .cancellations
+            .lock()
+            .expect("plugin worker cancellations mutex poisoned");
+        self.try_admit(class, request)
+    }
+
+    fn tracked_job_count(&self, plugin_key: &PluginKey) -> usize {
+        self.worker_for(plugin_key)
+            .and_then(|worker| {
+                worker
+                    .admission
+                    .lock()
+                    .ok()
+                    .map(|admission| admission.jobs.len())
+            })
+            .unwrap_or_default()
+    }
+
+    fn tracked_cancellation_count(&self, plugin_key: &PluginKey) -> usize {
+        self.worker_for(plugin_key)
+            .and_then(|worker| {
+                worker
+                    .executor
+                    .cancellations
+                    .lock()
+                    .ok()
+                    .map(|cancellations| cancellations.len())
+            })
+            .unwrap_or_default()
+    }
+
+    fn tracked_deadline_count(&self) -> usize {
+        self.inner
+            .shared
+            .deadlines
+            .lock()
+            .map(|book| book.entries.len())
+            .unwrap_or_default()
     }
 }
 
@@ -2691,5 +2845,167 @@ mod tests {
         let started = Instant::now();
         drop(engine);
         assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn try_admit_returns_backpressured_when_registry_deadline_or_cancellation_lock_is_held() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("locks".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        assert!(matches!(
+            engine.try_admit_while_holding_registry_lock(
+                PluginInvocationClass::Background,
+                request("reg", handler(&plugin), 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        assert!(matches!(
+            engine.try_admit_while_holding_deadline_lock(
+                PluginInvocationClass::Background,
+                request("dead", handler(&plugin), 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        assert!(matches!(
+            engine.try_admit_while_holding_cancellation_lock(
+                PluginInvocationClass::Background,
+                request("cancel", handler(&plugin), 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        assert!(matches!(
+            engine.try_admit_while_holding_admission_lock(
+                PluginInvocationClass::Background,
+                request("zero", handler(&plugin), 0),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        let missing = PluginHandlerRef {
+            plugin_key: plugin.clone(),
+            kind: PluginHandlerKind::Command,
+            handler_id: "missing".into(),
+        };
+        assert!(matches!(
+            engine.try_admit_while_holding_admission_lock(
+                PluginInvocationClass::Background,
+                request("fail", missing, 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+    }
+
+    #[test]
+    fn stale_deadline_does_not_seal_reloaded_generation_with_reused_request_id() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("reload-deadline".into());
+        load(&engine, &plugin, Duration::from_secs(5));
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("same", handler(&plugin), 40),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        load(&engine, &plugin, Duration::from_secs(5));
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("same", handler(&plugin), 5_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        let first = engine.drain_completions(8, usize::MAX);
+        assert!(first.completions.iter().all(|completion| {
+            matches!(
+                completion.result,
+                PluginInvocationResult::Failed(ref failure)
+                    if failure.kind == PluginInvocationFailureKind::WorkerStopped
+            )
+        }));
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(engine
+            .drain_completions(8, usize::MAX)
+            .completions
+            .is_empty());
+        assert_eq!(engine.tracked_job_count(&plugin), 1);
+    }
+
+    #[test]
+    fn queued_timeouts_and_fast_completions_do_not_retain_private_tracking() {
+        let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+            per_plugin_queue_capacity: 32,
+            per_plugin_executor_concurrency: 2,
+            reserved_request_response_executors: 1,
+            background_queue_capacity: 32,
+            ..PluginWorkerEngineConfig::default()
+        });
+        let plugin = PluginKey("bounded".into());
+        load(&engine, &plugin, Duration::from_secs(5));
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("occupy", handler(&plugin), 5_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        for index in 0..8 {
+            let started = Instant::now();
+            let admitted = loop {
+                match engine.try_admit(
+                    PluginInvocationClass::Background,
+                    request(&format!("expire-{index}"), handler(&plugin), 20),
+                ) {
+                    PluginAdmissionResult::Queued { .. } => break true,
+                    PluginAdmissionResult::Backpressured { reason, .. }
+                        if reason == ADMISSION_LOCK_BUSY
+                            && started.elapsed() < Duration::from_millis(100) =>
+                    {
+                        continue;
+                    }
+                    other => panic!("expected queued expire job, got {other:?}"),
+                }
+            };
+            assert!(admitted);
+        }
+        let started = Instant::now();
+        let mut timed_out = 0;
+        while started.elapsed() < Duration::from_millis(400) && timed_out < 8 {
+            timed_out += engine
+                .drain_completions(8, usize::MAX)
+                .completions
+                .into_iter()
+                .filter(|completion| {
+                    matches!(
+                        completion.result,
+                        PluginInvocationResult::Failed(ref failure)
+                            if failure.kind == PluginInvocationFailureKind::TimedOut
+                    )
+                })
+                .count();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(timed_out, 8);
+        assert_eq!(engine.tracked_job_count(&plugin), 1);
+        assert_eq!(engine.tracked_cancellation_count(&plugin), 1);
+        assert_eq!(engine.tracked_deadline_count(), 1);
+
+        let fast = PluginKey("fast".into());
+        load(&engine, &fast, Duration::from_millis(1));
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("fast", handler(&fast), 30_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_millis(250) && engine.tracked_job_count(&fast) > 0
+        {
+            let _ = engine.drain_completions(8, usize::MAX);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(engine.tracked_job_count(&fast), 0);
+        assert_eq!(engine.tracked_cancellation_count(&fast), 0);
+        assert_eq!(engine.tracked_deadline_count(), 1);
     }
 }

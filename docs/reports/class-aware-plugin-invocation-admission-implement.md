@@ -87,6 +87,13 @@ Registered Hub consumers, not implemented here:
 
 `PluginWorkerEngineConfig` gained required fields. Hub struct literals will break on upgrade; those tickets own the wiring.
 
+## Review findings addressed (`review_1786668617_282076`)
+
+- Deadlines are bound to worker generation plus request id. Reload with a reused request id cannot be sealed by the prior generation. Deadlines are removed on completion, timeout, unload, and reload.
+- `try_admit` uses `try_lock` for registry, admission, deadline book, and cancellation map. Error-path backpressure is built from already-held worker metrics. Zero-timeout and immediate-failure publish into the held admission lock. Contention tests cover those locks.
+- Queued timeouts remove `admission.jobs` and cancellation entries. Fast completions remove the long-deadline book entry. Repeated timeout and fast-completion tests prove private tracking stays bounded.
+- Occupier tests start one executor at a time. The timer backpressure test uses a gated runtime instead of a sleep window. `BOTSTER_ENV=test cargo test --workspace -- --test-threads=1` passed.
+
 ## Deviations from plan
 
 None in product behavior. Implementation details required by correctness:
@@ -99,36 +106,25 @@ None in product behavior. Implementation details required by correctness:
 
 Human correction `question_1786664489_333289`: repository-documented CI Cargo commands. No replacement wrapper.
 
-Passed:
+Passed after Review return:
 
 - `cargo fmt --all -- --check`
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings`
-- `BOTSTER_ENV=test cargo test -p botster-core --lib plugin_worker` (crate-private lock contention, first-commit order, Drop)
-- `BOTSTER_ENV=test cargo test -p botster-core --test plugin_worker_engine_test`
-- `BOTSTER_ENV=test cargo test -p botster-core --test botster_engine_api_test` including `botster_engine_try_admit_plugin_drains_typed_background_timeout`
-- `BOTSTER_ENV=test cargo test -p botster-core-dev` including `public_facade_admits_background_work_and_drains_typed_timeout`
+- `BOTSTER_ENV=test cargo test --workspace -- --test-threads=1` (exit 0, including the previously failing changed tests and `many_pty_load_adversarial_noisy_reports_reader_backpressure`)
+- crate-private generation, lock-contention, and bounded-tracking tests
+- public reload reused-request-id test
 
 Production entry points:
 
 - `BotsterEngine::try_admit_plugin` / `drain_plugin_completions` wrap `PluginWorkerEngine`.
 - `botster-core-dev::run_plugin_admission_proof` is a separate-crate consumer of that facade.
 
-Pre-existing failure, isolated on branch and base `033cd01` with the same command (both exit 101, same assertion):
-
-```
-BOTSTER_ENV=test cargo test -p botster-core-test-support --test downstream_conformance_test many_pty_load_adversarial_noisy_reports_reader_backpressure -- --exact
-```
-
-This is a SessionIo PTY pressure test. This ticket did not change SessionIo, terminal queues, or daemon attach.
-
-Earlier workspace flake `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` passed in isolation and on a later full daemon suite (71/71).
-
 ## Unverified behavior or residual risk
 
 - Hub live product callers are still scaffold disposition. First product caller is the registered Hub event-router ticket.
 - `try_admit` can return `backpressured` on a busy admission lock; that is specified, but hosts must retry.
 - `PluginTimerScheduler::drain_due` still uses blocking `invoke` (explicit non-scope).
-- `many_pty_load_adversarial_noisy_reports_reader_backpressure` still fails on current `main`; not repaired here.
+- Full workspace success was observed once after the Review fixes; the PTY load test has been intermittently red on `main` in earlier isolated runs.
 
 ## Missing vault guidance discovered
 
