@@ -1,20 +1,69 @@
 //! Plugin timer scheduler acceptance tests.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use botster_core::{
     BotsterEngine, BoundaryJson, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
-    PackageManifest, PluginCleanupScope, PluginDescriptorKind, PluginDescriptorRef,
-    PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration, PluginInvocationContext,
-    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
-    PluginLoadSpec, PluginOwnedDescriptor, PluginResourceKind, PluginResourceRef, PluginTimerEvent,
+    PackageManifest, PluginCancellationToken, PluginCleanupScope, PluginDescriptorKind,
+    PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef, PluginHandlerRegistration,
+    PluginInvocationContext, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec,
+    PluginOwnedDescriptor, PluginResourceKind, PluginResourceRef, PluginRuntime, PluginTimerEvent,
     PluginTimerId, PluginTimerMode, PluginTimerSchedule, PluginUnloadSpec,
     PluginWorkerRegistration, RequestId,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
+
+#[derive(Clone, Default)]
+struct OccupiedRuntime {
+    started: Arc<AtomicUsize>,
+    invocations: Arc<AtomicUsize>,
+    gate: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl OccupiedRuntime {
+    fn release(&self) {
+        let (released, condition) = &*self.gate;
+        *released.lock().expect("occupied runtime release lock") = true;
+        condition.notify_all();
+    }
+
+    fn invocation_count(&self) -> usize {
+        self.invocations.load(Ordering::SeqCst)
+    }
+
+    fn started(&self) -> usize {
+        self.started.load(Ordering::SeqCst)
+    }
+}
+
+impl PluginRuntime for OccupiedRuntime {
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        cancellation: PluginCancellationToken,
+    ) -> PluginInvocationResult {
+        self.invocations.fetch_add(1, Ordering::SeqCst);
+        self.started.fetch_add(1, Ordering::SeqCst);
+        let (released, condition) = &*self.gate;
+        let mut guard = released.lock().expect("occupied runtime wait lock");
+        while !*guard && !cancellation.is_cancelled() {
+            guard = match condition.wait_timeout(guard, Duration::from_millis(10)) {
+                Ok((inner, _)) => inner,
+                Err(poisoned) => poisoned.into_inner().0,
+            };
+        }
+        PluginInvocationResult::Completed(PluginInvocationSuccess {
+            request_id: request.request_id,
+            handler: request.handler,
+            payload: Some(BoundaryJson(serde_json::json!({ "value": "occupied" }))),
+        })
+    }
+}
 
 fn request_id(value: &str) -> RequestId {
     RequestId(value.to_string())
@@ -66,7 +115,7 @@ fn manifest(plugin_key: &PluginKey) -> PackageManifest {
 }
 
 fn registration(
-    runtime: FakePluginRuntime,
+    runtime: impl PluginRuntime,
     plugin_key: &PluginKey,
     handler: &PluginHandlerRef,
 ) -> PluginWorkerRegistration {
@@ -123,9 +172,13 @@ fn timer_schedule(
     }
 }
 
-fn plugin_invocation(handler: PluginHandlerRef, timeout_ms: u64) -> PluginInvocationRequest {
+fn plugin_invocation(
+    request: &str,
+    handler: PluginHandlerRef,
+    timeout_ms: u64,
+) -> PluginInvocationRequest {
     PluginInvocationRequest {
-        request_id: request_id("occupy-worker"),
+        request_id: request_id(request),
         handler,
         timeout_ms,
         context: PluginInvocationContext {
@@ -145,7 +198,8 @@ fn engine() -> BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> {
         FakeSessionRuntime::new(),
         botster_core::PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
-            per_plugin_executor_concurrency: 1,
+            per_plugin_executor_concurrency: 2,
+            ..botster_core::PluginWorkerEngineConfig::default()
         },
     )
 }
@@ -417,37 +471,53 @@ fn interval_timer_retries_after_backpressure() {
     let engine = engine();
     let plugin = plugin_key("backpressure-recovery-plugin");
     let handler = timer_handler(&plugin, "timer");
-    let runtime = FakePluginRuntime::delayed(Duration::from_millis(80));
-    engine.load_plugin(registration(runtime.clone(), &plugin, &handler));
+    let occupy = OccupiedRuntime::default();
+    engine.load_plugin(registration(occupy.clone(), &plugin, &handler));
 
-    let occupied_engine = engine.clone();
-    let occupied_handler = handler.clone();
-    let occupied = std::thread::spawn(move || {
-        occupied_engine.invoke_plugin(plugin_invocation(occupied_handler, 200))
-    });
-    wait_for_snapshot(&engine, |debug| {
-        debug.in_flight_jobs == 1 && debug.queued_jobs == 0
-    });
+    let mut occupied = Vec::new();
+    for index in 0..2 {
+        let occupied_engine = engine.clone();
+        let occupied_handler = handler.clone();
+        occupied.push(std::thread::spawn(move || {
+            occupied_engine.invoke_plugin(plugin_invocation(
+                &format!("occupy-worker-{index}"),
+                occupied_handler,
+                5_000,
+            ))
+        }));
+        let expected = index + 1;
+        wait_for_snapshot(&engine, |debug| {
+            debug.in_flight_jobs == expected && debug.queued_jobs == 0
+        });
+        assert_eq!(occupy.started(), expected);
+    }
 
     let queued_engine = engine.clone();
     let queued_handler = handler.clone();
     let queued = std::thread::spawn(move || {
-        queued_engine.invoke_plugin(plugin_invocation(queued_handler, 200))
+        queued_engine.invoke_plugin(plugin_invocation(
+            "occupy-worker-queued",
+            queued_handler,
+            5_000,
+        ))
     });
     wait_for_snapshot(&engine, |debug| {
-        debug.in_flight_jobs == 1 && debug.queued_jobs == 1
+        debug.in_flight_jobs == 2 && debug.queued_jobs == 1
     });
 
     engine.schedule_plugin_timer(timer_schedule(
         "interval-backpressure",
         "interval-backpressure-timer",
-        handler,
+        handler.clone(),
         10,
         PluginTimerMode::Interval { interval_ms: 10 },
         "tick",
     ));
     let pressured = engine.drain_plugin_timers_due(10);
-    occupied.join().expect("join occupied worker");
+    occupy.release();
+    for handle in occupied {
+        handle.join().expect("join occupied worker");
+    }
     queued.join().expect("join queued worker");
     let recovered = engine.drain_plugin_timers_due(20);
 
@@ -456,7 +526,7 @@ fn interval_timer_retries_after_backpressure() {
         PluginTimerEvent::Backpressured { timer_id, .. }
             if timer_id.0 == "interval-backpressure-timer"
     )));
-    assert_eq!(runtime.invocations().len(), 3);
+    assert_eq!(occupy.invocation_count(), 4);
     assert!(matches!(
         recovered.events.as_slice(),
         [PluginTimerEvent::Fired { .. }]

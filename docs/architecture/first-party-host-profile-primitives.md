@@ -33,10 +33,15 @@ in the host, hub, provider, or plugin.
   default shell, target admission, cwd, environment inheritance, marketplace
   state, or lifecycle policy.
 - Plugin worker isolation has a reusable core mechanism. `crates/botster-core/src/engine/plugin_worker.rs`
-  owns per-plugin capacity, capability checks, deadlines, cancellation, load,
-  reload, unload, descriptor cleanup, resource cleanup, and backpressure
-  reporting. Concrete Lua, process, or future WASM execution stays behind the
+  owns per-plugin class-aware admission, reserved RequestResponse executors,
+  capability checks, Core-owned async deadlines, cancellation, load, reload,
+  unload, descriptor cleanup, resource cleanup, completion draining, and
+  backpressure reporting. `PluginWorkerDebugSnapshot` and
+  `PluginWorkerPluginDebugSnapshot` expose per-class queued count/bytes,
+  in-flight jobs, reserved completions, pressure, and reserved executor
+  capacity. Concrete Lua, process, or future WASM execution stays behind the
   host-supplied `PluginRuntime` trait in `crates/botster-core/src/runtime/mod.rs`.
+  Which operations are Background vs RequestResponse remains host policy.
 - Capabilities and extension metadata are already manifest-level contracts.
   `crates/botster-core/src/package/capability.rs` defines broad capability
   surfaces such as `Mcp`, `PluginDb`, `Filesystem`, `Network`, `Secrets`,

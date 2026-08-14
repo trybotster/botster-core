@@ -2,30 +2,30 @@
 
 use std::error::Error;
 use std::fmt;
-#[cfg(unix)]
 use std::sync::Arc;
-
-#[cfg(unix)]
 use std::thread;
-#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use botster_core::{
-    admit_host_profile, BotsterEngine, BotsterEngineObservation, BoundaryJson, CoreSessionMetadata,
-    DefaultBotsterEngine, DefaultEngineCommand, EngineCommand, EngineCommandOutcome,
-    ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, HostProfilePolicySection,
-    LocalProcessRuntime, LocalProcessWorkerRuntime, PackageManifest, PackageSource,
-    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginWorkerEngineConfig, PluginWorkerRegistration, RequestId,
-    ResizePayload, SessionIoEvent, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
+    admit_host_profile, BotsterEngineObservation, CoreSessionMetadata, DefaultBotsterEngine,
+    DefaultEngineCommand, EngineCommand, EngineCommandOutcome, HostProfilePolicySection,
+    LocalProcessRuntime, LocalProcessWorkerRuntime, PackageSource, PluginDescriptorKind,
+    PluginDescriptorRef, PluginOwnedDescriptor, PluginWorkerEngineConfig, ResizePayload,
+    SessionIoEvent, SessionLifecycleState, SessionSpawnRequest, SpawnEnvironment,
     SpawnWorkingDirectory, SubscriptionId, TransportEgress,
 };
+use botster_core::{
+    BotsterEngine, BoundaryJson, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime,
+    PackageManifest, PluginAdmissionResult, PluginCompletion, PluginHandlerKind, PluginHandlerRef,
+    PluginHandlerRegistration, PluginInvocationClass, PluginInvocationContext,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginWorkerRegistration, RequestId,
+};
 use botster_core::{Capability, CapabilitySurface, ClientId, SessionActivityStatus, SessionId};
-#[cfg(unix)]
-use botster_core_test_support::fake::FakePluginRuntime;
+use botster_core_test_support::fake::{
+    FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
+};
 
 /// Deterministic report emitted by the dev-only real embedder smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +188,128 @@ pub fn run_engine_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     run_real_embedder_smoke()
 }
 
+/// Separate-crate proof that a public facade consumer can admit Background
+/// work, drain a typed completion, and read live class snapshot fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginAdmissionProof {
+    /// Whether `try_admit_plugin` accepted the Background request.
+    pub admitted: bool,
+    /// Whether the drained completion was a typed timeout.
+    pub timed_out: bool,
+    /// Whether the completion recorded the Background admission class.
+    pub class_is_background: bool,
+    /// Reserved RequestResponse executor slots from the live snapshot.
+    pub reserved_executors: usize,
+    /// Whether the live snapshot reported class-specific fields.
+    pub live_class_fields_present: bool,
+}
+
+/// Admit Background work through `BotsterEngine` and drain one typed completion.
+pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeError> {
+    let engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        BotsterEngine::new(FakeSessionRuntime::new());
+    let plugin_key = PluginKey("core-dev-admission".to_string());
+    let handler = PluginHandlerRef {
+        plugin_key: plugin_key.clone(),
+        kind: PluginHandlerKind::Command,
+        handler_id: "slow".to_string(),
+    };
+    engine.load_plugin(PluginWorkerRegistration {
+        load: PluginLoadSpec {
+            plugin_key: plugin_key.clone(),
+            package: plugin_key.0.clone(),
+            entrypoint: "plugin.lua".to_string(),
+            descriptors: Vec::new(),
+            metadata: None,
+        },
+        manifest: PackageManifest {
+            name: plugin_key.0.clone(),
+            version: "0.1.0".to_string(),
+            kind: ExtensionKind::Plugin,
+            botster: ">=0.1.0".to_string(),
+            source: None,
+            capabilities: Vec::new(),
+            entrypoints: vec![ExtensionEntrypoint {
+                runtime: ExtensionRuntime::Lua,
+                path: "plugin.lua".to_string(),
+                bootstrap: false,
+            }],
+            dependencies: Vec::new(),
+            features: Vec::new(),
+            host_profile: None,
+            configuration: None,
+            runnable_entrypoints: Vec::new(),
+        },
+        runtime: Arc::new(FakePluginRuntime::delayed(Duration::from_millis(200))),
+        handlers: vec![PluginHandlerRegistration {
+            handler: handler.clone(),
+            required_capability: None,
+        }],
+        resources: Vec::new(),
+    });
+
+    let request = PluginInvocationRequest {
+        request_id: RequestId("core-dev-timeout".to_string()),
+        handler,
+        timeout_ms: 10,
+        context: PluginInvocationContext {
+            client_id: None,
+            session_id: None,
+            subscription_id: None,
+            surface_id: None,
+            origin: Some("core-dev".to_string()),
+            metadata: None,
+        },
+        payload: BoundaryJson(serde_json::json!({ "op": "slow" })),
+    };
+    let admit_started = Instant::now();
+    let admitted = loop {
+        match engine.try_admit_plugin(PluginInvocationClass::Background, request.clone()) {
+            PluginAdmissionResult::Queued { .. } => break true,
+            PluginAdmissionResult::Backpressured { reason, .. }
+                if reason == "admission lock busy"
+                    && admit_started.elapsed() < Duration::from_millis(100) =>
+            {
+                std::thread::yield_now();
+            }
+            _ => break false,
+        }
+    };
+
+    let started = Instant::now();
+    let mut completion = None;
+    while started.elapsed() < Duration::from_secs(1) {
+        let drain = engine.drain_plugin_completions(8, usize::MAX);
+        if let Some(item) = drain.completions.into_iter().next() {
+            completion = Some(item);
+            break;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    let snapshot = engine.plugin_workers().debug_snapshot();
+    let completion = completion.ok_or_else(|| {
+        EngineSmokeError::new("did not drain a Background completion through the public facade")
+    })?;
+
+    Ok(PluginAdmissionProof {
+        admitted,
+        timed_out: matches!(
+            &completion,
+            PluginCompletion {
+                result: PluginInvocationResult::Failed(failure),
+                ..
+            } if failure.kind == PluginInvocationFailureKind::TimedOut
+        ),
+        class_is_background: matches!(completion.class, PluginInvocationClass::Background),
+        reserved_executors: snapshot.configured_reserved_request_response_executors,
+        live_class_fields_present: snapshot.configured_background_queue_capacity > 0
+            && snapshot.plugins.iter().any(|plugin| {
+                plugin.reserved_request_response_executors
+                    == snapshot.configured_reserved_request_response_executors
+            }),
+    })
+}
+
 #[cfg(unix)]
 fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
     let admitted =
@@ -245,6 +367,7 @@ fn run_real_embedder_smoke() -> Result<EngineSmokeReport, EngineSmokeError> {
             PluginWorkerEngineConfig {
                 per_plugin_queue_capacity: 32,
                 per_plugin_executor_concurrency: 2,
+                ..PluginWorkerEngineConfig::default()
             },
         );
     let plugin_proof = run_plugin_proof(&mut plugin_engine, &admitted_capability)?;

@@ -10,10 +10,11 @@ use botster_core::{
     PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
     PluginHandlerRegistration, PluginInvocationContext, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec,
-    PluginOwnedDescriptor, PluginWorkerEvent, PluginWorkerRegistration, ProcessExitedPayload,
-    QueueSource, RequestId, SessionActivityStatus, SessionId, SessionLifecycleState,
-    SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, SubscriptionMultiplexerObservation, TransportEgress, TransportIngress,
+    PluginOwnedDescriptor, PluginWorkerEngineConfig, PluginWorkerEvent, PluginWorkerRegistration,
+    ProcessExitedPayload, QueueSource, RequestId, SessionActivityStatus, SessionId,
+    SessionLifecycleState, SessionSpawnRequest, SessionWorkerRuntimeEvent, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, SubscriptionMultiplexerObservation, TransportEgress,
+    TransportIngress,
 };
 use botster_core_test_support::fake::{
     FakePluginBehavior, FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
@@ -220,7 +221,8 @@ fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
             FakeSessionRuntime::new(),
             botster_core::PluginWorkerEngineConfig {
                 per_plugin_queue_capacity: 1,
-                per_plugin_executor_concurrency: 1,
+                per_plugin_executor_concurrency: 2,
+                ..PluginWorkerEngineConfig::default()
             },
         );
     let plugin = plugin_key();
@@ -279,6 +281,15 @@ fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
     ));
     assert!(matches!(
         queued.events.as_slice(),
+        [PluginWorkerEvent::InvocationTimedOut(_)]
+    ));
+    let still_queued = engine.invoke_plugin(plugin_invocation_with_timeout(
+        "plugin-still-queued",
+        handler.clone(),
+        10,
+    ));
+    assert!(matches!(
+        still_queued.events.as_slice(),
         [PluginWorkerEvent::InvocationTimedOut(_)]
     ));
     let pressured = engine.invoke_plugin(plugin_invocation_with_timeout(
