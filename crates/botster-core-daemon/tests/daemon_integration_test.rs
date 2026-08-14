@@ -17,9 +17,10 @@ use botster_core::{
     NotificationDeliveryStatus, NotificationId, NotificationItem, NotificationSeverity,
     NotificationSource, NotificationTarget, NotificationTimestamp, RequestId, ResizePayload, Rgb,
     RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
-    SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalAttachState, TerminalColorProfile, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
+    SessionId, SessionLifecycleState, SessionRuntimeErrorKind, SessionSpawnRequest,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TerminalAttachState, TerminalColorProfile, TransportEgress,
+    MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest,
@@ -29,7 +30,9 @@ use botster_core_daemon::{
     PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadModeFlagsRequest, ReadScreenRequest,
     ReadinessEvidence, RegistrySessionState, SafeWriteIndicator, SessionAdoptionState,
     SessionLifecycleBaseline, SessionLifecycleChangeKind, SessionLifecycleChanges,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SpawnSessionRequest,
+    SessionLifecycleCursor, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SpawnSessionRequest,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -84,6 +87,85 @@ fn lifecycle_changes_reject_a_cursor_ahead_of_the_source() {
         Some(SessionLifecycleResyncReason::CursorAhead)
     );
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_page_validates_cursor_before_budget_and_rejects_undersized_success() {
+    let data_dir = temp_data_dir("lifecycle-page-budget");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let cursor = daemon
+        .lifecycle_baseline()
+        .expect("empty lifecycle baseline")
+        .cursor;
+
+    match daemon.lifecycle_changes_page(&cursor, 8, 0) {
+        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => {
+            assert!(minimum_bytes > 0);
+            let minus_one = daemon
+                .lifecycle_changes_page(&cursor, 8, minimum_bytes - 1)
+                .expect_err("minimum minus one must not encode a successful page");
+            assert!(matches!(
+                minus_one,
+                SessionLifecyclePageError::BudgetTooSmall {
+                    minimum_bytes: again
+                } if again == minimum_bytes
+            ));
+            let exact = daemon
+                .lifecycle_changes_page(&cursor, 0, minimum_bytes)
+                .expect("exact minimum returns the empty successful page");
+            assert_successful_page_within_budget(&exact, minimum_bytes);
+            assert!(exact.changes.is_empty());
+            assert_eq!(exact.next, cursor);
+            assert_eq!(exact.source_watermark, cursor);
+        }
+        other => panic!("expected BudgetTooSmall, got {other:?}"),
+    }
+
+    let mut ahead = cursor.clone();
+    ahead.sequence += 1;
+    let foreign = SessionLifecycleCursor {
+        source_id: SessionLifecycleSourceId("foreign".to_string()),
+        sequence: 0,
+    };
+    for (after, expected) in [
+        (ahead, SessionLifecycleResyncReason::CursorAhead),
+        (foreign, SessionLifecycleResyncReason::SourceChanged),
+    ] {
+        let page = daemon
+            .lifecycle_changes_page(&after, 0, 0)
+            .expect("resync must win over an undersized budget");
+        assert!(page.changes.is_empty());
+        assert_eq!(page.resync_required, Some(expected));
+    }
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_api_types_are_control_plane_only() {
+    let api = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/api.rs"));
+    let start = api
+        .find("pub struct SessionLifecycleSourceId")
+        .expect("lifecycle types start");
+    let end = api
+        .find("pub struct AttachedSession")
+        .expect("lifecycle types end before attach");
+    let section = &api[start..end];
+    for forbidden in [
+        "TransportEgress",
+        "TerminalSnapshotPayload",
+        "TerminalAttachState",
+        "GHOSTSNP",
+        "client_egress",
+    ] {
+        assert!(
+            !section.contains(forbidden),
+            "lifecycle API must stay control-plane-only; found {forbidden}"
+        );
+    }
+    assert!(section.contains("pub struct SessionLifecyclePage"));
+    assert!(section.contains("#[non_exhaustive]"));
+    assert!(section.contains("BudgetTooSmall"));
 }
 
 #[cfg(unix)]
@@ -3791,6 +3873,294 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
 
 #[cfg(unix)]
 #[test]
+fn worker_backed_observe_advances_exit_without_attach_or_drain() {
+    let data_dir = temp_data_dir("lifecycle-observe-zero-client");
+    let session_id = SessionId("lifecycle-observe-zero-client".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_lifecycle_journal_capacity(8),
+    );
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("empty observe baseline")
+        .cursor;
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("zero-client fixture should spawn");
+    let running = daemon
+        .lifecycle_changes_page(&baseline, 8, 16 * 1024)
+        .expect("spawn page");
+    assert_successful_page_within_budget(&running, 16 * 1024);
+    assert_eq!(running.changes.len(), 1);
+
+    let exited = observe_until_exited(&mut daemon, &session_id, &running.next, 20);
+    assert_successful_page_within_budget(&exited, 16 * 1024);
+    assert!(daemon.take_journal_advanced_wake());
+    assert!(matches!(
+        daemon
+            .list()
+            .expect("registry after observe")
+            .first()
+            .map(|session| session.registry_state.clone()),
+        Some(RegistrySessionState::Exited)
+    ));
+
+    daemon
+        .shutdown(Some(session_id), 40)
+        .expect("exited worker should shut down");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_dropped_wake_still_converges_by_page() {
+    let data_dir = temp_data_dir("lifecycle-dropped-wake");
+    let session_id = SessionId("lifecycle-dropped-wake".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("dropped-wake baseline")
+        .cursor;
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("dropped-wake spawn");
+    let _ = daemon.take_journal_advanced_wake();
+    let exited = observe_until_exited(&mut daemon, &session_id, &baseline, 20);
+    let _discarded = daemon.take_journal_advanced_wake();
+    let later = daemon
+        .lifecycle_changes_page(&baseline, 8, 16 * 1024)
+        .expect("later page after discarded wake");
+    assert_successful_page_within_budget(&later, 16 * 1024);
+    assert!(page_contains_exited(&later, &session_id));
+    assert!(page_contains_exited(&exited, &session_id));
+    daemon
+        .shutdown(Some(session_id), 40)
+        .expect("dropped-wake shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn lifecycle_wakes_coalesce_and_page_does_not_clear_them() {
+    let data_dir = temp_data_dir("lifecycle-wake-coalesce");
+    let session_id = SessionId("lifecycle-wake-coalesce".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    assert!(!daemon.take_journal_advanced_wake());
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("first append sets the wake");
+    daemon
+        .resize(
+            ClientId("wake-client".to_string()),
+            session_id.clone(),
+            25,
+            80,
+            11,
+        )
+        .expect("second append stays one bit");
+    let cursor = daemon.lifecycle_baseline().expect("wake baseline").cursor;
+    let _ = daemon
+        .lifecycle_changes_page(&cursor, 8, 16 * 1024)
+        .expect("page must not clear the wake");
+    assert!(daemon.take_journal_advanced_wake());
+    assert!(!daemon.take_journal_advanced_wake());
+    daemon
+        .shutdown(Some(session_id), 20)
+        .expect("wake fixture shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn lifecycle_page_stops_on_item_count_and_encoded_bytes() {
+    let data_dir = temp_data_dir("lifecycle-page-limits");
+    let first = SessionId("lifecycle-page-a".to_string());
+    let second = SessionId("lifecycle-page-b".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_lifecycle_journal_capacity(8));
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("page-limit baseline")
+        .cursor;
+    daemon
+        .spawn(spawn_request(&first), 10)
+        .expect("first spawn");
+    daemon
+        .spawn(spawn_request(&second), 11)
+        .expect("second spawn");
+
+    let one = daemon
+        .lifecycle_changes_page(&baseline, 1, 16 * 1024)
+        .expect("item-count stop");
+    assert_successful_page_within_budget(&one, 16 * 1024);
+    assert_eq!(one.changes.len(), 1);
+    assert_ne!(one.next, one.source_watermark);
+
+    let first_change_bytes = serde_json::to_vec(&one).expect("encode one-change page");
+    let two = daemon
+        .lifecycle_changes_page(&baseline, 8, 16 * 1024)
+        .expect("both changes");
+    assert_successful_page_within_budget(&two, 16 * 1024);
+    assert_eq!(two.changes.len(), 2);
+    let two_bytes = serde_json::to_vec(&two).expect("encode two-change page");
+    assert!(two_bytes.len() > first_change_bytes.len());
+    let byte_stopped = daemon
+        .lifecycle_changes_page(&baseline, 8, two_bytes.len() - 1)
+        .expect("encoded-page stop");
+    assert_successful_page_within_budget(&byte_stopped, two_bytes.len() - 1);
+    assert_eq!(byte_stopped.changes.len(), 1);
+
+    daemon.shutdown(Some(first), 20).expect("first shutdown");
+    daemon.shutdown(Some(second), 21).expect("second shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn lifecycle_page_expired_cursor_resyncs_before_budget() {
+    let data_dir = temp_data_dir("lifecycle-page-expired");
+    let session_id = SessionId("lifecycle-page-expired".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_lifecycle_journal_capacity(1));
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("expired baseline")
+        .cursor;
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("first append");
+    daemon
+        .resize(
+            ClientId("expired-client".to_string()),
+            session_id.clone(),
+            26,
+            80,
+            11,
+        )
+        .expect("second append evicts the first");
+    let page = daemon
+        .lifecycle_changes_page(&baseline, 0, 0)
+        .expect("expired resync wins over zero budget");
+    assert!(page.changes.is_empty());
+    assert!(matches!(
+        page.resync_required,
+        Some(SessionLifecycleResyncReason::CursorExpired { .. })
+    ));
+    daemon
+        .shutdown(Some(session_id), 20)
+        .expect("expired fixture shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_retains_one_session_error_and_still_exits_a_later_sibling() {
+    let data_dir = temp_data_dir("lifecycle-observe-sibling");
+    let earlier = SessionId("a-observe-fail".to_string());
+    let later = SessionId("b-observe-exit".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_fail_runtime_drain_for(Some(earlier.clone())),
+    );
+    daemon
+        .spawn(spawn_request(&earlier), 10)
+        .expect("earlier sibling stays live");
+    daemon
+        .spawn(immediate_exit_spawn_request(&later), 11)
+        .expect("later sibling should spawn");
+    let after_spawn = daemon
+        .lifecycle_baseline()
+        .expect("sibling spawn watermark")
+        .cursor;
+    // `exit 0` becomes a zombie until the observe drain reaps it. Do not wait
+    // on kill -0; that stays true until this tick.
+    std::thread::sleep(Duration::from_millis(50));
+
+    let observed = daemon
+        .observe_lifecycle(20)
+        .expect("observe must finish the full pass");
+    assert_eq!(observed.session_errors.len(), 1);
+    assert_eq!(observed.session_errors[0].session_id, earlier);
+    assert!(matches!(
+        &observed.session_errors[0].error,
+        CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Runtime(error))
+            if error.kind == SessionRuntimeErrorKind::OutputFailed
+    ));
+    let page = daemon
+        .lifecycle_changes_page(&after_spawn, 8, 16 * 1024)
+        .expect("sibling page");
+    assert!(
+        page_contains_exited(&page, &later),
+        "later sibling must publish Exited on the same observe tick: {page:?}"
+    );
+
+    daemon
+        .shutdown(Some(earlier), 30)
+        .expect("earlier shutdown");
+    daemon.shutdown(Some(later), 31).expect("later shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_then_drain_still_delivers_terminal_process_exited() {
+    let data_dir = temp_data_dir("lifecycle-observe-then-process-exit");
+    let session_id = SessionId("lifecycle-observe-process-exit".to_string());
+    let client_id = ClientId("lifecycle-observe-process-exit-client".to_string());
+    let subscription_id = SubscriptionId("lifecycle-observe-process-exit-sub".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    daemon
+        .spawn(self_exit_spawn_request(&session_id), 10)
+        .expect("process-exit fixture spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach before observe");
+    daemon
+        .input(
+            client_id.clone(),
+            session_id.clone(),
+            b"finish\n".to_vec(),
+            12,
+        )
+        .expect("input should cause natural exit");
+    let baseline = daemon
+        .lifecycle_baseline()
+        .expect("process-exit baseline")
+        .cursor;
+    let _ = observe_until_exited(&mut daemon, &session_id, &baseline, 20);
+    let drained = daemon
+        .drain(&session_id, 40)
+        .expect("terminal drain remains available after observe");
+    assert!(
+        drained.client_egress.iter().any(|(target, frame)| {
+            target == &client_id
+                && matches!(
+                    frame,
+                    TransportEgress::ProcessExit {
+                        session_id: frame_session,
+                        subscription_id: frame_subscription,
+                        ..
+                    } if frame_session == &session_id && frame_subscription == &subscription_id
+                )
+        }),
+        "unbound drain must still deliver ProcessExited after control-plane Exited: {:?}",
+        drained.client_egress
+    );
+    daemon
+        .shutdown(Some(session_id), 50)
+        .expect("process-exit shutdown");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync() {
     let data_dir = temp_data_dir("lifecycle-source-overflow");
     let session_id = SessionId("lifecycle-overflow-session".to_string());
@@ -6368,6 +6738,73 @@ fn retained_history_spawn_request(session_id: &SessionId) -> SpawnSessionRequest
     let mut request = spawn_request(session_id);
     request.request.arguments[1] = "printf 'echo:dwgrh-prior-marker\nready'; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done".to_string();
     request
+}
+
+fn immediate_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+    SpawnSessionRequest {
+        request: SessionSpawnRequest {
+            request_id: RequestId(format!("{}-spawn", session_id.0)),
+            session_id: session_id.clone(),
+            executable: "sh".to_string(),
+            arguments: vec!["-c".to_string(), "exit 0".to_string()],
+            working_directory: SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: SpawnEnvironment::default(),
+            initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+        },
+        metadata: CoreSessionMetadata::new(),
+    }
+}
+
+fn assert_successful_page_within_budget(page: &SessionLifecyclePage, max_bytes: usize) {
+    assert!(page.resync_required.is_none());
+    let encoded = serde_json::to_vec(page).expect("successful page must serialize");
+    assert!(
+        encoded.len() <= max_bytes,
+        "successful page encoded {} bytes, budget {max_bytes}",
+        encoded.len()
+    );
+}
+
+fn page_contains_exited(page: &SessionLifecyclePage, session_id: &SessionId) -> bool {
+    page.changes.iter().any(|change| {
+        matches!(
+            &change.kind,
+            SessionLifecycleChangeKind::Upsert { record }
+                if record.session.session_id == *session_id
+                    && record.session.registry_state == RegistrySessionState::Exited
+                    && matches!(
+                        record.lifecycle,
+                        Some(SessionLifecycleState::Exited { code: Some(0) })
+                    )
+        )
+    })
+}
+
+fn observe_until_exited(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    after: &SessionLifecycleCursor,
+    now_seconds: u64,
+) -> SessionLifecyclePage {
+    for tick in 0..100 {
+        daemon
+            .observe_lifecycle(now_seconds + tick)
+            .expect("observe_lifecycle should succeed");
+        let page = daemon
+            .lifecycle_changes_page(after, 16, 16 * 1024)
+            .expect("page after observe");
+        assert_successful_page_within_budget(&page, 16 * 1024);
+        if page_contains_exited(&page, session_id) {
+            return page;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "observe_lifecycle did not publish Exited for {}",
+        session_id.0
+    )
 }
 
 fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {

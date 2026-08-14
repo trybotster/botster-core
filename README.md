@@ -171,7 +171,12 @@ guarded writes). Prefer those methods over assembling lower-level engines.
 
 Production hosts that maintain a session projection start with
 `CoreDaemon::lifecycle_baseline`, retain its source-generation cursor, and call
-`CoreDaemon::lifecycle_changes` after their normal daemon progress/drain work.
+`CoreDaemon::observe_lifecycle` to advance control-plane facts without a
+terminal client or Hub terminal Drain. Consume `CoreDaemon::lifecycle_changes_page`
+after taking the coalesced `take_journal_advanced_wake` bit: take, page until
+`next` equals the source watermark or a resync reason appears, take again, and
+re-page if that second take is true. `lifecycle_changes` remains the unbounded
+compatibility reader.
 Each lifecycle row includes the opaque, host-owned `CoreSessionMetadata` map
 supplied at spawn. The daemon persists that map in its registry and restores it
 when adopting a worker, so reconnecting hosts can rebuild their own session
@@ -202,8 +207,10 @@ generic facade for custom runtimes.
 1. **Clock** — pass host `now_seconds` into attach, drain, input, inspect, and
    shutdown. Core does not call wall clocks for policy.
 2. **Drain** — call `drain_runtime_once` / `drain_runtime_all_once` (library) or
-   `CoreDaemon::drain` (production) regularly while sessions are live. Output,
-   lifecycle observations, and attach-time history replay surface on drain.
+   `CoreDaemon::drain` (production) regularly while attached terminal clients
+   need output. Terminal bytes, snapshots, attach phases, and `ProcessExited`
+   frames surface on drain. Control-plane lifecycle progress uses
+   `CoreDaemon::observe_lifecycle` instead of Drain.
 3. **Deliver** — route returned client egress and session requests to transports;
    do not re-inject already-routed session requests as new work.
 4. **Backpressure** — honor bounded queue / backpressure summaries from drain and
@@ -213,10 +220,11 @@ generic facade for custom runtimes.
 5. **Other drains** — if you use notifications or routed envelopes on
    `CoreDaemon`, drain those APIs separately; they are daemon process memory,
    not registry-durable across process restart.
-6. **Lifecycle projection** — establish one lifecycle baseline, then consume
-   ordered changes after normal progress calls instead of polling `list()`.
-   Resync from a fresh baseline whenever the change result says the cursor is
-   no longer valid.
+6. **Lifecycle projection** — establish one lifecycle baseline, then drive
+   `observe_lifecycle` and consume bounded pages through the take / page /
+   take-again loop instead of polling `list()`. Resync from a fresh baseline
+   whenever a page returns a resync reason. Raise `max_bytes` to the reported
+   `minimum_bytes` on `BudgetTooSmall`.
 
 Depth lives in architecture docs:
 

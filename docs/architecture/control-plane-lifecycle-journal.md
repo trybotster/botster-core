@@ -9,11 +9,10 @@ This is a Core mechanism ticket in the Botster Non-Blocking Event Plane.
 Living design belongs here under `docs/architecture/`, not under the retired
 `docs/plans/` stub. See `docs/README.md`.
 
-Revision 4 answers Plan Review `review_1786683950_871736`. It does not
-re-litigate routing, teardown classification, the Hub dependency, the
-BudgetTooSmall algorithm, or resolved earlier findings. The remaining
-product gap is the public-enum compatibility contract for
-`SessionLifecyclePageError`.
+Revision 4 is the approved implementation contract. Core now publishes
+`observe_lifecycle`, `take_journal_advanced_wake`, and
+`lifecycle_changes_page` on `CoreDaemon`. `SessionLifecyclePageError` is
+`#[non_exhaustive]` with first variant `BudgetTooSmall`.
 
 This ticket is **runtime-teardown class** because it changes
 terminal-state versus live-runtime observation: session exit must advance

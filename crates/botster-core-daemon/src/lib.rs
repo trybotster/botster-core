@@ -20,14 +20,18 @@ pub use api::{
     ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
     RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
     SessionLifecycleBaseline, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleRecord,
-    SessionLifecycleResyncReason, SessionLifecycleSourceId, SpawnSessionRequest,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SpawnSessionRequest,
 };
 pub use botster_core::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
     TerminalSubscriptionRecord,
 };
-pub use daemon::{CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome};
+pub use daemon::{
+    CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,
+    ObserveLifecycleSessionError,
+};
 pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};
 pub use guarded_write::{
     GuardedWriteDecision, GuardedWriteDeliveryState, PromptEvidence, ReadinessEvidence,
