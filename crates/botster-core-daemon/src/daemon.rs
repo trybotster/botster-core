@@ -2236,7 +2236,6 @@ impl CoreDaemon {
                 break;
             }
             *items_used = items_used.saturating_add(1);
-            *ops = ops.saturating_add(1);
             let record = match self.materialize_baseline_row(&next_id) {
                 Ok(Some(record)) => record,
                 Ok(None) => {
@@ -2251,20 +2250,26 @@ impl CoreDaemon {
                     ));
                 }
             };
-            let mut candidate = page.clone();
-            candidate.sessions.push(record);
-            let following =
-                self.next_baseline_membership_id(Some(&SessionId(next_id.clone())), false);
-            candidate.complete = following.is_none();
-            candidate.next = following.map(SessionId);
             *ops = ops.saturating_add(1);
-            self.record_baseline_page_encode();
-            if encoded_lifecycle_baseline_page_len(&candidate) > budget.max_bytes {
+            if self.baseline_elapsed(started, *ops) >= budget.max_elapsed {
                 page.next = Some(SessionId(next_id));
                 page.complete = false;
                 break;
             }
-            page = candidate;
+            page.sessions.push(record);
+            let following =
+                self.next_baseline_membership_id(Some(&SessionId(next_id.clone())), false);
+            page.complete = following.is_none();
+            page.next = following.map(SessionId);
+            self.record_baseline_page_encode();
+            let encoded = encoded_lifecycle_baseline_page_len(&page);
+            *ops = ops.saturating_add(1);
+            if encoded > budget.max_bytes {
+                page.sessions.pop();
+                page.next = Some(SessionId(next_id));
+                page.complete = false;
+                break;
+            }
             cursor = Some(SessionId(next_id));
             if self.baseline_elapsed(started, *ops) >= budget.max_elapsed && !page.complete {
                 break;
@@ -3675,6 +3680,52 @@ mod baseline_freeze_bound_tests {
         ))
     }
 
+    fn finish_index(daemon: &mut CoreDaemon, count: usize) -> SessionLifecycleCursor {
+        let page = daemon
+            .lifecycle_baseline_page(
+                None,
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: count,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("finish index");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        page.snapshot_sequence
+    }
+
+    fn materialized_rows(daemon: &CoreDaemon) -> usize {
+        daemon
+            .baseline_freeze
+            .as_ref()
+            .map(|freeze| {
+                freeze
+                    .membership
+                    .values()
+                    .filter(|row| row.is_some())
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    fn empty_page_minimum(daemon: &mut CoreDaemon, snapshot: &SessionLifecycleCursor) -> usize {
+        match daemon.lifecycle_baseline_page(
+            Some(snapshot),
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: 0,
+                max_elapsed: Duration::MAX,
+            },
+        ) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("expected BudgetTooSmall, got {other:?}"),
+        }
+    }
+
     #[test]
     fn setup_only_elapsed_does_not_scan_or_copy() {
         let data_dir = data_dir("setup-only");
@@ -3806,6 +3857,8 @@ mod baseline_freeze_bound_tests {
         assert_eq!(first.sessions.len(), 1);
         assert!(!first.complete);
         assert_eq!(daemon.baseline_row_copies, 1);
+        assert_eq!(daemon.baseline_page_encodes, 1);
+        assert_eq!(materialized_rows(&daemon), 1);
         let scans_after_first = daemon.baseline_index_scans;
         let second = daemon
             .lifecycle_baseline_page(
@@ -3825,6 +3878,176 @@ mod baseline_freeze_bound_tests {
         );
         assert_eq!(daemon.baseline_index_scans, scans_after_first);
         assert_eq!(daemon.baseline_row_copies, 2);
+        assert_eq!(daemon.baseline_page_encodes, 2);
+        assert_eq!(materialized_rows(&daemon), 2);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn first_suffix_elapsed_stops_before_encode() {
+        let data_dir = data_dir("first-suffix-elapsed");
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+        );
+        seed_records(&daemon, 8);
+        let snapshot = finish_index(&mut daemon, 8);
+        assert_eq!(daemon.baseline_index_scans, 8);
+        assert_eq!(daemon.baseline_row_copies, 0);
+        assert_eq!(daemon.baseline_page_encodes, 0);
+        let page = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::from_millis(1),
+                },
+            )
+            .expect("elapsed after materialize");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert!(page.next.is_some());
+        assert_eq!(daemon.baseline_index_scans, 8);
+        assert_eq!(daemon.baseline_row_copies, 1);
+        assert_eq!(
+            daemon.baseline_page_encodes, 0,
+            "elapsed must stop before the encode step"
+        );
+        assert_eq!(materialized_rows(&daemon), 1);
+        let continued = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                page.next.as_ref(),
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("continue after elapsed yield");
+        assert_eq!(continued.sessions.len(), 1);
+        assert_eq!(
+            continued.sessions[0].session.session_id,
+            page.next
+                .clone()
+                .expect("elapsed yield names the unencoded row")
+        );
+        assert_ne!(continued.next, page.next);
+        assert_eq!(daemon.baseline_row_copies, 2);
+        assert_eq!(daemon.baseline_page_encodes, 1);
+        assert_eq!(materialized_rows(&daemon), 1);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn later_suffix_elapsed_stops_before_encode() {
+        let data_dir = data_dir("later-suffix-elapsed");
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+        );
+        seed_records(&daemon, 8);
+        let snapshot = finish_index(&mut daemon, 8);
+        let first = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("first suffix row");
+        assert_eq!(first.sessions.len(), 1);
+        assert_eq!(daemon.baseline_row_copies, 1);
+        assert_eq!(daemon.baseline_page_encodes, 1);
+        let page = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                first.next.as_ref(),
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::from_millis(1),
+                },
+            )
+            .expect("later elapsed after materialize");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert_eq!(page.next, first.next);
+        assert_eq!(daemon.baseline_index_scans, 8);
+        assert_eq!(daemon.baseline_row_copies, 2);
+        assert_eq!(daemon.baseline_page_encodes, 1);
+        assert_eq!(materialized_rows(&daemon), 2);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn first_suffix_byte_limit_stops_before_remaining_rows() {
+        let data_dir = data_dir("first-suffix-bytes");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        seed_records(&daemon, 8);
+        let snapshot = finish_index(&mut daemon, 8);
+        let minimum = empty_page_minimum(&mut daemon, &snapshot);
+        let page = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: minimum,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("byte-limited first suffix");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert!(page.next.is_some());
+        assert_eq!(daemon.baseline_row_copies, 1);
+        assert_eq!(daemon.baseline_page_encodes, 1);
+        assert_eq!(materialized_rows(&daemon), 1);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn later_suffix_byte_limit_stops_before_remaining_rows() {
+        let data_dir = data_dir("later-suffix-bytes");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        seed_records(&daemon, 8);
+        let snapshot = finish_index(&mut daemon, 8);
+        let first = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                None,
+                LifecycleBaselineBudget {
+                    max_rows: 1,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("first suffix row");
+        assert_eq!(first.sessions.len(), 1);
+        let minimum = empty_page_minimum(&mut daemon, &snapshot);
+        let page = daemon
+            .lifecycle_baseline_page(
+                Some(&snapshot),
+                first.next.as_ref(),
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: minimum,
+                    max_elapsed: Duration::MAX,
+                },
+            )
+            .expect("byte-limited later suffix");
+        assert!(!page.complete);
+        assert!(page.sessions.is_empty());
+        assert_eq!(page.next, first.next);
+        assert_eq!(daemon.baseline_row_copies, 2);
+        assert_eq!(daemon.baseline_page_encodes, 2);
+        assert_eq!(materialized_rows(&daemon), 2);
         let _ = std::fs::remove_dir_all(data_dir);
     }
 }
