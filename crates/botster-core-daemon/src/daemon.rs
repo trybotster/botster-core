@@ -3675,6 +3675,11 @@ mod baseline_freeze_bound_tests {
     use super::*;
     use botster_core::SessionId;
 
+    /// One counted op expires a matching `max_elapsed` even if wall time is
+    /// zero. The value is larger than workspace-load scheduling jitter so
+    /// the first check at `ops = 0` still has slack.
+    const TEST_ELAPSED_STEP: Duration = Duration::from_secs(60);
+
     fn seed_records(daemon: &CoreDaemon, count: usize) {
         for index in 0..count {
             let record = RegistryRecord::running(
@@ -3878,8 +3883,7 @@ mod baseline_freeze_bound_tests {
     fn mid_work_elapsed_hook_stops_after_partial_index_progress() {
         let data_dir = data_dir("elapsed-hook");
         let mut daemon = CoreDaemon::new(
-            CoreDaemonConfig::new(&data_dir)
-                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+            CoreDaemonConfig::new(&data_dir).with_test_baseline_elapsed_per_op(TEST_ELAPSED_STEP),
         );
         seed_records(&daemon, 8);
         let minted = daemon
@@ -3901,7 +3905,7 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::from_millis(1),
+                    max_elapsed: TEST_ELAPSED_STEP,
                 },
             )
             .expect("one counted op");
@@ -3916,7 +3920,7 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::from_millis(1),
+                    max_elapsed: TEST_ELAPSED_STEP,
                 },
             )
             .expect("later suffix");
@@ -3980,8 +3984,7 @@ mod baseline_freeze_bound_tests {
     fn first_suffix_elapsed_stops_before_encode() {
         let data_dir = data_dir("first-suffix-elapsed");
         let mut daemon = CoreDaemon::new(
-            CoreDaemonConfig::new(&data_dir)
-                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+            CoreDaemonConfig::new(&data_dir).with_test_baseline_elapsed_per_op(TEST_ELAPSED_STEP),
         );
         seed_records(&daemon, 8);
         let snapshot = finish_index(&mut daemon, 8);
@@ -3996,7 +3999,7 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::from_millis(1),
+                    max_elapsed: TEST_ELAPSED_STEP,
                 },
             )
             .expect("elapsed after materialize");
@@ -4042,8 +4045,7 @@ mod baseline_freeze_bound_tests {
     fn later_suffix_elapsed_stops_before_encode() {
         let data_dir = data_dir("later-suffix-elapsed");
         let mut daemon = CoreDaemon::new(
-            CoreDaemonConfig::new(&data_dir)
-                .with_test_baseline_elapsed_per_op(Duration::from_millis(1)),
+            CoreDaemonConfig::new(&data_dir).with_test_baseline_elapsed_per_op(TEST_ELAPSED_STEP),
         );
         seed_records(&daemon, 8);
         let snapshot = finish_index(&mut daemon, 8);
@@ -4070,7 +4072,7 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::from_millis(1),
+                    max_elapsed: TEST_ELAPSED_STEP,
                 },
             )
             .expect("later elapsed after materialize");

@@ -60,6 +60,13 @@ size. Tests assert `encoded_lifecycle_baseline_page_len(page) <= max_bytes`
 and retry the smallest accepted continuation budget. Directory EOF counts
 as one index item so index completion does not emit rows in the same call.
 
+`review_1786749255_168904` sent Implement back for
+`finding_1786749255_103543`. Positive elapsed unit tests now use a 60
+second synthetic per-operation interval and matching `max_elapsed`.
+One counted operation still expires the budget. Wall-clock slack
+absorbs default-concurrency workspace jitter. Production elapsed still
+uses `Instant` only.
+
 ## Botster layers changed
 
 - `botster-core-daemon` public `lifecycle_baseline_page` budget, incremental
