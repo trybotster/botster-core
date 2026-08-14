@@ -74,6 +74,7 @@ Edit:
 - `crates/botster-core/src/contract/terminal_adapter.rs`
 - `crates/botster-core/src/engine/mod.rs`
 - `crates/botster-core/src/engine/botster.rs`
+- `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`
 - `crates/botster-core/src/engine/managed_session_runtime.rs`
 - `crates/botster-core/src/runtime/worker_process.rs`
 - `crates/botster-core/src/lib.rs`
@@ -129,9 +130,14 @@ Review `review_1786675180_532728` required one further product fix that fulfills
 
 - Worker-backed same-key owner replacement cancels the live IncrementalAttach owner's snapshot boundary and starts the replacement boundary on the attach path. Reconcile uses `(client_id, subscription_id)`, not subscription_id alone. `WorkerProcessRuntime` Drop cancels any outstanding snapshot before `SHUTDOWN` so a fenced worker cannot hang `child.wait()`.
 
+Review `review_1786678096_983456` required two further fixes:
+
+- Recovery begin failure now detaches every remaining pending owner instead of dropping IncrementalAttach while those owners stay published.
+- Snapshot fail-next injection is `#[cfg(test)]` and `pub(crate)` only. `CoreDaemon` no longer exposes test failure switches.
+
 Review `review_1786677187_382484` required three further product fixes on that takeover path:
 
-- Takeover cancels the old boundary and begins the replacement boundary before it publishes the new ClientWorker owner. Cancel or begin failure does not leave a published owner without IncrementalAttach. Injected cancel and begin failures prove the fail-closed inventory.
+- Takeover cancels the old boundary and begins the replacement boundary before it publishes the new ClientWorker owner. Cancel or begin failure does not leave a published owner without IncrementalAttach. If recovery cannot start a pending sibling, that sibling is detached. Injected cancel and begin failures live only in crate tests.
 - Takeover keeps accepted input and the latest resize for pending sibling clients. It drops only the replaced owner and the new owner's obsolete pending work.
 - Takeover removes the new owner's pending tuples before that client becomes the active IncrementalAttach owner, so an obsolete B/Y boundary cannot start after B/X finishes.
 
@@ -167,8 +173,7 @@ Focused production-path proofs:
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_bound_adapter_receives_ready_finish_without_drain_snapshots`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- --exact worker_same_key_owner_replacement_cancels_the_active_boundary`
-- `worker_same_key_takeover_cancel_failure_does_not_publish_the_new_owner`
-- `worker_same_key_takeover_begin_failure_does_not_publish_the_new_owner`
+- `BOTSTER_ENV=test cargo test -p botster-core --lib takeover_fail_closed_tests`
 - `worker_same_key_takeover_preserves_pending_sibling_input_and_resize`
 - `worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription`
 - Isolated Hub-shaped consumer via `botster-core-test-support` `terminal_adapter_conformance_test`

@@ -540,16 +540,6 @@ impl CoreDaemon {
         })
     }
 
-    /// Fail the next worker snapshot cancel. Tests use this to prove fail-closed takeover.
-    pub fn fail_next_snapshot_cancel(&mut self) {
-        self.engine.fail_next_snapshot_cancel();
-    }
-
-    /// Fail the next worker snapshot begin. Tests use this to prove fail-closed takeover.
-    pub fn fail_next_snapshot_begin(&mut self) {
-        self.engine.fail_next_snapshot_begin();
-    }
-
     /// Bind a content-blind adapter to a live attach generation.
     ///
     /// After bind, this route's terminal frames leave only through the adapter.
@@ -2154,18 +2144,6 @@ impl DaemonEngine {
     fn release_workers_for_restart(&mut self) {
         if let Self::Worker(engine) = self {
             engine.release_workers_for_restart();
-        }
-    }
-
-    fn fail_next_snapshot_cancel(&mut self) {
-        if let Self::Worker(engine) = self {
-            engine.session_runtime_mut().fail_next_snapshot_cancel();
-        }
-    }
-
-    fn fail_next_snapshot_begin(&mut self) {
-        if let Self::Worker(engine) = self {
-            engine.session_runtime_mut().fail_next_snapshot_begin();
         }
     }
 }
