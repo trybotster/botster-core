@@ -331,16 +331,23 @@ impl WorkerProcessRuntime {
 
     /// Mark a parent-side consumer attached to worker egress.
     pub fn attach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        self.session_mut(session_id)?;
+        let session = self.session_mut(session_id)?;
+        session.consumer_count.fetch_add(1, Ordering::AcqRel);
         Ok(())
     }
 
     /// Mark a parent-side consumer detached from worker egress.
     ///
     /// No attach/detach wire frames are sent; this is parent-side delivery
-    /// registration around the worker egress stream.
+    /// registration around the worker egress stream. A detached parent may
+    /// drop live PTY bytes and report overflow. An attached parent stalls.
     pub fn detach_consumer(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        self.session_mut(session_id)?;
+        let session = self.session_mut(session_id)?;
+        let _ = session
+            .consumer_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                Some(count.saturating_sub(1))
+            });
         Ok(())
     }
 
@@ -923,6 +930,7 @@ impl WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
+        let consumer_count = Arc::new(AtomicUsize::new(0));
         spawn_stdout_reader(
             control.try_clone().map_err(|error| {
                 SessionRuntimeError::new(
@@ -935,6 +943,7 @@ impl WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
+            Arc::clone(&consumer_count),
         );
         let metadata = SessionMetadata {
             session_uuid: session_id.0.clone(),
@@ -976,6 +985,7 @@ impl WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
+                consumer_count,
             },
         );
 
@@ -1207,6 +1217,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
+        let consumer_count = Arc::new(AtomicUsize::new(0));
         spawn_stdout_reader(
             reader,
             sender,
@@ -1214,6 +1225,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&pong_count),
             Arc::clone(&last_health),
             Arc::clone(&completion),
+            Arc::clone(&consumer_count),
         );
 
         self.sessions.insert(
@@ -1235,6 +1247,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                 outstanding_snapshot_request: None,
                 supports_snapshot_boundary,
                 egress_capacity: self.options.egress_capacity.max(1),
+                consumer_count,
             },
         );
 
@@ -1366,6 +1379,7 @@ struct WorkerProcessSession {
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
+    consumer_count: Arc<AtomicUsize>,
 }
 
 struct GatedInFlight {
@@ -1780,6 +1794,7 @@ fn spawn_stdout_reader(
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
+    consumer_count: Arc<AtomicUsize>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
@@ -1787,6 +1802,7 @@ fn spawn_stdout_reader(
                 FRAME_PTY_OUTPUT => send_worker_event(
                     &sender,
                     &overflow,
+                    &consumer_count,
                     WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                 ),
                 FRAME_PROCESS_EXITED => {
@@ -1801,6 +1817,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
                     }
@@ -1810,6 +1827,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
                         );
                     }
@@ -1819,6 +1837,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
                     }
@@ -1827,6 +1846,7 @@ fn spawn_stdout_reader(
                     send_worker_event(
                         &sender,
                         &overflow,
+                        &consumer_count,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
                 }
@@ -1835,6 +1855,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
                     }
@@ -1844,6 +1865,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
                             )),
@@ -1856,6 +1878,7 @@ fn spawn_stdout_reader(
                             send_worker_event(
                                 &sender,
                                 &overflow,
+                                &consumer_count,
                                 WorkerChannelEvent::ModeFlags(payload),
                             );
                         }
@@ -1870,11 +1893,13 @@ fn spawn_stdout_reader(
                         Ok(result) => send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::ModeGatedResult(result),
                         ),
                         Err(error) => send_worker_event(
                             &sender,
                             &overflow,
+                            &consumer_count,
                             WorkerChannelEvent::MalformedModeGated {
                                 request_id: String::new(),
                                 message: format!("malformed mode-gated result: {error}"),
@@ -1911,8 +1936,38 @@ fn spawn_stdout_reader(
 fn send_worker_event(
     sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
+    consumer_count: &AtomicUsize,
     event: WorkerChannelEvent,
 ) {
+    // Live PTY bytes are not replayable. While a parent consumer is attached,
+    // stall instead of dropping them. Detach must stop the stall so cancel and
+    // detached workers can still make progress.
+    if matches!(
+        event,
+        WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
+    ) {
+        let mut event = event;
+        loop {
+            if consumer_count.load(Ordering::Acquire) == 0 {
+                match sender.try_send(event) {
+                    Ok(()) => return,
+                    Err(TrySendError::Full(_)) => {
+                        overflow.fetch_add(1, Ordering::AcqRel);
+                        return;
+                    }
+                    Err(TrySendError::Disconnected(_)) => return,
+                }
+            }
+            match sender.try_send(event) {
+                Ok(()) => return,
+                Err(TrySendError::Full(returned)) => {
+                    event = returned;
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(TrySendError::Disconnected(_)) => return,
+            }
+        }
+    }
     match sender.try_send(event) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) => {
