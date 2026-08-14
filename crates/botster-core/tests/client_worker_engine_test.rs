@@ -544,9 +544,25 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
         )
         .expect("bind");
 
+    let sibling_client = ClientId("kept".to_string());
+    let sibling_sub = sub("kept");
+    worker.record_attach(sibling_client.clone(), session.clone(), sibling_sub.clone());
+    let sibling_gen = worker
+        .live_generation(&session, &sibling_sub)
+        .expect("sibling gen");
+    worker
+        .bind_terminal_adapter(
+            &sibling_client,
+            session.clone(),
+            sibling_sub.clone(),
+            sibling_gen,
+            Box::new(SharedFakeTerminalAdapter::auto_complete()),
+        )
+        .expect("bind sibling");
+
     let capacity = QueueSource::ClientWorker.default_capacity();
     let mut frames = Vec::new();
-    for index in 0..=capacity {
+    for index in 0..=capacity + 1 {
         frames.push((
             client.clone(),
             TransportEgress::Snapshot {
@@ -556,11 +572,33 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
             },
         ));
     }
+    frames.push((
+        sibling_client.clone(),
+        TransportEgress::TerminalOutput {
+            session_id: session.clone(),
+            subscription_id: sibling_sub.clone(),
+            data: b"kept".to_vec(),
+        },
+    ));
     let teardowns = worker.ingest_bound_terminal_frames(&mut frames);
     assert!(teardowns
         .iter()
         .any(|teardown| teardown.subscription_id == subscription));
     assert!(!worker.has_subscription(&session, &subscription));
+    assert!(
+        frames.iter().all(|(_, frame)| {
+            !matches!(
+                frame,
+                TransportEgress::Snapshot {
+                    subscription_id,
+                    ..
+                } if subscription_id == &subscription
+            )
+        }),
+        "failed-route frames must not escape to drain: {frames:?}"
+    );
+    assert!(worker.has_subscription(&session, &sibling_sub));
+    let _ = worker.pump();
 }
 
 #[test]
@@ -624,6 +662,255 @@ fn inventory_has_no_terminal_state_fields() {
     assert!(!struct_body.contains("phase"));
     assert!(!struct_body.contains("snapshot"));
     assert!(!struct_body.contains("queue"));
+}
+
+#[test]
+fn accepted_in_flight_write_counts_toward_the_write_budget() {
+    let mut worker = ClientWorker::new();
+    let session = session("in-flight-stall");
+    let stalled = client("stalled");
+    let live = client("live");
+    let stalled_sub = sub("stalled");
+    let live_sub = sub("live");
+    worker.record_attach(stalled.clone(), session.clone(), stalled_sub.clone());
+    worker.record_attach(live.clone(), session.clone(), live_sub.clone());
+    let stalled_gen = worker
+        .live_generation(&session, &stalled_sub)
+        .expect("stalled gen");
+    let live_gen = worker
+        .live_generation(&session, &live_sub)
+        .expect("live gen");
+    let stalled_adapter = SharedFakeTerminalAdapter::new();
+    let live_adapter = SharedFakeTerminalAdapter::auto_complete();
+    let dropped = Arc::new(AtomicBool::new(false));
+    struct DropFlag(Arc<AtomicBool>, SharedFakeTerminalAdapter);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    impl TerminalAdapter for DropFlag {
+        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            self.1.try_write(frame)
+        }
+        fn close(&mut self) {
+            self.1.close();
+        }
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.1.pressure()
+        }
+    }
+    worker
+        .bind_terminal_adapter(
+            &stalled,
+            session.clone(),
+            stalled_sub.clone(),
+            stalled_gen,
+            Box::new(DropFlag(Arc::clone(&dropped), stalled_adapter.clone())),
+        )
+        .expect("bind stalled");
+    worker
+        .bind_terminal_adapter(
+            &live,
+            session.clone(),
+            live_sub.clone(),
+            live_gen,
+            Box::new(live_adapter.clone()),
+        )
+        .expect("bind live");
+
+    let mut frames = vec![
+        (
+            stalled.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: stalled_sub.clone(),
+                data: b"accepted".to_vec(),
+            },
+        ),
+        (
+            live.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: live_sub.clone(),
+                data: b"ok".to_vec(),
+            },
+        ),
+    ];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    let first = worker.pump();
+    assert!(
+        first.is_empty(),
+        "accepted in-flight write must not fail on the first tick"
+    );
+    assert_eq!(
+        stalled_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Full
+    );
+
+    let mut torn = false;
+    for _ in 0..QueueSource::ClientWorker.default_capacity() {
+        let teardowns = worker.pump();
+        if teardowns
+            .iter()
+            .any(|teardown| teardown.subscription_id == stalled_sub)
+        {
+            torn = true;
+            break;
+        }
+    }
+    assert!(
+        torn,
+        "stalled completion must fail after 512 in-flight ticks"
+    );
+    assert!(dropped.load(Ordering::SeqCst));
+    assert!(!worker.has_subscription(&session, &stalled_sub));
+    assert!(worker.has_subscription(&session, &live_sub));
+    assert!(live_adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .any(|bytes| frame_payload_text(bytes).contains("ok")));
+}
+
+#[test]
+fn replacement_attach_hard_stops_the_old_owner() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("replace-attach");
+    let owner = client("same-client");
+    let old_sub = sub("old");
+    let new_sub = sub("new");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), "printf 'after-replace\\n'; sleep 30"),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(owner.clone(), session.clone(), old_sub.clone(), 1)
+        .expect("attach old");
+    let old_gen = engine
+        .terminal_subscription_generation(&session, &old_sub)
+        .expect("old gen");
+    let dropped = Arc::new(AtomicBool::new(false));
+    let old_adapter = SharedFakeTerminalAdapter::auto_complete();
+    struct DropFlag(Arc<AtomicBool>, SharedFakeTerminalAdapter);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    impl TerminalAdapter for DropFlag {
+        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            self.1.try_write(frame)
+        }
+        fn close(&mut self) {
+            self.1.close();
+        }
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.1.pressure()
+        }
+    }
+    engine
+        .bind_terminal_adapter(
+            owner.clone(),
+            session.clone(),
+            old_sub.clone(),
+            old_gen,
+            Box::new(DropFlag(Arc::clone(&dropped), old_adapter)),
+        )
+        .expect("bind old");
+    engine
+        .attach_client(owner.clone(), session.clone(), new_sub.clone(), 2)
+        .expect("replace attach");
+    assert!(dropped.load(Ordering::SeqCst), "old adapter must drop");
+    assert!(!engine.has_live(&session, &old_sub));
+    assert!(engine.has_live(&session, &new_sub));
+
+    let new_gen = engine
+        .terminal_subscription_generation(&session, &new_sub)
+        .expect("new gen");
+    let new_adapter = SharedFakeTerminalAdapter::auto_complete();
+    engine
+        .bind_terminal_adapter(
+            owner,
+            session.clone(),
+            new_sub.clone(),
+            new_gen,
+            Box::new(new_adapter.clone()),
+        )
+        .expect("bind new");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        engine.drain_runtime_once(&session, 3).expect("drain");
+        if new_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| frame_payload_text(bytes).contains("after-replace"))
+        {
+            return;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    panic!("replacement route never delivered live output");
+}
+
+#[test]
+fn unbound_process_exit_removes_inventory_and_keeps_the_session() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("unbound-exit");
+    let client = client("unbound");
+    let subscription = sub("unbound");
+    engine
+        .spawn_session(
+            shell_request(session.clone(), "printf 'unbound-exit\\n'; exit 3"),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+        .expect("attach");
+    assert!(engine.has_live(&session, &subscription));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut saw_exit = false;
+    while Instant::now() < deadline {
+        let drained = engine.drain_runtime_once(&session, 2).expect("drain");
+        if drained.client_egress.iter().any(|(_, frame)| {
+            matches!(
+                frame,
+                TransportEgress::ProcessExit {
+                    subscription_id,
+                    code: Some(3),
+                    ..
+                } if subscription_id == &subscription
+            )
+        }) {
+            saw_exit = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(saw_exit, "unbound ProcessExit must remain on drain");
+    assert!(
+        !engine.has_live(&session, &subscription),
+        "unbound ProcessExit must remove the inventory row"
+    );
+    assert!(engine.session(&session).is_some(), "host session stays");
+}
+
+#[test]
+fn rejected_attach_does_not_publish_inventory() {
+    let mut engine = DefaultBotsterEngine::new();
+    let error = engine
+        .attach_client(
+            client("missing"),
+            session("missing-session"),
+            sub("missing-sub"),
+            1,
+        )
+        .expect_err("unknown session");
+    assert!(engine.list_terminal_subscriptions().is_empty());
+    let _ = error;
 }
 
 #[allow(dead_code)]

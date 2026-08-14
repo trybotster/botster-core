@@ -108,9 +108,15 @@ Hub still owns adapter admission, Unix/WebRTC instances, route reconciliation, a
 
 ## Deviations from plan
 
-None. Typed bind errors were named locally as allowed: `BindBeforeAttach`, `UnknownSubscription`, `StaleGeneration`, `AlreadyBound`.
+None. Review `review_1786673068_686714` required five product fixes that fulfill the existing plan rather than change scope:
 
-The 512-write-budget and lost-snapshot proofs run against `ClientWorker` plus the production facade. ProcessExited delivery, drain stripping, Closed isolation, and worker-backed READY/FINISH are on `DefaultBotsterEngine` / `CoreDaemon`.
+1. In-flight accepted writes that stay Full/WouldBlock count toward the 512-tick bound.
+2. A client attaching a new subscription for the same session hard-stops the previous owner.
+3. Later frames for a route that failed mid-ingest are discarded, not leaked onto drain.
+4. Unbound ProcessExit stays on drain, then the inventory row is removed.
+5. Inventory is published only after subscribe admission succeeds.
+
+Typed bind errors remain `BindBeforeAttach`, `UnknownSubscription`, `StaleGeneration`, `AlreadyBound`. The committed plan's teardown-bound and attach-matrix wording was updated to match.
 
 ## Runtime-teardown lenses implemented
 
@@ -140,7 +146,7 @@ All four passed.
 
 Focused production-path proofs:
 
-- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test`
+- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — includes in-flight stall budget, replacement attach, unbound ProcessExit teardown, rejected-attach inventory absence, and capacity-plus-two drain isolation
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_bound_adapter_receives_ready_finish_without_drain_snapshots`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
 - Isolated Hub-shaped consumer via `botster-core-test-support` `terminal_adapter_conformance_test`
