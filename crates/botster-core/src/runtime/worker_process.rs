@@ -230,6 +230,8 @@ pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
     release_on_drop: bool,
+    fail_next_snapshot_cancel: bool,
+    fail_next_snapshot_begin: bool,
 }
 
 impl WorkerProcessRuntime {
@@ -261,7 +263,19 @@ impl WorkerProcessRuntime {
             options,
             sessions: HashMap::new(),
             release_on_drop: false,
+            fail_next_snapshot_cancel: false,
+            fail_next_snapshot_begin: false,
         }
+    }
+
+    /// Fail the next snapshot cancel write. Tests use this to prove fail-closed takeover.
+    pub fn fail_next_snapshot_cancel(&mut self) {
+        self.fail_next_snapshot_cancel = true;
+    }
+
+    /// Fail the next snapshot begin write. Tests use this to prove fail-closed takeover.
+    pub fn fail_next_snapshot_begin(&mut self) {
+        self.fail_next_snapshot_begin = true;
     }
 
     /// Return worker welcome metadata captured after spawning a session.
@@ -500,6 +514,13 @@ impl WorkerProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<String, SessionRuntimeError> {
+        if self.fail_next_snapshot_begin {
+            self.fail_next_snapshot_begin = false;
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "injected snapshot begin failure",
+            ));
+        }
         let request_id = next_gated_request_id();
         let session = self.session_mut(session_id)?;
         if session.outstanding_snapshot_request.is_some() {
@@ -575,6 +596,13 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
         request_id: &str,
     ) -> Result<(), SessionRuntimeError> {
+        if self.fail_next_snapshot_cancel {
+            self.fail_next_snapshot_cancel = false;
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "injected snapshot cancel failure",
+            ));
+        }
         let session = self.session_mut(session_id)?;
         session.control.write_json(
             crate::FRAME_GET_SNAPSHOT,

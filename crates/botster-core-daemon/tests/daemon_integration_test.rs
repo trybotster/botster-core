@@ -1606,6 +1606,208 @@ fn worker_same_key_owner_replacement_cancels_the_active_boundary() {
 
 #[cfg(unix)]
 #[test]
+fn worker_same_key_takeover_cancel_failure_does_not_publish_the_new_owner() {
+    let data_dir = temp_data_dir("worker-takeover-cancel-fail");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-takeover-cancel-fail-session".to_string());
+    let first = ClientId("worker-takeover-cancel-fail-a".to_string());
+    let second = ClientId("worker-takeover-cancel-fail-b".to_string());
+    let subscription = SubscriptionId("worker-takeover-cancel-fail-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(first.clone(), session_id.clone(), subscription.clone(), 11)
+        .expect("attach first owner");
+    daemon.fail_next_snapshot_cancel();
+    let error = daemon
+        .attach(second.clone(), session_id.clone(), subscription.clone(), 12)
+        .expect_err("cancel failure must fail the takeover attach");
+    assert!(
+        error
+            .to_string()
+            .contains("injected snapshot cancel failure"),
+        "unexpected takeover error: {error}"
+    );
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].client_id, first);
+    assert_eq!(live[0].subscription_id, subscription);
+    let _ = drain_until_attached(&mut daemon, &session_id, &first);
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].client_id, first);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_same_key_takeover_begin_failure_does_not_publish_the_new_owner() {
+    let data_dir = temp_data_dir("worker-takeover-begin-fail");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-takeover-begin-fail-session".to_string());
+    let first = ClientId("worker-takeover-begin-fail-a".to_string());
+    let second = ClientId("worker-takeover-begin-fail-b".to_string());
+    let subscription = SubscriptionId("worker-takeover-begin-fail-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(first.clone(), session_id.clone(), subscription.clone(), 11)
+        .expect("attach first owner");
+    daemon.fail_next_snapshot_begin();
+    let error = daemon
+        .attach(second.clone(), session_id.clone(), subscription.clone(), 12)
+        .expect_err("begin failure must fail the takeover attach");
+    assert!(
+        error
+            .to_string()
+            .contains("injected snapshot begin failure"),
+        "unexpected takeover error: {error}"
+    );
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert!(
+        live.iter().all(|row| row.client_id != second),
+        "failed takeover must not publish the new owner: {live:?}"
+    );
+    assert!(
+        live.iter().all(|row| row.client_id != first),
+        "cancelled owner must not stay published without a tracked boundary: {live:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_same_key_takeover_preserves_pending_sibling_input_and_resize() {
+    let data_dir = temp_data_dir("worker-takeover-sibling");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-takeover-sibling-session".to_string());
+    let first = ClientId("worker-takeover-sibling-a".to_string());
+    let second = ClientId("worker-takeover-sibling-b".to_string());
+    let sibling = ClientId("worker-takeover-sibling-c".to_string());
+    let first_sub = SubscriptionId("worker-takeover-sibling-sub-a".to_string());
+    let sibling_sub = SubscriptionId("worker-takeover-sibling-sub-c".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(first.clone(), session_id.clone(), first_sub.clone(), 11)
+        .expect("attach first owner");
+    daemon
+        .attach(sibling.clone(), session_id.clone(), sibling_sub.clone(), 12)
+        .expect("queue sibling");
+    daemon
+        .input(
+            sibling.clone(),
+            session_id.clone(),
+            b"SIBLING-KEEP\n".to_vec(),
+            13,
+        )
+        .expect("queue sibling input");
+    daemon
+        .resize(sibling.clone(), session_id.clone(), 30, 100, 14)
+        .expect("queue sibling resize");
+    daemon
+        .attach(second.clone(), session_id.clone(), first_sub.clone(), 15)
+        .expect("take over first key");
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert!(live
+        .iter()
+        .any(|row| row.client_id == second && row.subscription_id == first_sub));
+    assert!(live
+        .iter()
+        .any(|row| row.client_id == sibling && row.subscription_id == sibling_sub));
+    assert!(live.iter().all(|row| row.client_id != first));
+    let _ = drain_until_attached(&mut daemon, &session_id, &second);
+    let _ = drain_until_attached(&mut daemon, &session_id, &sibling);
+    drain_until_terminal_marker(&mut daemon, &session_id, "echo:SIBLING-KEEP", 30);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription() {
+    let data_dir = temp_data_dir("worker-takeover-stale-pending");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("worker-takeover-stale-pending-session".to_string());
+    let first = ClientId("worker-takeover-stale-pending-a".to_string());
+    let second = ClientId("worker-takeover-stale-pending-b".to_string());
+    let first_sub = SubscriptionId("worker-takeover-stale-pending-x".to_string());
+    let stale_sub = SubscriptionId("worker-takeover-stale-pending-y".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
+            .to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .attach(first.clone(), session_id.clone(), first_sub.clone(), 11)
+        .expect("attach first owner");
+    daemon
+        .attach(second.clone(), session_id.clone(), stale_sub.clone(), 12)
+        .expect("queue obsolete pending");
+    daemon
+        .attach(second.clone(), session_id.clone(), first_sub.clone(), 13)
+        .expect("take over first key");
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert!(live
+        .iter()
+        .any(|row| row.client_id == second && row.subscription_id == first_sub));
+    assert!(
+        live.iter().all(|row| row.subscription_id != stale_sub),
+        "obsolete pending subscription must leave inventory: {live:?}"
+    );
+    let mut saw_stale = false;
+    let replacement = drain_until_attached(&mut daemon, &session_id, &second);
+    for (_, frame) in &replacement.client_egress {
+        if matches!(
+            frame,
+            TransportEgress::Snapshot {
+                subscription_id,
+                ..
+            }
+            | TransportEgress::AttachState {
+                subscription_id,
+                ..
+            } if subscription_id == &stale_sub
+        ) {
+            saw_stale = true;
+        }
+    }
+    assert!(
+        !saw_stale,
+        "obsolete pending subscription must never start a snapshot boundary: {:?}",
+        replacement.client_egress
+    );
+    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    assert!(live.iter().all(|row| row.subscription_id != stale_sub));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_subscription_drain_retains_foreign_route_frames() {
     let data_dir = temp_data_dir("worker-route-drain");
     let mut daemon =

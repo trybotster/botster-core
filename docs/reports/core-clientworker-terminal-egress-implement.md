@@ -129,6 +129,12 @@ Review `review_1786675180_532728` required one further product fix that fulfills
 
 - Worker-backed same-key owner replacement cancels the live IncrementalAttach owner's snapshot boundary and starts the replacement boundary on the attach path. Reconcile uses `(client_id, subscription_id)`, not subscription_id alone. `WorkerProcessRuntime` Drop cancels any outstanding snapshot before `SHUTDOWN` so a fenced worker cannot hang `child.wait()`.
 
+Review `review_1786677187_382484` required three further product fixes on that takeover path:
+
+- Takeover cancels the old boundary and begins the replacement boundary before it publishes the new ClientWorker owner. Cancel or begin failure does not leave a published owner without IncrementalAttach. Injected cancel and begin failures prove the fail-closed inventory.
+- Takeover keeps accepted input and the latest resize for pending sibling clients. It drops only the replaced owner and the new owner's obsolete pending work.
+- Takeover removes the new owner's pending tuples before that client becomes the active IncrementalAttach owner, so an obsolete B/Y boundary cannot start after B/X finishes.
+
 ## Runtime-teardown lenses implemented
 
 | Lens | Implementation |
@@ -138,7 +144,7 @@ Review `review_1786675180_532728` required one further product fix that fulfills
 | Late-message matrix | Attach assigns generation. Bind requires the live generation. Pre-attach bind is typed. Detach and Closed are idempotent. Input/output after teardown cannot recreate the owner. |
 | Production-path proof | `CoreDaemon::drain` / `DefaultBotsterEngine::drain_runtime_once` pump ClientWorker. Fake `delivered_frame_bytes` contains remaining output then `process_exit` before Closed. Inventory row is gone. Adapter is dropped. Sibling still pumps. Session stays listed. |
 | Ownership identity | `(session_id, subscription_id, generation)`. Reattach is generation + 1. Stale detach does not delete N+1. A different `client_id` on the same key cancels the previous IncrementalAttach request_id and starts generation + 1. |
-| Sibling / fail-closed | Successful close and write-budget failure isolate one subscription. ProcessExited closes every subscription on that session by design. |
+| Sibling / fail-closed | Successful close and write-budget failure isolate one subscription. ProcessExited closes every subscription on that session by design. Same-key takeover keeps pending sibling input and resize. Failed takeover does not publish a new owner without a tracked boundary. |
 
 Human answer `question_1786670811_244393` is implemented as a contract bound, not a waiver: Core calls `close()` synchronously; a blocking close is an adapter defect.
 
@@ -161,6 +167,10 @@ Focused production-path proofs:
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_bound_adapter_receives_ready_finish_without_drain_snapshots`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output`
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- --exact worker_same_key_owner_replacement_cancels_the_active_boundary`
+- `worker_same_key_takeover_cancel_failure_does_not_publish_the_new_owner`
+- `worker_same_key_takeover_begin_failure_does_not_publish_the_new_owner`
+- `worker_same_key_takeover_preserves_pending_sibling_input_and_resize`
+- `worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription`
 - Isolated Hub-shaped consumer via `botster-core-test-support` `terminal_adapter_conformance_test`
 
 `drain_until_for_client` now uses `REAL_WORKER_IDLE_TIMEOUT` / `REAL_WORKER_COMPLETION_TIMEOUT` and fails with the last observed output.

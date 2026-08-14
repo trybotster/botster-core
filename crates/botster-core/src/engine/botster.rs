@@ -118,6 +118,29 @@ impl IncrementalAttach {
         self.pending.push_back((client_id.clone(), subscription_id));
         removed
     }
+
+    fn drop_pending_client(&mut self, client_id: &ClientId) -> usize {
+        let removed = self
+            .pending
+            .iter()
+            .filter(|(pending_client, _)| pending_client == client_id)
+            .count();
+        self.pending
+            .retain(|(pending_client, _)| pending_client != client_id);
+        removed
+    }
+
+    fn discard_replaced_owner_queues(&mut self, replaced_client: &ClientId, new_client: &ClientId) {
+        self.queued_input
+            .retain(|(owner, _, _)| owner != replaced_client && owner != new_client);
+        if self
+            .queued_resize
+            .as_ref()
+            .is_some_and(|(owner, ..)| owner == replaced_client || owner == new_client)
+        {
+            self.queued_resize = None;
+        }
+    }
 }
 
 #[cfg(all(test, feature = "local-runtime"))]
@@ -162,6 +185,46 @@ mod incremental_pending_tests {
                     SubscriptionId("new-sub".to_string()),
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn drop_pending_client_keeps_other_clients() {
+        let mut attach = IncrementalAttach {
+            client_id: ClientId("active".to_string()),
+            subscription_id: SubscriptionId("active-sub".to_string()),
+            request_id: "req".to_string(),
+            ready: false,
+            pending: VecDeque::from([
+                (
+                    ClientId("takeover".to_string()),
+                    SubscriptionId("old-sub".to_string()),
+                ),
+                (
+                    ClientId("sibling".to_string()),
+                    SubscriptionId("sibling-sub".to_string()),
+                ),
+            ]),
+            queued_input: vec![(ClientId("sibling".to_string()), b"keep".to_vec(), 1)],
+            queued_resize: Some((ClientId("sibling".to_string()), 30, 100, 2)),
+        };
+        let removed = attach.drop_pending_client(&ClientId("takeover".to_string()));
+        attach.discard_replaced_owner_queues(
+            &ClientId("active".to_string()),
+            &ClientId("takeover".to_string()),
+        );
+        assert_eq!(removed, 1);
+        assert_eq!(
+            attach.pending.into_iter().collect::<Vec<_>>(),
+            vec![(
+                ClientId("sibling".to_string()),
+                SubscriptionId("sibling-sub".to_string()),
+            )]
+        );
+        assert_eq!(attach.queued_input.len(), 1);
+        assert_eq!(
+            attach.queued_resize,
+            Some((ClientId("sibling".to_string()), 30, 100, 2))
         );
     }
 }
@@ -1361,28 +1424,112 @@ impl WorkerBackedBotsterEngine {
         let Some(mut attach) = self.incremental_attaches.remove(&session_id) else {
             return self.attach_client(client_id, session_id, subscription_id, 0);
         };
+        let replaced_client = attach.client_id.clone();
+        let replaced_subscription = attach.subscription_id.clone();
+        let stale_request_id = attach.request_id.clone();
+        if let Err(error) = self
+            .runtime
+            .session_runtime_mut()
+            .cancel_snapshot_boundary(&session_id, &stale_request_id)
+        {
+            self.incremental_attaches.insert(session_id, attach);
+            return Err(error.into());
+        }
+        let request_id = match self
+            .runtime
+            .session_runtime_mut()
+            .begin_snapshot_boundary(&session_id)
+        {
+            Ok(request_id) => request_id,
+            Err(error) => {
+                self.discard_takeover_pending(&mut attach, &session_id, &client_id)?;
+                return self.fail_closed_cancelled_takeover(
+                    attach,
+                    session_id,
+                    replaced_client,
+                    replaced_subscription,
+                    error,
+                );
+            }
+        };
+        self.discard_takeover_pending(&mut attach, &session_id, &client_id)?;
+        attach.discard_replaced_owner_queues(&replaced_client, &client_id);
         self.runtime
             .session_runtime_mut()
             .attach_consumer(&session_id)?;
-        let output = self.runtime.begin_snapshot_attach(
+        let output = match self.runtime.begin_snapshot_attach(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
-        )?;
-        self.runtime
-            .session_runtime_mut()
-            .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
-        attach.request_id = self
-            .runtime
-            .session_runtime_mut()
-            .begin_snapshot_boundary(&session_id)?;
+        ) {
+            Ok(output) => output,
+            Err(error) => {
+                let _ = self
+                    .runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(&session_id, &request_id);
+                return self.fail_closed_cancelled_takeover(
+                    attach,
+                    session_id,
+                    replaced_client,
+                    replaced_subscription,
+                    error,
+                );
+            }
+        };
         attach.client_id = client_id;
         attach.subscription_id = subscription_id;
+        attach.request_id = request_id;
         attach.ready = false;
-        attach.queued_input.clear();
-        attach.queued_resize = None;
         self.incremental_attaches.insert(session_id, attach);
         Ok(output)
+    }
+
+    fn discard_takeover_pending(
+        &mut self,
+        attach: &mut IncrementalAttach,
+        session_id: &SessionId,
+        client_id: &ClientId,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        let removed_pending = attach.drop_pending_client(client_id);
+        for _ in 0..removed_pending {
+            self.runtime
+                .session_runtime_mut()
+                .detach_consumer(session_id)?;
+        }
+        Ok(())
+    }
+
+    fn fail_closed_cancelled_takeover(
+        &mut self,
+        mut attach: IncrementalAttach,
+        session_id: SessionId,
+        replaced_client: ClientId,
+        replaced_subscription: SubscriptionId,
+        error: impl Into<WorkerBackedBotsterEngineError>,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        let current_client = attach.client_id.clone();
+        attach.discard_replaced_owner_queues(&replaced_client, &current_client);
+        let _ = self.runtime.detach_live_subscription(
+            replaced_client,
+            session_id.clone(),
+            replaced_subscription,
+            0,
+        );
+        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
+            if let Ok(request_id) = self
+                .runtime
+                .session_runtime_mut()
+                .begin_snapshot_boundary(&session_id)
+            {
+                attach.client_id = next_client;
+                attach.subscription_id = next_subscription;
+                attach.request_id = request_id;
+                attach.ready = false;
+                self.incremental_attaches.insert(session_id, attach);
+            }
+        }
+        Err(error.into())
     }
 
     fn reconcile_incremental_attach_after_teardown(
