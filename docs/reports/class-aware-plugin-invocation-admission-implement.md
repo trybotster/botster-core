@@ -92,7 +92,14 @@ Registered Hub consumers, not implemented here:
 - Deadlines are bound to worker generation plus request id. Reload with a reused request id cannot be sealed by the prior generation. Deadlines are removed on completion, timeout, unload, and reload.
 - `try_admit` uses `try_lock` for registry, admission, deadline book, and cancellation map. Error-path backpressure is built from already-held worker metrics. Zero-timeout and immediate-failure publish into the held admission lock. Contention tests cover those locks.
 - Queued timeouts remove `admission.jobs` and cancellation entries. Fast completions remove the long-deadline book entry. Repeated timeout and fast-completion tests prove private tracking stays bounded.
-- Occupier tests start one executor at a time. The timer backpressure test uses a gated runtime instead of a sleep window. `BOTSTER_ENV=test cargo test --workspace -- --test-threads=1` passed.
+- Occupier tests start one executor at a time. The timer backpressure test uses a gated runtime instead of a sleep window.
+
+## Review findings addressed (`review_1786669717_243333`)
+
+- `drain_completions_honors_item_and_byte_caps` retries only typed `ADMISSION_LOCK_BUSY` within 100ms. Other public `try_admit` loops that asserted an immediate `Queued` use the same helper.
+- `try_admit_never_waits_on_slow_in_flight_work` still times a single `try_admit` call and only retries the typed lock-busy reason.
+- Facade and `botster-core-dev` consumer proof retry the same typed reason only.
+- Exact ticket command `BOTSTER_ENV=test cargo test --workspace` now exits 0. No `--test-threads=1`.
 
 ## Deviations from plan
 
@@ -106,13 +113,11 @@ None in product behavior. Implementation details required by correctness:
 
 Human correction `question_1786664489_333289`: repository-documented CI Cargo commands. No replacement wrapper.
 
-Passed after Review return:
+Passed after Review return `review_1786669717_243333`:
 
 - `cargo fmt --all -- --check`
-- `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings`
-- `BOTSTER_ENV=test cargo test --workspace -- --test-threads=1` (exit 0, including the previously failing changed tests and `many_pty_load_adversarial_noisy_reports_reader_backpressure`)
-- crate-private generation, lock-contention, and bounded-tracking tests
-- public reload reused-request-id test
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `BOTSTER_ENV=test cargo test --workspace` (exit 0; includes `drain_completions_honors_item_and_byte_caps`, changed admission tests, doc-tests, and `many_pty_load_adversarial_noisy_reports_reader_backpressure`)
 
 Production entry points:
 
@@ -124,7 +129,8 @@ Production entry points:
 - Hub live product callers are still scaffold disposition. First product caller is the registered Hub event-router ticket.
 - `try_admit` can return `backpressured` on a busy admission lock; that is specified, but hosts must retry.
 - `PluginTimerScheduler::drain_due` still uses blocking `invoke` (explicit non-scope).
-- Full workspace success was observed once after the Review fixes; the PTY load test has been intermittently red on `main` in earlier isolated runs.
+- `try_admit` tests retry only typed lock-busy backpressure. A persistent lock-busy beyond 100ms still fails the test, which is intended.
+- The PTY load test has been intermittently red on `main` in earlier isolated runs; it passed in this exact workspace run.
 
 ## Missing vault guidance discovered
 
