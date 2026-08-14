@@ -1275,6 +1275,93 @@ pub enum PluginInvocationResult {
     Failed(PluginInvocationFailure),
 }
 
+/// Policy-free admission class for plugin invocation.
+///
+/// Class is an admission argument, not a field on [`PluginInvocationRequest`].
+/// Blocking `PluginWorkerEngine::invoke` is always
+/// [`RequestResponse`](Self::RequestResponse).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PluginInvocationClass {
+    /// Direct request-response work. May occupy reserved executor slots.
+    RequestResponse,
+    /// Background work. Must not occupy reserved request-response executors.
+    Background,
+}
+
+/// Immediate result of non-blocking plugin invocation admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PluginAdmissionResult {
+    /// The request was accepted onto the class queue and reserved a completion.
+    Queued {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Class the engine admitted under.
+        class: PluginInvocationClass,
+        /// Encoded public request size counted against the class byte bound.
+        queue_bytes: usize,
+        /// Completion-mailbox reservation for this job.
+        reservation_bytes: usize,
+    },
+    /// The request cannot be accepted right now.
+    ///
+    /// This covers class count/byte saturation, completion-reservation
+    /// saturation, and a busy admission lock. It does not wait.
+    Backpressured {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Class the caller asked to admit under.
+        class: PluginInvocationClass,
+        /// Human-readable pressure reason.
+        reason: String,
+        /// Waiting-queue pressure for the target plugin, when available.
+        backpressure: Option<BackpressureSummary>,
+    },
+    /// The owned request encoding can never fit the class byte bound.
+    RejectedBudget {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Class the caller asked to admit under.
+        class: PluginInvocationClass,
+        /// Encoded request size when encoding succeeded.
+        queue_bytes: Option<usize>,
+        /// Human-readable rejection reason.
+        reason: String,
+    },
+    /// The target worker is missing or stopping.
+    WorkerStopped {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Class the caller asked to admit under.
+        class: PluginInvocationClass,
+        /// Human-readable stop reason.
+        reason: String,
+    },
+}
+
+/// One typed completion from an admitted async plugin invocation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCompletion {
+    /// Class the engine admitted this job under.
+    pub class: PluginInvocationClass,
+    /// Terminal invocation result.
+    pub result: PluginInvocationResult,
+}
+
+/// Bounded drain of previously published plugin completions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PluginCompletionDrain {
+    /// Completions released by this drain call, in mailbox order.
+    pub completions: Vec<PluginCompletion>,
+    /// Number of completions returned.
+    pub item_count: usize,
+    /// Sum of encoded completion bytes returned.
+    pub byte_count: usize,
+}
+
 /// Cleanup scope for plugin reload or unload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

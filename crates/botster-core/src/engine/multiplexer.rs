@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::actor::{
-    ClientControlFrame, MailboxSendFailureReason, PluginCleanupResult, PluginCleanupScope,
-    PluginInvocationRequest, PluginKey, PluginReloadSpec, PluginTimerCancellationResult,
-    PluginTimerId, PluginTimerSchedule, PluginUnloadSpec, QueueSource,
+    ClientControlFrame, MailboxSendFailureReason, PluginAdmissionResult, PluginCleanupResult,
+    PluginCleanupScope, PluginCompletionDrain, PluginInvocationClass, PluginInvocationRequest,
+    PluginKey, PluginReloadSpec, PluginTimerCancellationResult, PluginTimerId, PluginTimerSchedule,
+    PluginUnloadSpec, QueueSource,
 };
 use crate::contract::actor::{
     BackpressureSummary, SessionIoEvent, SessionIoRequest, SessionLifecycleState,
@@ -631,6 +632,24 @@ where
     /// Invoke a registered plugin handler.
     pub fn invoke_plugin(&self, request: PluginInvocationRequest) -> PluginInvocationOutcome {
         self.plugins.invoke(request)
+    }
+
+    /// Admit one plugin invocation without waiting for execution or completion.
+    pub fn try_admit_plugin(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        self.plugins.try_admit(class, request)
+    }
+
+    /// Drain previously published async plugin completions without waiting.
+    pub fn drain_plugin_completions(
+        &self,
+        max_items: usize,
+        max_bytes: usize,
+    ) -> PluginCompletionDrain {
+        self.plugins.drain_completions(max_items, max_bytes)
     }
 
     /// Schedule plugin timer work without invoking plugin code inline.
