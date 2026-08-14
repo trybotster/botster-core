@@ -92,8 +92,10 @@ mod tests {
     use botster_core::{
         ClientId, CoreSessionMetadata, DefaultBotsterEngine, RequestId, ResizePayload, SessionId,
         SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+        TerminalCapabilitySet,
     };
     use botster_core_test_support::terminal_adapter::assert_terminal_adapter_conformance;
+    use botster_terminal_protocol::FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY;
 
     #[derive(Clone, Default)]
     struct SharedHubAdapter {
@@ -161,11 +163,21 @@ mod tests {
             .bind_terminal_adapter(
                 client,
                 session.clone(),
-                subscription,
+                subscription.clone(),
                 generation,
+                TerminalCapabilitySet::empty(),
                 Box::new(adapter.clone()),
             )
-            .expect("bind through public Core API");
+            .expect("bind empty set through public Core API");
+        let empty_row = engine
+            .list_terminal_subscriptions()
+            .into_iter()
+            .find(|row| row.subscription_id == subscription)
+            .expect("empty-set inventory");
+        assert!(empty_row.adapter_bound);
+        let empty_caps = empty_row.capabilities.expect("bound empty is Some");
+        assert!(empty_caps.is_empty());
+        assert_eq!(empty_caps.iter().count(), 0);
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
@@ -182,6 +194,11 @@ mod tests {
             });
             if saw_opaque_live {
                 for bytes in &delivered {
+                    let text = String::from_utf8_lossy(bytes);
+                    assert!(
+                        !text.contains("\"type\":\"snapshot\""),
+                        "empty set must not emit snapshot event tags"
+                    );
                     assert!(
                         !bytes.windows(b"GHOSTSNP".len()).any(|window| window == b"GHOSTSNP"),
                         "hub-shaped consumer must not decode Snapshot bodies"
@@ -192,5 +209,85 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         }
         panic!("hub-shaped consumer never observed opaque live frames");
+    }
+
+    #[test]
+    fn hub_shaped_consumer_binds_ready_then_history_and_reads_inventory_tokens() {
+        let mut engine = DefaultBotsterEngine::new();
+        let session = SessionId("hub-shaped-rth".to_string());
+        let client = ClientId("hub-shaped-rth-client".to_string());
+        let subscription = SubscriptionId("hub-shaped-rth-sub".to_string());
+        engine
+            .spawn_session(
+                SessionSpawnRequest {
+                    request_id: RequestId("hub-shaped-rth-spawn".to_string()),
+                    session_id: session.clone(),
+                    executable: "sh".to_string(),
+                    arguments: vec![
+                        "-c".to_string(),
+                        "printf 'hub-shaped-rth\\n'; sleep 30".to_string(),
+                    ],
+                    working_directory: SpawnWorkingDirectory {
+                        path: ".".to_string(),
+                    },
+                    environment: SpawnEnvironment::default(),
+                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                },
+                CoreSessionMetadata::new(),
+            )
+            .expect("spawn");
+        engine
+            .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+            .expect("attach");
+        let generation = engine
+            .terminal_subscription_generation(&session, &subscription)
+            .expect("generation after attach");
+        let adapter = SharedHubAdapter::default();
+        let capabilities = TerminalCapabilitySet::from_tokens([
+            FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+        ])
+        .expect("Hub constructs an opaque set from protocol tokens");
+        engine
+            .bind_terminal_adapter(
+                client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                capabilities.clone(),
+                Box::new(adapter.clone()),
+            )
+            .expect("bind optional-token set");
+        let row = engine
+            .list_terminal_subscriptions()
+            .into_iter()
+            .find(|row| row.subscription_id == subscription)
+            .expect("optional-token inventory");
+        assert!(row.adapter_bound);
+        assert_eq!(row.capabilities, Some(capabilities));
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let _ = engine.drain_runtime_once(&session, 2).expect("drain");
+            let delivered = adapter
+                .inner
+                .lock()
+                .expect("lock")
+                .delivered_frame_bytes()
+                .to_vec();
+            let saw_live = delivered.iter().any(|bytes| {
+                String::from_utf8_lossy(bytes).contains("terminal_output")
+            });
+            if saw_live {
+                for bytes in &delivered {
+                    assert!(
+                        !bytes.windows(b"GHOSTSNP".len()).any(|window| window == b"GHOSTSNP"),
+                        "hub-shaped consumer must not decode Snapshot bodies"
+                    );
+                }
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        panic!("hub-shaped ready-then-history never observed opaque live frames");
     }
 }

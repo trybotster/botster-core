@@ -14,11 +14,16 @@ use botster_core::{
     BindTerminalAdapterError, ClientId, ClientWorker, CoreSessionMetadata, DefaultBotsterEngine,
     DetachTerminalSubscriptionResult, QueueSource, RequestId, ResizePayload, SessionId,
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
+    TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
 use serde_json::Value;
+
+fn advertised_capabilities() -> TerminalCapabilitySet {
+    TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
+        .expect("advertised optional token")
+}
 
 fn session(name: &str) -> SessionId {
     SessionId(name.to_string())
@@ -124,6 +129,7 @@ fn bind_before_attach_is_a_typed_error() {
             session,
             sub("s"),
             TerminalSubscriptionGeneration(1),
+            advertised_capabilities(),
             Box::new(SharedFakeTerminalAdapter::auto_complete()),
         )
         .expect_err("pre-attach bind");
@@ -155,6 +161,7 @@ fn attach_then_bind_assigns_generation_and_strips_bound_drain_frames() {
         .expect("inventory row after attach");
     assert!(!row.adapter_bound);
     assert_eq!(row.generation, TerminalSubscriptionGeneration(1));
+    assert_eq!(row.capabilities, None);
 
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     engine
@@ -163,13 +170,17 @@ fn attach_then_bind_assigns_generation_and_strips_bound_drain_frames() {
             session.clone(),
             subscription.clone(),
             row.generation,
+            advertised_capabilities(),
             Box::new(adapter.clone()),
         )
         .expect("bind");
-    assert!(engine
+    let bound = engine
         .list_terminal_subscriptions()
-        .iter()
-        .any(|row| row.adapter_bound));
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("bound inventory row");
+    assert!(bound.adapter_bound);
+    assert_eq!(bound.capabilities, Some(advertised_capabilities()));
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
@@ -238,6 +249,7 @@ fn process_exit_is_delivered_before_close_and_session_stays() {
             session.clone(),
             subscription.clone(),
             generation,
+            advertised_capabilities(),
             Box::new(probe),
         )
         .expect("bind");
@@ -330,6 +342,7 @@ fn adapter_closed_is_one_effective_detach() {
             session.clone(),
             sub_a.clone(),
             gen_a,
+            advertised_capabilities(),
             Box::new(adapter_a.clone()),
         )
         .expect("bind a");
@@ -339,6 +352,7 @@ fn adapter_closed_is_one_effective_detach() {
             session.clone(),
             sub_b.clone(),
             gen_b,
+            advertised_capabilities(),
             Box::new(adapter_b.clone()),
         )
         .expect("bind b");
@@ -466,6 +480,7 @@ fn write_budget_fails_only_the_stalled_subscription() {
             session.clone(),
             live_sub.clone(),
             live_gen,
+            advertised_capabilities(),
             Box::new(live_adapter.clone()),
         )
         .expect("bind live");
@@ -475,6 +490,7 @@ fn write_budget_fails_only_the_stalled_subscription() {
             session.clone(),
             stalled_sub.clone(),
             stalled_gen,
+            advertised_capabilities(),
             Box::new(stalled_adapter.clone()),
         )
         .expect("bind stalled");
@@ -540,6 +556,7 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
             session.clone(),
             subscription.clone(),
             generation,
+            advertised_capabilities(),
             Box::new(SharedFakeTerminalAdapter::new()),
         )
         .expect("bind");
@@ -556,6 +573,7 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
             session.clone(),
             sibling_sub.clone(),
             sibling_gen,
+            advertised_capabilities(),
             Box::new(SharedFakeTerminalAdapter::auto_complete()),
         )
         .expect("bind sibling");
@@ -635,6 +653,7 @@ fn close_is_observed_without_a_closer_thread() {
             session.clone(),
             subscription.clone(),
             generation,
+            advertised_capabilities(),
             Box::new(CountDrop(
                 Arc::clone(&dropped),
                 SharedFakeTerminalAdapter::new(),
@@ -659,6 +678,7 @@ fn inventory_has_no_terminal_state_fields() {
         .expect("record struct");
     assert!(struct_body.contains("adapter_bound"));
     assert!(struct_body.contains("generation"));
+    assert!(struct_body.contains("capabilities"));
     assert!(!struct_body.contains("phase"));
     assert!(!struct_body.contains("snapshot"));
     assert!(!struct_body.contains("queue"));
@@ -706,6 +726,7 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
             session.clone(),
             stalled_sub.clone(),
             stalled_gen,
+            advertised_capabilities(),
             Box::new(DropFlag(Arc::clone(&dropped), stalled_adapter.clone())),
         )
         .expect("bind stalled");
@@ -715,6 +736,7 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
             session.clone(),
             live_sub.clone(),
             live_gen,
+            advertised_capabilities(),
             Box::new(live_adapter.clone()),
         )
         .expect("bind live");
@@ -816,6 +838,7 @@ fn replacement_attach_hard_stops_the_old_owner() {
             session.clone(),
             old_sub.clone(),
             old_gen,
+            advertised_capabilities(),
             Box::new(DropFlag(Arc::clone(&dropped), old_adapter)),
         )
         .expect("bind old");
@@ -836,6 +859,7 @@ fn replacement_attach_hard_stops_the_old_owner() {
             session.clone(),
             new_sub.clone(),
             new_gen,
+            advertised_capabilities(),
             Box::new(new_adapter.clone()),
         )
         .expect("bind new");
@@ -957,6 +981,7 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
             session.clone(),
             subscription.clone(),
             first_gen,
+            advertised_capabilities(),
             Box::new(DropFlag(Arc::clone(&first_dropped), first_adapter.clone())),
         )
         .expect("bind first");
@@ -982,6 +1007,7 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
             session.clone(),
             subscription,
             second_gen,
+            advertised_capabilities(),
             Box::new(second_adapter.clone()),
         )
         .expect("bind second");
@@ -1036,6 +1062,7 @@ fn unbound_snapshot_phase_does_not_survive_teardown() {
             session.clone(),
             subscription.clone(),
             generation,
+            advertised_capabilities(),
             Box::new(adapter.clone()),
         )
         .expect("bind");
@@ -1063,6 +1090,225 @@ fn unbound_snapshot_phase_does_not_survive_teardown() {
         vec!["ready".to_string()],
         "reused Snapshot must not inherit a leftover History phase: {phases:?}"
     );
+}
+
+#[test]
+fn empty_capability_set_binds_and_round_trips_inventory() {
+    let mut worker = ClientWorker::new();
+    let session = session("empty-caps");
+    let client = client("empty");
+    let subscription = sub("empty");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(SharedFakeTerminalAdapter::new()),
+        )
+        .expect("empty set binds");
+    let row = worker
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("bound row");
+    assert!(row.adapter_bound);
+    let capabilities = row.capabilities.expect("bound empty is Some");
+    assert!(capabilities.is_empty());
+}
+
+#[test]
+fn second_bind_is_already_bound_even_when_the_set_differs() {
+    let mut worker = ClientWorker::new();
+    let session = session("already-bound");
+    let client = client("bound");
+    let subscription = sub("bound");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(SharedFakeTerminalAdapter::new()),
+        )
+        .expect("first bind");
+    let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let error = worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            advertised_capabilities(),
+            Box::new(DropProbeAdapter {
+                closed: std::sync::Arc::clone(&closed),
+                dropped: std::sync::Arc::clone(&dropped),
+                inner: SharedFakeTerminalAdapter::new(),
+            }),
+        )
+        .expect_err("second bind");
+    assert!(matches!(
+        error,
+        BindTerminalAdapterError::AlreadyBound { .. }
+    ));
+    assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+    let row = worker
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("still bound");
+    assert_eq!(row.capabilities, Some(TerminalCapabilitySet::empty()));
+}
+
+#[test]
+fn empty_set_encodes_live_output_and_skips_snapshots() {
+    let mut worker = ClientWorker::new();
+    let session = session("empty-stream");
+    let client = client("empty-stream");
+    let subscription = sub("empty-stream");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind empty");
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::Ready);
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::Snapshot {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"GHOSTSNP-skip".to_vec(),
+            },
+        ),
+        (
+            client,
+            TransportEgress::TerminalOutput {
+                session_id: session,
+                subscription_id: subscription,
+                data: b"live-empty".to_vec(),
+            },
+        ),
+    ];
+    let teardowns = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(
+        teardowns.is_empty(),
+        "skipped snapshots must not fail the route"
+    );
+    assert!(
+        frames.is_empty(),
+        "skipped snapshots must not return on drain: {frames:?}"
+    );
+    let _ = worker.pump();
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    assert!(
+        delivered
+            .iter()
+            .any(|bytes| json_type(bytes) == "terminal_output"
+                && frame_payload_text(bytes).contains("live-empty")),
+        "empty set must still encode live output: {delivered:?}"
+    );
+    assert!(
+        delivered.iter().all(|bytes| json_type(bytes) != "snapshot"),
+        "empty set must not emit snapshot tags: {delivered:?}"
+    );
+}
+
+#[test]
+fn ready_then_history_set_encodes_incremental_snapshot() {
+    let mut worker = ClientWorker::new();
+    let session = session("rth-stream");
+    let client = client("rth-stream");
+    let subscription = sub("rth-stream");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            advertised_capabilities(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind ready-then-history");
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::Ready);
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::Snapshot {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"GHOSTSNP-ready".to_vec(),
+            },
+        ),
+        (
+            client,
+            TransportEgress::TerminalOutput {
+                session_id: session,
+                subscription_id: subscription,
+                data: b"live-rth".to_vec(),
+            },
+        ),
+    ];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    let _ = worker.pump();
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    assert!(
+        delivered.iter().any(|bytes| json_type(bytes) == "snapshot"),
+        "ready-then-history must encode snapshot: {delivered:?}"
+    );
+    assert!(
+        delivered
+            .iter()
+            .any(|bytes| json_type(bytes) == "terminal_output"
+                && frame_payload_text(bytes).contains("live-rth")),
+        "ready-then-history must still encode live output: {delivered:?}"
+    );
+}
+
+#[test]
+fn bind_error_variants_remain_the_four_shipped_cases() {
+    fn classify(error: BindTerminalAdapterError) -> &'static str {
+        match error {
+            BindTerminalAdapterError::BindBeforeAttach { .. } => "bind_before_attach",
+            BindTerminalAdapterError::UnknownSubscription { .. } => "unknown_subscription",
+            BindTerminalAdapterError::StaleGeneration { .. } => "stale_generation",
+            BindTerminalAdapterError::AlreadyBound { .. } => "already_bound",
+        }
+    }
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/contract/terminal_subscription.rs"
+    ));
+    assert!(!source.contains("UnsupportedCapabilities"));
+    assert!(!source.contains("MissingCapabilities"));
+    let _ = classify;
 }
 
 #[allow(dead_code)]

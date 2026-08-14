@@ -18,10 +18,10 @@ use botster_core::{
     NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
     RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
     SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalColorProfile,
-    TerminalScreenState, TerminalSnapshotPayload, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntimeOptions,
+    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalCapabilitySet,
+    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
@@ -550,6 +550,7 @@ impl CoreDaemon {
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
@@ -559,6 +560,7 @@ impl CoreDaemon {
             session_id,
             subscription_id,
             generation,
+            capabilities,
             adapter,
         )?;
         Ok(())
@@ -1886,6 +1888,7 @@ impl DaemonEngine {
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
         match self {
@@ -1894,6 +1897,7 @@ impl DaemonEngine {
                 session_id,
                 subscription_id,
                 generation,
+                capabilities,
                 adapter,
             ),
             Self::Worker(engine) => engine.bind_terminal_adapter(
@@ -1901,6 +1905,7 @@ impl DaemonEngine {
                 session_id,
                 subscription_id,
                 generation,
+                capabilities,
                 adapter,
             ),
         }

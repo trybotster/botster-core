@@ -6,7 +6,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::{
+    TerminalCapabilitySet, TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+};
 use botster_terminal_protocol_client::{
     AttachState, AttachStateKind, ProcessExit, Snapshot, SnapshotPhase, TerminalEvent,
     TerminalOutput,
@@ -58,6 +60,7 @@ struct SubscriptionOwner {
     client_id: ClientId,
     generation: TerminalSubscriptionGeneration,
     adapter: Option<Box<dyn TerminalAdapter + Send>>,
+    capabilities: Option<TerminalCapabilitySet>,
     queue: VecDeque<QueuedFrame>,
     unsuccessful_writes: usize,
     in_flight: bool,
@@ -121,6 +124,7 @@ impl ClientWorker {
                 client_id,
                 generation,
                 adapter: None,
+                capabilities: None,
                 queue: VecDeque::new(),
                 unsuccessful_writes: 0,
                 in_flight: false,
@@ -159,13 +163,32 @@ impl ClientWorker {
 
     /// Bind a content-blind adapter to a live attach generation.
     ///
-    /// On rejection the presented adapter is closed and dropped on this stack.
+    /// `capabilities` is required. Omission does not compile. An empty set is
+    /// valid. Core does not inspect token contents at bind. On rejection the
+    /// presented adapter is closed and dropped on this stack.
+    ///
+    /// ```compile_fail
+    /// use botster_core::ClientWorker;
+    /// use botster_core::{ClientId, SessionId, SubscriptionId, TerminalSubscriptionGeneration};
+    /// fn omit(worker: &mut ClientWorker) {
+    ///     let adapter: Box<dyn botster_core::contract::terminal_adapter::TerminalAdapter + Send> =
+    ///         unimplemented!();
+    ///     let _ = worker.bind_terminal_adapter(
+    ///         &ClientId("c".into()),
+    ///         SessionId("s".into()),
+    ///         SubscriptionId("sub".into()),
+    ///         TerminalSubscriptionGeneration(1),
+    ///         adapter,
+    ///     );
+    /// }
+    /// ```
     pub fn bind_terminal_adapter(
         &mut self,
         client_id: &ClientId,
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         mut adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
         let key = OwnerKey {
@@ -206,6 +229,7 @@ impl ClientWorker {
             });
         }
         owner.adapter = Some(adapter);
+        owner.capabilities = Some(capabilities);
         Ok(())
     }
 
@@ -221,6 +245,7 @@ impl ClientWorker {
                 subscription_id: key.subscription_id.clone(),
                 generation: owner.generation,
                 adapter_bound: owner.adapter.is_some(),
+                capabilities: owner.capabilities.clone(),
             })
             .collect();
         records.sort_by(|left, right| {
@@ -324,7 +349,16 @@ impl ClientWorker {
             if owner.process_exit_enqueued {
                 continue;
             }
-            match encode_terminal_frame(&key, &frame, self.next_snapshot_phase.remove(&key)) {
+            let capabilities = owner
+                .capabilities
+                .clone()
+                .unwrap_or_else(TerminalCapabilitySet::empty);
+            match encode_terminal_frame(
+                &key,
+                &frame,
+                self.next_snapshot_phase.remove(&key),
+                &capabilities,
+            ) {
                 Ok(Some(queued)) => {
                     if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
                         failed_routes.insert(key.clone());
@@ -339,7 +373,11 @@ impl ClientWorker {
                         }
                     }
                 }
-                Ok(None) => retained.push((client_id, frame)),
+                Ok(None) => {
+                    if !matches!(frame, TransportEgress::Snapshot { .. }) {
+                        retained.push((client_id, frame));
+                    }
+                }
                 Err(()) => {
                     failed_routes.insert(key.clone());
                     if let Some(teardown) = self.hard_stop_key(&key) {
@@ -582,6 +620,7 @@ fn encode_terminal_frame(
     key: &OwnerKey,
     frame: &TransportEgress,
     snapshot_phase: Option<SnapshotPhase>,
+    capabilities: &TerminalCapabilitySet,
 ) -> Result<Option<QueuedFrame>, ()> {
     let event = match frame {
         TransportEgress::TerminalOutput { data, .. } | TransportEgress::Scrollback { data, .. } => {
@@ -591,17 +630,22 @@ fn encode_terminal_frame(
                 data,
             ))
         }
-        TransportEgress::Snapshot { data, .. } => TerminalEvent::Snapshot(Snapshot {
-            session_id: key.session_id.0.clone(),
-            subscription_id: key.subscription_id.0.clone(),
-            payload_base64: base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                data,
-            ),
-            payload_encoding: botster_terminal_protocol_client::PayloadEncoding::Base64,
-            bytes: data.len(),
-            phase: snapshot_phase.unwrap_or(SnapshotPhase::Ready),
-        }),
+        TransportEgress::Snapshot { data, .. } => {
+            if !capabilities.contains(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY) {
+                return Ok(None);
+            }
+            TerminalEvent::Snapshot(Snapshot {
+                session_id: key.session_id.0.clone(),
+                subscription_id: key.subscription_id.0.clone(),
+                payload_base64: base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    data,
+                ),
+                payload_encoding: botster_terminal_protocol_client::PayloadEncoding::Base64,
+                bytes: data.len(),
+                phase: snapshot_phase.unwrap_or(SnapshotPhase::Ready),
+            })
+        }
         TransportEgress::ProcessExit { code, .. } => TerminalEvent::ProcessExit(ProcessExit {
             session_id: key.session_id.0.clone(),
             subscription_id: key.subscription_id.0.clone(),

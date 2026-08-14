@@ -14,8 +14,8 @@ use crate::contract::notification::{
 };
 use crate::contract::terminal_adapter::TerminalAdapter;
 use crate::contract::terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 use crate::contract::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
@@ -470,6 +470,7 @@ impl DefaultBotsterEngine {
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
         self.runtime.bind_terminal_adapter(
@@ -477,6 +478,7 @@ impl DefaultBotsterEngine {
             session_id,
             subscription_id,
             generation,
+            capabilities,
             adapter,
         )
     }
@@ -1013,6 +1015,7 @@ impl WorkerBackedBotsterEngine {
         session_id: SessionId,
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
         adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
         self.runtime.bind_terminal_adapter(
@@ -1020,6 +1023,7 @@ impl WorkerBackedBotsterEngine {
             session_id,
             subscription_id,
             generation,
+            capabilities,
             adapter,
         )
     }

@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use botster_terminal_protocol::{
-    Attach, Detach, Resize, SendInput, TerminalCompatibility, TerminalCompatibilityRequirement,
-    TerminalFrame, PROTOCOL,
+    Attach, Detach, Resize, SendInput, TerminalCapabilitySet, TerminalCompatibility,
+    TerminalCompatibilityRequirement, TerminalFrame, FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING,
+    PROTOCOL,
 };
 
 #[test]
@@ -59,6 +60,13 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     assert_eq!(PROTOCOL, "botster-terminal-v1");
     let _ = TerminalCompatibility::current();
     let _ = TerminalCompatibilityRequirement::current();
+    let empty = TerminalCapabilitySet::empty();
+    assert!(empty.is_empty());
+    let negotiated =
+        TerminalCapabilitySet::from_tokens([FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE])
+            .expect("Hub can build a set from protocol tokens");
+    assert!(negotiated.contains(FEATURE_TERMINAL_STREAMING));
+    assert!(negotiated.contains(FEATURE_RESIZE));
 }
 
 #[test]
