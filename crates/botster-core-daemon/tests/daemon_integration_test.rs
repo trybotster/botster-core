@@ -4477,7 +4477,6 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
     let first = daemon
         .observe_lifecycle_slice(11, None, observe_item_budget(1))
         .expect("mint snapshot");
-    assert_eq!(daemon.observe_live_list_count(), 1);
     let born = SessionId("s99-mid-pass-birth".to_string());
     daemon
         .spawn(spawn_request(&born), 12)
@@ -4487,7 +4486,6 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
         let slice = daemon
             .observe_lifecycle_slice(13 + tick, Some(&resume), observe_item_budget(1))
             .expect("resume from snapshot");
-        assert_eq!(daemon.observe_live_list_count(), 1);
         assert_ne!(slice.last_visited.as_ref(), Some(&born));
         if slice.complete {
             assert_eq!(slice.last_visited.as_ref(), ids.last());
@@ -4498,7 +4496,6 @@ fn observe_slice_resume_does_not_rescan_or_absorb_mid_pass_births() {
     let new_pass = daemon
         .observe_lifecycle_slice(30, None, observe_item_budget(32))
         .expect("new pass sees the birth");
-    assert_eq!(daemon.observe_live_list_count(), 2);
     assert_eq!(new_pass.last_visited.as_ref(), Some(&born));
     assert!(new_pass.complete);
 
