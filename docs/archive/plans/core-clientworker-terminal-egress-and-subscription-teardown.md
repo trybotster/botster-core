@@ -6,12 +6,10 @@ Target: `botster-core` / `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Pipeline: `botster_stack_delivery` / `botster_stack_plan`
 Base: pipeline worktree on `botster-core` `main` at `e4d87a0`
 Depends on closed: `ticket_1786661004_133253` (content-blind terminal adapter contract)
-Revision: addresses Plan Review `review_1786669999_378858` findings
-`finding_1786669999_605585`, `finding_1786669999_355670`,
-`finding_1786669999_258869`, `finding_1786669999_964821`.
-Process finding `finding_1786669999_655496` is non-blocking; this visit
-includes `plan_uri`, `artifact_id`, `checklist_id`, `target_id`, and
-`target_repository` in gate evidence.
+Revision: addresses Plan Review `review_1786670534_723422`
+`finding_1786670534_434262` and the still-open
+`finding_1786669999_355670`. Retracts the unjoined closer.
+Prior findings `605585`, `258869`, `964821`, and `655496` stay resolved.
 
 This ticket is **runtime-teardown class**. [[botster runtime teardown lenses]] applies. Required lens answers are in this document and must appear in Plan gate evidence.
 
@@ -103,7 +101,8 @@ Targeted atomic notes:
 - Current adapter seam exists and is scaffold-only: `contract::terminal_adapter::TerminalAdapter` plus `botster-core-test-support::terminal_adapter` Fake / Unix-shaped / WebRTC-shaped drivers. Parent architecture doc states ClientWorker does not push yet.
 - Current `ClientWorkerMessage` and `ClientStreamHarness` are contract/harness types. There is no production ClientWorker that owns a bound adapter, a subscription generation, or a control-plane inventory.
 - Current detach is `detach_client(client_id, session_id, subscription_id)` with no generation. `ClientStreamGeneration` already exists on the stream harness.
-- Plan Review `review_1786669999_378858` returned `changes_required`. Product findings: ProcessExited can be abandoned by `close()` (`finding_1786669999_605585`), joined `close()` has no hard stop (`finding_1786669999_355670`), bind/generation conflict (`finding_1786669999_964821`), and `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` failed under workspace load at `expect("queued input output")` (`finding_1786669999_258869`). Isolated rerun on this worktree: `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output -- --exact` passed in 0.58s. `drain_until_for_client` waits only 1s. Process finding `finding_1786669999_655496` is addressed by this visit's gate evidence.
+- Plan Review `review_1786669999_378858` returned `changes_required`. Findings `605585`, `258869`, `964821`, and `655496` are resolved. `finding_1786669999_355670` stayed open.
+- Plan Review `review_1786670534_723422` rejected the unjoined closer (`finding_1786670534_434262`): a detached thread can leave the adapter runtime alive forever, contradicts “no new OS thread,” and does not prove idle. This revision retracts that closer. The hard stop is contractually non-blocking `close()` + drop on the same host tick, with thread-count and adapter-gone oracles. Isolated baseline rerun still: the incremental attach test passed in 0.58s; `drain_until_for_client` repair remains in scope.
 - Current incremental attach phase machine lives in `WorkerBackedBotsterEngine` and `ManagedSessionRuntime`. READY / PAGE / FINISH order and input/resize barriers already exist on the drain path.
 - `botster-terminal-protocol-client::TerminalEvent::to_frame` is the semantic-to-opaque encoder. Hub must not depend on that crate. Core may.
 - Repo placement: reviewable plans go under `docs/archive/plans/`. `docs/plans/` is a retired stub. Living design after merge belongs in `docs/architecture/`.
@@ -143,8 +142,8 @@ These values are decisions, not Implement choices.
 | Adapter `Closed` | One effective Core detach for the bound generation. No Hub Detach round-trip. No host session shutdown | Binding |
 | Frame delivered | A frame is delivered only after `try_write` returns `Ok(())` and that active write completes. `Ok(())` alone is not delivery | Binding |
 | ProcessExited | Remaining output must be delivered, then `process_exit` must be delivered, then Core may request adapter close. Repeat per live subscription. Host session stays | Binding |
-| Close hard stop | Ownership teardown finishes before any `adapter.close()`. Core never joins `close()` on `attach` / `detach` / `drain` return. A non-returning close is moved off the control path and is not joined. Blast radius is that one closer | Binding |
-| Adapter close law | This ticket amends the adapter contract: `close()` must return without waiting for transport I/O. It sets `Closed` and abandons the in-flight slot. A hanging `close()` is still a hard-stop case, not a Hub-only defect | Binding |
+| Close hard stop | There is no Core adapter driver thread. The hard stop is ownership teardown, then a contractually non-blocking `close()`, then drop of the adapter on the same host tick. No new OS thread. No leaked closer. Daemon shutdown uses that same path | Binding |
+| Adapter close law | This ticket amends the adapter contract: `close()` and `Drop` must return without waiting for transport I/O. They set `Closed` and abandon the in-flight slot. A blocking `close()` fails the published adapter harness. Core does not spawn a thread to paper over a contract violation | Binding |
 | Baseline attach helper | `drain_until_for_client` in `daemon_integration_test.rs` must use `REAL_WORKER_IDLE_TIMEOUT` / `REAL_WORKER_COMPLETION_TIMEOUT` like `drain_until_terminal_marker`. This ticket owns that repair | Binding |
 | Inventory | Control-plane records only: client, session, subscription, generation, adapter-bound. No terminal state, phases, or bytes | Binding |
 | Host policy | Out of Core. No worktree, spawn-template, or plugin lifecycle policy | Binding |
@@ -154,19 +153,19 @@ These values are decisions, not Implement choices.
 | Hub adapters | Unix `ticket_1786661008_634435` and WebRTC `ticket_1786661008_247079` | Cross-repo follow-up |
 | Hub drain removal | `ticket_1786661010_198387` | Cross-repo follow-up |
 | Follow-up-ok | Vault note that bound-adapter push is current, not proposed, after this slice merges | Follow-up |
-| Ask human only if | Implement would remove drain, double-deliver bound frames, put attach phases in inventory, add a second queue in the adapter, implement real sockets/DataChannels, shut down the host session on adapter close / ProcessExited, join `adapter.close()` on the control path, or skip the baseline helper repair | Threshold |
+| Ask human only if | Implement would remove drain, double-deliver bound frames, put attach phases in inventory, add a second queue in the adapter, implement real sockets/DataChannels, shut down the host session on adapter close / ProcessExited, spawn an unjoined closer, or skip the baseline helper repair | Threshold |
 
 ## Runtime-teardown lens answers
 
 | Field | Content |
 | --- | --- |
 | `teardown_class_applies` | Yes. The ticket owns ClientWorker / SessionIo subscription teardown, multi-subscription isolation, adapter `Closed` vs live-runtime divergence, and ProcessExited close order. |
-| `teardown_isolation` | One failed subscription owns its queue, bound adapter, attach barrier interest, and inventory row. Sibling subscriptions on the same session stay live. ProcessExited is session-wide only in that every live subscription receives its own remaining-output + delivered `process_exit` + close request. Host session, registry, and worker process stay. A hanging closer is isolated to that adapter. |
-| `teardown_bounds` | Ownership teardown is the hard stop and runs before `adapter.close()`. `try_write` is non-blocking. A frame stays at queue head on `WouldBlock`/`Full`. After 512 unsuccessful writes of that head frame, Core fails the subscription. Core never calls `close()` on the `CoreDaemon::attach` / `detach` / `drain` return stack as a joined call. After ownership teardown, Core moves the adapter to an unjoined closer. A non-returning `close()` cannot block siblings or later host ticks. |
+| `teardown_isolation` | One failed subscription owns its queue, bound adapter, attach barrier interest, and inventory row. Sibling subscriptions on the same session stay live. ProcessExited is session-wide only in that every live subscription receives its own remaining-output + delivered `process_exit` + close. Host session, registry, and worker process stay. No closer thread is shared. |
+| `teardown_bounds` | `try_write` is non-blocking. After 512 unsuccessful writes of the same head frame, Core fails the subscription. The hard stop that ends Core adapter work is: remove the owner, call contractually non-blocking `close()`, drop the adapter, return from the host tick. ClientWorker creates no OS thread. A blocking `close()` is an illegal adapter. The published harness rejects it. Core does not leak a thread or `ManuallyDrop` the adapter. |
 | `late_message_matrix` | See table below. |
-| `production_path_proof` | Production path: host tick → `CoreDaemon::drain` / `drain_runtime_once` → ClientWorker pump → `try_write` until the frame is in `delivered_frame_bytes` → ownership teardown → unjoined `close()`. ProcessExited proof: Fake `delivered_frame_bytes` contains `process_exit` before `pressure() == Closed`. Close hard-stop proof: a stall-on-close adapter; `detach` or the ProcessExited drain returns; inventory is absent; a sibling still pumps. A map-remove or JSON file is not enough. |
+| `production_path_proof` | Production path: host tick → `CoreDaemon::drain` / `drain_runtime_once` → ClientWorker pump → deliver remaining output and `process_exit` into Fake `delivered_frame_bytes` → ownership teardown → `close()` → drop. Oracles after that tick: `process_exit` is in `delivered_frame_bytes`, `pressure() == Closed` was observed, the adapter is gone from ClientWorker, process thread count did not grow, a sibling still pumps, the session is still listed. Daemon shutdown repeats the same path for remaining bound subscriptions and leaves no closer threads. A map-remove or JSON file is not enough. |
 | `ownership_identity` | Durable owner key is `(session_id, subscription_id, generation)`. Core assigns generation on attach. Bind requires that live generation. Reused `subscription_id` after teardown gets generation + 1. Delayed `Closed` or Detach for generation N must not delete generation N+1. |
-| `sibling_fail_closed_policy` | Successful close: siblings keep working. Ultimate close failure or non-returning close: Core has already removed the owner row, does not take down siblings, and a test must prove sibling isolation while close is stalled. Session ProcessExited closes every subscription on that session by design; that is not sibling sacrifice. |
+| `sibling_fail_closed_policy` | Successful close: siblings keep working. A blocked write hits the 512 budget and fails only that subscription. A blocking `close()` is out of contract; Core does not sacrifice siblings by spawning a leaked closer. Session ProcessExited closes every subscription on that session by design; that is not sibling sacrifice. |
 
 ### Late-message admission matrix
 
@@ -175,7 +174,7 @@ Every message that creates or can recreate durable terminal-subscription ownersh
 | Message | Grant / owner tag | After terminal failure | Sweep if it races close |
 | --- | --- | --- | --- |
 | `attach` / `AttachClient` | Host-chosen `client_id` + `session_id` + `subscription_id`; Core assigns or records `generation` | Same id + stale generation rejected. Same id + new generation is a new owner. Pre-READY failure creates no attach ownership | Cancel snapshot barrier; do not leave a bind-pending row |
-| `bind_terminal_adapter` | Live attach `subscription_id` + attach-assigned `generation` | Reject unknown, pre-attach, stale generation, already-bound, or closed. Core does not create ownership from bind | If bind races detach, detach wins for that generation. Bind returns a typed error. Core does not keep the rejected adapter; it hands it to the unjoined closer |
+| `bind_terminal_adapter` | Live attach `subscription_id` + attach-assigned `generation` | Reject unknown, pre-attach, stale generation, already-bound, or closed. Core does not create ownership from bind | If bind races detach, detach wins for that generation. Bind returns a typed error. Core calls `close()` on the rejected adapter on the same stack, then drops it |
 | Existing `detach` without generation | Live generation for that `subscription_id` if present | Idempotent no-op when already gone | None |
 | Generation-aware detach | `subscription_id` + `generation` | Idempotent no-op on mismatch or already gone | None |
 | Adapter `Closed` (local `close` or transport death) | Bound adapter identity = `subscription_id` + `generation` | One effective detach. Second `Closed` is a no-op | Close is the sweep. Adapter must not outlive the terminated subscription |
@@ -184,7 +183,7 @@ Every message that creates or can recreate durable terminal-subscription ownersh
 | SessionIo output / snapshot pages / live bytes | Live subscription + generation | Drop. Do not enqueue onto a closed or new generation | Drop |
 | Snapshot / read-screen / replay requests | Live subscription + generation | Drop if no live owner | Drop |
 | Lost snapshot / queue overflow | Live subscription + generation | Fail that subscription. Require fresh attach. No frame replay | Same as detach |
-| `ProcessExited` from the session runtime | Session | Deliver remaining output, then deliver `process_exit`, then request close of each live subscription. If delivery budget expires or the adapter returns `Closed` first, fail that subscription without claiming `process_exit` was delivered | Ownership teardown, then unjoined closer. Emit a separate control-plane session lifecycle event. Do not shut down host policy |
+| `ProcessExited` from the session runtime | Session | Deliver remaining output, then deliver `process_exit`, then `close()` and drop each live subscription adapter. If delivery budget expires or the adapter returns `Closed` first, fail that subscription without claiming `process_exit` was delivered | Ownership teardown, then `close()` + drop on the same tick. Emit a separate control-plane session lifecycle event. Do not shut down host policy |
 | Session shutdown | Session | Distinct from `attach_failed`. Cancel barriers. Close each subscription and adapter | Same as ProcessExited close-out without claiming attach failure |
 | Hub-forwarded Detach | Same as detach | Same | Same |
 | SubscribeEntities / UnsubscribeEntities / peer Request | Not a Core terminal-subscription owner in this repository | Out of scope | Out of scope |
@@ -261,9 +260,11 @@ Ownership hard-stop, used after successful ProcessExited delivery and for every 
 3. Drop the ClientWorker queue. Do not flush it through `close()`.
 4. Remove the inventory row. Late Attach / Bind / input / output for this generation cannot recreate it.
 5. Emit control-plane detached / lifecycle facts. Do not emit host shutdown policy.
-6. If an adapter is bound, take it out of the subscription map and hand it to an unjoined closer that calls `close()` once. The `attach` / `detach` / `drain` call that triggered teardown must return without joining that closer.
+6. If an adapter is bound, take it out of the subscription map, call `close()` on this host tick, observe `Closed`, and drop the adapter. Then return from `attach` / `detach` / `drain`.
 
-This ticket amends the adapter contract: `close()` must return without waiting for transport I/O. That law is not the hard stop. The unjoined closer is the hard stop when `close()` does not return.
+This ticket amends the adapter contract: `close()` and `Drop` must return without waiting for transport I/O. That is the close hard stop. ClientWorker has no adapter driver thread to park. A Fake adapter that stays `Full` is stopped by the 512-write budget, then this same `close()` + drop. A blocking `close()` fails `assert_terminal_adapter_conformance`. Core does not spawn, detach, or `ManuallyDrop` a closer.
+
+`CoreDaemon` shutdown walks remaining bound subscriptions and runs this same ownership teardown + `close()` + drop. There is no closer list to join.
 
 Callers of ownership hard-stop:
 
@@ -321,6 +322,7 @@ Do not write to retired `docs/plans/`.
 Core owns:
 
 - ClientWorker queues, slow-client policy, attach phases, detach, adapter pump, inventory
+- The non-blocking `close()` / `Drop` law on `TerminalAdapter`
 
 Hub owns, and this run must not implement:
 
@@ -351,13 +353,12 @@ Assumptions:
 - `botster-terminal-protocol-client` as a Core library dependency is allowed because Core owns both crates and Hub still must not take that dependency.
 - A host tick already exists (`drain`). Pumping adapters there is the production entry, not a second event loop.
 - `Send` on the adapter trait object is enough for Hub to construct an adapter and move it onto the Core owner thread.
-- An unjoined closer thread is acceptable fail-closed cost for a hanging `close()`. It is smaller than wedging `CoreDaemon`.
 - The workspace-load failure of `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` is owned by the 1s `drain_until_for_client` helper, not by a missing Hub ticket.
+- Hub Unix/WebRTC adapters implement the same non-blocking `close()` law. Their driver loops are Hub-owned and are out of this ticket. This ticket does not accept an unbounded leaked closer.
 
 Unknowns Implement must resolve locally, not by asking unless they hit the ask-human threshold:
 
 - Exact typed error names for stale generation, already-bound, unknown subscription, and bind-before-attach
-- Closer-thread naming and join-on-process-exit policy at daemon shutdown (must still not join on detach/drain return)
 
 ## Affected surfaces / files
 
@@ -399,7 +400,7 @@ Keep existing adapter harness laws unchanged unless a ClientWorker test needs a 
 - Treating Fake adapter map contents as teardown proof without `Closed` pressure and inventory absence.
 - Unbounded pump loop on `WouldBlock`.
 - Calling `close()` after `try_write(process_exit) == Ok(())` and abandoning the last frame.
-- Joining `adapter.close()` on `drain`/`detach` so a stall wedges siblings.
+- Reintroducing an unjoined closer that leaks the adapter runtime.
 - Pre-attach bind that invents a generation the inventory does not own.
 
 ## Acceptance checks / tests
@@ -414,7 +415,7 @@ Ticket acceptance, all against the Core Fake adapter on the production facade (`
 6. Adapter `Closed` causes one effective detach. Host session remains.
 7. ProcessExited delivery: Fake `delivered_frame_bytes` contains remaining output and then `process_exit` before `pressure() == Closed`. A test that only checks `try_write == Ok` fails this item.
 8. Stalled completion: 512 unsuccessful writes of the head frame, including `process_exit`, fails the subscription without claiming delivery.
-9. Close hard stop: a stall-on-close adapter; `CoreDaemon::detach` or the ProcessExited `drain` returns; inventory is absent; a sibling still pumps.
+9. Close hard stop: after ProcessExited or detach, the same host tick observes `Closed`, drops the adapter, returns, and leaves process thread count unchanged. A sibling still pumps. The adapter harness still proves `close()` returns without `complete_active_write`. Do not add a parking-close thread test.
 10. Pre-attach bind is a typed error. Bind after attach with the inventory generation succeeds.
 11. Late Attach / Bind / Detach / input / output / `Closed` follow the matrix above.
 12. Bound-route terminal frames do not also appear on `drain` / `drain_subscription`.
@@ -426,7 +427,7 @@ Charter / lens additions:
 15. Existing adapter conformance harness stays green after the non-blocking `close()` law is documented.
 16. Existing unbound drain / incremental attach / daemon integration tests stay green.
 17. If worker-backed output routing changes: real worker PTY + authentic Ghostty bound-adapter proof with pre-boundary and post-boundary markers.
-18. Production-path oracles: delivered fake-adapter bytes including `process_exit` before Closed, inventory absence, sibling still live during stalled close. Not a terminal JSON file.
+18. Production-path oracles: delivered fake-adapter bytes including `process_exit` before Closed, inventory absence, adapter dropped, thread count unchanged, sibling still live. Not a terminal JSON file. Not an unjoined closer.
 19. Deterministic assertions. The 512 write-attempt budget is a pump-tick count, not a wall-clock timeout. See [[conformance harnesses gate on deterministic invariants not timing]]. The real-worker helper timeout repair is an exception that already exists for sibling worker proofs.
 
 Repository gates after implementation:
@@ -449,7 +450,7 @@ After merge, capture if still true:
 - Bound-adapter ClientWorker push is current Core behavior, not only a proposed north-star note.
 - Drain remains the unbound / transitional host path until Hub cold-cut.
 - Subscription ownership identity is `(subscription_id, generation)`.
-- Attach precedes bind. `close()` is a non-blocking state change; Core does not join it on the control path.
+- Attach precedes bind. `close()` and `Drop` are non-blocking state changes. Core does not spawn a closer thread.
 
 Do not capture Hub adapter implementation details from this Core slice.
 
@@ -457,8 +458,8 @@ Do not capture Hub adapter implementation details from this Core slice.
 
 - Prefer the smallest wiring that reuses the existing attach phase machine and adapter trait.
 - Keep one Plan → Implement path. Do not open a second pipeline for teardown variety.
-- Do not join `adapter.close()` on the control path to “make the Fake test simpler.”
+- Do not spawn an unjoined closer.
 - Do not implement pre-attach bind.
 - Repair `drain_until_for_client` in the same change set as ClientWorker.
-- Review must load [[botster-runtime-reviewer-playbook]] and re-check the four product findings.
-- Verify must load [[botster-runtime-verifier-playbook]] and prove ProcessExited delivery, stalled-close return, and the incremental-attach input barrier.
+- Review must load [[botster-runtime-reviewer-playbook]] and re-check `finding_1786670534_434262` and `finding_1786669999_355670`.
+- Verify must load [[botster-runtime-verifier-playbook]] and prove ProcessExited delivery, close+drop idle with no extra thread, and the incremental-attach input barrier.
