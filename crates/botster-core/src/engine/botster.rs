@@ -1056,22 +1056,14 @@ impl WorkerBackedBotsterEngine {
                     self.runtime
                         .session_runtime_mut()
                         .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
-                    if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-                        attach.client_id = next_client;
-                        attach.subscription_id = next_subscription;
-                        attach.request_id = self
-                            .runtime
-                            .session_runtime_mut()
-                            .begin_snapshot_boundary(&session_id)?;
-                        attach.ready = false;
-                        self.incremental_attaches.insert(session_id.clone(), attach);
-                    }
+                    self.promote_pending_fail_closed(attach, &session_id);
                 } else {
                     attach
                         .pending
                         .retain(|(pending_client, pending_subscription)| {
                             pending_client != &client_id || pending_subscription != &subscription_id
                         });
+                    attach.discard_client_queues(&client_id);
                     self.incremental_attaches.insert(session_id.clone(), attach);
                 }
             }
@@ -1119,28 +1111,15 @@ impl WorkerBackedBotsterEngine {
                 self.runtime
                     .session_runtime_mut()
                     .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
-                attach
-                    .queued_input
-                    .retain(|(owner, _, _)| owner != &client_id);
-                if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-                    attach.client_id = next_client;
-                    attach.subscription_id = next_subscription;
-                    attach.request_id = self
-                        .runtime
-                        .session_runtime_mut()
-                        .begin_snapshot_boundary(&session_id)?;
-                    attach.ready = false;
-                    self.incremental_attaches.insert(session_id.clone(), attach);
-                }
+                attach.discard_client_queues(&client_id);
+                self.promote_pending_fail_closed(attach, &session_id);
             } else {
                 attach
                     .pending
                     .retain(|(pending_client, pending_subscription)| {
                         pending_client != &client_id || pending_subscription != &subscription_id
                     });
-                attach
-                    .queued_input
-                    .retain(|(owner, _, _)| owner != &client_id);
+                attach.discard_client_queues(&client_id);
                 self.incremental_attaches.insert(session_id.clone(), attach);
             }
         }
@@ -1299,16 +1278,7 @@ impl WorkerBackedBotsterEngine {
                         },
                         last_output_at,
                     );
-                    if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-                        attach.client_id = next_client;
-                        attach.subscription_id = next_subscription;
-                        attach.request_id = self
-                            .runtime
-                            .session_runtime_mut()
-                            .begin_snapshot_boundary(session_id)?;
-                        attach.ready = false;
-                        self.incremental_attaches.insert(session_id.clone(), attach);
-                    }
+                    self.promote_pending_fail_closed(attach, session_id);
                     return Err(ManagedSessionRuntimeError::Runtime(
                         crate::SessionRuntimeError::new(
                             crate::SessionRuntimeErrorKind::OutputFailed,
@@ -1413,18 +1383,9 @@ impl WorkerBackedBotsterEngine {
             append_engine_output(&mut output, input_output);
         }
 
-        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-            attach.client_id = next_client;
-            attach.subscription_id = next_subscription;
-            attach.request_id = self
-                .runtime
-                .session_runtime_mut()
-                .begin_snapshot_boundary(session_id)?;
-            attach.ready = false;
-            attach.queued_input = deferred_input;
-            attach.queued_resize = None;
-            self.incremental_attaches.insert(session_id.clone(), attach);
-        }
+        attach.queued_input = deferred_input;
+        attach.queued_resize = None;
+        self.promote_pending_fail_closed(attach, session_id);
 
         let mut live = self
             .runtime
@@ -1540,26 +1501,35 @@ impl WorkerBackedBotsterEngine {
             replaced_subscription,
             0,
         );
+        self.promote_pending_fail_closed(attach, &session_id);
+        Err(error.into())
+    }
+
+    fn promote_pending_fail_closed(
+        &mut self,
+        mut attach: IncrementalAttach,
+        session_id: &SessionId,
+    ) {
         while let Some((next_client, next_subscription)) = attach.pending.pop_front() {
             match self
                 .runtime
                 .session_runtime_mut()
-                .begin_snapshot_boundary(&session_id)
+                .begin_snapshot_boundary(session_id)
             {
                 Ok(request_id) => {
                     attach.client_id = next_client;
                     attach.subscription_id = next_subscription;
                     attach.request_id = request_id;
                     attach.ready = false;
-                    self.incremental_attaches.insert(session_id, attach);
-                    return Err(error.into());
+                    self.incremental_attaches.insert(session_id.clone(), attach);
+                    return;
                 }
                 Err(_) => {
                     attach.discard_client_queues(&next_client);
                     let _ = self
                         .runtime
                         .session_runtime_mut()
-                        .detach_consumer(&session_id);
+                        .detach_consumer(session_id);
                     let _ = self.runtime.detach_live_subscription(
                         next_client,
                         session_id.clone(),
@@ -1569,7 +1539,6 @@ impl WorkerBackedBotsterEngine {
                 }
             }
         }
-        Err(error.into())
     }
 
     fn reconcile_incremental_attach_after_teardown(
@@ -1586,23 +1555,14 @@ impl WorkerBackedBotsterEngine {
         ) {
             return Ok(());
         }
-        let mut attach = self
+        let attach = self
             .incremental_attaches
             .remove(session_id)
             .expect("incremental attach existed above");
         self.runtime
             .session_runtime_mut()
             .cancel_snapshot_boundary(session_id, &attach.request_id)?;
-        if let Some((next_client, next_subscription)) = attach.pending.pop_front() {
-            attach.client_id = next_client;
-            attach.subscription_id = next_subscription;
-            attach.request_id = self
-                .runtime
-                .session_runtime_mut()
-                .begin_snapshot_boundary(session_id)?;
-            attach.ready = false;
-            self.incremental_attaches.insert(session_id.clone(), attach);
-        }
+        self.promote_pending_fail_closed(attach, session_id);
         Ok(())
     }
 
