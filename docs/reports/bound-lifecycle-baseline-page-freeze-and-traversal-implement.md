@@ -52,6 +52,14 @@ clones the accumulated page. First-page and later-page unit tests
 assert item, encoded-byte, and positive elapsed limits, including
 `baseline_page_encodes` and an elapsed-before-encode negative control.
 
+`review_1786748347_725880` sent Implement back for
+`finding_1786748347_246285`. `finalize_baseline_page` encodes the exact
+returned page after `next`, `complete`, and `sessions` are final. A
+continuation that cannot fit returns `BudgetTooSmall` with that encoded
+size. Tests assert `encoded_lifecycle_baseline_page_len(page) <= max_bytes`
+and retry the smallest accepted continuation budget. Directory EOF counts
+as one index item so index completion does not emit rows in the same call.
+
 ## Botster layers changed
 
 - `botster-core-daemon` public `lifecycle_baseline_page` budget, incremental
