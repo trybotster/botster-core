@@ -324,6 +324,22 @@ pub fn reserved_observe_slice_error(session_id: SessionId) -> ObserveLifecycleSl
     }
 }
 
+/// Result of one exact-session control-plane lifecycle query.
+///
+/// First publication is `#[non_exhaustive]`. Downstream matches must handle
+/// [`Self::Found`] and [`Self::Absent`] and include a wildcard for later
+/// variants. Absence is not [`crate::CoreDaemonError::UnknownSession`].
+/// This type carries no terminal bytes, phases, snapshots, attach state, or
+/// `ProcessExited` frames.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SessionLifecycleLookup {
+    /// The daemon still owns a registry row for this session.
+    Found(SessionLifecycleRecord),
+    /// Registry and engine both lack this session after the observe attempt.
+    Absent,
+}
+
 /// Result of attaching a client to a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachedSession {

@@ -24,7 +24,7 @@ pub use api::{
     ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
     SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
     SessionLifecycleSourceId, SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };

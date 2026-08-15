@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 
 use std::time::Duration;
 
+use botster_core::SessionLifecycleState;
 use botster_core_daemon::{
-    CoreDaemon, LifecycleBaselineBudget, ObserveLifecycleBudget, ObserveLifecycleCursor,
-    ObserveLifecycleSlice, SessionLifecycleCursor, SessionLifecyclePage,
-    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    CoreDaemon, CoreDaemonError, LifecycleBaselineBudget, ObserveLifecycleBudget,
+    ObserveLifecycleCursor, ObserveLifecycleSlice, SessionLifecycleCursor,
+    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason,
 };
 
 /// In-memory Hub-shaped session projection rebuilt from Core pages.
@@ -148,6 +150,42 @@ pub fn observe_lifecycle_stage_a(
     budget: ObserveLifecycleBudget,
 ) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError> {
     daemon.observe_lifecycle_slice(now_seconds, resume, budget)
+}
+
+/// Hub-shaped ShutdownSession class for one exact-session Core lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubSessionLifecycleClass {
+    /// The session still has a non-exited control-plane row.
+    Active,
+    /// Core reported a reconciled exited row.
+    Exited,
+    /// Registry and engine both lack the session.
+    Absent,
+    /// Control-plane error. This is not Active.
+    OperatorError,
+}
+
+/// Classify one exact-session lookup without Drain, baseline, or pagination.
+///
+/// Miss and error stay off Active. Future `SessionLifecycleLookup` variants
+/// use the wildcard and also stay off Active.
+#[must_use]
+pub fn classify_session_lifecycle(
+    result: Result<SessionLifecycleLookup, CoreDaemonError>,
+) -> HubSessionLifecycleClass {
+    match result {
+        Ok(SessionLifecycleLookup::Found(record)) => match record.lifecycle {
+            Some(SessionLifecycleState::Exited { .. })
+            | Some(SessionLifecycleState::Failed { .. }) => HubSessionLifecycleClass::Exited,
+            Some(SessionLifecycleState::Starting)
+            | Some(SessionLifecycleState::Running)
+            | Some(SessionLifecycleState::Stopping)
+            | None => HubSessionLifecycleClass::Active,
+        },
+        Ok(SessionLifecycleLookup::Absent) => HubSessionLifecycleClass::Absent,
+        Err(_) => HubSessionLifecycleClass::OperatorError,
+        Ok(_) => HubSessionLifecycleClass::OperatorError,
+    }
 }
 
 /// Resume cursor from a progressing slice, if this pass can continue.
@@ -303,6 +341,27 @@ mod tests {
         assert!(second_slice.complete);
         let _ = daemon.shutdown(Some(first), 20);
         let _ = daemon.shutdown(Some(second), 21);
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn classify_session_lifecycle_never_maps_miss_or_error_to_active() {
+        assert_eq!(
+            classify_session_lifecycle(Ok(SessionLifecycleLookup::Absent)),
+            HubSessionLifecycleClass::Absent
+        );
+        assert_eq!(
+            classify_session_lifecycle(Err(CoreDaemonError::Shutdown)),
+            HubSessionLifecycleClass::OperatorError
+        );
+        let data_dir = temp_data_dir("hub-lifecycle-classify");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let unknown = botster_core::SessionId("hub-classify-missing".to_string());
+        let looked_up = daemon.observe_session_lifecycle(&unknown, 10);
+        assert_eq!(
+            classify_session_lifecycle(looked_up),
+            HubSessionLifecycleClass::Absent
+        );
         let _ = fs::remove_dir_all(data_dir);
     }
 

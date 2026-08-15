@@ -38,6 +38,33 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         "Stage A observe must be one slice per owner turn"
     );
     assert!(
+        source.contains("fn classify_session_lifecycle")
+            && source.contains("observe_session_lifecycle")
+            && source.contains("SessionLifecycleLookup::Found")
+            && source.contains("SessionLifecycleLookup::Absent")
+            && source.contains("Err(_)")
+            && source.contains("Ok(_)"),
+        "Hub-shaped ShutdownSession classify must match Found, Absent, Err, and a wildcard"
+    );
+    let classify_start = source
+        .find("pub fn classify_session_lifecycle")
+        .expect("classify helper");
+    let classify_end = source[classify_start..]
+        .find("pub fn observe_lifecycle_resume_cursor")
+        .expect("classify helper ends before resume cursor");
+    let classify = &source[classify_start..classify_start + classify_end];
+    for forbidden in [
+        ".drain(",
+        "drain_runtime_once",
+        ".observe_lifecycle(",
+        ".lifecycle_baseline(",
+    ] {
+        assert!(
+            !classify.contains(forbidden),
+            "exact-session classify must not call {forbidden}"
+        );
+    }
+    assert!(
         source.contains("lifecycle_changes_page"),
         "consumer must page through the bounded API"
     );
