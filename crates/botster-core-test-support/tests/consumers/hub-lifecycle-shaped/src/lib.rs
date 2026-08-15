@@ -7,7 +7,7 @@ use std::time::Duration;
 use botster_core::SessionLifecycleState;
 use botster_core_daemon::{
     CoreDaemon, CoreDaemonError, LifecycleBaselineBudget, ObserveLifecycleBudget,
-    ObserveLifecycleCursor, ObserveLifecycleSlice, SessionLifecycleCursor,
+    ObserveLifecycleCursor, ObserveLifecycleSlice, RegistrySessionState, SessionLifecycleCursor,
     SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
     SessionLifecycleRecord, SessionLifecycleResyncReason,
 };
@@ -167,21 +167,30 @@ pub enum HubSessionLifecycleClass {
 
 /// Classify one exact-session lookup without Drain, baseline, or pagination.
 ///
-/// Miss and error stay off Active. Future `SessionLifecycleLookup` variants
-/// use the wildcard and also stay off Active.
+/// A registry-only terminal row has no in-memory lifecycle until adoption.
+/// That row is still ended when `registry_state` is Exited or Stale.
+/// Miss, error, and future lookup variants stay off Active.
 #[must_use]
 pub fn classify_session_lifecycle(
     result: Result<SessionLifecycleLookup, CoreDaemonError>,
 ) -> HubSessionLifecycleClass {
     match result {
-        Ok(SessionLifecycleLookup::Found(record)) => match record.lifecycle {
-            Some(SessionLifecycleState::Exited { .. })
-            | Some(SessionLifecycleState::Failed { .. }) => HubSessionLifecycleClass::Exited,
-            Some(SessionLifecycleState::Starting)
-            | Some(SessionLifecycleState::Running)
-            | Some(SessionLifecycleState::Stopping)
-            | None => HubSessionLifecycleClass::Active,
-        },
+        Ok(SessionLifecycleLookup::Found(record)) => {
+            let terminal_lifecycle = matches!(
+                record.lifecycle,
+                Some(SessionLifecycleState::Exited { .. })
+                    | Some(SessionLifecycleState::Failed { .. })
+            );
+            let terminal_registry = matches!(
+                record.session.registry_state,
+                RegistrySessionState::Exited | RegistrySessionState::Stale
+            );
+            if terminal_lifecycle || terminal_registry {
+                HubSessionLifecycleClass::Exited
+            } else {
+                HubSessionLifecycleClass::Active
+            }
+        }
         Ok(SessionLifecycleLookup::Absent) => HubSessionLifecycleClass::Absent,
         Err(_) => HubSessionLifecycleClass::OperatorError,
         Ok(_) => HubSessionLifecycleClass::OperatorError,
@@ -253,7 +262,7 @@ mod tests {
         CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
         SpawnEnvironment, SpawnWorkingDirectory,
     };
-    use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, SpawnSessionRequest};
+    use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, RegistryRecord, SpawnSessionRequest};
 
     #[derive(Clone, Copy, Debug)]
     enum InterleaveSeam {
@@ -361,6 +370,43 @@ mod tests {
         assert_eq!(
             classify_session_lifecycle(looked_up),
             HubSessionLifecycleClass::Absent
+        );
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn classify_registry_only_exited_row_is_not_active() {
+        let data_dir = temp_data_dir("hub-lifecycle-registry-only-exited");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session_id = SessionId("hub-registry-only-exited".to_string());
+        let mut record = RegistryRecord::running(
+            session_id.clone(),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "dummy".to_string(),
+            10,
+        );
+        record.mark(RegistrySessionState::Exited, 11);
+        daemon
+            .registry()
+            .save(&record)
+            .expect("seed registry-only Exited row");
+        let looked_up = daemon
+            .observe_session_lifecycle(&session_id, 12)
+            .expect("exact query");
+        match &looked_up {
+            SessionLifecycleLookup::Found(found) => {
+                assert!(
+                    found.lifecycle.is_none(),
+                    "fresh daemon has no adopted lifecycle: {found:?}"
+                );
+                assert_eq!(found.session.registry_state, RegistrySessionState::Exited);
+            }
+            other => panic!("expected Found registry-only row, got {other:?}"),
+        }
+        assert_eq!(
+            classify_session_lifecycle(Ok(looked_up)),
+            HubSessionLifecycleClass::Exited
         );
         let _ = fs::remove_dir_all(data_dir);
     }
