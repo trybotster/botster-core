@@ -3731,9 +3731,23 @@ mod observe_pass_snapshot_tests {
             }
             other => panic!("expected Found for the 257th dummy row, got {other:?}"),
         }
+        assert_eq!(
+            daemon.registry.test_load_all_calls(),
+            0,
+            "exact query must not call SessionRegistry::load_all"
+        );
         assert_eq!(daemon.registry_load_all_calls.get(), 0);
         assert_eq!(daemon.observe_index_scans, 0);
         assert_eq!(daemon.baseline_index_scans, 0);
+        daemon
+            .registry
+            .load_all()
+            .expect("ablation: a direct load_all must increment the registry counter");
+        assert_eq!(
+            daemon.registry.test_load_all_calls(),
+            1,
+            "SessionRegistry::load_all must count a direct collection scan"
+        );
         daemon.shutdown(Some(live), 40).ok();
         let _ = std::fs::remove_dir_all(data_dir);
     }

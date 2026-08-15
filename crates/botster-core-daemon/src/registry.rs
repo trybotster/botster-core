@@ -1,5 +1,7 @@
 //! Filesystem-backed daemon session registry.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -127,6 +129,8 @@ pub enum SessionRegistryError {
 #[derive(Debug, Clone)]
 pub struct SessionRegistry {
     root: PathBuf,
+    #[cfg(test)]
+    load_all_calls: Cell<u64>,
 }
 
 impl SessionRegistry {
@@ -135,6 +139,8 @@ impl SessionRegistry {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             root: data_dir.into().join("sessions"),
+            #[cfg(test)]
+            load_all_calls: Cell::new(0),
         }
     }
 
@@ -186,8 +192,19 @@ impl SessionRegistry {
         }
     }
 
+    /// Count of [`Self::load_all`] calls. Exact-session tests use this to
+    /// fail if a query scans the registry collection.
+    #[cfg(test)]
+    #[must_use]
+    pub fn test_load_all_calls(&self) -> u64 {
+        self.load_all_calls.get()
+    }
+
     /// Load every registry record.
     pub fn load_all(&self) -> Result<Vec<RegistryRecord>, SessionRegistryError> {
+        #[cfg(test)]
+        self.load_all_calls
+            .set(self.load_all_calls.get().saturating_add(1));
         if !self.root.exists() {
             return Ok(Vec::new());
         }
