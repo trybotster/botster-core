@@ -30,11 +30,12 @@ use botster_core_daemon::{
     GuardedWriteDecision, GuardedWriteDeliveryState, GuardedWriteRequest, LifecycleBaselineBudget,
     ModeGatedInputOutcome, ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId,
     ObserveLifecycleSlice, PostNotificationRequest, PublishRoutedEnvelopeRequest,
-    ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistrySessionState,
-    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
-    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
+    ReadModeFlagsRequest, ReadScreenRequest, ReadinessEvidence, RegistryRecord,
+    RegistrySessionState, SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -169,6 +170,7 @@ fn lifecycle_api_types_are_control_plane_only() {
     assert!(section.contains("pub struct ObserveLifecycleSlice"));
     assert!(section.contains("pub struct SessionLifecycleBaselinePage"));
     assert!(section.contains("pub struct LifecycleBaselineBudget"));
+    assert!(section.contains("pub enum SessionLifecycleLookup"));
     assert!(section.contains("#[non_exhaustive]"));
     assert!(section.contains("BudgetTooSmall"));
 }
@@ -5119,6 +5121,117 @@ fn observe_then_drain_still_delivers_terminal_process_exited() {
 
 #[cfg(unix)]
 #[test]
+fn observe_session_lifecycle_finds_a_row_beyond_256_without_scans() {
+    let data_dir = temp_data_dir("exact-observe-large-registry");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let live = SessionId("z-exact-observe-live".to_string());
+    daemon
+        .spawn(immediate_exit_spawn_request(&live), 10)
+        .expect("one live session so an observe walk would increment scans");
+    for index in 0..257_u32 {
+        let dummy = SessionId(format!("a-dummy-{index:03}"));
+        daemon
+            .registry()
+            .save(&RegistryRecord::running(
+                dummy,
+                None,
+                ResizePayload { rows: 24, cols: 80 },
+                "dummy".to_string(),
+                10,
+            ))
+            .expect("dummy registry row");
+    }
+    let target = SessionId("a-dummy-256".to_string());
+    let looked_up = daemon
+        .observe_session_lifecycle(&target, 20)
+        .expect("exact query");
+    match looked_up {
+        SessionLifecycleLookup::Found(record) => {
+            assert_eq!(record.session.session_id, target);
+        }
+        other => panic!("expected Found for the 257th dummy row, got {other:?}"),
+    }
+    daemon.shutdown(Some(live), 40).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_session_lifecycle_reconciles_parked_process_exited() {
+    let data_dir = temp_data_dir("exact-observe-parked-exit");
+    let session_id = SessionId("exact-observe-parked-exit".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("finite producer spawn");
+    let first = wait_for_exact_session_exited(&mut daemon, &session_id, 20);
+    let second = daemon
+        .observe_session_lifecycle(&session_id, 21)
+        .expect("second exact query");
+    assert_eq!(first, second);
+    match &first {
+        SessionLifecycleLookup::Found(record) => {
+            assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
+            assert!(
+                matches!(record.lifecycle, Some(SessionLifecycleState::Exited { .. })),
+                "first query must reconcile parked ProcessExited: {record:?}"
+            );
+        }
+        other => panic!("expected Found Exited, got {other:?}"),
+    }
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("exited session is removable"));
+    assert!(matches!(
+        daemon.observe_session_lifecycle(&session_id, 30),
+        Ok(SessionLifecycleLookup::Absent)
+    ));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn observe_session_lifecycle_unknown_id_is_absent() {
+    let data_dir = temp_data_dir("exact-observe-absent");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let result = daemon.observe_session_lifecycle(&SessionId("missing".to_string()), 10);
+    assert!(
+        matches!(result, Ok(SessionLifecycleLookup::Absent)),
+        "absence must be Ok(Absent), got {result:?}"
+    );
+    assert!(!matches!(result, Err(CoreDaemonError::UnknownSession(_))));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_session_lifecycle_injected_drain_failure_is_err() {
+    let data_dir = temp_data_dir("exact-observe-fail-drain");
+    let session_id = SessionId("exact-observe-fail-drain".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_fail_runtime_drain_for(Some(session_id.clone())),
+    );
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("live session for injected drain failure");
+    let result = daemon.observe_session_lifecycle(&session_id, 20);
+    assert!(
+        result.is_err(),
+        "injected drain failure must be Err: {result:?}"
+    );
+    assert!(
+        !matches!(
+            result,
+            Ok(SessionLifecycleLookup::Found(ref record))
+                if matches!(record.lifecycle, Some(SessionLifecycleState::Running))
+        ),
+        "injected drain failure must not return Found Running: {result:?}"
+    );
+    daemon.shutdown(Some(session_id), 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync() {
     let data_dir = temp_data_dir("lifecycle-source-overflow");
     let session_id = SessionId("lifecycle-overflow-session".to_string());
@@ -8613,6 +8726,37 @@ fn renderable_frame_data(frame: &TransportEgress) -> Option<String> {
         }
         _ => None,
     }
+}
+
+#[cfg(unix)]
+fn wait_for_exact_session_exited(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    now_seconds: u64,
+) -> SessionLifecycleLookup {
+    let mut last = None;
+    for tick in 0..100 {
+        let looked_up = daemon
+            .observe_session_lifecycle(session_id, now_seconds + tick)
+            .expect("exact query");
+        if matches!(
+            &looked_up,
+            SessionLifecycleLookup::Found(record)
+                if record.session.registry_state == RegistrySessionState::Exited
+                    && matches!(
+                        record.lifecycle,
+                        Some(SessionLifecycleState::Exited { .. })
+                    )
+        ) {
+            return looked_up;
+        }
+        last = Some(looked_up);
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "observe_session_lifecycle did not reconcile parked ProcessExited for {}: {last:?}",
+        session_id.0
+    );
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {

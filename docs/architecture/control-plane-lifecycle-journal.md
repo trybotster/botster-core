@@ -46,6 +46,34 @@ wrapper: new pass, unbounded item/byte/elapsed budgets, typed
 `CoreDaemonError` values. It does not reconstruct those errors from
 slice strings.
 
+## Exact-session observe
+
+`CoreDaemon::observe_session_lifecycle(session_id, now_seconds)` is
+the host exact-session query. It returns
+`Result<SessionLifecycleLookup, CoreDaemonError>`.
+`SessionLifecycleLookup` is `#[non_exhaustive]` with `Found` and
+`Absent`.
+
+- The call visits one `SessionId`. It does not walk
+  `observe_lifecycle`, `lifecycle_baseline`, or `load_all`.
+- When the engine or the live observe index has the id, the call
+  runs `observe_session` first. That drain can reconcile parked
+  `ProcessExited` on this session only.
+- `Ok(Found)` returns the reconciled registry-backed row.
+- `Ok(Absent)` means both the registry and the engine lack the
+  session after that observe attempt. Absence is not
+  `UnknownSession`.
+- Drain failure, registry I/O, malformed JSON, and shutdown return
+  `Err`. Hosts must not map `Err` or `Absent` to Active.
+- The result has no terminal bytes, phases, snapshots, attach
+  state, or `ProcessExited` frames. Incidental terminal egress
+  stays on the pending-drain path.
+
+Hosts classify one session through this query. They must not
+classify shutdown with `CoreDaemon::drain`, `lifecycle_baseline`,
+or capped pagination. The owner-loop walk remains
+`observe_lifecycle_slice` plus `lifecycle_baseline_page`.
+
 ## Baseline
 
 `lifecycle_baseline_page(snapshot, after, budget)` pages a frozen
@@ -93,9 +121,14 @@ byte budget. `SessionLifecyclePageError` stays `#[non_exhaustive]` with
    resyncing a projection.
 4. `lifecycle_changes_page` after the snapshot watermark.
 5. Take again; re-page if woke.
+6. Exact-session host classification calls
+   `observe_session_lifecycle` for one `SessionId`. That call is
+   not a page walk.
 
 Zero-client natural exit uses observe plus a bounded journal page. No
-`CoreDaemon::drain`. No terminal client.
+`CoreDaemon::drain`. No terminal client. A parked process exit
+becomes `Found` with `Exited` on the first exact-session query after
+the child exits.
 
 ## Runtime-teardown lenses
 
@@ -104,8 +137,10 @@ This surface is runtime-teardown class. Shipped answers:
 - Isolation: one session observe updates that session's journal row and
   may hard-stop only that session's terminal subscriptions. A retained
   drain error does not stop later snapshot ids.
+  `observe_session_lifecycle` visits only the requested `SessionId`.
 - Bounds: one slice is one non-blocking host tick. No `block_on(close)`
-  and no `drain_runtime_all_once`. ClientWorker hard-stop stays
+  and no `drain_runtime_all_once`. An exact-session query calls
+  `drain_runtime_once` for that id only. ClientWorker hard-stop stays
   synchronous close+drop on the tick that observes `ProcessExited` for
   a visited bound subscription.
 - Late messages: stale or forged observe cursors resync with

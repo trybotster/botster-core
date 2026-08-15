@@ -1,5 +1,7 @@
 //! Core daemon supervisor and typed API implementation.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap, VecDeque},
     hash::{Hash, Hasher},
@@ -41,7 +43,7 @@ use crate::api::{
     ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
     SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecyclePage,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
     SessionLifecycleSourceId, SpawnSessionRequest,
 };
@@ -366,6 +368,8 @@ pub struct CoreDaemon {
     baseline_row_copies: u64,
     #[cfg(test)]
     baseline_page_encodes: u64,
+    #[cfg(test)]
+    registry_load_all_calls: Cell<u64>,
     running: bool,
 }
 
@@ -488,6 +492,8 @@ impl CoreDaemon {
             baseline_row_copies: 0,
             #[cfg(test)]
             baseline_page_encodes: 0,
+            #[cfg(test)]
+            registry_load_all_calls: Cell::new(0),
             running: true,
         }
     }
@@ -538,8 +544,7 @@ impl CoreDaemon {
     /// List durable daemon sessions.
     pub fn list(&self) -> Result<Vec<DaemonSession>, CoreDaemonError> {
         Ok(self
-            .registry
-            .load_all()?
+            .load_all_records()?
             .iter()
             .map(DaemonSession::from)
             .collect())
@@ -551,8 +556,7 @@ impl CoreDaemon {
     /// Production Stage A hosts must use [`Self::lifecycle_baseline_page`].
     pub fn lifecycle_baseline(&self) -> Result<SessionLifecycleBaseline, CoreDaemonError> {
         let sessions = self
-            .registry
-            .load_all()?
+            .load_all_records()?
             .iter()
             .map(|record| self.lifecycle_record(record))
             .collect();
@@ -787,6 +791,37 @@ impl CoreDaemon {
         }
         self.observe_lifecycle_walk(now_seconds, resume, budget)
             .map(|walk| walk.slice)
+    }
+
+    /// Reconcile one session and return its control-plane lifecycle row.
+    ///
+    /// This query is independent of registry size. It visits only `session_id`.
+    /// It does not call `observe_lifecycle`, `lifecycle_baseline`, or
+    /// `load_all`. Hosts use this for exact-session classification. They
+    /// must not classify shutdown from terminal Drain or a capped page walk.
+    ///
+    /// `Ok(Absent)` means both the registry and the engine lack the session
+    /// after the observe attempt. Drain failure, registry I/O, malformed
+    /// JSON, and shutdown return `Err`. Absence is not
+    /// [`CoreDaemonError::UnknownSession`].
+    pub fn observe_session_lifecycle(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<SessionLifecycleLookup, CoreDaemonError> {
+        self.ensure_running()?;
+        let engine_has_session = self.engine.session(session_id).is_some();
+        let live_index_has_session = self.observe_live_sessions.contains_key(&session_id.0);
+        if engine_has_session || live_index_has_session {
+            self.observe_session(session_id, now_seconds)?;
+        }
+        match self.registry.load(session_id)? {
+            Some(record) => Ok(SessionLifecycleLookup::Found(
+                self.lifecycle_record(&record),
+            )),
+            None if self.engine.session(session_id).is_none() => Ok(SessionLifecycleLookup::Absent),
+            None => Err(CoreDaemonError::UnknownSession(session_id.clone())),
+        }
     }
 
     /// Take the coalesced journal-advanced wake bit.
@@ -1372,7 +1407,7 @@ impl CoreDaemon {
         Ok(DaemonHealth {
             running: self.running,
             live_sessions: self.engine.list_sessions().len(),
-            registry_records: self.registry.load_all()?.len(),
+            registry_records: self.load_all_records()?.len(),
             data_dir: self.config.data_dir.display().to_string(),
         })
     }
@@ -1388,8 +1423,7 @@ impl CoreDaemon {
     /// Scan persisted records for follow-up restart/adoption work.
     pub fn adoption_scan(&self) -> Result<Vec<SessionAdoptionReport>, CoreDaemonError> {
         Ok(self
-            .registry
-            .load_all()?
+            .load_all_records()?
             .into_iter()
             .map(|record| {
                 let live_candidates = adoption_candidate_count(&self.engine, &record);
@@ -1697,6 +1731,13 @@ impl CoreDaemon {
         } else {
             Err(CoreDaemonError::Shutdown)
         }
+    }
+
+    fn load_all_records(&self) -> Result<Vec<RegistryRecord>, SessionRegistryError> {
+        #[cfg(test)]
+        self.registry_load_all_calls
+            .set(self.registry_load_all_calls.get().saturating_add(1));
+        self.registry.load_all()
     }
 
     fn ensure_session(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
@@ -3468,6 +3509,7 @@ mod terminal_backend_failure_tests {
             baseline_index_scans: 0,
             baseline_row_copies: 0,
             baseline_page_encodes: 0,
+            registry_load_all_calls: Cell::new(0),
             running: true,
         }
     }
@@ -3649,6 +3691,50 @@ mod observe_pass_snapshot_tests {
         assert!(second_slice.complete);
         daemon.shutdown(Some(first), 20).ok();
         daemon.shutdown(Some(second), 21).ok();
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn exact_session_lookup_does_not_scan_a_large_registry() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-exact-observe-scans-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let live = SessionId("z-exact-observe-live".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&live), 10)
+            .expect("one live session so an observe walk would increment scans");
+        for index in 0..257_u32 {
+            let dummy = SessionId(format!("a-dummy-{index:03}"));
+            daemon
+                .registry
+                .save(&RegistryRecord::running(
+                    dummy,
+                    None,
+                    ResizePayload { rows: 24, cols: 80 },
+                    "dummy".to_string(),
+                    10,
+                ))
+                .expect("dummy registry row");
+        }
+        let target = SessionId("a-dummy-256".to_string());
+        let looked_up = daemon
+            .observe_session_lifecycle(&target, 20)
+            .expect("exact query");
+        match looked_up {
+            SessionLifecycleLookup::Found(record) => {
+                assert_eq!(record.session.session_id, target);
+            }
+            other => panic!("expected Found for the 257th dummy row, got {other:?}"),
+        }
+        assert_eq!(daemon.registry_load_all_calls.get(), 0);
+        assert_eq!(daemon.observe_index_scans, 0);
+        assert_eq!(daemon.baseline_index_scans, 0);
+        daemon.shutdown(Some(live), 40).ok();
         let _ = std::fs::remove_dir_all(data_dir);
     }
 

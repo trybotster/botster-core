@@ -223,6 +223,10 @@ generic facade for custom runtimes.
    frames surface on drain. Control-plane lifecycle progress uses
    `CoreDaemon::observe_lifecycle_slice` instead of Drain.
    `observe_lifecycle` is the unbounded compatibility wrapper.
+   Exact-session host classification uses
+   `CoreDaemon::observe_session_lifecycle`. Do not classify one
+   session with `CoreDaemon::drain`, `lifecycle_baseline`, or
+   capped pagination.
 3. **Deliver** — route returned client egress and session requests to transports;
    do not re-inject already-routed session requests as new work.
 4. **Backpressure** — honor bounded queue / backpressure summaries from drain and
