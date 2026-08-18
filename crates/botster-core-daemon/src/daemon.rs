@@ -107,6 +107,10 @@ pub struct CoreDaemonConfig {
     pub test_worker_egress_capacity: Option<usize>,
     /// Test-only: fail snapshot history after READY.
     pub test_fail_snapshot_history_after_ready: bool,
+    /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
+    pub test_hold_before_exit_ms: Option<u64>,
+    /// Test-only: worker process exit code after the payload is flushed.
+    pub test_exit_code: Option<i32>,
     /// Test-only: make observe's per-session runtime drain fail for this id.
     pub test_fail_runtime_drain_for: Option<SessionId>,
     /// Test-only: `Display` text for the injected observe drain failure.
@@ -138,6 +142,8 @@ impl CoreDaemonConfig {
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
             test_fail_snapshot_history_after_ready: false,
+            test_hold_before_exit_ms: None,
+            test_exit_code: None,
             test_fail_runtime_drain_for: None,
             test_fail_runtime_drain_message: None,
             #[cfg(test)]
@@ -198,6 +204,20 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
         self.test_fail_snapshot_history_after_ready = enabled;
+        self
+    }
+
+    /// Hold after the worker sends FRAME_PROCESS_EXITED with stdout still open.
+    #[must_use]
+    pub const fn with_test_hold_before_exit_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_before_exit_ms = hold_ms;
+        self
+    }
+
+    /// Exit the worker with this code after the ProcessExited payload is flushed.
+    #[must_use]
+    pub const fn with_test_exit_code(mut self, exit_code: Option<i32>) -> Self {
+        self.test_exit_code = exit_code;
         self
     }
 
@@ -448,6 +468,8 @@ impl CoreDaemon {
                 options.terminal_color_profile = terminal_color_profile.clone();
                 options.test_fail_snapshot_history_after_ready =
                     config.test_fail_snapshot_history_after_ready;
+                options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
+                options.test_exit_code = config.test_exit_code;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
                     options.pty_reader_chunk_capacity = capacity;
                 }

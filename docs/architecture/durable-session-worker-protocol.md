@@ -178,6 +178,18 @@ without a worker-owned repair handshake, binding from an adopter could create a
 second owner for a still-live PTY. Adoption therefore reports the stable
 connect failure and lets the host classify the persisted record as stale.
 
+## Process Exit Delivery
+
+A received `FRAME_PROCESS_EXITED` payload is session-exit truth for the parent
+runtime. Parent delivery to drains and lifecycle observes must not wait for the
+worker process to become reapable and must not inspect the worker child's exit
+status.
+
+The worker sends no frames after `FRAME_PROCESS_EXITED`. The parent may emit
+`SessionRuntimeOutput::ProcessExited` while the worker child is still alive and
+stdout is still open. Connection death without a payload remains the existing
+true-error path; it does not invent a process-exit event.
+
 ## Queue And Backpressure
 
 Durable worker output is bounded. `SessionWorkerQueueLimits` names output frame

@@ -52,6 +52,8 @@ const MODE_GATED_REPLY_GRACE: Duration = Duration::from_secs(1);
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
+const WORKER_REAP_GRACE: Duration = Duration::from_secs(2);
+const WORKER_REAP_POLL: Duration = Duration::from_millis(10);
 const GATED_POLL: Duration = Duration::from_millis(5);
 #[cfg(unix)]
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -109,6 +111,10 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_hold_after_enqueue_ms: Option<u64>,
     /// Test-only: fail snapshot encode when the first history PAGE is ready.
     pub test_fail_snapshot_history_after_ready: bool,
+    /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
+    pub test_hold_before_exit_ms: Option<u64>,
+    /// Test-only: worker process exit code after the payload is flushed.
+    pub test_exit_code: Option<i32>,
     /// Ghostty scrollback byte budget used by the worker snapshot authority.
     pub ghostty_max_scrollback_bytes: usize,
     /// Optional initial color policy used by the worker snapshot authority.
@@ -134,6 +140,8 @@ impl WorkerProcessRuntimeOptions {
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             test_fail_snapshot_history_after_ready: false,
+            test_hold_before_exit_ms: None,
+            test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
             terminal_color_profile: None,
         }
@@ -192,6 +200,20 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_hold_after_enqueue_ms = hold_ms;
+        self
+    }
+
+    /// Hold after the worker sends FRAME_PROCESS_EXITED with stdout still open.
+    #[must_use]
+    pub const fn with_test_hold_before_exit_ms(mut self, hold_ms: Option<u64>) -> Self {
+        self.test_hold_before_exit_ms = hold_ms;
+        self
+    }
+
+    /// Exit the worker with this code after the ProcessExited payload is flushed.
+    #[must_use]
+    pub const fn with_test_exit_code(mut self, exit_code: Option<i32>) -> Self {
+        self.test_exit_code = exit_code;
         self
     }
 
@@ -1082,6 +1104,14 @@ impl SessionRuntime for WorkerProcessRuntime {
         if self.options.test_fail_snapshot_history_after_ready {
             command.arg("--test-fail-snapshot-history-after-ready");
         }
+        if let Some(hold_ms) = self.options.test_hold_before_exit_ms {
+            command
+                .arg("--test-hold-before-exit-ms")
+                .arg(hold_ms.to_string());
+        }
+        if let Some(exit_code) = self.options.test_exit_code {
+            command.arg("--test-exit-code").arg(exit_code.to_string());
+        }
 
         #[cfg(unix)]
         let socket_path = self
@@ -1314,26 +1344,27 @@ impl SessionRuntime for WorkerProcessRuntime {
             }
 
             let completion = session.completion.lock().map_err(lock_error)?;
-            let terminal_payload = completion
-                .reader_finished
-                .then(|| completion.process_exited.clone())
-                .flatten();
-            drop(completion);
-            terminal_payload.filter(|_| match session.child.as_mut() {
-                Some(child) => child
-                    .try_wait()
-                    .ok()
-                    .flatten()
-                    .is_some_and(|status| status.success()),
-                None => true,
-            })
+            completion.process_exited.clone()
         };
 
         if let Some(payload) = completed {
+            // The reader stores FRAME_PROCESS_EXITED only after earlier frames
+            // were accepted into the channel. Re-pump once so a raced last
+            // PTY chunk is not dropped when the session is removed.
+            self.pump_session_output(session_id)?;
+            {
+                let session = self.session_mut(session_id)?;
+                while let Some(event) = session.pending_output.pop_front() {
+                    output.push(event.into_runtime_output(session_id));
+                }
+            }
             if let Some(mut removed) = self.sessions.remove(session_id) {
                 removed.close_before_blocking_shutdown();
                 if let Some(mut child) = removed.child.take() {
-                    let _ = child.wait();
+                    match child.try_wait() {
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => reap_worker_child_in_background(child),
+                    }
                 }
                 removed.control.cleanup();
             }
@@ -1936,6 +1967,26 @@ impl WorkerOutputEvent {
             }
         }
     }
+}
+
+fn reap_worker_child_in_background(mut child: Child) {
+    thread::spawn(move || {
+        let deadline = Instant::now() + WORKER_REAP_GRACE;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    thread::sleep(WORKER_REAP_POLL);
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    });
 }
 
 fn spawn_stdout_reader(

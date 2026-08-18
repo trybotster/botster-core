@@ -3726,8 +3726,9 @@ fn adoption_of_live_process_with_reaped_socket_fails_without_rebinding() {
     original
         .shutdown(Some(session_id.clone()), 20)
         .expect("the connected owner should still shut down the reaped worker");
-    assert!(!process_exists(worker_pid));
-    assert!(!process_exists(pty_pid));
+    wait_for_condition("bounded reap after owner shutdown", || {
+        !process_exists(worker_pid) && !process_exists(pty_pid)
+    });
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -5157,6 +5158,107 @@ fn observe_session_lifecycle_finds_a_row_beyond_256_without_scans() {
 
 #[cfg(unix)]
 #[test]
+fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
+    let data_dir = short_temp_data_dir("w1-hold");
+    let session_id = SessionId("w1-hold-session".to_string());
+    let hold_ms = 8_000;
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_hold_before_exit_ms(Some(hold_ms)),
+    );
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("W1 session should spawn");
+    let (worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
+    wait_for_condition("W1 session process exit with worker still alive", || {
+        !process_exists(pty_child_pid) && process_exists(worker_pid)
+    });
+    // Worker loop + writer need a short beat after the PTY child exits to
+    // queue FRAME_PROCESS_EXITED before the hold starts.
+    thread::sleep(Duration::from_millis(150));
+    assert!(
+        process_exists(worker_pid),
+        "W1 hold must still own the worker child before blind shutdown"
+    );
+
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("blind ShutdownSession must complete while the worker holds stdout open");
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "W1 shutdown must finish inside the 2s daemon deadline, got {elapsed:?}"
+    );
+    assert!(
+        process_exists(worker_pid),
+        "W1 hold must keep the worker child alive after shutdown Ok"
+    );
+
+    let looked_up = daemon
+        .observe_session_lifecycle(&session_id, 21)
+        .expect("exact-session query after W1 delivery");
+    match &looked_up {
+        SessionLifecycleLookup::Found(record) => {
+            assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
+            assert!(
+                matches!(record.lifecycle, Some(SessionLifecycleState::Exited { .. })),
+                "observe_session_lifecycle must report the exited row during the hold: {record:?}"
+            );
+        }
+        other => panic!("expected Found Exited during W1 hold, got {other:?}"),
+    }
+    assert_eq!(
+        daemon.list().expect("list W1 session")[0].registry_state,
+        RegistrySessionState::Exited
+    );
+    wait_for_condition("W1 bounded reaper", || !process_exists(worker_pid));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn shutdown_delivers_process_exited_when_worker_exits_nonzero() {
+    let data_dir = short_temp_data_dir("w2-exit");
+    let session_id = SessionId("w2-exit-session".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_exit_code(Some(1)),
+    );
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("W2 session should spawn");
+
+    let looked_up = wait_for_exact_session_exited(&mut daemon, &session_id, 20);
+    match &looked_up {
+        SessionLifecycleLookup::Found(record) => {
+            assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
+            assert!(
+                matches!(
+                    record.lifecycle,
+                    Some(SessionLifecycleState::Exited { code: Some(0) })
+                ),
+                "W2 must keep the session process payload, not the worker status: {record:?}"
+            );
+        }
+        other => panic!("expected Found Exited after W2 worker exit, got {other:?}"),
+    }
+    daemon
+        .shutdown(Some(session_id.clone()), 30)
+        .expect("shutdown after W2 delivery must succeed");
+    assert_eq!(
+        daemon.list().expect("list W2 session")[0].registry_state,
+        RegistrySessionState::Exited
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn observe_session_lifecycle_reconciles_parked_process_exited() {
     let data_dir = temp_data_dir("exact-observe-parked-exit");
     let session_id = SessionId("exact-observe-parked-exit".to_string());
@@ -5566,8 +5668,9 @@ fn worker_shutdown_waits_for_delayed_progress_before_release_can_preserve_nothin
 
     daemon.release_for_restart();
     drop(daemon);
-    assert!(!process_exists(worker_pid));
-    assert!(!process_exists(pty_child_pid));
+    wait_for_condition("bounded reap after delayed shutdown", || {
+        !process_exists(worker_pid) && !process_exists(pty_child_pid)
+    });
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -5618,8 +5721,9 @@ fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
 
     daemon.release_for_restart();
     drop(daemon);
-    assert!(!process_exists(worker_pid));
-    assert!(!process_exists(pty_child_pid));
+    wait_for_condition("bounded reap after timeout resume", || {
+        !process_exists(worker_pid) && !process_exists(pty_child_pid)
+    });
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
