@@ -1,15 +1,45 @@
 //! Cache-path contract tests for the Ghostty build script.
 
 #[allow(dead_code)]
+#[path = "../build_data.rs"]
+mod build_data;
+#[allow(dead_code)]
 #[path = "../build_support.rs"]
 mod build_support;
 
 use std::path::{Path, PathBuf};
 
+use build_data::{
+    ghostty_build_args, GHOSTTY_LIB_VERSION, GHOSTTY_SOURCE_COMMIT, GHOSTTY_SOURCE_REPOSITORY,
+};
 use build_support::{
     direct_zig, resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_local_cache_dir,
     REQUIRED_ZIG_VERSION,
 };
+
+#[test]
+fn pinned_build_data_names_the_trybotster_source_and_exact_commit() {
+    assert_eq!(
+        GHOSTTY_SOURCE_REPOSITORY,
+        "https://github.com/trybotster/ghostty"
+    );
+    assert_eq!(
+        GHOSTTY_SOURCE_COMMIT,
+        "eb72ec61304ea256be1d86ed8fa961c84e43ecbd"
+    );
+    assert!(GHOSTTY_LIB_VERSION.ends_with(GHOSTTY_SOURCE_COMMIT));
+    let expected_version_arg = format!("-Dlib-version-string={GHOSTTY_LIB_VERSION}");
+    assert!(
+        ghostty_build_args()
+            .iter()
+            .any(|arg| *arg == expected_version_arg),
+        "Zig build arguments must embed the pinned source commit"
+    );
+
+    let gitmodules = include_str!("../../../.gitmodules");
+    assert!(gitmodules.contains("url = https://github.com/trybotster/ghostty.git"));
+    assert!(!gitmodules.contains("ghostty-org/ghostty"));
+}
 
 #[test]
 fn default_zig_caches_share_the_cargo_out_dir() {

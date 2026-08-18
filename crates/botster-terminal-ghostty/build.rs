@@ -7,8 +7,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[allow(dead_code)]
+mod build_data;
 mod build_support;
 
+use build_data::ghostty_build_args;
 use build_support::{
     resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_local_cache_dir, ZigCommand,
 };
@@ -44,19 +47,7 @@ fn build_ghostty_vt() {
 
     let status = Command::new(&zig.program)
         .args(&zig.prefix_args)
-        .args([
-            "build",
-            "-Demit-lib-vt",
-            "-Doptimize=ReleaseFast",
-            "-Dsimd=false",
-            "-Dcpu=baseline",
-            "-Dversion-string=1.3.2-dev",
-            // In lib-vt mode upstream defaults this to "is xcodebuild on
-            // PATH", which makes the build non-hermetic and requires full
-            // Xcode. We statically link the archive and never consume the
-            // universal xcframework, so keep it off explicitly.
-            "-Demit-xcframework=false",
-        ])
+        .args(ghostty_build_args())
         .current_dir(&ghostty_dir)
         .env("DEVELOPER_DIR", "/Library/Developer/CommandLineTools")
         .env("ZIG_GLOBAL_CACHE_DIR", zig_global_cache_dir)
@@ -66,7 +57,7 @@ fn build_ghostty_vt() {
 
     assert!(
         status.success(),
-        "botster-terminal-ghostty libghostty-vt feature requires `zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Demit-xcframework=false` to succeed"
+        "botster-terminal-ghostty libghostty-vt feature requires the pinned Zig libghostty-vt build to succeed"
     );
 
     assert!(
@@ -245,6 +236,7 @@ fn emit_rerun_directives() {
     println!("cargo:rerun-if-env-changed=ZIG_GLOBAL_CACHE_DIR");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_support.rs");
+    println!("cargo:rerun-if-changed=build_data.rs");
     println!("cargo:rerun-if-changed=vendor/ghostty/build.zig");
     println!("cargo:rerun-if-changed=vendor/ghostty/build.zig.zon");
     println!("cargo:rerun-if-changed=vendor/ghostty/src");

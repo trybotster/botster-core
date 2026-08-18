@@ -127,6 +127,7 @@ version = "0.1.0"
 dependencies = [
  "botster-core",
  "botster-core-test-support",
+ "serde_json",
 ]
 
 [[package]]

@@ -14,7 +14,7 @@ cargo test -p botster-terminal-ghostty --features libghostty-vt
 ```
 
 The vendored source is trybotster/ghostty at commit
-`5e9ba17a22ba8e40bf8de7d3e7555b8378cb1880` from
+`eb72ec61304ea256be1d86ed8fa961c84e43ecbd` from
 `https://github.com/trybotster/ghostty`. That pin is the production terminal
 authority for Botster Core: it publishes the snapshot API
 (`include/ghostty/vt/snapshot.h`), mode/palette reads, and the `write_pty`
@@ -27,8 +27,14 @@ Feature-enabled builds require Zig `0.16.0`, which is upstream's
 `mise exec -- zig`. It runs:
 
 ```sh
-zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Demit-xcframework=false
+zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Dlib-version-string=0.1.0-dev+eb72ec61304ea256be1d86ed8fa961c84e43ecbd -Demit-xcframework=false
 ```
+
+The library version includes the source commit as SemVer build data. The
+linked `ghostty_type_json` ABI manifest must report schema `1`, that library
+version, and the same commit. The native unit test compares every handwritten
+FFI layout and enum value used by this crate with
+`fixtures/abi/ghostty-eb72ec6-required.json` and the linked manifest.
 
 The build scopes Zig's local and default global caches to Cargo's `OUT_DIR` as
 `zig-local-cache` and `zig-global-cache`. This keeps both caches coherent for
