@@ -11,7 +11,7 @@ mod fake;
 mod unix_shaped;
 mod webrtc_shaped;
 
-pub use fake::{DeferredFlushTerminalAdapter, FakeTerminalAdapter, SharedFakeTerminalAdapter};
+pub use fake::{FakeTerminalAdapter, SharedFakeTerminalAdapter};
 pub use unix_shaped::UnixShapedTerminalAdapter;
 pub use webrtc_shaped::WebRtcShapedTerminalAdapter;
 
