@@ -57,17 +57,16 @@ On session `ProcessExited`, each live subscription:
 
 1. Delivers remaining output
 2. Delivers `process_exit`
-3. Then Core arms close. Core calls `close()` and drops the adapter on a
-   later host tick: the next `pump()`, or session teardown.
+3. Then Core hard-stops: `close()` and drop on the host tick where
+   `process_exit` completed (pressure returned to `Ready`)
 
-Close stays non-blocking and still runs on a host tick. Core does not wait
-for transport I/O. The extra tick keeps `close()` from abandoning writes that
-the adapter accepted on the delivery tick when `pressure()` was already
-`Ready`. After process exit, `ReadScreen` still pumps bound adapters so a
-one-slot adapter can complete the accepted write and accept `process_exit`.
-Shutdown teardown still closes. If the 512 write budget expires or the
-adapter returns `Closed` first, Core fails that subscription without claiming
-`process_exit` was delivered.
+Close stays non-blocking. A one-slot adapter cannot accept a second frame
+until the first write completes, so live bytes complete before `process_exit`
+occupies the slot. After process exit, `ReadScreen` still pumps bound
+adapters so a one-slot adapter can complete the accepted write and accept
+`process_exit`. Shutdown teardown still closes. If the 512 write budget
+expires or the adapter returns `Closed` first, Core fails that subscription
+without claiming `process_exit` was delivered.
 
 Worker-backed incremental attach polls snapshot frames and does not replace
 `drain_output`. While attach is unfinished and a bound adapter is present,

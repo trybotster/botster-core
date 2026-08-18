@@ -366,11 +366,13 @@ Out of scope (do not do):
 
 Differential live proof on Hub `57cbeb2` with this Core worktree:
 
-- **C1 is necessary and not sufficient.** `pump_one` now arms close after
-  `process_exit` delivery and closes on the next `pump()` or teardown. The
-  `DeferredFlushTerminalAdapter` unit and daemon tests go red if that deferral is
-  removed. Hub's WebRTC adapter reports `Full` after `try_write`, so same-tick
-  Ready auto-complete is not the live loss path.
+- **C1 extra close tick is withdrawn.** Review `review_1787070196_359846`
+  rejected `DeferredFlushTerminalAdapter`: it reported `Ready` while holding
+  many unflushed frames, which violates the one-slot contract. A conforming
+  adapter reports `Full` after `try_write`. Live bytes complete before
+  `process_exit` can occupy the slot, so `close_after_exit_armed` is not
+  required. Close returns to the host tick that observes completed
+  `process_exit`.
 - **C2 is covered, not the live loss path.** Bind happens during Attach, before
   the producer is released. The ClientWorker test
   `unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter`
@@ -382,9 +384,8 @@ Differential live proof on Hub `57cbeb2` with this Core worktree:
   `drain_runtime_once` during unfinished attach only when an adapter is bound.
   Unbound attach keeps one snapshot frame per host tick.
 - **Later retained `ReadScreen` ticks pump bound adapters.** The first exited
-  readback still drains once. A second retained `ReadScreen` pumps so a one-slot
-  adapter can complete the accepted write. The same call must not pump twice, or
-  C1 close fires on the accepting tick.
+  readback still drains once. A later retained `ReadScreen` pumps so a one-slot
+  adapter can complete the accepted write and accept `process_exit`.
 
 Added Core surfaces beyond the plan's primary list: `botster.rs`
 `WorkerBackedBotsterEngine::drain_runtime_once`, `CoreDaemon::read_screen` /

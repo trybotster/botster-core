@@ -16,9 +16,7 @@ use botster_core::{
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
 };
-use botster_core_test_support::terminal_adapter::{
-    DeferredFlushTerminalAdapter, SharedFakeTerminalAdapter,
-};
+use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
 use serde_json::Value;
 
@@ -1314,16 +1312,16 @@ fn bind_error_variants_remain_the_four_shipped_cases() {
 }
 
 #[test]
-fn same_tick_bytes_and_process_exit_reach_the_adapter_before_close() {
+fn one_slot_adapter_delivers_live_bytes_then_process_exit_before_close() {
     let mut worker = ClientWorker::new();
-    let session = session("same-tick-flush");
-    let client = client("same-tick");
-    let subscription = sub("same-tick");
+    let session = session("one-slot-flush");
+    let client = client("one-slot");
+    let subscription = sub("one-slot");
     worker.record_attach(client.clone(), session.clone(), subscription.clone());
     let generation = worker
         .live_generation(&session, &subscription)
         .expect("generation");
-    let adapter = DeferredFlushTerminalAdapter::new();
+    let adapter = SharedFakeTerminalAdapter::new();
     worker
         .bind_terminal_adapter(
             &client,
@@ -1366,30 +1364,41 @@ fn same_tick_bytes_and_process_exit_reach_the_adapter_before_close() {
     let first = worker.pump();
     assert!(
         first.is_empty(),
-        "must not close on the tick that accepted the writes: {first:?}"
+        "must not close while the one-slot write is in flight: {first:?}"
     );
-    assert!(
-        worker.adapter_is_bound(&session, &subscription),
-        "adapter must stay bound until the flush tick"
+    assert_eq!(
+        adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Full,
+        "accepted LIVE must occupy the one write slot"
     );
     assert!(
         adapter.snapshot_delivered_frame_bytes().is_empty(),
-        "accepted writes are not yet flushed"
+        "in-flight LIVE is not delivered until complete"
     );
 
-    adapter.flush();
+    adapter.complete_write();
+    assert!(
+        adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| json_type(bytes) == "terminal_output"
+                && frame_payload_text(bytes).contains("LIVE")),
+        "LIVE must complete before process_exit occupies the slot: {:?}",
+        adapter.snapshot_delivered_frame_bytes()
+    );
+
+    let second = worker.pump();
+    assert!(
+        second.is_empty(),
+        "must not close while process_exit is in flight: {second:?}"
+    );
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Full);
+    adapter.complete_write();
     let delivered = adapter.snapshot_delivered_frame_bytes();
     let types: Vec<String> = delivered.iter().map(|bytes| json_type(bytes)).collect();
     assert!(
-        types.iter().any(|kind| kind == "terminal_output")
-            && delivered
-                .iter()
-                .any(|bytes| frame_payload_text(bytes).contains("LIVE")),
-        "flushed sink must contain LIVE bytes before close: {delivered:?}"
-    );
-    assert!(
         types.iter().any(|kind| kind == "process_exit"),
-        "flushed sink must contain process_exit before close: {types:?}"
+        "process_exit must complete before close: {types:?}"
     );
     let output_at = types
         .iter()
@@ -1404,16 +1413,14 @@ fn same_tick_bytes_and_process_exit_reach_the_adapter_before_close() {
         "LIVE bytes must precede process_exit: {types:?}"
     );
 
-    let second = worker.pump();
-    assert_eq!(second.len(), 1, "close on the next pump tick: {second:?}");
-    assert!(!worker.adapter_is_bound(&session, &subscription));
-    assert!(adapter.is_closed());
+    let third = worker.pump();
     assert_eq!(
-        adapter.snapshot_events().last().copied(),
-        Some("close"),
-        "close must not abandon flushed writes: {:?}",
-        adapter.snapshot_events()
+        third.len(),
+        1,
+        "close on the tick that observes completed process_exit: {third:?}"
     );
+    assert!(!worker.adapter_is_bound(&session, &subscription));
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
 }
 
 #[test]
@@ -1456,7 +1463,7 @@ fn unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter() {
     );
     assert!(!worker.has_subscription(&session, &subscription));
 
-    let presented = DeferredFlushTerminalAdapter::new();
+    let presented = SharedFakeTerminalAdapter::new();
     let error = worker
         .bind_terminal_adapter(
             &client,
@@ -1471,8 +1478,9 @@ fn unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter() {
         error,
         BindTerminalAdapterError::UnknownSubscription { .. }
     ));
-    assert!(
-        presented.is_closed(),
+    assert_eq!(
+        presented.snapshot_pressure(),
+        TerminalAdapterPressure::Closed,
         "failed bind must close the presented adapter"
     );
 }

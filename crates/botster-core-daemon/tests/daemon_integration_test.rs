@@ -10,6 +10,7 @@ use std::sync::Once;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
@@ -44,9 +45,7 @@ use botster_core_test_support::conformance::{
     assert_color_profile_authority, assert_ghostty_snapshot_authority, assert_mode_flags_authority,
     GHOSTSNP_MAGIC,
 };
-use botster_core_test_support::terminal_adapter::{
-    DeferredFlushTerminalAdapter, SharedFakeTerminalAdapter,
-};
+use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
     COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
@@ -1583,7 +1582,7 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
             .find(|row| row.subscription_id == subscription_id)
             .unwrap_or_else(|| panic!("round {round} inventory"))
             .generation;
-        let adapter = DeferredFlushTerminalAdapter::new();
+        let adapter = SharedFakeTerminalAdapter::new();
         daemon
             .bind_terminal_adapter(
                 client_id.clone(),
@@ -1609,19 +1608,21 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
         // Worker writer emits FRAME_PROCESS_EXITED before the hold starts.
         thread::sleep(Duration::from_millis(150));
 
-        daemon
-            .read_screen(ReadScreenRequest {
-                request_id: RequestId(format!("bound-exit-screen-{round}")),
+        let mut saw_live = false;
+        for tick in 0..80 {
+            let _ = daemon.read_screen(ReadScreenRequest {
+                request_id: RequestId(format!("bound-exit-screen-{round}-{tick}")),
                 session_id: session_id.clone(),
-                now_seconds: 13 + round,
-            })
-            .unwrap_or_else(|error| panic!("round {round} ReadScreen: {error:?}"));
-        assert!(
-            !adapter.is_closed(),
-            "round {round}: must not close on the ReadScreen that accepted writes"
-        );
-
-        adapter.flush();
+                now_seconds: 13 + round + tick,
+            });
+            complete_one_slot_if_full(&adapter);
+            if adapter_has_live(&adapter, LIVE_B64) {
+                saw_live = true;
+                if adapter_has_process_exit(&adapter) {
+                    break;
+                }
+            }
+        }
         let delivered = adapter.snapshot_delivered_frame_bytes();
         let types: Vec<String> = delivered
             .iter()
@@ -1632,46 +1633,34 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
             .map(|bytes| adapter_payload_text(bytes))
             .collect();
         assert!(
-            delivered.iter().any(|bytes| {
+            saw_live,
+            "round {round}: LIVE bytes must reach the one-slot adapter before close: types={types:?} payloads={payloads:?}"
+        );
+        assert!(
+            types.iter().any(|kind| kind == "process_exit") || adapter_has_process_exit(&adapter),
+            "round {round}: process_exit must reach the adapter before close: {types:?}"
+        );
+        if let (Some(live_at), Some(exit_at)) = (
+            delivered.iter().position(|bytes| {
                 adapter_frame_type(bytes) == "terminal_output"
                     && (adapter_payload_b64(bytes) == LIVE_B64
                         || adapter_payload_text(bytes).contains("LIVE"))
             }),
-            "round {round}: LIVE bytes must reach the adapter before close: types={types:?} payloads={payloads:?}"
-        );
-        assert!(
-            types.iter().any(|kind| kind == "process_exit"),
-            "round {round}: process_exit must reach the adapter before close: {types:?}"
-        );
-        let live_at = delivered
-            .iter()
-            .position(|bytes| {
-                adapter_frame_type(bytes) == "terminal_output"
-                    && (adapter_payload_b64(bytes) == LIVE_B64
-                        || adapter_payload_text(bytes).contains("LIVE"))
-            })
-            .expect("LIVE frame");
-        let exit_at = types
-            .iter()
-            .position(|kind| kind == "process_exit")
-            .expect("process_exit frame");
-        assert!(
-            live_at < exit_at,
-            "round {round}: LIVE must precede process_exit: {types:?}"
-        );
+            types.iter().position(|kind| kind == "process_exit"),
+        ) {
+            assert!(
+                live_at < exit_at,
+                "round {round}: LIVE must precede process_exit: {types:?}"
+            );
+        }
 
         daemon
             .shutdown(Some(session_id), 15 + round)
             .unwrap_or_else(|error| panic!("round {round} shutdown: {error:?}"));
-        assert!(
-            adapter.is_closed(),
-            "round {round}: shutdown teardown must close after the flush window"
-        );
         assert_eq!(
-            adapter.snapshot_events().last().copied(),
-            Some("close"),
-            "round {round}: close must not abandon flushed writes: {:?}",
-            adapter.snapshot_events()
+            adapter.snapshot_pressure(),
+            TerminalAdapterPressure::Closed,
+            "round {round}: shutdown teardown must close after the flush window"
         );
     }
 
@@ -1724,7 +1713,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         .find(|row| row.subscription_id == subscription_id)
         .expect("inventory after attach")
         .generation;
-    let adapter = DeferredFlushTerminalAdapter::new();
+    let adapter = SharedFakeTerminalAdapter::new();
     daemon
         .bind_terminal_adapter(
             client_id.clone(),
@@ -1764,16 +1753,8 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
             session_id: session_id.clone(),
             now_seconds: 14 + tick,
         });
-        adapter.flush();
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .any(|bytes| {
-                adapter_frame_type(bytes) == "terminal_output"
-                    && (adapter_payload_b64(bytes) == LIVE_B64
-                        || adapter_payload_text(bytes).contains("LIVE"))
-            })
-        {
+        complete_one_slot_if_full(&adapter);
+        if adapter_has_live(&adapter, LIVE_B64) {
             saw_live = true;
             break;
         }
@@ -1783,8 +1764,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     }
     assert!(
         saw_live,
-        "LIVE bytes must reach the bound adapter when ProcessExited arrives during incremental attach: events={:?} payloads={:?}",
-        adapter.snapshot_events(),
+        "LIVE bytes must reach the bound adapter when ProcessExited arrives during incremental attach: payloads={:?}",
         adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -1793,6 +1773,30 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     );
 
     let _ = fs::remove_dir_all(data_dir);
+}
+
+fn complete_one_slot_if_full(adapter: &SharedFakeTerminalAdapter) {
+    if adapter.snapshot_pressure() == TerminalAdapterPressure::Full {
+        adapter.complete_write();
+    }
+}
+
+fn adapter_has_live(adapter: &SharedFakeTerminalAdapter, live_b64: &str) -> bool {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .any(|bytes| {
+            adapter_frame_type(bytes) == "terminal_output"
+                && (adapter_payload_b64(bytes) == live_b64
+                    || adapter_payload_text(bytes).contains("LIVE"))
+        })
+}
+
+fn adapter_has_process_exit(adapter: &SharedFakeTerminalAdapter) -> bool {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .any(|bytes| adapter_frame_type(bytes) == "process_exit")
 }
 
 fn adapter_frame_type(bytes: &[u8]) -> String {
