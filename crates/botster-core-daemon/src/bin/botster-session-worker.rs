@@ -541,6 +541,9 @@ fn drain_and_apply_pty_output(
                 );
             }
             SessionRuntimeOutput::ProcessExited { payload, .. } => {
+                for observation in metadata_shaper.drain() {
+                    send_metadata_observation(egress, observation);
+                }
                 egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
                 process_exited = true;
             }
@@ -708,6 +711,9 @@ fn apply_barrier_outputs(
                 );
             }
             SessionRuntimeOutput::ProcessExited { payload, .. } => {
+                for observation in metadata_shaper.drain() {
+                    send_metadata_observation(egress, observation);
+                }
                 egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
             }
             SessionRuntimeOutput::Backpressure(_) => {}
@@ -918,36 +924,75 @@ fn spawn_control_reader(
     });
 }
 
+fn encoded_frame_type(frame: &[u8]) -> Option<u8> {
+    frame.get(4).copied()
+}
+
+fn is_process_exited_frame(frame: &[u8]) -> bool {
+    encoded_frame_type(frame) == Some(FRAME_PROCESS_EXITED)
+}
+
+fn drain_metadata_lane(
+    metadata: &Receiver<Vec<u8>>,
+    mut write_frame: impl FnMut(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    while let Ok(frame) = metadata.try_recv() {
+        write_frame(&frame)?;
+    }
+    Ok(())
+}
+
+/// Write protected frames, then pending metadata. `FRAME_PROCESS_EXITED` is
+/// terminal: drain metadata first so queued observations still precede it,
+/// write the exit frame, then stop so no later frame follows it.
+fn write_egress_lanes(
+    mut write_frame: impl FnMut(&[u8]) -> Result<(), String>,
+    protected: Receiver<Vec<u8>>,
+    metadata: Receiver<Vec<u8>>,
+) -> Result<(), String> {
+    while let Ok(frame) = protected.recv() {
+        if write_one_protected_frame(&mut write_frame, &metadata, frame)? {
+            return Ok(());
+        }
+        while let Ok(frame) = protected.try_recv() {
+            if write_one_protected_frame(&mut write_frame, &metadata, frame)? {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_one_protected_frame(
+    write_frame: &mut impl FnMut(&[u8]) -> Result<(), String>,
+    metadata: &Receiver<Vec<u8>>,
+    frame: Vec<u8>,
+) -> Result<bool, String> {
+    if is_process_exited_frame(&frame) {
+        drain_metadata_lane(metadata, |queued| write_frame(queued))?;
+        write_frame(&frame)?;
+        return Ok(true);
+    }
+    write_frame(&frame)?;
+    drain_metadata_lane(metadata, |queued| write_frame(queued))?;
+    Ok(false)
+}
+
 fn write_egress(
     mut stdout: impl Write,
     protected: Receiver<Vec<u8>>,
     metadata: Receiver<Vec<u8>>,
 ) -> Result<(), String> {
-    while let Ok(frame) = protected.recv() {
-        stdout
-            .write_all(&frame)
-            .map_err(|error| error.to_string())?;
-        stdout.flush().map_err(|error| error.to_string())?;
-        while let Ok(frame) = metadata.try_recv() {
+    write_egress_lanes(
+        |frame| {
             stdout
-                .write_all(&frame)
-                .map_err(|error| error.to_string())?;
-            stdout.flush().map_err(|error| error.to_string())?;
-        }
-        while let Ok(frame) = protected.try_recv() {
-            stdout
-                .write_all(&frame)
-                .map_err(|error| error.to_string())?;
-            stdout.flush().map_err(|error| error.to_string())?;
-            while let Ok(frame) = metadata.try_recv() {
-                stdout
-                    .write_all(&frame)
-                    .map_err(|error| error.to_string())?;
-                stdout.flush().map_err(|error| error.to_string())?;
-            }
-        }
-    }
-    Ok(())
+                .write_all(frame)
+                .and_then(|_| stdout.flush())
+                .map_err(|error| error.to_string())
+        },
+        protected,
+        metadata,
+    )
 }
 
 trait ReadWrite: Read + Write {}
@@ -1072,23 +1117,12 @@ impl WorkerControl {
             Self::Socket { writer, .. } => {
                 let writer = Arc::clone(writer);
                 thread::spawn(move || {
-                    while let Ok(frame) = protected.recv() {
-                        if let Ok(mut slot) = writer.lock() {
-                            if let Some(stream) = slot.as_mut() {
-                                if stream
-                                    .write_all(&frame)
-                                    .and_then(|_| stream.flush())
-                                    .is_err()
-                                {
-                                    *slot = None;
-                                }
-                            }
-                        }
-                        while let Ok(frame) = metadata.try_recv() {
+                    write_egress_lanes(
+                        |frame| {
                             if let Ok(mut slot) = writer.lock() {
                                 if let Some(stream) = slot.as_mut() {
                                     if stream
-                                        .write_all(&frame)
+                                        .write_all(frame)
                                         .and_then(|_| stream.flush())
                                         .is_err()
                                     {
@@ -1096,35 +1130,11 @@ impl WorkerControl {
                                     }
                                 }
                             }
-                        }
-                        while let Ok(frame) = protected.try_recv() {
-                            if let Ok(mut slot) = writer.lock() {
-                                if let Some(stream) = slot.as_mut() {
-                                    if stream
-                                        .write_all(&frame)
-                                        .and_then(|_| stream.flush())
-                                        .is_err()
-                                    {
-                                        *slot = None;
-                                    }
-                                }
-                            }
-                            while let Ok(frame) = metadata.try_recv() {
-                                if let Ok(mut slot) = writer.lock() {
-                                    if let Some(stream) = slot.as_mut() {
-                                        if stream
-                                            .write_all(&frame)
-                                            .and_then(|_| stream.flush())
-                                            .is_err()
-                                        {
-                                            *slot = None;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(())
+                            Ok(())
+                        },
+                        protected,
+                        metadata,
+                    )
                 })
             }
         }
@@ -1598,6 +1608,111 @@ mod tests {
     use std::sync::Arc;
 
     use super::{SnapshotBarrierControl, SnapshotBarrierRelease, WorkerLifecycle};
+
+    fn decode_frame_types(bytes: &[u8]) -> Vec<u8> {
+        let mut cursor = std::io::Cursor::new(bytes);
+        let mut types = Vec::new();
+        while cursor.position() < bytes.len() as u64 {
+            types.push(
+                super::read_frame(&mut cursor)
+                    .expect("decode test frame")
+                    .frame_type,
+            );
+        }
+        types
+    }
+
+    fn process_exited_frame() -> Vec<u8> {
+        botster_core::encode_json(
+            super::FRAME_PROCESS_EXITED,
+            &botster_core::ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            },
+        )
+        .expect("encode process-exited test frame")
+    }
+
+    #[test]
+    fn stdio_writer_emits_queued_metadata_before_process_exited_and_nothing_after() {
+        let (protected_tx, protected_rx) = std::sync::mpsc::sync_channel(8);
+        let (metadata_tx, metadata_rx) = std::sync::mpsc::sync_channel(8);
+        let title =
+            botster_core::encode_string(super::FRAME_TITLE_CHANGED, "late-title").expect("title");
+        metadata_tx.send(title).expect("queue metadata");
+        protected_tx
+            .send(process_exited_frame())
+            .expect("queue process-exited");
+        drop(protected_tx);
+        drop(metadata_tx);
+
+        let mut stdout = Vec::new();
+        super::write_egress(&mut stdout, protected_rx, metadata_rx).expect("stdio writer");
+        assert_eq!(
+            decode_frame_types(&stdout),
+            vec![super::FRAME_TITLE_CHANGED, super::FRAME_PROCESS_EXITED]
+        );
+    }
+
+    #[test]
+    fn writer_emits_queued_metadata_then_process_exited_and_drops_later_protected_frames() {
+        let (protected_tx, protected_rx) = std::sync::mpsc::sync_channel(8);
+        let (metadata_tx, metadata_rx) = std::sync::mpsc::sync_channel(8);
+        let late_pty =
+            botster_core::encode_frame(super::FRAME_PTY_OUTPUT, b"after-exit").expect("pty");
+        let late_title =
+            botster_core::encode_string(super::FRAME_TITLE_CHANGED, "after-exit-title")
+                .expect("title");
+        protected_tx
+            .send(process_exited_frame())
+            .expect("queue process-exited");
+        protected_tx.send(late_pty).expect("queue late pty");
+        metadata_tx.send(late_title).expect("queue late title");
+        drop(protected_tx);
+        drop(metadata_tx);
+
+        let mut stdout = Vec::new();
+        super::write_egress(&mut stdout, protected_rx, metadata_rx).expect("stdio writer");
+        assert_eq!(
+            decode_frame_types(&stdout),
+            vec![super::FRAME_TITLE_CHANGED, super::FRAME_PROCESS_EXITED]
+        );
+    }
+
+    #[test]
+    fn socket_writer_path_is_terminal_after_process_exited() {
+        let (protected_tx, protected_rx) = std::sync::mpsc::sync_channel(8);
+        let (metadata_tx, metadata_rx) = std::sync::mpsc::sync_channel(8);
+        let title =
+            botster_core::encode_string(super::FRAME_TITLE_CHANGED, "socket-title").expect("title");
+        let pty = botster_core::encode_frame(super::FRAME_PTY_OUTPUT, b"pty").expect("pty");
+        protected_tx.send(pty).expect("queue pty");
+        metadata_tx.send(title).expect("queue metadata");
+        protected_tx
+            .send(process_exited_frame())
+            .expect("queue process-exited");
+        drop(protected_tx);
+        drop(metadata_tx);
+
+        let mut written = Vec::new();
+        super::write_egress_lanes(
+            |frame| {
+                written.extend_from_slice(frame);
+                Ok(())
+            },
+            protected_rx,
+            metadata_rx,
+        )
+        .expect("socket-style writer");
+        assert_eq!(
+            decode_frame_types(&written),
+            vec![
+                super::FRAME_PTY_OUTPUT,
+                super::FRAME_TITLE_CHANGED,
+                super::FRAME_PROCESS_EXITED
+            ]
+        );
+    }
 
     #[test]
     fn shutdown_keeps_worker_loop_alive_until_process_exit_is_observed() {
