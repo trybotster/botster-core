@@ -66,6 +66,8 @@ struct SubscriptionOwner {
     in_flight: bool,
     process_exit_enqueued: bool,
     process_exit_delivered: bool,
+    /// ProcessExit was delivered on a prior pump tick; close on this tick.
+    close_after_exit_armed: bool,
 }
 
 struct QueuedFrame {
@@ -130,6 +132,7 @@ impl ClientWorker {
                 in_flight: false,
                 process_exit_enqueued: false,
                 process_exit_delivered: false,
+                close_after_exit_armed: false,
             },
         );
         (generation, replacements)
@@ -399,6 +402,11 @@ impl ClientWorker {
     ///
     /// A WouldBlock/Full on the head frame counts once. Completing an in-flight
     /// write is observed as pressure returning to Ready.
+    ///
+    /// After `process_exit` is delivered, close waits for a later host tick so
+    /// an adapter that accepted the final writes on this tick can flush before
+    /// `close()` abandons them. Close stays non-blocking. A later `pump()` or
+    /// session teardown still closes on a host tick.
     pub fn pump(&mut self) -> Vec<ClientWorkerTeardown> {
         let keys: Vec<_> = self.live.keys().cloned().collect();
         let mut teardowns = Vec::new();
@@ -527,8 +535,12 @@ fn pump_one(
     loop {
         let owner = live.get_mut(key)?;
         if owner.process_exit_delivered {
-            phases.remove(key);
-            return hard_stop(live, key);
+            if owner.close_after_exit_armed {
+                phases.remove(key);
+                return hard_stop(live, key);
+            }
+            owner.close_after_exit_armed = true;
+            return None;
         }
         let adapter = owner.adapter.as_mut()?;
         if adapter.pressure() == TerminalAdapterPressure::Closed {

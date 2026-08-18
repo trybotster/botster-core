@@ -16,7 +16,9 @@ use botster_core::{
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
 };
-use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
+use botster_core_test_support::terminal_adapter::{
+    DeferredFlushTerminalAdapter, SharedFakeTerminalAdapter,
+};
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
 use serde_json::Value;
 
@@ -1309,6 +1311,170 @@ fn bind_error_variants_remain_the_four_shipped_cases() {
     assert!(!source.contains("UnsupportedCapabilities"));
     assert!(!source.contains("MissingCapabilities"));
     let _ = classify;
+}
+
+#[test]
+fn same_tick_bytes_and_process_exit_reach_the_adapter_before_close() {
+    let mut worker = ClientWorker::new();
+    let session = session("same-tick-flush");
+    let client = client("same-tick");
+    let subscription = sub("same-tick");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let adapter = DeferredFlushTerminalAdapter::new();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"LIVE".to_vec(),
+            },
+        ),
+        (
+            client,
+            TransportEgress::ProcessExit {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                code: Some(0),
+            },
+        ),
+    ];
+    let ingest = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(
+        ingest.is_empty(),
+        "bound ingest must not hard-stop: {ingest:?}"
+    );
+    assert!(
+        frames.is_empty(),
+        "bound frames must leave drain: {frames:?}"
+    );
+
+    let first = worker.pump();
+    assert!(
+        first.is_empty(),
+        "must not close on the tick that accepted the writes: {first:?}"
+    );
+    assert!(
+        worker.adapter_is_bound(&session, &subscription),
+        "adapter must stay bound until the flush tick"
+    );
+    assert!(
+        adapter.snapshot_delivered_frame_bytes().is_empty(),
+        "accepted writes are not yet flushed"
+    );
+
+    adapter.flush();
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    let types: Vec<String> = delivered.iter().map(|bytes| json_type(bytes)).collect();
+    assert!(
+        types.iter().any(|kind| kind == "terminal_output")
+            && delivered
+                .iter()
+                .any(|bytes| frame_payload_text(bytes).contains("LIVE")),
+        "flushed sink must contain LIVE bytes before close: {delivered:?}"
+    );
+    assert!(
+        types.iter().any(|kind| kind == "process_exit"),
+        "flushed sink must contain process_exit before close: {types:?}"
+    );
+    let output_at = types
+        .iter()
+        .position(|kind| kind == "terminal_output")
+        .expect("terminal_output");
+    let exit_at = types
+        .iter()
+        .position(|kind| kind == "process_exit")
+        .expect("process_exit");
+    assert!(
+        output_at < exit_at,
+        "LIVE bytes must precede process_exit: {types:?}"
+    );
+
+    let second = worker.pump();
+    assert_eq!(second.len(), 1, "close on the next pump tick: {second:?}");
+    assert!(!worker.adapter_is_bound(&session, &subscription));
+    assert!(adapter.is_closed());
+    assert_eq!(
+        adapter.snapshot_events().last().copied(),
+        Some("close"),
+        "close must not abandon flushed writes: {:?}",
+        adapter.snapshot_events()
+    );
+}
+
+#[test]
+fn unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter() {
+    let mut worker = ClientWorker::new();
+    let session = session("unbound-exit-bind");
+    let client = client("unbound-exit");
+    let subscription = sub("unbound-exit");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"LIVE".to_vec(),
+            },
+        ),
+        (
+            client.clone(),
+            TransportEgress::ProcessExit {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                code: Some(0),
+            },
+        ),
+    ];
+    let teardowns = worker.ingest_bound_terminal_frames(&mut frames);
+    assert_eq!(teardowns.len(), 1, "unbound ProcessExit must hard-stop");
+    assert!(
+        frames.iter().any(|(_, frame)| matches!(
+            frame,
+            TransportEgress::TerminalOutput { data, .. } if data == b"LIVE"
+        )),
+        "unbound LIVE bytes must stay on the drain path: {frames:?}"
+    );
+    assert!(!worker.has_subscription(&session, &subscription));
+
+    let presented = DeferredFlushTerminalAdapter::new();
+    let error = worker
+        .bind_terminal_adapter(
+            &client,
+            session,
+            subscription,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(presented.clone()),
+        )
+        .expect_err("late bind after teardown");
+    assert!(matches!(
+        error,
+        BindTerminalAdapterError::UnknownSubscription { .. }
+    ));
+    assert!(
+        presented.is_closed(),
+        "failed bind must close the presented adapter"
+    );
 }
 
 #[allow(dead_code)]

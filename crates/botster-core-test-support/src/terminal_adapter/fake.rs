@@ -169,3 +169,109 @@ impl SharedFakeTerminalAdapter {
         self.lock().force_would_block();
     }
 }
+
+/// Hub-shaped adapter: `try_write` accepts and reports Ready, but `close`
+/// abandons frames that have not been flushed to the consumer sink.
+///
+/// This is not a one-slot conformance driver. Use it to prove ClientWorker
+/// close ordering when accepted writes are not yet consumer-visible.
+#[derive(Clone, Debug, Default)]
+pub struct DeferredFlushTerminalAdapter {
+    inner: Arc<Mutex<DeferredFlushInner>>,
+}
+
+#[derive(Debug, Default)]
+struct DeferredFlushInner {
+    closed: bool,
+    accepted: Vec<Vec<u8>>,
+    delivered: Vec<Vec<u8>>,
+    events: Vec<&'static str>,
+}
+
+impl DeferredFlushTerminalAdapter {
+    /// Build a shared deferred-flush adapter.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, DeferredFlushInner> {
+        self.inner.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Move accepted frames into the consumer-visible sink unless closed.
+    pub fn flush(&self) {
+        let mut inner = self.lock();
+        if inner.closed {
+            return;
+        }
+        let accepted = std::mem::take(&mut inner.accepted);
+        inner.delivered.extend(accepted);
+    }
+
+    /// Copy of flushed frame bytes.
+    #[must_use]
+    pub fn snapshot_delivered_frame_bytes(&self) -> Vec<Vec<u8>> {
+        self.lock().delivered.clone()
+    }
+
+    /// Accept/close event log for ordering assertions.
+    #[must_use]
+    pub fn snapshot_events(&self) -> Vec<&'static str> {
+        self.lock().events.clone()
+    }
+
+    /// Whether `close()` has run.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.lock().closed
+    }
+}
+
+fn deferred_event_for(bytes: &[u8]) -> &'static str {
+    let kind = serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    match kind.as_str() {
+        "terminal_output" => "accept_terminal_output",
+        "process_exit" => "accept_process_exit",
+        _ => "accept_other",
+    }
+}
+
+impl TerminalAdapter for DeferredFlushTerminalAdapter {
+    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        let mut inner = self.lock();
+        if inner.closed {
+            return Err(TerminalAdapterWriteError::Closed);
+        }
+        let bytes = frame.to_bytes().expect("fixture TerminalFrame serializes");
+        inner.events.push(deferred_event_for(&bytes));
+        inner.accepted.push(bytes);
+        Ok(())
+    }
+
+    fn close(&mut self) {
+        let mut inner = self.lock();
+        inner.closed = true;
+        let abandoned = !inner.accepted.is_empty();
+        inner
+            .events
+            .push(if abandoned { "close_abandon" } else { "close" });
+        inner.accepted.clear();
+    }
+
+    fn pressure(&self) -> TerminalAdapterPressure {
+        if self.lock().closed {
+            TerminalAdapterPressure::Closed
+        } else {
+            TerminalAdapterPressure::Ready
+        }
+    }
+}

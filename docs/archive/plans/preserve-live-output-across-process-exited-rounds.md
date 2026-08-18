@@ -271,11 +271,12 @@ Out of scope (do not do):
 
 - `crates/botster-core/src/engine/client_worker.rs` — `pump_one` exit-delivery vs
   hard-stop close ordering, `ingest_bound_terminal_frames` exit/window semantics
-  (primary fix surface for C1/C2).
-- `crates/botster-core/src/engine/managed_session_runtime.rs` — `apply_client_worker`
-  call sites only if the traced fix needs an extra bounded pump before teardown.
-- `crates/botster-core-daemon/src/daemon.rs` — retention paths only if C3 is traced as
-  load-bearing.
+  (C1 close deferral).
+- `crates/botster-core/src/engine/botster.rs` — worker-backed unfinished incremental
+  attach also drains live output when an adapter is bound (winning Hub live-path
+  fix).
+- `crates/botster-core-daemon/src/daemon.rs` — later retained `ReadScreen` /
+  `ReadModeFlags` ticks pump bound adapters.
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs` — new bound-adapter
   multi-round regression test (reuse the existing test-adapter and test-only worker
   hooks: `test_hold_before_exit_ms`, `test_exit_code`; extend the test adapter to
@@ -360,6 +361,37 @@ Out of scope (do not do):
   synchronous on one thread), not sleeps.
 - Workspace-load flake in `plugin worker unload deadline` tests is diagnostic guidance,
   not a waiver — rerun, do not excuse.
+
+## Implementation decisions (applied)
+
+Differential live proof on Hub `57cbeb2` with this Core worktree:
+
+- **C1 is necessary and not sufficient.** `pump_one` now arms close after
+  `process_exit` delivery and closes on the next `pump()` or teardown. The
+  `DeferredFlushTerminalAdapter` unit and daemon tests go red if that deferral is
+  removed. Hub's WebRTC adapter reports `Full` after `try_write`, so same-tick
+  Ready auto-complete is not the live loss path.
+- **C2 is covered, not the live loss path.** Bind happens during Attach, before
+  the producer is released. The ClientWorker test
+  `unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter`
+  keeps the late-bind fail-closed contract.
+- **Winning live-path branch: unfinished incremental attach never called
+  `drain_output`.** Worker-backed `drain_runtime_once` polls snapshot frames only.
+  Warm rounds deliver `ProcessExited` before snapshot `FINISH`. Live bytes stay in
+  `pending_output`. A bound adapter has no other consumer. The fix pulls
+  `drain_runtime_once` during unfinished attach only when an adapter is bound.
+  Unbound attach keeps one snapshot frame per host tick.
+- **Later retained `ReadScreen` ticks pump bound adapters.** The first exited
+  readback still drains once. A second retained `ReadScreen` pumps so a one-slot
+  adapter can complete the accepted write. The same call must not pump twice, or
+  C1 close fires on the accepting tick.
+
+Added Core surfaces beyond the plan's primary list: `botster.rs`
+`WorkerBackedBotsterEngine::drain_runtime_once`, `CoreDaemon::read_screen` /
+`read_mode_flags` retained pump, and
+`bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attach`.
+No Hub product source was edited. Close stays non-blocking. ProcessExited-on-payload
+and the writer barrier stay.
 
 ## Vault gaps worth capturing
 

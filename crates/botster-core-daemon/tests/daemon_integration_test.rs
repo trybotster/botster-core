@@ -44,7 +44,9 @@ use botster_core_test_support::conformance::{
     assert_color_profile_authority, assert_ghostty_snapshot_authority, assert_mode_flags_authority,
     GHOSTSNP_MAGIC,
 };
-use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
+use botster_core_test_support::terminal_adapter::{
+    DeferredFlushTerminalAdapter, SharedFakeTerminalAdapter,
+};
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
     COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
@@ -1541,6 +1543,317 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
         .iter()
         .any(|row| row.session_id == session_id));
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
+    const LIVE_B64: &str = "TElWRQ==";
+    let data_dir = temp_data_dir("bound-exit-rounds");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0)
+            .with_test_hold_before_exit_ms(Some(2_000)),
+    );
+
+    for round in 0..3 {
+        let session_id = SessionId(format!("bound-exit-round-{round}"));
+        let client_id = ClientId(format!("bound-exit-client-{round}"));
+        let subscription_id = SubscriptionId(format!("bound-exit-sub-{round}"));
+        let mut request = spawn_request(&session_id);
+        request.request.arguments[1] =
+            "printf ready; while IFS= read -r line; do printf LIVE; exit 0; done".to_string();
+        daemon
+            .spawn(request, 10 + round)
+            .unwrap_or_else(|error| panic!("round {round} spawn: {error:?}"));
+        let (_worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                11 + round,
+            )
+            .unwrap_or_else(|error| panic!("round {round} attach: {error:?}"));
+        let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
+        let generation = daemon
+            .list_terminal_subscriptions()
+            .into_iter()
+            .find(|row| row.subscription_id == subscription_id)
+            .unwrap_or_else(|| panic!("round {round} inventory"))
+            .generation;
+        let adapter = DeferredFlushTerminalAdapter::new();
+        daemon
+            .bind_terminal_adapter(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(adapter.clone()),
+            )
+            .unwrap_or_else(|error| panic!("round {round} bind: {error:?}"));
+
+        daemon
+            .input(
+                client_id.clone(),
+                session_id.clone(),
+                b"go\n".to_vec(),
+                12 + round,
+            )
+            .unwrap_or_else(|error| panic!("round {round} release: {error:?}"));
+        wait_for_condition(&format!("round {round} PTY child exit"), || {
+            !process_exists(pty_child_pid)
+        });
+        // Worker writer emits FRAME_PROCESS_EXITED before the hold starts.
+        thread::sleep(Duration::from_millis(150));
+
+        daemon
+            .read_screen(ReadScreenRequest {
+                request_id: RequestId(format!("bound-exit-screen-{round}")),
+                session_id: session_id.clone(),
+                now_seconds: 13 + round,
+            })
+            .unwrap_or_else(|error| panic!("round {round} ReadScreen: {error:?}"));
+        assert!(
+            !adapter.is_closed(),
+            "round {round}: must not close on the ReadScreen that accepted writes"
+        );
+
+        adapter.flush();
+        let delivered = adapter.snapshot_delivered_frame_bytes();
+        let types: Vec<String> = delivered
+            .iter()
+            .map(|bytes| adapter_frame_type(bytes))
+            .collect();
+        let payloads: Vec<String> = delivered
+            .iter()
+            .map(|bytes| adapter_payload_text(bytes))
+            .collect();
+        assert!(
+            delivered.iter().any(|bytes| {
+                adapter_frame_type(bytes) == "terminal_output"
+                    && (adapter_payload_b64(bytes) == LIVE_B64
+                        || adapter_payload_text(bytes).contains("LIVE"))
+            }),
+            "round {round}: LIVE bytes must reach the adapter before close: types={types:?} payloads={payloads:?}"
+        );
+        assert!(
+            types.iter().any(|kind| kind == "process_exit"),
+            "round {round}: process_exit must reach the adapter before close: {types:?}"
+        );
+        let live_at = delivered
+            .iter()
+            .position(|bytes| {
+                adapter_frame_type(bytes) == "terminal_output"
+                    && (adapter_payload_b64(bytes) == LIVE_B64
+                        || adapter_payload_text(bytes).contains("LIVE"))
+            })
+            .expect("LIVE frame");
+        let exit_at = types
+            .iter()
+            .position(|kind| kind == "process_exit")
+            .expect("process_exit frame");
+        assert!(
+            live_at < exit_at,
+            "round {round}: LIVE must precede process_exit: {types:?}"
+        );
+
+        daemon
+            .shutdown(Some(session_id), 15 + round)
+            .unwrap_or_else(|error| panic!("round {round} shutdown: {error:?}"));
+        assert!(
+            adapter.is_closed(),
+            "round {round}: shutdown teardown must close after the flush window"
+        );
+        assert_eq!(
+            adapter.snapshot_events().last().copied(),
+            Some("close"),
+            "round {round}: close must not abandon flushed writes: {:?}",
+            adapter.snapshot_events()
+        );
+    }
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attach() {
+    const LIVE_B64: &str = "TElWRQ==";
+    let data_dir = temp_data_dir("bound-exit-during-attach");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_worker_egress_capacity(Some(1))
+            .with_test_hold_before_exit_ms(Some(2_000)),
+    );
+    let session_id = SessionId("bound-exit-during-attach".to_string());
+    let client_id = ClientId("bound-exit-during-attach-client".to_string());
+    let subscription_id = SubscriptionId("bound-exit-during-attach-sub".to_string());
+    let ready_path = data_dir.join("history-ready");
+    let release_path = data_dir.join("go");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
+            "printf 'PRE-BARRIER-MARKER'; : > '{}'; ",
+            "while [ ! -f '{}' ]; do sleep 0.05; done; ",
+            "printf LIVE; exit 0"
+        ),
+        ready_path.display(),
+        release_path.display()
+    );
+
+    daemon.spawn(request, 10).expect("spawn history then wait");
+    wait_for_file(&ready_path);
+    drain_pre_attach_producer_output(&mut daemon, &session_id, 11);
+    let (_worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            12,
+        )
+        .expect("start incremental attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory after attach")
+        .generation;
+    let adapter = DeferredFlushTerminalAdapter::new();
+    daemon
+        .bind_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind during incremental attach");
+
+    let paced = daemon
+        .drain(&session_id, 13)
+        .expect("pace unfinished attach");
+    assert!(
+        !paced.client_egress.iter().any(|(_, frame)| matches!(
+            frame,
+            TransportEgress::AttachState {
+                state: TerminalAttachState::Attached,
+                ..
+            }
+        )),
+        "bind must happen before incremental attach finishes: {:?}",
+        paced
+            .client_egress
+            .iter()
+            .map(|(_, frame)| format!("{frame:?}"))
+            .collect::<Vec<_>>()
+    );
+
+    fs::write(&release_path, b"go").expect("release live exit");
+
+    let mut saw_live = false;
+    for tick in 0..400 {
+        let _ = daemon.read_screen(ReadScreenRequest {
+            request_id: RequestId(format!("bound-exit-attach-screen-{tick}")),
+            session_id: session_id.clone(),
+            now_seconds: 14 + tick,
+        });
+        adapter.flush();
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| {
+                adapter_frame_type(bytes) == "terminal_output"
+                    && (adapter_payload_b64(bytes) == LIVE_B64
+                        || adapter_payload_text(bytes).contains("LIVE"))
+            })
+        {
+            saw_live = true;
+            break;
+        }
+        if !process_exists(pty_child_pid) {
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    assert!(
+        saw_live,
+        "LIVE bytes must reach the bound adapter when ProcessExited arrives during incremental attach: events={:?} payloads={:?}",
+        adapter.snapshot_events(),
+        adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .map(|bytes| adapter_payload_text(bytes))
+            .collect::<Vec<_>>()
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+fn adapter_frame_type(bytes: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| value.get("type")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn adapter_payload_b64(bytes: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| value.get("payload_base64")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn adapter_payload_text(bytes: &[u8]) -> String {
+    decode_std_base64(&adapter_payload_b64(bytes))
+        .map(|payload| String::from_utf8_lossy(&payload).into_owned())
+        .unwrap_or_default()
+}
+
+fn decode_std_base64(input: &str) -> Option<Vec<u8>> {
+    fn value(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            b'=' => Some(0),
+            _ => None,
+        }
+    }
+    let cleaned: Vec<u8> = input
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect();
+    if !cleaned.len().is_multiple_of(4) {
+        return None;
+    }
+    let pads = cleaned
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'=')
+        .count();
+    if pads > 2 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(cleaned.len() / 4 * 3);
+    for chunk in cleaned.chunks_exact(4) {
+        let a = value(chunk[0])?;
+        let b = value(chunk[1])?;
+        let c = value(chunk[2])?;
+        let d = value(chunk[3])?;
+        out.push((a << 2) | (b >> 4));
+        out.push((b << 4) | (c >> 2));
+        out.push((c << 6) | d);
+    }
+    out.truncate(out.len().saturating_sub(pads));
+    Some(out)
 }
 
 #[cfg(unix)]
