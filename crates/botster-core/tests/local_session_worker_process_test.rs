@@ -136,6 +136,8 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
         test_fail_snapshot_history_after_ready: false,
+        test_hold_before_exit_ms: None,
+        test_exit_code: None,
         ghostty_max_scrollback_bytes: 10_000_000,
         terminal_color_profile: None,
     }
@@ -1642,8 +1644,8 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
     );
     assert!(output_text(&output).contains("terminal-before-exit"));
     assert!(
-        !process_exists(worker_pid),
-        "worker must be reaped before exit"
+        wait_until(|| !process_exists(worker_pid)),
+        "worker must be reaped after ProcessExited delivery"
     );
     assert!(
         !process_exists(pty_child_pid),
@@ -1659,6 +1661,94 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
     assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
 
     let _ = std::fs::remove_dir_all(control_dir);
+}
+
+#[test]
+fn drain_output_delivers_process_exited_while_worker_holds_stdout_open() {
+    let hold_ms = 8_000;
+    let control_dir = temp_control_dir("w1h");
+    create_private_control_dir(&control_dir);
+    let mut options = worker_options();
+    options.test_hold_before_exit_ms = Some(hold_ms);
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-w1-hold-before-exit");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "printf 'w1-process-exited-hold\\n'",
+        ))
+        .expect("spawn worker for W1 hold");
+    let worker_pid = worker_pid(runtime.metadata(&session).expect("worker metadata"));
+
+    let started = Instant::now();
+    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let elapsed = started.elapsed();
+
+    assert!(
+        has_process_exit(&output),
+        "received ProcessExited payload is session-exit truth: {output:?}"
+    );
+    assert!(
+        output_text(&output).contains("w1-process-exited-hold"),
+        "re-pump must keep final PTY bytes ahead of ProcessExited: {}",
+        output_text(&output)
+    );
+    assert!(
+        elapsed < Duration::from_millis(hold_ms / 2),
+        "delivery must not wait for the worker hold ({elapsed:?} vs {hold_ms}ms)"
+    );
+    assert!(
+        process_exists(worker_pid),
+        "W1 hold keeps the worker child alive after ProcessExited"
+    );
+    let error = runtime
+        .drain_output(&session)
+        .expect_err("delivered session must be removed from the runtime map");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
+    assert!(
+        wait_until(|| !process_exists(worker_pid)),
+        "bounded reaper must eventually reap worker {worker_pid}"
+    );
+    let _ = std::fs::remove_dir_all(control_dir);
+}
+
+#[test]
+fn drain_output_delivers_process_exited_when_worker_exits_nonzero() {
+    let mut options = worker_options();
+    options.test_exit_code = Some(1);
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let session = session_id("worker-w2-nonzero-exit");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "printf 'w2-process-exited-nonzero\\n'",
+        ))
+        .expect("spawn worker for W2 nonzero exit");
+
+    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let payload = output.iter().find_map(|event| match event {
+        SessionRuntimeOutput::ProcessExited { payload, .. } => Some(payload.clone()),
+        _ => None,
+    });
+    assert!(
+        has_process_exit(&output),
+        "nonzero worker exit must not suppress ProcessExited: {output:?}"
+    );
+    assert_eq!(
+        payload.and_then(|payload| payload.exit_code),
+        Some(0),
+        "delivered payload is the session process exit, not the worker status"
+    );
+    assert!(
+        output_text(&output).contains("w2-process-exited-nonzero"),
+        "final session output must survive W2 delivery: {}",
+        output_text(&output)
+    );
+    let error = runtime
+        .drain_output(&session)
+        .expect_err("delivered session must be removed from the runtime map");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
 }
 
 #[test]

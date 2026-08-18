@@ -420,10 +420,17 @@ fn run() -> Result<(), String> {
         thread::sleep(LOOP_SLEEP);
     }
 
+    if let Some(hold_ms) = args.test_hold_before_exit_ms {
+        thread::sleep(Duration::from_millis(hold_ms));
+    }
+
     drop(egress);
     writer
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
+    if let Some(exit_code) = args.test_exit_code {
+        process::exit(exit_code);
+    }
     Ok(())
 }
 
@@ -1441,6 +1448,8 @@ struct WorkerArgs {
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
     test_fail_snapshot_history_after_ready: bool,
+    test_hold_before_exit_ms: Option<u64>,
+    test_exit_code: Option<i32>,
     ghostty_max_scrollback_bytes: usize,
     terminal_color_profile: Option<botster_core::TerminalColorProfile>,
 }
@@ -1458,6 +1467,8 @@ impl WorkerArgs {
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
         let mut test_fail_snapshot_history_after_ready = false;
+        let mut test_hold_before_exit_ms = None;
+        let mut test_exit_code = None;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
         let mut terminal_color_profile = None;
         let mut index = 0;
@@ -1515,6 +1526,15 @@ impl WorkerArgs {
                 "--test-fail-snapshot-history-after-ready" => {
                     test_fail_snapshot_history_after_ready = true;
                 }
+                "--test-hold-before-exit-ms" => {
+                    index += 1;
+                    test_hold_before_exit_ms =
+                        Some(parse_arg(&args, index, "--test-hold-before-exit-ms")?);
+                }
+                "--test-exit-code" => {
+                    index += 1;
+                    test_exit_code = Some(parse_arg(&args, index, "--test-exit-code")?);
+                }
                 "--ghostty-max-scrollback-bytes" => {
                     index += 1;
                     ghostty_max_scrollback_bytes =
@@ -1548,6 +1568,8 @@ impl WorkerArgs {
             test_pending_capacity,
             test_hold_after_enqueue_ms,
             test_fail_snapshot_history_after_ready,
+            test_hold_before_exit_ms,
+            test_exit_code,
             ghostty_max_scrollback_bytes,
             terminal_color_profile,
         })
