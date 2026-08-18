@@ -1752,6 +1752,70 @@ fn drain_output_delivers_process_exited_when_worker_exits_nonzero() {
 }
 
 #[test]
+fn reaper_window_leaves_a_sibling_session_live() {
+    let hold_ms = 8_000;
+    let control_dir = temp_control_dir("sib");
+    create_private_control_dir(&control_dir);
+    let mut options = worker_options();
+    options.test_hold_before_exit_ms = Some(hold_ms);
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let exiting = session_id("worker-reaper-sibling-exit");
+    let sibling = session_id("worker-reaper-sibling-live");
+    runtime
+        .spawn_session(shell_request(
+            exiting.clone(),
+            "printf 'sibling-exit-marker\\n'",
+        ))
+        .expect("spawn exiting sibling");
+    runtime
+        .spawn_session(shell_request(sibling.clone(), "cat"))
+        .expect("spawn live sibling");
+    let exiting_pid = worker_pid(runtime.metadata(&exiting).expect("exiting metadata"));
+    let sibling_pid = worker_pid(runtime.metadata(&sibling).expect("sibling metadata"));
+
+    let output = collect_until(&mut runtime, &exiting, has_process_exit);
+    assert!(has_process_exit(&output));
+    assert!(
+        process_exists(exiting_pid),
+        "reaper window must still own the exiting worker"
+    );
+    assert!(
+        process_exists(sibling_pid),
+        "sibling worker must stay alive during the reaper window"
+    );
+
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: sibling.clone(),
+            data: b"sibling-still-live\n".to_vec(),
+        })
+        .expect("sibling must still accept input");
+    let sibling_output = collect_until(&mut runtime, &sibling, |output| {
+        output_text(output).contains("sibling-still-live")
+    });
+    assert!(
+        output_text(&sibling_output).contains("sibling-still-live"),
+        "sibling session must keep working while the exiting child is reaped: {}",
+        output_text(&sibling_output)
+    );
+
+    runtime
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: sibling.clone(),
+        })
+        .expect("shutdown live sibling");
+    assert!(has_process_exit(&collect_until(
+        &mut runtime,
+        &sibling,
+        has_process_exit
+    )));
+    assert!(wait_until(|| !process_exists(exiting_pid)));
+    assert!(wait_until(|| !process_exists(sibling_pid)));
+    let _ = std::fs::remove_dir_all(control_dir);
+}
+
+#[test]
 fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
     let control_dir = temp_control_dir("bwe");
     create_private_control_dir(&control_dir);
