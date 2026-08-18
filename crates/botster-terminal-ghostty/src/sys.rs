@@ -1,6 +1,6 @@
 //! Minimal handwritten libghostty-vt declarations used by the safe adapter.
 
-use std::ffi::{c_int, c_void};
+use std::ffi::{c_char, c_int, c_void};
 
 /// Result code returned by libghostty-vt APIs.
 pub(crate) type GhosttyResult = c_int;
@@ -409,6 +409,10 @@ pub(crate) struct GhosttyFormatterTerminalOptions {
 }
 
 unsafe extern "C" {
+    /// Return the process-lifetime JSON manifest for the linked C ABI.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn ghostty_type_json() -> *const c_char;
+
     /// Create a new libghostty-vt terminal.
     pub(crate) fn ghostty_terminal_new(
         allocator: *const c_void,
@@ -599,4 +603,103 @@ unsafe extern "C" {
 
     /// Free a Ghostty-allocated buffer.
     pub(crate) fn ghostty_free(allocator: *const c_void, ptr: *mut u8, len: usize);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CStr;
+    use std::mem::{align_of, offset_of, size_of};
+
+    use serde_json::Value;
+
+    use super::*;
+    use crate::{
+        GHOSTTY_ABI_SCHEMA_VERSION, GHOSTTY_LIB_VERSION, GHOSTTY_SOURCE_COMMIT,
+        GHOSTTY_SOURCE_REPOSITORY,
+    };
+
+    const REQUIRED_ABI: &str = include_str!("../fixtures/abi/ghostty-eb72ec6-required.json");
+
+    #[test]
+    fn handwritten_ffi_matches_the_pinned_abi_manifest() {
+        let fixture: Value = serde_json::from_str(REQUIRED_ABI).expect("parse ABI fixture");
+        let manifest_ptr = unsafe { ghostty_type_json() };
+        assert!(!manifest_ptr.is_null(), "Ghostty ABI manifest must exist");
+        let manifest = unsafe { CStr::from_ptr(manifest_ptr) }
+            .to_str()
+            .expect("Ghostty ABI manifest is UTF-8");
+        let manifest: Value = serde_json::from_str(manifest).expect("parse Ghostty ABI manifest");
+
+        assert_eq!(fixture["schema"], GHOSTTY_ABI_SCHEMA_VERSION);
+        assert_eq!(fixture["source_repository"], GHOSTTY_SOURCE_REPOSITORY);
+        assert_eq!(fixture["source_commit"], GHOSTTY_SOURCE_COMMIT);
+        assert_eq!(fixture["library_version"], GHOSTTY_LIB_VERSION);
+        assert_eq!(manifest["schema"], fixture["schema"]);
+        assert_eq!(manifest["library_version"], fixture["library_version"]);
+        assert_eq!(manifest["commit"], fixture["source_commit"]);
+        assert_eq!(manifest["abi"]["pointer_size"], size_of::<*const ()>());
+        assert_eq!(manifest["abi"]["usize_size"], size_of::<usize>());
+
+        let layouts = fixture["layouts_64"]
+            .as_object()
+            .expect("fixture layouts are an object");
+        for (name, expected) in layouts {
+            let actual = &manifest["types"][name];
+            assert_eq!(actual["kind"], "struct", "{name} kind changed");
+            assert_eq!(actual["size"], expected["size"], "{name} size changed");
+            assert_eq!(
+                actual["align"], expected["align"],
+                "{name} alignment changed"
+            );
+            for (field, offset) in expected["fields"]
+                .as_object()
+                .expect("fixture fields are an object")
+            {
+                assert_eq!(
+                    actual["fields"][field]["offset"], *offset,
+                    "{name}.{field} offset changed"
+                );
+            }
+        }
+
+        for (name, values) in fixture["enum_values"]
+            .as_object()
+            .expect("fixture enum values are an object")
+        {
+            let actual = &manifest["types"][name];
+            assert_eq!(actual["kind"], "enum", "{name} kind changed");
+            assert_eq!(actual["size"], size_of::<c_int>(), "{name} size changed");
+            for (variant, value) in values.as_object().expect("enum fixture is an object") {
+                assert_eq!(
+                    actual["values"][variant], *value,
+                    "{name}.{variant} value changed"
+                );
+            }
+        }
+
+        assert_rust_layouts();
+    }
+
+    fn assert_rust_layouts() {
+        macro_rules! layout {
+            ($ty:ty, $size:expr, $align:expr, {$($field:ident: $offset:expr),* $(,)?}) => {{
+                assert_eq!(size_of::<$ty>(), $size, "{} Rust size changed", stringify!($ty));
+                assert_eq!(align_of::<$ty>(), $align, "{} Rust alignment changed", stringify!($ty));
+                $(assert_eq!(offset_of!($ty, $field), $offset, "{}.{} Rust offset changed", stringify!($ty), stringify!($field));)*
+            }};
+        }
+
+        layout!(GhosttyBuffer, 24, 8, { ptr: 0, cap: 8, len: 16 });
+        layout!(GhosttyColorRgb, 3, 1, { r: 0, g: 1, b: 2 });
+        layout!(GhosttyFormatterScreenExtra, 16, 8, { size: 0, cursor: 8, style: 9, hyperlink: 10, protection: 11, kitty_keyboard: 12, charsets: 13 });
+        layout!(GhosttyFormatterTerminalExtra, 32, 8, { size: 0, palette: 8, modes: 9, scrolling_region: 10, tabstops: 11, pwd: 12, keyboard: 13, screen: 16 });
+        layout!(GhosttyFormatterTerminalOptions, 56, 8, { size: 0, emit: 8, unwrap: 12, trim: 13, extra: 16, selection: 48 });
+        layout!(GhosttyReader, 16, 8, { read: 0, userdata: 8 });
+        layout!(GhosttyStyle, 72, 8, { size: 0, fg_color: 8, bg_color: 24, underline_color: 40, bold: 56, italic: 57, faint: 58, blink: 59, inverse: 60, invisible: 61, strikethrough: 62, overline: 63, underline: 64 });
+        layout!(GhosttyStyleColor, 16, 8, { tag: 0, value: 8 });
+        layout!(GhosttyTerminalModeConfig, 4, 2, { mode: 0, value: 2 });
+        layout!(GhosttyTerminalScrollViewport, 24, 8, { tag: 0, value: 8 });
+        layout!(GhosttyTerminalScrollbar, 24, 8, { total: 0, offset: 8, len: 16 });
+        layout!(GhosttyWriter, 16, 8, { write: 0, userdata: 8 });
+    }
 }

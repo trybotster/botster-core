@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "source_repository": "https://github.com/trybotster/ghostty",
+  "source_commit": "eb72ec61304ea256be1d86ed8fa961c84e43ecbd",
+  "library_version": "0.1.0-dev+eb72ec61304ea256be1d86ed8fa961c84e43ecbd",
+  "layouts_64": {
+    "GhosttyBuffer": { "size": 24, "align": 8, "fields": { "ptr": 0, "cap": 8, "len": 16 } },
+    "GhosttyColorRgb": { "size": 3, "align": 1, "fields": { "r": 0, "g": 1, "b": 2 } },
+    "GhosttyFormatterScreenExtra": { "size": 16, "align": 8, "fields": { "size": 0, "cursor": 8, "style": 9, "hyperlink": 10, "protection": 11, "kitty_keyboard": 12, "charsets": 13 } },
+    "GhosttyFormatterTerminalExtra": { "size": 32, "align": 8, "fields": { "size": 0, "palette": 8, "modes": 9, "scrolling_region": 10, "tabstops": 11, "pwd": 12, "keyboard": 13, "screen": 16 } },
+    "GhosttyFormatterTerminalOptions": { "size": 56, "align": 8, "fields": { "size": 0, "emit": 8, "unwrap": 12, "trim": 13, "extra": 16, "selection": 48 } },
+    "GhosttyReader": { "size": 16, "align": 8, "fields": { "read": 0, "userdata": 8 } },
+    "GhosttyStyle": { "size": 72, "align": 8, "fields": { "size": 0, "fg_color": 8, "bg_color": 24, "underline_color": 40, "bold": 56, "italic": 57, "faint": 58, "blink": 59, "inverse": 60, "invisible": 61, "strikethrough": 62, "overline": 63, "underline": 64 } },
+    "GhosttyStyleColor": { "size": 16, "align": 8, "fields": { "tag": 0, "value": 8 } },
+    "GhosttyTerminalModeConfig": { "size": 4, "align": 2, "fields": { "mode": 0, "value": 2 } },
+    "GhosttyTerminalScrollViewport": { "size": 24, "align": 8, "fields": { "tag": 0, "value": 8 } },
+    "GhosttyTerminalScrollbar": { "size": 24, "align": 8, "fields": { "total": 0, "offset": 8, "len": 16 } },
+    "GhosttyWriter": { "size": 16, "align": 8, "fields": { "write": 0, "userdata": 8 } }
+  },
+  "enum_values": {
+    "GhosttyCellData": { "WIDE": 3 },
+    "GhosttyCellWide": { "NARROW": 0, "WIDE": 1, "SPACER_TAIL": 2, "SPACER_HEAD": 3 },
+    "GhosttyRenderStateCursorVisualStyle": { "BAR": 0, "BLOCK": 1, "UNDERLINE": 2, "BLOCK_HOLLOW": 3 },
+    "GhosttyRenderStateData": { "COLS": 1, "ROWS": 2, "ROW_ITERATOR": 4, "COLOR_BACKGROUND": 5, "COLOR_FOREGROUND": 6, "CURSOR_VISUAL_STYLE": 10, "CURSOR_VISIBLE": 11, "CURSOR_VIEWPORT_HAS_VALUE": 14, "CURSOR_VIEWPORT_X": 15, "CURSOR_VIEWPORT_Y": 16 },
+    "GhosttyRenderStateRowCellsData": { "RAW": 1, "STYLE": 2, "BG_COLOR": 5, "FG_COLOR": 6, "GRAPHEMES_UTF8": 9 },
+    "GhosttyRenderStateRowData": { "CELLS": 3 },
+    "GhosttySnapshotDecoderOption": { "MAX_CONTINUATION_BYTES": 0 },
+    "GhosttyTerminalData": { "COLS": 1, "ROWS": 2, "CURSOR_VISIBLE": 7, "KITTY_KEYBOARD_FLAGS": 8, "SCROLLBAR": 9, "COLOR_FOREGROUND": 18, "COLOR_BACKGROUND": 19, "COLOR_CURSOR": 20, "COLOR_PALETTE": 21, "MODE": 37 },
+    "GhosttyTerminalOption": { "USERDATA": 0, "WRITE_PTY": 1, "COLOR_FOREGROUND": 11, "COLOR_BACKGROUND": 12, "COLOR_CURSOR": 13, "COLOR_PALETTE": 14, "SCROLLBACK_MAX_BYTES": 27, "CONTINUATION_MAX_BYTES": 31 }
+  }
+}

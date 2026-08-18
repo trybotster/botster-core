@@ -21,6 +21,7 @@ botster-core = { path = "../botster-core", default-features = false }
 
 [dev-dependencies]
 botster-core-test-support = { path = "../botster-core-test-support", default-features = false }
+serde_json = "1.0"
 
 [package.metadata.docs.rs]
 all-features = true

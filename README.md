@@ -396,10 +396,10 @@ restty is a web/client renderer path. It may consume terminal state and streams
 through client data-plane contracts, but it is not core shadow-terminal
 infrastructure.
 
-`botster-terminal-ghostty` pins upstream Ghostty
-(`https://github.com/ghostty-org/ghostty`) at
-`22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`. Default workspace builds do not
-require the submodule or Zig. To exercise the native path:
+`botster-terminal-ghostty` pins the trybotster Ghostty fork
+(`https://github.com/trybotster/ghostty`) at
+`eb72ec61304ea256be1d86ed8fa961c84e43ecbd`. Default workspace builds require
+the submodule and Zig. To exercise the native path directly:
 
 ```sh
 git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty
@@ -407,7 +407,10 @@ cargo test -p botster-terminal-ghostty --features libghostty-vt
 ```
 
 Feature-enabled builds require Zig `0.16.0` and run
-`zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev`.
+`zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Dlib-version-string=0.1.0-dev+eb72ec61304ea256be1d86ed8fa961c84e43ecbd`.
+The linked ABI manifest reports schema `1` and the exact source commit. Native
+adapter tests compare the handwritten Rust FFI with a checked-in compatibility
+fixture for this pin.
 The vendored Ghostty fork is MIT licensed; preserve
 `crates/botster-terminal-ghostty/vendor/ghostty/LICENSE` in distributions that
 include it.
