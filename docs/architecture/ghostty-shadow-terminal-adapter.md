@@ -42,8 +42,8 @@ Botster core evidence:
 
 Current Ghostty pin evidence:
 
-- upstream commit `22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018`
-  from `https://github.com/ghostty-org/ghostty`
+- fork commit `eb72ec61304ea256be1d86ed8fa961c84e43ecbd`
+  from `https://github.com/trybotster/ghostty`
 - `build.zig`
 - `build.zig.zon`
 - `src/build/GhosttyLibVt.zig`
@@ -97,10 +97,10 @@ path for the next implementation slice.
 The current trybotster CLI integration is the primary prior art. It already
 solves the risky parts this adapter would otherwise rediscover.
 
-`cli/build.rs` builds the vendored Ghostty checkout with:
+The adapter builds the vendored Ghostty checkout with:
 
 ```sh
-zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev
+zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Dversion-string=1.3.2-dev -Dlib-version-string=0.1.0-dev+eb72ec61304ea256be1d86ed8fa961c84e43ecbd
 ```
 
 It then links a static `libghostty-vt.a`. On macOS it repacks the Zig archive
@@ -113,6 +113,10 @@ commit is reachable from a downstream tag that does not match Ghostty's
 `vX.Y.Z` release-tag expectation. The explicit version string preserves the
 fork's `build.zig.zon` version and avoids coupling adapter builds to local git
 tag discovery.
+
+The adapter also passes
+`-Dlib-version-string=0.1.0-dev+eb72ec61304ea256be1d86ed8fa961c84e43ecbd`.
+This build data makes the linked ABI manifest identify the exact fork commit.
 
 `crates/botster-terminal-ghostty/build_support.rs` requires Zig `0.16.0` and resolves candidates from
 `BOTSTER_ZIG`, `ZIG`, a mise-managed Zig install, `zig` from `PATH`, and
@@ -136,6 +140,22 @@ artifacts. `build.zig` installs shared `ghostty-vt` and static
 `ghostty-vt-static`, and dependency consumers can request
 `dep.artifact("ghostty-vt-static")`. `build.zig.zon` identifies the fork as
 `1.3.2-dev` and requires Zig `0.16.0`.
+
+## Pinned ABI Compatibility
+
+The target pin exports `ghostty_type_json`. This function returns the linked
+library's C type manifest. Botster declares this function in the handwritten
+FFI layer and checks the manifest during native tests.
+
+`crates/botster-terminal-ghostty/fixtures/abi/ghostty-eb72ec6-required.json`
+records the structures, field offsets, enum values, schema version, library
+version, repository, and commit used by the adapter. The test also compares
+each Rust `repr(C)` structure with the recorded 64-bit C layout. A future pin
+must update the fixture only after the ABI comparison passes.
+
+Ghostty also provides `zig build test-lib-vt-schema`. That check validates the
+generated manifest against Ghostty's JSON schema. Botster runs both checks for
+the rollout because the upstream schema check does not validate Rust layouts.
 
 The C API in `include/ghostty/vt/terminal.h` exposes the first-slice calls the
 adapter needs:

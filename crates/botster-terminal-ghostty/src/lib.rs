@@ -64,6 +64,14 @@
 
 use botster_core::engine::TerminalScreenRuntime;
 
+#[path = "../build_data.rs"]
+mod build_data;
+
+pub use build_data::{
+    GHOSTTY_ABI_SCHEMA_VERSION, GHOSTTY_APP_VERSION, GHOSTTY_LIB_VERSION, GHOSTTY_SOURCE_COMMIT,
+    GHOSTTY_SOURCE_REPOSITORY,
+};
+
 #[cfg(feature = "libghostty-vt")]
 mod sys;
 
