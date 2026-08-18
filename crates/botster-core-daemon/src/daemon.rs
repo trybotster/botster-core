@@ -1122,9 +1122,13 @@ impl CoreDaemon {
         request: ReadScreenRequest,
     ) -> Result<ReadScreenResult, CoreDaemonError> {
         self.ensure_running()?;
+        let pump_retained = self.retained_readback_needs_pump(&request.session_id);
         if let ReadbackResolution::Retained(retained) =
             self.resolve_readback(&request.session_id, request.now_seconds)?
         {
+            if pump_retained {
+                let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
+            }
             return Ok(ReadScreenResult {
                 screen: ScreenReady {
                     request_id: request.request_id,
@@ -1152,9 +1156,13 @@ impl CoreDaemon {
         request: ReadModeFlagsRequest,
     ) -> Result<ReadModeFlagsResult, CoreDaemonError> {
         self.ensure_running()?;
+        let pump_retained = self.retained_readback_needs_pump(&request.session_id);
         if let ReadbackResolution::Retained(retained) =
             self.resolve_readback(&request.session_id, request.now_seconds)?
         {
+            if pump_retained {
+                let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
+            }
             let mode_flags = retained
                 .mode_flags
                 .map_err(managed_terminal_backend_error)?;
@@ -1790,6 +1798,19 @@ impl CoreDaemon {
             return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
         }
         Ok(())
+    }
+
+    fn retained_readback_needs_pump(&self, session_id: &SessionId) -> bool {
+        self.retained_terminal.contains_key(session_id)
+            && (self.engine_session_exited(session_id)
+                || matches!(
+                    self.registry
+                        .load(session_id)
+                        .ok()
+                        .flatten()
+                        .map(|record| record.state),
+                    Some(RegistrySessionState::Exited)
+                ))
     }
 
     fn resolve_readback(

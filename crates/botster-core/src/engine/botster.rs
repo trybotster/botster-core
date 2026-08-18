@@ -1226,10 +1226,20 @@ impl WorkerBackedBotsterEngine {
         {
             Ok(poll) => poll,
             Err(error) => {
+                let not_found = error.kind == crate::SessionRuntimeErrorKind::SessionNotFound;
                 let _ = self
                     .runtime
                     .session_runtime_mut()
                     .cancel_snapshot_boundary(session_id, &attach.request_id);
+                if not_found {
+                    self.promote_pending_fail_closed(attach, session_id);
+                    let mut output = self
+                        .runtime
+                        .drain_runtime_once(session_id, last_output_at)?;
+                    let pumped = self.runtime.pump_bound_adapters()?;
+                    append_engine_output(&mut output, pumped);
+                    return Ok(output);
+                }
                 return Err(error.into());
             }
         };
@@ -1321,6 +1331,36 @@ impl WorkerBackedBotsterEngine {
         }
 
         if !finished {
+            // Snapshot polling does not call drain_output. Live PTY bytes and
+            // ProcessExited stay in the worker session until that drain. A bound
+            // adapter has no other consumer, so pull those frames now. Unbound
+            // attach keeps one snapshot frame per host tick.
+            if self
+                .runtime
+                .adapter_is_bound(session_id, &attach.subscription_id)
+            {
+                let live = self
+                    .runtime
+                    .drain_runtime_once(session_id, last_output_at)?;
+                append_engine_output(&mut output, live);
+                if matches!(
+                    self.runtime
+                        .session(session_id)
+                        .map(|session| &session.lifecycle),
+                    None | Some(crate::SessionLifecycleState::Exited { .. })
+                        | Some(crate::SessionLifecycleState::Failed { .. })
+                ) {
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(session_id, &attach.request_id);
+                    self.promote_pending_fail_closed(attach, session_id);
+                    self.reconcile_incremental_attach_after_teardown(session_id)?;
+                    let pumped = self.runtime.pump_bound_adapters()?;
+                    append_engine_output(&mut output, pumped);
+                    return Ok(output);
+                }
+            }
             self.incremental_attaches.insert(session_id.clone(), attach);
             self.reconcile_incremental_attach_after_teardown(session_id)?;
             let pumped = self.runtime.pump_bound_adapters()?;
@@ -1403,7 +1443,12 @@ impl WorkerBackedBotsterEngine {
             .runtime
             .drain_runtime_once(session_id, last_output_at)?;
         if let Some(current) = self.incremental_attaches.get(session_id) {
-            suppress_attach_terminal_output(&mut live, session_id, current);
+            if !self
+                .runtime
+                .adapter_is_bound(session_id, &current.subscription_id)
+            {
+                suppress_attach_terminal_output(&mut live, session_id, current);
+            }
         }
         append_engine_output(&mut output, live);
         self.reconcile_incremental_attach_after_teardown(session_id)?;
@@ -1716,7 +1761,6 @@ fn append_engine_output(target: &mut BotsterEngineOutput, source: BotsterEngineO
     target.observations.extend(source.observations);
 }
 
-#[cfg(feature = "local-runtime")]
 fn suppress_attach_terminal_output(
     output: &mut BotsterEngineOutput,
     session_id: &SessionId,
