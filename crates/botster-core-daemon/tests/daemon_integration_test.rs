@@ -36,7 +36,8 @@ use botster_core_daemon::{
     SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
     SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
     SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
+    SessionRegistryStateLookup, SpawnSessionRequest, TerminalSubscriptionGeneration,
+    OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -172,8 +173,56 @@ fn lifecycle_api_types_are_control_plane_only() {
     assert!(section.contains("pub struct SessionLifecycleBaselinePage"));
     assert!(section.contains("pub struct LifecycleBaselineBudget"));
     assert!(section.contains("pub enum SessionLifecycleLookup"));
+    assert!(section.contains("pub enum SessionRegistryStateLookup"));
     assert!(section.contains("#[non_exhaustive]"));
     assert!(section.contains("BudgetTooSmall"));
+}
+
+#[test]
+fn exact_query_methods_are_control_plane_and_work_bound() {
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/daemon.rs"));
+    for method in [
+        "pub fn terminal_subscription_generation",
+        "pub fn session_registry_state",
+    ] {
+        let start = source.find(method).expect("CoreDaemon method");
+        let body = method_body(source, start);
+        for forbidden in [
+            "list_terminal_subscriptions",
+            "load_all",
+            "sort",
+            "observe_session",
+            "append_lifecycle",
+            "TransportEgress",
+            "TerminalSnapshotPayload",
+            "client_egress",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "{method} must not mention {forbidden}: {body}"
+            );
+        }
+    }
+}
+
+fn method_body(source: &str, start: usize) -> &str {
+    let relative_brace = source[start..].find('{').expect("method body");
+    let body_start = start + relative_brace;
+    let bytes = source.as_bytes();
+    let mut depth = 0_i32;
+    for (offset, &byte) in bytes[body_start..].iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[body_start..=body_start + offset];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unbalanced method body starting at {start}");
 }
 
 #[cfg(unix)]
@@ -5651,6 +5700,202 @@ fn observe_session_lifecycle_injected_drain_failure_is_err() {
 
 #[cfg(unix)]
 #[test]
+fn terminal_subscription_generation_is_exact_membership() {
+    let data_dir = temp_data_dir("exact-sub-generation");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("exact-sub-generation".to_string());
+    let client_id = ClientId("exact-sub-generation-client".to_string());
+    let subscription_id = SubscriptionId("exact-sub-generation-sub".to_string());
+    let missing_session = SessionId("exact-sub-generation-missing".to_string());
+    let missing_subscription = SubscriptionId("exact-sub-generation-other".to_string());
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn for exact membership");
+    assert_eq!(
+        daemon.terminal_subscription_generation(&session_id, &subscription_id),
+        None,
+        "unknown subscription before attach is None"
+    );
+    assert_eq!(
+        daemon.terminal_subscription_generation(&missing_session, &subscription_id),
+        None,
+        "unknown session is None"
+    );
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach owner");
+    let inventory = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.session_id == session_id && row.subscription_id == subscription_id)
+        .expect("inventory row after attach");
+    let live = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("live generation");
+    assert_eq!(live, inventory.generation);
+    assert_eq!(
+        daemon.terminal_subscription_generation(&session_id, &missing_subscription),
+        None,
+        "other subscription on a live session is None"
+    );
+    daemon
+        .detach_terminal_subscription(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            live,
+            12,
+        )
+        .expect("detach owner");
+    assert_eq!(
+        daemon.terminal_subscription_generation(&session_id, &subscription_id),
+        None,
+        "detached subscription is None"
+    );
+    daemon
+        .attach(client_id, session_id.clone(), subscription_id.clone(), 13)
+        .expect("re-attach owner");
+    let next = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation after re-attach");
+    assert!(
+        next > live,
+        "re-attach must increment generation: live={live:?} next={next:?}"
+    );
+    assert_ne!(next, TerminalSubscriptionGeneration(0));
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn session_registry_state_unknown_id_is_absent() {
+    let data_dir = temp_data_dir("exact-registry-state-absent");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let result = daemon.session_registry_state(&SessionId("missing".to_string()));
+    assert!(
+        matches!(result, Ok(SessionRegistryStateLookup::Absent)),
+        "absence must be Ok(Absent), got {result:?}"
+    );
+    assert!(!matches!(result, Err(CoreDaemonError::UnknownSession(_))));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn session_registry_state_after_shutdown_is_err() {
+    let data_dir = temp_data_dir("exact-registry-state-shutdown");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon.shutdown(None, 10).expect("full daemon shutdown");
+    let result = daemon.session_registry_state(&SessionId("after-shutdown".to_string()));
+    assert!(
+        matches!(result, Err(CoreDaemonError::Shutdown)),
+        "shutdown must be Err, got {result:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn session_registry_state_engine_live_without_registry_is_unknown_session() {
+    let data_dir = temp_data_dir("exact-registry-state-unknown");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("exact-registry-state-unknown".to_string());
+    daemon
+        .spawn(spawn_request(&session_id), 10)
+        .expect("spawn live engine session");
+    daemon
+        .registry()
+        .remove(&session_id)
+        .expect("drop registry row while engine still owns the session");
+    let result = daemon.session_registry_state(&session_id);
+    assert!(
+        matches!(result, Err(CoreDaemonError::UnknownSession(ref id) ) if id == &session_id),
+        "registry-missing engine-live must be UnknownSession, got {result:?}"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn session_registry_state_does_not_reconcile_parked_exit() {
+    let data_dir = temp_data_dir("exact-registry-state-parked");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("exact-registry-state-parked".to_string());
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("finite producer spawn");
+    let pid = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load spawned record")
+        .expect("spawned record")
+        .process
+        .and_then(|process| process.pid)
+        .expect("PTY child pid");
+    assert!(daemon.take_journal_advanced_wake(), "spawn sets the wake");
+    let cursor = daemon
+        .lifecycle_baseline()
+        .expect("watermark after spawn")
+        .cursor;
+    wait_for_condition("OS-level finite-producer exit", || process_has_exited(pid));
+    let looked_up = daemon
+        .session_registry_state(&session_id)
+        .expect("non-mutating query");
+    assert!(
+        matches!(
+            looked_up,
+            SessionRegistryStateLookup::Found(RegistrySessionState::Running)
+        ),
+        "parked exit must stay Found(Running): {looked_up:?}"
+    );
+    assert!(
+        !daemon.take_journal_advanced_wake(),
+        "registry-state query must not raise the journal-advanced wake"
+    );
+    let page = daemon
+        .lifecycle_changes_page(&cursor, 8, 16 * 1024)
+        .expect("page after non-mutating query");
+    assert!(page.resync_required.is_none());
+    assert!(
+        page.changes.is_empty(),
+        "registry-state query must not append lifecycle changes: {:?}",
+        page.changes
+    );
+    let observed = daemon
+        .observe_session_lifecycle(&session_id, 20)
+        .expect("positive observe control");
+    match &observed {
+        SessionLifecycleLookup::Found(record) => {
+            assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
+            assert!(
+                matches!(record.lifecycle, Some(SessionLifecycleState::Exited { .. })),
+                "observe must reconcile parked ProcessExited: {record:?}"
+            );
+        }
+        other => panic!("expected Found Exited after observe, got {other:?}"),
+    }
+    assert!(
+        daemon.take_journal_advanced_wake(),
+        "observe_session_lifecycle must raise the journal-advanced wake"
+    );
+    let after_observe = daemon
+        .lifecycle_changes_page(&cursor, 8, 16 * 1024)
+        .expect("page after observe");
+    assert!(
+        !after_observe.changes.is_empty(),
+        "observe must append a lifecycle change so the negative half is meaningful"
+    );
+    daemon.shutdown(Some(session_id), 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn worker_backed_lifecycle_source_orders_shutdown_and_requires_overflow_resync() {
     let data_dir = temp_data_dir("lifecycle-source-overflow");
     let session_id = SessionId("lifecycle-overflow-session".to_string());
@@ -9245,6 +9490,24 @@ fn process_exists(pid: u32) -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+fn process_has_exited(pid: u32) -> bool {
+    if !process_exists(pid) {
+        return true;
+    }
+    let output = Command::new("ps")
+        .args(["-o", "state=", "-p", &pid.to_string()])
+        .output();
+    match output {
+        Ok(output) => {
+            let state = String::from_utf8_lossy(&output.stdout);
+            let state = state.trim();
+            state.is_empty() || state.starts_with('Z')
+        }
+        Err(_) => !process_exists(pid),
+    }
 }
 
 #[cfg(unix)]

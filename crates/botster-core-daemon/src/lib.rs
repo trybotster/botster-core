@@ -26,7 +26,8 @@ pub use api::{
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
     SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SpawnSessionRequest, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
+    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
+    OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 pub use botster_core::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,

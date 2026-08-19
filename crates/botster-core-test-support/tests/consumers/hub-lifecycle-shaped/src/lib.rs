@@ -259,10 +259,13 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use botster_core::{
-        CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
-        SpawnEnvironment, SpawnWorkingDirectory,
+        ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
+        SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
     };
-    use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, RegistryRecord, SpawnSessionRequest};
+    use botster_core_daemon::{
+        CoreDaemon, CoreDaemonConfig, RegistryRecord, SessionRegistryStateLookup,
+        SpawnSessionRequest,
+    };
 
     #[derive(Clone, Copy, Debug)]
     enum InterleaveSeam {
@@ -371,6 +374,78 @@ mod tests {
             classify_session_lifecycle(looked_up),
             HubSessionLifecycleClass::Absent
         );
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hub_pump_shaped_exact_subscription_membership() {
+        let data_dir = temp_data_dir("hub-lifecycle-sub-generation");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session_id = SessionId("hub-life-sub-generation".to_string());
+        let client_id = ClientId("hub-life-sub-generation-client".to_string());
+        let subscription_id = SubscriptionId("hub-life-sub-generation-sub".to_string());
+        let absent = SubscriptionId("hub-life-sub-generation-absent".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("hub-shaped membership spawn");
+        daemon
+            .attach(
+                client_id,
+                session_id.clone(),
+                subscription_id.clone(),
+                11,
+            )
+            .expect("hub-shaped attach");
+        let inventory = daemon
+            .list_terminal_subscriptions()
+            .into_iter()
+            .find(|row| row.session_id == session_id && row.subscription_id == subscription_id)
+            .expect("attach-created owner");
+        let live = daemon.terminal_subscription_generation(&session_id, &subscription_id);
+        assert_eq!(live, Some(inventory.generation));
+        assert_eq!(
+            daemon.terminal_subscription_generation(&session_id, &absent),
+            None
+        );
+        let _ = daemon.shutdown(Some(session_id), 20);
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hub_close_suppression_shaped_registry_state_is_non_mutating() {
+        let data_dir = temp_data_dir("hub-lifecycle-registry-state");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session_id = SessionId("hub-life-registry-state".to_string());
+        daemon
+            .spawn(spawn_request(&session_id), 10)
+            .expect("close-suppression spawn");
+        assert!(daemon.take_journal_advanced_wake());
+        let cursor = daemon
+            .lifecycle_baseline()
+            .expect("watermark after spawn")
+            .cursor;
+        let looked_up = daemon
+            .session_registry_state(&session_id)
+            .expect("exact registry-state query");
+        assert!(matches!(
+            looked_up,
+            SessionRegistryStateLookup::Found(RegistrySessionState::Running)
+        ));
+        assert!(
+            !daemon.take_journal_advanced_wake(),
+            "close-suppression query must leave the wake clear"
+        );
+        let page = daemon
+            .lifecycle_changes_page(&cursor, 8, 16 * 1024)
+            .expect("page after close-suppression query");
+        assert!(page.resync_required.is_none());
+        assert!(
+            page.changes.is_empty(),
+            "close-suppression query must not append lifecycle changes"
+        );
+        let _ = daemon.shutdown(Some(session_id), 20);
         let _ = fs::remove_dir_all(data_dir);
     }
 
