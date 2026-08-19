@@ -46,6 +46,14 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
             && source.contains("Ok(_)"),
         "Hub-shaped ShutdownSession classify must match Found, Absent, Err, and a wildcard"
     );
+    assert!(
+        source.contains("terminal_subscription_generation"),
+        "consumer must call CoreDaemon::terminal_subscription_generation"
+    );
+    assert!(
+        source.contains("session_registry_state"),
+        "consumer must call CoreDaemon::session_registry_state"
+    );
     let classify_start = source
         .find("pub fn classify_session_lifecycle")
         .expect("classify helper");

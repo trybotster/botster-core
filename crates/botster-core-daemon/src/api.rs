@@ -340,6 +340,23 @@ pub enum SessionLifecycleLookup {
     Absent,
 }
 
+/// Result of one exact-session non-mutating registry-state query.
+///
+/// First publication is `#[non_exhaustive]`. Downstream matches must handle
+/// [`Self::Found`] and [`Self::Absent`] and include a wildcard for later
+/// variants. Absence is not [`crate::CoreDaemonError::UnknownSession`].
+/// This type carries no terminal bytes, phases, snapshots, attach state, or
+/// `ProcessExited` frames. Hosts that want lifecycle progress still call
+/// [`crate::CoreDaemon::observe_session_lifecycle`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SessionRegistryStateLookup {
+    /// The daemon still owns a registry row for this session.
+    Found(RegistrySessionState),
+    /// Registry and engine both lack this session.
+    Absent,
+}
+
 /// Result of attaching a client to a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachedSession {

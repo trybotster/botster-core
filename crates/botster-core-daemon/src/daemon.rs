@@ -45,7 +45,7 @@ use crate::api::{
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
     SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SpawnSessionRequest,
+    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -846,6 +846,32 @@ impl CoreDaemon {
         }
     }
 
+    /// Exact non-mutating registry state for one `session_id`.
+    ///
+    /// This query loads one registry record. It does not drain a runtime,
+    /// reconcile a parked process-exit observation, save the registry, append
+    /// the lifecycle journal, or raise the coalesced journal-advanced wake.
+    /// Hosts that want lifecycle progress still call
+    /// [`Self::observe_session_lifecycle`].
+    ///
+    /// `Ok(Absent)` means both the registry and the engine lack the session.
+    /// Registry I/O and shutdown return `Err`. A live engine session without a
+    /// registry row is [`CoreDaemonError::UnknownSession`], matching
+    /// [`Self::observe_session_lifecycle`].
+    pub fn session_registry_state(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<SessionRegistryStateLookup, CoreDaemonError> {
+        self.ensure_running()?;
+        match self.registry.load(session_id)? {
+            Some(record) => Ok(SessionRegistryStateLookup::Found(record.state)),
+            None if self.engine.session(session_id).is_none() => {
+                Ok(SessionRegistryStateLookup::Absent)
+            }
+            None => Err(CoreDaemonError::UnknownSession(session_id.clone())),
+        }
+    }
+
     /// Take the coalesced journal-advanced wake bit.
     ///
     /// The wake is one pending bit, not a queue. Page and baseline never clear
@@ -940,6 +966,21 @@ impl CoreDaemon {
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
         self.engine.list_terminal_subscriptions()
+    }
+
+    /// Exact live generation for one `(session_id, subscription_id)`, or `None`.
+    ///
+    /// This query is independent of inventory size. It does not clone or sort
+    /// the full subscription inventory. It is identity-only: no terminal
+    /// bytes, phases, snapshots, or attach state.
+    #[must_use]
+    pub fn terminal_subscription_generation(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<TerminalSubscriptionGeneration> {
+        self.engine
+            .terminal_subscription_generation(session_id, subscription_id)
     }
 
     /// Detach one subscription generation. Mismatch does not delete a newer owner.
@@ -2976,6 +3017,21 @@ impl DaemonEngine {
         }
     }
 
+    fn terminal_subscription_generation(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<TerminalSubscriptionGeneration> {
+        match self {
+            Self::Local(engine) => {
+                engine.terminal_subscription_generation(session_id, subscription_id)
+            }
+            Self::Worker(engine) => {
+                engine.terminal_subscription_generation(session_id, subscription_id)
+            }
+        }
+    }
+
     fn detach_terminal_subscription(
         &mut self,
         client_id: ClientId,
@@ -3773,6 +3829,64 @@ mod observe_pass_snapshot_tests {
                 assert_eq!(record.session.session_id, target);
             }
             other => panic!("expected Found for the 257th dummy row, got {other:?}"),
+        }
+        assert_eq!(
+            daemon.registry.test_load_all_calls(),
+            0,
+            "exact query must not call SessionRegistry::load_all"
+        );
+        assert_eq!(daemon.registry_load_all_calls.get(), 0);
+        assert_eq!(daemon.observe_index_scans, 0);
+        assert_eq!(daemon.baseline_index_scans, 0);
+        daemon
+            .registry
+            .load_all()
+            .expect("ablation: a direct load_all must increment the registry counter");
+        assert_eq!(
+            daemon.registry.test_load_all_calls(),
+            1,
+            "SessionRegistry::load_all must count a direct collection scan"
+        );
+        daemon.shutdown(Some(live), 40).ok();
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn exact_registry_state_lookup_does_not_scan_a_large_registry() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-exact-registry-state-scans-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let live = SessionId("z-exact-registry-state-live".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&live), 10)
+            .expect("one live session so an observe walk would increment scans");
+        for index in 0..257_u32 {
+            let dummy = SessionId(format!("a-dummy-{index:03}"));
+            daemon
+                .registry
+                .save(&RegistryRecord::running(
+                    dummy,
+                    None,
+                    ResizePayload { rows: 24, cols: 80 },
+                    "dummy".to_string(),
+                    10,
+                ))
+                .expect("dummy registry row");
+        }
+        let target = SessionId("a-dummy-256".to_string());
+        let looked_up = daemon
+            .session_registry_state(&target)
+            .expect("exact registry-state query");
+        match looked_up {
+            SessionRegistryStateLookup::Found(state) => {
+                assert_eq!(state, RegistrySessionState::Running);
+            }
+            other => panic!("expected Found(Running) for the 257th dummy row, got {other:?}"),
         }
         assert_eq!(
             daemon.registry.test_load_all_calls(),
