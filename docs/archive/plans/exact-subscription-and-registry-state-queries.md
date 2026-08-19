@@ -75,8 +75,11 @@ methods.
        exact-session queries can never disagree about absence.
    - **No** `observe_session`, no `drain_runtime_once`, no
      `reconcile_lifecycle_observations`, no registry save, no journal append,
-     no wake. The method takes `&self`, so non-mutation of daemon state is
-     compiler-enforced in addition to the required negative tests.
+     no wake. The method takes `&self`, which narrows the API borrow and rules
+     out ordinary direct field mutation; it does not rule out interior
+     mutability or filesystem effects, so the no-journal, no-wake, and
+     no-reconciliation negative tests below are the authoritative
+     non-mutation proof.
    - New public type in `api.rs`, inside the lifecycle-types section (before
      `AttachedSession`) so `lifecycle_api_types_are_control_plane_only` scans it:
 
@@ -131,20 +134,29 @@ methods.
      shutdown → `Err`.
 
 5. **Downstream-shaped consumer proof** (charter requirement: crate-local
-   tests alone are insufficient for public contract changes):
-   - Extend `crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped`
-     to call `session_registry_state` in a close-suppression-shaped check that
-     replaces a full `list()` read, and assert the non-mutating contract
-     (wake stays clear).
-   - Extend `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped`
-     to check exact membership through
-     `terminal_subscription_generation` where it currently scans
-     `list_terminal_subscriptions` for one route (keep existing list-based
-     assertions that genuinely need inventory).
-   - These isolated crates run through their wrapper tests
-     (`lifecycle_journal_consumer_test.rs` etc.), which the workspace test run
-     starts; per [[botster-core-playbook]], confirm the wrapper tests execute
-     (a workspace filter would not run the nonmember crates directly).
+   tests alone are insufficient for public contract changes). Both proofs go
+   through `crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped`,
+   because that isolated crate already depends on `botster-core-daemon` and
+   drives `CoreDaemon` directly; `hub-adapter-shaped` depends only on
+   `botster-core` and cannot exercise the new daemon facade methods, so it is
+   **not** changed (its `list_terminal_subscriptions` calls inspect
+   `adapter_bound`/`capabilities` and are legitimately inventory-shaped):
+   - Add a hub-lifecycle-shaped test that spawns and attaches one session,
+     calls `CoreDaemon::terminal_subscription_generation` for the live route
+     (`Some(generation)` matching the attach-created owner) and for an absent
+     route (`None`), Hub-Pump-shaped.
+   - Add a hub-lifecycle-shaped close-suppression-shaped test that calls
+     `CoreDaemon::session_registry_state` instead of a full `list()` read and
+     asserts the non-mutating contract (journal wake stays clear, no new
+     lifecycle changes).
+   - Extend the wrapper test
+     (`crates/botster-core-test-support/tests/lifecycle_journal_consumer_test.rs`)
+     source assertions to require the exact `CoreDaemon` calls
+     (`terminal_subscription_generation`, `session_registry_state`) in the
+     consumer source, following its existing assertion style.
+   - The isolated crate runs through that wrapper test, which the workspace
+     test run starts; per [[botster-core-playbook]], confirm the wrapper test
+     executed (a workspace filter would not run the nonmember crate directly).
 
 6. **Docs.** Rustdoc on both methods states the contract: exact, work-bound,
    control-plane only, non-mutating (registry query), and that
@@ -200,8 +212,10 @@ methods.
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs` — architecture
   test extension, source-shape test, behavior tests.
 - `crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped/src/lib.rs`
-  and `.../hub-adapter-shaped/src/lib.rs` — consumer-shaped proof (and their
-  wrapper tests' source assertions if they enumerate required calls).
+  — consumer-shaped proof for both new `CoreDaemon` queries — and
+  `crates/botster-core-test-support/tests/lifecycle_journal_consumer_test.rs`
+  — wrapper source assertions for the exact calls. `hub-adapter-shaped` is
+  unchanged.
 - No changes required in `crates/botster-core` (all engine primitives exist);
   if a record-returning query is chosen instead, add one map-get to
   `client_worker.rs` and thread it through the existing layers.
@@ -231,8 +245,9 @@ methods.
   control.
 - `lifecycle_api_types_are_control_plane_only` passes with the new type
   included; the new source-shape test keeps terminal bodies off both surfaces.
-- Consumer-shaped tests in both hub-shaped consumer crates compile and pass
-  against the new queries.
+- Consumer-shaped tests in hub-lifecycle-shaped call both new `CoreDaemon`
+  methods and pass through the wrapper test, whose source assertions require
+  the exact calls.
 - Gates (from [[botster-core uses CI-owned Cargo commands because it has no
   test script]]):
   - `BOTSTER_ENV=test cargo test --workspace`
@@ -240,6 +255,18 @@ methods.
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo test --doc --workspace`
 - Delivery: direct merge to main, no PR, per ticket policy.
+
+## Plan Review revisions (review_1787109003_905622)
+
+- finding_1787109003_107364 (product, high): subscription-query consumer proof
+  moved to hub-lifecycle-shaped, which depends on `botster-core-daemon` and
+  calls the new `CoreDaemon` facade method directly; wrapper source assertions
+  added; `hub-adapter-shaped` left unchanged.
+- finding_1787109003_420184 (product, low): the `&self` claim is narrowed to
+  an API-borrow statement; the negative tests are the authoritative
+  non-mutation proof.
+- finding_1787109003_175860 (process, info): the required structured fields
+  are included in both the gate evidence and the step-advance evidence.
 
 ## Vault gaps
 
