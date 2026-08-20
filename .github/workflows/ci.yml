@@ -47,6 +47,9 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
+      - name: Test contract-only core library
+        run: cargo test -p botster-core --no-default-features --lib
+
       - name: Verify Ghostty cache isolation
         run: |
           test -e crates/botster-terminal-ghostty/vendor/ghostty/zig-out/lib/libghostty-vt.a

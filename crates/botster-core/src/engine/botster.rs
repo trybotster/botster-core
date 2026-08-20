@@ -1761,6 +1761,7 @@ fn append_engine_output(target: &mut BotsterEngineOutput, source: BotsterEngineO
     target.observations.extend(source.observations);
 }
 
+#[cfg(feature = "local-runtime")]
 fn suppress_attach_terminal_output(
     output: &mut BotsterEngineOutput,
     session_id: &SessionId,
