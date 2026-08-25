@@ -366,6 +366,14 @@ impl WorkerProcessRuntime {
             .map(|session| &session.metadata)
     }
 
+    /// Clone the session control queue. Tests use this as a queue-bound oracle.
+    #[must_use]
+    pub fn control_queue(&self, session_id: &SessionId) -> Option<ControlQueue> {
+        self.sessions
+            .get(session_id)
+            .map(|session| session.control_queue.clone())
+    }
+
     /// Return true when the session is owned by a live child worker process.
     #[must_use]
     pub fn is_worker_process(&mut self, session_id: &SessionId) -> bool {
@@ -885,6 +893,9 @@ impl WorkerProcessRuntime {
         let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
         match in_flight.as_mut() {
             Some(slot) if slot.request_id == request_id => {
+                if slot.cancelled {
+                    return Ok(());
+                }
                 slot.cancelled = true;
             }
             _ => return Ok(()),
