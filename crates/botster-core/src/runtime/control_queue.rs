@@ -79,6 +79,7 @@ struct ControlQueueState {
     frames: VecDeque<(ControlFrameClass, Vec<u8>)>,
     ordinary_len: usize,
     sealed: bool,
+    #[cfg(test)]
     hold_pops: bool,
 }
 
@@ -98,6 +99,7 @@ impl ControlQueue {
                 frames: VecDeque::new(),
                 ordinary_len: 0,
                 sealed: false,
+                #[cfg(test)]
                 hold_pops: false,
             })),
             ready: Arc::new(Condvar::new()),
@@ -148,6 +150,7 @@ impl ControlQueue {
     pub fn pop(&self) -> Option<(ControlFrameClass, Vec<u8>)> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
+            #[cfg(test)]
             if state.hold_pops {
                 if state.sealed && state.frames.is_empty() {
                     return None;
@@ -190,16 +193,18 @@ impl ControlQueue {
         self.len() == 0
     }
 
-    /// Stop the writer from popping so tests can fill the bound and inspect it.
-    pub fn hold_pops(&self, hold: bool) {
+    /// Stop the writer from popping so crate unit tests can fill the bound.
+    #[cfg(test)]
+    pub(crate) fn hold_pops(&self, hold: bool) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.hold_pops = hold;
         self.ready.notify_all();
     }
 
-    /// Count queued frames by class. Tests use this as a queue-bound oracle.
+    /// Count queued frames by class for crate unit tests.
+    #[cfg(test)]
     #[must_use]
-    pub fn class_counts(&self) -> (usize, usize, usize) {
+    pub(crate) fn class_counts(&self) -> (usize, usize, usize) {
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let mut ordinary = 0;
         let mut cancel = 0;

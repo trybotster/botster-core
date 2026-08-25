@@ -60,6 +60,7 @@ Core runtime and daemon:
 - `crates/botster-core/src/engine/managed_session_runtime.rs`
 - `crates/botster-core/src/engine/client_worker.rs`
 - `crates/botster-core/src/engine/botster.rs`
+- `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`
 - `crates/botster-core/src/engine/mod.rs`
 - `crates/botster-core/src/contract/session_protocol.rs`
 - `crates/botster-core/src/contract/terminal_adapter.rs`
@@ -109,6 +110,8 @@ Docs:
 - Worker-backed apply intakes but does not send PTY bytes while IncrementalAttach is active. That keeps the snapshot barrier from seeing a tick-thread control write. After attach completes, the next drain applies the queued commands.
 - Daemon duplex tests inject a hand-built compact-binary frame so the daemon test crate does not take a new protocol-client dependency.
 - Local apply-error tests use `LocalProcessRuntimeOptions.test_fail_pty_writes` so input and resize fail without inventing a second local write path.
+- Queue-bound oracles (`hold_pops`, `class_counts`, `test_control_queue`) stay `#[cfg(test)] pub(crate)`. They are not on the public `WorkerProcessRuntime` seam.
+- The worker test hold is interruptible by a matching cancel frame and is one-shot so a later replacement gated request does not inherit the hold.
 
 ## Tests and downstream proof run
 
@@ -117,7 +120,7 @@ CI-owned Cargo commands, no wrapper:
 - `cargo fmt --all -- --check` — passed
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --no-default-features` — 13 passed
-- `BOTSTER_ENV=test cargo test -p botster-core --lib --features local-runtime` — 41 passed
+- `BOTSTER_ENV=test cargo test -p botster-core --lib --features local-runtime` — passed, including the moved queue-bound unit test
 - `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 28 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test session_protocol_test` — 17 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep dropping_parent_runtime_reaps_worker_and_pty_child` — passed
@@ -128,8 +131,9 @@ CI-owned Cargo commands, no wrapper:
 - `script/terminal-protocol-node-smoke.sh` — passed
 - `BOTSTER_ENV=test cargo test --doc --workspace` — passed
 - `BOTSTER_ENV=test cargo test --lib failed_final_capture_installs_no_retained_terminal_state -p botster-core-daemon` — passed. Shutdown keeps the mux route live until the next drain delivers `ProcessExit`. Missing-owner ingest retains `ProcessExit` and drops later `TerminalOutput` / `Snapshot`.
-- `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — passed. Thirty ordinary frames plus one owner teardown enqueue exactly one cancel and leave the reserved shutdown slot.
-- `BOTSTER_ENV=test cargo test --workspace` — 813 passed, 1 ignored. This visit did not change `plugin_worker.rs`.
+- `BOTSTER_ENV=test cargo test -p botster-core --lib owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — passed. Thirty ordinary frames plus one owner teardown enqueue exactly one cancel and leave the reserved shutdown slot. The oracle uses the crate-private test seam, not a public runtime queue handle.
+- `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test drain_detach_cancels_held_gated_and_leaves_sibling` — passed. The worker hold is 10s and is released only by a matching cancel frame. The test requires the parent lane to accept a replacement probe in under 2s, then `echo:next` from a replacement gated request, with no `echo:hold` and no late `input_result`. It does not sleep past the uncancelled hold.
+- `BOTSTER_ENV=test cargo test --workspace` — 813 passed, 1 ignored. This visit did not change `plugin_worker.rs`. The exact Clippy command above passed on the committed tree after removing the unused live-shutdown `mut`.
 
 Production entry point: `CoreDaemon::drain` calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
 
@@ -147,8 +151,8 @@ Added production-path proofs:
 - `input_path_hard_stop_unsubscribes_the_multiplexer_route`
 - `owner_removal_matrix_closes_adapter_and_route`
 - `drain_ingress_loss_and_malformed_input_remove_the_route`
-- `drain_detach_cancels_held_gated_and_leaves_sibling` — cancel, lane release, no late `input_result`, replacement gated request, and sibling survival
-- `owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot`
+- `drain_detach_cancels_held_gated_and_leaves_sibling` — cancel must reach the worker, release the lane, block `echo:hold`, allow a replacement gated request, and leave the sibling live
+- `owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — crate unit test behind `test_control_queue`
 
 ## Unverified behavior or residual risk
 

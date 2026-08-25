@@ -12,19 +12,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use botster_core::runtime::{
-    ControlFrameClass, WORKER_CONTROL_QUEUE_FRAMES, WORKER_CONTROL_RESERVED_SLOTS,
-};
 use botster_core::{
     BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
-    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionIoEvent,
-    SessionMetadata, SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalCapabilitySet, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionMetadata,
+    SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
-use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use sha2::{Digest, Sha256};
 
 extern "C" {
@@ -1966,105 +1961,4 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
     stdin.flush().expect("flush spawn frame");
     drop(stdin);
     let _ = child.wait();
-}
-
-fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
-    let body_len = u16::try_from(16 + data.len()).expect("gated body fits u16");
-    let mut bytes = vec![1, 2];
-    bytes.extend_from_slice(&body_len.to_be_bytes());
-    bytes.extend_from_slice(&mode_generation.to_be_bytes());
-    bytes.extend_from_slice(&mode_revision.to_be_bytes());
-    bytes.extend_from_slice(data);
-    bytes
-}
-
-#[test]
-fn owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot() {
-    let mut options = worker_options();
-    options.test_mode_gated_hold_ms = Some(10_000);
-    let mut engine = WorkerBackedBotsterEngine::with_options(options);
-    let session = session_id("queue-bound-one-cancel");
-    let client = client_id("queue-bound-one-cancel-c");
-    let subscription = subscription_id("queue-bound-one-cancel-sub");
-    engine
-        .spawn_session(
-            shell_request(session.clone(), echo_script()),
-            CoreSessionMetadata::new(),
-        )
-        .expect("spawn");
-    engine
-        .attach_client(client.clone(), session.clone(), subscription.clone(), 10)
-        .expect("attach");
-    drain_until_attached(&mut engine, &session, &client);
-    let generation = engine
-        .list_terminal_subscriptions()
-        .into_iter()
-        .find(|row| row.subscription_id == subscription)
-        .expect("inventory after attach")
-        .generation;
-    let adapter = SharedFakeTerminalAdapter::auto_complete();
-    engine
-        .bind_terminal_adapter(
-            client.clone(),
-            session.clone(),
-            subscription.clone(),
-            generation,
-            TerminalCapabilitySet::empty(),
-            Box::new(adapter.clone()),
-        )
-        .expect("bind");
-    let flags = engine
-        .read_mode_flags(request_id("queue-bound-probe"), session.clone(), 20)
-        .expect("mode flags");
-    let (mode_generation, mode_revision) = flags
-        .session_events
-        .iter()
-        .find_map(|event| match event {
-            SessionIoEvent::ModeFlagsReady(ready) => Some((
-                ready.mode_freshness.mode_generation,
-                ready.mode_freshness.mode_revision,
-            )),
-            _ => None,
-        })
-        .expect("worker freshness");
-    let queue = engine
-        .session_runtime()
-        .control_queue(&session)
-        .expect("live control queue");
-    queue.hold_pops(true);
-    adapter.inject_ingress_frame(compact_mode_gated_frame(
-        mode_generation,
-        mode_revision,
-        b"hold\n",
-    ));
-    engine
-        .apply_terminal_input(&session, 21)
-        .expect("submit gated hold");
-    let (ordinary, cancel, terminal) = queue.class_counts();
-    assert_eq!(
-        cancel, 0,
-        "gated submit is ordinary, not cancel: {ordinary}"
-    );
-    assert_eq!(terminal, 0);
-    let ordinary_capacity = WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
-    assert!(ordinary >= 1, "gated submit must occupy one ordinary slot");
-    for _ in ordinary..ordinary_capacity {
-        queue
-            .admit(ControlFrameClass::Ordinary, vec![1])
-            .expect("fill ordinary capacity");
-    }
-    assert_eq!(queue.class_counts(), (ordinary_capacity, 0, 0));
-    engine
-        .detach_client(client, session.clone(), subscription, 22)
-        .expect("detach held owner");
-    assert_eq!(
-        queue.class_counts(),
-        (ordinary_capacity, 1, 0),
-        "one owner teardown must enqueue exactly one cancel"
-    );
-    queue
-        .admit(ControlFrameClass::Terminal, vec![0])
-        .expect("one cancel must leave the reserved shutdown slot");
-    assert_eq!(queue.class_counts(), (ordinary_capacity, 1, 1));
-    queue.hold_pops(false);
 }
