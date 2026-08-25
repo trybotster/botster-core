@@ -173,9 +173,9 @@ In scope:
    ingress poll alongside `try_write`, `close`, and `pressure`.
 3. Give `ClientWorker` a **bounded, per-subscription ingress queue** with separate
    intake and apply stages, exact budgets, and fail-closed overflow.
-4. Add a **non-blocking submit-and-poll** mode-gated input path so one subscription
-   cannot stall a sibling, and apply decoded input inside the production
-   `CoreDaemon` drain tick.
+4. Add a **non-blocking submit, poll, and cancel** mode-gated input path so one
+   subscription cannot stall a sibling, and apply decoded input inside the production
+   `CoreDaemon` drain tick. Cancellation is fenced at the worker, per §5.8.
 5. Report per-command input outcomes to the client through a new Core egress event,
    including deterministic stale-mode rejection.
 6. Extend the published conformance harness with duplex arms.
@@ -193,9 +193,12 @@ Non-scope:
 - Do not delete `CoreDaemon::mode_gated_input`, `CoreDaemon::input`, or the
   existing resize API in this ticket. Hub, Web, and TUI still call them until
   their own tickets land. The cold cut is `ticket_1787600679_990088`.
-- Do not change the worker-side atomic admit protocol. §5.8 decomposes the
-  **parent-side wait** only. `FRAME_MODE_GATED_PTY_INPUT`, the request and result
-  payloads, and the worker deadline fence are unchanged.
+- Change the worker protocol only by the one addition §5.8 names:
+  `FRAME_MODE_GATED_CANCEL` plus its in-barrier check. Revision 3 listed the whole
+  worker protocol as non-scope; that made cancellation unable to stop a write it had
+  already authorized, so the non-scope is withdrawn for this one frame and nothing
+  else. `FRAME_MODE_GATED_PTY_INPUT`, the request and result payloads, the deadline
+  fence, the freshness check, and the admit ordering are otherwise unchanged.
 - Do not add DataChannel creation, labels, encryption, chunking, or the §9 limit
   table. Those are Hub-owned and belong to `ticket_1787600674_500120`.
 - Do not change `TransportIngress` or `TransportEgress`, per
@@ -668,30 +671,74 @@ The worker side is untouched. `FRAME_MODE_GATED_PTY_INPUT`, the request and resu
 payloads, the worker deadline fence, and the atomic admit barrier are unchanged, so
 the correctness boundary stays exactly where it is today.
 
-**Cancellation on teardown.** `gated_in_flight` is runtime state on the session, but
-`hard_stop_key` removes only a `ClientWorker` owner. Without an explicit step, a
-malformed frame, an ingress `Lost`, a queue overflow, or a transport failure during
-an active gated request would leave the session slot occupied until its deadline
-expires, and the later reply would have no owner to route to. Revision 2's teardown
-matrix asserted that the slot was cleared but named no primitive that could clear it.
+**Cancellation on teardown must fence the worker, not just the parent.**
+`gated_in_flight` is parent state, but the request is already on the worker's control
+channel. Revision 3 cleared only the parent slot. That was not enough: the worker
+still owned the submitted request and could pass its own freshness check and write to
+the PTY before `deadline_unix_ms`. The deadline bounds a late write; it does not
+prevent one. A torn-down generation could therefore put bytes into the session's PTY
+after its ownership ended, and freeing the parent slot immediately let a replacement
+request overlap the abandoned one.
 
-`cancel_mode_gated_pty_input(session_id, request_id)` closes that hole:
+**This revision changes the worker protocol, and §4 records that change.** Revision 3
+listed the worker protocol as non-scope. That non-scope made the design unsafe, so it
+is withdrawn for exactly one addition. The ticket assigns Core "mode-gated input,
+generation, close, recovery, and teardown", and a teardown that cannot stop a write it
+already authorized is not a teardown.
 
-1. It clears `gated_in_flight` **only** when the slot's `request_id` matches the one
-   passed in, so it can never cancel a request that a different owner started.
-2. It is non-blocking and does not wait for the worker. The worker keeps its own
-   deadline fence and must not write after `deadline_unix_ms`, so the abandoned
-   request is already bounded on the worker side without parent cooperation.
-3. A reply that arrives after cancellation finds no matching slot and is discarded by
-   the existing correlation check in `pump_session_output`. There is no owner to
-   deliver an `input_result` to, and none is synthesized.
+One new control frame:
 
-Every path that removes an owner calls it when `awaiting_gated` is set:
-`hard_stop_key` (used by malformed frame, ingress `Lost`, queue overflow, per-command
-apply error, and replacement), `detach_live`, `detach_generation`, `teardown_session`,
-and `teardown_all`. Because the cancel is keyed by `(session_id, request_id)` rather
-than by subscription, generation reuse cannot cancel the wrong request: generation
-N+1's own submit produces a fresh `GatedRequestId`.
+```
+FRAME_MODE_GATED_CANCEL  ->  { request_id: String }
+```
+
+Parent side, `cancel_mode_gated_pty_input(session_id, request_id)`:
+
+1. Write `FRAME_MODE_GATED_CANCEL` for that exact `request_id`. Non-blocking.
+2. Mark the parent slot `Cancelled { request_id }`. **Do not free it yet.**
+3. Free the slot only when the correlated reply arrives, or at
+   `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`. The reply is discarded for
+   routing, because the owner is gone, but it is what releases the lane.
+
+Holding the slot until resolution is what removes the overlap: a replacement gated
+request for that session is not admitted while an abandoned one can still write.
+
+Worker side, inside `atomic_mode_gated_admit`:
+
+The worker's control frames already arrive on a reader thread that feeds an mpsc
+channel (`botster-session-worker.rs:896`), so a cancel sent while the barrier is open
+is already queued. Inside `runtime.with_pty_io_barrier`, immediately after the
+existing deadline and freshness checks and **strictly before** `barrier.write_input`,
+the worker drains that channel without blocking:
+
+- A `FRAME_MODE_GATED_CANCEL` whose `request_id` matches this request ends the admit
+  with `admitted = false`, `bytes_written = 0`, `error_kind = "cancelled"`, and **no
+  write**.
+- Every other frame drained in that pass is stashed in a small deferred buffer and
+  replayed to the main loop after the admit returns, so nothing is lost or reordered.
+
+**The race is total, with no third outcome.** The cancel check sits in the same
+critical section as the deadline and freshness checks and strictly before the write,
+and `write_input` is bounded and completes inside the barrier. So exactly one of these
+happens:
+
+| Order | Result |
+|-------|--------|
+| Cancel observed before the write | Nothing is written. Reply is `cancelled`, `bytes_written = 0`. |
+| Write completed before the cancel frame was drained | Bytes were written. The reply reports `admitted = true` and the exact `bytes_written`, truthfully. |
+
+There is no interleaving in which a partial write escapes the fence, because the write
+is not re-entered after the check. The reply always tells the parent which of the two
+occurred, so the plan never claims a byte was suppressed when it was not.
+
+Because the fence is keyed by `request_id`, cancelling generation N's request can
+never affect generation N+1: N+1's own submit produced a fresh `GatedRequestId`, and
+the parent will not have admitted it until N's lane was released.
+
+Every path that removes an owner calls the cancel when `awaiting_gated` is set:
+`hard_stop_key` (malformed frame, ingress `Lost`, queue overflow, per-command apply
+error, replacement), `detach_live`, `detach_generation`, `teardown_session`, and
+`teardown_all`.
 
 **What still serializes, and why that is correct.** `gated_in_flight` is a
 per-session slot and the worker admits one gated request per session at a time. The
@@ -787,6 +834,8 @@ harness, the Rust protocol crates, and the npm package.
 | `crates/botster-core/src/engine/managed_session_runtime.rs` | Ingress stages and apply inside the tick, per-command error isolation, `input_result` enqueue |
 | `crates/botster-core/src/engine/botster.rs` | Engine-level `apply_terminal_input`, submit and poll passthrough |
 | `crates/botster-core-daemon/src/daemon.rs` | `CoreDaemon::drain` applies terminal input first |
+| `crates/botster-core/src/contract/session_protocol.rs` | `FRAME_MODE_GATED_CANCEL` frame constant and its payload type |
+| `crates/botster-core-daemon/src/bin/botster-session-worker.rs` | In-barrier cancel check inside `atomic_mode_gated_admit`, before `write_input`; deferred-frame replay for non-cancel frames drained in that pass |
 | `crates/botster-core-test-support/src/terminal_adapter/mod.rs` | Duplex conformance arms |
 | `crates/botster-core-test-support/src/terminal_adapter/{fake,unix_shaped,webrtc_shaped,core}.rs` | Drivers gain ingress injection hooks and `try_read` |
 | `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/src/lib.rs` | Duplex adapter consumer proof |
@@ -854,6 +903,8 @@ harness, the Rust protocol crates, and the npm package.
 | R9 | A stalled gated owner never resumes because the reply is lost. | `poll_mode_gated_pty_input` enforces the same `timeout + grace` deadline the blocking loop uses and returns `TimedOut`, which clears `awaiting_gated` and emits a `Timeout` result. |
 | R11 | A future field added to Core's `ModeFlags` or `ModeFreshnessToken` is silently dropped on the wire. | The mapping is total and a Core-side parity test asserts it in both directions, so adding a field fails the test rather than shipping a gap. |
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
+| R14 | The in-barrier cancel drain consumes a non-cancel control frame and loses it. | Drained non-cancel frames are stashed and replayed to the main loop after the admit returns; a test sends `FRAME_PTY_INPUT` during the hold and asserts in-order application. |
+| R15 | The worker protocol addition creates parent/worker version skew. | The parent builds and spawns the session worker from the same source tree, and Hub pins Core by exact revision, so the two are always matched. The charter gate command already rebuilds the worker binary before the suite. |
 | R13 | A teardown path is added later without cancelling the gated slot. | Cancellation is driven from one place, step 5 of §5.7, over the teardown vector every ingress stage already returns, so a new failure path inherits it. A test enumerates all seven owner-removing paths. |
 | R10 | Conformance revision 2 or package version 0.2.0 collides with a concurrent release. | §3 records verified registry state; §14 re-verifies immediately before publish and reallocates strictly above published history. |
 
@@ -897,9 +948,12 @@ that deadline expires.
   after which `poll` returns `TimedOut` and the owner resumes.
 - The ingress queue is bounded by `INPUT_QUEUE_CAPACITY`. Overflow is fail-closed,
   not a wait.
-- `cancel_mode_gated_pty_input` is non-blocking and does not wait for the worker. An
-  abandoned request stays bounded on the worker side by its own `deadline_unix_ms`
-  fence, so the parent never waits to reclaim the slot.
+- `cancel_mode_gated_pty_input` is non-blocking: it writes one frame and returns. The
+  parent does not wait for the worker.
+- The cancelled lane is still bounded. The parent frees the slot on the correlated
+  reply or at `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever comes
+  first, so an abandoned request delays a replacement by at most that bound and never
+  indefinitely.
 - A conforming adapter buffers at least `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` complete
   frames, so its receive buffer is bounded and its overflow is observable as `Lost`
   rather than silent.
@@ -958,12 +1012,20 @@ Live oracles, not helper calls:
    `test_mode_gated_hold_ms`, a sibling subscription on another session completes a
    full input-to-echo round trip through `CoreDaemon::drain` **before** the held
    reply is released. This is the direct disproof of the blocking design.
-4. **Red-on-revert controls.** Removing the ingress stages from
-   `apply_client_worker_with` must make the byte oracle the first failure.
-   Substituting the blocking `mode_gated_pty_input` back into the apply step must
-   make the sibling-progress oracle the first failure. Implement records both
-   failing test names.
-5. **No-spin control.** With one subscription flooded and one idle, the idle
+4. **Worker-fence oracle.** Hold a submitted gated request with
+   `test_mode_gated_hold_ms`, tear down generation N during the hold, then release
+   it. Assert the worker replied `cancelled` with `bytes_written = 0`, that the PTY
+   received zero bytes from that request, and that generation N+1 was admitted only
+   after the cancelled reply released the lane. This proves teardown stops a write
+   the parent had already authorized, which a deadline alone cannot do.
+5. **Red-on-revert controls.** Four, each naming the test that must fail first:
+   removing the ingress stages from `apply_client_worker_with` breaks the byte
+   oracle; substituting the blocking `mode_gated_pty_input` back into the apply step
+   breaks the sibling-progress oracle; restoring the head-only apply stop rule breaks
+   the ordering oracle; dropping the in-barrier cancel check breaks the worker-fence
+   oracle. A fifth, making adapter loss silent, breaks the byte-fidelity oracle.
+   Implement records every failing test name.
+6. **No-spin control.** With one subscription flooded and one idle, the idle
    subscription's applied-command count stays bounded by the apply budget. This is a
    deterministic counter assertion, not a wall-clock sample.
 
@@ -1025,11 +1087,12 @@ and driver-hook based, with no sleeps:
 
 | Arm | Claim |
 | --- | --- |
-| `assert_ingress_ready` | A fresh adapter returns `None` from `try_read` |
+| `assert_ingress_empty` | A fresh adapter returns `TerminalIngress::Empty`, and an idle adapter keeps returning `Empty` |
 | `assert_ingress_order` | Three injected frames come back in exact arrival order |
 | `assert_ingress_whole_frames` | A partially injected frame is not returned until complete |
-| `assert_ingress_closed_local` | After `close()`, `try_read` is permanently `None` and buffered ingress is dropped |
-| `assert_ingress_closed_transport` | Same after transport-side death |
+| `assert_ingress_closed_local` | After `close()`, `try_read` returns `Closed` permanently and buffered ingress is dropped |
+| `assert_ingress_closed_transport` | Same after transport-side death: `Closed`, permanently, never `Empty` |
+| `assert_ingress_lost` | After the driver drops a buffered frame, the next `try_read` returns `Lost`; no `Frame` is returned before that `Lost` is observed; and the adapter accepts `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` complete frames without reporting `Lost` |
 | `assert_ingress_content_blind` | The adapter returns the exact injected bytes and does not decode them |
 | `assert_ingress_non_blocking` | `try_read` returns on an empty buffer without a driver hook |
 
@@ -1098,8 +1161,12 @@ and driver-hook based, with no sleeps:
 
 | Claim | Test |
 | --- | --- |
-| Owner teardown releases the session gated slot at once | Hold a reply with `test_mode_gated_hold_ms`, tear the owner down mid-request, and assert a new gated request on the same session is admitted immediately rather than after `timeout + grace`. |
-| Every owner-removing path cancels | Drive `hard_stop_key` through malformed frame, ingress `Lost`, and queue overflow, plus `detach_live`, `detach_generation`, `teardown_session`, and `teardown_all`. Each asserts the slot is free afterwards. |
+| An abandoned request writes nothing to the PTY | Hold a submitted request with `test_mode_gated_hold_ms`, tear down generation N during the hold, release the hold, and assert the worker replied `cancelled` with `bytes_written = 0` and that the PTY received zero bytes from that request. Red-on-revert: drop the in-barrier cancel check and assert this test fails first. |
+| The lane is released, and only then | Assert generation N+1's gated request is admitted after the cancelled reply arrives, and not before it. A replacement never overlaps an abandoned request. |
+| The lane is still bounded when no reply comes | Drop the reply entirely and assert the slot frees at `timeout + grace` rather than never. |
+| The cancel race has no third outcome | Cancel after the write has completed and assert the reply reports `admitted = true` with the exact `bytes_written`, so the plan never claims a suppressed byte that was actually written. |
+| Non-cancel frames drained in the check are not lost | Send a `FRAME_PTY_INPUT` frame during the hold and assert it is applied after the admit returns, in order. |
+| Every owner-removing path cancels | Drive `hard_stop_key` through malformed frame, ingress `Lost`, and queue overflow, plus `detach_live`, `detach_generation`, `teardown_session`, and `teardown_all`. Each asserts the cancel frame was sent and the lane released on reply. |
 | Cancellation cannot cancel a replacement | Cancel generation N's abandoned request after generation N+1 has submitted its own. Assert N+1's request is still in flight and completes normally. |
 | A late reply after cancellation is discarded | Release the held reply after cancellation. Assert it is dropped, no `input_result` is synthesized, and no owner receives a frame. |
 | A sibling session is unaffected | Assert a second session's gated lane is untouched throughout each cancellation above. |
@@ -1148,8 +1215,11 @@ and driver-hook based, with no sleeps:
 3. Contract commit — `TerminalAdapter::try_read`, the conformance arms, and the
    shaped drivers.
 4. Gated-primitive commit — `submit_mode_gated_pty_input`,
-   `poll_mode_gated_pty_input`, and `cancel_mode_gated_pty_input`, with the blocking
-   method reimplemented on them and its characterization test. This lands **before** the runtime commit so review can
+   `poll_mode_gated_pty_input`, and `cancel_mode_gated_pty_input`, plus the
+   `FRAME_MODE_GATED_CANCEL` frame and its in-barrier worker check, with the blocking
+   method reimplemented on the same primitives and its characterization test. The
+   worker fence lands here so review can verify it separately from the ingress
+   consumer. This lands **before** the runtime commit so review can
    verify the decomposition separately from the new consumer.
 5. Runtime commit — `ClientWorker` ingress ownership, the two stages, and the
    `CoreDaemon::drain` apply step, with its tests.
@@ -1235,7 +1305,13 @@ Capture only after this ticket proves the contract, not at Plan time:
     Removing a `ClientWorker` owner does not release a session-level slot. This
     belongs beside [[webrtc peer cleanup removes every per peer owner together]].
 
-No gap beyond these ten was found.
+11. **Cancelling a request at the sender does not cancel it at the receiver.**
+    Revision 3 cleared only the parent slot and believed a deadline was a fence. A
+    deadline bounds a late side effect; it does not prevent one. A cancellation is
+    only real when the party that performs the effect checks it inside the same
+    critical section that performs the effect.
+
+No gap beyond these eleven was found.
 
 ## 19. Plan Review response
 
