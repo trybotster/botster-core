@@ -1880,6 +1880,71 @@ fn owner_removal_matrix_closes_adapter_and_route() {
 }
 
 #[test]
+fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
+    let mut worker = ClientWorker::default();
+    let held = session("held-session");
+    let drained = session("drained-session");
+    let holder_client = client("held-owner");
+    let sibling_client = client("held-sibling");
+    let holder_sub = sub("held-owner-sub");
+    let sibling_sub = sub("held-sibling-sub");
+    let _ = worker.record_attach(holder_client.clone(), held.clone(), holder_sub.clone());
+    let _ = worker.record_attach(sibling_client.clone(), held.clone(), sibling_sub.clone());
+    let holder_generation = worker
+        .live_generation(&held, &holder_sub)
+        .expect("holder generation");
+    let sibling_generation = worker
+        .live_generation(&held, &sibling_sub)
+        .expect("sibling generation");
+    let holder = SharedFakeTerminalAdapter::auto_complete();
+    let sibling = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &holder_client,
+            held.clone(),
+            holder_sub.clone(),
+            holder_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(holder),
+        )
+        .expect("bind holder");
+    worker
+        .bind_terminal_adapter(
+            &sibling_client,
+            held.clone(),
+            sibling_sub.clone(),
+            sibling_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(sibling.clone()),
+        )
+        .expect("bind sibling");
+    worker.set_awaiting_gated(
+        &held,
+        &holder_sub,
+        "held-request".to_string(),
+        Instant::now() + Duration::from_secs(5),
+    );
+    sibling.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"queued\n"));
+    let teardowns = worker.intake_terminal_input();
+    assert!(teardowns.is_empty(), "intake must keep the sibling live");
+    assert_eq!(worker.input_queue_len(&held, &sibling_sub), Some(1));
+    let mut holding = std::collections::HashSet::new();
+    holding.insert(drained);
+    let deliveries = worker.take_terminal_input(&holding);
+    assert!(
+        deliveries
+            .iter()
+            .all(|delivery| delivery.subscription_id != sibling_sub),
+        "draining another session must not dequeue a ModeGatedInput while this session holds the gated slot: {deliveries:?}"
+    );
+    assert_eq!(
+        worker.input_queue_len(&held, &sibling_sub),
+        Some(1),
+        "the sibling ModeGatedInput must stay queued"
+    );
+}
+
+#[test]
 fn intake_refuses_the_command_that_would_exceed_capacity() {
     let mut worker = ClientWorker::default();
     let session = session("queue-cap");

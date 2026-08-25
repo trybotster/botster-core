@@ -10302,3 +10302,80 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     assert!(saw_sibling, "detach must leave the sibling session live");
     let _ = fs::remove_dir_all(data_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
+    let data_dir = temp_data_dir("duplex-hold-cross-session");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0)
+            .with_test_mode_gated_hold_ms(Some(10_000)),
+    );
+    let drained = SessionId("duplex-hold-cross-drained".to_string());
+    let held = SessionId("duplex-hold-cross-held".to_string());
+    let drained_sub = SubscriptionId("duplex-hold-cross-drained-sub".to_string());
+    let holder_sub = SubscriptionId("duplex-hold-cross-holder-sub".to_string());
+    let sibling_sub = SubscriptionId("duplex-hold-cross-sibling-sub".to_string());
+    let _drained_adapter = bind_echo_worker(
+        &mut daemon,
+        drained.clone(),
+        ClientId("duplex-hold-cross-drained-c".to_string()),
+        drained_sub,
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    let holder = bind_echo_worker(
+        &mut daemon,
+        held.clone(),
+        ClientId("duplex-hold-cross-holder-c".to_string()),
+        holder_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        20,
+    );
+    let sibling = attach_bound_adapter(
+        &mut daemon,
+        held.clone(),
+        ClientId("duplex-hold-cross-sibling-c".to_string()),
+        sibling_sub.clone(),
+        30,
+    );
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("duplex-hold-cross-probe".to_string()),
+            session_id: held.clone(),
+            now_seconds: 31,
+        })
+        .expect("probe held session");
+    holder.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"hold\n",
+    ));
+    let _ = daemon.drain(&held, 32).expect("submit held gated");
+    sibling.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"queued\n",
+    ));
+    let _ = daemon.drain(&drained, 33).expect("drain the other session");
+    assert!(
+        sibling
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .all(|bytes| adapter_input_result_subscription(bytes).is_none()),
+        "draining another session must not reject a queued ModeGatedInput on a held session: {:?}",
+        sibling.snapshot_delivered_frame_bytes()
+    );
+    let _ = daemon.drain(&held, 34).expect("drain held session");
+    assert!(
+        sibling
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .all(|bytes| adapter_input_result_subscription(bytes).is_none()),
+        "the held session must keep the sibling ModeGatedInput queued: {:?}",
+        sibling.snapshot_delivered_frame_bytes()
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}

@@ -510,11 +510,23 @@ impl ClientWorker {
         teardowns
     }
 
+    /// Sessions that already have a parked gated owner.
+    #[must_use]
+    pub fn sessions_awaiting_gated(&self) -> HashSet<SessionId> {
+        self.live
+            .iter()
+            .filter(|(_, owner)| owner.awaiting_gated.is_some())
+            .map(|(key, _)| key.session_id.clone())
+            .collect()
+    }
+
     /// Stage B: dequeue apply-budget commands from unparked owners.
     pub fn take_terminal_input(
         &mut self,
         sessions_holding_gated: &HashSet<SessionId>,
     ) -> Vec<TerminalInputDelivery> {
+        let mut held = sessions_holding_gated.clone();
+        held.extend(self.sessions_awaiting_gated());
         let keys = self.rotated_live_keys();
         let mut deliveries = Vec::new();
         for key in keys {
@@ -529,7 +541,7 @@ impl ClientWorker {
                     break;
                 };
                 if matches!(head, TerminalInputCommand::ModeGatedInput { .. })
-                    && sessions_holding_gated.contains(&key.session_id)
+                    && held.contains(&key.session_id)
                 {
                     break;
                 }

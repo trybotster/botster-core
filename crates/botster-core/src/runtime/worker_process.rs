@@ -920,6 +920,23 @@ impl WorkerProcessRuntime {
             .is_some_and(|slot| slot.is_some())
     }
 
+    /// Sessions whose gated lane is occupied. Stage B uses the full set because
+    /// intake walks every live owner, not only the drained session.
+    #[must_use]
+    pub fn sessions_holding_gated(&self) -> HashSet<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|(_, session)| {
+                session
+                    .gated_in_flight
+                    .lock()
+                    .ok()
+                    .is_some_and(|slot| slot.is_some())
+            })
+            .map(|(session_id, _)| session_id.clone())
+            .collect()
+    }
+
     /// Current durable control-plane state.
     #[must_use]
     pub fn control_plane_state(&self, session_id: &SessionId) -> ControlPlaneState {

@@ -300,14 +300,8 @@ where
 
         teardowns.extend(self.client_worker.intake_terminal_input());
 
-        let mut holding = HashSet::new();
-        if self
-            .engine
-            .session_runtime()
-            .has_gated_in_flight(session_id)
-        {
-            holding.insert(session_id.clone());
-        }
+        let mut holding = self.engine.session_runtime().sessions_holding_gated();
+        holding.extend(self.client_worker.sessions_awaiting_gated());
         let deliveries = self.client_worker.take_terminal_input(&holding);
         for delivery in deliveries {
             match self.apply_one_delivery(delivery, last_output_at) {
