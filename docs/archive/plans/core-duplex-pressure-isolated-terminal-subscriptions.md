@@ -2,9 +2,10 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 2. Plan Review `review_1787634119_893294` returned `changes_required` with four
-product findings and one missing-context finding. Section 19 maps each finding to the
-section that resolves it.
+Revision 3. Plan Review returned `changes_required` twice.
+`review_1787634119_893294` raised four product findings plus one missing-context
+finding; `review_1787635010_824294` raised four more against revision 2. Section 19
+maps every finding to the section that resolves it.
 
 ## 1. Target
 
@@ -232,10 +233,21 @@ re-encoding of egress.
 Revision 1 gave `TerminalInputFrame` only `from_bytes` and `to_bytes` and forbade
 every accessor. That is unimplementable: Core must decode, and clients must encode.
 The fix mirrors the shipped egress arrangement in
-[[Core terminal protocol separates Hub-safe envelopes from client semantic bodies]]
-exactly. **No new crate dependency edge is introduced.** The client crate already
-depends on the Hub-safe crate, and `botster-core` already depends on the client
-crate (`client_worker.rs` imports `botster_terminal_protocol_client`).
+[[Core terminal protocol separates Hub-safe envelopes from client semantic bodies]].
+
+**Verified crate dependency direction.** Revision 2 of this plan claimed the client
+crate could re-export `ModeFreshnessToken` from `botster-core`. That was wrong and
+would have created a Cargo cycle. The real direction, read from the manifests, is:
+
+```
+botster-core  ->  botster-terminal-protocol-client  ->  botster-terminal-protocol
+```
+
+`botster-core/Cargo.toml:22-23` depends on both protocol crates.
+`botster-terminal-protocol-client/Cargo.toml` depends on the Hub-safe crate and on
+nothing from Core. The Hub-safe crate depends on neither. **No new edge is added,
+and no edge is reversed.** Every type the client crate publishes must therefore be
+defined at or below the client crate, never pulled up from Core.
 
 **`botster-terminal-protocol` — Hub-safe, opaque carrier.**
 
@@ -255,34 +267,51 @@ impl TerminalInputFrame {
 `from_bytes` validates the scheme version, that the kind tag is one of the three
 known values, and that the declared body length equals the remaining byte count. It
 does **not** interpret the body. There is no accessor for the payload, the freshness
-token, rows, or cols. Hub can construct, forward, and emit a frame and can learn
-nothing else, so Hub remains content-blind on the ingress direction exactly as it
-is on the egress direction.
+values, rows, or cols. Hub can construct, forward, and emit a frame and can learn
+nothing else, so Hub remains content-blind on ingress exactly as it is on egress.
 
 **`botster-terminal-protocol-client` — semantic encode and decode.**
 
 ```rust
 pub enum TerminalInputCommand {
     Input { data: Vec<u8> },
-    ModeGatedInput { expected: ModeFreshnessToken, data: Vec<u8> },
+    ModeGatedInput { mode_generation: u64, mode_revision: u64, data: Vec<u8> },
     Resize { rows: u16, cols: u16 },
 }
 
-pub fn encode_terminal_input(command: &TerminalInputCommand) -> TerminalInputFrame;
+pub fn encode_terminal_input(command: &TerminalInputCommand)
+    -> Result<TerminalInputFrame, TerminalInputEncodeError>;
+
 pub fn decode_terminal_input(frame: &TerminalInputFrame)
     -> Result<TerminalInputCommand, TerminalInputDecodeError>;
 ```
 
-Core calls `decode_terminal_input`. TUI and Web-shaped consumers call
-`encode_terminal_input`. Hub depends on neither function, because Hub does not
-depend on the client crate. `ModeFreshnessToken` is re-exported by the client crate
-from `botster-core`'s existing public `contract::session_protocol` definition, so
-the token has one definition and no mirror.
+`ModeGatedInput` carries `mode_generation` and `mode_revision` as **plain `u64`
+fields**, which is exactly what the wire carries. It does not name Core's
+`ModeFreshnessToken`. Core converts between the two at its single decode site.
 
-`encode_terminal_input` is infallible: `Vec<u8>` longer than the `u16` body budget
-is split by the caller, and §5.6 fixes that ceiling. `decode_terminal_input` returns
-a typed error for a truncated body, an unknown kind tag, or a body length that does
-not match the kind's fixed prefix.
+That conversion is the established pattern in this repository, not a new mirror:
+`client_worker.rs::encode_terminal_frame` already maps Core's internal
+`TransportEgress` into the client crate's independent wire types
+(`TerminalOutput`, `Snapshot`, `ProcessExit`). Ingress simply runs the same mapping
+in the opposite direction. A Core-side parity test asserts the mapping is total in
+both directions, so adding a field to Core's `ModeFreshnessToken` fails the test
+rather than silently dropping the field.
+
+Core calls `decode_terminal_input`. TUI and Web-shaped consumers call
+`encode_terminal_input`. Hub depends on neither, because Hub does not depend on the
+client crate.
+
+**Encoding is fallible, and the limits are per kind.** The body length field is a
+`u16`, so an arbitrary `Vec<u8>` cannot always be encoded. `mode_gated_input` also
+spends 16 body bytes on its two `u64` values, so its data ceiling is lower than
+plain input's. The exact limits are in §5.6. `encode_terminal_input` returns
+`TerminalInputEncodeError::PayloadTooLarge { kind, max, actual }` rather than
+truncating, panicking, or silently splitting. Splitting is the caller's decision,
+because only the caller knows whether a byte run may be divided.
+
+`decode_terminal_input` returns a typed error for a truncated body, an unknown kind
+tag, or a body length that does not match the kind's fixed prefix.
 
 Wire layout, big-endian, fixed 4-byte header:
 
@@ -293,11 +322,11 @@ bytes 2..4  body length, u16, exact
 body        kind-specific, see below
 ```
 
-| Kind | Body |
-| --- | --- |
-| `input` | raw input bytes, no encoding, no escaping |
-| `mode_gated_input` | `mode_generation: u64`, `mode_revision: u64`, then raw input bytes |
-| `resize` | `rows: u16`, `cols: u16` |
+| Kind | Body | Body length |
+| --- | --- | --- |
+| `input` | raw input bytes, no encoding, no escaping | `0 ..= 65_535` |
+| `mode_gated_input` | `mode_generation: u64`, `mode_revision: u64`, then raw input bytes | `16 ..= 65_535` |
+| `resize` | `rows: u16`, `cols: u16` | exactly `4` |
 
 Session identity is **not** on the wire. The frame arrives on one bound
 subscription adapter, so the owner triple
@@ -320,9 +349,20 @@ pub struct TerminalInputResult {
     pub kind: TerminalInputKind,        // input | mode_gated_input | resize
     pub admitted: bool,
     pub bytes_written: usize,
-    pub mode_flags: ModeFlags,
-    pub mode_freshness: ModeFreshnessToken,
+    pub mode_generation: u64,
+    pub mode_revision: u64,
+    pub mode_flags: TerminalModeFlags,
     pub rejection: Option<TerminalInputRejection>,
+}
+
+pub struct TerminalModeFlags {
+    pub kitty_enabled: bool,
+    pub cursor_visible: bool,
+    pub bracketed_paste: bool,
+    pub mouse_mode: u8,
+    pub alt_screen: bool,
+    pub focus_reporting: bool,
+    pub application_cursor: bool,
 }
 
 pub enum TerminalInputRejection {
@@ -333,17 +373,29 @@ pub enum TerminalInputRejection {
 }
 ```
 
+`TerminalModeFlags` is defined **in the client crate**, for the same cycle reason as
+§5.2: Core depends on the client crate, so the client crate cannot name Core's
+`ModeFlags`. Its seven fields mirror
+`botster-core::contract::session_protocol::ModeFlags` one for one, and Core maps
+between them at the single encode site, exactly as `encode_terminal_frame` already
+maps `TransportEgress` today. A Core-side parity test asserts the mapping is total,
+so adding a field to Core's `ModeFlags` fails that test rather than silently
+dropping the new field on the wire.
+
+The freshness values ride as two plain `u64` fields for the same reason.
+
 A new `TerminalEvent` variant carries wire tag `input_result`, and `EVENT_TYPES` in
 `crates/botster-terminal-protocol/src/frame.rs` gains `"input_result"`.
 
 **Every listed variant is reachable on a live owner.** Revision 1 also listed
-`Malformed` and `QueueOverflow`. Both are removed. Those two conditions hard-stop
-the owner, and `hard_stop_key` closes and drops the same adapter that would have
-carried the result. Existing contract text is explicit that close abandons an
-in-flight frame and that an accepted write is not a delivered write, per
+`Malformed` and `QueueOverflow`. Both are removed. Those conditions hard-stop the
+owner, and `hard_stop_key` closes and drops the same adapter that would have carried
+the result. Existing contract text is explicit that close abandons an in-flight
+frame and that an accepted write is not a delivered write, per
 [[adapter accepted writes are not consumer flushed writes]]. A result frame enqueued
 immediately before that close is unobservable, so promising it would be a false
-claim.
+claim. Ingress loss (§5.4) is fail-closed for the same reason and reports the same
+way.
 
 The fail-closed report is therefore the **close itself**: the adapter reports
 `Closed`, and the host observes the `ClientWorkerTeardown` row. That is the same
@@ -362,29 +414,59 @@ from it.
 
 ### 5.4 Duplex adapter contract
 
-`TerminalAdapter` gains exactly one method:
+`TerminalAdapter` gains exactly one method, and it returns a **typed** ingress
+outcome rather than an `Option`:
 
 ```rust
-/// Take the next received ingress frame bytes, if any. Never blocks.
-fn try_read(&mut self) -> Option<Vec<u8>>;
+/// Take the next ingress event. Never blocks.
+fn try_read(&mut self) -> TerminalIngress;
+
+pub enum TerminalIngress {
+    /// No complete frame is buffered. The stream is still contiguous.
+    Empty,
+    /// One complete frame, in arrival order.
+    Frame(Vec<u8>),
+    /// The transport dropped at least one frame. The stream is no longer
+    /// contiguous. Carries no payload and no count of lost bytes.
+    Lost,
+    /// The adapter is closed. Terminal state.
+    Closed,
+}
 ```
 
-Contract rules, mirrored from the existing egress rules:
+Revision 2 returned `Option<Vec<u8>>` and said a full receive buffer would report
+through `pressure()`. That was wrong twice: `TerminalAdapterPressure` describes only
+egress readiness, the single active write, and close, and `None` cannot be
+distinguished from lost input. Silent ingress loss breaks byte fidelity and ordering,
+which are the two properties this ticket exists to guarantee, so the loss must be
+**observable and fail-closed**.
 
-- Non-blocking. Returns `None` when no complete frame has arrived.
+Contract rules:
+
+- Non-blocking. `Empty` is returned immediately when nothing is buffered.
 - The adapter delivers **complete frames only**, in arrival order. Transport
   reassembly (Hub chunking) happens below the adapter.
 - The adapter does not decode, inspect, reorder, coalesce, or synthesize frames.
-- After `close()` and after transport-side death, `try_read` returns `None`
-  permanently and any buffered ingress is dropped.
-- The adapter holds a **bounded** receive buffer that is transport state, not a
-  policy queue. Overflow is a transport-side drop reported through the existing
-  pressure surface; it never grows without bound.
+  `Lost` is a flag, not payload, so reporting it stays content-blind.
+- The adapter must buffer at least `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` complete
+  frames before it may report `Lost` (§5.6). A conforming adapter therefore never
+  reports `Lost` to a Core that drains every tick within its intake budget.
+- Once the adapter drops an ingress frame it must return `Lost` on the next
+  `try_read` and must not return a later `Frame` before that `Lost` is observed.
+  Loss is never silent and never reordered behind good data.
+- After `close()` and after transport-side death, `try_read` returns `Closed`
+  permanently and buffered ingress is dropped.
+
+`Lost` is unrecoverable by construction: a gap in a terminal byte stream cannot be
+repaired, and the client cannot know which keystrokes vanished. Core therefore
+hard-stops that owner (§5.5). The client re-subscribes and re-attaches, which
+restores a known-good state.
 
 Adding a trait method is breaking for the shaped adapters and for Hub.
 `TerminalAdapterWriteError` and `TerminalAdapterPressure` are unchanged, so
 [[botster core public enums are breaking until non exhaustive is decided]] is not
-triggered.
+triggered for those two. `TerminalIngress` is new, and it is exhaustive at `0.1.0`
+under the same rule the module already documents.
 
 ### 5.5 ClientWorker ingress: two stages, exact lifecycle
 
@@ -400,17 +482,29 @@ input_queue: VecDeque<TerminalInputCommand>,   // capacity INPUT_QUEUE_CAPACITY
 awaiting_gated: Option<GatedWait>,             // set while this owner has a gated request in flight
 ```
 
+```rust
+struct GatedWait {
+    request_id: GatedRequestId,
+    deadline: Instant,
+}
+```
+
 `ClientWorker` gains `input_cursor: usize`, a rotation index.
 
 **Stage A — intake.** `ClientWorker::intake_terminal_input() -> Vec<ClientWorkerTeardown>`
 
 1. Visit live owners starting at `input_cursor`, then advance the cursor by one.
 2. For each owner with a bound adapter, call `try_read` at most
-   `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` times.
-3. Decode each frame with `decode_terminal_input`. A decode error is fail-closed:
-   hard-stop that owner through `hard_stop_key`, return its teardown, and stop
-   intake for that owner. A malformed frame is a broken or hostile client, and Core
-   must not guess.
+   `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` times, stopping early on `Empty`.
+3. Dispatch on the `TerminalIngress` value:
+   - `Empty` — stop intake for this owner.
+   - `Closed` — stop intake for this owner. The existing close handling owns it.
+   - `Lost` — fail-closed. Hard-stop that owner through `hard_stop_key`, return its
+     teardown, and stop intake for that owner. Ingress contiguity is gone, so no
+     later frame from this adapter may be applied.
+   - `Frame(bytes)` — decode with `decode_terminal_input`. A decode error is
+     fail-closed: hard-stop that owner, return its teardown, stop intake for it.
+     A malformed frame is a broken or hostile client, and Core must not guess.
 4. Push each decoded command onto `input_queue`. **Enqueue rule:** push only while
    `input_queue.len() < INPUT_QUEUE_CAPACITY`. The push that would exceed the
    capacity is refused; Core hard-stops that owner and returns its teardown. Nothing
@@ -419,21 +513,30 @@ awaiting_gated: Option<GatedWait>,             // set while this owner has a gat
 **Stage B — apply.** `ClientWorker::take_terminal_input() -> Vec<TerminalInputDelivery>`
 
 1. Visit live owners in the same rotation order.
-2. Pop from the **front** of `input_queue`, in order, at most
+2. **If `awaiting_gated` is set for this owner, dequeue nothing at all and move to
+   the next owner.** Revision 2 stopped only when the queue *head* was another
+   `ModeGatedInput`, which let a plain `Input` behind a pending gated command leave
+   the queue on the following tick and reach the PTY ahead of it. That contradicted
+   this plan's own ordering guarantee and its own acceptance test. The owner is now
+   fully parked until §5.8 clears `awaiting_gated` through a correlated result, a
+   timeout, or teardown.
+3. Otherwise pop from the **front** of `input_queue`, in order, at most
    `APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK` commands for that owner.
    **Dequeue rule:** a command is removed from the queue exactly when it is returned
    as a delivery. A returned command is never replayed, because it no longer exists
    in the queue.
-3. Stop applying for that owner as soon as one of these holds, and leave the rest
+4. Stop applying for that owner as soon as one of these holds, and leave the rest
    queued for a later tick:
    - the per-owner apply budget is spent;
-   - the head command is `ModeGatedInput` and this owner or another owner on the
-     same session already has a gated request in flight (§5.8).
+   - the command just returned was `ModeGatedInput`, which sets `awaiting_gated`
+     when §5.7 submits it, so nothing further for this owner may be dequeued;
+   - the head command is `ModeGatedInput` and another owner on the same session
+     already holds the session's gated slot.
 
-Ordering: within one owner, commands are dequeued strictly in arrival order, so a
-plain `Input` is never reordered ahead of a stalled `ModeGatedInput` and byte order
-holds. Across owners there is no ordering relation, which is exactly the isolation
-the project requires.
+Ordering: within one owner, commands are dequeued strictly in arrival order and the
+owner is parked for the entire lifetime of a pending gated command, so no command
+can overtake it. Across owners there is no ordering relation, which is exactly the
+isolation the project requires.
 
 **Why overflow is now reachable.** Intake admits up to 64 frames per owner per
 tick, apply removes at most 16. A client that sustains more than 16 commands per
@@ -444,6 +547,7 @@ tick grows its own queue by up to 48 per tick and crosses 256 within six ticks. 
 Every ingress failure path uses `hard_stop_key`, so ingress teardown produces the
 same `ClientWorkerTeardown` rows and the same synchronous close as egress teardown,
 per [[Core subscription hard-stop is synchronous close and drop on the host tick]].
+Every teardown path also cancels an outstanding gated request, per §5.8.
 
 ### 5.6 Exact bounds
 
@@ -452,9 +556,20 @@ per [[Core subscription hard-stop is synchronous close and drop on the host tick
 | `TERMINAL_INPUT_SCHEME_VERSION` | `botster-terminal-protocol` | `1` | Exact equality on byte 0 |
 | `MAX_TERMINAL_INPUT_BODY_BYTES` | `botster-terminal-protocol` | `65_535` | `u16` body ceiling |
 | `MAX_TERMINAL_INPUT_FRAME_BYTES` | `botster-terminal-protocol` | `65_539` | 4-byte header plus the body ceiling |
+| `MAX_INPUT_DATA_BYTES` | `botster-terminal-protocol` | `65_535` | `input` data ceiling; body is data only |
+| `MODE_GATED_PREFIX_BYTES` | `botster-terminal-protocol` | `16` | two `u64` freshness values |
+| `MAX_MODE_GATED_DATA_BYTES` | `botster-terminal-protocol` | `65_519` | `65_535 - 16`; the lower per-kind ceiling |
+| `RESIZE_BODY_BYTES` | `botster-terminal-protocol` | `4` | exact, `rows: u16` plus `cols: u16` |
+| `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` | `botster-core` contract | `64` | Equal to the intake budget. A conforming adapter buffers at least this many complete frames before it may report `Lost`. |
 | `INPUT_QUEUE_CAPACITY` | `ClientWorker` | `256` commands per subscription | Bounded per-subscription backlog |
 | `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `64` | Stage A budget |
 | `APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `16` | Stage B budget; bounds per-tick PTY work |
+
+`MIN_ADAPTER_INGRESS_BUFFER_FRAMES` equals `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK`
+on purpose. A host that drains every tick can always take everything a conforming
+adapter is required to hold, so `Lost` is reachable only when the host stops draining
+or the transport itself fails. That makes `Lost` a genuine fault signal rather than
+routine backpressure.
 
 `WRITE_ATTEMPT_BUDGET` stays `512` and is untouched. Frozen-contract row A27b depends
 on that exact value.
@@ -467,14 +582,18 @@ Hub subscription channel receives binary bytes
   -> adapter buffers them; Hub decodes nothing
   -> CoreDaemon::drain(session_id, last_output_at)          <- host tick, unchanged signature
        -> engine.apply_terminal_input()                     <- NEW, first step of the tick
-            1. poll any in-flight gated reply for this session (§5.8), enqueue its input_result
-            2. ClientWorker::intake_terminal_input
-            3. ClientWorker::take_terminal_input
+            1. poll any in-flight gated reply for this session (§5.8);
+               Ready or TimedOut clears awaiting_gated and enqueues its input_result
+            2. ClientWorker::intake_terminal_input   (Lost, malformed, or overflow -> hard stop)
+            3. ClientWorker::take_terminal_input     (parked owners dequeue nothing)
             4. per delivery, apply through the engine primitives:
                  Input           -> engine.write_bytes
-                 ModeGatedInput  -> engine.submit_mode_gated_pty_input   (non-blocking)
+                 ModeGatedInput  -> engine.submit_mode_gated_pty_input   (non-blocking,
+                                    sets awaiting_gated and parks that owner)
                  Resize          -> engine resize
-            5. enqueue one input_result egress frame per completed outcome
+            5. for every teardown returned by any step above, cancel that owner's
+               outstanding gated request with engine.cancel_mode_gated_pty_input
+            6. enqueue one input_result egress frame per completed outcome
        -> existing engine.drain_runtime_once
        -> existing ingest_bound_terminal_frames + pump
 ```
@@ -498,10 +617,16 @@ the shared drain. Each apply is matched individually:
 | Partial write | `input_result` with `rejection = PartialWrite` and nonzero `bytes_written` |
 | Gated wait exceeds its deadline | `input_result` with `rejection = Timeout` |
 | Session is not writable | `input_result` with `rejection = SessionNotWritable` |
-| Runtime error for that session | hard-stop **that owner only**, emit its teardown, continue the loop |
+| Runtime error for that session | hard-stop **that owner only**, emit its teardown, cancel any outstanding gated request, continue the loop |
 
 `apply_terminal_input` returns `Ok` whenever the tick itself completed, even when
 individual commands failed. Only a failure of the tick machinery propagates.
+
+**Teardown always releases the gated slot.** Step 5 is not optional bookkeeping. Any
+teardown produced by steps 1 through 4 removes a `ClientWorker` owner, but the
+`gated_in_flight` slot lives on the session runtime, so it must be cancelled
+explicitly or it stays occupied until its deadline and strands the session's gated
+lane. §5.8 defines the cancel primitive and its exact matching rule.
 
 ### 5.8 Non-blocking mode-gated input
 
@@ -526,6 +651,10 @@ fn submit_mode_gated_pty_input(&mut self, session_id, expected, data)
 fn poll_mode_gated_pty_input(&mut self, session_id)
     -> Result<GatedPoll, SessionRuntimeError>;
 
+// New. Releases the session slot for an abandoned request. Never blocks.
+fn cancel_mode_gated_pty_input(&mut self, session_id, request_id: &GatedRequestId)
+    -> Result<(), SessionRuntimeError>;
+
 enum GatedPoll { Idle, Pending, Ready(ModeGatedPtyInputResult), TimedOut }
 ```
 
@@ -539,21 +668,48 @@ The worker side is untouched. `FRAME_MODE_GATED_PTY_INPUT`, the request and resu
 payloads, the worker deadline fence, and the atomic admit barrier are unchanged, so
 the correctness boundary stays exactly where it is today.
 
+**Cancellation on teardown.** `gated_in_flight` is runtime state on the session, but
+`hard_stop_key` removes only a `ClientWorker` owner. Without an explicit step, a
+malformed frame, an ingress `Lost`, a queue overflow, or a transport failure during
+an active gated request would leave the session slot occupied until its deadline
+expires, and the later reply would have no owner to route to. Revision 2's teardown
+matrix asserted that the slot was cleared but named no primitive that could clear it.
+
+`cancel_mode_gated_pty_input(session_id, request_id)` closes that hole:
+
+1. It clears `gated_in_flight` **only** when the slot's `request_id` matches the one
+   passed in, so it can never cancel a request that a different owner started.
+2. It is non-blocking and does not wait for the worker. The worker keeps its own
+   deadline fence and must not write after `deadline_unix_ms`, so the abandoned
+   request is already bounded on the worker side without parent cooperation.
+3. A reply that arrives after cancellation finds no matching slot and is discarded by
+   the existing correlation check in `pump_session_output`. There is no owner to
+   deliver an `input_result` to, and none is synthesized.
+
+Every path that removes an owner calls it when `awaiting_gated` is set:
+`hard_stop_key` (used by malformed frame, ingress `Lost`, queue overflow, per-command
+apply error, and replacement), `detach_live`, `detach_generation`, `teardown_session`,
+and `teardown_all`. Because the cancel is keyed by `(session_id, request_id)` rather
+than by subscription, generation reuse cannot cancel the wrong request: generation
+N+1's own submit produces a fresh `GatedRequestId`.
+
 **What still serializes, and why that is correct.** `gated_in_flight` is a
 per-session slot and the worker admits one gated request per session at a time. The
 PTY is one device, so gated input for one session is inherently serial. The apply
-stage therefore stalls the owner whose head command is `ModeGatedInput` while that
-session has a request in flight, and leaves the command queued. It stalls **nothing
-else**: other owners on the same session continue to apply plain `Input` and
-`Resize`, owners on other sessions are untouched, egress `pump` continues for every
-owner, and no thread sleeps. Head-of-line blocking is confined to one owner's queue
-and is bounded by the gated deadline, after which `poll` returns `TimedOut` and the
-owner resumes with a `Timeout` result.
+stage therefore parks the owner that holds a pending gated command, and skips an
+owner whose head command is `ModeGatedInput` while another owner on the same session
+holds the slot. It stalls **nothing else**: other owners on the same session continue
+to apply plain `Input` and `Resize`, owners on other sessions are untouched, egress
+`pump` continues for every owner, and no thread sleeps. Head-of-line blocking is
+confined to one owner's queue and is bounded by the gated deadline, after which
+`poll` returns `TimedOut` and the owner resumes with a `Timeout` result.
 
 **Deterministic proof, no sleeps.** `test_mode_gated_hold_ms` already exists and is
 forwarded to the worker as `test_hold_ms`. §12 uses it to hold one reply while a
 sibling on another session sends input and receives echoed output, then releases it.
-That is a real production-path hold, not a mocked stall.
+That is a real production-path hold, not a mocked stall. The same hook holds a reply
+while the owner is torn down, which proves cancellation releases the slot without
+waiting for the deadline.
 
 ### 5.9 Compatibility gate and release identity
 
@@ -620,14 +776,14 @@ harness, the Rust protocol crates, and the npm package.
 | `crates/botster-terminal-protocol/tests/public_api.rs` | Allowlist coverage; asserts no semantic accessor exists on the carrier |
 | `crates/botster-terminal-protocol/tests/compatibility.rs` | Wrong-token ablation, A3 Core half |
 | `crates/botster-terminal-protocol/tests/hub_shaped.rs` | Hub-shaped forward-only proof in both directions |
-| `crates/botster-terminal-protocol-client/src/input.rs` | **New.** `TerminalInputCommand`, `encode_terminal_input`, `decode_terminal_input`, `TerminalInputDecodeError` |
-| `crates/botster-terminal-protocol-client/src/events.rs` | `TerminalInputResult`, `TerminalInputKind`, `TerminalInputRejection`, new `TerminalEvent` variant, `ALL` inventories |
+| `crates/botster-terminal-protocol-client/src/input.rs` | **New.** `TerminalInputCommand`, `encode_terminal_input`, `decode_terminal_input`, `TerminalInputEncodeError`, `TerminalInputDecodeError` |
+| `crates/botster-terminal-protocol-client/src/events.rs` | `TerminalInputResult`, `TerminalModeFlags`, `TerminalInputKind`, `TerminalInputRejection`, new `TerminalEvent` variant, `ALL` inventories |
 | `crates/botster-terminal-protocol-client/src/typescript.rs` | Generator emits the new unions, interfaces, encode helpers, and token |
 | `crates/botster-terminal-protocol-client/tests/{typescript_drift,wire,tui_shaped}.rs` | Drift, mirror, wire-tag, and TUI-shaped encode/decode coverage |
-| `crates/botster-core/src/contract/terminal_adapter.rs` | `try_read` added, duplex contract documented |
+| `crates/botster-core/src/contract/terminal_adapter.rs` | `try_read` added returning the new `TerminalIngress` enum, `MIN_ADAPTER_INGRESS_BUFFER_FRAMES`, duplex contract documented |
 | `crates/botster-core/src/contract/terminal_subscription.rs` | `TerminalInputDelivery`, re-export of `TerminalInputCommand` |
 | `crates/botster-core/src/engine/client_worker.rs` | Ingress queue, rotation cursor, `intake_terminal_input`, `take_terminal_input`, `awaiting_gated`, fail-closed decode and overflow |
-| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `GatedPoll`; existing blocking method reimplemented on top of them |
+| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; existing blocking method reimplemented on top of them |
 | `crates/botster-core/src/engine/managed_session_runtime.rs` | Ingress stages and apply inside the tick, per-command error isolation, `input_result` enqueue |
 | `crates/botster-core/src/engine/botster.rs` | Engine-level `apply_terminal_input`, submit and poll passthrough |
 | `crates/botster-core-daemon/src/daemon.rs` | `CoreDaemon::drain` applies terminal input first |
@@ -658,6 +814,15 @@ harness, the Rust protocol crates, and the npm package.
   the destination for durable contract text.
 - **A7.** The npm publish is performed by a credentialed operator, not by an agent
   session.
+- **A9.** The client crate defines its own wire types for the freshness values and
+  the mode flags, and Core maps at the boundary. This is required by the crate
+  dependency direction, and it matches the shipped egress pattern in
+  `client_worker.rs::encode_terminal_frame`. A total-mapping parity test, not
+  convention, is what keeps the two from drifting.
+- **A10.** Ingress `Lost` is unrecoverable and therefore fail-closed. A gap in a
+  terminal byte stream cannot be repaired, and the client cannot know which
+  keystrokes vanished, so closing the subscription and forcing a re-attach is the
+  only honest response.
 - **A8.** Per-session serialization of mode-gated input is inherent and acceptable.
   One PTY admits one gated write at a time. The isolation requirement is about
   siblings, and §5.8 keeps every sibling progressing.
@@ -687,6 +852,9 @@ harness, the Rust protocol crates, and the npm package.
 | R7 | A Core-only test is mistaken for production-shaped proof. | [[spawned Hub tests can reach only four of fourteen Core test builders]]. Core claims production-path proof through `CoreDaemon::drain` with a real worker PTY and defers live Hub proof (A23) to `ticket_1787600674_500120`. |
 | R8 | The gated submit/poll split changes legacy JSON behavior. | The blocking method is kept and reimplemented on the same two primitives. A characterization test pins its current timeout and reject-concurrent behavior before and after the split. |
 | R9 | A stalled gated owner never resumes because the reply is lost. | `poll_mode_gated_pty_input` enforces the same `timeout + grace` deadline the blocking loop uses and returns `TimedOut`, which clears `awaiting_gated` and emits a `Timeout` result. |
+| R11 | A future field added to Core's `ModeFlags` or `ModeFreshnessToken` is silently dropped on the wire. | The mapping is total and a Core-side parity test asserts it in both directions, so adding a field fails the test rather than shipping a gap. |
+| R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
+| R13 | A teardown path is added later without cancelling the gated slot. | Cancellation is driven from one place, step 5 of §5.7, over the teardown vector every ingress stage already returns, so a new failure path inherits it. A test enumerates all seven owner-removing paths. |
 | R10 | Conformance revision 2 or package version 0.2.0 collides with a concurrent release. | §3 records verified registry state; §14 re-verifies immediately before publish and reallocates strictly above published history. |
 
 ## 11. Runtime-teardown lens answers
@@ -711,7 +879,9 @@ Isolation is chosen over any shared resource: there is no shared ingress buffer,
 shared decoder state, and no shared cursor beyond the `usize` rotation index. The
 one genuinely shared resource is the per-session `gated_in_flight` slot, which is a
 property of the PTY, not of the subscription; §5.8 bounds its effect to one owner's
-queue and to the gated deadline.
+queue and to the gated deadline, and its cancel primitive releases the slot
+immediately when the owner dies rather than stranding the session's gated lane until
+that deadline expires.
 
 ### `teardown_bounds`
 
@@ -727,6 +897,12 @@ queue and to the gated deadline.
   after which `poll` returns `TimedOut` and the owner resumes.
 - The ingress queue is bounded by `INPUT_QUEUE_CAPACITY`. Overflow is fail-closed,
   not a wait.
+- `cancel_mode_gated_pty_input` is non-blocking and does not wait for the worker. An
+  abandoned request stays bounded on the worker side by its own `deadline_unix_ms`
+  fence, so the parent never waits to reclaim the slot.
+- A conforming adapter buffers at least `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` complete
+  frames, so its receive buffer is bounded and its overflow is observable as `Lost`
+  rather than silent.
 - `close()` stays synchronous and non-blocking and now also drops buffered ingress
   and any `awaiting_gated` slot. Core still calls `close()` on the host tick and
   spawns no closer thread.
@@ -742,9 +918,10 @@ queue and to the gated deadline.
 | `ModeGatedInput` frame | Same | Same, plus a stale `(mode_generation, mode_revision)` is rejected by the worker barrier even if the owner is live | Same; `awaiting_gated` is cleared with the owner |
 | `Resize` frame | Same | Same | Same |
 | Malformed frame | Same | Decode failure hard-stops that owner only | Teardown row emitted on the same tick; no result frame is promised (§5.3) |
-| Ingress overflow | Same | The enqueue that would exceed capacity is refused and the owner is hard-stopped | Queue dropped with the owner |
-| Late gated reply | `(session_id, GatedRequestId)` | A reply whose `request_id` does not match the live slot is discarded by the existing correlation check | `gated_in_flight` cleared on `Ready`, `TimedOut`, owner teardown, and session teardown |
-| Per-command apply error | Same | Hard-stops that owner only; the shared tick continues | Teardown row on the same tick |
+| Ingress overflow | Same | The enqueue that would exceed capacity is refused and the owner is hard-stopped | Queue dropped with the owner; outstanding gated request cancelled |
+| Ingress `Lost` | Same | The adapter reports lost frames before any later frame; Core hard-stops that owner because contiguity is unrecoverable | Queue dropped with the owner; outstanding gated request cancelled |
+| Late gated reply | `(session_id, GatedRequestId)` | A reply whose `request_id` does not match the live slot is discarded by the existing correlation check. After cancellation the slot is empty, so a late reply matches nothing and no `input_result` is synthesized | `gated_in_flight` cleared on `Ready`, `TimedOut`, and explicitly by `cancel_mode_gated_pty_input` on every owner-removing path: `hard_stop_key`, `detach_live`, `detach_generation`, `teardown_session`, `teardown_all` |
+| Per-command apply error | Same | Hard-stops that owner only; the shared tick continues | Teardown row on the same tick; outstanding gated request cancelled |
 | `bind_terminal_adapter` | `(client_id, session_id, subscription_id, generation)` | Unchanged. A stale generation closes and drops the adapter and returns `StaleGeneration` | Unchanged |
 | `record_attach` replacement | Same | Unchanged. Replacement hard-stops the previous owner and starts generation N+1 | The previous owner's ingress queue and `awaiting_gated` slot are dropped by that same hard stop |
 | `detach_generation` | Same | Unchanged. Generation N detach does not delete generation N+1 | Ingress queue dropped with the owner |
@@ -810,9 +987,13 @@ field of the owner rather than a side table keyed by `subscription_id`, a delaye
 teardown of generation N structurally cannot reach generation N+1's ingress. There
 is no separate sweep to get wrong.
 
-A gated reply carries its own `GatedRequestId`. The existing correlation check
-discards a reply whose id does not match the live slot, so a late reply for a torn
-down generation cannot complete a command for its replacement.
+A gated reply carries its own `GatedRequestId`, and `cancel_mode_gated_pty_input`
+is keyed by `(session_id, request_id)` rather than by subscription. It clears the
+slot only on an exact id match, so cancelling generation N's abandoned request can
+never cancel generation N+1's live one: N+1's own submit produced a fresh id. The
+existing correlation check then discards a reply whose id does not match the live
+slot, so a late reply for a torn-down generation cannot complete a command for its
+replacement.
 
 Owner sweeps cover both queue orders. "Closed first": the owner is gone, so neither
 ingress stage visits it and its buffered bytes died with the adapter. "Message
@@ -869,6 +1050,10 @@ and driver-hook based, with no sleeps:
 | Core can decode every command | Round-trip `encode_terminal_input` then `decode_terminal_input` for all three kinds, including a non-UTF-8 payload and both `u16` extremes. |
 | Client-shaped consumers can encode every command | `tui_shaped.rs` encodes all three kinds and decodes an `input_result`. The node smoke does the TypeScript equivalent. |
 | Hub does not gain the semantic crate | A dependency assertion proves `botster-terminal-protocol` does not depend on `botster-terminal-protocol-client`. |
+| No cycle exists | A dependency assertion proves `botster-terminal-protocol-client` does not depend on `botster-core`. `cargo tree` over the workspace must show the single direction core to client to hub-safe. |
+| Encoding is fallible at the exact per-kind ceiling | `input` with 65,535 bytes encodes; 65,536 returns `PayloadTooLarge { max: 65_535 }`. `mode_gated_input` with 65,519 bytes encodes; 65,520 returns `PayloadTooLarge { max: 65_519 }`. Both ceilings are asserted separately so the 16-byte prefix cannot regress unnoticed. |
+| `resize` body is exactly four bytes | A frame whose declared length is not 4 fails `decode_terminal_input`. |
+| The mode-flag mapping is total | A Core-side parity test maps every `ModeFlags` field to `TerminalModeFlags` and back. Adding a field to Core's struct fails this test. |
 
 ### Queue lifecycle tests, from finding 2
 
@@ -885,7 +1070,8 @@ and driver-hook based, with no sleeps:
 | --- | --- |
 | A held gated reply does not stall a sibling session | Hold session A's reply with `test_mode_gated_hold_ms`. Assert session B's subscription completes input-to-echo through `CoreDaemon::drain` before the hold releases. Red-on-revert: restore the blocking call and assert this is the first failure. |
 | A held gated reply does not stall plain input on the same session | A second subscription on session A applies `Input` while the gated command is pending. |
-| Order within one owner is preserved across the stall | A queued `Input` behind a pending `ModeGatedInput` reaches the PTY only after the gated command completes, in exact order. |
+| Order within one owner is preserved across the stall | Enqueue `ModeGatedInput` then `Input`. Hold the gated reply, then run several ticks. Assert the PTY receives zero bytes from the later `Input` while `awaiting_gated` is set, and that it arrives only after the gated command completes. Red-on-revert: restore the head-only stop rule of revision 2 and assert this test is the first failure. |
+| A parked owner dequeues nothing at all | While `awaiting_gated` is set, assert the owner's `input_queue` length does not change across ticks, and that a sibling owner keeps applying in those same ticks. |
 | A lost reply resumes the owner | Drive past `timeout + grace`, assert a `Timeout` result, a cleared `awaiting_gated`, and that the next command applies. |
 | The legacy blocking path is unchanged | Characterization test pins the existing timeout and the reject-concurrent-gated-call behavior across the submit/poll refactor. |
 | One apply error does not abort the tick | Force a per-command runtime error, assert exactly one teardown and that a sibling's delivery in the same tick still applied. |
@@ -897,6 +1083,26 @@ and driver-hook based, with no sleeps:
 | A malformed frame closes exactly one subscription | Assert `pressure()` is `Closed`, one teardown row, inventory shows the route gone, and the sibling count is unchanged. |
 | No undeliverable result is promised | Assert `TerminalInputRejection::ALL` contains no `Malformed` or `QueueOverflow` variant, so the published surface cannot claim a report it cannot deliver. |
 | Live-owner results do arrive | `StaleMode`, `PartialWrite`, `Timeout`, and `SessionNotWritable` each reach the client through the adapter with the owner still bound, proved by delivered frame bytes rather than by an accepted write. |
+
+### Ingress-loss tests, from finding 4 of round 2
+
+| Claim | Test |
+| --- | --- |
+| Loss is observable, never silent | A harness driver drops one injected frame. `try_read` returns `Lost` on the next call and does not return a later `Frame` before that `Lost` is observed. |
+| Loss is fail-closed | After `Lost`, Core hard-stops that owner: `pressure()` is `Closed`, one teardown row, inventory shows the route gone, and no further frame from that adapter reaches the PTY. |
+| Loss cannot be confused with an empty buffer | `Empty` leaves the owner live and the queue unchanged; `Lost` tears it down. The two are asserted in the same test so an `Option`-shaped regression fails. |
+| The required buffer floor holds | A conforming adapter accepts `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` complete frames without reporting `Lost`, and Core's intake budget drains all of them in one tick. |
+| Byte fidelity is never claimed across a gap | A red-on-revert control makes the adapter drop a frame silently and return `Empty`; the ordering and byte-fidelity test must become the first failure. |
+
+### Gated-cancellation tests, from finding 3 of round 2
+
+| Claim | Test |
+| --- | --- |
+| Owner teardown releases the session gated slot at once | Hold a reply with `test_mode_gated_hold_ms`, tear the owner down mid-request, and assert a new gated request on the same session is admitted immediately rather than after `timeout + grace`. |
+| Every owner-removing path cancels | Drive `hard_stop_key` through malformed frame, ingress `Lost`, and queue overflow, plus `detach_live`, `detach_generation`, `teardown_session`, and `teardown_all`. Each asserts the slot is free afterwards. |
+| Cancellation cannot cancel a replacement | Cancel generation N's abandoned request after generation N+1 has submitted its own. Assert N+1's request is still in flight and completes normally. |
+| A late reply after cancellation is discarded | Release the held reply after cancellation. Assert it is dropped, no `input_result` is synthesized, and no owner receives a frame. |
+| A sibling session is unaffected | Assert a second session's gated lane is untouched throughout each cancellation above. |
 
 ### Remaining deterministic tests required by the ticket
 
@@ -941,9 +1147,9 @@ and driver-hook based, with no sleeps:
    the token, revision 2, the TypeScript regeneration, and the package mirror.
 3. Contract commit — `TerminalAdapter::try_read`, the conformance arms, and the
    shaped drivers.
-4. Gated-primitive commit — `submit_mode_gated_pty_input` and
-   `poll_mode_gated_pty_input`, with the blocking method reimplemented on them and
-   its characterization test. This lands **before** the runtime commit so review can
+4. Gated-primitive commit — `submit_mode_gated_pty_input`,
+   `poll_mode_gated_pty_input`, and `cancel_mode_gated_pty_input`, with the blocking
+   method reimplemented on them and its characterization test. This lands **before** the runtime commit so review can
    verify the decomposition separately from the new consumer.
 5. Runtime commit — `ClientWorker` ingress ownership, the two stages, and the
    `CoreDaemon::drain` apply step, with its tests.
@@ -1017,11 +1223,36 @@ Capture only after this ticket proves the contract, not at Plan time:
    conformance floor stays put.** This refines
    [[daemon event shape changes bump conformance fixture revision not protocol version]].
 
-No gap beyond these seven was found.
+8. **Crate dependency direction must be read from the manifests, not assumed.**
+   Revision 2 of this plan proposed a re-export that would have created a Cargo
+   cycle, because it assumed the wrong direction between `botster-core` and
+   `botster-terminal-protocol-client`. The shipped rule is that a lower crate never
+   names a higher one, and Core maps at the boundary instead.
+9. **A transport that can drop input must report the drop, or byte fidelity is a
+   false claim.** The `TerminalIngress::Lost` contract is the durable lesson: an
+   `Option`-shaped read cannot distinguish idle from lost.
+10. **Runtime state outside the owner needs an explicit cancel on teardown.**
+    Removing a `ClientWorker` owner does not release a session-level slot. This
+    belongs beside [[webrtc peer cleanup removes every per peer owner together]].
+
+No gap beyond these ten was found.
 
 ## 19. Plan Review response
 
-`review_1787634119_893294`, verdict `changes_required`.
+### Round 2: `review_1787635010_824294`, verdict `changes_required`
+
+Four product findings against revision 2. All four were confirmed against the
+repository source before this revision changed anything.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787635010_822759` — semantic codec dependency cycle and fallible size handling | high, product | **Confirmed: my error.** The manifests show `botster-core` depends on `botster-terminal-protocol-client`, which depends on `botster-terminal-protocol`; the client crate depends on nothing from Core. Revision 2's proposed re-export of `ModeFreshnessToken` would have created a Cargo cycle. §5.2 now carries `mode_generation` and `mode_revision` as plain `u64` fields on `TerminalInputCommand`, and §5.3 defines `TerminalModeFlags` in the client crate, with Core mapping at its single encode and decode sites. That is the pattern `client_worker.rs::encode_terminal_frame` already uses for egress, so it adds no new mirror class. §5.2 also makes `encode_terminal_input` fallible with `PayloadTooLarge`, and §5.6 fixes the per-kind ceilings: 65,535 data bytes for `input`, 65,519 for `mode_gated_input` after its 16-byte prefix, and exactly 4 for `resize`. §12 asserts both ceilings separately and asserts the absence of a cycle. |
+| `finding_1787635010_389980` — owner ordering while a gated command is pending | high, product | **Confirmed real.** Revision 2's Stage B stopped only when the queue *head* was another `ModeGatedInput`, so on the next tick a plain `Input` behind a pending gated command could leave the queue and reach the PTY ahead of it. That contradicted this plan's own ordering guarantee and its own acceptance test. §5.5 step 2 now parks the owner completely: while `awaiting_gated` is set the owner dequeues nothing at all, and only a correlated result, a timeout, or teardown clears it. Other owners stay eligible. §12 adds a red-on-revert control that restores the head-only rule and must fail first. |
+| `finding_1787635010_882023` — cancelling the gated runtime slot on owner teardown | high, product | **Confirmed real.** `hard_stop_key` removes a `ClientWorker` owner, but `gated_in_flight` is session runtime state, so revision 2's matrix asserted a clearing that no primitive performed. §5.8 adds `cancel_mode_gated_pty_input(session_id, request_id)`: non-blocking, clearing the slot only on an exact id match, relying on the worker's own `deadline_unix_ms` fence to bound the abandoned request, and leaving a late reply to be discarded by the existing correlation check with no `input_result` synthesized. §5.7 step 5 drives it from one place over the teardown vector every ingress stage already returns, so all seven owner-removing paths inherit it. §12 adds generation-reuse and sibling tests. |
+| `finding_1787635010_791293` — receive-buffer overflow must be observable and fail closed | high, product | **Confirmed real.** Revision 2 said a full receive buffer would report through `pressure()`, but `TerminalAdapterPressure` describes only egress readiness, the single active write, and close, and `Option<Vec<u8>>` cannot distinguish idle from lost. §5.4 replaces the return type with `TerminalIngress { Empty, Frame, Lost, Closed }`. `Lost` carries no payload, so it stays content-blind; it must precede any later frame; and Core hard-stops that owner because a gap in a terminal byte stream is unrecoverable. §5.6 sets `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` to 64, equal to the intake budget, so a conforming adapter never reports `Lost` to a host that drains every tick. §12 adds five ingress-loss tests including a red-on-revert control for silent loss. |
+| `finding_1787634119_476601` — Plan gate evidence | info, process | The revision 2 gate carried a full summary and every required field. The reviewer notes `step.completed` evidence is still empty; that event is written by the pipeline engine on advance, not by this agent's gate submission, so it is not something the Plan step can populate. Gate evidence and the gate summary are both complete again here. Flagged for the engine rather than re-planned. |
+
+### Round 1: `review_1787634119_893294`, verdict `changes_required`
 
 | Finding | Severity | Resolution |
 | --- | --- | --- |
