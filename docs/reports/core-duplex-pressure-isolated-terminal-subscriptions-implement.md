@@ -120,10 +120,12 @@ CI-owned Cargo commands, no wrapper:
 - `BOTSTER_ENV=test cargo test -p botster-core --test session_protocol_test` — 17 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep dropping_parent_runtime_reaps_worker_and_pty_child` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- drain_applies_injected_duplex_input drain_queue_overflow drain_reconnects_and_rejects drain_teardown_session drain_writer_failure` — 5 passed
+- `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` — passed on this branch after removing the extra IncrementalAttach output pump. The same command passed on base `7eafa47` (exit 0) and failed on `065c2bf` (exit 101).
 - `BOTSTER_ENV=test cargo test -p botster-terminal-protocol -p botster-terminal-protocol-client` — passed
 - `BOTSTER_ENV=test cargo test --manifest-path crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.toml` — passed
 - `script/terminal-protocol-node-smoke.sh` — passed
 - `BOTSTER_ENV=test cargo test --doc --workspace` — passed
+- `BOTSTER_ENV=test cargo test --workspace` — passed
 
 Production entry point: `CoreDaemon::drain` calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
 
@@ -144,11 +146,11 @@ Added production-path proofs:
 - Same-session subscriptions still share one control channel. Delay then collective hard-stop is the stated policy. Cross-session isolation is the ticket guarantee.
 - `record_attach` stays infallible. Attach and bind gates live at `CoreDaemon` and worker-backed bind.
 - The full seven-path gated-cancel matrix from plan §12 is not each a dedicated named oracle. Cancel is wired on apply teardowns and on every `apply_client_worker_with` teardown, including detach, pump, and session teardown. Session teardown is proved by `drain_teardown_session_clears_ingress_and_inventory`.
-- Workspace suite root `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` failed in isolation with `one client-paced frame per drain` on this return branch and on implement commit `065c2bf` (exit 101 both times, same command). This return visit did not change attach pacing. The duplex production-path tests above passed.
 
 ## Missing vault guidance discovered
 
-None that blocked the work. Writer-timeout gotchas were captured to the vault inbox:
+None that blocked the work. Writer-timeout gotchas and the Review identity gap were captured to the vault inbox:
 
 - `so-sndtimeo-failure-on-stdio-pipes-must-not-seal-a-botster-control-plane`
 - `set-nonblocking-on-a-cloned-unixstream-also-marks-the-reader-clone`
+- `every-terminal-input-result-must-stamp-the-live-subscription-id`
