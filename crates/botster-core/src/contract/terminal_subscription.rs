@@ -78,6 +78,12 @@ pub enum BindTerminalAdapterError {
         /// Live generation that already holds an adapter.
         generation: TerminalSubscriptionGeneration,
     },
+    /// The session control plane has failed and admits no new owner.
+    #[error("control plane failed for session {session_id:?}")]
+    ControlPlaneFailed {
+        /// Session whose control plane failed.
+        session_id: SessionId,
+    },
 }
 
 /// Result of a generation-aware detach.
@@ -99,4 +105,21 @@ pub enum DetachTerminalSubscriptionResult {
         /// Generation presented to detach.
         requested: TerminalSubscriptionGeneration,
     },
+}
+
+pub use botster_terminal_protocol_client::TerminalInputCommand;
+
+/// One dequeued ingress command ready to apply on the production tick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalInputDelivery {
+    /// Client that owns the subscription.
+    pub client_id: ClientId,
+    /// Session the command targets.
+    pub session_id: SessionId,
+    /// Subscription that submitted the command.
+    pub subscription_id: SubscriptionId,
+    /// Live generation at dequeue time.
+    pub generation: TerminalSubscriptionGeneration,
+    /// Decoded command.
+    pub command: TerminalInputCommand,
 }

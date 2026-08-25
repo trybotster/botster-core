@@ -6,12 +6,28 @@ use std::path::PathBuf;
 use botster_terminal_protocol_client::{
     terminal_protocol_typescript, Attach, AttachState, AttachStateKind, Detach, PayloadEncoding,
     ProcessExit, Resize, SendInput, Snapshot, SnapshotPhase, TerminalCompatibility,
-    TerminalCompatibilityRequirement, TerminalFrame, TerminalOutput, CONFORMANCE_FIXTURE_REVISION,
+    TerminalCompatibilityRequirement, TerminalFrame, TerminalInputKind, TerminalInputRejection,
+    TerminalInputResult, TerminalModeFlags, TerminalOutput, CONFORMANCE_FIXTURE_REVISION,
     FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING,
-    PROTOCOL, PROTOCOL_VERSION,
+    FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
 };
 use serde::Serialize;
 use serde_json::Value;
+
+#[test]
+fn rewrite_generated_typescript_when_requested() {
+    if std::env::var("REWRITE_TERMINAL_PROTOCOL_TS").is_err() {
+        return;
+    }
+    let generated = terminal_protocol_typescript();
+    std::fs::write(generated_path(), &generated).expect("write generated ts");
+    std::fs::write(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/terminal-protocol/terminal-protocol.ts"),
+        generated,
+    )
+    .expect("write package ts");
+}
 
 #[test]
 fn generated_typescript_matches_committed_artifact() {
@@ -57,6 +73,12 @@ fn emitted_constants_come_from_rust_protocol_constants() {
     assert!(ts.contains(&format!(
         "export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY = \"{FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY}\";"
     )));
+    assert!(ts.contains(&format!(
+        "export const FEATURE_TRANSPORT_DUPLEX_BINARY = \"{FEATURE_TRANSPORT_DUPLEX_BINARY}\";"
+    )));
+    assert!(ts.contains("export function encodeTerminalInput"));
+    assert!(ts.contains("export function encodeModeGatedInput"));
+    assert!(ts.contains("export function encodeResize"));
 }
 
 #[test]
@@ -65,9 +87,13 @@ fn serde_wire_shapes_match_generated_typescript() {
     let phase_values = enum_values(SnapshotPhase::ALL);
     let state_values = enum_values(AttachStateKind::ALL);
     let encoding_values = enum_values(PayloadEncoding::ALL);
+    let kind_values = enum_values(TerminalInputKind::ALL);
+    let rejection_values = enum_values(TerminalInputRejection::ALL);
     assert_ts_union(&ts, "SnapshotPhase", &phase_values);
     assert_ts_union(&ts, "AttachStateKind", &state_values);
     assert_ts_union(&ts, "PayloadEncoding", &encoding_values);
+    assert_ts_union(&ts, "TerminalInputKind", &kind_values);
+    assert_ts_union(&ts, "TerminalInputRejection", &rejection_values);
 
     compare_interface(
         &ts,
@@ -200,6 +226,51 @@ fn serde_wire_shapes_match_generated_typescript() {
         &phase_values,
         &state_values,
     );
+    compare_interface(
+        &ts,
+        "TerminalModeFlags",
+        &json(&TerminalModeFlags {
+            kitty_enabled: true,
+            cursor_visible: true,
+            bracketed_paste: true,
+            mouse_mode: 1,
+            alt_screen: true,
+            focus_reporting: true,
+            application_cursor: true,
+        }),
+        &[],
+        &phase_values,
+        &state_values,
+    );
+    compare_interface(
+        &ts,
+        "TerminalInputResult",
+        &event_json(
+            &TerminalInputResult {
+                subscription_id: "sub".into(),
+                kind: TerminalInputKind::ModeGatedInput,
+                admitted: false,
+                bytes_written: 0,
+                mode_generation: 1,
+                mode_revision: 2,
+                mode_flags: TerminalModeFlags {
+                    kitty_enabled: false,
+                    cursor_visible: false,
+                    bracketed_paste: false,
+                    mouse_mode: 0,
+                    alt_screen: false,
+                    focus_reporting: false,
+                    application_cursor: false,
+                },
+                rejection: Some(TerminalInputRejection::StaleMode),
+            }
+            .to_frame()
+            .expect("input_result frame"),
+        ),
+        &["rejection"],
+        &phase_values,
+        &state_values,
+    );
 }
 
 #[test]
@@ -243,6 +314,7 @@ fn package_metadata_matches_rust_protocol_constants() {
     assert!(features.contains(FEATURE_TERMINAL_STREAMING));
     assert!(features.contains(FEATURE_RESIZE));
     assert!(features.contains(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY));
+    assert!(features.contains(FEATURE_TRANSPORT_DUPLEX_BINARY));
 }
 
 fn generated_path() -> PathBuf {
@@ -338,8 +410,12 @@ fn expected_ts_type(
         Value::String(text) if field == "state" && states.contains(text) => {
             "AttachStateKind".to_string()
         }
+        Value::String(_) if field == "kind" => "TerminalInputKind".to_string(),
+        Value::String(_) if field == "rejection" => "TerminalInputRejection".to_string(),
+        Value::Object(_) if field == "mode_flags" => "TerminalModeFlags".to_string(),
         Value::String(_) => "string".to_string(),
         Value::Number(_) => "number".to_string(),
+        Value::Bool(_) => "boolean".to_string(),
         Value::Array(items) if items.iter().all(Value::is_string) => "string[]".to_string(),
         other => panic!("unsupported rust json type for {field}: {other}"),
     }

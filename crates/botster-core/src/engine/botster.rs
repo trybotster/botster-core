@@ -586,6 +586,15 @@ impl DefaultBotsterEngine {
         )
     }
 
+    /// Apply adapter ingress at the top of the production tick.
+    pub fn apply_terminal_input(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        self.runtime.apply_terminal_input(session_id, last_output_at)
+    }
+
     /// Drain currently available local runtime output through subscription fanout.
     pub fn drain_runtime_once(
         &mut self,
@@ -1017,8 +1026,16 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
         capabilities: TerminalCapabilitySet,
-        adapter: Box<dyn TerminalAdapter + Send>,
+        mut adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
+        if matches!(
+            self.runtime.control_plane_state(&session_id),
+            crate::runtime::ControlPlaneState::Failed(_)
+        ) {
+            adapter.close();
+            drop(adapter);
+            return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id });
+        }
         self.runtime.bind_terminal_adapter(
             client_id,
             session_id,
@@ -1208,6 +1225,27 @@ impl WorkerBackedBotsterEngine {
         session_id: &SessionId,
     ) -> Option<(u16, u16, u64)> {
         self.applied_attach_resizes.remove(session_id)
+    }
+
+    /// Durable control-plane state for one worker session.
+    #[must_use]
+    pub fn control_plane_state(
+        &self,
+        session_id: &SessionId,
+    ) -> crate::runtime::ControlPlaneState {
+        self.runtime.control_plane_state(session_id)
+    }
+
+    /// Apply adapter ingress at the top of the production tick.
+    pub fn apply_terminal_input(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        if self.incremental_attaches.contains_key(session_id) {
+            return self.runtime.prepare_terminal_input(session_id);
+        }
+        self.runtime.apply_terminal_input(session_id, last_output_at)
     }
 
     /// Drain currently available worker process output through subscription fanout.

@@ -3,7 +3,7 @@
 use botster_terminal_protocol::{
     ensure_compatible, TerminalCapabilitySet, TerminalCapabilitySetError, TerminalCompatibility,
     TerminalCompatibilityRequirement, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-    FEATURE_TERMINAL_STREAMING, PROTOCOL, PROTOCOL_VERSION,
+    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
 };
 
 fn baseline_descriptor() -> TerminalCompatibility {
@@ -13,6 +13,7 @@ fn baseline_descriptor() -> TerminalCompatibility {
         features: vec![
             FEATURE_TERMINAL_STREAMING.to_string(),
             FEATURE_RESIZE.to_string(),
+            FEATURE_TRANSPORT_DUPLEX_BINARY.to_string(),
         ],
         conformance_fixture_revision: 1,
     }
@@ -34,8 +35,26 @@ fn advertised_support_includes_optional_ready_then_history() {
     assert!(advertised.supports_feature(FEATURE_TERMINAL_STREAMING));
     assert!(advertised.supports_feature(FEATURE_RESIZE));
     assert!(advertised.supports_feature(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY));
+    assert!(advertised.supports_feature(FEATURE_TRANSPORT_DUPLEX_BINARY));
     ensure_compatible(&TerminalCompatibilityRequirement::current(), &advertised)
         .expect("current advertised must satisfy default");
+}
+
+#[test]
+fn default_requirement_rejects_descriptor_without_duplex_binary() {
+    let mut missing_duplex = baseline_descriptor();
+    missing_duplex
+        .features
+        .retain(|feature| feature != FEATURE_TRANSPORT_DUPLEX_BINARY);
+    let rejected = ensure_compatible(
+        &TerminalCompatibilityRequirement::current(),
+        &missing_duplex,
+    );
+    let diagnostic = rejected.expect_err("duplex token is required").diagnostic;
+    assert!(
+        diagnostic.contains(FEATURE_TRANSPORT_DUPLEX_BINARY),
+        "{diagnostic}"
+    );
 }
 
 #[test]
@@ -74,6 +93,7 @@ fn advertised_tokens_construct_an_ordered_set() {
         FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
         FEATURE_RESIZE,
         FEATURE_TERMINAL_STREAMING,
+        FEATURE_TRANSPORT_DUPLEX_BINARY,
         FEATURE_RESIZE,
     ])
     .expect("advertised tokens");
@@ -87,6 +107,7 @@ fn advertised_tokens_construct_an_ordered_set() {
             FEATURE_RESIZE,
             FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
             FEATURE_TERMINAL_STREAMING,
+            FEATURE_TRANSPORT_DUPLEX_BINARY,
         ]
     );
 }

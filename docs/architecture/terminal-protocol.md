@@ -3,17 +3,18 @@
 Core owns a types-only terminal protocol plane. The plane is independent of
 the Hub host-control protocol.
 
-This ticket is scaffold-for-consumers. Later runtime tickets emit these frames.
-The production entry points in this repository are the two crate public APIs,
-the committed generated package, and CI.
+The production entry points are the two crate public APIs, the committed
+generated package, CI, and `CoreDaemon::drain` → `apply_terminal_input` for
+duplex input. Hub-safe crates stay content-blind: they carry opaque
+`TerminalInputFrame` bytes and do not decode payloads.
 
 ## Two-crate opacity rule
 
 | Coordinate | Consumers | Public surface |
 | --- | --- | --- |
 | `botster-terminal-protocol` 0.1.0 | Hub adapters and any content-blind forwarder | Compatibility descriptors, forwardable requests, opaque `TerminalFrame` |
-| `botster-terminal-protocol-client` 0.1.0 | TUI Rust and the TypeScript generator | Semantic Snapshot, phase, AttachState, TerminalOutput, and ProcessExit types |
-| `@trybotster/terminal-protocol` 0.1.0 | Web and other Node consumers | Generated TypeScript, metadata, and the ready-then-history event-order fixture |
+| `botster-terminal-protocol-client` 0.2.0 | TUI Rust and the TypeScript generator | Semantic Snapshot, phase, AttachState, TerminalOutput, ProcessExit, and `input_result` types, plus semantic input encode/decode |
+| `@trybotster/terminal-protocol` 0.2.0 | Web and other Node consumers | Generated TypeScript, metadata, encode helpers, and the ready-then-history event-order fixture |
 
 `botster-terminal-protocol-client` depends on `botster-terminal-protocol`.
 Hub must depend only on `botster-terminal-protocol`. Hub must not depend on
@@ -36,11 +37,11 @@ or `botster-hub-client`.
 | --- | --- |
 | Protocol name | `botster-terminal-v1` |
 | Protocol version | `1` |
-| Conformance fixture revision | `1` |
-| Default required features | `terminal_streaming`, `resize` |
+| Conformance fixture revision | `2` |
+| Default required features | `terminal_streaming`, `resize`, `transport=duplex_binary` |
 | Advertised optional feature | `snapshot_delivery=ready_then_history` |
 | Request tags | `attach`, `detach`, `send_input`, `resize` |
-| Event tags | `snapshot`, `terminal_output`, `process_exit`, `attach_state` |
+| Event tags | `snapshot`, `terminal_output`, `process_exit`, `attach_state`, `input_result` |
 | Snapshot phases | `ready`, `history`, `finish` |
 | AttachState values | `attaching`, `attached`, `snapshot_history_incomplete`, `attach_failed` |
 

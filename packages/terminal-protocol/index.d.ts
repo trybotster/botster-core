@@ -6,6 +6,10 @@ export {
   FEATURE_TERMINAL_STREAMING,
   FEATURE_RESIZE,
   FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+  FEATURE_TRANSPORT_DUPLEX_BINARY,
+  TERMINAL_INPUT_SCHEME_VERSION,
+  MAX_INPUT_DATA_BYTES,
+  MAX_MODE_GATED_DATA_BYTES,
   TerminalCompatibility,
   TerminalCompatibilityRequirement,
   Attach,
@@ -19,8 +23,15 @@ export {
   TerminalOutput,
   ProcessExit,
   AttachState,
+  TerminalModeFlags,
+  TerminalInputKind,
+  TerminalInputRejection,
+  TerminalInputResult,
   TerminalRequest,
   TerminalEvent,
+  encodeTerminalInput,
+  encodeModeGatedInput,
+  encodeResize,
 } from "./terminal-protocol.ts";
 
 export const metadata: {

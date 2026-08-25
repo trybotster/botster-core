@@ -1,11 +1,12 @@
 {
-  "package_version": "0.1.0",
+  "package_version": "0.2.0",
   "protocol": "botster-terminal-v1",
   "protocol_version": 1,
-  "conformance_fixture_revision": 1,
+  "conformance_fixture_revision": 2,
   "features": [
     "terminal_streaming",
     "resize",
-    "snapshot_delivery=ready_then_history"
+    "snapshot_delivery=ready_then_history",
+    "transport=duplex_binary"
   ]
 }

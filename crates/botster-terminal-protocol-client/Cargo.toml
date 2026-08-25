@@ -1,6 +1,6 @@
 [package]
 name = "botster-terminal-protocol-client"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Botster contributors"]
 description = "Semantic Botster terminal protocol types for TUI consumers and TypeScript generation"

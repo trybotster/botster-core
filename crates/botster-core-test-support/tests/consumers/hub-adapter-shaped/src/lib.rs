@@ -1,7 +1,10 @@
 //! Isolated Hub-shaped consumer that implements the published adapter contract.
 
+use std::collections::VecDeque;
+
 use botster_core::contract::terminal_adapter::{
-    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_core_test_support::terminal_adapter::TerminalAdapterHarnessDriver;
 use botster_terminal_protocol::TerminalFrame;
@@ -13,6 +16,9 @@ pub struct HubShapedTerminalAdapter {
     would_block: bool,
     active: Option<Vec<u8>>,
     delivered: Vec<Vec<u8>>,
+    ingress: VecDeque<Vec<u8>>,
+    ingress_partial: Option<Vec<u8>>,
+    lost_pending: bool,
 }
 
 impl TerminalAdapter for HubShapedTerminalAdapter {
@@ -33,6 +39,9 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
     fn close(&mut self) {
         self.closed = true;
         self.active = None;
+        self.ingress.clear();
+        self.ingress_partial = None;
+        self.lost_pending = false;
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -44,6 +53,20 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
             TerminalAdapterPressure::WouldBlock
         } else {
             TerminalAdapterPressure::Ready
+        }
+    }
+
+    fn try_read(&mut self) -> TerminalIngress {
+        if self.closed {
+            return TerminalIngress::Closed;
+        }
+        if self.lost_pending {
+            self.lost_pending = false;
+            return TerminalIngress::Lost;
+        }
+        match self.ingress.pop_front() {
+            Some(frame) => TerminalIngress::Frame(frame),
+            None => TerminalIngress::Empty,
         }
     }
 }
@@ -75,10 +98,45 @@ impl TerminalAdapterHarnessDriver for HubShapedTerminalAdapter {
     fn force_closed(&mut self) {
         self.closed = true;
         self.active = None;
+        self.ingress.clear();
+        self.ingress_partial = None;
+        self.lost_pending = false;
     }
 
     fn delivered_frame_bytes(&self) -> &[Vec<u8>] {
         &self.delivered
+    }
+
+    fn inject_ingress_frame(&mut self, bytes: Vec<u8>) {
+        if self.closed {
+            return;
+        }
+        if self.ingress.len() >= MIN_ADAPTER_INGRESS_BUFFER_FRAMES {
+            self.lost_pending = true;
+            return;
+        }
+        self.ingress.push_back(bytes);
+    }
+
+    fn inject_ingress_partial(&mut self, bytes: Vec<u8>) {
+        if !self.closed {
+            self.ingress_partial = Some(bytes);
+        }
+    }
+
+    fn complete_ingress_partial(&mut self) {
+        if let Some(bytes) = self.ingress_partial.take() {
+            self.inject_ingress_frame(bytes);
+        }
+    }
+
+    fn drop_buffered_ingress_frame(&mut self) {
+        if self.closed {
+            return;
+        }
+        if self.ingress.pop_back().is_some() {
+            self.lost_pending = true;
+        }
     }
 }
 
@@ -118,6 +176,10 @@ mod tests {
 
         fn pressure(&self) -> TerminalAdapterPressure {
             self.inner.lock().expect("hub adapter lock").pressure()
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            self.inner.lock().expect("hub adapter lock").try_read()
         }
     }
 

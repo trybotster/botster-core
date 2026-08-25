@@ -30,7 +30,8 @@ use botster_core::{
     TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth,
     WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL,
     FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
-    FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT,
+    FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
+    FRAME_MODE_GATED_PTY_INPUT_RESULT, ModeGatedCancelRequest,
     FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
     FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
@@ -135,7 +136,13 @@ fn run() -> Result<(), String> {
 
     let (frame_sender, frame_receiver) = mpsc::channel();
     let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
-    control.spawn_readers(initial_control, frame_sender, Arc::clone(&snapshot_barrier));
+    let cancel_cell = Arc::new(Mutex::new(None::<String>));
+    control.spawn_readers(
+        initial_control,
+        frame_sender,
+        Arc::clone(&snapshot_barrier),
+        Arc::clone(&cancel_cell),
+    );
 
     let (egress, protected_receiver, metadata_receiver) =
         WorkerEgress::new(args.egress_capacity.max(1));
@@ -172,6 +179,7 @@ fn run() -> Result<(), String> {
                                 &mut metadata_producer,
                                 &mut metadata_shaper,
                                 &egress,
+                                &cancel_cell,
                                 request,
                             ),
                             Err(error) => ModeGatedPtyInputResult {
@@ -568,8 +576,16 @@ fn atomic_mode_gated_admit(
     metadata_producer: &mut TerminalMetadataProducer,
     metadata_shaper: &mut TerminalMetadataLaneShaper,
     egress: &WorkerEgress,
+    cancel_cell: &Arc<Mutex<Option<String>>>,
     request: ModeGatedPtyInputRequest,
 ) -> ModeGatedPtyInputResult {
+    struct ClearCancel<'a>(&'a Arc<Mutex<Option<String>>>);
+    impl Drop for ClearCancel<'_> {
+        fn drop(&mut self) {
+            *self.0.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        }
+    }
+    let _clear = ClearCancel(cancel_cell);
     let request_id = request.request_id.clone();
     let expected = request.expected;
     let data = request.data;
@@ -632,6 +648,24 @@ fn atomic_mode_gated_admit(
                 mode_flags: mode_owner.mode_flags.clone(),
                 mode_freshness: current,
                 error_kind: None,
+            });
+        }
+        let cancelled = {
+            let mut cell = cancel_cell
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let matched = cell.as_ref() == Some(&request_id);
+            *cell = None;
+            matched
+        };
+        if cancelled {
+            return Ok(ModeGatedPtyInputResult {
+                request_id: request_id.clone(),
+                admitted: false,
+                bytes_written: 0,
+                mode_flags: mode_owner.mode_flags.clone(),
+                mode_freshness: current,
+                error_kind: Some("cancelled".to_string()),
             });
         }
         // Bound the complete write, including WouldBlock retries.
@@ -892,9 +926,20 @@ fn spawn_control_reader(
     mut control: Box<dyn ReadWrite + Send>,
     sender: mpsc::Sender<Frame>,
     snapshot_barrier: Arc<SnapshotBarrierControl>,
+    cancel_cell: Arc<Mutex<Option<String>>>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut control) {
+            if frame.frame_type == FRAME_MODE_GATED_CANCEL {
+                if let Ok(request) =
+                    serde_json::from_slice::<ModeGatedCancelRequest>(&frame.payload)
+                {
+                    *cancel_cell
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) = Some(request.request_id);
+                }
+                continue;
+            }
             if frame.frame_type == FRAME_GET_SNAPSHOT {
                 if let Ok(request) = serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload)
                 {
@@ -1077,8 +1122,14 @@ impl WorkerControl {
         initial: Box<dyn ReadWrite + Send>,
         sender: mpsc::Sender<Frame>,
         snapshot_barrier: Arc<SnapshotBarrierControl>,
+        cancel_cell: Arc<Mutex<Option<String>>>,
     ) {
-        spawn_control_reader(initial, sender.clone(), Arc::clone(&snapshot_barrier));
+        spawn_control_reader(
+            initial,
+            sender.clone(),
+            Arc::clone(&snapshot_barrier),
+            Arc::clone(&cancel_cell),
+        );
         #[cfg(unix)]
         if let Self::Socket {
             listener, writer, ..
@@ -1100,6 +1151,7 @@ impl WorkerControl {
                         Box::new(stream),
                         sender.clone(),
                         Arc::clone(&snapshot_barrier),
+                        Arc::clone(&cancel_cell),
                     );
                 }
             });

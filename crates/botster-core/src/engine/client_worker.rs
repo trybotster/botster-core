@@ -5,29 +5,36 @@
 //! the existing drain tick. There is no ClientWorker OS thread.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
 
 use botster_terminal_protocol::{
     TerminalCapabilitySet, TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
 };
 use botster_terminal_protocol_client::{
-    AttachState, AttachStateKind, ProcessExit, Snapshot, SnapshotPhase, TerminalEvent,
-    TerminalOutput,
+    decode_terminal_input, AttachState, AttachStateKind, ProcessExit, Snapshot, SnapshotPhase,
+    TerminalEvent, TerminalInputCommand, TerminalInputResult, TerminalOutput,
 };
 
 use crate::actor::{QueueSource, TerminalAttachState};
 use crate::client::ClientId;
 use crate::contract::terminal_adapter::{
-    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
 use crate::contract::terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalInputDelivery,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 use crate::session::{SessionId, SubscriptionId};
 use crate::transport::TransportEgress;
 use crate::WorkerSnapshotPhase;
 
 const WRITE_ATTEMPT_BUDGET: usize = 512;
+/// Bounded per-subscription ingress backlog.
+pub const INPUT_QUEUE_CAPACITY: usize = 256;
+/// Stage A intake budget.
+pub const INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK: usize = 64;
+/// Stage B apply budget.
+pub const APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK: usize = 16;
 
 /// Routes that must be unsubscribed after ClientWorker ownership hard-stop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +47,8 @@ pub struct ClientWorkerTeardown {
     pub subscription_id: SubscriptionId,
     /// Generation that was removed.
     pub generation: TerminalSubscriptionGeneration,
+    /// Outstanding gated request id, if this owner was parked.
+    pub awaiting_gated: Option<String>,
 }
 
 /// Synchronous per-engine ClientWorker.
@@ -48,6 +57,7 @@ pub struct ClientWorker {
     live: HashMap<OwnerKey, SubscriptionOwner>,
     last_generation: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     next_snapshot_phase: HashMap<OwnerKey, SnapshotPhase>,
+    input_cursor: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -66,6 +76,17 @@ struct SubscriptionOwner {
     in_flight: bool,
     process_exit_enqueued: bool,
     process_exit_delivered: bool,
+    input_queue: VecDeque<TerminalInputCommand>,
+    awaiting_gated: Option<GatedWait>,
+}
+
+/// Outstanding mode-gated request for one owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatedWait {
+    /// Correlated worker request id.
+    pub request_id: String,
+    /// When the parent wait expires.
+    pub deadline: Instant,
 }
 
 struct QueuedFrame {
@@ -130,6 +151,8 @@ impl ClientWorker {
                 in_flight: false,
                 process_exit_enqueued: false,
                 process_exit_delivered: false,
+                input_queue: VecDeque::new(),
+                awaiting_gated: None,
             },
         );
         (generation, replacements)
@@ -413,6 +436,198 @@ impl ClientWorker {
         teardowns
     }
 
+    /// Stage A: intake complete frames from bound adapters.
+    pub fn intake_terminal_input(&mut self) -> Vec<ClientWorkerTeardown> {
+        let keys = self.rotated_live_keys();
+        let mut teardowns = Vec::new();
+        for key in keys {
+            let reads = match self.live.get_mut(&key).and_then(|owner| owner.adapter.as_mut())
+            {
+                Some(adapter) => {
+                    let mut frames = Vec::new();
+                    let mut hard_stop = false;
+                    for _ in 0..INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK {
+                        match adapter.try_read() {
+                            TerminalIngress::Empty | TerminalIngress::Closed => break,
+                            TerminalIngress::Lost => {
+                                hard_stop = true;
+                                break;
+                            }
+                            TerminalIngress::Frame(bytes) => frames.push(bytes),
+                        }
+                    }
+                    Some((frames, hard_stop))
+                }
+                None => None,
+            };
+            let Some((frames, lost)) = reads else {
+                continue;
+            };
+            let mut fail = lost;
+            for bytes in frames {
+                if fail {
+                    break;
+                }
+                let decoded = botster_terminal_protocol::TerminalInputFrame::from_bytes(&bytes)
+                    .ok()
+                    .and_then(|frame| decode_terminal_input(&frame).ok());
+                let Some(command) = decoded else {
+                    fail = true;
+                    break;
+                };
+                let Some(owner) = self.live.get_mut(&key) else {
+                    fail = true;
+                    break;
+                };
+                if owner.input_queue.len() >= INPUT_QUEUE_CAPACITY {
+                    fail = true;
+                    break;
+                }
+                owner.input_queue.push_back(command);
+            }
+            if fail {
+                if let Some(teardown) = self.hard_stop_key(&key) {
+                    teardowns.push(teardown);
+                }
+            }
+        }
+        teardowns
+    }
+
+    /// Stage B: dequeue apply-budget commands from unparked owners.
+    pub fn take_terminal_input(
+        &mut self,
+        sessions_holding_gated: &HashSet<SessionId>,
+    ) -> Vec<TerminalInputDelivery> {
+        let keys = self.rotated_live_keys();
+        let mut deliveries = Vec::new();
+        for key in keys {
+            let Some(owner) = self.live.get_mut(&key) else {
+                continue;
+            };
+            if owner.awaiting_gated.is_some() {
+                continue;
+            }
+            for _ in 0..APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK {
+                let Some(head) = owner.input_queue.front() else {
+                    break;
+                };
+                if matches!(head, TerminalInputCommand::ModeGatedInput { .. })
+                    && sessions_holding_gated.contains(&key.session_id)
+                {
+                    break;
+                }
+                let Some(command) = owner.input_queue.pop_front() else {
+                    break;
+                };
+                let gated = matches!(command, TerminalInputCommand::ModeGatedInput { .. });
+                deliveries.push(TerminalInputDelivery {
+                    client_id: owner.client_id.clone(),
+                    session_id: key.session_id.clone(),
+                    subscription_id: key.subscription_id.clone(),
+                    generation: owner.generation,
+                    command,
+                });
+                if gated {
+                    break;
+                }
+            }
+        }
+        deliveries
+    }
+
+    /// Record that this owner is parked on a submitted gated request.
+    pub fn set_awaiting_gated(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        request_id: String,
+        deadline: Instant,
+    ) {
+        if let Some(owner) = self.live.get_mut(&OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        }) {
+            owner.awaiting_gated = Some(GatedWait {
+                request_id,
+                deadline,
+            });
+        }
+    }
+
+    /// Clear a parked gated wait after Ready, TimedOut, or teardown handling.
+    pub fn clear_awaiting_gated(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<GatedWait> {
+        self.live
+            .get_mut(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .and_then(|owner| owner.awaiting_gated.take())
+    }
+
+    /// Outstanding gated wait for one owner, if any.
+    #[must_use]
+    pub fn awaiting_gated(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<&GatedWait> {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .and_then(|owner| owner.awaiting_gated.as_ref())
+    }
+
+    /// Enqueue an `input_result` onto the owner's egress queue.
+    pub fn enqueue_input_result(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        result: &TerminalInputResult,
+    ) -> Result<(), ()> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let Some(owner) = self.live.get_mut(&key) else {
+            return Err(());
+        };
+        let frame = TerminalEvent::InputResult(result.clone())
+            .to_frame()
+            .map_err(|_| ())?;
+        if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
+            return Err(());
+        }
+        owner.queue.push_back(QueuedFrame {
+            frame,
+            kind: QueuedKind::Other,
+        });
+        Ok(())
+    }
+
+    fn rotated_live_keys(&mut self) -> Vec<OwnerKey> {
+        let mut keys: Vec<_> = self.live.keys().cloned().collect();
+        keys.sort_by(|left, right| {
+            left.session_id
+                .0
+                .cmp(&right.session_id.0)
+                .then(left.subscription_id.0.cmp(&right.subscription_id.0))
+        });
+        if keys.is_empty() {
+            return keys;
+        }
+        let start = self.input_cursor % keys.len();
+        self.input_cursor = start.wrapping_add(1);
+        keys.rotate_left(start);
+        keys
+    }
+
     /// Detach the live generation if present.
     pub fn detach_live(
         &mut self,
@@ -585,6 +800,7 @@ fn hard_stop(
         session_id: key.session_id.clone(),
         subscription_id: key.subscription_id.clone(),
         generation: owner.generation,
+        awaiting_gated: owner.awaiting_gated.map(|wait| wait.request_id),
     })
 }
 

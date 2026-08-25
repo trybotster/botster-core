@@ -32,6 +32,33 @@ fn public_source_items_match_allowlist() {
 }
 
 #[test]
+fn terminal_input_frame_source_has_no_semantic_accessors() {
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/input_frame.rs"),
+    )
+    .expect("input frame source");
+    for forbidden in [
+        "fn payload",
+        "fn data",
+        "fn mode_generation",
+        "fn mode_revision",
+        "fn rows",
+        "fn cols",
+        "pub payload",
+        "pub data",
+        "pub mode_generation",
+        "pub mode_revision",
+        "pub rows",
+        "pub cols",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "TerminalInputFrame source must not expose `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn terminal_frame_source_has_no_semantic_accessors() {
     let frame = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/frame.rs"))
         .expect("frame source");
@@ -77,6 +104,7 @@ fn crate_tree_excludes_runtime_and_hub_dependencies() {
         "botster-core-daemon",
         "botster-hub ",
         "botster-hub-client",
+        "botster-terminal-protocol-client",
     ] {
         assert!(
             !tree.contains(crate_name),

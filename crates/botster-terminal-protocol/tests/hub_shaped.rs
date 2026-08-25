@@ -7,8 +7,8 @@ use std::process::Command;
 
 use botster_terminal_protocol::{
     Attach, Detach, Resize, SendInput, TerminalCapabilitySet, TerminalCompatibility,
-    TerminalCompatibilityRequirement, TerminalFrame, FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING,
-    PROTOCOL,
+    TerminalCompatibilityRequirement, TerminalFrame, TerminalInputFrame, FEATURE_RESIZE,
+    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL,
 };
 
 #[test]
@@ -62,11 +62,24 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     let _ = TerminalCompatibilityRequirement::current();
     let empty = TerminalCapabilitySet::empty();
     assert!(empty.is_empty());
-    let negotiated =
-        TerminalCapabilitySet::from_tokens([FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE])
-            .expect("Hub can build a set from protocol tokens");
+    let negotiated = TerminalCapabilitySet::from_tokens([
+        FEATURE_TERMINAL_STREAMING,
+        FEATURE_RESIZE,
+        FEATURE_TRANSPORT_DUPLEX_BINARY,
+    ])
+    .expect("Hub can build a set from protocol tokens");
     assert!(negotiated.contains(FEATURE_TERMINAL_STREAMING));
     assert!(negotiated.contains(FEATURE_RESIZE));
+    assert!(negotiated.contains(FEATURE_TRANSPORT_DUPLEX_BINARY));
+
+    let input_bytes = {
+        let mut bytes = vec![1, 1, 0, 3];
+        bytes.extend_from_slice(b"abc");
+        bytes
+    };
+    let input_frame = TerminalInputFrame::from_bytes(&input_bytes).expect("opaque input");
+    assert_eq!(input_frame.to_bytes(), input_bytes);
+    assert_eq!(input_frame.as_bytes(), input_bytes.as_slice());
 }
 
 #[test]
@@ -111,12 +124,28 @@ fn hub_shaped_complete_public_api_cannot_name_semantic_bodies() {
                 let _ = frame.history;
                 let _ = frame.payload;
             }
+            fn inspect_input(frame: botster_terminal_protocol::TerminalInputFrame) {
+                let _ = frame.payload;
+                let _ = frame.data;
+                let _ = frame.mode_generation;
+                let _ = frame.rows;
+                let _ = frame.cols;
+            }
         "#,
     );
-    for token in ["phase", "state", "history", "payload"] {
+    for token in [
+        "phase",
+        "state",
+        "history",
+        "payload",
+        "data",
+        "mode_generation",
+        "rows",
+        "cols",
+    ] {
         assert!(
             fields.contains(token),
-            "field probe must search `{token}` on TerminalFrame:\n{fields}"
+            "field probe must search `{token}` on opaque frames:\n{fields}"
         );
     }
 

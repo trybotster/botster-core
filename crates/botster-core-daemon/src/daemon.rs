@@ -341,6 +341,9 @@ pub enum CoreDaemonError {
     /// Bind rejected a terminal adapter.
     #[error(transparent)]
     BindTerminalAdapter(#[from] BindTerminalAdapterError),
+    /// The session control plane has failed and admits no new owner.
+    #[error("control plane failed for session {0:?}")]
+    ControlPlaneFailed(SessionId),
 }
 
 /// One session's retained error from a control-plane observe tick.
@@ -898,6 +901,7 @@ impl CoreDaemon {
     ) -> Result<AttachedSession, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session_mutable(&session_id)?;
+        self.ensure_control_plane_live(&session_id)?;
         let output = self.engine.attach_client(
             client_id.clone(),
             session_id.clone(),
@@ -947,10 +951,15 @@ impl CoreDaemon {
         subscription_id: SubscriptionId,
         generation: TerminalSubscriptionGeneration,
         capabilities: TerminalCapabilitySet,
-        adapter: Box<dyn TerminalAdapter + Send>,
+        mut adapter: Box<dyn TerminalAdapter + Send>,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(&session_id)?;
+        if self.engine.control_plane_failed(&session_id) {
+            adapter.close();
+            drop(adapter);
+            return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id }.into());
+        }
         self.engine.bind_terminal_adapter(
             client_id,
             session_id,
@@ -1092,6 +1101,8 @@ impl CoreDaemon {
     ) -> Result<DrainResult, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
+        self.engine
+            .apply_terminal_input(session_id, last_output_at)?;
         let mut result = self.take_pending_drain(session_id);
         match self.engine.drain_runtime_once(session_id, last_output_at) {
             Ok(outcome) => {
@@ -1816,6 +1827,14 @@ impl CoreDaemon {
             .session(session_id)
             .map(|_| ())
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
+    }
+
+    fn ensure_control_plane_live(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
+        if self.engine.control_plane_failed(session_id) {
+            Err(CoreDaemonError::ControlPlaneFailed(session_id.clone()))
+        } else {
+            Ok(())
+        }
     }
 
     fn ensure_session_mutable(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
@@ -3078,6 +3097,27 @@ impl DaemonEngine {
             Self::Worker(engine) => {
                 engine.detach_client(client_id, session_id, subscription_id, now_seconds)
             }
+        }
+    }
+
+    fn apply_terminal_input(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.apply_terminal_input(session_id, last_output_at),
+            Self::Worker(engine) => engine.apply_terminal_input(session_id, last_output_at),
+        }
+    }
+
+    fn control_plane_failed(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(_) => false,
+            Self::Worker(engine) => matches!(
+                engine.control_plane_state(session_id),
+                botster_core::runtime::ControlPlaneState::Failed(_)
+            ),
         }
     }
 

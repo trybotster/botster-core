@@ -82,6 +82,8 @@ pub const FRAME_METADATA_SHAPING: u8 = 0x18;
 pub const FRAME_MODE_GATED_PTY_INPUT: u8 = 0x19;
 /// Session to daemon data plane: mode-gated PTY input result (correlated RPC).
 pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
+/// Data-plane peer to session: cancel one in-flight mode-gated request.
+pub const FRAME_MODE_GATED_CANCEL: u8 = 0x1b;
 
 /// Correlated request for an atomic worker-owned terminal snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +185,13 @@ pub struct ModeGatedPtyInputResult {
     /// Optional protocol/runtime failure kind (malformed request, overflow, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
+}
+
+/// Cancel one in-flight mode-gated request by exact id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeGatedCancelRequest {
+    /// Request id to cancel.
+    pub request_id: String,
 }
 
 /// Worker mode-flags response payload, including the public freshness token.

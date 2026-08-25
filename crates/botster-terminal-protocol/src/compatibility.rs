@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CONFORMANCE_FIXTURE_REVISION, DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE,
-    FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING, PROTOCOL,
-    PROTOCOL_VERSION,
+    FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING,
+    FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
 };
 
 /// Advertised terminal-plane support.
@@ -67,8 +67,9 @@ pub struct TerminalCompatibilityRequirement {
 impl TerminalCompatibilityRequirement {
     /// Default requirement for ordinary terminal operations.
     ///
-    /// Requires `terminal_streaming` and `resize` only. Additive snapshot
-    /// delivery does not raise this floor.
+    /// Requires `terminal_streaming`, `resize`, and
+    /// `transport=duplex_binary`. Additive snapshot delivery does not raise
+    /// this floor.
     #[must_use]
     pub fn current() -> Self {
         Self {
@@ -205,5 +206,9 @@ fn current_feature_list() -> Vec<&'static str> {
 }
 
 fn default_required_feature_list() -> Vec<&'static str> {
-    vec![FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE]
+    vec![
+        FEATURE_TERMINAL_STREAMING,
+        FEATURE_RESIZE,
+        FEATURE_TRANSPORT_DUPLEX_BINARY,
+    ]
 }
