@@ -557,6 +557,7 @@ impl ClientWorker {
                     command,
                 });
                 if gated {
+                    held.insert(key.session_id.clone());
                     break;
                 }
             }

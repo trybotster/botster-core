@@ -1945,6 +1945,76 @@ fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
 }
 
 #[test]
+fn take_grants_one_mode_gated_per_session_in_one_batch() {
+    let mut worker = ClientWorker::default();
+    let shared = session("same-tick-held");
+    let first_client = client("same-tick-first");
+    let second_client = client("same-tick-second");
+    let first_sub = sub("same-tick-first-sub");
+    let second_sub = sub("same-tick-second-sub");
+    let _ = worker.record_attach(first_client.clone(), shared.clone(), first_sub.clone());
+    let _ = worker.record_attach(second_client.clone(), shared.clone(), second_sub.clone());
+    let first_generation = worker
+        .live_generation(&shared, &first_sub)
+        .expect("first generation");
+    let second_generation = worker
+        .live_generation(&shared, &second_sub)
+        .expect("second generation");
+    let first = SharedFakeTerminalAdapter::auto_complete();
+    let second = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &first_client,
+            shared.clone(),
+            first_sub.clone(),
+            first_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(first.clone()),
+        )
+        .expect("bind first");
+    worker
+        .bind_terminal_adapter(
+            &second_client,
+            shared.clone(),
+            second_sub.clone(),
+            second_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(second.clone()),
+        )
+        .expect("bind second");
+    first.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"first\n"));
+    second.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"second\n"));
+    let teardowns = worker.intake_terminal_input();
+    assert!(teardowns.is_empty(), "intake must keep both owners live");
+    let deliveries = worker.take_terminal_input(&std::collections::HashSet::new());
+    let gated: Vec<_> = deliveries
+        .iter()
+        .filter(|delivery| {
+            matches!(
+                delivery.command,
+                botster_terminal_protocol_client::TerminalInputCommand::ModeGatedInput { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        gated.len(),
+        1,
+        "one batch may grant only one ModeGatedInput per session: {deliveries:?}"
+    );
+    let granted = &gated[0].subscription_id;
+    let queued = if *granted == first_sub {
+        &second_sub
+    } else {
+        &first_sub
+    };
+    assert_eq!(
+        worker.input_queue_len(&shared, queued),
+        Some(1),
+        "the ungranted sibling ModeGatedInput must stay queued"
+    );
+}
+
+#[test]
 fn intake_refuses_the_command_that_would_exceed_capacity() {
     let mut worker = ClientWorker::default();
     let session = session("queue-cap");
