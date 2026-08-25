@@ -226,7 +226,10 @@ where
             .control_plane_state(session_id)
     }
 
-    /// Sweep the writer, poll gated replies, and intake frames without applying.
+    /// Sweep the writer and intake frames without applying or pumping output.
+    ///
+    /// Incremental attach owns the only `pump_session_output` on that tick.
+    /// A second pump here can dequeue two snapshot pages and emit both.
     pub fn prepare_terminal_input(
         &mut self,
         session_id: &SessionId,
@@ -242,23 +245,6 @@ where
             let teardowns = self.client_worker.teardown_session(session_id);
             self.cancel_gated_teardowns(session_id, &teardowns);
             return Ok(());
-        }
-        match self
-            .engine
-            .session_runtime_mut()
-            .poll_mode_gated_pty_input(session_id)
-        {
-            Ok(GatedPoll::Ready(result)) => {
-                let _ = self.complete_gated_result(
-                    session_id,
-                    TerminalInputKind::ModeGatedInput,
-                    result,
-                );
-            }
-            Ok(GatedPoll::TimedOut) => {
-                let _ = self.complete_gated_timeout(session_id);
-            }
-            Ok(GatedPoll::Idle | GatedPoll::Pending) | Err(_) => {}
         }
         let teardowns = self.client_worker.intake_terminal_input();
         self.cancel_gated_teardowns(session_id, &teardowns);
