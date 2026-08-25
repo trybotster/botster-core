@@ -1058,13 +1058,21 @@ fn attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep() {
         .expect("WorkerProcessRuntime Drop must exist");
     let close_at = drop_impl
         .find("close_before_blocking_shutdown")
-        .expect("runtime Drop must notify EgressStall before blocking close");
-    let wait_at = drop_impl
-        .find("child.wait()")
-        .expect("runtime Drop must wait for the worker child");
+        .expect("runtime Drop must notify EgressStall before close");
+    let kill_at = drop_impl
+        .find("child.kill()")
+        .expect("runtime Drop must kill the worker child");
     assert!(
-        close_at < wait_at,
-        "EgressStall close must run before child.wait so attached pressure cannot deadlock shutdown"
+        drop_impl.contains("reap_worker_child_in_background"),
+        "runtime Drop must background-reap instead of blocking on child.wait"
+    );
+    assert!(
+        !drop_impl.contains("child.wait()"),
+        "runtime Drop must not block on child.wait while the writer can still hold stdin"
+    );
+    assert!(
+        close_at < kill_at,
+        "EgressStall close must run before kill so attached pressure cannot deadlock shutdown"
     );
 }
 

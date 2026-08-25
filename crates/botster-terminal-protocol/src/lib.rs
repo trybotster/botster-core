@@ -24,9 +24,9 @@ pub use compatibility::{
 };
 pub use frame::{TerminalFrame, TerminalFrameError};
 pub use input_frame::{
-    TerminalInputFrame, TerminalInputFrameError, MAX_INPUT_DATA_BYTES,
-    MAX_MODE_GATED_DATA_BYTES, MAX_TERMINAL_INPUT_BODY_BYTES, MAX_TERMINAL_INPUT_FRAME_BYTES,
-    MODE_GATED_PREFIX_BYTES, RESIZE_BODY_BYTES, TERMINAL_INPUT_SCHEME_VERSION,
+    TerminalInputFrame, TerminalInputFrameError, MAX_INPUT_DATA_BYTES, MAX_MODE_GATED_DATA_BYTES,
+    MAX_TERMINAL_INPUT_BODY_BYTES, MAX_TERMINAL_INPUT_FRAME_BYTES, MODE_GATED_PREFIX_BYTES,
+    RESIZE_BODY_BYTES, TERMINAL_INPUT_SCHEME_VERSION,
 };
 pub use requests::{Attach, Detach, Resize, SendInput};
 

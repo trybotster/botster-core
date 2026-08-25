@@ -31,14 +31,14 @@ use crate::engine::terminal_screen::{
 };
 #[cfg(feature = "local-runtime")]
 use crate::runtime::ProcessIdentity;
-use crate::runtime::{
-    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest,
-};
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{
     ControlPlaneState, GatedPoll, LocalProcessRuntime, WorkerProcessRuntime,
     WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+};
+use crate::runtime::{
+    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest,
 };
 use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
@@ -46,15 +46,15 @@ use crate::session::{
 use crate::session_protocol::{
     ModeFlags, ModeFreshnessToken, ModeGatedPtyInputResult, ResizePayload, TerminalColorProfile,
 };
-use botster_terminal_protocol_client::{
-    TerminalInputCommand, TerminalInputKind, TerminalInputRejection, TerminalInputResult,
-    TerminalModeFlags,
-};
 use crate::terminal_screen::{
     TerminalBackendError, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 use crate::transport::TransportIngress;
 use crate::ClientId;
+use botster_terminal_protocol_client::{
+    TerminalInputCommand, TerminalInputKind, TerminalInputRejection, TerminalInputResult,
+    TerminalModeFlags,
+};
 
 /// Host-visible error from managed session runtime coordination.
 #[derive(Debug, Error)]
@@ -294,9 +294,11 @@ where
             .poll_mode_gated_pty_input(session_id)
         {
             Ok(GatedPoll::Ready(result)) => {
-                if let Some(teardown) =
-                    self.complete_gated_result(session_id, TerminalInputKind::ModeGatedInput, result)
-                {
+                if let Some(teardown) = self.complete_gated_result(
+                    session_id,
+                    TerminalInputKind::ModeGatedInput,
+                    result,
+                ) {
                     teardowns.push(teardown);
                 }
             }
@@ -358,7 +360,13 @@ where
                     last_output_at,
                 ) {
                     Ok(_) => input_result_ok(kind, data.len()),
-                    Err(_) => return owner_apply_teardown(&mut self.client_worker, &session_id, &subscription_id),
+                    Err(_) => {
+                        return owner_apply_teardown(
+                            &mut self.client_worker,
+                            &session_id,
+                            &subscription_id,
+                        )
+                    }
                 }
             }
             TerminalInputCommand::Resize { rows, cols } => {
@@ -372,7 +380,13 @@ where
                     last_output_at,
                 ) {
                     Ok(_) => input_result_ok(kind, 0),
-                    Err(_) => return owner_apply_teardown(&mut self.client_worker, &session_id, &subscription_id),
+                    Err(_) => {
+                        return owner_apply_teardown(
+                            &mut self.client_worker,
+                            &session_id,
+                            &subscription_id,
+                        )
+                    }
                 }
             }
             TerminalInputCommand::ModeGatedInput {
@@ -380,14 +394,17 @@ where
                 mode_revision,
                 data,
             } => {
-                match self.engine.session_runtime_mut().submit_mode_gated_pty_input(
-                    &session_id,
-                    ModeFreshnessToken {
-                        mode_generation,
-                        mode_revision,
-                    },
-                    data,
-                ) {
+                match self
+                    .engine
+                    .session_runtime_mut()
+                    .submit_mode_gated_pty_input(
+                        &session_id,
+                        ModeFreshnessToken {
+                            mode_generation,
+                            mode_revision,
+                        },
+                        data,
+                    ) {
                     Ok(request_id) => {
                         let deadline = Instant::now()
                             + DEFAULT_MODE_GATED_INPUT_TIMEOUT
@@ -425,8 +442,7 @@ where
                 }
             }
         };
-        let mut result = result;
-        result.subscription_id = subscription_id.0.clone();
+        let result = with_subscription(result, &subscription_id);
         if self
             .client_worker
             .enqueue_input_result(&session_id, &subscription_id, &result)
@@ -443,11 +459,8 @@ where
         kind: TerminalInputKind,
         result: ModeGatedPtyInputResult,
     ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let Some((subscription_id, _)) = self.take_matching_gated(session_id, &result.request_id)
-        else {
-            return None;
-        };
-        let mapped = map_gated_result(kind, result);
+        let (subscription_id, _) = self.take_matching_gated(session_id, &result.request_id)?;
+        let mapped = with_subscription(map_gated_result(kind, result), &subscription_id);
         if self
             .client_worker
             .enqueue_input_result(session_id, &subscription_id, &mapped)
@@ -462,12 +475,13 @@ where
         &mut self,
         session_id: &SessionId,
     ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let Some((subscription_id, _)) = self.take_any_gated(session_id) else {
-            return None;
-        };
-        let mapped = input_result_rejected(
-            TerminalInputKind::ModeGatedInput,
-            TerminalInputRejection::Timeout,
+        let (subscription_id, _) = self.take_any_gated(session_id)?;
+        let mapped = with_subscription(
+            input_result_rejected(
+                TerminalInputKind::ModeGatedInput,
+                TerminalInputRejection::Timeout,
+            ),
+            &subscription_id,
         );
         if self
             .client_worker
@@ -550,52 +564,79 @@ where
         last_output_at: u64,
     ) -> Result<(), ManagedSessionRuntimeError> {
         let _ = session_id;
-        let teardowns = self.client_worker.intake_terminal_input();
+        let mut teardowns = self.client_worker.intake_terminal_input();
         let deliveries = self.client_worker.take_terminal_input(&HashSet::new());
         for delivery in deliveries {
-            let session_id = delivery.session_id.clone();
-            let subscription_id = delivery.subscription_id.clone();
-            let client_id = delivery.client_id.clone();
-            let result = match delivery.command {
-                TerminalInputCommand::Input { data } => {
-                    match self.handle_client_ingress(
-                        client_id,
-                        TransportIngress::TerminalInput {
-                            session_id: session_id.clone(),
-                            data: data.clone(),
-                        },
-                        last_output_at,
-                    ) {
-                        Ok(_) => input_result_ok(TerminalInputKind::Input, data.len()),
-                        Err(_) => continue,
-                    }
-                }
-                TerminalInputCommand::Resize { rows, cols } => {
-                    match self.handle_client_ingress(
-                        client_id,
-                        TransportIngress::Resize {
-                            session_id: session_id.clone(),
-                            rows,
-                            cols,
-                        },
-                        last_output_at,
-                    ) {
-                        Ok(_) => input_result_ok(TerminalInputKind::Resize, 0),
-                        Err(_) => continue,
-                    }
-                }
-                TerminalInputCommand::ModeGatedInput { .. } => input_result_rejected(
-                    TerminalInputKind::ModeGatedInput,
-                    TerminalInputRejection::SessionNotWritable,
-                ),
-            };
-            let _ = self.client_worker.enqueue_input_result(
-                &session_id,
-                &subscription_id,
-                &result,
-            );
+            match self.apply_one_local_delivery(delivery, last_output_at) {
+                Ok(()) => {}
+                Err(teardown) => teardowns.push(teardown),
+            }
         }
         let _ = teardowns;
+        Ok(())
+    }
+
+    fn apply_one_local_delivery(
+        &mut self,
+        delivery: crate::contract::terminal_subscription::TerminalInputDelivery,
+        last_output_at: u64,
+    ) -> Result<(), crate::engine::client_worker::ClientWorkerTeardown> {
+        let session_id = delivery.session_id.clone();
+        let subscription_id = delivery.subscription_id.clone();
+        let client_id = delivery.client_id.clone();
+        let result = match delivery.command {
+            TerminalInputCommand::Input { data } => {
+                match self.handle_client_ingress(
+                    client_id,
+                    TransportIngress::TerminalInput {
+                        session_id: session_id.clone(),
+                        data: data.clone(),
+                    },
+                    last_output_at,
+                ) {
+                    Ok(_) => input_result_ok(TerminalInputKind::Input, data.len()),
+                    Err(_) => {
+                        return owner_apply_teardown(
+                            &mut self.client_worker,
+                            &session_id,
+                            &subscription_id,
+                        );
+                    }
+                }
+            }
+            TerminalInputCommand::Resize { rows, cols } => {
+                match self.handle_client_ingress(
+                    client_id,
+                    TransportIngress::Resize {
+                        session_id: session_id.clone(),
+                        rows,
+                        cols,
+                    },
+                    last_output_at,
+                ) {
+                    Ok(_) => input_result_ok(TerminalInputKind::Resize, 0),
+                    Err(_) => {
+                        return owner_apply_teardown(
+                            &mut self.client_worker,
+                            &session_id,
+                            &subscription_id,
+                        );
+                    }
+                }
+            }
+            TerminalInputCommand::ModeGatedInput { .. } => input_result_rejected(
+                TerminalInputKind::ModeGatedInput,
+                TerminalInputRejection::SessionNotWritable,
+            ),
+        };
+        let result = with_subscription(result, &subscription_id);
+        if self
+            .client_worker
+            .enqueue_input_result(&session_id, &subscription_id, &result)
+            .is_err()
+        {
+            return owner_apply_teardown(&mut self.client_worker, &session_id, &subscription_id);
+        }
         Ok(())
     }
 }
@@ -1508,6 +1549,14 @@ fn owner_apply_teardown(
     }
 }
 
+fn with_subscription(
+    mut result: TerminalInputResult,
+    subscription_id: &SubscriptionId,
+) -> TerminalInputResult {
+    result.subscription_id = subscription_id.0.clone();
+    result
+}
+
 fn input_result_ok(kind: TerminalInputKind, bytes_written: usize) -> TerminalInputResult {
     TerminalInputResult {
         subscription_id: String::new(),
@@ -1549,7 +1598,10 @@ fn empty_terminal_mode_flags() -> TerminalModeFlags {
     }
 }
 
-fn map_gated_result(kind: TerminalInputKind, result: ModeGatedPtyInputResult) -> TerminalInputResult {
+fn map_gated_result(
+    kind: TerminalInputKind,
+    result: ModeGatedPtyInputResult,
+) -> TerminalInputResult {
     let rejection = if result.admitted {
         None
     } else if result.error_kind.as_deref() == Some("partial_write")

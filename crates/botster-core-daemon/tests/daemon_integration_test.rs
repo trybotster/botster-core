@@ -9583,3 +9583,442 @@ fn worker_path() -> std::path::PathBuf {
     }
     path.join("botster-session-worker")
 }
+
+fn compact_input_frame(data: &[u8]) -> Vec<u8> {
+    let len = u16::try_from(data.len()).expect("input fits u16");
+    let mut bytes = vec![1, 1];
+    bytes.extend_from_slice(&len.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
+    let body_len = u16::try_from(16 + data.len()).expect("gated body fits u16");
+    let mut bytes = vec![1, 2];
+    bytes.extend_from_slice(&body_len.to_be_bytes());
+    bytes.extend_from_slice(&mode_generation.to_be_bytes());
+    bytes.extend_from_slice(&mode_revision.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn adapter_input_result_subscription(bytes: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    if value.get("type")?.as_str()? != "input_result" {
+        return None;
+    }
+    value
+        .get("subscription_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn wait_until_bound_attached(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    adapter: &SharedFakeTerminalAdapter,
+) {
+    let started = Instant::now();
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(session_id, 20).expect("drain attach");
+        let attached = adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| {
+                let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+                    return false;
+                };
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            });
+        if attached {
+            return;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "bound adapter never reached attached: {:?}",
+        adapter.snapshot_delivered_frame_bytes()
+    );
+}
+
+fn bind_echo_worker(
+    daemon: &mut CoreDaemon,
+    session_id: SessionId,
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+    script: &str,
+    now: u64,
+) -> SharedFakeTerminalAdapter {
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = script.to_string();
+    daemon.spawn(request, now).expect("spawn echo worker");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            now + 1,
+        )
+        .expect("attach echo worker");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory after attach")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind echo worker");
+    wait_until_bound_attached(daemon, &session_id, &adapter);
+    adapter
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_applies_injected_duplex_input_through_real_worker_pty() {
+    let data_dir = temp_data_dir("duplex-byte-oracle");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("duplex-byte-oracle-session".to_string());
+    let client_id = ClientId("duplex-byte-oracle-client".to_string());
+    let subscription_id = SubscriptionId("duplex-byte-oracle-sub".to_string());
+    let adapter = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        client_id,
+        subscription_id.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    adapter.inject_ingress_frame(compact_input_frame(b"ORACLE\n"));
+    let started = Instant::now();
+    let mut saw_echo = false;
+    let mut saw_result_id = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&session_id, 21).expect("drain duplex");
+        for bytes in adapter.snapshot_delivered_frame_bytes() {
+            if adapter_frame_type(&bytes) == "terminal_output"
+                && adapter_payload_text(&bytes).contains("echo:ORACLE")
+            {
+                saw_echo = true;
+            }
+            if adapter_input_result_subscription(&bytes).as_deref()
+                == Some(subscription_id.0.as_str())
+            {
+                saw_result_id = true;
+            }
+        }
+        if saw_echo && saw_result_id {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(saw_echo, "injected adapter bytes must reach the worker PTY");
+    assert!(
+        saw_result_id,
+        "input_result must carry the live subscription id"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
+    let data_dir = temp_data_dir("duplex-overflow");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0)
+            .with_test_mode_gated_hold_ms(Some(10_000)),
+    );
+    let flooded = SessionId("duplex-overflow-flood".to_string());
+    let sibling = SessionId("duplex-overflow-sibling".to_string());
+    let flood_sub = SubscriptionId("duplex-overflow-flood-sub".to_string());
+    let sibling_sub = SubscriptionId("duplex-overflow-sibling-sub".to_string());
+    let flood_adapter = bind_echo_worker(
+        &mut daemon,
+        flooded.clone(),
+        ClientId("duplex-overflow-flood-client".to_string()),
+        flood_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    let sibling_adapter = bind_echo_worker(
+        &mut daemon,
+        sibling.clone(),
+        ClientId("duplex-overflow-sibling-client".to_string()),
+        sibling_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        20,
+    );
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("duplex-overflow-probe".to_string()),
+            session_id: flooded.clone(),
+            now_seconds: 25,
+        })
+        .expect("probe flooded session");
+    flood_adapter.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"hold\n",
+    ));
+    let _ = daemon.drain(&flooded, 26).expect("submit gated hold");
+    for _ in 0..5 {
+        for _ in 0..64 {
+            flood_adapter.inject_ingress_frame(compact_input_frame(b"flood\n"));
+        }
+        let _ = daemon.drain(&flooded, 30).expect("drain flood");
+        let _ = daemon.drain(&sibling, 31).expect("drain sibling");
+    }
+    assert_eq!(
+        flood_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Closed
+    );
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .all(|row| row.subscription_id != flood_sub));
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| row.subscription_id == sibling_sub));
+    sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
+    let started = Instant::now();
+    let mut saw_sibling = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&sibling, 32).expect("drain sibling echo");
+        if sibling_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:SIB"))
+        {
+            saw_sibling = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(saw_sibling, "sibling session must keep applying input");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_reconnects_and_rejects_stale_generation_ingress() {
+    let data_dir = temp_data_dir("duplex-reconnect");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("duplex-reconnect-session".to_string());
+    let client_id = ClientId("duplex-reconnect-client".to_string());
+    let subscription_id = SubscriptionId("duplex-reconnect-sub".to_string());
+    let stale = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        client_id.clone(),
+        subscription_id.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    stale.inject_ingress_frame(compact_input_frame(b"STALE\n"));
+    daemon
+        .detach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            12,
+        )
+        .expect("detach generation N");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            13,
+        )
+        .expect("attach generation N+1");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("N+1 inventory")
+        .generation;
+    let fresh = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(fresh.clone()),
+        )
+        .expect("bind N+1");
+    wait_until_bound_attached(&mut daemon, &session_id, &fresh);
+    fresh.inject_ingress_frame(compact_input_frame(b"FRESH\n"));
+    let started = Instant::now();
+    let mut saw_fresh = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&session_id, 14).expect("drain reconnect");
+        let stale_bytes = stale
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:STALE"));
+        assert!(!stale_bytes, "generation N ingress must not reach the PTY");
+        if fresh
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:FRESH"))
+        {
+            saw_fresh = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(saw_fresh, "generation N+1 must apply fresh adapter input");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_teardown_session_clears_ingress_and_inventory() {
+    let data_dir = temp_data_dir("duplex-teardown");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("duplex-teardown-session".to_string());
+    let subscription_id = SubscriptionId("duplex-teardown-sub".to_string());
+    let adapter = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        ClientId("duplex-teardown-client".to_string()),
+        subscription_id.clone(),
+        "sleep 30",
+        10,
+    );
+    adapter.inject_ingress_frame(compact_input_frame(b"gone\n"));
+    daemon
+        .shutdown(Some(session_id.clone()), 12)
+        .expect("teardown session");
+    let _ = daemon.drain(&session_id, 13);
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .all(|row| row.session_id != session_id));
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_writer_failure_sweeps_idle_same_session_owner() {
+    let data_dir = temp_data_dir("duplex-writer-sweep");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let failed = SessionId("duplex-writer-failed".to_string());
+    let other = SessionId("duplex-writer-other".to_string());
+    let idle_sub = SubscriptionId("duplex-writer-idle".to_string());
+    let active_sub = SubscriptionId("duplex-writer-active".to_string());
+    let other_sub = SubscriptionId("duplex-writer-other-sub".to_string());
+    let _idle = bind_echo_worker(
+        &mut daemon,
+        failed.clone(),
+        ClientId("duplex-writer-idle-client".to_string()),
+        idle_sub.clone(),
+        "sleep 30",
+        10,
+    );
+    daemon
+        .attach(
+            ClientId("duplex-writer-active-client".to_string()),
+            failed.clone(),
+            active_sub.clone(),
+            12,
+        )
+        .expect("attach second same-session owner");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == active_sub)
+        .expect("active inventory")
+        .generation;
+    let active = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            ClientId("duplex-writer-active-client".to_string()),
+            failed.clone(),
+            active_sub.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(active.clone()),
+        )
+        .expect("bind active owner");
+    let other_adapter = bind_echo_worker(
+        &mut daemon,
+        other.clone(),
+        ClientId("duplex-writer-other-client".to_string()),
+        other_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        20,
+    );
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &failed);
+    let _ = Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status()
+        .expect("kill worker");
+    let started = Instant::now();
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&failed, 30);
+        let gone = daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub);
+        if gone {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub),
+        "writer failure must sweep every same-session owner"
+    );
+    other_adapter.inject_ingress_frame(compact_input_frame(b"LIVE\n"));
+    let started = Instant::now();
+    let mut saw_other = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&other, 31).expect("drain other session");
+        if other_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:LIVE"))
+        {
+            saw_other = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(saw_other, "a different session must survive writer failure");
+    let _ = fs::remove_dir_all(data_dir);
+}

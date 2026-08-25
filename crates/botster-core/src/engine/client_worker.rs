@@ -51,6 +51,17 @@ pub struct ClientWorkerTeardown {
     pub awaiting_gated: Option<String>,
 }
 
+/// Failure while enqueueing a client-facing `input_result`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnqueueInputResultError {
+    /// The owner was already removed.
+    OwnerGone,
+    /// The result could not be encoded as a terminal frame.
+    EncodeFailed,
+    /// The owner's egress queue is already at capacity.
+    EgressFull,
+}
+
 /// Synchronous per-engine ClientWorker.
 #[derive(Default)]
 pub struct ClientWorker {
@@ -441,7 +452,10 @@ impl ClientWorker {
         let keys = self.rotated_live_keys();
         let mut teardowns = Vec::new();
         for key in keys {
-            let reads = match self.live.get_mut(&key).and_then(|owner| owner.adapter.as_mut())
+            let reads = match self
+                .live
+                .get_mut(&key)
+                .and_then(|owner| owner.adapter.as_mut())
             {
                 Some(adapter) => {
                     let mut frames = Vec::new();
@@ -590,25 +604,40 @@ impl ClientWorker {
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
         result: &TerminalInputResult,
-    ) -> Result<(), ()> {
+    ) -> Result<(), EnqueueInputResultError> {
         let key = OwnerKey {
             session_id: session_id.clone(),
             subscription_id: subscription_id.clone(),
         };
         let Some(owner) = self.live.get_mut(&key) else {
-            return Err(());
+            return Err(EnqueueInputResultError::OwnerGone);
         };
         let frame = TerminalEvent::InputResult(result.clone())
             .to_frame()
-            .map_err(|_| ())?;
+            .map_err(|_| EnqueueInputResultError::EncodeFailed)?;
         if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
-            return Err(());
+            return Err(EnqueueInputResultError::EgressFull);
         }
         owner.queue.push_back(QueuedFrame {
             frame,
             kind: QueuedKind::Other,
         });
         Ok(())
+    }
+
+    /// Current ingress queue length for one live owner.
+    #[must_use]
+    pub fn input_queue_len(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<usize> {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .map(|owner| owner.input_queue.len())
     }
 
     fn rotated_live_keys(&mut self) -> Vec<OwnerKey> {

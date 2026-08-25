@@ -7,13 +7,13 @@
 //! policy before entering core.
 
 pub mod capability;
+#[cfg(feature = "local-runtime")]
+mod control_queue;
 mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
 #[cfg(feature = "local-runtime")]
 mod worker_process;
-#[cfg(feature = "local-runtime")]
-mod control_queue;
 
 use std::error::Error;
 use std::fmt;
@@ -47,6 +47,13 @@ pub use capability::{
     DEFAULT_WEBSOCKET_EVENT_CAPACITY, DEFAULT_WEBSOCKET_INBOUND_CAPACITY,
     DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
 };
+#[cfg(feature = "local-runtime")]
+pub use control_queue::{
+    ControlFrameClass, ControlPlaneState, ControlQueue, ControlQueueAdmitError, ControlWriterError,
+    ControlWriterOutcome, ControlWriterSlot, WORKER_CONTROL_QUEUE_FRAMES,
+    WORKER_CONTROL_RESERVED_SLOTS, WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_SLICE,
+    WORKER_CONTROL_WRITE_TIMEOUT,
+};
 pub use file_watch::{
     FileWatchEventSource, FileWatchRegistration, FileWatchRuntime, FileWatchRuntimeConfig,
     FileWatchSourceError, FileWatchSourceEvent, DEFAULT_FILE_WATCH_DEBOUNCE_MS,
@@ -60,13 +67,6 @@ pub use local_process::{
 pub use worker_process::{
     GatedPoll, GatedRequestId, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
     DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_WORKER_EGRESS_CAPACITY,
-};
-#[cfg(feature = "local-runtime")]
-pub use control_queue::{
-    ControlFrameClass, ControlPlaneState, ControlQueue, ControlQueueAdmitError, ControlWriterError,
-    ControlWriterOutcome, ControlWriterSlot, WORKER_CONTROL_QUEUE_FRAMES,
-    WORKER_CONTROL_RESERVED_SLOTS, WORKER_CONTROL_WRITE_SLICE, WORKER_CONTROL_WRITE_TIMEOUT,
-    WORKER_CONTROL_WRITER_JOIN_BOUND,
 };
 
 /// Host-implemented session runtime boundary.

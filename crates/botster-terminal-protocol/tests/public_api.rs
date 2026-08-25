@@ -33,10 +33,9 @@ fn public_source_items_match_allowlist() {
 
 #[test]
 fn terminal_input_frame_source_has_no_semantic_accessors() {
-    let source = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/input_frame.rs"),
-    )
-    .expect("input frame source");
+    let source =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/input_frame.rs"))
+            .expect("input frame source");
     for forbidden in [
         "fn payload",
         "fn data",
