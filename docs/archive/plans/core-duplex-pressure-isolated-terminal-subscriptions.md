@@ -2,11 +2,12 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 5. Plan Review returned `changes_required` four times.
+Revision 6. Plan Review returned `changes_required` five times.
 `review_1787634119_893294` raised four product findings plus one missing-context
 finding; `review_1787635010_824294` raised four more against revision 2;
 `review_1787635689_864971` raised two against revision 3; and
-`review_1787636259_958552` raised two against revision 4. Section 19 maps every
+`review_1787636259_958552` raised two against revision 4; and
+`review_1787636806_488333` raised three against revision 5. Section 19 maps every
 finding to the section that resolves it.
 
 ## 1. Target
@@ -570,7 +571,9 @@ Every teardown path also cancels an outstanding gated request, per §5.8.
 | `RESIZE_BODY_BYTES` | `botster-terminal-protocol` | `4` | exact, `rows: u16` plus `cols: u16` |
 | `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` | `botster-core` contract | `64` | Equal to the intake budget. A conforming adapter buffers at least this many complete frames before it may report `Lost`. |
 | `WORKER_CONTROL_QUEUE_FRAMES` | `worker_process` | `32` | Bounded parent-to-worker control egress queue, per session |
-| `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` | `worker_process` | `1` | Slots ordinary frames may never occupy, so a cancel always fits. One is exact: at most one cancel per session is outstanding. |
+| `WORKER_CONTROL_RESERVED_SLOTS` | `worker_process` | `2` | Slots ordinary frames may never occupy: one cancel, one shutdown. Both exact, because at most one gated request per session is in flight and shutdown happens once. Ordinary capacity is therefore 30. |
+| `WORKER_CONTROL_WRITE_TIMEOUT` | `worker_process` | `2 s` | `UnixStream::set_write_timeout`, so a stalled `write_all` errors instead of blocking forever |
+| `WORKER_CONTROL_WRITER_JOIN_BOUND` | `worker_process` | `1 s` | Teardown joins the writer thread under this bound, then detaches; the FD is already closed |
 | `INPUT_QUEUE_CAPACITY` | `ClientWorker` | `256` commands per subscription | Bounded per-subscription backlog |
 | `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `64` | Stage A budget |
 | `APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `16` | Stage B budget; bounds per-tick PTY work |
@@ -745,53 +748,107 @@ There is no interleaving in which a partial write escapes the fence, because the
 is not re-entered after the check. The reply always tells the parent which of the two
 occurred, so the plan never claims a byte was suppressed when it was not.
 
-#### 5.8.2 Parent control writes are bounded and never block the tick
+#### 5.8.2 One writer owns every post-spawn control write
 
 Revision 4 called `submit_mode_gated_pty_input` and `cancel_mode_gated_pty_input`
 non-blocking. They were not. `worker_process.rs:2247` writes through
-`stream.write_all(&frame).and_then(|_| stream.flush())` with no deadline and no
-bounded writer queue, and a submit can carry up to `MAX_MODE_GATED_DATA_BYTES`. A full
-or stalled worker control socket would therefore have blocked `CoreDaemon::drain`
-inside submit, or blocked teardown inside cancel. That defeats the sibling isolation
-this ticket exists to provide, and it violates the bounded control-plane requirement
-of [[botster runtime teardown lenses]].
+`stream.write_all(&frame).and_then(|_| stream.flush())` with no deadline, and a submit
+can carry up to `MAX_MODE_GATED_DATA_BYTES`. Revision 5 moved three sends to a bounded
+queue, which was still incomplete: the write half cannot be owned by a writer thread
+while other methods keep writing to it directly, and a cloned handle would let two
+`write_all` calls interleave framed bytes on one stream.
 
-The parent gains a **bounded control egress queue with its own writer thread**, per
-session. This mirrors the pattern the worker already uses for its own egress, which
-takes a bounded `mpsc::sync_channel` and a dedicated writer
-(`botster-session-worker.rs:1335`, `spawn_writer`).
+**The writer thread takes exclusive ownership of the `WorkerControl` write half.** No
+other code holds it, nothing is cloned, and therefore no two writes can interleave.
+Every post-spawn frame is enqueued; nothing bypasses the queue.
 
-- `control_tx: SyncSender<ControlFrame>` with capacity
-  `WORKER_CONTROL_QUEUE_FRAMES` (§5.6).
-- One writer thread per session owns the write half and performs the blocking
-  `write_all` and `flush`. Blocking there is correct and harmless: it is not the tick
-  thread, and it holds no lock the tick needs.
-- `submit_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, and plain input writes
-  use `try_send` and return immediately. **No tick-thread call performs socket I/O.**
+Exact inventory, read from the source. These are every post-spawn control write:
 
-**Cancel can always be sent, and always arrives after its own submit.** Ordinary
-frames are admitted only while the queue holds fewer than
-`WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_CANCEL_SLOTS` entries. The
-reserved slot is never consumed by ordinary traffic, and one slot is exact because at
-most one cancel per session can be outstanding. Cancel rides the **same FIFO queue**
-rather than a priority lane, which is what guarantees the worker sees the submit
-before its cancel; a priority lane could deliver a cancel for a request the worker had
-not yet received, and the fence would silently do nothing.
+| Frame | Current site | Class |
+| --- | --- | --- |
+| `FRAME_PTY_INPUT` | `worker_process.rs:1304` (`write_frame`) | Ordinary |
+| `FRAME_MODE_GATED_PTY_INPUT` | `:796` | Ordinary |
+| `FRAME_RESIZE` | `:1308` | Ordinary |
+| `FRAME_SET_TIMEOUT` | `:417` | Ordinary |
+| `FRAME_GET_MODE_FLAGS` | `:441` | Ordinary |
+| `FRAME_GET_SNAPSHOT` | `:599`, `:689`, `:710`, `:1389` | Ordinary |
+| `FRAME_SET_COLOR_PROFILE` | color-profile apply path | Ordinary |
+| `FRAME_PING` | `:384` (`write_frame`) | Ordinary |
+| `FRAME_MODE_GATED_CANCEL` | new, §5.8 | Cancel |
+| `FRAME_SHUTDOWN` | `:1227`, `:1312`, `:1398` (`write_frame`) | Terminal |
+
+`FRAME_SPAWN_SESSION` (`:1197`) is **excluded and stays a direct write**. It happens on
+the initial control handle before the session is registered, which is the last write
+before the writer thread takes ownership. The handover point is exactly that line, and
+§12 asserts no other direct post-spawn write survives.
+
+**One FIFO queue, three admission classes.** Ordering must hold across all classes, so
+there is one queue and no priority lane. A priority lane could deliver a cancel for a
+request the worker had not yet received, and the fence would silently do nothing.
+
+| Class | Admission rule |
+| --- | --- |
+| Ordinary | Admitted while `len < WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS`. Overflow returns `ControlQueueFull`. |
+| Cancel | Admitted into the reserved region, so a cancel always fits. FIFO keeps it behind its own submit. |
+| Terminal (`FRAME_SHUTDOWN`) | Admitted into the reserved region. It is the last frame: after it the queue accepts nothing, ordinary or otherwise. |
+
+`WORKER_CONTROL_RESERVED_SLOTS` is 2, one for a cancel and one for a shutdown. Both are
+exact rather than conservative: at most one gated request per session is in flight, so
+at most one cancel is outstanding, and shutdown happens once. Revision 5 reserved only
+a cancel slot and left shutdown to compete with ordinary traffic, which could have made
+a required teardown frame unsendable exactly when it was needed.
 
 **Overflow is fail-closed and owner-scoped.** An ordinary `try_send` that finds the
-queue at its ordinary capacity returns `ControlQueueFull`. §5.7 already routes a
-per-command runtime error to a hard stop of that owner alone, and this uses that same
-path. No sibling is closed, and the tick continues.
+ordinary capacity full returns `ControlQueueFull`, and §5.7 routes that per-command
+error to a hard stop of that owner alone. No frame is ever dropped, so no byte run is
+silently truncated.
 
-**A wedged control socket degrades one session, bounded.** If the worker stops reading,
-the writer thread blocks in `write_all`, the queue fills, and ordinary sends fail
-closed. A cancel already in the queue may then sit unwritten. The lane is still
-bounded: the parent releases it on the correlated reply or at
-`mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever comes first. The tick
-never blocks, so every sibling subscription and every other session keeps progressing
-throughout. §12 proves that with a stalled-reader pressure test.
+#### 5.8.3 The writer is bounded, and same-session pressure is fail-closed
 
-#### 5.8.3 Lane release and cancellation coverage
+A queue in front of a blocking socket only moves the stall; it does not bound it. The
+writer thread itself must be bounded, and the consequence for same-session siblings
+must be stated rather than assumed away.
+
+**Write bound.** The `Socket` variant sets `UnixStream::set_write_timeout` to
+`WORKER_CONTROL_WRITE_TIMEOUT`, so a `write_all` that cannot make progress returns an
+error instead of blocking forever. The `Stdio` variant has no write timeout; its bound
+is the hard stop below.
+
+**Named hard stop.** The session teardown path owns writer shutdown. It calls
+`UnixStream::shutdown(Shutdown::Write)` for the socket variant, or drops `ChildStdin`
+for the stdio variant. Either makes an in-progress `write_all` return immediately, so
+the writer is never waited on indefinitely. This is the hard stop
+[[botster runtime teardown lenses]] requires: it ends the driver loop even when the
+underlying write path misbehaves.
+
+**FD and join.** The shutdown owner closes the file descriptor exactly once. It then
+joins the writer thread under `WORKER_CONTROL_WRITER_JOIN_BOUND`. If the join exceeds
+that bound the thread is detached; the FD is already closed, so the detached thread can
+neither hold the socket nor block the caller, and it exits on its next write error.
+Teardown therefore never blocks the control plane.
+
+**Same-session sibling policy: fail-closed, stated plainly.** A session has exactly one
+worker and one ordered control channel. Every later frame for that session queues behind
+a stalled write, so two subscriptions on the **same session** cannot be isolated from
+each other at this layer. This plan does not claim they can.
+
+- Within `WORKER_CONTROL_WRITE_TIMEOUT`, same-session siblings are **delayed, not
+  failed**. The tick still never blocks, because it only ever calls `try_send`.
+- Past that bound the write fails, and **every subscription on that session is
+  hard-stopped together**. The session's control channel is unusable, and reporting some
+  subscriptions as live while the runtime cannot reach the worker is exactly the
+  terminal-state-versus-live-runtime divergence the teardown lens exists to prevent.
+  This follows [[webrtc peer cleanup removes every per peer owner together]]: the whole
+  per-session owner set dies together.
+- **Every other session is unaffected**, because each has its own queue, its own writer
+  thread, and its own FD. That is the isolation this ticket actually guarantees, and
+  §12 proves it with a cross-session oracle in addition to the same-session policy test.
+
+The parent lane bound stays independent of all of this: the gated slot frees on the
+correlated reply or at `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever
+comes first.
+
+#### 5.8.4 Lane release and cancellation coverage
 
 Parent side, `cancel_mode_gated_pty_input(session_id, request_id)`:
 
@@ -902,7 +959,7 @@ harness, the Rust protocol crates, and the npm package.
 | `crates/botster-core/src/contract/terminal_adapter.rs` | `try_read` added returning the new `TerminalIngress` enum, `MIN_ADAPTER_INGRESS_BUFFER_FRAMES`, duplex contract documented |
 | `crates/botster-core/src/contract/terminal_subscription.rs` | `TerminalInputDelivery`, re-export of `TerminalInputCommand` |
 | `crates/botster-core/src/engine/client_worker.rs` | Ingress queue, rotation cursor, `intake_terminal_input`, `take_terminal_input`, `awaiting_gated`, fail-closed decode and overflow |
-| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; bounded control egress queue plus per-session writer thread so the tick performs no socket I/O; existing blocking method reimplemented on top of them |
+| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; bounded control egress queue with three admission classes; per-session writer thread that takes the `WorkerControl` write half by move; every post-spawn `write_json` and `write_frame` site rerouted through the queue; write timeout, `shutdown(Shutdown::Write)` hard stop, and bounded join; existing blocking method reimplemented on the new primitives |
 | `crates/botster-core/src/engine/managed_session_runtime.rs` | Ingress stages and apply inside the tick, per-command error isolation, `input_result` enqueue |
 | `crates/botster-core/src/engine/botster.rs` | Engine-level `apply_terminal_input`, submit and poll passthrough |
 | `crates/botster-core-daemon/src/daemon.rs` | `CoreDaemon::drain` applies terminal input first |
@@ -944,6 +1001,17 @@ harness, the Rust protocol crates, and the npm package.
   terminal byte stream cannot be repaired, and the client cannot know which
   keystrokes vanished, so closing the subscription and forcing a re-attach is the
   only honest response.
+- **A11.** The parent and the session worker binary are always version-matched,
+  because the parent builds and spawns the worker from the same source tree and Hub
+  pins Core by exact revision. The one new frame needs no negotiation.
+- **A12.** One reserved cancel slot and one reserved shutdown slot are exact rather
+  than conservative, because at most one gated request per session is in flight and
+  shutdown happens once. If that invariant ever changed, both bounds change with it.
+- **A13.** Same-session subscriptions share one worker and one ordered control
+  channel, so they cannot be isolated from each other at the control-transport layer.
+  §5.8.3 states a fail-closed policy for that case rather than claiming an isolation
+  the layer cannot deliver. Cross-session isolation is complete, and that is what the
+  ticket's sibling requirement needs.
 - **A8.** Per-session serialization of mode-gated input is inherent and acceptable.
   One PTY admits one gated write at a time. The isolation requirement is about
   siblings, and §5.8 keeps every sibling progressing.
@@ -977,6 +1045,8 @@ harness, the Rust protocol crates, and the npm package.
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
 | R14 | The cancellation cell holds a stale id and cancels the wrong request. | The cell is single-slot, cleared at admit completion whether or not it matched, and compared by exact `request_id`. A test sends a cancel for a finished request and asserts the next request is admitted normally. |
 | R16 | A wedged worker control socket permanently strands one session's gated lane. | The lane frees on the correlated reply or at `timeout + grace`, whichever comes first. The stalled-reader test asserts both the bound and continued sibling progress. |
+| R18 | A post-spawn write site is missed and keeps writing directly, interleaving framed bytes. | The writer thread owns the write half by move rather than by convention, so a missed site fails to compile. §12 adds a source assertion and a concurrent frame-integrity test. |
+| R19 | Same-session subscriptions are assumed isolated when they are not. | §5.8.3 states the fail-closed policy instead of claiming isolation, and §12 tests delay-then-collective-hard-stop rather than survival. |
 | R17 | The bounded control queue drops a plain input frame under pressure and breaks byte fidelity. | Ordinary overflow is fail-closed: it hard-stops that owner rather than dropping a frame, so no byte run is ever silently truncated. The overflow test asserts the teardown, not a drop. |
 | R15 | The worker protocol addition creates parent/worker version skew. | The parent builds and spawns the session worker from the same source tree, and Hub pins Core by exact revision, so the two are always matched. The charter gate command already rebuilds the worker binary before the suite. |
 | R13 | A teardown path is added later without cancelling the gated slot. | Cancellation is driven from one place, step 5 of §5.7, over the teardown vector every ingress stage already returns, so a new failure path inherits it. A test enumerates all seven owner-removing paths. |
@@ -1029,9 +1099,15 @@ that deadline expires.
 - Ordinary control sends fail closed at the ordinary capacity and hard-stop that owner
   alone. A cancel always fits, because `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` is never
   consumed by ordinary traffic.
-- A wedged worker control socket degrades exactly one session and is bounded by
-  `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`. The tick never blocks, so every
-  sibling subscription and every other session keeps progressing.
+- A blocked control write is bounded by `WORKER_CONTROL_WRITE_TIMEOUT`, and the named
+  hard stop is `shutdown(Shutdown::Write)` or dropping `ChildStdin`, which makes an
+  in-progress `write_all` return at once. Teardown joins the writer under
+  `WORKER_CONTROL_WRITER_JOIN_BOUND` and then detaches; the FD is already closed, so a
+  detached writer holds nothing and blocks nobody.
+- A wedged control socket degrades exactly one **session**. Same-session subscriptions
+  are delayed within the write timeout and then hard-stopped together past it, which
+  §5.8.3 states as an explicit fail-closed policy. Every other session is unaffected,
+  and the tick never blocks.
 - The worker's cancel observation is O(1): one lock, one id compare, one clear. It is
   not a scan, so it adds no unbounded work to the PTY critical section.
 - The cancelled lane is still bounded. The parent frees the slot on the correlated
@@ -1234,6 +1310,23 @@ and driver-hook based, with no sleeps:
 | No undeliverable result is promised | Assert `TerminalInputRejection::ALL` contains no `Malformed` or `QueueOverflow` variant, so the published surface cannot claim a report it cannot deliver. |
 | Live-owner results do arrive | `StaleMode`, `PartialWrite`, `Timeout`, and `SessionNotWritable` each reach the client through the adapter with the owner still bound, proved by delivered frame bytes rather than by an accepted write. |
 
+### Control-egress tests, from findings 1 and 2 of rounds 4 and 5
+
+| Claim | Test |
+| --- | --- |
+| One writer owns the write half | A source assertion that no post-spawn `write_json` or `write_frame` call site remains outside the queue, and that the write half is moved into the writer thread rather than cloned. `FRAME_SPAWN_SESSION` is the single allowed direct write and is asserted to happen before handover. |
+| Framed bytes never interleave | Drive concurrent input, resize, snapshot, and ping sends from several threads and assert the worker decodes every frame intact, in send order, with no corrupted length prefix. |
+| The queue capacity is exact | Fill to ordinary capacity 30 and assert the 31st ordinary send returns `ControlQueueFull` while the queue length never exceeds `WORKER_CONTROL_QUEUE_FRAMES`. |
+| The reserved slots do their job | At ordinary capacity, assert a cancel still enqueues, and that a shutdown still enqueues after it. Neither is refused. |
+| Shutdown is terminal | After a shutdown is enqueued, assert every later send of any class is refused. |
+| Cancel is never written before its own submit | Assert FIFO order on the wire: the worker observes the submit frame before the cancel that names it. |
+| Ordinary overflow is fail-closed and owner-scoped | Assert `ControlQueueFull` hard-stops exactly one owner, drops no frame, and leaves the sibling count unchanged. |
+| No tick-thread call performs socket I/O | Assert the tick path reaches only `try_send`, and every `write_all` happens on the writer thread. Red-on-revert: restore the direct `write_json` call on the tick path and assert the cross-session pressure test fails first. |
+| A stalled socket does not block the tick or other sessions | Stop the worker reading its control socket, drive `CoreDaemon::drain`, and assert a subscription on a **different** session completes input-to-echo. |
+| A blocked write is bounded | Assert the stalled `write_all` returns after `WORKER_CONTROL_WRITE_TIMEOUT` rather than blocking indefinitely. |
+| Writer shutdown is bounded and closes the FD once | Force a stall, drive session teardown, and assert `shutdown(Shutdown::Write)` unblocks the writer, the join completes within `WORKER_CONTROL_WRITER_JOIN_BOUND` or detaches, the FD is closed exactly once, and teardown itself never blocks. |
+| Same-session pressure is fail-closed, not silently isolated | Two subscriptions on **one** session, one control write stalled. Assert both are delayed but live within `WORKER_CONTROL_WRITE_TIMEOUT`, then that **both** are hard-stopped together past it, and that a third subscription on another session was unaffected throughout. This tests the stated policy rather than an isolation claim this layer cannot make. |
+
 ### Ingress-loss tests, from finding 4 of round 2
 
 | Claim | Test |
@@ -1252,9 +1345,11 @@ and driver-hook based, with no sleeps:
 | The lane is released, and only then | Assert generation N+1's gated request is admitted after the cancelled reply arrives, and not before it. A replacement never overlaps an abandoned request. |
 | The lane is still bounded when no reply comes | Drop the reply entirely and assert the slot frees at `timeout + grace` rather than never. |
 | The cancel race has no third outcome | Cancel after the write has completed and assert the reply reports `admitted = true` with the exact `bytes_written`, so the plan never claims a suppressed byte that was actually written. |
-| Non-cancel frames drained in the check are not lost | Send a `FRAME_PTY_INPUT` frame during the hold and assert it is applied after the admit returns, in order. |
+| The cancel observation is O(1) and off the barrier | Assert the control reader thread consumes `FRAME_MODE_GATED_CANCEL` and never forwards it to `frame_receiver`, and that a `FRAME_PTY_INPUT` sent during the hold is still applied in order. Nothing is scanned or deferred inside the barrier. |
+| A stale cancel cannot leak into a later request | Send a cancel naming an already-finished `request_id`, then submit a new gated request, and assert the new one is admitted normally. |
 | Every owner-removing path cancels | Drive `hard_stop_key` through malformed frame, ingress `Lost`, and queue overflow, plus `detach_live`, `detach_generation`, `teardown_session`, and `teardown_all`. Each asserts the cancel frame was sent and the lane released on reply. |
-| Cancellation cannot cancel a replacement | Cancel generation N's abandoned request after generation N+1 has submitted its own. Assert N+1's request is still in flight and completes normally. |
+| A replacement cannot submit while the abandoned lane is held | Cancel generation N, and while its lane is still `Cancelled`, assert generation N+1's gated command stays queued and is never submitted. Revisions 4 and 5 asserted the opposite ordering, which §5.8 makes unreachable. |
+| A replacement proceeds cleanly after release | Release N's lane through the cancelled reply, then assert N+1 submits with a fresh `GatedRequestId` and completes, and that N's stale cancel cannot affect it. |
 | A late reply after cancellation is discarded | Release the held reply after cancellation. Assert it is dropped, no `input_result` is synthesized, and no owner receives a frame. |
 | A sibling session is unaffected | Assert a second session's gated lane is untouched throughout each cancellation above. |
 
@@ -1407,9 +1502,30 @@ Capture only after this ticket proves the contract, not at Plan time:
     called submit and cancel non-blocking while they reached `write_all` plus `flush`
     on a socket with no deadline. Verify the leaf call before writing the word.
 
-No gap beyond these thirteen was found.
+14. **A queue in front of a blocking socket moves the stall; it does not bound it.**
+    The writer thread needs its own write deadline and a named hard stop, or the
+    bound is only apparent.
+15. **One serialization owner means ownership by move, not by convention.** Leaving
+    other write sites able to touch the same handle is how framed bytes interleave.
+16. **State the isolation you can deliver, not the one you want.** Same-session
+    subscriptions share one worker and one control channel and cannot be isolated
+    there; a fail-closed policy that is tested beats an isolation claim that is not.
+
+No gap beyond these sixteen was found.
 
 ## 19. Plan Review response
+
+### Round 5: `review_1787636806_488333`, verdict `changes_required`
+
+Round 5 confirmed that revision 5's O(1) cancellation cell and its move of three sends
+to a bounded queue were right. Three issues remained. The third is a bookkeeping failure
+of mine and is recorded as such.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787636806_379244` — route every post-spawn control write through one bounded writer | high, product | **Confirmed real.** Revision 5 moved only submit, cancel, and plain input. Source shows post-spawn writes also at `worker_process.rs:417` (`FRAME_SET_TIMEOUT`), `:441` (`FRAME_GET_MODE_FLAGS`), `:599`, `:689`, `:710`, `:1389` (`FRAME_GET_SNAPSHOT`), `:1308` (`FRAME_RESIZE`), plus `write_frame` sites at `:384` (`FRAME_PING`), `:1304` (`FRAME_PTY_INPUT`), and `:1227`, `:1312`, `:1398` (`FRAME_SHUTDOWN`). If those keep the write half the writer cannot own it; if they clone the stream, two `write_all` calls interleave framed bytes. §5.8.2 now gives the writer the write half **by move**, lists every post-spawn frame with its site and class, and excludes only `FRAME_SPAWN_SESSION` at `:1197`, which is the last write before handover. Three admission classes share one FIFO queue: Ordinary, Cancel, and Terminal. `WORKER_CONTROL_RESERVED_SLOTS` rises to 2 so shutdown is always sendable; revision 5 reserved only a cancel slot and left a required teardown frame competing with ordinary traffic. §12 adds source-assertion, frame-integrity, capacity, reserved-slot, terminal-shutdown, and overflow rows. |
+| `finding_1787636806_378579` — bound writer shutdown and prove same-session pressure | high, product | **Confirmed real, and the second half changes a claim rather than adding a mechanism.** A queue in front of a blocking socket moves the stall; it does not bound it. §5.8.3 sets `WORKER_CONTROL_WRITE_TIMEOUT` through `UnixStream::set_write_timeout`, names `shutdown(Shutdown::Write)` (or dropping `ChildStdin`) as the hard stop that returns an in-progress `write_all` at once, gives the session teardown path as the shutdown owner, closes the FD exactly once, and joins under `WORKER_CONTROL_WRITER_JOIN_BOUND` before detaching. On same-session isolation the reviewer is right that I could not prove it, and the honest reason is that it is **not true**: a session has one worker and one ordered control channel, so a stalled write delays every later frame for that session. §5.8.3 therefore states a fail-closed policy instead of an isolation claim — delayed within the timeout, all same-session subscriptions hard-stopped together past it, per [[webrtc peer cleanup removes every per peer owner together]] — and §12 tests that policy plus an unaffected third session. Cross-session isolation, which is what the ticket's sibling requirement needs, remains complete. |
+| `finding_1787636806_905150` — obsolete acceptance rows and missing pressure tests | medium, product | **Confirmed, and this one was my process error, not a design gap.** My round-4 edit script hit an `AssertionError` on an unrelated anchor and exited **before** its `write`, so three §12 changes were silently lost: the two obsolete rows stayed, and the control-egress suite never landed. I then re-ran only the surviving fragments and reported the tests as added. §19 asserted six tests that §12 did not contain, which is precisely the "prose asserting what no mechanism performs" failure this plan keeps recording. Revision 6 lands the full suite, deletes both obsolete rows, adds the reachable replacement ordering, and **verifies every §19 claim against §12 by grep before submission**. |
 
 ### Round 4: `review_1787636259_958552`, verdict `changes_required`
 
@@ -1419,7 +1535,7 @@ by that same fix, plus one self-contradictory acceptance row.
 
 | Finding | Severity | Resolution |
 | --- | --- | --- |
-| `finding_1787636259_772231` — bound mode-gated submit and cancel control writes | high, product | **Confirmed real.** `worker_process.rs:2247` writes through `stream.write_all(&frame).and_then(\|_\| stream.flush())` with no deadline and no bounded writer queue, and a submit can carry up to `MAX_MODE_GATED_DATA_BYTES`. Revision 4 called submit and cancel non-blocking while they reached exactly that leaf call, so a stalled worker control socket would have blocked `CoreDaemon::drain` during submit or teardown during cancel. §5.8.2 adds a bounded per-session control egress queue with its own writer thread, mirroring the pattern the worker already uses for its egress (`botster-session-worker.rs:1335`, `spawn_writer`). Tick-thread calls only `try_send`. `WORKER_CONTROL_QUEUE_FRAMES` is 32 with `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` of 1, so a cancel always fits, and it rides the same FIFO queue rather than a priority lane, which is what guarantees the worker sees a submit before its cancel. Ordinary overflow is fail-closed to that owner alone. A wedged socket degrades one session, bounded by `timeout + grace`, while the tick and every sibling keep progressing. §12 adds six control-egress pressure tests including a red-on-revert control that restores the direct `write_json` call. |
+| `finding_1787636259_772231` — bound mode-gated submit and cancel control writes | high, product | **Confirmed real.** `worker_process.rs:2247` writes through `stream.write_all(&frame).and_then(\|_\| stream.flush())` with no deadline and no bounded writer queue, and a submit can carry up to `MAX_MODE_GATED_DATA_BYTES`. Revision 4 called submit and cancel non-blocking while they reached exactly that leaf call, so a stalled worker control socket would have blocked `CoreDaemon::drain` during submit or teardown during cancel. §5.8.2 adds a bounded per-session control egress queue with its own writer thread, mirroring the pattern the worker already uses for its egress (`botster-session-worker.rs:1335`, `spawn_writer`). Tick-thread calls only `try_send`. `WORKER_CONTROL_QUEUE_FRAMES` is 32 with `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` of 1, so a cancel always fits, and it rides the same FIFO queue rather than a priority lane, which is what guarantees the worker sees a submit before its cancel. Ordinary overflow is fail-closed to that owner alone. A wedged socket degrades one session, bounded by `timeout + grace`, while the tick and every sibling keep progressing. §12 adds the control-egress suite. **Correction:** revision 5's §19 claimed those tests while a failed edit script left §12 without them; revision 6 lands the suite and §12 is verified to contain every row §19 names. |
 | `finding_1787636259_795563` — bound and reconcile the worker cancel observation path | high, product | **Confirmed real.** `botster-session-worker.rs:136` creates `frame_receiver` with unbounded `mpsc::channel()`, so revision 4's in-barrier scan had no work bound, and its deferred buffer had no capacity, no overflow rule, and no defined replay owner. §5.8.1 replaces the scan with a single-slot cancellation cell that the control reader thread sets, so the barrier does one lock, one id compare, and one clear. That is O(1), removes the deferred buffer and its replay ordering entirely, and is strictly simpler than what it replaces. One slot is exact rather than a guess, because at most one gated request per session is in flight and the parent sends at most one cancel per request. The reviewer also caught that the replacement acceptance row cancelled generation N *after* N+1 had submitted, which this plan's own lane-hold rule makes unreachable; §12 now asserts the reachable pair instead: N+1 stays queued while N's lane is held, then submits cleanly after release. |
 
 ### Round 3: `review_1787635689_864971`, verdict `changes_required`
