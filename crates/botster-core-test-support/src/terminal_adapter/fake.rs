@@ -213,4 +213,9 @@ impl SharedFakeTerminalAdapter {
     pub fn inject_ingress_frame(&self, bytes: Vec<u8>) {
         self.lock().inject_ingress_frame(bytes);
     }
+
+    /// Drop one buffered ingress frame and report `Lost` on the next read.
+    pub fn drop_buffered_ingress_frame(&self) {
+        self.lock().drop_buffered_ingress_frame();
+    }
 }

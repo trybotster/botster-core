@@ -107,6 +107,7 @@ where
     engine: MultiplexerEngine<R, SessionRuntimeWorkerAdapter<T>>,
     terminal_backend_factory: TerminalBackendFactory<T>,
     client_worker: ClientWorker,
+    pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
 }
 
 impl<R> ManagedSessionRuntime<R, PlainTerminalScreenRuntime>
@@ -243,11 +244,11 @@ where
                 .session_runtime_mut()
                 .mark_control_plane_failed(session_id, error);
             let teardowns = self.client_worker.teardown_session(session_id);
-            self.cancel_gated_teardowns(session_id, &teardowns);
+            self.retain_input_teardowns(session_id, teardowns);
             return Ok(());
         }
         let teardowns = self.client_worker.intake_terminal_input();
-        self.cancel_gated_teardowns(session_id, &teardowns);
+        self.retain_input_teardowns(session_id, teardowns);
         Ok(())
     }
 
@@ -269,7 +270,7 @@ where
                 .session_runtime_mut()
                 .mark_control_plane_failed(session_id, error);
             let teardowns = self.client_worker.teardown_session(session_id);
-            self.cancel_gated_teardowns(session_id, &teardowns);
+            self.retain_input_teardowns(session_id, teardowns);
             return Ok(());
         }
 
@@ -318,7 +319,7 @@ where
                 }
             }
         }
-        let _ = teardowns;
+        self.retain_input_teardowns(session_id, teardowns);
         Ok(())
     }
 
@@ -536,6 +537,15 @@ where
             }
         }
     }
+
+    fn retain_input_teardowns(
+        &mut self,
+        session_id: &SessionId,
+        teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    ) {
+        self.cancel_gated_teardowns(session_id, &teardowns);
+        self.pending_input_teardowns.extend(teardowns);
+    }
 }
 
 #[cfg(feature = "local-runtime")]
@@ -558,7 +568,7 @@ where
                 Err(teardown) => teardowns.push(teardown),
             }
         }
-        let _ = teardowns;
+        self.pending_input_teardowns.extend(teardowns);
         Ok(())
     }
 
@@ -647,6 +657,7 @@ where
                 factory(size).map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
             }),
             client_worker: ClientWorker::new(),
+            pending_input_teardowns: Vec::new(),
         }
     }
 
@@ -664,7 +675,10 @@ where
 
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
-        let _ = self.client_worker.teardown_session(session_id);
+        self.pending_input_teardowns
+            .extend(self.client_worker.teardown_session(session_id));
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        let _ = self.apply_client_worker(&mut outcome);
         self.engine.forget_terminal_session(session_id)
     }
 
@@ -1362,10 +1376,13 @@ where
             &previous_lifecycle,
             SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping
         ) {
-            let _ = self.client_worker.teardown_session(&session_id);
-            return Ok(self
+            self.pending_input_teardowns
+                .extend(self.client_worker.teardown_session(&session_id));
+            let mut outcome = self
                 .engine
-                .shutdown_session(session_id, reason, now_seconds)?);
+                .shutdown_session(session_id, reason, now_seconds)?;
+            self.apply_client_worker(&mut outcome)?;
+            return Ok(outcome);
         }
         let mut outcome = self
             .engine
@@ -1379,7 +1396,8 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
-        let _ = self.client_worker.teardown_session(&session_id);
+        self.pending_input_teardowns
+            .extend(self.client_worker.teardown_session(&session_id));
         self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
@@ -1396,20 +1414,28 @@ where
         outcome: &mut MultiplexerEngineOutcome,
         mut teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
     ) -> Result<(), ManagedSessionRuntimeError> {
+        teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
+        self.unsubscribe_owner_teardowns(outcome, &mut teardowns)?;
         teardowns.extend(
             self.client_worker
                 .ingest_bound_terminal_frames(&mut outcome.client_egress),
         );
         teardowns.extend(self.client_worker.pump());
-        for teardown in &teardowns {
+        self.unsubscribe_owner_teardowns(outcome, &mut teardowns)
+    }
+
+    fn unsubscribe_owner_teardowns(
+        &mut self,
+        outcome: &mut MultiplexerEngineOutcome,
+        teardowns: &mut Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        for teardown in teardowns.drain(..) {
             if let Some(request_id) = &teardown.awaiting_gated {
                 let _ = self
                     .engine
                     .session_runtime_mut()
                     .cancel_mode_gated_pty_input(&teardown.session_id, request_id);
             }
-        }
-        for teardown in teardowns {
             let step = self.engine.handle_client_ingress(
                 teardown.client_id.clone(),
                 TransportIngress::UnsubscribeSession {
