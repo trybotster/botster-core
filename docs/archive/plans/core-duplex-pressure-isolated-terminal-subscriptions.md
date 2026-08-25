@@ -2,14 +2,15 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 8. Plan Review returned `changes_required` seven times.
+Revision 9. Plan Review returned `changes_required` eight times.
 `review_1787634119_893294` raised four product findings plus one missing-context
 finding; `review_1787635010_824294` raised four more against revision 2;
 `review_1787635689_864971` raised two against revision 3; and
 `review_1787636259_958552` raised two against revision 4; and
 `review_1787636806_488333` raised three against revision 5; and
 `review_1787637388_506869` raised two against revision 6; and
-`review_1787637866_567075` raised two against revision 7. Section 19 maps every
+`review_1787637866_567075` raised two against revision 7; and
+`review_1787638270_149764` raised one against revision 8. Section 19 maps every
 finding to the section that resolves it.
 
 ## 1. Target
@@ -953,10 +954,43 @@ On observing `Failed`:
    `Ok`.
 
 **Generation behavior.** The sweep uses the live inventory at the moment it observes the
-failure, so it removes exactly the owners that exist then. The queue is already sealed,
-so no later `admit` of any class succeeds for that session and no new bind can put a
-fresh generation behind a dead writer. The session stays un-admittable until it is torn
-down and respawned, which is the honest end state rather than a half-live session.
+failure, so it removes exactly the owners that exist then. Keeping later generations out
+needs its own gate, which the next paragraphs define.
+
+**A failed control plane is durable session state, and it gates ownership creation.**
+Revision 8 claimed the sealed queue stopped a fresh generation landing behind a dead
+writer. That was wrong: queue admission gates **worker frames only**. `record_attach`
+and `bind_terminal_adapter` never touch the queue, and this plan's own late-message
+matrix listed `bind_terminal_adapter` as unchanged. A bind arriving after the sweep
+would therefore have created a live owner on a dead session until some later tick
+removed it, contradicting both the un-admittable claim and its acceptance row. The
+`ControlWriterOutcome` slot cannot serve as that gate either, because §5.8.4 marks it
+consumed.
+
+The session therefore carries a separate durable flag:
+
+```rust
+enum ControlPlaneState { Live, Failed(ControlWriterError) }
+```
+
+The step-0 sweep sets `Failed` **before** it hard-stops the owner set, so the gate is
+already closed when the teardown rows are emitted and no bind can slip between the two.
+
+| Path | Gate | On rejection |
+| --- | --- | --- |
+| Attach (`CoreDaemon` attach entry) | `ensure_control_plane_live(&session_id)`, checked beside the existing `ensure_session` guard | Typed `CoreDaemonError::ControlPlaneFailed`. No inventory row is created. |
+| `bind_terminal_adapter` | Checked **before** owner lookup and before any owner mutation | New `BindTerminalAdapterError::ControlPlaneFailed`. The adapter is closed and dropped first, exactly as the existing `UnknownSubscription`, `StaleGeneration`, and `AlreadyBound` paths already do. |
+
+Gating attach at the `CoreDaemon` entry rather than inside `record_attach` keeps
+`record_attach`'s signature unchanged: it is infallible today, and the daemon entry
+already returns `Result` and already runs `ensure_session`, so the new guard sits
+beside an existing one instead of reshaping a Core primitive.
+
+**Recovery is respawn, not time.** `ControlPlaneState` clears to `Live` only when the
+session gets a new worker and a new control plane. It does not clear on a later drain,
+on detach, or on the failed writer being reaped. A session whose control channel died
+stays un-admittable until it is actually replaced, which is the honest end state and is
+what makes the claim in §5.8.4 true rather than aspirational.
 
 This is what makes §5.8.3's "hard-stopped together" a mechanism instead of a claim.
 
@@ -1069,7 +1103,7 @@ harness, the Rust protocol crates, and the npm package.
 | `crates/botster-terminal-protocol-client/src/typescript.rs` | Generator emits the new unions, interfaces, encode helpers, and token |
 | `crates/botster-terminal-protocol-client/tests/{typescript_drift,wire,tui_shaped}.rs` | Drift, mirror, wire-tag, and TUI-shaped encode/decode coverage |
 | `crates/botster-core/src/contract/terminal_adapter.rs` | `try_read` added returning the new `TerminalIngress` enum, `MIN_ADAPTER_INGRESS_BUFFER_FRAMES`, duplex contract documented |
-| `crates/botster-core/src/contract/terminal_subscription.rs` | `TerminalInputDelivery`, re-export of `TerminalInputCommand` |
+| `crates/botster-core/src/contract/terminal_subscription.rs` | `TerminalInputDelivery`, re-export of `TerminalInputCommand`, `BindTerminalAdapterError::ControlPlaneFailed` |
 | `crates/botster-core/src/engine/client_worker.rs` | Ingress queue, rotation cursor, `intake_terminal_input`, `take_terminal_input`, `awaiting_gated`, fail-closed decode and overflow |
 | `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; bounded control egress queue with three admission classes; per-session writer thread that takes the `WorkerControl` write half by move; every post-spawn `write_json` and `write_frame` site rerouted through the queue; write timeout, `shutdown(Shutdown::Write)` hard stop, and bounded join; existing blocking method reimplemented on the new primitives |
 | `crates/botster-core/src/engine/managed_session_runtime.rs` | Ingress stages and apply inside the tick, per-command error isolation, `input_result` enqueue |
@@ -1157,6 +1191,7 @@ harness, the Rust protocol crates, and the npm package.
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
 | R14 | The cancellation cell holds a stale id and cancels the wrong request. | The cell is single-slot, cleared at admit completion whether or not it matched, and compared by exact `request_id`. A test sends a cancel for a finished request and asserts the next request is admitted normally. |
 | R16 | A wedged worker control socket permanently strands one session's gated lane. | The lane frees on the correlated reply or at `timeout + grace`, whichever comes first. The stalled-reader test asserts both the bound and continued sibling progress. |
+| R23 | A new ownership-creating path is added later and bypasses the control-plane gate. | Both existing paths gate at their single entry: attach beside `ensure_session` in the `CoreDaemon` entry, bind before owner lookup. §12 asserts a post-sweep attach and bind are both rejected, so a new path that skips the gate fails that test. |
 | R22 | A writer failure is never observed because the session stops being drained. | The host already drives `CoreDaemon::drain` per session for output; a session that is not drained is not delivering output either, so the divergence window closes with the same tick that would surface it. The idle-owner test asserts the sweep runs from the ordinary drain, not from a sender. |
 | R20 | The shutdown-only clone is used to write, reintroducing interleaving. | The clone is typed or wrapped as shutdown-only and never exposes a write method; §12 asserts teardown performs no framed write. |
 | R21 | A partially written frame desynchronizes the wire and later frames are misparsed. | A deadline abandon seals the queue, refuses every later admit, and hard-stops that session, so no frame follows a truncated one. |
@@ -1254,7 +1289,8 @@ that deadline expires.
 | Ingress `Lost` | Same | The adapter reports lost frames before any later frame; Core hard-stops that owner because contiguity is unrecoverable | Queue dropped with the owner; outstanding gated request cancelled |
 | Late gated reply | `(session_id, GatedRequestId)` | A reply whose `request_id` does not match the live slot is discarded by the existing correlation check. After cancellation the slot is empty, so a late reply matches nothing and no `input_result` is synthesized | `gated_in_flight` cleared on `Ready`, `TimedOut`, and explicitly by `cancel_mode_gated_pty_input` on every owner-removing path: `hard_stop_key`, `detach_live`, `detach_generation`, `teardown_session`, `teardown_all` |
 | Per-command apply error | Same | Hard-stops that owner only; the shared tick continues | Teardown row on the same tick; outstanding gated request cancelled |
-| `bind_terminal_adapter` | `(client_id, session_id, subscription_id, generation)` | Unchanged. A stale generation closes and drops the adapter and returns `StaleGeneration` | Unchanged |
+| `bind_terminal_adapter` | `(client_id, session_id, subscription_id, generation)` | **Changed by §5.8.4.** Checked against `ControlPlaneState` **before** owner lookup: a failed control plane closes and drops the adapter and returns `ControlPlaneFailed`. A stale generation still closes, drops, and returns `StaleGeneration` | Unchanged, plus no owner row can be created on a failed session |
+| Attach after a control-plane failure | `session_id` | **New.** The `CoreDaemon` attach entry runs `ensure_control_plane_live` beside `ensure_session` and returns `ControlPlaneFailed`. No inventory row is created | Nothing to sweep, because nothing was inserted |
 | `record_attach` replacement | Same | Unchanged. Replacement hard-stops the previous owner and starts generation N+1 | The previous owner's ingress queue and `awaiting_gated` slot are dropped by that same hard stop |
 | `detach_generation` | Same | Unchanged. Generation N detach does not delete generation N+1 | Ingress queue dropped with the owner |
 | `teardown_session` / `teardown_all` | Session or global | Unchanged | Ingress queues, `awaiting_gated` slots, and the session `gated_in_flight` slot dropped with their owners |
@@ -1446,7 +1482,10 @@ and driver-hook based, with no sleeps:
 | The total deadline is exact, not slice-rounded | Stall the peer so the last syscall would start just before the deadline. Assert the observed abandon happens at or before `WORKER_CONTROL_WRITE_TIMEOUT`, never at deadline plus a slice. Red-on-revert: use a fixed `WORKER_CONTROL_WRITE_SLICE` instead of `min(SLICE, remaining)` and assert this test fails first. |
 | An idle same-session owner is torn down by the tick | Two subscriptions on one session; one never sends. Kill the control writer, then drive `CoreDaemon::drain`. Assert **both** owners disappear from `CoreDaemon::list_terminal_subscriptions`, including the idle one that issued no `admit`, and that a third subscription on another session stays live. Red-on-revert: remove the step-0 poll and assert the idle owner is still reported live, which is the divergence this test exists to catch. |
 | The writer-failure sweep is idempotent | Drive several ticks after the failure. Assert exactly one teardown row per owner, no second sweep, and `Ok` from every later tick. |
-| A dead writer admits no new generation | After a consumed failure, assert every `admit` class is refused and no bind can place a fresh generation on that session. |
+| A dead writer admits no new generation | After a consumed failure, assert every `admit` class is refused. |
+| Attach and bind are rejected after the sweep | Post-sweep, attempt an attach and a bind on the failed session. Assert the attach returns `ControlPlaneFailed` and creates no inventory row, and the bind returns `ControlPlaneFailed` with the adapter closed and dropped before any owner mutation. Red-on-revert: rely on the sealed queue alone, and assert a post-sweep bind creates a live owner, which is the divergence this test exists to catch. |
+| The gate closes before the teardown rows | Race a bind against the step-0 sweep. Assert the gate is already `Failed` when the teardown rows are emitted, so no bind can land between setting the flag and hard-stopping the owner set. |
+| Recovery is respawn, not time | Assert the flag survives later drains, detaches, and the failed writer being reaped, and clears only when the session gets a new worker; then assert attach and bind both succeed again. |
 | Admission is atomic under concurrent senders | Race many ordinary senders against one cancel and one shutdown. Assert both reserved frames always enqueue, ordinary sends past capacity return `ControlQueueFull`, and the queue length never exceeds `WORKER_CONTROL_QUEUE_FRAMES`. |
 | The queue lock is never held across I/O | Assert the writer pops under the lock and releases it before writing, so `admit` never waits on a file descriptor. |
 | The hard stop works on both variants | Socket: teardown's `try_clone` shutdown-only handle unblocks a stalled writer with `shutdown(Shutdown::Write)`. Stdio: `child.kill()` closes the pipe read end and the writer fails with `EPIPE`. Both assert the writer signalled completion and teardown did not block. |
@@ -1655,9 +1694,22 @@ Capture only after this ticket proves the contract, not at Plan time:
     A fixed slice checked before each call still permits one full slice of overrun past
     the deadline.
 
-No gap beyond these twenty-one was found.
+22. **Sealing one admission path does not seal the others.** A queue gate stops the
+    frames that go through the queue. Ownership-creating calls that never touch it need
+    their own durable gate, set before the teardown they accompany.
+
+No gap beyond these twenty-two was found.
 
 ## 19. Plan Review response
+
+### Round 8: `review_1787638270_149764`, verdict `changes_required`
+
+Round 8 confirmed that revision 8 correctly wires writer failure into the production
+tick and clamps each syscall to the remaining total deadline. One gap remained.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787638270_162631` — reject attach and bind after the control writer fails | high, product | **Confirmed real.** §5.8.4 claimed the sealed queue kept a fresh generation off a dead session, but queue admission gates **worker frames only**. `record_attach` and `bind_terminal_adapter` never touch the queue, and this plan's own late-message matrix listed `bind_terminal_adapter` as unchanged, so a bind arriving after the sweep would have created a live owner until a later tick removed it. The consumed `ControlWriterOutcome` could not serve as the gate either. §5.8.4 now carries a durable `ControlPlaneState` of `Live` or `Failed(cause)` on the session. The step-0 sweep sets `Failed` **before** hard-stopping the owner set, so nothing can bind between the two. Attach gates at the `CoreDaemon` entry beside the existing `ensure_session` guard, which keeps `record_attach` infallible rather than reshaping a Core primitive; bind gates before owner lookup and closes and drops the adapter first, exactly as its existing `UnknownSubscription`, `StaleGeneration`, and `AlreadyBound` paths already do. Recovery is respawn, not time: the flag survives later drains, detaches, and reaping, and clears only when the session gets a new worker. The late-message matrix now records both paths as changed and adds an attach row, and §12 adds four rows including a red-on-revert that relies on the sealed queue alone and must show a post-sweep bind creating a live owner. |
 
 ### Round 7: `review_1787637866_567075`, verdict `changes_required`
 
