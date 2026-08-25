@@ -9795,6 +9795,14 @@ fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
         .list_terminal_subscriptions()
         .iter()
         .any(|row| row.subscription_id == sibling_sub));
+    let after = daemon.drain(&flooded, 31).expect("drain after overflow");
+    assert!(
+        after.client_egress.iter().all(|(target, frame)| {
+            target.0 != "duplex-overflow-flood-client"
+                || !matches!(frame, TransportEgress::TerminalOutput { .. })
+        }),
+        "removed overflow owner must not receive later client_egress"
+    );
     sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
     let started = Instant::now();
     let mut saw_sibling = false;
@@ -10020,5 +10028,161 @@ fn drain_writer_failure_sweeps_idle_same_session_owner() {
         thread::sleep(Duration::from_millis(10));
     }
     assert!(saw_other, "a different session must survive writer failure");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_ingress_loss_and_malformed_input_remove_the_route() {
+    for (label, inject) in [
+        (
+            "lost",
+            Box::new(|adapter: &SharedFakeTerminalAdapter| {
+                adapter.inject_ingress_frame(compact_input_frame(b"keep"));
+                adapter.drop_buffered_ingress_frame();
+            }) as Box<dyn Fn(&SharedFakeTerminalAdapter)>,
+        ),
+        (
+            "malformed",
+            Box::new(|adapter: &SharedFakeTerminalAdapter| {
+                adapter.inject_ingress_frame(vec![0xff, 0xff, 0xff]);
+            }),
+        ),
+    ] {
+        let data_dir = temp_data_dir(&format!("duplex-{label}"));
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir)
+                .with_worker_path(worker_path())
+                .with_ghostty_max_scrollback_bytes(0),
+        );
+        let failed = SessionId(format!("duplex-{label}-fail"));
+        let sibling = SessionId(format!("duplex-{label}-sib"));
+        let failed_sub = SubscriptionId(format!("duplex-{label}-fail-sub"));
+        let sibling_sub = SubscriptionId(format!("duplex-{label}-sib-sub"));
+        let adapter = bind_echo_worker(
+            &mut daemon,
+            failed.clone(),
+            ClientId(format!("duplex-{label}-fail-c")),
+            failed_sub.clone(),
+            "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+            10,
+        );
+        let sibling_adapter = bind_echo_worker(
+            &mut daemon,
+            sibling.clone(),
+            ClientId(format!("duplex-{label}-sib-c")),
+            sibling_sub.clone(),
+            "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+            20,
+        );
+        inject(&adapter);
+        let _ = daemon.drain(&failed, 30).expect("drain hard-stop");
+        assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+        assert!(daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .all(|row| row.subscription_id != failed_sub));
+        let after = daemon.drain(&failed, 31).expect("drain after hard-stop");
+        assert!(after.client_egress.iter().all(|(_, frame)| {
+            !matches!(
+                frame,
+                TransportEgress::TerminalOutput {
+                    subscription_id,
+                    ..
+                } if subscription_id == &failed_sub
+            )
+        }));
+        sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
+        let started = Instant::now();
+        let mut saw_sibling = false;
+        while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+            let _ = daemon.drain(&sibling, 32).expect("drain sibling");
+            if sibling_adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .any(|bytes| adapter_payload_text(bytes).contains("echo:SIB"))
+            {
+                saw_sibling = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(saw_sibling, "{label} must leave the sibling session live");
+        let _ = fs::remove_dir_all(data_dir);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_detach_cancels_held_gated_and_leaves_sibling() {
+    let data_dir = temp_data_dir("duplex-detach-gated");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0)
+            .with_test_mode_gated_hold_ms(Some(10_000)),
+    );
+    let held = SessionId("duplex-detach-gated-held".to_string());
+    let sibling = SessionId("duplex-detach-gated-sib".to_string());
+    let held_sub = SubscriptionId("duplex-detach-gated-held-sub".to_string());
+    let sibling_sub = SubscriptionId("duplex-detach-gated-sib-sub".to_string());
+    let held_client = ClientId("duplex-detach-gated-held-c".to_string());
+    let held_adapter = bind_echo_worker(
+        &mut daemon,
+        held.clone(),
+        held_client.clone(),
+        held_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    let sibling_adapter = bind_echo_worker(
+        &mut daemon,
+        sibling.clone(),
+        ClientId("duplex-detach-gated-sib-c".to_string()),
+        sibling_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        20,
+    );
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("duplex-detach-gated-probe".to_string()),
+            session_id: held.clone(),
+            now_seconds: 25,
+        })
+        .expect("probe held session");
+    held_adapter.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"hold\n",
+    ));
+    let _ = daemon.drain(&held, 26).expect("submit gated hold");
+    daemon
+        .detach(held_client, held.clone(), held_sub.clone(), 27)
+        .expect("detach held owner");
+    let _ = daemon.drain(&held, 28);
+    assert_eq!(
+        held_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Closed
+    );
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .all(|row| row.subscription_id != held_sub));
+    sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
+    let started = Instant::now();
+    let mut saw_sibling = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&sibling, 29).expect("drain sibling");
+        if sibling_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:SIB"))
+        {
+            saw_sibling = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(saw_sibling, "detach must leave the sibling session live");
     let _ = fs::remove_dir_all(data_dir);
 }

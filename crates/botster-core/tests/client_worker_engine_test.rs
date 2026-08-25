@@ -11,11 +11,11 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
 };
 use botster_core::{
-    BindTerminalAdapterError, ClientId, ClientWorker, CoreSessionMetadata, DefaultBotsterEngine,
-    DetachTerminalSubscriptionResult, LocalProcessRuntimeOptions, QueueSource, RequestId,
-    ResizePayload, SessionId, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress,
-    WorkerSnapshotPhase,
+    BindTerminalAdapterError, BotsterEngineOutput, ClientId, ClientWorker, CoreSessionMetadata,
+    DefaultBotsterEngine, DetachTerminalSubscriptionResult, LocalProcessRuntimeOptions,
+    QueueSource, RequestId, ResizePayload, SessionId, SessionSpawnRequest, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet, TerminalSubscriptionGeneration,
+    TransportEgress, WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
@@ -1692,6 +1692,192 @@ fn local_apply_errors_fail_closed_and_leave_siblings() {
         TerminalAdapterPressure::Closed
     );
     assert!(!engine.adapter_is_bound(&resize_session, &resize_sub));
+    assert!(!subscription_live(&engine, &resize_sub));
+}
+
+fn subscription_live(engine: &DefaultBotsterEngine, subscription: &SubscriptionId) -> bool {
+    engine
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| &row.subscription_id == subscription)
+}
+
+fn drain_has_removed_route(drained: &BotsterEngineOutput, subscription: &SubscriptionId) -> bool {
+    drained.client_egress.iter().any(|(_, frame)| {
+        matches!(
+            frame,
+            TransportEgress::TerminalOutput {
+                subscription_id,
+                ..
+            }
+            | TransportEgress::Snapshot {
+                subscription_id,
+                ..
+            }
+            | TransportEgress::ProcessExit {
+                subscription_id,
+                ..
+            } if subscription_id == subscription
+        )
+    })
+}
+
+fn assert_input_hard_stop(
+    engine: &mut DefaultBotsterEngine,
+    adapter: &SharedFakeTerminalAdapter,
+    session: &SessionId,
+    subscription: &SubscriptionId,
+    sibling_session: &SessionId,
+    sibling_sub: &SubscriptionId,
+    sibling_adapter: &SharedFakeTerminalAdapter,
+) {
+    apply_and_pump(engine, session);
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert!(!engine.adapter_is_bound(session, subscription));
+    assert!(!subscription_live(engine, subscription));
+    assert!(engine.adapter_is_bound(sibling_session, sibling_sub));
+    assert_eq!(
+        sibling_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Ready
+    );
+    let drained = engine
+        .drain_runtime_once(session, 3)
+        .expect("drain after hard-stop");
+    assert!(
+        !drain_has_removed_route(&drained, subscription),
+        "removed generation must not receive later client_egress"
+    );
+}
+
+fn bind_hard_stop_pair(
+    label: &str,
+) -> (
+    DefaultBotsterEngine,
+    SessionId,
+    SubscriptionId,
+    SharedFakeTerminalAdapter,
+    SessionId,
+    SubscriptionId,
+    SharedFakeTerminalAdapter,
+) {
+    let mut engine = DefaultBotsterEngine::new();
+    let failed = session(&format!("route-{label}"));
+    let sibling = session(&format!("route-{label}-sib"));
+    let failed_sub = sub(&format!("route-{label}-sub"));
+    let sibling_sub = sub(&format!("route-{label}-sib-sub"));
+    let adapter = bind_local_pair(
+        &mut engine,
+        &failed,
+        &client(&format!("route-{label}-c")),
+        &failed_sub,
+        "sleep 30",
+    );
+    let sibling_adapter = bind_local_pair(
+        &mut engine,
+        &sibling,
+        &client(&format!("route-{label}-sib-c")),
+        &sibling_sub,
+        "sleep 30",
+    );
+    (
+        engine,
+        failed,
+        failed_sub,
+        adapter,
+        sibling,
+        sibling_sub,
+        sibling_adapter,
+    )
+}
+
+#[test]
+fn input_path_hard_stop_unsubscribes_the_multiplexer_route() {
+    let (mut engine, failed, failed_sub, adapter, sibling, sibling_sub, sibling_adapter) =
+        bind_hard_stop_pair("malformed");
+    adapter.inject_ingress_frame(vec![0xff, 0xff, 0xff]);
+    assert_input_hard_stop(
+        &mut engine,
+        &adapter,
+        &failed,
+        &failed_sub,
+        &sibling,
+        &sibling_sub,
+        &sibling_adapter,
+    );
+
+    let (mut engine, failed, failed_sub, adapter, sibling, sibling_sub, sibling_adapter) =
+        bind_hard_stop_pair("lost");
+    adapter.inject_ingress_frame(compact_input_frame(b"keep"));
+    adapter.drop_buffered_ingress_frame();
+    assert_input_hard_stop(
+        &mut engine,
+        &adapter,
+        &failed,
+        &failed_sub,
+        &sibling,
+        &sibling_sub,
+        &sibling_adapter,
+    );
+}
+
+#[test]
+fn owner_removal_matrix_closes_adapter_and_route() {
+    let mut engine = DefaultBotsterEngine::new();
+    let live = session("owner-detach-live");
+    let gen = session("owner-detach-gen");
+    let torn = session("owner-teardown-session");
+    let sibling = session("owner-matrix-sib");
+    let live_sub = sub("owner-detach-live-sub");
+    let gen_sub = sub("owner-detach-gen-sub");
+    let torn_sub = sub("owner-teardown-session-sub");
+    let sibling_sub = sub("owner-matrix-sib-sub");
+    let live_client = client("owner-detach-live-c");
+    let gen_client = client("owner-detach-gen-c");
+    let torn_client = client("owner-teardown-session-c");
+    let live_adapter = bind_local_pair(&mut engine, &live, &live_client, &live_sub, "sleep 30");
+    let gen_adapter = bind_local_pair(&mut engine, &gen, &gen_client, &gen_sub, "sleep 30");
+    let torn_adapter = bind_local_pair(&mut engine, &torn, &torn_client, &torn_sub, "sleep 30");
+    let sibling_adapter = bind_local_pair(
+        &mut engine,
+        &sibling,
+        &client("owner-matrix-sib-c"),
+        &sibling_sub,
+        "sleep 30",
+    );
+
+    engine
+        .detach_client(live_client, live.clone(), live_sub.clone(), 4)
+        .expect("detach_live");
+    let generation = engine
+        .terminal_subscription_generation(&gen, &gen_sub)
+        .expect("generation");
+    engine
+        .detach_terminal_subscription(gen_client, gen.clone(), gen_sub.clone(), generation, 5)
+        .expect("detach_generation");
+    engine
+        .shutdown_session(torn.clone(), "matrix", 6)
+        .expect("teardown_session");
+    engine.forget_terminal_session(&live);
+    engine.forget_terminal_session(&gen);
+
+    for (adapter, session, subscription) in [
+        (&live_adapter, &live, &live_sub),
+        (&gen_adapter, &gen, &gen_sub),
+        (&torn_adapter, &torn, &torn_sub),
+    ] {
+        assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+        assert!(!engine.adapter_is_bound(session, subscription));
+        assert!(!subscription_live(&engine, subscription));
+        if engine.session(session).is_some() {
+            let drained = engine.drain_runtime_once(session, 7).expect("drain");
+            assert!(!drain_has_removed_route(&drained, subscription));
+        }
+    }
+    assert!(engine.adapter_is_bound(&sibling, &sibling_sub));
+    assert_eq!(
+        sibling_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Ready
+    );
 }
 
 #[test]
