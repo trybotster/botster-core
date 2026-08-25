@@ -13,11 +13,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
+use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
-#[cfg(unix)]
-use std::net::Shutdown;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 #[cfg(unix)]
@@ -30,23 +30,23 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::runtime::control_queue::{
-    write_slice_timeout, ControlFrameClass, ControlPlaneState, ControlQueue, ControlQueueAdmitError,
-    ControlWriterError, ControlWriterOutcome, ControlWriterSlot, WORKER_CONTROL_WRITE_TIMEOUT,
-    WORKER_CONTROL_WRITER_JOIN_BOUND,
+    write_slice_timeout, ControlFrameClass, ControlPlaneState, ControlQueue,
+    ControlQueueAdmitError, ControlWriterError, ControlWriterOutcome, ControlWriterSlot,
+    WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_TIMEOUT,
 };
 use crate::{
     read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame,
     ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
-    ModeGatedPtyInputResult,
-    NotificationPayload, ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource,
-    SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
-    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload, WorkerSnapshotRequest,
-    WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS,
-    FRAME_METADATA_SHAPING,     FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
-    FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    ModeGatedPtyInputResult, NotificationPayload, ProcessExitedPayload, ProcessIdentity,
+    PromptMarkPayload, QueueSource, SessionId, SessionMetadata, SessionRuntime,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest, SubscriptionId, TerminalMetadataShapingObservation,
+    TimeoutPayload, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED,
+    FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL,
+    FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
+    FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
+    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
+    FRAME_TITLE_CHANGED,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -937,11 +937,7 @@ impl WorkerProcessRuntime {
     }
 
     /// Record a durable control-plane failure. Recovery is respawn only.
-    pub fn mark_control_plane_failed(
-        &mut self,
-        session_id: &SessionId,
-        error: ControlWriterError,
-    ) {
+    pub fn mark_control_plane_failed(&mut self, session_id: &SessionId, error: ControlWriterError) {
         if let Some(session) = self.sessions.get_mut(session_id) {
             session.control_plane = ControlPlaneState::Failed(error);
         }

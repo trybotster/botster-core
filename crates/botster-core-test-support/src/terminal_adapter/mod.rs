@@ -363,7 +363,7 @@ fn assert_ingress_closed_transport<D: TerminalAdapterHarnessDriver>(driver: &mut
     assert_ne!(driver.adapter().try_read(), TerminalIngress::Empty);
 }
 
-fn assert_ingress_lost<D: TerminalAdapterHarnessDriver + Default>(driver: &mut D) {
+fn assert_ingress_lost<D: TerminalAdapterHarnessDriver + Default>(_driver: &mut D) {
     let mut floor = D::default();
     for index in 0..MIN_ADAPTER_INGRESS_BUFFER_FRAMES {
         floor.inject_ingress_frame(vec![index as u8]);

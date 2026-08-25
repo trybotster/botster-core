@@ -12,9 +12,10 @@ use botster_core::contract::terminal_adapter::{
 };
 use botster_core::{
     BindTerminalAdapterError, ClientId, ClientWorker, CoreSessionMetadata, DefaultBotsterEngine,
-    DetachTerminalSubscriptionResult, QueueSource, RequestId, ResizePayload, SessionId,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
+    DetachTerminalSubscriptionResult, LocalProcessRuntimeOptions, QueueSource, RequestId,
+    ResizePayload, SessionId, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
+    SubscriptionId, TerminalCapabilitySet, TerminalSubscriptionGeneration, TransportEgress,
+    WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
@@ -1500,6 +1501,240 @@ fn unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter() {
         TerminalAdapterPressure::Closed,
         "failed bind must close the presented adapter"
     );
+}
+
+fn compact_input_frame(data: &[u8]) -> Vec<u8> {
+    let len = u16::try_from(data.len()).expect("input fits u16");
+    let mut bytes = vec![1, 1];
+    bytes.extend_from_slice(&len.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn compact_resize_frame(rows: u16, cols: u16) -> Vec<u8> {
+    let mut bytes = vec![1, 3, 0, 4];
+    bytes.extend_from_slice(&rows.to_be_bytes());
+    bytes.extend_from_slice(&cols.to_be_bytes());
+    bytes
+}
+
+fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
+    let body_len = u16::try_from(16 + data.len()).expect("gated body fits u16");
+    let mut bytes = vec![1, 2];
+    bytes.extend_from_slice(&body_len.to_be_bytes());
+    bytes.extend_from_slice(&mode_generation.to_be_bytes());
+    bytes.extend_from_slice(&mode_revision.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn input_result_fields(bytes: &[u8]) -> Option<(String, String, bool)> {
+    let value = serde_json::from_slice::<Value>(bytes).ok()?;
+    if value.get("type")?.as_str()? != "input_result" {
+        return None;
+    }
+    Some((
+        value.get("subscription_id")?.as_str()?.to_string(),
+        value.get("kind")?.as_str()?.to_string(),
+        value.get("admitted")?.as_bool()?,
+    ))
+}
+
+fn bind_local_pair(
+    engine: &mut DefaultBotsterEngine,
+    session: &SessionId,
+    client: &ClientId,
+    subscription: &SubscriptionId,
+    script: &str,
+) -> SharedFakeTerminalAdapter {
+    engine
+        .spawn_session(
+            shell_request(session.clone(), script),
+            CoreSessionMetadata::new(),
+        )
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+        .expect("attach");
+    let generation = engine
+        .terminal_subscription_generation(session, subscription)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    engine
+        .bind_terminal_adapter(
+            client.clone(),
+            session.clone(),
+            subscription.clone(),
+            generation,
+            advertised_capabilities(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    adapter
+}
+
+fn apply_and_pump(engine: &mut DefaultBotsterEngine, session: &SessionId) {
+    engine
+        .apply_terminal_input(session, 2)
+        .expect("apply terminal input");
+    let _ = engine.drain_runtime_once(session, 2).expect("pump");
+}
+
+#[test]
+fn local_input_result_carries_the_live_subscription_id() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("local-input-result-id");
+    let client = client("local-input-result-client");
+    let subscription = sub("local-input-result-sub");
+    let adapter = bind_local_pair(
+        &mut engine,
+        &session,
+        &client,
+        &subscription,
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+    );
+    adapter.inject_ingress_frame(compact_input_frame(b"hello\n"));
+    apply_and_pump(&mut engine, &session);
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    assert!(
+        delivered.iter().any(|bytes| {
+            input_result_fields(bytes) == Some((subscription.0.clone(), "input".to_string(), true))
+        }),
+        "input_result must carry the live subscription id: {delivered:?}"
+    );
+}
+
+#[test]
+fn local_mode_gated_input_result_carries_the_live_subscription_id() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("local-gated-result-id");
+    let client = client("local-gated-result-client");
+    let subscription = sub("local-gated-result-sub");
+    let adapter = bind_local_pair(&mut engine, &session, &client, &subscription, "sleep 30");
+    adapter.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"x"));
+    apply_and_pump(&mut engine, &session);
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    assert!(
+        delivered.iter().any(|bytes| {
+            input_result_fields(bytes)
+                == Some((
+                    subscription.0.clone(),
+                    "mode_gated_input".to_string(),
+                    false,
+                ))
+        }),
+        "rejected gated input_result must still name the live subscription: {delivered:?}"
+    );
+    assert!(
+        engine.adapter_is_bound(&session, &subscription),
+        "SessionNotWritable keeps the owner live"
+    );
+}
+
+#[test]
+fn local_apply_errors_fail_closed_and_leave_siblings() {
+    let mut engine = DefaultBotsterEngine::with_local_options(LocalProcessRuntimeOptions {
+        test_fail_pty_writes: true,
+        ..LocalProcessRuntimeOptions::default()
+    });
+    let failed_session = session("local-apply-fail");
+    let sibling_session = session("local-apply-sibling");
+    let failed_client = client("local-apply-fail-client");
+    let sibling_client = client("local-apply-sibling-client");
+    let failed_sub = sub("local-apply-fail-sub");
+    let sibling_sub = sub("local-apply-sibling-sub");
+    let failed_adapter = bind_local_pair(
+        &mut engine,
+        &failed_session,
+        &failed_client,
+        &failed_sub,
+        "sleep 30",
+    );
+    let sibling_adapter = bind_local_pair(
+        &mut engine,
+        &sibling_session,
+        &sibling_client,
+        &sibling_sub,
+        "sleep 30",
+    );
+
+    failed_adapter.inject_ingress_frame(compact_input_frame(b"die\n"));
+    apply_and_pump(&mut engine, &failed_session);
+    assert_eq!(
+        failed_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Closed
+    );
+    assert!(!engine.adapter_is_bound(&failed_session, &failed_sub));
+    assert!(engine.adapter_is_bound(&sibling_session, &sibling_sub));
+    assert_eq!(
+        sibling_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Ready
+    );
+
+    let mut engine = DefaultBotsterEngine::with_local_options(LocalProcessRuntimeOptions {
+        test_fail_pty_writes: true,
+        ..LocalProcessRuntimeOptions::default()
+    });
+    let resize_session = session("local-resize-fail");
+    let resize_client = client("local-resize-fail-client");
+    let resize_sub = sub("local-resize-fail-sub");
+    let resize_adapter = bind_local_pair(
+        &mut engine,
+        &resize_session,
+        &resize_client,
+        &resize_sub,
+        "sleep 30",
+    );
+    resize_adapter.inject_ingress_frame(compact_resize_frame(24, 80));
+    apply_and_pump(&mut engine, &resize_session);
+    assert_eq!(
+        resize_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Closed
+    );
+    assert!(!engine.adapter_is_bound(&resize_session, &resize_sub));
+}
+
+#[test]
+fn intake_refuses_the_command_that_would_exceed_capacity() {
+    let mut worker = ClientWorker::default();
+    let session = session("queue-cap");
+    let client = client("queue-cap-client");
+    let subscription = sub("queue-cap-sub");
+    let _ = worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::new();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let capacity = botster_core::engine::client_worker::INPUT_QUEUE_CAPACITY;
+    let intake = botster_core::engine::client_worker::INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK;
+    assert_eq!(capacity % intake, 0);
+    for _ in 0..(capacity / intake) {
+        for _ in 0..intake {
+            adapter.inject_ingress_frame(compact_input_frame(b"x"));
+        }
+        let teardowns = worker.intake_terminal_input();
+        assert!(teardowns.is_empty(), "capacity fill must stay live");
+    }
+    assert_eq!(
+        worker.input_queue_len(&session, &subscription),
+        Some(capacity)
+    );
+    adapter.inject_ingress_frame(compact_input_frame(b"overflow"));
+    let teardowns = worker.intake_terminal_input();
+    assert_eq!(teardowns.len(), 1);
+    assert_eq!(teardowns[0].subscription_id, subscription);
+    assert!(!worker.has_subscription(&session, &subscription));
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
 }
 
 #[allow(dead_code)]

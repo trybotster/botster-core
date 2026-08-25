@@ -159,7 +159,10 @@ pub fn terminal_protocol_typescript() -> String {
         "TerminalInputKind",
         &input_kinds.iter().map(String::as_str).collect::<Vec<_>>(),
     );
-    let rejections: Vec<String> = TerminalInputRejection::ALL.iter().map(wire_string).collect();
+    let rejections: Vec<String> = TerminalInputRejection::ALL
+        .iter()
+        .map(wire_string)
+        .collect();
     emit_string_union(
         &mut output,
         "TerminalInputRejection",
@@ -257,10 +260,7 @@ fn emit_encode_helpers(output: &mut String) {
         output,
         "export function encodeTerminalInput(data: Uint8Array): Uint8Array {",
     );
-    line(
-        output,
-        "  if (data.length > MAX_INPUT_DATA_BYTES) {",
-    );
+    line(output, "  if (data.length > MAX_INPUT_DATA_BYTES) {");
     line(
         output,
         "    throw new Error(`PayloadTooLarge kind=input max=${MAX_INPUT_DATA_BYTES} actual=${data.length}`);",
@@ -273,19 +273,13 @@ fn emit_encode_helpers(output: &mut String) {
         output,
         "export function encodeModeGatedInput(mode_generation: bigint | number, mode_revision: bigint | number, data: Uint8Array): Uint8Array {",
     );
-    line(
-        output,
-        "  if (data.length > MAX_MODE_GATED_DATA_BYTES) {",
-    );
+    line(output, "  if (data.length > MAX_MODE_GATED_DATA_BYTES) {");
     line(
         output,
         "    throw new Error(`PayloadTooLarge kind=mode_gated_input max=${MAX_MODE_GATED_DATA_BYTES} actual=${data.length}`);",
     );
     line(output, "  }");
-    line(
-        output,
-        "  const body = new Uint8Array(16 + data.length);",
-    );
+    line(output, "  const body = new Uint8Array(16 + data.length);");
     line(output, "  const view = new DataView(body.buffer);");
     line(
         output,

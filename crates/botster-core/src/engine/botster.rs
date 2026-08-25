@@ -294,6 +294,16 @@ impl DefaultBotsterEngine {
         }
     }
 
+    /// Build an empty local PTY-backed engine with explicit runtime options.
+    #[must_use]
+    pub fn with_local_options(options: crate::runtime::LocalProcessRuntimeOptions) -> Self {
+        Self {
+            runtime: runtime_with_plain_terminal_backend(LocalProcessRuntime::with_options(
+                options,
+            )),
+        }
+    }
+
     /// Build an empty local PTY-backed engine with a host-supplied terminal backend.
     ///
     /// This keeps the facade monomorphic while letting first-party host
@@ -592,7 +602,8 @@ impl DefaultBotsterEngine {
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<(), DefaultBotsterEngineError> {
-        self.runtime.apply_terminal_input(session_id, last_output_at)
+        self.runtime
+            .apply_terminal_input(session_id, last_output_at)
     }
 
     /// Drain currently available local runtime output through subscription fanout.
@@ -1229,10 +1240,7 @@ impl WorkerBackedBotsterEngine {
 
     /// Durable control-plane state for one worker session.
     #[must_use]
-    pub fn control_plane_state(
-        &self,
-        session_id: &SessionId,
-    ) -> crate::runtime::ControlPlaneState {
+    pub fn control_plane_state(&self, session_id: &SessionId) -> crate::runtime::ControlPlaneState {
         self.runtime.control_plane_state(session_id)
     }
 
@@ -1245,7 +1253,8 @@ impl WorkerBackedBotsterEngine {
         if self.incremental_attaches.contains_key(session_id) {
             return self.runtime.prepare_terminal_input(session_id);
         }
-        self.runtime.apply_terminal_input(session_id, last_output_at)
+        self.runtime
+            .apply_terminal_input(session_id, last_output_at)
     }
 
     /// Drain currently available worker process output through subscription fanout.

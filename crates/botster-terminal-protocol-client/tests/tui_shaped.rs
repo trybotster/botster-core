@@ -64,7 +64,10 @@ fn tui_shaped_consumer_constructs_and_serializes_semantic_events() {
         TerminalInputCommand::Resize { rows: 24, cols: 80 },
     ] {
         let frame = encode_terminal_input(&command).expect("encode command");
-        assert_eq!(decode_terminal_input(&frame).expect("decode command"), command);
+        assert_eq!(
+            decode_terminal_input(&frame).expect("decode command"),
+            command
+        );
     }
     assert_eq!(
         TerminalInputRejection::ALL.len(),

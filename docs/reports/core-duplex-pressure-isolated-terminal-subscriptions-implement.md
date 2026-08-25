@@ -9,8 +9,8 @@ Plan: `docs/archive/plans/core-duplex-pressure-isolated-terminal-subscriptions.m
 
 - Target repository: `botster-core` (`trybotster/botster-core`)
 - Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
-- Authoritative spawn path: `/Users/jasonconigliari/Projects/botster-core`
-- Pipeline worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-project-pipelines-ticket_1787600672_342292`
+- Authoritative spawn path: the `botster-core` target root
+- Pipeline worktree: the ticket worktree for `ticket_1787600672_342292`
 - Branch: `project-pipelines/ticket_1787600672_342292`
 - Base commit: `7eafa47`
 - Merge policy: `direct` (no PR)
@@ -32,6 +32,7 @@ Role and overlay:
 - [[implementation artifacts must match actual git state]]
 - [[implement gate must verify committed work and pr link before review]]
 - [[implementation steps must persist report artifacts for review]]
+- [[pipeline vault checklists must cite exact resolvable note titles]]
 
 Not loaded:
 
@@ -40,20 +41,25 @@ Not loaded:
 
 ## Files changed
 
+The `7eafa47...HEAD` set plus this return visit:
+
 Protocol and generated package:
 
 - `crates/botster-terminal-protocol/**`
 - `crates/botster-terminal-protocol-client/**` (0.2.0)
 - `packages/terminal-protocol/**` (0.2.0, fixture revision 2)
+- `script/terminal-protocol-node-smoke.sh`
 
 Core runtime and daemon:
 
 - `crates/botster-core/src/runtime/control_queue.rs` (new)
 - `crates/botster-core/src/runtime/worker_process.rs`
+- `crates/botster-core/src/runtime/local_process.rs`
 - `crates/botster-core/src/runtime/mod.rs`
 - `crates/botster-core/src/engine/client_worker.rs`
 - `crates/botster-core/src/engine/managed_session_runtime.rs`
 - `crates/botster-core/src/engine/botster.rs`
+- `crates/botster-core/src/engine/mod.rs`
 - `crates/botster-core/src/contract/session_protocol.rs`
 - `crates/botster-core/src/contract/terminal_adapter.rs`
 - `crates/botster-core/src/contract/terminal_subscription.rs`
@@ -61,14 +67,21 @@ Core runtime and daemon:
 - `crates/botster-core-daemon/src/daemon.rs`
 - `crates/botster-core-daemon/src/bin/botster-session-worker.rs`
 
-Docs and proof:
+Test support and proof:
+
+- `crates/botster-core-test-support/src/terminal_adapter/**`
+- `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/**`
+- `crates/botster-core/tests/session_protocol_test.rs`
+- `crates/botster-core/tests/client_worker_engine_test.rs`
+- `crates/botster-core/tests/local_process_runtime_test.rs`
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs`
+
+Docs:
 
 - `docs/architecture/terminal-adapter.md`
 - `docs/architecture/terminal-protocol.md`
+- `docs/archive/plans/core-duplex-pressure-isolated-terminal-subscriptions.md`
 - `docs/reports/core-duplex-pressure-isolated-terminal-subscriptions-implement.md`
-- `crates/botster-core/tests/session_protocol_test.rs`
-- `crates/botster-core/tests/client_worker_engine_test.rs`
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs`
 
 ## Ownership boundaries preserved
 
@@ -92,30 +105,50 @@ Docs and proof:
 - Runtime Drop no longer blocks on `Child::wait()` after a sealed writer. It kills and background-reaps, matching the process-exit path. A blocking wait deadlocked when the writer still held `ChildStdin`.
 - Local in-process apply rejects `ModeGatedInput` with `SessionNotWritable` instead of inventing a local gated lane.
 - Worker-backed apply intakes but does not send PTY bytes while IncrementalAttach is active. That keeps the snapshot barrier from seeing a tick-thread control write. After attach completes, the next drain applies the queued commands.
-- The daemon duplex byte-oracle test injects a hand-built compact-binary frame so the daemon test crate does not take a new protocol-client dependency.
+- Daemon duplex tests inject a hand-built compact-binary frame so the daemon test crate does not take a new protocol-client dependency.
+- Local apply-error tests use `LocalProcessRuntimeOptions.test_fail_pty_writes` so input and resize fail without inventing a second local write path.
 
 ## Tests and downstream proof run
 
 CI-owned Cargo commands, no wrapper:
 
+- `cargo fmt --all -- --check` — passed
+- `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --no-default-features` — 13 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --features local-runtime` — 41 passed
-- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 22 passed
+- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 26 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test session_protocol_test` — 17 passed
-- `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test worker_process_runtime_crosses_os_process_boundary` — passed
+- `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep dropping_parent_runtime_reaps_worker_and_pty_child` — passed
+- `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- drain_applies_injected_duplex_input drain_queue_overflow drain_reconnects_and_rejects drain_teardown_session drain_writer_failure` — 5 passed
 - `BOTSTER_ENV=test cargo test -p botster-terminal-protocol -p botster-terminal-protocol-client` — passed
-- `BOTSTER_ENV=test cargo test --manifest-path crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.toml` — 3 passed
-- `script/terminal-protocol-node-smoke.sh` — passed (`@trybotster/terminal-protocol` 0.2.0)
+- `BOTSTER_ENV=test cargo test --manifest-path crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.toml` — passed
+- `script/terminal-protocol-node-smoke.sh` — passed
+- `BOTSTER_ENV=test cargo test --doc --workspace` — passed
 
-Production entry point: `CoreDaemon::drain` now calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
+Production entry point: `CoreDaemon::drain` calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
+
+Added production-path proofs:
+
+- `local_input_result_carries_the_live_subscription_id`
+- `local_mode_gated_input_result_carries_the_live_subscription_id`
+- `local_apply_errors_fail_closed_and_leave_siblings`
+- `intake_refuses_the_command_that_would_exceed_capacity`
+- `drain_applies_injected_duplex_input_through_real_worker_pty`
+- `drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session`
+- `drain_reconnects_and_rejects_stale_generation_ingress`
+- `drain_teardown_session_clears_ingress_and_inventory`
+- `drain_writer_failure_sweeps_idle_same_session_owner`
 
 ## Unverified behavior or residual risk
 
-- A dedicated adapter-inject byte oracle did not observe PTY echo within the worker completion bound. `worker_bound_adapter_receives_ready_finish_without_drain_snapshots` still passes through `CoreDaemon::drain` after `apply_terminal_input` was added. Review should add the inject-to-echo oracle.
-- Control-pressure, idle-owner sweep, and the full seven-path gated-cancel suite from plan §12 are not all present as dedicated oracles. Cancel is wired on apply teardowns and on every `apply_client_worker_with` teardown, including detach, pump, and session teardown.
 - Same-session subscriptions still share one control channel. Delay then collective hard-stop is the stated policy. Cross-session isolation is the ticket guarantee.
 - `record_attach` stays infallible. Attach and bind gates live at `CoreDaemon` and worker-backed bind.
+- The full seven-path gated-cancel matrix from plan §12 is not each a dedicated named oracle. Cancel is wired on apply teardowns and on every `apply_client_worker_with` teardown, including detach, pump, and session teardown. Session teardown is proved by `drain_teardown_session_clears_ingress_and_inventory`.
+- Workspace suite root `worker_incremental_attach_streams_ready_pages_finish_then_queued_work_and_live_output` failed in isolation with `one client-paced frame per drain` on this return branch and on implement commit `065c2bf` (exit 101 both times, same command). This return visit did not change attach pacing. The duplex production-path tests above passed.
 
 ## Missing vault guidance discovered
 
-None that blocked the work. Writer timeout on stdio pipes is now a concrete gotcha: do not treat `SO_SNDTIMEO` failure as a sealed control plane.
+None that blocked the work. Writer-timeout gotchas were captured to the vault inbox:
+
+- `so-sndtimeo-failure-on-stdio-pipes-must-not-seal-a-botster-control-plane`
+- `set-nonblocking-on-a-cloned-unixstream-also-marks-the-reader-clone`

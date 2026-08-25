@@ -71,11 +71,8 @@ fn encode_is_fallible_at_exact_per_kind_ceilings() {
 fn decode_rejects_resize_body_that_is_not_four_bytes() {
     let mut bytes = vec![1, 3, 0, 3];
     bytes.extend_from_slice(&[0, 24, 80]);
-    let frame = botster_terminal_protocol::TerminalInputFrame::from_bytes(&bytes)
-        .expect("header is valid");
+    let frame =
+        botster_terminal_protocol::TerminalInputFrame::from_bytes(&bytes).expect("header is valid");
     let error = decode_terminal_input(&frame).expect_err("resize body must be 4");
-    assert!(
-        error.to_string().contains("4"),
-        "{error}"
-    );
+    assert!(error.to_string().contains("4"), "{error}");
 }

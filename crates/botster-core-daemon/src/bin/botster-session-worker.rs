@@ -23,18 +23,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use botster_core::engine::TerminalScreenRuntime;
 use botster_core::{
     read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags,
-    ModeFlagsPayload, ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult,
-    ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
+    ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
+    ModeGatedPtyInputResult, ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
     TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
     TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth,
     WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL,
     FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
     FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
-    FRAME_MODE_GATED_PTY_INPUT_RESULT, ModeGatedCancelRequest,
-    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
-    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
-    FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
+    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
@@ -86,6 +85,7 @@ fn run() -> Result<(), String> {
         test_write_max_chunk: args.test_write_max_chunk,
         test_pending_capacity: args.test_pending_capacity,
         test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
+        test_fail_pty_writes: false,
     };
     let mut runtime = LocalProcessRuntime::with_options(runtime_options);
     let initial_size = spawn_request

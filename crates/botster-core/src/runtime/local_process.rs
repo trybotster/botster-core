@@ -70,6 +70,8 @@ pub struct LocalProcessRuntimeOptions {
     /// Test-only: hold after successful fence enqueue while still critical
     /// (single-queue hold proofs; must stay under the fence the barrier waits on).
     pub test_hold_after_enqueue_ms: Option<u64>,
+    /// Test-only: fail the next PTY write or resize so apply can prove fail-closed teardown.
+    pub test_fail_pty_writes: bool,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -83,6 +85,7 @@ impl Default for LocalProcessRuntimeOptions {
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
+            test_fail_pty_writes: false,
         }
     }
 }
@@ -529,6 +532,12 @@ impl LocalProcessRegistry {
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
+        if session.write_test_hooks.fail_writes {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "test_fail_pty_writes",
+            ));
+        }
         let hooks = Arc::clone(&session.write_test_hooks);
         write_all_blocking(&mut session.writer, data, None, Some(hooks.as_ref()))
             .map(|_| ())
@@ -542,6 +551,12 @@ impl LocalProcessRegistry {
     ) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let session = lock_session(&session)?;
+        if session.write_test_hooks.fail_writes {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "test_fail_pty_writes",
+            ));
+        }
         session
             .master
             .resize(pty_size(Some(&size)))
@@ -716,6 +731,7 @@ struct WriteTestHooks {
     force_would_block_until_unix_ms: Option<u64>,
     max_chunk: Option<usize>,
     writes_completed: AtomicUsize,
+    fail_writes: bool,
 }
 
 impl WriteTestHooks {
@@ -724,6 +740,7 @@ impl WriteTestHooks {
             force_would_block_until_unix_ms: options.test_write_block_until_unix_ms,
             max_chunk: options.test_write_max_chunk,
             writes_completed: AtomicUsize::new(0),
+            fail_writes: options.test_fail_pty_writes,
         }
     }
 }
@@ -1764,6 +1781,7 @@ mod tests {
             force_would_block_until_unix_ms: Some(unix_now_ms() + 5_000),
             max_chunk: Some(1),
             writes_completed: AtomicUsize::new(0),
+            fail_writes: false,
         };
         let deadline = unix_now_ms() + 30;
         let err = write_all_blocking(&mut writer, b"abcdef", Some(deadline), Some(&hooks))

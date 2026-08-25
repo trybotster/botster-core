@@ -78,11 +78,12 @@ pub fn encode_terminal_input(
             (KIND_RESIZE, body)
         }
     };
-    let body_len = u16::try_from(body.len()).map_err(|_| TerminalInputEncodeError::PayloadTooLarge {
-        kind: command.kind(),
-        max: u16::MAX as usize,
-        actual: body.len(),
-    })?;
+    let body_len =
+        u16::try_from(body.len()).map_err(|_| TerminalInputEncodeError::PayloadTooLarge {
+            kind: command.kind(),
+            max: u16::MAX as usize,
+            actual: body.len(),
+        })?;
     let mut bytes = Vec::with_capacity(HEADER_BYTES + body.len());
     bytes.push(TERMINAL_INPUT_SCHEME_VERSION);
     bytes.push(kind);
@@ -127,9 +128,7 @@ pub fn decode_terminal_input(
         }
         KIND_RESIZE => {
             if body.len() != RESIZE_BODY_BYTES {
-                return Err(TerminalInputDecodeError::ResizeBodyLength {
-                    actual: body.len(),
-                });
+                return Err(TerminalInputDecodeError::ResizeBodyLength { actual: body.len() });
             }
             let rows = u16::from_be_bytes([body[0], body[1]]);
             let cols = u16::from_be_bytes([body[2], body[3]]);

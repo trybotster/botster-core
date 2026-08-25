@@ -115,8 +115,7 @@ impl ControlQueue {
         let total = state.frames.len();
         match class {
             ControlFrameClass::Ordinary => {
-                if state.ordinary_len
-                    >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS
+                if state.ordinary_len >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS
                 {
                     return Err(ControlQueueAdmitError::ControlQueueFull);
                 }
@@ -171,6 +170,12 @@ impl ControlQueue {
             .unwrap_or_else(|error| error.into_inner())
             .frames
             .len()
+    }
+
+    /// Whether the queue currently holds no frames.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Whether the queue is sealed.
