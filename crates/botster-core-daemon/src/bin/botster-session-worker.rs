@@ -15,10 +15,11 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::engine::TerminalScreenRuntime;
 use botster_core::{
@@ -137,6 +138,7 @@ fn run() -> Result<(), String> {
     let (frame_sender, frame_receiver) = mpsc::channel();
     let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
     let cancel_cell = Arc::new(Mutex::new(None::<String>));
+    let test_hold_used = Arc::new(AtomicBool::new(false));
     control.spawn_readers(
         initial_control,
         frame_sender,
@@ -180,6 +182,7 @@ fn run() -> Result<(), String> {
                                 &mut metadata_shaper,
                                 &egress,
                                 &cancel_cell,
+                                &test_hold_used,
                                 request,
                             ),
                             Err(error) => ModeGatedPtyInputResult {
@@ -577,6 +580,7 @@ fn atomic_mode_gated_admit(
     metadata_shaper: &mut TerminalMetadataLaneShaper,
     egress: &WorkerEgress,
     cancel_cell: &Arc<Mutex<Option<String>>>,
+    test_hold_used: &AtomicBool,
     request: ModeGatedPtyInputRequest,
 ) -> ModeGatedPtyInputResult {
     struct ClearCancel<'a>(&'a Arc<Mutex<Option<String>>>);
@@ -591,11 +595,13 @@ fn atomic_mode_gated_admit(
     let data = request.data;
     let deadline_unix_ms = request.deadline_unix_ms;
     let test_hold_ms = request.test_hold_ms.unwrap_or(0);
+    let apply_test_hold = test_hold_ms > 0 && !test_hold_used.swap(true, Ordering::SeqCst);
 
     let outcome = runtime.with_pty_io_barrier(session_id, |barrier| {
         // Optional deterministic hold while the reader is paused so mode-changing
         // output can accumulate in the OS PTY buffer after the first drain.
-        if test_hold_ms > 0 {
+        // One-shot: later gated requests on this worker must not inherit the hold.
+        if apply_test_hold {
             // First drain empties the pre-hold queue so the hold window is exact.
             apply_barrier_outputs(
                 barrier,
@@ -605,7 +611,18 @@ fn atomic_mode_gated_admit(
                 metadata_shaper,
                 egress,
             )?;
-            thread::sleep(Duration::from_millis(test_hold_ms));
+            let hold_deadline = Instant::now() + Duration::from_millis(test_hold_ms);
+            while Instant::now() < hold_deadline {
+                let cancelled = cancel_cell
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .as_ref()
+                    == Some(&request_id);
+                if cancelled {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
         }
 
         // Drain/apply every pre-barrier byte with the reader paused.

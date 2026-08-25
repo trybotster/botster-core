@@ -366,9 +366,10 @@ impl WorkerProcessRuntime {
             .map(|session| &session.metadata)
     }
 
-    /// Clone the session control queue. Tests use this as a queue-bound oracle.
+    /// Clone the session control queue for crate unit tests.
+    #[cfg(test)]
     #[must_use]
-    pub fn control_queue(&self, session_id: &SessionId) -> Option<ControlQueue> {
+    pub(crate) fn test_control_queue(&self, session_id: &SessionId) -> Option<ControlQueue> {
         self.sessions
             .get(session_id)
             .map(|session| session.control_queue.clone())

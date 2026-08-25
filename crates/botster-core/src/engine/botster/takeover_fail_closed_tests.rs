@@ -1,17 +1,25 @@
+use std::collections::VecDeque;
 use std::process::Command;
-use std::sync::Once;
+use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::{ClientId, SessionId, SubscriptionId, WorkerBackedBotsterEngine};
+use crate::contract::terminal_adapter::{
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+};
 use crate::contract::transport::TransportEgress;
-use crate::runtime::{SessionRuntime, SessionSpawnRequest};
+use crate::runtime::{
+    ControlFrameClass, SessionRuntime, SessionSpawnRequest, WORKER_CONTROL_QUEUE_FRAMES,
+    WORKER_CONTROL_RESERVED_SLOTS,
+};
 use crate::session::CoreSessionMetadata;
 use crate::{
-    QueueSource, RequestId, ResizePayload, SessionRuntimeInput, SessionRuntimeOutput,
-    SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState, TerminalScreenSize,
-    WorkerProcessRuntimeOptions,
+    QueueSource, RequestId, ResizePayload, SessionIoEvent, SessionRuntimeInput,
+    SessionRuntimeOutput, SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState,
+    TerminalCapabilitySet, TerminalScreenSize, WorkerProcessRuntimeOptions,
 };
+use botster_terminal_protocol::TerminalFrame;
 
 fn worker_path() -> std::path::PathBuf {
     static BUILD_WORKER: Once = Once::new();
@@ -595,4 +603,179 @@ fn teardown_reconcile_discards_removed_owner_queues() {
         .drain_runtime_once(&session_id, 17)
         .expect("reconcile after inventory teardown");
     assert_promoted_sibling_did_not_inherit_stale(&mut engine, &session_id, &pending, &pending_sub);
+}
+
+#[derive(Clone)]
+struct InjectAdapter {
+    ingress: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    closed: Arc<Mutex<bool>>,
+}
+
+impl InjectAdapter {
+    fn new() -> Self {
+        Self {
+            ingress: Arc::new(Mutex::new(VecDeque::new())),
+            closed: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    fn inject(&self, bytes: Vec<u8>) {
+        self.ingress
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push_back(bytes);
+    }
+}
+
+impl TerminalAdapter for InjectAdapter {
+    fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        if *self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+        {
+            return Err(TerminalAdapterWriteError::Closed);
+        }
+        Ok(())
+    }
+
+    fn close(&mut self) {
+        *self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = true;
+    }
+
+    fn pressure(&self) -> TerminalAdapterPressure {
+        if *self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+        {
+            TerminalAdapterPressure::Closed
+        } else {
+            TerminalAdapterPressure::Ready
+        }
+    }
+
+    fn try_read(&mut self) -> TerminalIngress {
+        if *self
+            .closed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+        {
+            return TerminalIngress::Closed;
+        }
+        match self
+            .ingress
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop_front()
+        {
+            Some(bytes) => TerminalIngress::Frame(bytes),
+            None => TerminalIngress::Empty,
+        }
+    }
+}
+
+fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
+    let body_len = u16::try_from(16 + data.len()).expect("gated body fits u16");
+    let mut bytes = vec![1, 2];
+    bytes.extend_from_slice(&body_len.to_be_bytes());
+    bytes.extend_from_slice(&mode_generation.to_be_bytes());
+    bytes.extend_from_slice(&mode_revision.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+#[test]
+fn owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot() {
+    let mut options = WorkerProcessRuntimeOptions::new(worker_path());
+    options.test_mode_gated_hold_ms = Some(10_000);
+    let mut engine = WorkerBackedBotsterEngine::with_options(options);
+    let session_id = SessionId("queue-bound-one-cancel".to_string());
+    let client = ClientId("queue-bound-one-cancel-c".to_string());
+    let subscription = SubscriptionId("queue-bound-one-cancel-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("inventory after attach")
+        .generation;
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_terminal_adapter(
+            client.clone(),
+            session_id.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let flags = engine
+        .read_mode_flags(
+            RequestId("queue-bound-probe".to_string()),
+            session_id.clone(),
+            20,
+        )
+        .expect("mode flags");
+    let (mode_generation, mode_revision) = flags
+        .session_events
+        .iter()
+        .find_map(|event| match event {
+            SessionIoEvent::ModeFlagsReady(ready) => Some((
+                ready.mode_freshness.mode_generation,
+                ready.mode_freshness.mode_revision,
+            )),
+            _ => None,
+        })
+        .expect("worker freshness");
+    let queue = engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("live control queue");
+    queue.hold_pops(true);
+    adapter.inject(compact_mode_gated_frame(
+        mode_generation,
+        mode_revision,
+        b"hold\n",
+    ));
+    engine
+        .apply_terminal_input(&session_id, 21)
+        .expect("submit gated hold");
+    let (ordinary, cancel, terminal) = queue.class_counts();
+    assert_eq!(
+        cancel, 0,
+        "gated submit is ordinary, not cancel: {ordinary}"
+    );
+    assert_eq!(terminal, 0);
+    let ordinary_capacity = WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
+    assert!(ordinary >= 1, "gated submit must occupy one ordinary slot");
+    for _ in ordinary..ordinary_capacity {
+        queue
+            .admit(ControlFrameClass::Ordinary, vec![1])
+            .expect("fill ordinary capacity");
+    }
+    assert_eq!(queue.class_counts(), (ordinary_capacity, 0, 0));
+    engine
+        .detach_client(client, session_id.clone(), subscription, 22)
+        .expect("detach held owner");
+    assert_eq!(
+        queue.class_counts(),
+        (ordinary_capacity, 1, 0),
+        "one owner teardown must enqueue exactly one cancel"
+    );
+    queue
+        .admit(ControlFrameClass::Terminal, vec![0])
+        .expect("one cancel must leave the reserved shutdown slot");
+    assert_eq!(queue.class_counts(), (ordinary_capacity, 1, 1));
+    queue.hold_pops(false);
 }

@@ -10156,7 +10156,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_ghostty_max_scrollback_bytes(0)
-            .with_test_mode_gated_hold_ms(Some(500)),
+            .with_test_mode_gated_hold_ms(Some(10_000)),
     );
     let held = SessionId("duplex-detach-gated-held".to_string());
     let sibling = SessionId("duplex-detach-gated-sib".to_string());
@@ -10211,10 +10211,6 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
             .all(|bytes| adapter_input_result_subscription(bytes).is_none()),
         "detach must not synthesize a late input_result for the held request"
     );
-    thread::sleep(Duration::from_millis(700));
-    let _ = daemon
-        .drain(&held, 29)
-        .expect("drain cancelled hold reply so the lane releases");
     let replacement_client = ClientId("duplex-detach-gated-next-c".to_string());
     let replacement_sub = SubscriptionId("duplex-detach-gated-next-sub".to_string());
     let replacement = attach_bound_adapter(
@@ -10224,13 +10220,35 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
         replacement_sub.clone(),
         30,
     );
-    let replacement_probe = daemon
-        .read_mode_flags(ReadModeFlagsRequest {
+    // Replacement probe and echo must complete well before the uncancelled
+    // hold (10s) and the parent timeout (5s). Sleep-past-hold is not a cancel
+    // oracle.
+    const CANCEL_RELEASE_BOUND: Duration = Duration::from_secs(2);
+    let started_release = Instant::now();
+    let replacement_probe = loop {
+        let _ = daemon
+            .drain(&held, 29)
+            .expect("drain cancelled hold reply so the lane releases");
+        match daemon.read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId("duplex-detach-gated-next-probe".to_string()),
             session_id: held.clone(),
             now_seconds: 31,
-        })
-        .expect("probe replacement session");
+        }) {
+            Ok(probe) => break probe,
+            Err(error)
+                if error
+                    .to_string()
+                    .contains("mode-gated request already in flight") =>
+            {
+                assert!(
+                    started_release.elapsed() < CANCEL_RELEASE_BOUND,
+                    "cancel must release the held lane before the uncancelled hold: {error}"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("probe replacement session: {error}"),
+        }
+    };
     replacement.inject_ingress_frame(compact_mode_gated_frame(
         replacement_probe.mode_flags.mode_freshness.mode_generation,
         replacement_probe.mode_flags.mode_freshness.mode_revision,
@@ -10238,7 +10256,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     ));
     let started_next = Instant::now();
     let mut saw_replacement = false;
-    while started_next.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+    while started_next.elapsed() < CANCEL_RELEASE_BOUND {
         let _ = daemon.drain(&held, 32).expect("drain replacement gated");
         if replacement
             .snapshot_delivered_frame_bytes()
@@ -10252,7 +10270,12 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     }
     assert!(
         saw_replacement,
-        "held lane must release so a new gated request can enter"
+        "cancel must release the held lane so a replacement gated request completes before the uncancelled hold; replacement frames: {:?}",
+        replacement
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .map(|bytes| adapter_payload_text(bytes))
+            .collect::<Vec<_>>()
     );
     assert!(
         held_adapter

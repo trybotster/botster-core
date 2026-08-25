@@ -1371,7 +1371,7 @@ where
             self.apply_client_worker(&mut outcome)?;
             return Ok(outcome);
         }
-        let mut outcome = self
+        let outcome = self
             .engine
             .shutdown_session(session_id.clone(), reason, now_seconds)?;
 
