@@ -2,10 +2,11 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 4. Plan Review returned `changes_required` three times.
+Revision 5. Plan Review returned `changes_required` four times.
 `review_1787634119_893294` raised four product findings plus one missing-context
 finding; `review_1787635010_824294` raised four more against revision 2; and
-`review_1787635689_864971` raised two against revision 3. Section 19 maps every
+`review_1787635689_864971` raised two against revision 3; and
+`review_1787636259_958552` raised two against revision 4. Section 19 maps every
 finding to the section that resolves it.
 
 ## 1. Target
@@ -194,6 +195,9 @@ Non-scope:
 - Do not delete `CoreDaemon::mode_gated_input`, `CoreDaemon::input`, or the
   existing resize API in this ticket. Hub, Web, and TUI still call them until
   their own tickets land. The cold cut is `ticket_1787600679_990088`.
+- Add a bounded parent-to-worker control egress queue with its own writer thread, so
+  no tick-thread call performs socket I/O. This replaces blocking `write_json` calls
+  on the tick path only; the frame encoding and the socket itself are unchanged.
 - Change the worker protocol only by the one addition §5.8 names:
   `FRAME_MODE_GATED_CANCEL` plus its in-barrier check. Revision 3 listed the whole
   worker protocol as non-scope; that made cancellation unable to stop a write it had
@@ -565,6 +569,8 @@ Every teardown path also cancels an outstanding gated request, per §5.8.
 | `MAX_MODE_GATED_DATA_BYTES` | `botster-terminal-protocol` | `65_519` | `65_535 - 16`; the lower per-kind ceiling |
 | `RESIZE_BODY_BYTES` | `botster-terminal-protocol` | `4` | exact, `rows: u16` plus `cols: u16` |
 | `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` | `botster-core` contract | `64` | Equal to the intake budget. A conforming adapter buffers at least this many complete frames before it may report `Lost`. |
+| `WORKER_CONTROL_QUEUE_FRAMES` | `worker_process` | `32` | Bounded parent-to-worker control egress queue, per session |
+| `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` | `worker_process` | `1` | Slots ordinary frames may never occupy, so a cancel always fits. One is exact: at most one cancel per session is outstanding. |
 | `INPUT_QUEUE_CAPACITY` | `ClientWorker` | `256` commands per subscription | Bounded per-subscription backlog |
 | `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `64` | Stage A budget |
 | `APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `16` | Stage B budget; bounds per-tick PTY work |
@@ -693,48 +699,113 @@ One new control frame:
 FRAME_MODE_GATED_CANCEL  ->  { request_id: String }
 ```
 
-Parent side, `cancel_mode_gated_pty_input(session_id, request_id)`:
+#### 5.8.1 The worker observes cancellation through a dedicated cell, not a scan
 
-1. Write `FRAME_MODE_GATED_CANCEL` for that exact `request_id`. Non-blocking.
-2. Mark the parent slot `Cancelled { request_id }`. **Do not free it yet.**
-3. Free the slot only when the correlated reply arrives, or at
-   `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`. The reply is discarded for
-   routing, because the owner is gone, but it is what releases the lane.
+Revision 4 had the worker drain `frame_receiver` inside the PTY barrier looking for a
+cancel, stashing other frames in a deferred buffer. That was wrong twice.
+`botster-session-worker.rs:136` creates that channel with unbounded
+`mpsc::channel()`, so the in-barrier scan had no work bound, and the deferred buffer
+had no capacity, no overflow rule, and no defined replay owner. A fence must not be
+the most expensive step in the critical section it protects.
 
-Holding the slot until resolution is what removes the overlap: a replacement gated
-request for that session is not admitted while an abandoned one can still write.
+The worker instead owns one **single-slot cancellation cell**:
 
-Worker side, inside `atomic_mode_gated_admit`:
+```rust
+cancel_cell: Arc<Mutex<Option<GatedRequestId>>>
+```
 
-The worker's control frames already arrive on a reader thread that feeds an mpsc
-channel (`botster-session-worker.rs:896`), so a cancel sent while the barrier is open
-is already queued. Inside `runtime.with_pty_io_barrier`, immediately after the
-existing deadline and freshness checks and **strictly before** `barrier.write_input`,
-the worker drains that channel without blocking:
+- The control **reader thread** (`botster-session-worker.rs:897`) already parses every
+  frame. On `FRAME_MODE_GATED_CANCEL` it stores the `request_id` in the cell and does
+  **not** forward the frame to `frame_receiver`. All of that work happens off the
+  barrier path.
+- Inside `runtime.with_pty_io_barrier`, after the existing deadline and freshness
+  checks and **strictly before** `barrier.write_input`, the worker takes one lock,
+  compares one id, and clears the cell when it matches. That is O(1) with no scan, no
+  deferred buffer, and no replay ordering to get wrong.
+- One slot is exact, not a guess: the parent admits one gated request per session at a
+  time and sends at most one cancel per request, so two cancels can never be live
+  together. A second cancel overwrites, which is the correct behavior for a newer one.
+- The cell is cleared at admit completion whether or not it matched, so a cancel that
+  names an already-finished request cannot leak into a later one.
 
-- A `FRAME_MODE_GATED_CANCEL` whose `request_id` matches this request ends the admit
-  with `admitted = false`, `bytes_written = 0`, `error_kind = "cancelled"`, and **no
-  write**.
-- Every other frame drained in that pass is stashed in a small deferred buffer and
-  replayed to the main loop after the admit returns, so nothing is lost or reordered.
+A matching cancel ends the admit with `admitted = false`, `bytes_written = 0`,
+`error_kind = "cancelled"`, and **no write**.
 
-**The race is total, with no third outcome.** The cancel check sits in the same
-critical section as the deadline and freshness checks and strictly before the write,
-and `write_input` is bounded and completes inside the barrier. So exactly one of these
+**The race is total, with no third outcome.** The cell read sits in the same critical
+section as the deadline and freshness checks and strictly before the write, and
+`write_input` is bounded and completes inside the barrier. So exactly one of these
 happens:
 
 | Order | Result |
 |-------|--------|
-| Cancel observed before the write | Nothing is written. Reply is `cancelled`, `bytes_written = 0`. |
-| Write completed before the cancel frame was drained | Bytes were written. The reply reports `admitted = true` and the exact `bytes_written`, truthfully. |
+| Cancel stored in the cell before the barrier reads it | Nothing is written. Reply is `cancelled`, `bytes_written = 0`. |
+| The write completed before the reader thread stored the cancel | Bytes were written. The reply reports `admitted = true` and the exact `bytes_written`, truthfully. |
 
 There is no interleaving in which a partial write escapes the fence, because the write
 is not re-entered after the check. The reply always tells the parent which of the two
 occurred, so the plan never claims a byte was suppressed when it was not.
 
+#### 5.8.2 Parent control writes are bounded and never block the tick
+
+Revision 4 called `submit_mode_gated_pty_input` and `cancel_mode_gated_pty_input`
+non-blocking. They were not. `worker_process.rs:2247` writes through
+`stream.write_all(&frame).and_then(|_| stream.flush())` with no deadline and no
+bounded writer queue, and a submit can carry up to `MAX_MODE_GATED_DATA_BYTES`. A full
+or stalled worker control socket would therefore have blocked `CoreDaemon::drain`
+inside submit, or blocked teardown inside cancel. That defeats the sibling isolation
+this ticket exists to provide, and it violates the bounded control-plane requirement
+of [[botster runtime teardown lenses]].
+
+The parent gains a **bounded control egress queue with its own writer thread**, per
+session. This mirrors the pattern the worker already uses for its own egress, which
+takes a bounded `mpsc::sync_channel` and a dedicated writer
+(`botster-session-worker.rs:1335`, `spawn_writer`).
+
+- `control_tx: SyncSender<ControlFrame>` with capacity
+  `WORKER_CONTROL_QUEUE_FRAMES` (§5.6).
+- One writer thread per session owns the write half and performs the blocking
+  `write_all` and `flush`. Blocking there is correct and harmless: it is not the tick
+  thread, and it holds no lock the tick needs.
+- `submit_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, and plain input writes
+  use `try_send` and return immediately. **No tick-thread call performs socket I/O.**
+
+**Cancel can always be sent, and always arrives after its own submit.** Ordinary
+frames are admitted only while the queue holds fewer than
+`WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_CANCEL_SLOTS` entries. The
+reserved slot is never consumed by ordinary traffic, and one slot is exact because at
+most one cancel per session can be outstanding. Cancel rides the **same FIFO queue**
+rather than a priority lane, which is what guarantees the worker sees the submit
+before its cancel; a priority lane could deliver a cancel for a request the worker had
+not yet received, and the fence would silently do nothing.
+
+**Overflow is fail-closed and owner-scoped.** An ordinary `try_send` that finds the
+queue at its ordinary capacity returns `ControlQueueFull`. §5.7 already routes a
+per-command runtime error to a hard stop of that owner alone, and this uses that same
+path. No sibling is closed, and the tick continues.
+
+**A wedged control socket degrades one session, bounded.** If the worker stops reading,
+the writer thread blocks in `write_all`, the queue fills, and ordinary sends fail
+closed. A cancel already in the queue may then sit unwritten. The lane is still
+bounded: the parent releases it on the correlated reply or at
+`mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever comes first. The tick
+never blocks, so every sibling subscription and every other session keeps progressing
+throughout. §12 proves that with a stalled-reader pressure test.
+
+#### 5.8.3 Lane release and cancellation coverage
+
+Parent side, `cancel_mode_gated_pty_input(session_id, request_id)`:
+
+1. `try_send` the cancel frame into the reserved slot. Returns immediately.
+2. Mark the parent slot `Cancelled { request_id }`. **Do not free it yet.**
+3. Free the slot only when the correlated reply arrives, or at
+   `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`.
+
+Holding the lane until resolution is what removes the overlap: a replacement gated
+request for that session is not admitted while an abandoned one can still write.
+
 Because the fence is keyed by `request_id`, cancelling generation N's request can
-never affect generation N+1: N+1's own submit produced a fresh `GatedRequestId`, and
-the parent will not have admitted it until N's lane was released.
+never affect generation N+1. N+1 cannot even submit until N's lane is released, and
+its own submit then produces a fresh `GatedRequestId`.
 
 Every path that removes an owner calls the cancel when `awaiting_gated` is set:
 `hard_stop_key` (malformed frame, ingress `Lost`, queue overflow, per-command apply
@@ -831,12 +902,12 @@ harness, the Rust protocol crates, and the npm package.
 | `crates/botster-core/src/contract/terminal_adapter.rs` | `try_read` added returning the new `TerminalIngress` enum, `MIN_ADAPTER_INGRESS_BUFFER_FRAMES`, duplex contract documented |
 | `crates/botster-core/src/contract/terminal_subscription.rs` | `TerminalInputDelivery`, re-export of `TerminalInputCommand` |
 | `crates/botster-core/src/engine/client_worker.rs` | Ingress queue, rotation cursor, `intake_terminal_input`, `take_terminal_input`, `awaiting_gated`, fail-closed decode and overflow |
-| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; existing blocking method reimplemented on top of them |
+| `crates/botster-core/src/runtime/worker_process.rs` | `submit_mode_gated_pty_input`, `poll_mode_gated_pty_input`, `cancel_mode_gated_pty_input`, `GatedPoll`; bounded control egress queue plus per-session writer thread so the tick performs no socket I/O; existing blocking method reimplemented on top of them |
 | `crates/botster-core/src/engine/managed_session_runtime.rs` | Ingress stages and apply inside the tick, per-command error isolation, `input_result` enqueue |
 | `crates/botster-core/src/engine/botster.rs` | Engine-level `apply_terminal_input`, submit and poll passthrough |
 | `crates/botster-core-daemon/src/daemon.rs` | `CoreDaemon::drain` applies terminal input first |
 | `crates/botster-core/src/contract/session_protocol.rs` | `FRAME_MODE_GATED_CANCEL` frame constant and its payload type |
-| `crates/botster-core-daemon/src/bin/botster-session-worker.rs` | In-barrier cancel check inside `atomic_mode_gated_admit`, before `write_input`; deferred-frame replay for non-cancel frames drained in that pass |
+| `crates/botster-core-daemon/src/bin/botster-session-worker.rs` | Single-slot `cancel_cell` set by the control reader thread; O(1) cell check inside `atomic_mode_gated_admit` before `write_input` |
 | `crates/botster-core-test-support/src/terminal_adapter/mod.rs` | Duplex conformance arms |
 | `crates/botster-core-test-support/src/terminal_adapter/{fake,unix_shaped,webrtc_shaped,core}.rs` | Drivers gain ingress injection hooks and `try_read` |
 | `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/src/lib.rs` | Duplex adapter consumer proof |
@@ -904,7 +975,9 @@ harness, the Rust protocol crates, and the npm package.
 | R9 | A stalled gated owner never resumes because the reply is lost. | `poll_mode_gated_pty_input` enforces the same `timeout + grace` deadline the blocking loop uses and returns `TimedOut`, which clears `awaiting_gated` and emits a `Timeout` result. |
 | R11 | A future field added to Core's `ModeFlags` or `ModeFreshnessToken` is silently dropped on the wire. | The mapping is total and a Core-side parity test asserts it in both directions, so adding a field fails the test rather than shipping a gap. |
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
-| R14 | The in-barrier cancel drain consumes a non-cancel control frame and loses it. | Drained non-cancel frames are stashed and replayed to the main loop after the admit returns; a test sends `FRAME_PTY_INPUT` during the hold and asserts in-order application. |
+| R14 | The cancellation cell holds a stale id and cancels the wrong request. | The cell is single-slot, cleared at admit completion whether or not it matched, and compared by exact `request_id`. A test sends a cancel for a finished request and asserts the next request is admitted normally. |
+| R16 | A wedged worker control socket permanently strands one session's gated lane. | The lane frees on the correlated reply or at `timeout + grace`, whichever comes first. The stalled-reader test asserts both the bound and continued sibling progress. |
+| R17 | The bounded control queue drops a plain input frame under pressure and breaks byte fidelity. | Ordinary overflow is fail-closed: it hard-stops that owner rather than dropping a frame, so no byte run is ever silently truncated. The overflow test asserts the teardown, not a drop. |
 | R15 | The worker protocol addition creates parent/worker version skew. | The parent builds and spawns the session worker from the same source tree, and Hub pins Core by exact revision, so the two are always matched. The charter gate command already rebuilds the worker binary before the suite. |
 | R13 | A teardown path is added later without cancelling the gated slot. | Cancellation is driven from one place, step 5 of §5.7, over the teardown vector every ingress stage already returns, so a new failure path inherits it. A test enumerates all seven owner-removing paths. |
 | R10 | Conformance revision 2 or package version 0.2.0 collides with a concurrent release. | §3 records verified registry state; §14 re-verifies immediately before publish and reallocates strictly above published history. |
@@ -949,8 +1022,18 @@ that deadline expires.
   after which `poll` returns `TimedOut` and the owner resumes.
 - The ingress queue is bounded by `INPUT_QUEUE_CAPACITY`. Overflow is fail-closed,
   not a wait.
-- `cancel_mode_gated_pty_input` is non-blocking: it writes one frame and returns. The
-  parent does not wait for the worker.
+- `submit_mode_gated_pty_input` and `cancel_mode_gated_pty_input` are non-blocking
+  because they `try_send` into the bounded control egress queue and return. A
+  dedicated per-session writer thread performs the blocking socket write, off the tick
+  thread and holding no lock the tick needs. No tick-thread call performs socket I/O.
+- Ordinary control sends fail closed at the ordinary capacity and hard-stop that owner
+  alone. A cancel always fits, because `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` is never
+  consumed by ordinary traffic.
+- A wedged worker control socket degrades exactly one session and is bounded by
+  `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`. The tick never blocks, so every
+  sibling subscription and every other session keeps progressing.
+- The worker's cancel observation is O(1): one lock, one id compare, one clear. It is
+  not a scan, so it adds no unbounded work to the PTY critical section.
 - The cancelled lane is still bounded. The parent frees the slot on the correlated
   reply or at `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever comes
   first, so an abandoned request delays a replacement by at most that bound and never
@@ -1026,7 +1109,10 @@ Live oracles, not helper calls:
    the ordering oracle; dropping the in-barrier cancel check breaks the worker-fence
    oracle. A fifth, making adapter loss silent, breaks the byte-fidelity oracle.
    Implement records every failing test name.
-6. **No-spin control.** With one subscription flooded and one idle, the idle
+6. **Control-pressure oracle.** With the worker's control reader stalled, a
+   subscription on a different session still completes input-to-echo through
+   `CoreDaemon::drain`. This proves no tick-thread call performs socket I/O.
+7. **No-spin control.** With one subscription flooded and one idle, the idle
    subscription's applied-command count stays bounded by the apply budget. This is a
    deterministic counter assertion, not a wall-clock sample.
 
@@ -1217,10 +1303,11 @@ and driver-hook based, with no sleeps:
    shaped drivers.
 4. Gated-primitive commit — `submit_mode_gated_pty_input`,
    `poll_mode_gated_pty_input`, and `cancel_mode_gated_pty_input`, plus the
-   `FRAME_MODE_GATED_CANCEL` frame and its in-barrier worker check, with the blocking
-   method reimplemented on the same primitives and its characterization test. The
-   worker fence lands here so review can verify it separately from the ingress
-   consumer. This lands **before** the runtime commit so review can
+   `FRAME_MODE_GATED_CANCEL` frame, the worker's cancellation cell, and the bounded
+   parent control egress queue with its writer thread. The blocking method is
+   reimplemented on the same primitives and keeps its characterization test. The
+   fence and the egress bound land here so review can verify both separately from the
+   ingress consumer. This lands **before** the runtime commit so review can
    verify the decomposition separately from the new consumer.
 5. Runtime commit — `ClientWorker` ingress ownership, the two stages, and the
    `CoreDaemon::drain` apply step, with its tests.
@@ -1312,9 +1399,28 @@ Capture only after this ticket proves the contract, not at Plan time:
     only real when the party that performs the effect checks it inside the same
     critical section that performs the effect.
 
-No gap beyond these eleven was found.
+12. **A fence must not be the most expensive step in the critical section it
+    protects.** Revision 4 put an unbounded channel scan inside the PTY barrier to
+    look for a cancel. A dedicated single-slot signal set off the hot path is both
+    cheaper and simpler than scanning a queue for the message you want.
+13. **"Non-blocking" is a claim about the call stack, not the intent.** Revision 4
+    called submit and cancel non-blocking while they reached `write_all` plus `flush`
+    on a socket with no deadline. Verify the leaf call before writing the word.
+
+No gap beyond these thirteen was found.
 
 ## 19. Plan Review response
+
+### Round 4: `review_1787636259_958552`, verdict `changes_required`
+
+Round 4 confirmed that revision 4's worker-visible cancel fence and the corrected
+`TerminalIngress` conformance table were right. Two defects remained, both introduced
+by that same fix, plus one self-contradictory acceptance row.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787636259_772231` — bound mode-gated submit and cancel control writes | high, product | **Confirmed real.** `worker_process.rs:2247` writes through `stream.write_all(&frame).and_then(\|_\| stream.flush())` with no deadline and no bounded writer queue, and a submit can carry up to `MAX_MODE_GATED_DATA_BYTES`. Revision 4 called submit and cancel non-blocking while they reached exactly that leaf call, so a stalled worker control socket would have blocked `CoreDaemon::drain` during submit or teardown during cancel. §5.8.2 adds a bounded per-session control egress queue with its own writer thread, mirroring the pattern the worker already uses for its egress (`botster-session-worker.rs:1335`, `spawn_writer`). Tick-thread calls only `try_send`. `WORKER_CONTROL_QUEUE_FRAMES` is 32 with `WORKER_CONTROL_RESERVED_CANCEL_SLOTS` of 1, so a cancel always fits, and it rides the same FIFO queue rather than a priority lane, which is what guarantees the worker sees a submit before its cancel. Ordinary overflow is fail-closed to that owner alone. A wedged socket degrades one session, bounded by `timeout + grace`, while the tick and every sibling keep progressing. §12 adds six control-egress pressure tests including a red-on-revert control that restores the direct `write_json` call. |
+| `finding_1787636259_795563` — bound and reconcile the worker cancel observation path | high, product | **Confirmed real.** `botster-session-worker.rs:136` creates `frame_receiver` with unbounded `mpsc::channel()`, so revision 4's in-barrier scan had no work bound, and its deferred buffer had no capacity, no overflow rule, and no defined replay owner. §5.8.1 replaces the scan with a single-slot cancellation cell that the control reader thread sets, so the barrier does one lock, one id compare, and one clear. That is O(1), removes the deferred buffer and its replay ordering entirely, and is strictly simpler than what it replaces. One slot is exact rather than a guess, because at most one gated request per session is in flight and the parent sends at most one cancel per request. The reviewer also caught that the replacement acceptance row cancelled generation N *after* N+1 had submitted, which this plan's own lane-hold rule makes unreachable; §12 now asserts the reachable pair instead: N+1 stays queued while N's lane is held, then submits cleanly after release. |
 
 ### Round 3: `review_1787635689_864971`, verdict `changes_required`
 
