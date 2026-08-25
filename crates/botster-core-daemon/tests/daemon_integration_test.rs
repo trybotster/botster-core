@@ -10379,3 +10379,69 @@ fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
     );
     let _ = fs::remove_dir_all(data_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued() {
+    let data_dir = temp_data_dir("duplex-hold-same-tick");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("duplex-hold-same-tick".to_string());
+    let first_sub = SubscriptionId("duplex-hold-same-tick-first-sub".to_string());
+    let second_sub = SubscriptionId("duplex-hold-same-tick-second-sub".to_string());
+    let first = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        ClientId("duplex-hold-same-tick-first-c".to_string()),
+        first_sub.clone(),
+        "while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        10,
+    );
+    let second = attach_bound_adapter(
+        &mut daemon,
+        session_id.clone(),
+        ClientId("duplex-hold-same-tick-second-c".to_string()),
+        second_sub.clone(),
+        20,
+    );
+    let probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("duplex-hold-same-tick-probe".to_string()),
+            session_id: session_id.clone(),
+            now_seconds: 21,
+        })
+        .expect("probe shared session");
+    first.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"first\n",
+    ));
+    second.inject_ingress_frame(compact_mode_gated_frame(
+        probe.mode_flags.mode_freshness.mode_generation,
+        probe.mode_flags.mode_freshness.mode_revision,
+        b"second\n",
+    ));
+    let _ = daemon
+        .drain(&session_id, 22)
+        .expect("one drain tick for both gated heads");
+    let first_results: Vec<_> = first
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| adapter_input_result_subscription(bytes))
+        .collect();
+    let second_results: Vec<_> = second
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| adapter_input_result_subscription(bytes))
+        .collect();
+    assert!(
+        first_results.is_empty() && second_results.is_empty(),
+        "one drain tick must not reject the ungranted sibling: first={first_results:?} second={second_results:?} first_frames={:?} second_frames={:?}",
+        first.snapshot_delivered_frame_bytes(),
+        second.snapshot_delivered_frame_bytes()
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}

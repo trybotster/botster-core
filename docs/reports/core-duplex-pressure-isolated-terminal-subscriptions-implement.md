@@ -113,6 +113,7 @@ Docs:
 - Queue-bound oracles (`hold_pops`, `class_counts`, `test_control_queue`) stay `#[cfg(test)] pub(crate)`. They are not on the public `WorkerProcessRuntime` seam.
 - The worker test hold is interruptible by a matching cancel frame and is one-shot so a later replacement gated request does not inherit the hold.
 - Stage B hold includes every session that already occupies a gated slot, plus every session with a parked ClientWorker owner. The drained session id alone is not the hold set.
+- Stage B inserts a session into the hold set when it grants a `ModeGatedInput` in the same batch. A hold set snapshotted before the owner walk is not enough.
 
 ## Tests and downstream proof run
 
@@ -122,7 +123,7 @@ CI-owned Cargo commands, no wrapper:
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --no-default-features` — 13 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --features local-runtime` — passed, including the moved queue-bound unit test
-- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 28 passed
+- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 29 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test session_protocol_test` — 17 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep dropping_parent_runtime_reaps_worker_and_pty_child` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- drain_applies_injected_duplex_input drain_queue_overflow drain_reconnects_and_rejects drain_teardown_session drain_writer_failure` — 5 passed
@@ -134,9 +135,11 @@ CI-owned Cargo commands, no wrapper:
 - `BOTSTER_ENV=test cargo test --lib failed_final_capture_installs_no_retained_terminal_state -p botster-core-daemon` — passed. Shutdown keeps the mux route live until the next drain delivers `ProcessExit`. Missing-owner ingest retains `ProcessExit` and drops later `TerminalOutput` / `Snapshot`.
 - `BOTSTER_ENV=test cargo test -p botster-core --lib owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — passed. Thirty ordinary frames plus one owner teardown enqueue exactly one cancel and leave the reserved shutdown slot. The oracle uses the crate-private test seam, not a public runtime queue handle.
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test drain_detach_cancels_held_gated_and_leaves_sibling` — passed. The worker hold is 10s and is released only by a matching cancel frame. The test requires the parent lane to accept a replacement probe in under 2s, then `echo:next` from a replacement gated request, with no `echo:hold` and no late `input_result`. It does not sleep past the uncancelled hold.
-- `BOTSTER_ENV=test cargo test --workspace` — 815 passed, 1 ignored. This visit added two hold-set regressions and did not change `plugin_worker.rs`. The exact Clippy command above passed on the committed tree.
+- `BOTSTER_ENV=test cargo test --workspace` — 817 passed, 1 ignored. This visit added two same-tick hold regressions and did not change `plugin_worker.rs`. The exact Clippy command above passed on the committed tree.
 - `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session` — failed before the hold-set fix, then passed.
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test drain_other_session_leaves_queued_gated_on_a_held_sibling` — passed. Draining session A does not reject a queued sibling `ModeGatedInput` on session B while B holds the gated slot.
+- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test take_grants_one_mode_gated_per_session_in_one_batch` — failed before the same-tick hold update, then passed. Two unparked owners on one session grant one `ModeGatedInput`; the sibling stays queued.
+- `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued` — failed before the same-tick hold update with an immediate `input_result`, then passed. One `CoreDaemon::drain` tick does not reject the ungranted sibling.
 
 Production entry point: `CoreDaemon::drain` calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
 
@@ -158,6 +161,8 @@ Added production-path proofs:
 - `owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — crate unit test behind `test_control_queue`
 - `take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session`
 - `drain_other_session_leaves_queued_gated_on_a_held_sibling`
+- `take_grants_one_mode_gated_per_session_in_one_batch`
+- `drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued`
 
 ## Unverified behavior or residual risk
 
@@ -172,3 +177,5 @@ None that blocked the work. Writer-timeout gotchas and the Review identity gap w
 - `so-sndtimeo-failure-on-stdio-pipes-must-not-seal-a-botster-control-plane`
 - `set-nonblocking-on-a-cloned-unixstream-also-marks-the-reader-clone`
 - `every-terminal-input-result-must-stamp-the-live-subscription-id`
+- `a-global-owner-walk-needs-a-global-per-session-gated-hold`
+- `a-batch-dequeue-loop-must-update-its-exclusion-set-as-it-grants-work`
