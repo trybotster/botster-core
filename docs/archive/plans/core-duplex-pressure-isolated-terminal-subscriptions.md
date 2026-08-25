@@ -2,12 +2,13 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 6. Plan Review returned `changes_required` five times.
+Revision 7. Plan Review returned `changes_required` six times.
 `review_1787634119_893294` raised four product findings plus one missing-context
 finding; `review_1787635010_824294` raised four more against revision 2;
 `review_1787635689_864971` raised two against revision 3; and
 `review_1787636259_958552` raised two against revision 4; and
-`review_1787636806_488333` raised three against revision 5. Section 19 maps every
+`review_1787636806_488333` raised three against revision 5; and
+`review_1787637388_506869` raised two against revision 6. Section 19 maps every
 finding to the section that resolves it.
 
 ## 1. Target
@@ -572,7 +573,8 @@ Every teardown path also cancels an outstanding gated request, per §5.8.
 | `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` | `botster-core` contract | `64` | Equal to the intake budget. A conforming adapter buffers at least this many complete frames before it may report `Lost`. |
 | `WORKER_CONTROL_QUEUE_FRAMES` | `worker_process` | `32` | Bounded parent-to-worker control egress queue, per session |
 | `WORKER_CONTROL_RESERVED_SLOTS` | `worker_process` | `2` | Slots ordinary frames may never occupy: one cancel, one shutdown. Both exact, because at most one gated request per session is in flight and shutdown happens once. Ordinary capacity is therefore 30. |
-| `WORKER_CONTROL_WRITE_TIMEOUT` | `worker_process` | `2 s` | `UnixStream::set_write_timeout`, so a stalled `write_all` errors instead of blocking forever |
+| `WORKER_CONTROL_WRITE_TIMEOUT` | `worker_process` | `2 s` | **Total** deadline for one frame, stamped once and re-checked before every slice. Not a per-syscall timeout. |
+| `WORKER_CONTROL_WRITE_SLICE` | `worker_process` | `250 ms` | Per-syscall timeout, so no single write parks past the total deadline |
 | `WORKER_CONTROL_WRITER_JOIN_BOUND` | `worker_process` | `1 s` | Teardown joins the writer thread under this bound, then detaches; the FD is already closed |
 | `INPUT_QUEUE_CAPACITY` | `ClientWorker` | `256` commands per subscription | Bounded per-subscription backlog |
 | `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `64` | Stage A budget |
@@ -758,8 +760,10 @@ queue, which was still incomplete: the write half cannot be owned by a writer th
 while other methods keep writing to it directly, and a cloned handle would let two
 `write_all` calls interleave framed bytes on one stream.
 
-**The writer thread takes exclusive ownership of the `WorkerControl` write half.** No
-other code holds it, nothing is cloned, and therefore no two writes can interleave.
+**The writer thread is the sole write capability for the `WorkerControl` handle.** No
+other code can write to it, so no two writes can interleave. Teardown holds a
+shutdown-only capability that never writes framed bytes (§5.8.3); one writer and one
+shutdown observer are not in conflict.
 Every post-spawn frame is enqueued; nothing bypasses the queue.
 
 Exact inventory, read from the source. These are every post-spawn control write:
@@ -786,11 +790,39 @@ before the writer thread takes ownership. The handover point is exactly that lin
 there is one queue and no priority lane. A priority lane could deliver a cancel for a
 request the worker had not yet received, and the fence would silently do nothing.
 
-| Class | Admission rule |
+**One synchronized queue owner, not a bare channel.** Revision 6 said ordinary frames
+are admitted while the queue holds fewer than 30 entries, using `try_send`. That rule
+was not implementable as stated: `SyncSender` exposes no length, and even with one it
+would be a check-then-act race, so two concurrent ordinary senders could each observe
+capacity and consume the reserved slots before a cancel or a shutdown arrived. The
+reserved-slot proof did not follow from the mechanism.
+
+The queue is therefore a small synchronized owner rather than a channel:
+
+```rust
+struct ControlQueue {
+    state: Mutex<ControlQueueState>,   // frames, ordinary_len, sealed
+    ready: Condvar,
+}
+```
+
+`ControlQueue::admit(class, frame)` is **one critical section**. Under a single lock it
+checks the seal, checks the class against capacity, pushes, and signals the condvar.
+Class admission and the terminal-state transition are indivisible, so the two reserved
+slots cannot be consumed by a race:
+
+| Class | Admitted when |
 | --- | --- |
-| Ordinary | Admitted while `len < WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS`. Overflow returns `ControlQueueFull`. |
-| Cancel | Admitted into the reserved region, so a cancel always fits. FIFO keeps it behind its own submit. |
-| Terminal (`FRAME_SHUTDOWN`) | Admitted into the reserved region. It is the last frame: after it the queue accepts nothing, ordinary or otherwise. |
+| Ordinary | not sealed, and `ordinary_len < WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS` |
+| Cancel | not sealed, and total `len < WORKER_CONTROL_QUEUE_FRAMES` |
+| Terminal (`FRAME_SHUTDOWN`) | not sealed, and total `len < WORKER_CONTROL_QUEUE_FRAMES`; sets `sealed` in the same critical section |
+
+**The lock is never held across I/O.** The writer thread waits on the condvar, pops one
+frame under the lock, releases the lock, and only then writes. A mutex held during a
+socket write would recreate exactly the tick stall this section exists to remove, so
+that ordering is a contract, not an implementation detail. Every `admit` call is O(1)
+and touches no file descriptor, which is what keeps the tick free of socket I/O.
+
 
 `WORKER_CONTROL_RESERVED_SLOTS` is 2, one for a cancel and one for a shutdown. Both are
 exact rather than conservative: at most one gated request per session is in flight, so
@@ -809,23 +841,51 @@ A queue in front of a blocking socket only moves the stall; it does not bound it
 writer thread itself must be bounded, and the consequence for same-session siblings
 must be stated rather than assumed away.
 
-**Write bound.** The `Socket` variant sets `UnixStream::set_write_timeout` to
-`WORKER_CONTROL_WRITE_TIMEOUT`, so a `write_all` that cannot make progress returns an
-error instead of blocking forever. The `Stdio` variant has no write timeout; its bound
-is the hard stop below.
+**Write capability, not handle count.** Revision 6 said the writer takes `WorkerControl`
+by move and that nothing is cloned, then said teardown calls `shutdown` or drops
+`ChildStdin`. Those contradict: after the move, teardown holds neither. The invariant
+that matters is **one writer**, not one handle. Teardown therefore holds a
+**shutdown-only capability that never writes framed bytes**, which is compatible with a
+single write owner.
 
-**Named hard stop.** The session teardown path owns writer shutdown. It calls
-`UnixStream::shutdown(Shutdown::Write)` for the socket variant, or drops `ChildStdin`
-for the stdio variant. Either makes an in-progress `write_all` return immediately, so
-the writer is never waited on indefinitely. This is the hard stop
-[[botster runtime teardown lenses]] requires: it ends the driver loop even when the
-underlying write path misbehaves.
+| Variant | Writer owns | Teardown holds | Hard stop |
+| --- | --- | --- | --- |
+| `Socket` | the `UnixStream` it writes through | a `try_clone()` handle used **only** for `shutdown`, never for `write` | `shutdown(Shutdown::Write)` on the cloned handle unblocks the writer at once |
+| `Stdio` | the `ChildStdin` | the existing `Child` handle | `child.kill()` closes the pipe read end, so the writer's next write fails with `EPIPE` |
 
-**FD and join.** The shutdown owner closes the file descriptor exactly once. It then
-joins the writer thread under `WORKER_CONTROL_WRITER_JOIN_BOUND`. If the join exceeds
-that bound the thread is detached; the FD is already closed, so the detached thread can
-neither hold the socket nor block the caller, and it exits on its next write error.
-Teardown therefore never blocks the control plane.
+`UnixStream::try_clone` is already the established pattern in this file
+(`worker_process.rs:966`, `:1159`), and `child.kill()` is already used on teardown paths
+(`:1904`, `:1987`). Neither is a new mechanism. `ChildStdin` cannot be usefully cloned
+and must not be dropped by a second owner, which is exactly why the stdio hard stop is
+peer-close through the child rather than a handle operation.
+
+**A per-operation timeout is not a total bound.** `set_write_timeout` bounds one
+blocking syscall. `write_all` loops over partial writes, so a peer that accepts one byte
+per timeout window makes progress forever without ever exceeding a per-operation
+deadline. Revision 6's claimed 2-second total bound did not follow from it.
+
+The writer therefore does **not** call `write_all`. It runs an explicit deadline loop:
+
+1. Stamp `deadline = now + WORKER_CONTROL_WRITE_TIMEOUT` once, before the first byte.
+2. Set the per-syscall timeout to `WORKER_CONTROL_WRITE_SLICE` so no single call parks
+   past the deadline.
+3. Write the next slice, advance the cursor by the bytes actually written, and re-check
+   `now < deadline` before every further slice.
+4. On deadline expiry, abandon the frame, mark the queue failed, and stop. The total
+   bound then holds across all partial progress, which is the claim the plan makes.
+
+A partially written frame leaves the wire desynchronized, so abandoning one is terminal
+for that session: the queue seals, every later `admit` is refused, and §5.8.3's
+fail-closed policy hard-stops that session's subscriptions together. No later frame is
+sent after a truncated one.
+
+**Completion signaling and the bounded join.** The writer sets a completion flag and
+signals it before it returns, on every exit path including the deadline path. Teardown
+performs the hard stop, waits for that signal under `WORKER_CONTROL_WRITER_JOIN_BOUND`,
+then joins. If the signal does not arrive within the bound, teardown detaches: the FD is
+already shut down and closed exactly once by teardown, so a detached writer holds no
+descriptor, blocks no caller, and exits on its next write error. Teardown never blocks
+the control plane on either variant.
 
 **Same-session sibling policy: fail-closed, stated plainly.** A session has exactly one
 worker and one ordered control channel. Every later frame for that session queues behind
@@ -1045,6 +1105,8 @@ harness, the Rust protocol crates, and the npm package.
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
 | R14 | The cancellation cell holds a stale id and cancels the wrong request. | The cell is single-slot, cleared at admit completion whether or not it matched, and compared by exact `request_id`. A test sends a cancel for a finished request and asserts the next request is admitted normally. |
 | R16 | A wedged worker control socket permanently strands one session's gated lane. | The lane frees on the correlated reply or at `timeout + grace`, whichever comes first. The stalled-reader test asserts both the bound and continued sibling progress. |
+| R20 | The shutdown-only clone is used to write, reintroducing interleaving. | The clone is typed or wrapped as shutdown-only and never exposes a write method; §12 asserts teardown performs no framed write. |
+| R21 | A partially written frame desynchronizes the wire and later frames are misparsed. | A deadline abandon seals the queue, refuses every later admit, and hard-stops that session, so no frame follows a truncated one. |
 | R18 | A post-spawn write site is missed and keeps writing directly, interleaving framed bytes. | The writer thread owns the write half by move rather than by convention, so a missed site fails to compile. §12 adds a source assertion and a concurrent frame-integrity test. |
 | R19 | Same-session subscriptions are assumed isolated when they are not. | §5.8.3 states the fail-closed policy instead of claiming isolation, and §12 tests delay-then-collective-hard-stop rather than survival. |
 | R17 | The bounded control queue drops a plain input frame under pressure and breaks byte fidelity. | Ordinary overflow is fail-closed: it hard-stops that owner rather than dropping a frame, so no byte run is ever silently truncated. The overflow test asserts the teardown, not a drop. |
@@ -1099,9 +1161,10 @@ that deadline expires.
 - Ordinary control sends fail closed at the ordinary capacity and hard-stop that owner
   alone. A cancel and a shutdown always fit, because the two
   `WORKER_CONTROL_RESERVED_SLOTS` are never consumed by ordinary traffic.
-- A blocked control write is bounded by `WORKER_CONTROL_WRITE_TIMEOUT`, and the named
-  hard stop is `shutdown(Shutdown::Write)` or dropping `ChildStdin`, which makes an
-  in-progress `write_all` return at once. Teardown joins the writer under
+- A blocked control write is bounded by `WORKER_CONTROL_WRITE_TIMEOUT` as a **total**
+  deadline across every partial write, not a per-syscall timeout. The named hard stop is
+  `shutdown(Shutdown::Write)` on teardown's shutdown-only clone for the socket variant,
+  or `child.kill()` for the stdio variant; either returns the in-progress write at once. Teardown joins the writer under
   `WORKER_CONTROL_WRITER_JOIN_BOUND` and then detaches; the FD is already closed, so a
   detached writer holds nothing and blocks nobody.
 - A wedged control socket degrades exactly one **session**. Same-session subscriptions
@@ -1323,7 +1386,11 @@ and driver-hook based, with no sleeps:
 | Ordinary overflow is fail-closed and owner-scoped | Assert `ControlQueueFull` hard-stops exactly one owner, drops no frame, and leaves the sibling count unchanged. |
 | No tick-thread call performs socket I/O | Assert the tick path reaches only `try_send`, and every `write_all` happens on the writer thread. Red-on-revert: restore the direct `write_json` call on the tick path and assert the cross-session pressure test fails first. |
 | A stalled socket does not block the tick or other sessions | Stop the worker reading its control socket, drive `CoreDaemon::drain`, and assert a subscription on a **different** session completes input-to-echo. |
-| A blocked write is bounded | Assert the stalled `write_all` returns after `WORKER_CONTROL_WRITE_TIMEOUT` rather than blocking indefinitely. |
+| A slow peer cannot defeat the total bound | A peer that accepts one byte per `WORKER_CONTROL_WRITE_SLICE` window makes forward progress forever under a per-syscall timeout. Assert the writer still abandons the frame at `WORKER_CONTROL_WRITE_TIMEOUT` measured from the first byte. Red-on-revert: replace the deadline loop with `write_all` plus `set_write_timeout` and assert this test fails first. |
+| A truncated frame seals the session | After a deadline abandon, assert the queue is sealed, every later `admit` of any class is refused, and no further frame reaches the wire behind the partial one. |
+| Admission is atomic under concurrent senders | Race many ordinary senders against one cancel and one shutdown. Assert both reserved frames always enqueue, ordinary sends past capacity return `ControlQueueFull`, and the queue length never exceeds `WORKER_CONTROL_QUEUE_FRAMES`. |
+| The queue lock is never held across I/O | Assert the writer pops under the lock and releases it before writing, so `admit` never waits on a file descriptor. |
+| The hard stop works on both variants | Socket: teardown's `try_clone` shutdown-only handle unblocks a stalled writer with `shutdown(Shutdown::Write)`. Stdio: `child.kill()` closes the pipe read end and the writer fails with `EPIPE`. Both assert the writer signalled completion and teardown did not block. |
 | Writer shutdown is bounded and closes the FD once | Force a stall, drive session teardown, and assert `shutdown(Shutdown::Write)` unblocks the writer, the join completes within `WORKER_CONTROL_WRITER_JOIN_BOUND` or detaches, the FD is closed exactly once, and teardown itself never blocks. |
 | Same-session pressure is fail-closed, not silently isolated | Two subscriptions on **one** session, one control write stalled. Assert both are delayed but live within `WORKER_CONTROL_WRITE_TIMEOUT`, then that **both** are hard-stopped together past it, and that a third subscription on another session was unaffected throughout. This tests the stated policy rather than an isolation claim this layer cannot make. |
 
@@ -1511,9 +1578,29 @@ Capture only after this ticket proves the contract, not at Plan time:
     subscriptions share one worker and one control channel and cannot be isolated
     there; a fail-closed policy that is tested beats an isolation claim that is not.
 
-No gap beyond these sixteen was found.
+17. **A per-operation timeout is not a total bound.** `write_all` loops over partial
+    writes, so a peer that accepts one byte per timeout window never trips a per-syscall
+    deadline. A total bound needs a stamped deadline re-checked across every slice.
+18. **One writer is a capability invariant, not a handle count.** A shutdown-only clone
+    that never writes is compatible with a single write owner, and it is the only way
+    teardown can interrupt a writer that owns the handle.
+19. **Check-then-act is not admission control.** Reserving capacity for a privileged
+    class requires the class check and the enqueue in one critical section; a length
+    read followed by `try_send` loses the reservation to any concurrent sender.
+
+No gap beyond these nineteen was found.
 
 ## 19. Plan Review response
+
+### Round 6: `review_1787637388_506869`, verdict `changes_required`
+
+Round 6 confirmed that revision 6's control-frame inventory, same-session fail-closed
+policy, and acceptance suite were right. Two mechanism defects remained.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787637388_179842` — implementable hard-stop handle and total write bound | high, product | **Confirmed real, two distinct errors.** First, §5.8.2 said the writer took the handle by move with nothing cloned, while §5.8.3 had teardown call `shutdown` or drop `ChildStdin`; after the move teardown holds neither, so the hard stop was unreachable. The invariant that matters is **one writer**, not one handle, so teardown now holds a shutdown-only capability that never writes framed bytes: a `try_clone()` handle for the socket variant, and the existing `Child` for stdio where `child.kill()` closes the pipe read end and the writer fails `EPIPE`. Both are established patterns in this file (`try_clone` at `:966` and `:1159`; `child.kill()` at `:1904` and `:1987`), and `ChildStdin` is explicitly not clonable or droppable by a second owner, which is why stdio uses peer-close. Second, `set_write_timeout` bounds one syscall, not `write_all`'s loop over partial writes, so a peer accepting one byte per window defeats it forever; the claimed 2-second total did not follow. The writer no longer calls `write_all`: it stamps a deadline once, uses `WORKER_CONTROL_WRITE_SLICE` per syscall, re-checks before every slice, and abandons at the total deadline. An abandoned partial frame desynchronizes the wire, so it seals the queue and hard-stops that session rather than sending anything behind it. Completion is signalled on every exit path so the bounded join has something to wait on. |
+| `finding_1787637388_170842` — atomic reserved-slot admission | high, product | **Confirmed real.** `SyncSender` exposes no length, and a length check followed by `try_send` is check-then-act: two concurrent ordinary senders could each see capacity and consume the reserved slots before a cancel or shutdown arrived, so the reserved-slot proof did not follow from the mechanism. The queue is now a small synchronized owner, `Mutex<ControlQueueState>` plus a `Condvar`, and `admit(class, frame)` performs the seal check, the class-and-capacity check, the push, and the terminal transition in **one critical section**. The lock is never held across I/O: the writer pops under the lock, releases, then writes, because a mutex held during a socket write would recreate the tick stall this section exists to remove. §12 adds a concurrent race test asserting both reserved frames always enqueue. |
 
 ### Round 5: `review_1787636806_488333`, verdict `changes_required`
 
