@@ -79,6 +79,7 @@ struct ControlQueueState {
     frames: VecDeque<(ControlFrameClass, Vec<u8>)>,
     ordinary_len: usize,
     sealed: bool,
+    hold_pops: bool,
 }
 
 /// Synchronized control-queue owner.
@@ -97,6 +98,7 @@ impl ControlQueue {
                 frames: VecDeque::new(),
                 ordinary_len: 0,
                 sealed: false,
+                hold_pops: false,
             })),
             ready: Arc::new(Condvar::new()),
         }
@@ -146,6 +148,16 @@ impl ControlQueue {
     pub fn pop(&self) -> Option<(ControlFrameClass, Vec<u8>)> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
+            if state.hold_pops {
+                if state.sealed && state.frames.is_empty() {
+                    return None;
+                }
+                state = self
+                    .ready
+                    .wait(state)
+                    .unwrap_or_else(|error| error.into_inner());
+                continue;
+            }
             if let Some((class, frame)) = state.frames.pop_front() {
                 if class == ControlFrameClass::Ordinary {
                     state.ordinary_len = state.ordinary_len.saturating_sub(1);
@@ -176,6 +188,30 @@ impl ControlQueue {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Stop the writer from popping so tests can fill the bound and inspect it.
+    pub fn hold_pops(&self, hold: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.hold_pops = hold;
+        self.ready.notify_all();
+    }
+
+    /// Count queued frames by class. Tests use this as a queue-bound oracle.
+    #[must_use]
+    pub fn class_counts(&self) -> (usize, usize, usize) {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut ordinary = 0;
+        let mut cancel = 0;
+        let mut terminal = 0;
+        for (class, _) in &state.frames {
+            match class {
+                ControlFrameClass::Ordinary => ordinary += 1,
+                ControlFrameClass::Cancel => cancel += 1,
+                ControlFrameClass::Terminal => terminal += 1,
+            }
+        }
+        (ordinary, cancel, terminal)
     }
 
     /// Whether the queue is sealed.
@@ -277,5 +313,25 @@ mod tests {
             Err(ControlQueueAdmitError::Sealed)
         );
         assert_eq!(queue.len(), 32);
+    }
+
+    #[test]
+    fn two_cancels_at_ordinary_capacity_consume_the_shutdown_slot() {
+        let queue = ControlQueue::new();
+        for _ in 0..30 {
+            queue
+                .admit(ControlFrameClass::Ordinary, vec![1])
+                .expect("ordinary");
+        }
+        queue
+            .admit(ControlFrameClass::Cancel, vec![2])
+            .expect("first cancel");
+        queue
+            .admit(ControlFrameClass::Cancel, vec![3])
+            .expect("second cancel occupies the shutdown slot");
+        assert_eq!(
+            queue.admit(ControlFrameClass::Terminal, vec![4]),
+            Err(ControlQueueAdmitError::ControlQueueFull)
+        );
     }
 }

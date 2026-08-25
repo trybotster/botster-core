@@ -9682,6 +9682,42 @@ fn bind_echo_worker(
     adapter
 }
 
+fn attach_bound_adapter(
+    daemon: &mut CoreDaemon,
+    session_id: SessionId,
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+    now: u64,
+) -> SharedFakeTerminalAdapter {
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            now,
+        )
+        .expect("attach replacement owner");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory after replacement attach")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind replacement owner");
+    wait_until_bound_attached(daemon, &session_id, &adapter);
+    adapter
+}
+
 #[cfg(unix)]
 #[test]
 fn drain_applies_injected_duplex_input_through_real_worker_pty() {
@@ -10120,7 +10156,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_ghostty_max_scrollback_bytes(0)
-            .with_test_mode_gated_hold_ms(Some(10_000)),
+            .with_test_mode_gated_hold_ms(Some(500)),
     );
     let held = SessionId("duplex-detach-gated-held".to_string());
     let sibling = SessionId("duplex-detach-gated-sib".to_string());
@@ -10168,6 +10204,63 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
         .list_terminal_subscriptions()
         .iter()
         .all(|row| row.subscription_id != held_sub));
+    assert!(
+        held_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .all(|bytes| adapter_input_result_subscription(bytes).is_none()),
+        "detach must not synthesize a late input_result for the held request"
+    );
+    thread::sleep(Duration::from_millis(700));
+    let _ = daemon
+        .drain(&held, 29)
+        .expect("drain cancelled hold reply so the lane releases");
+    let replacement_client = ClientId("duplex-detach-gated-next-c".to_string());
+    let replacement_sub = SubscriptionId("duplex-detach-gated-next-sub".to_string());
+    let replacement = attach_bound_adapter(
+        &mut daemon,
+        held.clone(),
+        replacement_client,
+        replacement_sub.clone(),
+        30,
+    );
+    let replacement_probe = daemon
+        .read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId("duplex-detach-gated-next-probe".to_string()),
+            session_id: held.clone(),
+            now_seconds: 31,
+        })
+        .expect("probe replacement session");
+    replacement.inject_ingress_frame(compact_mode_gated_frame(
+        replacement_probe.mode_flags.mode_freshness.mode_generation,
+        replacement_probe.mode_flags.mode_freshness.mode_revision,
+        b"next\n",
+    ));
+    let started_next = Instant::now();
+    let mut saw_replacement = false;
+    while started_next.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&held, 32).expect("drain replacement gated");
+        if replacement
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_payload_text(bytes).contains("echo:next"))
+        {
+            saw_replacement = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        saw_replacement,
+        "held lane must release so a new gated request can enter"
+    );
+    assert!(
+        held_adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .all(|bytes| !adapter_payload_text(bytes).contains("echo:hold")),
+        "cancelled hold must not write the abandoned gated payload"
+    );
     sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
     let started = Instant::now();
     let mut saw_sibling = false;

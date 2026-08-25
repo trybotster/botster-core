@@ -1713,10 +1713,6 @@ fn drain_has_removed_route(drained: &BotsterEngineOutput, subscription: &Subscri
             | TransportEgress::Snapshot {
                 subscription_id,
                 ..
-            }
-            | TransportEgress::ProcessExit {
-                subscription_id,
-                ..
             } if subscription_id == subscription
         )
     })
@@ -1857,6 +1853,9 @@ fn owner_removal_matrix_closes_adapter_and_route() {
     engine
         .shutdown_session(torn.clone(), "matrix", 6)
         .expect("teardown_session");
+    let _ = engine
+        .drain_runtime_once(&torn, 6)
+        .expect("shutdown drain delivers ProcessExit then closes the owner");
     engine.forget_terminal_session(&live);
     engine.forget_terminal_session(&gen);
 

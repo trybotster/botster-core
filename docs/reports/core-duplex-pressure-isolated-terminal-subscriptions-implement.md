@@ -75,6 +75,7 @@ Test support and proof:
 - `crates/botster-core/tests/session_protocol_test.rs`
 - `crates/botster-core/tests/client_worker_engine_test.rs`
 - `crates/botster-core/tests/local_process_runtime_test.rs`
+- `crates/botster-core/tests/local_session_worker_process_test.rs`
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs`
 
 Docs:
@@ -117,7 +118,7 @@ CI-owned Cargo commands, no wrapper:
 - `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --no-default-features` — 13 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --lib --features local-runtime` — 41 passed
-- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 26 passed
+- `BOTSTER_ENV=test cargo test -p botster-core --test client_worker_engine_test` — 28 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test session_protocol_test` — 17 passed
 - `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep dropping_parent_runtime_reaps_worker_and_pty_child` — passed
 - `BOTSTER_ENV=test cargo test -p botster-core-daemon --test daemon_integration_test -- drain_applies_injected_duplex_input drain_queue_overflow drain_reconnects_and_rejects drain_teardown_session drain_writer_failure` — 5 passed
@@ -126,7 +127,9 @@ CI-owned Cargo commands, no wrapper:
 - `BOTSTER_ENV=test cargo test --manifest-path crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/Cargo.toml` — passed
 - `script/terminal-protocol-node-smoke.sh` — passed
 - `BOTSTER_ENV=test cargo test --doc --workspace` — passed
-- `BOTSTER_ENV=test cargo test --workspace` — the duplex and owner-removal suites passed. Isolated `unload_first_then_deadline_keeps_only_worker_stopped` is a preexisting plugin-worker flake: it failed and passed on this tree (exit 101 then 0) and passed twice on `508dfe0` (exit 0). This visit did not change `plugin_worker.rs`.
+- `BOTSTER_ENV=test cargo test --lib failed_final_capture_installs_no_retained_terminal_state -p botster-core-daemon` — passed. Shutdown keeps the mux route live until the next drain delivers `ProcessExit`. Missing-owner ingest retains `ProcessExit` and drops later `TerminalOutput` / `Snapshot`.
+- `BOTSTER_ENV=test cargo test -p botster-core --test local_session_worker_process_test owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot` — passed. Thirty ordinary frames plus one owner teardown enqueue exactly one cancel and leave the reserved shutdown slot.
+- `BOTSTER_ENV=test cargo test --workspace` — 813 passed, 1 ignored. This visit did not change `plugin_worker.rs`.
 
 Production entry point: `CoreDaemon::drain` calls `engine.apply_terminal_input` before `drain_runtime_once`. Adapter `try_read` → decode → `write_bytes` / `submit_mode_gated_pty_input` / resize → worker control queue → session worker PTY.
 
@@ -144,13 +147,14 @@ Added production-path proofs:
 - `input_path_hard_stop_unsubscribes_the_multiplexer_route`
 - `owner_removal_matrix_closes_adapter_and_route`
 - `drain_ingress_loss_and_malformed_input_remove_the_route`
-- `drain_detach_cancels_held_gated_and_leaves_sibling`
+- `drain_detach_cancels_held_gated_and_leaves_sibling` — cancel, lane release, no late `input_result`, replacement gated request, and sibling survival
+- `owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot`
 
 ## Unverified behavior or residual risk
 
 - Same-session subscriptions still share one control channel. Delay then collective hard-stop is the stated policy. Cross-session isolation is the ticket guarantee.
 - `record_attach` stays infallible. Attach and bind gates live at `CoreDaemon` and worker-backed bind.
-- `ClientWorker::teardown_all` is still unused on a named production entry. Full-runtime removal uses per-session `teardown_session` plus `forget_terminal_session`. The owner-removal matrix covers detach_live, detach_generation, teardown_session, forget, Lost, malformed input, overflow, and PTY apply failure. Each path asserts adapter close, inventory removal, no later `client_egress` for the removed generation, and sibling survival. Gated cancel is driven from the retained teardown vector on every path; detach-while-held is proved by `drain_detach_cancels_held_gated_and_leaves_sibling`.
+- `ClientWorker::teardown_all` is still unused on a named production entry. Full-runtime removal uses per-session `teardown_session` plus `forget_terminal_session`. The owner-removal matrix covers detach_live, detach_generation, teardown_session, forget, Lost, malformed input, overflow, and PTY apply failure. Each path asserts adapter close, inventory removal, no later `TerminalOutput` / `Snapshot` for the removed generation, and sibling survival. `ProcessExit` stays recovery egress. Gated cancel runs once from `unsubscribe_owner_teardowns`. Detach-while-held is proved by `drain_detach_cancels_held_gated_and_leaves_sibling`.
 
 ## Missing vault guidance discovered
 

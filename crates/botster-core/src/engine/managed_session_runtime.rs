@@ -299,7 +299,6 @@ where
         }
 
         teardowns.extend(self.client_worker.intake_terminal_input());
-        self.cancel_gated_teardowns(session_id, &teardowns);
 
         let mut holding = HashSet::new();
         if self
@@ -313,10 +312,7 @@ where
         for delivery in deliveries {
             match self.apply_one_delivery(delivery, last_output_at) {
                 Ok(()) => {}
-                Err(teardown) => {
-                    self.cancel_gated_teardowns(session_id, std::slice::from_ref(&teardown));
-                    teardowns.push(teardown);
-                }
+                Err(teardown) => teardowns.push(teardown),
             }
         }
         self.retain_input_teardowns(session_id, teardowns);
@@ -523,27 +519,11 @@ where
         None
     }
 
-    fn cancel_gated_teardowns(
-        &mut self,
-        session_id: &SessionId,
-        teardowns: &[crate::engine::client_worker::ClientWorkerTeardown],
-    ) {
-        for teardown in teardowns {
-            if let Some(request_id) = &teardown.awaiting_gated {
-                let _ = self
-                    .engine
-                    .session_runtime_mut()
-                    .cancel_mode_gated_pty_input(session_id, request_id);
-            }
-        }
-    }
-
     fn retain_input_teardowns(
         &mut self,
-        session_id: &SessionId,
+        _session_id: &SessionId,
         teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
     ) {
-        self.cancel_gated_teardowns(session_id, &teardowns);
         self.pending_input_teardowns.extend(teardowns);
     }
 }
@@ -736,7 +716,7 @@ where
                     return Err(error.into());
                 }
             };
-        let mut attach_teardowns = Vec::new();
+        let mut extra_teardowns = Vec::new();
         if let TransportIngress::SubscribeSession {
             client_id: ref subscribe_client,
             ref session_id,
@@ -748,7 +728,7 @@ where
                 session_id.clone(),
                 subscription_id.clone(),
             );
-            attach_teardowns.extend(replacements);
+            extra_teardowns.extend(replacements);
         }
         if let TransportIngress::UnsubscribeSession {
             session_id,
@@ -756,10 +736,10 @@ where
             ..
         } = &ingress
         {
-            let _ = self.client_worker.detach_live(session_id, subscription_id);
+            extra_teardowns.extend(self.client_worker.detach_live(session_id, subscription_id));
         }
         self.flush_runtime_inputs()?;
-        self.apply_client_worker_with(&mut outcome, attach_teardowns)?;
+        self.apply_client_worker_with(&mut outcome, extra_teardowns)?;
         Ok(outcome)
     }
 
@@ -876,9 +856,6 @@ where
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let _ = self
-            .client_worker
-            .detach_live(&session_id, &subscription_id);
         self.handle_client_ingress(
             client_id.clone(),
             TransportIngress::UnsubscribeSession {
@@ -902,9 +879,19 @@ where
         (DetachTerminalSubscriptionResult, MultiplexerEngineOutcome),
         ManagedSessionRuntimeError,
     > {
-        let result =
-            self.client_worker
-                .detach_generation(&session_id, &subscription_id, generation);
+        let result = match self
+            .client_worker
+            .live_generation(&session_id, &subscription_id)
+        {
+            None => DetachTerminalSubscriptionResult::AlreadyGone,
+            Some(live) if live != generation => {
+                DetachTerminalSubscriptionResult::GenerationMismatch {
+                    live,
+                    requested: generation,
+                }
+            }
+            Some(live) => DetachTerminalSubscriptionResult::Detached { generation: live },
+        };
         let outcome = match result {
             DetachTerminalSubscriptionResult::Detached { .. } => self.handle_client_ingress(
                 client_id.clone(),
@@ -1396,9 +1383,6 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
-        self.pending_input_teardowns
-            .extend(self.client_worker.teardown_session(&session_id));
-        self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
 
@@ -1414,13 +1398,12 @@ where
         outcome: &mut MultiplexerEngineOutcome,
         mut teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
     ) -> Result<(), ManagedSessionRuntimeError> {
-        teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
-        self.unsubscribe_owner_teardowns(outcome, &mut teardowns)?;
         teardowns.extend(
             self.client_worker
                 .ingest_bound_terminal_frames(&mut outcome.client_egress),
         );
         teardowns.extend(self.client_worker.pump());
+        teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
         self.unsubscribe_owner_teardowns(outcome, &mut teardowns)
     }
 

@@ -363,6 +363,9 @@ impl ClientWorker {
             }
             let Some(owner) = self.live.get_mut(&key) else {
                 self.next_snapshot_phase.remove(&key);
+                if matches!(frame, TransportEgress::ProcessExit { .. }) {
+                    retained.push((client_id, frame));
+                }
                 continue;
             };
             if owner.client_id != client_id {
