@@ -2,10 +2,11 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 3. Plan Review returned `changes_required` twice.
+Revision 4. Plan Review returned `changes_required` three times.
 `review_1787634119_893294` raised four product findings plus one missing-context
-finding; `review_1787635010_824294` raised four more against revision 2. Section 19
-maps every finding to the section that resolves it.
+finding; `review_1787635010_824294` raised four more against revision 2; and
+`review_1787635689_864971` raised two against revision 3. Section 19 maps every
+finding to the section that resolves it.
 
 ## 1. Target
 
@@ -1314,6 +1315,16 @@ Capture only after this ticket proves the contract, not at Plan time:
 No gap beyond these eleven was found.
 
 ## 19. Plan Review response
+
+### Round 3: `review_1787635689_864971`, verdict `changes_required`
+
+Round 3 confirmed that revision 3 resolved the semantic dependency, size, owner
+ordering, and observable-loss findings. Two findings remained.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787635689_923187` — cancel abandoned gated input at the worker correctness boundary | high, product | **Confirmed real.** Revision 3's `cancel_mode_gated_pty_input` cleared only the parent slot while explicitly leaving the worker protocol unchanged. The worker still owned the submitted request and could pass its own freshness check and write to the PTY before `deadline_unix_ms`. A deadline bounds a late write; it does not prevent one. Freeing the parent slot immediately also let a replacement overlap the abandoned request. §5.8 now adds `FRAME_MODE_GATED_CANCEL` and checks it **inside** `runtime.with_pty_io_barrier`, after the deadline and freshness checks and strictly before `barrier.write_input`. The worker's control frames already arrive on a reader thread feeding an mpsc channel (`botster-session-worker.rs:896`), so a cancel sent during an open barrier is already queued and the in-barrier drain sees it; non-cancel frames drained in that pass are stashed and replayed in order. The parent now holds the lane in a `Cancelled` state until the correlated reply or `timeout + grace`, so no replacement overlaps. The race is total with exactly two outcomes, and the reply always reports which occurred, so the plan never claims a suppressed byte that was actually written. **This withdraws revision 3's worker-protocol non-scope for one frame**, recorded in §4: the ticket assigns Core "mode-gated input, generation, close, recovery, and teardown", and a teardown that cannot stop a write it already authorized is not a teardown. §12 adds five worker-fence tests including a red-on-revert control that drops the in-barrier check. |
+| `finding_1787635689_715966` — conformance arms still Option-shaped | medium, product | **Confirmed real.** §5.4 changed the return type to `TerminalIngress`, but the §12 conformance table still required `None` for the empty and closed states, so those arms could not implement the stated trait contract, and no arm named `Lost` even though the plan relies on the published harness to enforce loss reporting. The table now requires `Empty` for a fresh or idle adapter, `Closed` permanently after both close paths, and adds `assert_ingress_lost` with its ordering assertion and the `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` floor. |
 
 ### Round 2: `review_1787635010_824294`, verdict `changes_required`
 
