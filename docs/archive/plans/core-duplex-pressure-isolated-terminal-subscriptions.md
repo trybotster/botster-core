@@ -2,13 +2,14 @@
 
 Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_stack_plan`.
 
-Revision 7. Plan Review returned `changes_required` six times.
+Revision 8. Plan Review returned `changes_required` seven times.
 `review_1787634119_893294` raised four product findings plus one missing-context
 finding; `review_1787635010_824294` raised four more against revision 2;
 `review_1787635689_864971` raised two against revision 3; and
 `review_1787636259_958552` raised two against revision 4; and
 `review_1787636806_488333` raised three against revision 5; and
-`review_1787637388_506869` raised two against revision 6. Section 19 maps every
+`review_1787637388_506869` raised two against revision 6; and
+`review_1787637866_567075` raised two against revision 7. Section 19 maps every
 finding to the section that resolves it.
 
 ## 1. Target
@@ -574,7 +575,7 @@ Every teardown path also cancels an outstanding gated request, per §5.8.
 | `WORKER_CONTROL_QUEUE_FRAMES` | `worker_process` | `32` | Bounded parent-to-worker control egress queue, per session |
 | `WORKER_CONTROL_RESERVED_SLOTS` | `worker_process` | `2` | Slots ordinary frames may never occupy: one cancel, one shutdown. Both exact, because at most one gated request per session is in flight and shutdown happens once. Ordinary capacity is therefore 30. |
 | `WORKER_CONTROL_WRITE_TIMEOUT` | `worker_process` | `2 s` | **Total** deadline for one frame, stamped once and re-checked before every slice. Not a per-syscall timeout. |
-| `WORKER_CONTROL_WRITE_SLICE` | `worker_process` | `250 ms` | Per-syscall timeout, so no single write parks past the total deadline |
+| `WORKER_CONTROL_WRITE_SLICE` | `worker_process` | `250 ms` | Slice ceiling. Each syscall uses `min(SLICE, remaining)`, so no write can park past the total deadline. |
 | `WORKER_CONTROL_WRITER_JOIN_BOUND` | `worker_process` | `1 s` | Teardown joins the writer thread under this bound, then detaches; the FD is already closed |
 | `INPUT_QUEUE_CAPACITY` | `ClientWorker` | `256` commands per subscription | Bounded per-subscription backlog |
 | `INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK` | `ClientWorker` | `64` | Stage A budget |
@@ -597,6 +598,8 @@ Hub subscription channel receives binary bytes
   -> adapter buffers them; Hub decodes nothing
   -> CoreDaemon::drain(session_id, last_output_at)          <- host tick, unchanged signature
        -> engine.apply_terminal_input()                     <- NEW, first step of the tick
+            0. poll the control writer outcome (§5.8.4); on Failed, hard-stop every
+               owner on this session once, mark consumed, and skip the rest of the tick
             1. poll any in-flight gated reply for this session (§5.8);
                Ready or TimedOut clears awaiting_gated and enqueues its input_result
             2. ClientWorker::intake_terminal_input   (Lost, malformed, or overflow -> hard stop)
@@ -867,12 +870,17 @@ deadline. Revision 6's claimed 2-second total bound did not follow from it.
 The writer therefore does **not** call `write_all`. It runs an explicit deadline loop:
 
 1. Stamp `deadline = now + WORKER_CONTROL_WRITE_TIMEOUT` once, before the first byte.
-2. Set the per-syscall timeout to `WORKER_CONTROL_WRITE_SLICE` so no single call parks
-   past the deadline.
-3. Write the next slice, advance the cursor by the bytes actually written, and re-check
-   `now < deadline` before every further slice.
-4. On deadline expiry, abandon the frame, mark the queue failed, and stop. The total
-   bound then holds across all partial progress, which is the claim the plan makes.
+2. Before **every** write, compute `remaining = deadline - now`. If `remaining <= 0`,
+   that is deadline expiry; stop without another syscall.
+3. Set that syscall's timeout to `min(WORKER_CONTROL_WRITE_SLICE, remaining)`. A fixed
+   slice is not sufficient: a syscall starting just before the deadline could block a
+   further full slice, so a fixed 250 ms slice against a 2 s deadline actually permits
+   about 2.25 s. Clamping to `remaining` is what makes the stated total exact.
+4. Write the slice, advance the cursor by the bytes actually written, and return to
+   step 2.
+5. On deadline expiry, abandon the frame, record a typed writer failure (§5.8.4), and
+   stop. The total bound then holds across all partial progress, including the final
+   partial write, which is the claim the plan makes.
 
 A partially written frame leaves the wire desynchronized, so abandoning one is terminal
 for that session: the queue seals, every later `admit` is refused, and §5.8.3's
@@ -908,7 +916,51 @@ The parent lane bound stays independent of all of this: the gated slot frees on 
 correlated reply or at `mode_gated_input_timeout + MODE_GATED_REPLY_GRACE`, whichever
 comes first.
 
-#### 5.8.4 Lane release and cancellation coverage
+#### 5.8.4 A dead writer is consumed by the tick, not by the next sender
+
+Revision 7 said the writer seals the queue and exits on failure, and §5.8.3 said the
+session's subscriptions are hard-stopped together. Nothing performed that hard stop.
+A sealed queue only fails the **next** `admit` call, so an owner that is merely reading
+output and not sending would keep being reported live long after the control writer
+died. That is terminal-state versus live-runtime divergence, which is the exact
+condition [[botster runtime teardown lenses]] exists to prevent, and it was a policy
+without a mechanism.
+
+**Typed outcome.** The writer records its exit into a shared slot on every exit path:
+
+```rust
+enum ControlWriterOutcome { Running, Failed(ControlWriterError), Stopped }
+```
+
+`Failed` carries the cause: `DeadlineExpired`, `WriteError`, or `PeerClosed`. The writer
+seals the queue and sets the slot before it returns, so the slot is never `Running`
+after the thread is gone.
+
+**One production consumer.** `apply_terminal_input` polls the slot as **step 0**, before
+the gated poll and before ingress intake, on the same per-session
+`CoreDaemon::drain` tick that already exists. Polling before intake matters: it stops
+Core from decoding and queuing input for a session whose control path is already dead.
+
+On observing `Failed`:
+
+1. Hard-stop **every** owner on that session through the existing `hard_stop_key` path,
+   producing the normal `ClientWorkerTeardown` rows, so the host sees the same teardown
+   shape as any other cause.
+2. Cancel nothing further: the gated lane belongs to a session whose control channel is
+   gone, and §5.8.3's fail-closed policy already covers it.
+3. Mark the outcome **consumed**. The sweep is idempotent: a second tick observes
+   `Failed(consumed)` and does no work, emits no second teardown row, and returns
+   `Ok`.
+
+**Generation behavior.** The sweep uses the live inventory at the moment it observes the
+failure, so it removes exactly the owners that exist then. The queue is already sealed,
+so no later `admit` of any class succeeds for that session and no new bind can put a
+fresh generation behind a dead writer. The session stays un-admittable until it is torn
+down and respawned, which is the honest end state rather than a half-live session.
+
+This is what makes §5.8.3's "hard-stopped together" a mechanism instead of a claim.
+
+#### 5.8.5 Lane release and cancellation coverage
 
 Parent side, `cancel_mode_gated_pty_input(session_id, request_id)`:
 
@@ -1105,6 +1157,7 @@ harness, the Rust protocol crates, and the npm package.
 | R12 | An adapter implementer returns `Empty` instead of `Lost` and reintroduces silent input loss. | The published conformance harness asserts the `Lost` contract, and a red-on-revert control proves the byte-fidelity test fails when loss is silent. |
 | R14 | The cancellation cell holds a stale id and cancels the wrong request. | The cell is single-slot, cleared at admit completion whether or not it matched, and compared by exact `request_id`. A test sends a cancel for a finished request and asserts the next request is admitted normally. |
 | R16 | A wedged worker control socket permanently strands one session's gated lane. | The lane frees on the correlated reply or at `timeout + grace`, whichever comes first. The stalled-reader test asserts both the bound and continued sibling progress. |
+| R22 | A writer failure is never observed because the session stops being drained. | The host already drives `CoreDaemon::drain` per session for output; a session that is not drained is not delivering output either, so the divergence window closes with the same tick that would surface it. The idle-owner test asserts the sweep runs from the ordinary drain, not from a sender. |
 | R20 | The shutdown-only clone is used to write, reintroducing interleaving. | The clone is typed or wrapped as shutdown-only and never exposes a write method; §12 asserts teardown performs no framed write. |
 | R21 | A partially written frame desynchronizes the wire and later frames are misparsed. | A deadline abandon seals the queue, refuses every later admit, and hard-stops that session, so no frame follows a truncated one. |
 | R18 | A post-spawn write site is missed and keeps writing directly, interleaving framed bytes. | The writer thread owns the write half by move rather than by convention, so a missed site fails to compile. §12 adds a source assertion and a concurrent frame-integrity test. |
@@ -1168,8 +1221,10 @@ that deadline expires.
   `WORKER_CONTROL_WRITER_JOIN_BOUND` and then detaches; the FD is already closed, so a
   detached writer holds nothing and blocks nobody.
 - A wedged control socket degrades exactly one **session**. Same-session subscriptions
-  are delayed within the write timeout and then hard-stopped together past it, which
-  §5.8.3 states as an explicit fail-closed policy. Every other session is unaffected,
+  are delayed within the write timeout and then hard-stopped together past it. §5.8.3
+  states that policy and §5.8.4 gives it its mechanism: the per-session tick polls a
+  typed writer outcome as step 0 and sweeps the whole owner set once, so an idle owner
+  cannot stay reported live behind a dead writer. Every other session is unaffected,
   and the tick never blocks.
 - The worker's cancel observation is O(1): one lock, one id compare, one clear. It is
   not a scan, so it adds no unbounded work to the PTY critical section.
@@ -1388,6 +1443,10 @@ and driver-hook based, with no sleeps:
 | A stalled socket does not block the tick or other sessions | Stop the worker reading its control socket, drive `CoreDaemon::drain`, and assert a subscription on a **different** session completes input-to-echo. |
 | A slow peer cannot defeat the total bound | A peer that accepts one byte per `WORKER_CONTROL_WRITE_SLICE` window makes forward progress forever under a per-syscall timeout. Assert the writer still abandons the frame at `WORKER_CONTROL_WRITE_TIMEOUT` measured from the first byte. Red-on-revert: replace the deadline loop with `write_all` plus `set_write_timeout` and assert this test fails first. |
 | A truncated frame seals the session | After a deadline abandon, assert the queue is sealed, every later `admit` of any class is refused, and no further frame reaches the wire behind the partial one. |
+| The total deadline is exact, not slice-rounded | Stall the peer so the last syscall would start just before the deadline. Assert the observed abandon happens at or before `WORKER_CONTROL_WRITE_TIMEOUT`, never at deadline plus a slice. Red-on-revert: use a fixed `WORKER_CONTROL_WRITE_SLICE` instead of `min(SLICE, remaining)` and assert this test fails first. |
+| An idle same-session owner is torn down by the tick | Two subscriptions on one session; one never sends. Kill the control writer, then drive `CoreDaemon::drain`. Assert **both** owners disappear from `CoreDaemon::list_terminal_subscriptions`, including the idle one that issued no `admit`, and that a third subscription on another session stays live. Red-on-revert: remove the step-0 poll and assert the idle owner is still reported live, which is the divergence this test exists to catch. |
+| The writer-failure sweep is idempotent | Drive several ticks after the failure. Assert exactly one teardown row per owner, no second sweep, and `Ok` from every later tick. |
+| A dead writer admits no new generation | After a consumed failure, assert every `admit` class is refused and no bind can place a fresh generation on that session. |
 | Admission is atomic under concurrent senders | Race many ordinary senders against one cancel and one shutdown. Assert both reserved frames always enqueue, ordinary sends past capacity return `ControlQueueFull`, and the queue length never exceeds `WORKER_CONTROL_QUEUE_FRAMES`. |
 | The queue lock is never held across I/O | Assert the writer pops under the lock and releases it before writing, so `admit` never waits on a file descriptor. |
 | The hard stop works on both variants | Socket: teardown's `try_clone` shutdown-only handle unblocks a stalled writer with `shutdown(Shutdown::Write)`. Stdio: `child.kill()` closes the pipe read end and the writer fails with `EPIPE`. Both assert the writer signalled completion and teardown did not block. |
@@ -1588,9 +1647,27 @@ Capture only after this ticket proves the contract, not at Plan time:
     class requires the class check and the enqueue in one critical section; a length
     read followed by `try_send` loses the reservation to any concurrent sender.
 
-No gap beyond these nineteen was found.
+20. **An asynchronous failure needs a synchronous consumer on the production tick.**
+    Sealing a queue only informs the next caller. A component that fails on its own
+    thread must be polled by the loop that reports liveness, or idle owners stay live
+    behind a dead dependency.
+21. **A per-slice timeout must be clamped to the remaining total, not to a constant.**
+    A fixed slice checked before each call still permits one full slice of overrun past
+    the deadline.
+
+No gap beyond these twenty-one was found.
 
 ## 19. Plan Review response
+
+### Round 7: `review_1787637866_567075`, verdict `changes_required`
+
+Round 7 confirmed that revision 7's atomic queue admission and its reachable Socket and
+Stdio hard stops were right. Two defects remained.
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| `finding_1787637866_692549` — wire asynchronous writer failure into session teardown | high, product | **Confirmed real, and it was a policy without a mechanism.** The writer can hit a deadline or a write error, seal the queue, and exit, but nothing consumed that outcome. A sealed queue only fails the **next** `admit`, so an owner that is only reading output would keep being reported live after the control writer died — the terminal-state versus live-runtime divergence the lens forbids. §5.8.3 had asserted "hard-stopped together" while naming no step that performed it. §5.8.4 now stores a typed `ControlWriterOutcome` written on every exit path, and `apply_terminal_input` polls it as **step 0** of the existing per-session `CoreDaemon::drain` tick, before the gated poll and before ingress intake so Core stops decoding input for a session whose control path is dead. On `Failed` it hard-stops the whole owner set once through `hard_stop_key`, emits the normal teardown rows, and marks the outcome consumed so later ticks are idempotent. The sealed queue prevents any new generation landing behind a dead writer. §12 adds an idle-owner test whose red-on-revert removes the step-0 poll and asserts the idle owner is still reported live. |
+| `finding_1787637866_819369` — enforce the total frame deadline without slice overrun | high, product | **Confirmed real; simple arithmetic I got wrong.** Checking `now` before each write while setting every syscall timeout to a fixed 250 ms permits a syscall that starts just before the 2-second deadline to block a further full slice, so the mechanism allowed roughly 2.25 s and did not establish the stated total. Each syscall now uses `min(WORKER_CONTROL_WRITE_SLICE, remaining)`, computed before every write, with `remaining <= 0` treated as expiry and no further syscall issued. §12 asserts the documented total bound including the final partial-write case, with a red-on-revert that restores the fixed slice. |
 
 ### Round 6: `review_1787637388_506869`, verdict `changes_required`
 
