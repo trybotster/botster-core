@@ -4,7 +4,7 @@ Ticket `ticket_1787600672_342292`. Run `run_1787632374_189517`. Step `botster_st
 
 Revision 5. Plan Review returned `changes_required` four times.
 `review_1787634119_893294` raised four product findings plus one missing-context
-finding; `review_1787635010_824294` raised four more against revision 2; and
+finding; `review_1787635010_824294` raised four more against revision 2;
 `review_1787635689_864971` raised two against revision 3; and
 `review_1787636259_958552` raised two against revision 4. Section 19 maps every
 finding to the section that resolves it.
