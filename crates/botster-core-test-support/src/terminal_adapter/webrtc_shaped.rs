@@ -1,7 +1,7 @@
 //! In-memory one-slot adapter that may split one write into chunks.
 
 use botster_core::contract::terminal_adapter::{
-    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
 use botster_terminal_protocol::TerminalFrame;
 
@@ -33,6 +33,10 @@ impl TerminalAdapter for WebRtcShapedTerminalAdapter {
 
     fn pressure(&self) -> TerminalAdapterPressure {
         self.inner.pressure()
+    }
+
+    fn try_read(&mut self) -> TerminalIngress {
+        self.inner.try_read()
     }
 }
 
@@ -70,5 +74,21 @@ impl TerminalAdapterHarnessDriver for WebRtcShapedTerminalAdapter {
 
     fn delivered_frame_bytes(&self) -> &[Vec<u8>] {
         self.inner.delivered()
+    }
+
+    fn inject_ingress_frame(&mut self, bytes: Vec<u8>) {
+        self.inner.inject_ingress_frame(bytes);
+    }
+
+    fn inject_ingress_partial(&mut self, bytes: Vec<u8>) {
+        self.inner.inject_ingress_partial(bytes);
+    }
+
+    fn complete_ingress_partial(&mut self) {
+        self.inner.complete_ingress_partial();
+    }
+
+    fn drop_buffered_ingress_frame(&mut self) {
+        self.inner.drop_buffered_ingress_frame();
     }
 }

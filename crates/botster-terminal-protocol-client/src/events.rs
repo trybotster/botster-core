@@ -78,6 +78,39 @@ wire_enum! {
     }
 }
 
+wire_enum! {
+    /// Input command kind on `input_result`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum TerminalInputKind {
+        /// Raw input.
+        Input,
+        /// Mode-gated input.
+        ModeGatedInput,
+        /// Resize.
+        Resize,
+    }
+}
+
+wire_enum! {
+    /// Client-visible rejection for a live owner.
+    ///
+    /// `Malformed` and `QueueOverflow` are not published. Those conditions
+    /// hard-stop the owner, and close is the report.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum TerminalInputRejection {
+        /// Worker rejected a stale freshness token.
+        StaleMode,
+        /// The PTY accepted fewer bytes than submitted.
+        PartialWrite,
+        /// The gated wait exceeded its deadline.
+        Timeout,
+        /// The session cannot accept input.
+        SessionNotWritable,
+    }
+}
+
 /// Opaque Snapshot event. Clients must not render these bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Snapshot {
@@ -133,6 +166,47 @@ pub struct AttachState {
     pub state: AttachStateKind,
 }
 
+/// Mode flags on an `input_result`. Mirrors Core `ModeFlags` one for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalModeFlags {
+    /// Kitty keyboard protocol is enabled.
+    pub kitty_enabled: bool,
+    /// Cursor is visible.
+    pub cursor_visible: bool,
+    /// Bracketed paste is enabled.
+    pub bracketed_paste: bool,
+    /// Mouse-mode bit mask.
+    pub mouse_mode: u8,
+    /// Alternate screen is active.
+    pub alt_screen: bool,
+    /// Focus reporting is enabled.
+    pub focus_reporting: bool,
+    /// Application cursor keys are enabled.
+    pub application_cursor: bool,
+}
+
+/// Per-command input outcome. Wire tag is `input_result`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalInputResult {
+    /// Subscription that submitted the command.
+    pub subscription_id: String,
+    /// Command kind.
+    pub kind: TerminalInputKind,
+    /// Whether the command was admitted.
+    pub admitted: bool,
+    /// Bytes written to the PTY.
+    pub bytes_written: usize,
+    /// Freshness generation reported with the outcome.
+    pub mode_generation: u64,
+    /// Freshness revision reported with the outcome.
+    pub mode_revision: u64,
+    /// Mode flags reported with the outcome.
+    pub mode_flags: TerminalModeFlags,
+    /// Rejection when the command was not fully admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejection: Option<TerminalInputRejection>,
+}
+
 /// Semantic terminal event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalEvent {
@@ -144,6 +218,8 @@ pub enum TerminalEvent {
     ProcessExit(ProcessExit),
     /// Attach state.
     AttachState(AttachState),
+    /// Per-command input outcome.
+    InputResult(TerminalInputResult),
 }
 
 /// Envelope or frame conversion error.
@@ -229,6 +305,13 @@ impl AttachState {
     }
 }
 
+impl TerminalInputResult {
+    /// Encode this event into an opaque [`TerminalFrame`].
+    pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
+        frame_from_tagged("input_result", self)
+    }
+}
+
 impl TerminalEvent {
     /// Encode this event into an opaque [`TerminalFrame`].
     pub fn to_frame(&self) -> Result<TerminalFrame, EnvelopeError> {
@@ -237,6 +320,7 @@ impl TerminalEvent {
             Self::TerminalOutput(event) => event.to_frame(),
             Self::ProcessExit(event) => event.to_frame(),
             Self::AttachState(event) => event.to_frame(),
+            Self::InputResult(event) => event.to_frame(),
         }
     }
 
@@ -259,6 +343,9 @@ impl TerminalEvent {
                 serde_json::from_value(value).map_err(json_err)?,
             )),
             "attach_state" => Ok(Self::AttachState(
+                serde_json::from_value(value).map_err(json_err)?,
+            )),
+            "input_result" => Ok(Self::InputResult(
                 serde_json::from_value(value).map_err(json_err)?,
             )),
             other => Err(EnvelopeError::Invalid(format!(

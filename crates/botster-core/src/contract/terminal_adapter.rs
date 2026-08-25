@@ -1,4 +1,4 @@
-//! Content-blind terminal egress adapter contract.
+//! Content-blind duplex terminal adapter contract.
 //!
 //! This is an advanced host/adapter seam. The embedder start-here path remains
 //! spawn → attach → drain → input → shutdown through [`crate::prelude`].
@@ -12,7 +12,14 @@
 
 use botster_terminal_protocol::TerminalFrame;
 
-/// Content-blind terminal egress adapter.
+/// Minimum complete ingress frames a conforming adapter must hold before it
+/// may report [`TerminalIngress::Lost`].
+///
+/// Equal to Core's per-subscription intake budget so a host that drains every
+/// tick can take everything a conforming adapter is required to hold.
+pub const MIN_ADAPTER_INGRESS_BUFFER_FRAMES: usize = 64;
+
+/// Content-blind duplex terminal adapter.
 ///
 /// The adapter owns at most one transport-internal active write. That slot is
 /// transport state, not a policy queue. Implementations must not enqueue extra
@@ -47,13 +54,34 @@ pub trait TerminalAdapter {
     ///
     /// Idempotent and non-blocking. After close, [`Self::try_write`] returns
     /// [`TerminalAdapterWriteError::Closed`] and [`Self::pressure`] is
-    /// [`TerminalAdapterPressure::Closed`]. An in-flight frame is abandoned and
-    /// must not be delivered later. Must return without waiting for transport
-    /// I/O or for a lock held by the transport writer.
+    /// [`TerminalAdapterPressure::Closed`]. [`Self::try_read`] returns
+    /// [`TerminalIngress::Closed`] permanently and buffered ingress is dropped.
+    /// An in-flight frame is abandoned and must not be delivered later. Must
+    /// return without waiting for transport I/O or for a lock held by the
+    /// transport writer.
     fn close(&mut self);
 
     /// Current transport pressure.
     fn pressure(&self) -> TerminalAdapterPressure;
+
+    /// Take the next ingress event. Never blocks.
+    fn try_read(&mut self) -> TerminalIngress;
+}
+
+/// Typed ingress outcome from [`TerminalAdapter::try_read`].
+///
+/// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalIngress {
+    /// No complete frame is buffered. The stream is still contiguous.
+    Empty,
+    /// One complete frame, in arrival order.
+    Frame(Vec<u8>),
+    /// The transport dropped at least one frame. The stream is no longer
+    /// contiguous. Carries no payload and no count of lost bytes.
+    Lost,
+    /// The adapter is closed. Terminal state.
+    Closed,
 }
 
 /// Typed rejection from [`TerminalAdapter::try_write`].

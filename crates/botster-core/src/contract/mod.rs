@@ -95,7 +95,8 @@ pub use session_protocol::{
     ProtocolError, ResizePayload, Rgb, SessionMetadata, TeePayload, TerminalColorProfile,
     TimeoutPayload, DESYNC_THRESHOLD, FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED,
     FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
-    FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT,
+    FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
+    FRAME_MODE_GATED_PTY_INPUT_RESULT, ModeGatedCancelRequest,
     FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
     FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE,
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC,
@@ -112,6 +113,7 @@ pub use terminal_screen::{
 };
 pub use terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use transport::{TransportEgress, TransportIngress};

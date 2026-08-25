@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use botster_core::engine::managed_session_runtime::terminal_mode_flags_from;
 use botster_core::session_protocol::*;
 
 fn metadata() -> SessionMetadata {
@@ -86,6 +87,28 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_METADATA_SHAPING, 0x18);
     assert_eq!(FRAME_MODE_GATED_PTY_INPUT, 0x19);
     assert_eq!(FRAME_MODE_GATED_PTY_INPUT_RESULT, 0x1a);
+    assert_eq!(FRAME_MODE_GATED_CANCEL, 0x1b);
+}
+
+#[test]
+fn mode_flags_map_totally_onto_terminal_mode_flags() {
+    let flags = ModeFlags {
+        kitty_enabled: true,
+        cursor_visible: false,
+        bracketed_paste: true,
+        mouse_mode: 6,
+        alt_screen: true,
+        focus_reporting: true,
+        application_cursor: false,
+    };
+    let mapped = terminal_mode_flags_from(flags.clone());
+    assert_eq!(mapped.kitty_enabled, flags.kitty_enabled);
+    assert_eq!(mapped.cursor_visible, flags.cursor_visible);
+    assert_eq!(mapped.bracketed_paste, flags.bracketed_paste);
+    assert_eq!(mapped.mouse_mode, flags.mouse_mode);
+    assert_eq!(mapped.alt_screen, flags.alt_screen);
+    assert_eq!(mapped.focus_reporting, flags.focus_reporting);
+    assert_eq!(mapped.application_cursor, flags.application_cursor);
 }
 
 #[test]

@@ -11,6 +11,7 @@ const EVENT_TYPES: &[&str] = &[
     "terminal_output",
     "process_exit",
     "attach_state",
+    "input_result",
 ];
 
 /// Opaque terminal event frame.

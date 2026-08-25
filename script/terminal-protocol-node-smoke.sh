@@ -36,7 +36,11 @@ import {
   FEATURE_TERMINAL_STREAMING,
   FEATURE_RESIZE,
   FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+  FEATURE_TRANSPORT_DUPLEX_BINARY,
   PACKAGE_VERSION,
+  encodeTerminalInput,
+  encodeModeGatedInput,
+  encodeResize,
   type Attach,
   type Snapshot,
   type SnapshotPhase,
@@ -84,7 +88,7 @@ const attachState: AttachState = {
 const requirement: TerminalCompatibilityRequirement = {
   protocol: PROTOCOL,
   protocol_version: PROTOCOL_VERSION,
-  required_features: [FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE],
+  required_features: [FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE, FEATURE_TRANSPORT_DUPLEX_BINARY],
   minimum_conformance_fixture_revision: 1,
   client_name: "terminal-protocol-node-smoke",
 };
@@ -102,7 +106,11 @@ void PROTOCOL_VERSION;
 void FEATURE_TERMINAL_STREAMING;
 void FEATURE_RESIZE;
 void FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY;
+void FEATURE_TRANSPORT_DUPLEX_BINARY;
 void PACKAGE_VERSION;
+void encodeTerminalInput(new Uint8Array([1]));
+void encodeModeGatedInput(1, 1, new Uint8Array([2]));
+void encodeResize(24, 80);
 EOF
 
 npx tsc --strict --module nodenext --moduleResolution nodenext --noEmit consumer.ts
@@ -114,7 +122,11 @@ import {
   FEATURE_TERMINAL_STREAMING,
   FEATURE_RESIZE,
   FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+  FEATURE_TRANSPORT_DUPLEX_BINARY,
   PACKAGE_VERSION,
+  encodeTerminalInput,
+  encodeModeGatedInput,
+  encodeResize,
   metadata,
 } from "@trybotster/terminal-protocol";
 
@@ -124,7 +136,7 @@ function assertEqual(actual, expected, label) {
   }
 }
 
-assertEqual(PACKAGE_VERSION, "0.1.0", "PACKAGE_VERSION");
+assertEqual(PACKAGE_VERSION, "0.2.0", "PACKAGE_VERSION");
 assertEqual(PROTOCOL, "botster-terminal-v1", "PROTOCOL");
 assertEqual(PROTOCOL_VERSION, 1, "PROTOCOL_VERSION");
 assertEqual(FEATURE_TERMINAL_STREAMING, "terminal_streaming", "FEATURE_TERMINAL_STREAMING");
@@ -134,23 +146,43 @@ assertEqual(
   "snapshot_delivery=ready_then_history",
   "FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY",
 );
-assertEqual(metadata.package_version, "0.1.0", "metadata.package_version");
+assertEqual(
+  FEATURE_TRANSPORT_DUPLEX_BINARY,
+  "transport=duplex_binary",
+  "FEATURE_TRANSPORT_DUPLEX_BINARY",
+);
+assertEqual(metadata.package_version, "0.2.0", "metadata.package_version");
 assertEqual(metadata.protocol, "botster-terminal-v1", "metadata.protocol");
 assertEqual(metadata.protocol_version, 1, "metadata.protocol_version");
+assertEqual(metadata.conformance_fixture_revision, 2, "metadata.conformance_fixture_revision");
 for (const token of [
   "terminal_streaming",
   "resize",
   "snapshot_delivery=ready_then_history",
+  "transport=duplex_binary",
 ]) {
   if (!metadata.features.includes(token)) {
     throw new Error(`metadata.features missing ${token}`);
   }
 }
 
+const input = encodeTerminalInput(new Uint8Array([0, 255]));
+if (input[0] !== 1 || input[1] !== 1) {
+  throw new Error("encodeTerminalInput header mismatch");
+}
+const gated = encodeModeGatedInput(1, 2, new Uint8Array([9]));
+if (gated[1] !== 2) {
+  throw new Error("encodeModeGatedInput kind mismatch");
+}
+const resize = encodeResize(24, 80);
+if (resize.length !== 8) {
+  throw new Error("encodeResize length mismatch");
+}
+
 const imported = await import("@trybotster/terminal-protocol/metadata", {
   with: { type: "json" },
 });
-assertEqual(imported.default.package_version, "0.1.0", "imported metadata version");
+assertEqual(imported.default.package_version, "0.2.0", "imported metadata version");
 
 const fixture = await import(
   "@trybotster/terminal-protocol/ready-then-history-event-order",

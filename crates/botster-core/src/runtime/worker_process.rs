@@ -1,7 +1,7 @@
 //! Local session runtime backed by a separate worker process.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::ChildStdout;
@@ -17,6 +17,10 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 #[cfg(unix)]
+use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
 #[cfg(unix)]
@@ -25,15 +29,21 @@ use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use sha2::{Digest, Sha256};
 
+use crate::runtime::control_queue::{
+    write_slice_timeout, ControlFrameClass, ControlPlaneState, ControlQueue, ControlQueueAdmitError,
+    ControlWriterError, ControlWriterOutcome, ControlWriterSlot, WORKER_CONTROL_WRITE_TIMEOUT,
+    WORKER_CONTROL_WRITER_JOIN_BOUND,
+};
 use crate::{
     read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame,
-    ModeFlagsPayload, ModeFreshnessToken, ModeGatedPtyInputRequest, ModeGatedPtyInputResult,
+    ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
+    ModeGatedPtyInputResult,
     NotificationPayload, ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource,
     SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
     SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload, WorkerSnapshotRequest,
     WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS,
-    FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_PTY_INPUT,
+    FRAME_METADATA_SHAPING,     FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
     FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
     FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
     FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
@@ -49,6 +59,22 @@ pub const DEFAULT_MODE_GATED_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
 /// `deadline_exceeded` (or other) result can demux under load before the
 /// parent clears the in-flight slot and fails closed as a timeout.
 const MODE_GATED_REPLY_GRACE: Duration = Duration::from_secs(1);
+
+/// Correlated id for one in-flight mode-gated request.
+pub type GatedRequestId = String;
+
+/// Non-blocking poll of one session's gated lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GatedPoll {
+    /// No gated request is outstanding.
+    Idle,
+    /// A request is outstanding and the deadline has not expired.
+    Pending,
+    /// The worker returned a correlated result.
+    Ready(ModeGatedPtyInputResult),
+    /// The parent wait expired without a correlated result.
+    TimedOut,
+}
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
@@ -381,7 +407,7 @@ impl WorkerProcessRuntime {
     pub fn ping(&mut self, session_id: &SessionId) -> Result<WorkerHealth, SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
         let before = session.pong_count.load(Ordering::Acquire);
-        session.control.write_frame(FRAME_PING, &[])?;
+        session.enqueue_frame(ControlFrameClass::Ordinary, FRAME_PING, &[])?;
         let deadline = Instant::now() + PING_WAIT;
         while Instant::now() < deadline {
             if session.pong_count.load(Ordering::Acquire) > before {
@@ -412,9 +438,11 @@ impl WorkerProcessRuntime {
         seconds: u64,
     ) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
-        session
-            .control
-            .write_json(FRAME_SET_TIMEOUT, &TimeoutPayload { seconds })
+        session.enqueue_json(
+            ControlFrameClass::Ordinary,
+            FRAME_SET_TIMEOUT,
+            &TimeoutPayload { seconds },
+        )
     }
 
     /// Read worker-authoritative mode flags and freshness token.
@@ -438,7 +466,8 @@ impl WorkerProcessRuntime {
             }
             *session.mode_flags_slot.lock().map_err(lock_error)? = None;
             *session.outstanding_mode_probe.lock().map_err(lock_error)? = Some(request_id.clone());
-            session.control.write_json(
+            session.enqueue_json(
+                ControlFrameClass::Ordinary,
                 FRAME_GET_MODE_FLAGS,
                 &ModeFlagsProbeRequest {
                     request_id: request_id.clone(),
@@ -596,7 +625,8 @@ impl WorkerProcessRuntime {
             ));
         }
         session.snapshot_boundary.clear();
-        session.control.write_json(
+        session.enqueue_json(
+            ControlFrameClass::Ordinary,
             crate::FRAME_GET_SNAPSHOT,
             &WorkerSnapshotRequest {
                 request_id: request_id.clone(),
@@ -686,7 +716,8 @@ impl WorkerProcessRuntime {
             ));
         }
         let session = self.session_mut(session_id)?;
-        session.control.write_json(
+        session.enqueue_json(
+            ControlFrameClass::Ordinary,
             crate::FRAME_GET_SNAPSHOT,
             &WorkerSnapshotRequest {
                 request_id: request_id.to_owned(),
@@ -707,7 +738,8 @@ impl WorkerProcessRuntime {
     ) -> Result<(), SessionRuntimeError> {
         {
             let session = self.session_mut(session_id)?;
-            session.control.write_json(
+            session.enqueue_json(
+                ControlFrameClass::Ordinary,
                 crate::FRAME_GET_SNAPSHOT,
                 &WorkerSnapshotRequest {
                     request_id: request_id.to_owned(),
@@ -761,6 +793,160 @@ impl WorkerProcessRuntime {
         }
     }
 
+    /// Submit one mode-gated PTY input and return immediately.
+    ///
+    /// Claims the per-session lane and enqueues `FRAME_MODE_GATED_PTY_INPUT`.
+    /// Does not wait for a worker reply and does not write the control socket.
+    pub fn submit_mode_gated_pty_input(
+        &mut self,
+        session_id: &SessionId,
+        expected: ModeFreshnessToken,
+        data: Vec<u8>,
+    ) -> Result<GatedRequestId, SessionRuntimeError> {
+        let request_id = next_gated_request_id();
+        let timeout = self.options.mode_gated_input_timeout;
+        let test_hold_ms = self.options.test_mode_gated_hold_ms;
+        let deadline_unix_ms = unix_now_ms().saturating_add(timeout.as_millis() as u64);
+        let parent_deadline = Instant::now() + timeout + MODE_GATED_REPLY_GRACE;
+        let session = self.session_mut(session_id)?;
+        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+        if in_flight.is_some() {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "mode-gated request already in flight for session",
+            ));
+        }
+        *in_flight = Some(GatedInFlight {
+            request_id: request_id.clone(),
+            result: None,
+            cancelled: false,
+            parent_deadline,
+        });
+        drop(in_flight);
+        if let Err(error) = session.enqueue_json(
+            ControlFrameClass::Ordinary,
+            FRAME_MODE_GATED_PTY_INPUT,
+            &ModeGatedPtyInputRequest {
+                request_id: request_id.clone(),
+                expected,
+                data,
+                deadline_unix_ms,
+                test_hold_ms,
+            },
+        ) {
+            if let Ok(mut in_flight) = session.gated_in_flight.lock() {
+                *in_flight = None;
+            }
+            return Err(error);
+        }
+        Ok(request_id)
+    }
+
+    /// Pump output once and inspect the gated slot. Never sleeps.
+    pub fn poll_mode_gated_pty_input(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<GatedPoll, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        let session = self.session_mut(session_id)?;
+        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+        let Some(slot) = in_flight.as_mut() else {
+            return Ok(GatedPoll::Idle);
+        };
+        if let Some(result) = slot.result.take() {
+            *in_flight = None;
+            return result.map(GatedPoll::Ready);
+        }
+        if Instant::now() >= slot.parent_deadline {
+            *in_flight = None;
+            return Ok(GatedPoll::TimedOut);
+        }
+        Ok(GatedPoll::Pending)
+    }
+
+    /// Enqueue a cancel for one abandoned gated request. Never writes the socket.
+    ///
+    /// The parent lane stays occupied until the correlated reply arrives or the
+    /// parent wait expires.
+    pub fn cancel_mode_gated_pty_input(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &GatedRequestId,
+    ) -> Result<(), SessionRuntimeError> {
+        self.enqueue_gated_cancel(session_id, request_id)
+    }
+
+    fn enqueue_gated_cancel(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Result<(), SessionRuntimeError> {
+        let session = self.session_mut(session_id)?;
+        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
+        match in_flight.as_mut() {
+            Some(slot) if slot.request_id == request_id => {
+                slot.cancelled = true;
+            }
+            _ => return Ok(()),
+        }
+        drop(in_flight);
+        session.enqueue_json(
+            ControlFrameClass::Cancel,
+            FRAME_MODE_GATED_CANCEL,
+            &ModeGatedCancelRequest {
+                request_id: request_id.to_owned(),
+            },
+        )
+    }
+
+    /// Whether the session gated lane is occupied, including a cancelled hold.
+    #[must_use]
+    pub fn has_gated_in_flight(&self, session_id: &SessionId) -> bool {
+        self.sessions
+            .get(session_id)
+            .and_then(|session| session.gated_in_flight.lock().ok())
+            .is_some_and(|slot| slot.is_some())
+    }
+
+    /// Current durable control-plane state.
+    #[must_use]
+    pub fn control_plane_state(&self, session_id: &SessionId) -> ControlPlaneState {
+        self.sessions
+            .get(session_id)
+            .map(|session| session.control_plane.clone())
+            .unwrap_or(ControlPlaneState::Live)
+    }
+
+    /// Observe the writer outcome without consuming a failure.
+    #[must_use]
+    pub fn control_writer_outcome(&self, session_id: &SessionId) -> ControlWriterOutcome {
+        self.sessions
+            .get(session_id)
+            .map(|session| session.writer_slot.get())
+            .unwrap_or(ControlWriterOutcome::Stopped)
+    }
+
+    /// Consume a writer failure once. Later calls return `None`.
+    pub fn consume_control_writer_failure(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<ControlWriterError> {
+        self.sessions
+            .get(session_id)
+            .and_then(|session| session.writer_slot.consume_failure())
+    }
+
+    /// Record a durable control-plane failure. Recovery is respawn only.
+    pub fn mark_control_plane_failed(
+        &mut self,
+        session_id: &SessionId,
+        error: ControlWriterError,
+    ) {
+        if let Some(session) = self.sessions.get_mut(session_id) {
+            session.control_plane = ControlPlaneState::Failed(error);
+        }
+    }
+
     /// Correlated mode-gated PTY input against the worker atomic admit barrier.
     ///
     /// Interleaved PTY/metadata frames continue normal demux into pending
@@ -772,65 +958,23 @@ impl WorkerProcessRuntime {
         expected: ModeFreshnessToken,
         data: Vec<u8>,
     ) -> Result<ModeGatedPtyInputResult, SessionRuntimeError> {
-        let request_id = next_gated_request_id();
-        let timeout = self.options.mode_gated_input_timeout;
-        let test_hold_ms = self.options.test_mode_gated_hold_ms;
-        // Worker write fence uses this wall-clock deadline; parent Instant wait
-        // below is timeout + MODE_GATED_REPLY_GRACE so a post-deadline reply
-        // still correlates under scheduling load.
-        let deadline_unix_ms = unix_now_ms().saturating_add(timeout.as_millis() as u64);
-        {
-            let session = self.session_mut(session_id)?;
-            let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-            if in_flight.is_some() {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
-                    "mode-gated request already in flight for session",
-                ));
-            }
-            *in_flight = Some(GatedInFlight {
-                request_id: request_id.clone(),
-                result: None,
-            });
-            drop(in_flight);
-            session.control.write_json(
-                FRAME_MODE_GATED_PTY_INPUT,
-                &ModeGatedPtyInputRequest {
-                    request_id: request_id.clone(),
-                    expected,
-                    data,
-                    deadline_unix_ms,
-                    test_hold_ms,
-                },
-            )?;
-        }
-
-        let parent_wait_deadline = Instant::now() + timeout + MODE_GATED_REPLY_GRACE;
+        let _request_id = self.submit_mode_gated_pty_input(session_id, expected, data)?;
         loop {
-            self.pump_session_output(session_id)?;
-            {
-                let session = self.session_mut(session_id)?;
-                let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-                if let Some(slot) = in_flight.as_mut() {
-                    if let Some(result) = slot.result.take() {
-                        *in_flight = None;
-                        return result;
-                    }
+            match self.poll_mode_gated_pty_input(session_id)? {
+                GatedPoll::Ready(result) => return Ok(result),
+                GatedPoll::TimedOut => {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "mode-gated input timed out",
+                    ));
                 }
-            }
-            if Instant::now() >= parent_wait_deadline {
-                if let Ok(session) = self.session_mut(session_id) {
-                    if let Ok(mut in_flight) = session.gated_in_flight.lock() {
-                        *in_flight = None;
-                    }
+                GatedPoll::Idle => {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        "mode-gated lane released before a result",
+                    ));
                 }
-                // Parent timed out after write deadline + reply grace. The worker
-                // still holds a deadline fence and must not write after
-                // deadline_unix_ms.
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "mode-gated input timed out",
-                ));
+                GatedPoll::Pending => {}
             }
             if self.session_reader_finished(session_id)? {
                 if let Ok(session) = self.session_mut(session_id) {
@@ -993,32 +1137,35 @@ impl WorkerProcessRuntime {
             })),
         };
 
-        self.sessions.insert(
-            session_id.clone(),
-            WorkerProcessSession {
-                child: None,
-                control: WorkerControl::Socket {
-                    stream: control,
-                    path: socket_path,
-                    identity,
-                },
-                metadata,
-                output: receiver,
-                overflow,
-                pong_count,
-                last_health,
-                completion,
-                gated_in_flight: Arc::new(Mutex::new(None)),
-                mode_flags_slot: Arc::new(Mutex::new(None)),
-                outstanding_mode_probe: Arc::new(Mutex::new(None)),
-                pending_output: std::collections::VecDeque::new(),
-                snapshot_boundary: std::collections::VecDeque::new(),
-                outstanding_snapshot_request: None,
-                supports_snapshot_boundary,
-                egress_capacity: self.options.egress_capacity.max(1),
-                stall,
+        let mut session = WorkerProcessSession {
+            child: None,
+            control: WorkerControl::Socket {
+                stream: control,
+                path: socket_path,
+                identity,
             },
-        );
+            control_queue: ControlQueue::new(),
+            writer_slot: ControlWriterSlot::running(),
+            control_plane: ControlPlaneState::Live,
+            writer: None,
+            metadata,
+            output: receiver,
+            overflow,
+            pong_count,
+            last_health,
+            completion,
+            gated_in_flight: Arc::new(Mutex::new(None)),
+            mode_flags_slot: Arc::new(Mutex::new(None)),
+            outstanding_mode_probe: Arc::new(Mutex::new(None)),
+            pending_output: std::collections::VecDeque::new(),
+            snapshot_boundary: std::collections::VecDeque::new(),
+            outstanding_snapshot_request: None,
+            supports_snapshot_boundary,
+            egress_capacity: self.options.egress_capacity.max(1),
+            stall,
+        };
+        session.start_writer()?;
+        self.sessions.insert(session_id.clone(), session);
 
         Ok(SessionRuntimeHandle {
             request_id: crate::RequestId(format!("{}-adopt", session_id.0)),
@@ -1267,28 +1414,31 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&stall),
         );
 
-        self.sessions.insert(
-            request.session_id.clone(),
-            WorkerProcessSession {
-                child: Some(pending_worker.take()),
-                control,
-                metadata,
-                output: receiver,
-                overflow,
-                pong_count,
-                last_health,
-                completion,
-                gated_in_flight: Arc::new(Mutex::new(None)),
-                mode_flags_slot: Arc::new(Mutex::new(None)),
-                outstanding_mode_probe: Arc::new(Mutex::new(None)),
-                pending_output: std::collections::VecDeque::new(),
-                snapshot_boundary: std::collections::VecDeque::new(),
-                outstanding_snapshot_request: None,
-                supports_snapshot_boundary,
-                egress_capacity: self.options.egress_capacity.max(1),
-                stall,
-            },
-        );
+        let mut session = WorkerProcessSession {
+            child: Some(pending_worker.take()),
+            control,
+            control_queue: ControlQueue::new(),
+            writer_slot: ControlWriterSlot::running(),
+            control_plane: ControlPlaneState::Live,
+            writer: None,
+            metadata,
+            output: receiver,
+            overflow,
+            pong_count,
+            last_health,
+            completion,
+            gated_in_flight: Arc::new(Mutex::new(None)),
+            mode_flags_slot: Arc::new(Mutex::new(None)),
+            outstanding_mode_probe: Arc::new(Mutex::new(None)),
+            pending_output: std::collections::VecDeque::new(),
+            snapshot_boundary: std::collections::VecDeque::new(),
+            outstanding_snapshot_request: None,
+            supports_snapshot_boundary,
+            egress_capacity: self.options.egress_capacity.max(1),
+            stall,
+        };
+        session.start_writer()?;
+        self.sessions.insert(request.session_id.clone(), session);
 
         Ok(SessionRuntimeHandle {
             request_id: request.request_id,
@@ -1301,17 +1451,25 @@ impl SessionRuntime for WorkerProcessRuntime {
         match input {
             SessionRuntimeInput::PtyInput { session_id, data } => {
                 let session = self.session_mut(&session_id)?;
-                session.control.write_frame(FRAME_PTY_INPUT, &data)
+                session.enqueue_frame(ControlFrameClass::Ordinary, FRAME_PTY_INPUT, &data)
             }
             SessionRuntimeInput::Resize { session_id, size } => {
                 let session = self.session_mut(&session_id)?;
-                session.control.write_json(FRAME_RESIZE, &size)
+                session.enqueue_json(ControlFrameClass::Ordinary, FRAME_RESIZE, &size)
             }
             SessionRuntimeInput::Shutdown { session_id } => {
                 let session = self.session_mut(&session_id)?;
-                session.control.write_frame(FRAME_SHUTDOWN, &[])
+                session.enqueue_frame(ControlFrameClass::Terminal, FRAME_SHUTDOWN, &[])
             }
         }
+    }
+
+    fn cancel_mode_gated_pty_input(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> Result<(), SessionRuntimeError> {
+        WorkerProcessRuntime::enqueue_gated_cancel(self, session_id, request_id)
     }
 
     fn drain_output(
@@ -1360,6 +1518,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             }
             if let Some(mut removed) = self.sessions.remove(session_id) {
                 removed.close_before_blocking_shutdown();
+                removed.shutdown_control();
                 if let Some(mut child) = removed.child.take() {
                     match child.try_wait() {
                         Ok(Some(_)) => {}
@@ -1386,7 +1545,8 @@ impl Drop for WorkerProcessRuntime {
         for (_, mut session) in self.sessions.drain() {
             session.close_before_blocking_shutdown();
             if let Some(request_id) = session.outstanding_snapshot_request.take() {
-                let _ = session.control.write_json(
+                let _ = session.enqueue_json(
+                    ControlFrameClass::Ordinary,
                     crate::FRAME_GET_SNAPSHOT,
                     &WorkerSnapshotRequest {
                         request_id,
@@ -1395,9 +1555,13 @@ impl Drop for WorkerProcessRuntime {
                     },
                 );
             }
-            let _ = session.control.write_frame(FRAME_SHUTDOWN, &[]);
+            session.shutdown_control();
             if let Some(mut child) = session.child.take() {
-                let _ = child.wait();
+                let _ = child.kill();
+                match child.try_wait() {
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => reap_worker_child_in_background(child),
+                }
             }
             session.control.cleanup();
         }
@@ -1530,6 +1694,10 @@ impl EgressStall {
 struct WorkerProcessSession {
     child: Option<Child>,
     control: WorkerControl,
+    control_queue: ControlQueue,
+    writer_slot: ControlWriterSlot,
+    control_plane: ControlPlaneState,
+    writer: Option<thread::JoinHandle<()>>,
     metadata: SessionMetadata,
     output: Receiver<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
@@ -1556,6 +1724,72 @@ impl WorkerProcessSession {
     fn close_before_blocking_shutdown(&self) {
         self.stall.close();
     }
+
+    fn start_writer(&mut self) -> Result<(), SessionRuntimeError> {
+        let write = self.control.take_write_half()?;
+        let queue = self.control_queue.clone();
+        let slot = self.writer_slot.clone();
+        self.writer = Some(thread::spawn(move || {
+            run_control_writer(queue, write, slot);
+        }));
+        Ok(())
+    }
+
+    fn enqueue_frame(
+        &self,
+        class: ControlFrameClass,
+        frame_type: u8,
+        payload: &[u8],
+    ) -> Result<(), SessionRuntimeError> {
+        let frame = crate::encode_frame(frame_type, payload)
+            .map_err(|error| runtime_error(SessionRuntimeErrorKind::InputFailed, error))?;
+        self.admit_encoded(class, frame)
+    }
+
+    fn enqueue_json<T: Serialize>(
+        &self,
+        class: ControlFrameClass,
+        frame_type: u8,
+        payload: &T,
+    ) -> Result<(), SessionRuntimeError> {
+        let frame = crate::encode_json(frame_type, payload)
+            .map_err(|error| runtime_error(SessionRuntimeErrorKind::InputFailed, error))?;
+        self.admit_encoded(class, frame)
+    }
+
+    fn admit_encoded(
+        &self,
+        class: ControlFrameClass,
+        frame: Vec<u8>,
+    ) -> Result<(), SessionRuntimeError> {
+        self.control_queue.admit(class, frame).map_err(|error| {
+            let message = match error {
+                ControlQueueAdmitError::ControlQueueFull => "control queue full",
+                ControlQueueAdmitError::Sealed => "control plane sealed",
+            };
+            SessionRuntimeError::new(SessionRuntimeErrorKind::InputFailed, message)
+        })
+    }
+
+    fn shutdown_control(&mut self) {
+        let _ = self.enqueue_frame(ControlFrameClass::Terminal, FRAME_SHUTDOWN, &[]);
+        self.control.hard_stop_write(self.child.as_mut());
+        self.join_writer();
+    }
+
+    fn join_writer(&mut self) {
+        let deadline = Instant::now() + WORKER_CONTROL_WRITER_JOIN_BOUND;
+        while Instant::now() < deadline {
+            if !matches!(self.writer_slot.get(), ControlWriterOutcome::Running) {
+                if let Some(handle) = self.writer.take() {
+                    let _ = handle.join();
+                }
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        self.writer.take();
+    }
 }
 
 impl Drop for WorkerProcessSession {
@@ -1567,6 +1801,8 @@ impl Drop for WorkerProcessSession {
 struct GatedInFlight {
     request_id: String,
     result: Option<Result<ModeGatedPtyInputResult, SessionRuntimeError>>,
+    cancelled: bool,
+    parent_deadline: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1584,6 +1820,13 @@ enum WorkerControl {
     Stdio(ChildStdin),
     #[cfg(unix)]
     Socket {
+        stream: UnixStream,
+        path: PathBuf,
+        identity: Option<SocketIdentity>,
+    },
+    ReleasedStdio,
+    #[cfg(unix)]
+    ReleasedSocket {
         stream: UnixStream,
         path: PathBuf,
         identity: Option<SocketIdentity>,
@@ -1611,6 +1854,9 @@ impl WorkerControl {
             #[cfg(unix)]
             Self::Socket { stream, .. } => write_hello(stream)
                 .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error)),
+            Self::ReleasedStdio => Err(released_control_error()),
+            #[cfg(unix)]
+            Self::ReleasedSocket { .. } => Err(released_control_error()),
         }
     }
 
@@ -1619,6 +1865,9 @@ impl WorkerControl {
             Self::Stdio(stdin) => write_frame(stdin, frame_type, payload),
             #[cfg(unix)]
             Self::Socket { stream, .. } => write_frame(stream, frame_type, payload),
+            Self::ReleasedStdio => Err(released_control_error()),
+            #[cfg(unix)]
+            Self::ReleasedSocket { .. } => Err(released_control_error()),
         }
     }
 
@@ -1631,18 +1880,81 @@ impl WorkerControl {
             Self::Stdio(stdin) => write_json(stdin, frame_type, payload),
             #[cfg(unix)]
             Self::Socket { stream, .. } => write_json(stream, frame_type, payload),
+            Self::ReleasedStdio => Err(released_control_error()),
+            #[cfg(unix)]
+            Self::ReleasedSocket { .. } => Err(released_control_error()),
+        }
+    }
+
+    fn take_write_half(&mut self) -> Result<WorkerWriteHalf, SessionRuntimeError> {
+        match std::mem::replace(self, Self::ReleasedStdio) {
+            Self::Stdio(stdin) => Ok(WorkerWriteHalf::Stdio(stdin)),
+            #[cfg(unix)]
+            Self::Socket {
+                stream,
+                path,
+                identity,
+            } => {
+                let shutdown = stream.try_clone().map_err(|error| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("clone worker control socket for shutdown failed: {error}"),
+                    )
+                })?;
+                *self = Self::ReleasedSocket {
+                    stream: shutdown,
+                    path,
+                    identity,
+                };
+                Ok(WorkerWriteHalf::Socket(stream))
+            }
+            Self::ReleasedStdio => Err(released_control_error()),
+            #[cfg(unix)]
+            Self::ReleasedSocket {
+                stream,
+                path,
+                identity,
+            } => {
+                *self = Self::ReleasedSocket {
+                    stream,
+                    path,
+                    identity,
+                };
+                Err(released_control_error())
+            }
+        }
+    }
+
+    fn hard_stop_write(&self, child: Option<&mut Child>) {
+        match self {
+            Self::ReleasedStdio | Self::Stdio(_) => {
+                if let Some(child) = child {
+                    let _ = child.kill();
+                }
+            }
+            #[cfg(unix)]
+            Self::ReleasedSocket { stream, .. } | Self::Socket { stream, .. } => {
+                let _ = stream.shutdown(Shutdown::Write);
+            }
         }
     }
 
     fn cleanup(&self) {
         #[cfg(unix)]
-        if let Self::Socket {
-            path,
-            identity: Some(identity),
-            ..
-        } = self
-        {
-            let _ = remove_socket_if_unchanged(path, identity);
+        match self {
+            Self::Socket {
+                path,
+                identity: Some(identity),
+                ..
+            }
+            | Self::ReleasedSocket {
+                path,
+                identity: Some(identity),
+                ..
+            } => {
+                let _ = remove_socket_if_unchanged(path, identity);
+            }
+            _ => {}
         }
     }
 }
@@ -2255,6 +2567,155 @@ fn write_json<T: Serialize>(
         .write_all(&frame)
         .and_then(|_| stream.flush())
         .map_err(|error| runtime_error(SessionRuntimeErrorKind::InputFailed, error))
+}
+
+enum WorkerWriteHalf {
+    Stdio(ChildStdin),
+    #[cfg(unix)]
+    Socket(UnixStream),
+}
+
+impl Write for WorkerWriteHalf {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Stdio(stdin) => stdin.write(buf),
+            #[cfg(unix)]
+            Self::Socket(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdio(stdin) => stdin.flush(),
+            #[cfg(unix)]
+            Self::Socket(stream) => stream.flush(),
+        }
+    }
+}
+
+impl WorkerWriteHalf {
+    fn prepare(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdio(stdin) => set_fd_nonblocking(stdin.as_raw_fd()),
+            #[cfg(unix)]
+            Self::Socket(_) => Ok(()),
+        }
+    }
+
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        match self {
+            Self::Stdio(_) => Ok(()),
+            #[cfg(unix)]
+            Self::Socket(stream) => stream.set_write_timeout(timeout),
+        }
+    }
+}
+
+fn set_fd_nonblocking(fd: std::os::unix::io::RawFd) -> io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+fn run_control_writer(queue: ControlQueue, mut write: WorkerWriteHalf, slot: ControlWriterSlot) {
+    if let Err(error) = write.prepare() {
+        queue.seal();
+        slot.set(ControlWriterOutcome::Failed {
+            error: ControlWriterError::WriteError(error.to_string()),
+            consumed: false,
+        });
+        return;
+    }
+    loop {
+        let Some((class, frame)) = queue.pop() else {
+            slot.set(ControlWriterOutcome::Stopped);
+            return;
+        };
+        match write_control_bytes(&mut write, &frame) {
+            Ok(()) => {
+                if class == ControlFrameClass::Terminal {
+                    slot.set(ControlWriterOutcome::Stopped);
+                    return;
+                }
+            }
+            Err(error) => {
+                queue.seal();
+                slot.set(ControlWriterOutcome::Failed {
+                    error,
+                    consumed: false,
+                });
+                return;
+            }
+        }
+    }
+}
+
+fn write_control_bytes(
+    write: &mut WorkerWriteHalf,
+    bytes: &[u8],
+) -> Result<(), ControlWriterError> {
+    let deadline = Instant::now() + WORKER_CONTROL_WRITE_TIMEOUT;
+    let mut written = 0;
+    while written < bytes.len() {
+        let now = Instant::now();
+        let Some(slice) = write_slice_timeout(deadline, now) else {
+            return Err(ControlWriterError::DeadlineExpired);
+        };
+        write
+            .set_write_timeout(Some(slice))
+            .map_err(|error| ControlWriterError::WriteError(error.to_string()))?;
+        match write.write(&bytes[written..]) {
+            Ok(0) => return Err(ControlWriterError::PeerClosed),
+            Ok(count) => written += count,
+            Err(error)
+                if error.kind() == ErrorKind::WouldBlock
+                    || error.kind() == ErrorKind::TimedOut
+                    || error.kind() == ErrorKind::Interrupted =>
+            {
+                thread::sleep(slice.min(Duration::from_millis(5)));
+            }
+            Err(error)
+                if error.kind() == ErrorKind::BrokenPipe
+                    || error.kind() == ErrorKind::ConnectionReset
+                    || error.kind() == ErrorKind::UnexpectedEof =>
+            {
+                return Err(ControlWriterError::PeerClosed);
+            }
+            Err(error) => return Err(ControlWriterError::WriteError(error.to_string())),
+        }
+    }
+    if write_slice_timeout(deadline, Instant::now()).is_none() {
+        return Err(ControlWriterError::DeadlineExpired);
+    }
+    match write.flush() {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error.kind() == ErrorKind::WouldBlock || error.kind() == ErrorKind::TimedOut =>
+        {
+            Ok(())
+        }
+        Err(error)
+            if error.kind() == ErrorKind::BrokenPipe
+                || error.kind() == ErrorKind::ConnectionReset =>
+        {
+            Err(ControlWriterError::PeerClosed)
+        }
+        Err(error) => Err(ControlWriterError::WriteError(error.to_string())),
+    }
+}
+
+fn released_control_error() -> SessionRuntimeError {
+    SessionRuntimeError::new(
+        SessionRuntimeErrorKind::InputFailed,
+        "control write half moved to writer thread",
+    )
 }
 
 fn runtime_error(

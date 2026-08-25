@@ -111,6 +111,10 @@ impl TerminalAdapter for DropProbeAdapter {
     fn pressure(&self) -> TerminalAdapterPressure {
         self.inner.pressure()
     }
+
+    fn try_read(&mut self) -> botster_core::contract::terminal_adapter::TerminalIngress {
+        self.inner.try_read()
+    }
 }
 
 #[test]
@@ -646,6 +650,9 @@ fn close_is_observed_without_a_closer_thread() {
         fn pressure(&self) -> TerminalAdapterPressure {
             self.1.pressure()
         }
+        fn try_read(&mut self) -> botster_core::contract::terminal_adapter::TerminalIngress {
+            self.1.try_read()
+        }
     }
     worker
         .bind_terminal_adapter(
@@ -718,6 +725,9 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
         }
         fn pressure(&self) -> TerminalAdapterPressure {
             self.1.pressure()
+        }
+        fn try_read(&mut self) -> botster_core::contract::terminal_adapter::TerminalIngress {
+            self.1.try_read()
         }
     }
     worker
@@ -830,6 +840,9 @@ fn replacement_attach_hard_stops_the_old_owner() {
         }
         fn pressure(&self) -> TerminalAdapterPressure {
             self.1.pressure()
+        }
+        fn try_read(&mut self) -> botster_core::contract::terminal_adapter::TerminalIngress {
+            self.1.try_read()
         }
     }
     engine
@@ -973,6 +986,9 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
         }
         fn pressure(&self) -> TerminalAdapterPressure {
             self.1.pressure()
+        }
+        fn try_read(&mut self) -> botster_core::contract::terminal_adapter::TerminalIngress {
+            self.1.try_read()
         }
     }
     engine
@@ -1293,13 +1309,14 @@ fn ready_then_history_set_encodes_incremental_snapshot() {
 }
 
 #[test]
-fn bind_error_variants_remain_the_four_shipped_cases() {
+fn bind_error_variants_remain_the_shipped_cases() {
     fn classify(error: BindTerminalAdapterError) -> &'static str {
         match error {
             BindTerminalAdapterError::BindBeforeAttach { .. } => "bind_before_attach",
             BindTerminalAdapterError::UnknownSubscription { .. } => "unknown_subscription",
             BindTerminalAdapterError::StaleGeneration { .. } => "stale_generation",
             BindTerminalAdapterError::AlreadyBound { .. } => "already_bound",
+            BindTerminalAdapterError::ControlPlaneFailed { .. } => "control_plane_failed",
         }
     }
     let source = include_str!(concat!(

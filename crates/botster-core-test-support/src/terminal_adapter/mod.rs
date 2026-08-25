@@ -16,7 +16,8 @@ pub use unix_shaped::UnixShapedTerminalAdapter;
 pub use webrtc_shaped::WebRtcShapedTerminalAdapter;
 
 use botster_core::contract::terminal_adapter::{
-    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_terminal_protocol::TerminalFrame;
 
@@ -44,6 +45,18 @@ pub trait TerminalAdapterHarnessDriver {
 
     /// Complete frame byte blobs delivered after accepted writes finished.
     fn delivered_frame_bytes(&self) -> &[Vec<u8>];
+
+    /// Inject one complete ingress frame.
+    fn inject_ingress_frame(&mut self, bytes: Vec<u8>);
+
+    /// Buffer an incomplete ingress frame that `try_read` must not return yet.
+    fn inject_ingress_partial(&mut self, bytes: Vec<u8>);
+
+    /// Complete the buffered partial ingress frame.
+    fn complete_ingress_partial(&mut self);
+
+    /// Drop one buffered complete ingress frame and mark loss.
+    fn drop_buffered_ingress_frame(&mut self);
 }
 
 /// Prove adapter laws against `driver`.
@@ -95,6 +108,20 @@ where
     );
     assert_close_during_active_write(&mut transport_driver, ClosePath::Transport);
     assert_close_propagation(&mut transport_driver);
+
+    let mut ingress = D::default();
+    assert_ingress_empty(&mut ingress);
+    assert_ingress_order(&mut ingress);
+    assert_ingress_whole_frames(&mut ingress);
+    assert_ingress_closed_local(&mut ingress);
+    let mut transport_ingress = D::default();
+    assert_ingress_closed_transport(&mut transport_ingress);
+    let mut lost = D::default();
+    assert_ingress_lost(&mut lost);
+    let mut blind = D::default();
+    assert_ingress_content_blind(&mut blind);
+    let mut idle = D::default();
+    assert_ingress_non_blocking(&mut idle);
 }
 
 #[derive(Clone, Copy)]
@@ -284,4 +311,82 @@ fn assert_close_propagation<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
         driver.adapter().try_write(&opaque_frame("still-closed")),
         Err(TerminalAdapterWriteError::Closed)
     );
+}
+
+fn assert_ingress_empty<D: TerminalAdapterHarnessDriver + Default>(driver: &mut D) {
+    let mut fresh = D::default();
+    assert_eq!(fresh.adapter().try_read(), TerminalIngress::Empty);
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Empty);
+}
+
+fn assert_ingress_order<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    driver.inject_ingress_frame(b"one".to_vec());
+    driver.inject_ingress_frame(b"two".to_vec());
+    driver.inject_ingress_frame(b"three".to_vec());
+    assert_eq!(
+        driver.adapter().try_read(),
+        TerminalIngress::Frame(b"one".to_vec())
+    );
+    assert_eq!(
+        driver.adapter().try_read(),
+        TerminalIngress::Frame(b"two".to_vec())
+    );
+    assert_eq!(
+        driver.adapter().try_read(),
+        TerminalIngress::Frame(b"three".to_vec())
+    );
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Empty);
+}
+
+fn assert_ingress_whole_frames<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    driver.inject_ingress_partial(b"partial".to_vec());
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Empty);
+    driver.complete_ingress_partial();
+    assert_eq!(
+        driver.adapter().try_read(),
+        TerminalIngress::Frame(b"partial".to_vec())
+    );
+}
+
+fn assert_ingress_closed_local<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    driver.inject_ingress_frame(b"drop-on-close".to_vec());
+    driver.adapter().close();
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
+}
+
+fn assert_ingress_closed_transport<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    driver.inject_ingress_frame(b"drop-on-transport-close".to_vec());
+    driver.force_closed();
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
+    assert_ne!(driver.adapter().try_read(), TerminalIngress::Empty);
+}
+
+fn assert_ingress_lost<D: TerminalAdapterHarnessDriver + Default>(driver: &mut D) {
+    let mut floor = D::default();
+    for index in 0..MIN_ADAPTER_INGRESS_BUFFER_FRAMES {
+        floor.inject_ingress_frame(vec![index as u8]);
+    }
+    assert_ne!(floor.adapter().try_read(), TerminalIngress::Lost);
+
+    let mut loss = D::default();
+    loss.inject_ingress_frame(b"keep".to_vec());
+    loss.inject_ingress_frame(b"drop".to_vec());
+    loss.drop_buffered_ingress_frame();
+    assert_eq!(loss.adapter().try_read(), TerminalIngress::Lost);
+    assert_eq!(
+        loss.adapter().try_read(),
+        TerminalIngress::Frame(b"keep".to_vec())
+    );
+}
+
+fn assert_ingress_content_blind<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    let bytes = b"\x00\xffopaque".to_vec();
+    driver.inject_ingress_frame(bytes.clone());
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Frame(bytes));
+}
+
+fn assert_ingress_non_blocking<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
+    assert_eq!(driver.adapter().try_read(), TerminalIngress::Empty);
 }

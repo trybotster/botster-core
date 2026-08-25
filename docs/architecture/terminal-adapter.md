@@ -16,8 +16,15 @@ tick. Bind requires a live generation and an immutable
 semantic drain-path frame enums. They are not adapter traits.
 
 `contract::terminal_adapter::{TerminalAdapter, TerminalAdapterWriteError,
-TerminalAdapterPressure}` is a new write/close/pressure seam. It does not
-overload those enum names.
+TerminalAdapterPressure, TerminalIngress}` is the write/close/pressure and
+ingress seam. It does not overload the transport enum names.
+
+`try_read()` returns `TerminalIngress::{Empty, Frame, Lost, Closed}`. After
+`close()`, `try_read` stays `Closed` and buffered ingress is dropped. `Lost`
+is fail-closed: Core hard-stops that owner and does not decode later frames.
+A conforming adapter holds at least `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` (64)
+complete frames. The production consumer is `CoreDaemon::drain`, which calls
+`apply_terminal_input` before `drain_runtime_once`.
 
 The start-here path remains spawn → attach → drain → input → shutdown through
 `botster_core::prelude`. This trait is an advanced host/adapter module. It is
@@ -99,7 +106,6 @@ Hub test support does not own this harness. Later Hub tickets import it.
 Not implemented here:
 
 - Real Unix sockets or WebRTC DataChannels
-- Ingress adapter trait
 - Changing `TransportIngress` / `TransportEgress` enums
 - Changing `botster-terminal-protocol` public accessors
 

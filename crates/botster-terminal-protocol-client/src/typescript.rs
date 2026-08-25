@@ -2,12 +2,15 @@
 
 use botster_terminal_protocol::{
     CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-    FEATURE_TERMINAL_STREAMING, PROTOCOL, PROTOCOL_VERSION,
+    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, MAX_INPUT_DATA_BYTES,
+    MAX_MODE_GATED_DATA_BYTES, PROTOCOL, PROTOCOL_VERSION, TERMINAL_INPUT_SCHEME_VERSION,
 };
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{AttachStateKind, PayloadEncoding, SnapshotPhase};
+use crate::{
+    AttachStateKind, PayloadEncoding, SnapshotPhase, TerminalInputKind, TerminalInputRejection,
+};
 
 /// Generate the committed TypeScript artifact from the Rust serde source.
 #[must_use]
@@ -54,6 +57,24 @@ pub fn terminal_protocol_typescript() -> String {
         &format!(
             "export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY = \"{FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY}\";"
         ),
+    );
+    line(
+        &mut output,
+        &format!(
+            "export const FEATURE_TRANSPORT_DUPLEX_BINARY = \"{FEATURE_TRANSPORT_DUPLEX_BINARY}\";"
+        ),
+    );
+    line(
+        &mut output,
+        &format!("export const TERMINAL_INPUT_SCHEME_VERSION = {TERMINAL_INPUT_SCHEME_VERSION};"),
+    );
+    line(
+        &mut output,
+        &format!("export const MAX_INPUT_DATA_BYTES = {MAX_INPUT_DATA_BYTES};"),
+    );
+    line(
+        &mut output,
+        &format!("export const MAX_MODE_GATED_DATA_BYTES = {MAX_MODE_GATED_DATA_BYTES};"),
     );
     line(&mut output, "");
     emit_interface(
@@ -132,6 +153,18 @@ pub fn terminal_protocol_typescript() -> String {
         "PayloadEncoding",
         &encodings.iter().map(String::as_str).collect::<Vec<_>>(),
     );
+    let input_kinds: Vec<String> = TerminalInputKind::ALL.iter().map(wire_string).collect();
+    emit_string_union(
+        &mut output,
+        "TerminalInputKind",
+        &input_kinds.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let rejections: Vec<String> = TerminalInputRejection::ALL.iter().map(wire_string).collect();
+    emit_string_union(
+        &mut output,
+        "TerminalInputRejection",
+        &rejections.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
     emit_interface(
         &mut output,
         "Snapshot",
@@ -177,6 +210,34 @@ pub fn terminal_protocol_typescript() -> String {
             ("state", "AttachStateKind"),
         ],
     );
+    emit_interface(
+        &mut output,
+        "TerminalModeFlags",
+        &[
+            ("kitty_enabled", "boolean"),
+            ("cursor_visible", "boolean"),
+            ("bracketed_paste", "boolean"),
+            ("mouse_mode", "number"),
+            ("alt_screen", "boolean"),
+            ("focus_reporting", "boolean"),
+            ("application_cursor", "boolean"),
+        ],
+    );
+    emit_interface(
+        &mut output,
+        "TerminalInputResult",
+        &[
+            ("type", "\"input_result\""),
+            ("subscription_id", "string"),
+            ("kind", "TerminalInputKind"),
+            ("admitted", "boolean"),
+            ("bytes_written", "number"),
+            ("mode_generation", "number"),
+            ("mode_revision", "number"),
+            ("mode_flags", "TerminalModeFlags"),
+            ("rejection?", "TerminalInputRejection"),
+        ],
+    );
     line(
         &mut output,
         "export type TerminalRequest = Attach | Detach | SendInput | Resize;",
@@ -184,9 +245,83 @@ pub fn terminal_protocol_typescript() -> String {
     line(&mut output, "");
     line(
         &mut output,
-        "export type TerminalEvent = Snapshot | TerminalOutput | ProcessExit | AttachState;",
+        "export type TerminalEvent = Snapshot | TerminalOutput | ProcessExit | AttachState | TerminalInputResult;",
     );
+    line(&mut output, "");
+    emit_encode_helpers(&mut output);
     output
+}
+
+fn emit_encode_helpers(output: &mut String) {
+    line(
+        output,
+        "export function encodeTerminalInput(data: Uint8Array): Uint8Array {",
+    );
+    line(
+        output,
+        "  if (data.length > MAX_INPUT_DATA_BYTES) {",
+    );
+    line(
+        output,
+        "    throw new Error(`PayloadTooLarge kind=input max=${MAX_INPUT_DATA_BYTES} actual=${data.length}`);",
+    );
+    line(output, "  }");
+    line(output, "  return encodeTerminalInputFrame(1, data);");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
+        "export function encodeModeGatedInput(mode_generation: bigint | number, mode_revision: bigint | number, data: Uint8Array): Uint8Array {",
+    );
+    line(
+        output,
+        "  if (data.length > MAX_MODE_GATED_DATA_BYTES) {",
+    );
+    line(
+        output,
+        "    throw new Error(`PayloadTooLarge kind=mode_gated_input max=${MAX_MODE_GATED_DATA_BYTES} actual=${data.length}`);",
+    );
+    line(output, "  }");
+    line(
+        output,
+        "  const body = new Uint8Array(16 + data.length);",
+    );
+    line(output, "  const view = new DataView(body.buffer);");
+    line(
+        output,
+        "  view.setBigUint64(0, BigInt(mode_generation), false);",
+    );
+    line(
+        output,
+        "  view.setBigUint64(8, BigInt(mode_revision), false);",
+    );
+    line(output, "  body.set(data, 16);");
+    line(output, "  return encodeTerminalInputFrame(2, body);");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
+        "export function encodeResize(rows: number, cols: number): Uint8Array {",
+    );
+    line(output, "  const body = new Uint8Array(4);");
+    line(output, "  const view = new DataView(body.buffer);");
+    line(output, "  view.setUint16(0, rows, false);");
+    line(output, "  view.setUint16(2, cols, false);");
+    line(output, "  return encodeTerminalInputFrame(3, body);");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
+        "function encodeTerminalInputFrame(kind: number, body: Uint8Array): Uint8Array {",
+    );
+    line(output, "  const out = new Uint8Array(4 + body.length);");
+    line(output, "  out[0] = TERMINAL_INPUT_SCHEME_VERSION;");
+    line(output, "  out[1] = kind;");
+    line(output, "  const view = new DataView(out.buffer);");
+    line(output, "  view.setUint16(2, body.length, false);");
+    line(output, "  out.set(body, 4);");
+    line(output, "  return out;");
+    line(output, "}");
 }
 
 fn wire_string<T: Serialize>(value: &T) -> String {
