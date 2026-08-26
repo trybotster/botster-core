@@ -68,7 +68,10 @@ pub struct ClientWorker {
     live: HashMap<OwnerKey, SubscriptionOwner>,
     last_generation: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     next_snapshot_phase: HashMap<OwnerKey, SnapshotPhase>,
+    expected_adapters: HashSet<(ClientId, OwnerKey)>,
     input_cursor: usize,
+    #[cfg(test)]
+    fail_next_encode: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -83,6 +86,8 @@ struct SubscriptionOwner {
     adapter: Option<Box<dyn TerminalAdapter + Send>>,
     capabilities: Option<TerminalCapabilitySet>,
     queue: VecDeque<QueuedFrame>,
+    held: VecDeque<(TransportEgress, Option<SnapshotPhase>)>,
+    hold_until_bound: bool,
     unsuccessful_writes: usize,
     in_flight: bool,
     process_exit_enqueued: bool,
@@ -150,6 +155,9 @@ impl ClientWorker {
                 .unwrap_or(1),
         );
         self.last_generation.insert(key.clone(), generation);
+        let hold_until_bound = self
+            .expected_adapters
+            .remove(&(client_id.clone(), key.clone()));
         self.live.insert(
             key,
             SubscriptionOwner {
@@ -158,6 +166,8 @@ impl ClientWorker {
                 adapter: None,
                 capabilities: None,
                 queue: VecDeque::new(),
+                held: VecDeque::new(),
+                hold_until_bound,
                 unsuccessful_writes: 0,
                 in_flight: false,
                 process_exit_enqueued: false,
@@ -167,6 +177,42 @@ impl ClientWorker {
             },
         );
         (generation, replacements)
+    }
+
+    /// Record that the next attach for this identity will bind an adapter.
+    ///
+    /// A matching [`Self::record_attach`] consumes the declaration and holds
+    /// initial attach frames until bind. A declaration for a different
+    /// `client_id` is not consumed.
+    pub fn expect_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.expected_adapters.insert((
+            client_id,
+            OwnerKey {
+                session_id,
+                subscription_id,
+            },
+        ));
+    }
+
+    /// Retire an unconsumed pre-attach adapter declaration.
+    pub fn cancel_expected_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.expected_adapters.remove(&(
+            client_id.clone(),
+            OwnerKey {
+                session_id,
+                subscription_id,
+            },
+        ));
     }
 
     fn teardown_replaced_client_session(
@@ -346,7 +392,7 @@ impl ClientWorker {
         egress: &mut Vec<(ClientId, TransportEgress)>,
     ) -> Vec<ClientWorkerTeardown> {
         let mut retained = Vec::with_capacity(egress.len());
-        let mut teardowns = Vec::new();
+        let mut teardowns = self.flush_held_after_bind();
         let mut failed_routes = HashSet::new();
         let mut unbound_process_exits = Vec::new();
         for (client_id, frame) in egress.drain(..) {
@@ -373,6 +419,35 @@ impl ClientWorker {
                 continue;
             }
             if owner.adapter.is_none() {
+                if owner.hold_until_bound {
+                    if matches!(
+                        frame,
+                        TransportEgress::AttachState {
+                            state: TerminalAttachState::Detached,
+                            ..
+                        }
+                    ) {
+                        retained.push((client_id, frame));
+                        continue;
+                    }
+                    if owner.held.len() >= QueueSource::ClientWorker.default_capacity() {
+                        failed_routes.insert(key.clone());
+                        if let Some(teardown) = self.hard_stop_key(&key) {
+                            teardowns.push(teardown);
+                        }
+                        continue;
+                    }
+                    let phase = if matches!(frame, TransportEgress::Snapshot { .. }) {
+                        self.next_snapshot_phase.remove(&key)
+                    } else {
+                        None
+                    };
+                    if matches!(frame, TransportEgress::ProcessExit { .. }) {
+                        owner.process_exit_enqueued = true;
+                    }
+                    owner.held.push_back((frame, phase));
+                    continue;
+                }
                 if matches!(frame, TransportEgress::Snapshot { .. }) {
                     self.next_snapshot_phase.remove(&key);
                 }
@@ -429,6 +504,65 @@ impl ClientWorker {
         }
         *egress = retained;
         teardowns
+    }
+
+    fn flush_held_after_bind(&mut self) -> Vec<ClientWorkerTeardown> {
+        let keys: Vec<_> = self
+            .live
+            .iter()
+            .filter(|(_, owner)| {
+                owner.adapter.is_some() && (owner.hold_until_bound || !owner.held.is_empty())
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut teardowns = Vec::new();
+        for key in keys {
+            if let Some(teardown) = self.flush_held_owner(&key) {
+                teardowns.push(teardown);
+            }
+        }
+        teardowns
+    }
+
+    fn flush_held_owner(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        loop {
+            let (frame, phase, capabilities) = {
+                let owner = self.live.get_mut(key)?;
+                owner.adapter.as_ref()?;
+                let Some(held) = owner.held.pop_front() else {
+                    owner.hold_until_bound = false;
+                    return None;
+                };
+                (
+                    held.0,
+                    held.1,
+                    owner
+                        .capabilities
+                        .clone()
+                        .unwrap_or_else(TerminalCapabilitySet::empty),
+                )
+            };
+            #[cfg(test)]
+            if self.fail_next_encode {
+                self.fail_next_encode = false;
+                return self.hard_stop_key(key);
+            }
+            match encode_terminal_frame(key, &frame, phase, &capabilities) {
+                Ok(Some(queued)) => {
+                    let owner = self.live.get_mut(key)?;
+                    if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
+                        return self.hard_stop_key(key);
+                    }
+                    let is_process_exit = queued.kind == QueuedKind::ProcessExit;
+                    owner.queue.push_back(queued);
+                    if is_process_exit {
+                        owner.process_exit_enqueued = true;
+                    }
+                }
+                Ok(None) => {}
+                Err(()) => return self.hard_stop_key(key),
+            }
+        }
     }
 
     /// Pump bound adapters once per host tick.
@@ -835,6 +969,7 @@ fn hard_stop(
 ) -> Option<ClientWorkerTeardown> {
     let mut owner = live.remove(key)?;
     owner.queue.clear();
+    owner.held.clear();
     if let Some(mut adapter) = owner.adapter.take() {
         adapter.close();
         drop(adapter);
@@ -941,4 +1076,83 @@ fn encode_terminal_frame(
         frame: encoded,
         kind,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::TerminalAttachState;
+    use crate::contract::terminal_adapter::TerminalIngress;
+
+    struct ReadyAdapter;
+
+    impl TerminalAdapter for ReadyAdapter {
+        fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            Ok(())
+        }
+
+        fn close(&mut self) {}
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            TerminalAdapterPressure::Ready
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            TerminalIngress::Empty
+        }
+    }
+
+    fn ids() -> (ClientId, SessionId, SubscriptionId) {
+        (
+            ClientId("c".into()),
+            SessionId("s".into()),
+            SubscriptionId("sub".into()),
+        )
+    }
+
+    #[test]
+    fn flush_encode_failure_returns_teardown_from_ingest() {
+        let mut worker = ClientWorker::new();
+        let (client, session, subscription) = ids();
+        worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+        worker.record_attach(client.clone(), session.clone(), subscription.clone());
+        let generation = worker
+            .live_generation(&session, &subscription)
+            .expect("generation");
+        let mut frames = vec![(
+            client.clone(),
+            TransportEgress::AttachState {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                state: TerminalAttachState::Attached,
+            },
+        )];
+        assert!(worker.ingest_bound_terminal_frames(&mut frames).is_empty());
+        assert!(
+            frames.is_empty(),
+            "held attach state must not leak: {frames:?}"
+        );
+        worker
+            .bind_terminal_adapter(
+                &client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(ReadyAdapter),
+            )
+            .expect("bind");
+        worker.fail_next_encode = true;
+        let mut empty = Vec::new();
+        let teardowns = worker.ingest_bound_terminal_frames(&mut empty);
+        assert_eq!(
+            teardowns.len(),
+            1,
+            "encode failure must teardown: {teardowns:?}"
+        );
+        assert!(!worker.has_subscription(&session, &subscription));
+        assert_eq!(teardowns[0].client_id, client);
+        assert_eq!(teardowns[0].session_id, session);
+        assert_eq!(teardowns[0].subscription_id, subscription);
+    }
 }

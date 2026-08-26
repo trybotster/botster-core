@@ -13,15 +13,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
 use botster_core::TerminalScreenSize;
 use botster_core::{
-    BotsterEngineObservation, ClientId, CoreSessionMetadata, EndpointId, EnvelopeCursor,
-    EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags, NotificationContent,
-    NotificationDeliveryStatus, NotificationId, NotificationItem, NotificationSeverity,
-    NotificationSource, NotificationTarget, NotificationTimestamp, RequestId, ResizePayload, Rgb,
-    RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload, RoutedEnvelopeQueueConfig,
-    SessionId, SessionLifecycleState, SessionRuntimeErrorKind, SessionSpawnRequest,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, TerminalAttachState, TerminalCapabilitySet, TerminalColorProfile,
-    TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
+    BotsterEngineObservation, ClientId, ClientStreamObservation, CoreSessionMetadata, EndpointId,
+    EnvelopeCursor, EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags,
+    NotificationContent, NotificationDeliveryStatus, NotificationId, NotificationItem,
+    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp, RequestId,
+    ResizePayload, Rgb, RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload,
+    RoutedEnvelopeQueueConfig, SessionId, SessionLifecycleState, SessionRuntimeErrorKind,
+    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, SubscriptionMultiplexerObservation, TerminalAttachState,
+    TerminalCapabilitySet, TerminalColorProfile, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     reserved_observe_slice_error, sanitize_observe_slice_error_message,
@@ -10442,6 +10442,440 @@ fn drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued() {
         "one drain tick must not reject the ungranted sibling: first={first_results:?} second={second_results:?} first_frames={:?} second_frames={:?}",
         first.snapshot_delivered_frame_bytes(),
         second.snapshot_delivered_frame_bytes()
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+fn advertised_ready_then_history() -> TerminalCapabilitySet {
+    TerminalCapabilitySet::from_tokens(["snapshot_delivery=ready_then_history"])
+        .expect("advertised optional token")
+}
+
+fn route_terminal_frames<'a>(
+    frames: &'a [(ClientId, TransportEgress)],
+    client_id: &ClientId,
+    session_id: &SessionId,
+    subscription_id: &SubscriptionId,
+) -> Vec<&'a TransportEgress> {
+    frames
+        .iter()
+        .filter(|(client, frame)| {
+            client == client_id
+                && match frame {
+                    TransportEgress::TerminalOutput {
+                        session_id: routed_session,
+                        subscription_id: routed_sub,
+                        ..
+                    }
+                    | TransportEgress::Snapshot {
+                        session_id: routed_session,
+                        subscription_id: routed_sub,
+                        ..
+                    }
+                    | TransportEgress::Scrollback {
+                        session_id: routed_session,
+                        subscription_id: routed_sub,
+                        ..
+                    }
+                    | TransportEgress::ProcessExit {
+                        session_id: routed_session,
+                        subscription_id: routed_sub,
+                        ..
+                    }
+                    | TransportEgress::AttachState {
+                        session_id: routed_session,
+                        subscription_id: routed_sub,
+                        ..
+                    } => routed_session == session_id && routed_sub == subscription_id,
+                    _ => false,
+                }
+        })
+        .map(|(_, frame)| frame)
+        .collect()
+}
+
+fn saw_production_unsubscribe(
+    observations: &[BotsterEngineObservation],
+    client_id: &ClientId,
+    session_id: &SessionId,
+    subscription_id: &SubscriptionId,
+) -> bool {
+    observations.iter().any(|observation| {
+        matches!(
+            observation,
+            BotsterEngineObservation::Subscription(
+                SubscriptionMultiplexerObservation::ClientStream {
+                    client_id: observed_client,
+                    observation: ClientStreamObservation::Unsubscribed {
+                        session_id: observed_session,
+                        subscription_id: observed_sub,
+                    },
+                }
+            ) if observed_client == client_id
+                && observed_session == session_id
+                && observed_sub == subscription_id
+        )
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish() {
+    let data_dir = temp_data_dir("hold-until-bound-order");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("hold-order-session".to_string());
+    let client_id = ClientId("hold-order-client".to_string());
+    let subscription_id = SubscriptionId("hold-order-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf 'hold-order-live\\n'; sleep 30".to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("expect adapter");
+    let attached = daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach");
+    assert!(
+        route_terminal_frames(
+            &attached.client_egress,
+            &client_id,
+            &session_id,
+            &subscription_id
+        )
+        .is_empty(),
+        "declared attach must not extract route frames: {:?}",
+        attached.client_egress
+    );
+    let pre_bind = daemon.drain(&session_id, 12).expect("pre-bind drain");
+    assert!(
+        route_terminal_frames(
+            &pre_bind.client_egress,
+            &client_id,
+            &session_id,
+            &subscription_id
+        )
+        .is_empty(),
+        "declared route must not leak on drain before bind: {:?}",
+        pre_bind.client_egress
+    );
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory after attach")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            advertised_ready_then_history(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    wait_until_bound_attached(&mut daemon, &session_id, &adapter);
+    let mut phases = Vec::new();
+    for bytes in adapter.snapshot_delivered_frame_bytes() {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        match value.get("type").and_then(serde_json::Value::as_str) {
+            Some("snapshot") => {
+                if let Some(phase) = value.get("phase").and_then(serde_json::Value::as_str) {
+                    phases.push(phase.to_string());
+                }
+            }
+            Some("attach_state")
+                if value.get("state").and_then(serde_json::Value::as_str) == Some("attached") =>
+            {
+                phases.push("attached".to_string());
+            }
+            _ => {}
+        }
+    }
+    let ready = phases.iter().position(|phase| phase == "ready");
+    let finish = phases.iter().position(|phase| phase == "finish");
+    let attached_at = phases.iter().position(|phase| phase == "attached");
+    assert!(
+        ready.is_some() && finish.is_some() && attached_at.is_some(),
+        "declared bind must deliver READY, FINISH, and Attached: {phases:?}"
+    );
+    let ready = ready.expect("ready");
+    let finish = finish.expect("finish");
+    let attached_at = attached_at.expect("attached");
+    assert!(ready < finish && finish < attached_at, "{phases:?}");
+    assert!(
+        phases[ready + 1..finish]
+            .iter()
+            .all(|phase| phase == "history"),
+        "HISTORY pages must sit between READY and FINISH: {phases:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
+    let data_dir = temp_data_dir("hold-overflow-prod");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("hold-overflow-session".to_string());
+    let holder = ClientId("hold-overflow-holder".to_string());
+    let sibling = ClientId("hold-overflow-sibling".to_string());
+    let holder_sub = SubscriptionId("hold-overflow-holder-sub".to_string());
+    let sibling_sub = SubscriptionId("hold-overflow-sibling-sub".to_string());
+    let sibling_adapter = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        sibling.clone(),
+        sibling_sub.clone(),
+        "yes hold-overflow",
+        10,
+    );
+    daemon
+        .expect_terminal_adapter(holder.clone(), session_id.clone(), holder_sub.clone())
+        .expect("expect holder");
+    let attached = daemon
+        .attach(holder.clone(), session_id.clone(), holder_sub.clone(), 20)
+        .expect("attach holder");
+    assert!(
+        route_terminal_frames(&attached.client_egress, &holder, &session_id, &holder_sub)
+            .is_empty()
+    );
+
+    let started = Instant::now();
+    let mut saw_unsubscribe = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let drained = daemon.drain(&session_id, 30).expect("drain overflow");
+        if saw_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub) {
+            saw_unsubscribe = true;
+        }
+        let holder_live = daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == holder_sub);
+        if !holder_live && saw_unsubscribe {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .all(|row| row.subscription_id != holder_sub),
+        "overflow must remove the holding owner"
+    );
+    assert!(
+        saw_unsubscribe,
+        "overflow must run production UnsubscribeSession"
+    );
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
+        "sibling must remain bound"
+    );
+    let before = sibling_adapter.snapshot_delivered_frame_bytes().len();
+    let sibling_started = Instant::now();
+    let mut sibling_progress = false;
+    while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&session_id, 31).expect("drain sibling");
+        if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
+            sibling_progress = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        sibling_progress,
+        "sibling must keep delivering after overflow"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path() {
+    let data_dir = temp_data_dir("hold-closed-adapter");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("hold-closed-session".to_string());
+    let holder = ClientId("hold-closed-holder".to_string());
+    let sibling = ClientId("hold-closed-sibling".to_string());
+    let holder_sub = SubscriptionId("hold-closed-holder-sub".to_string());
+    let sibling_sub = SubscriptionId("hold-closed-sibling-sub".to_string());
+    let sibling_adapter = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        sibling.clone(),
+        sibling_sub.clone(),
+        "printf sibling-live\\n; sleep 30",
+        10,
+    );
+    daemon
+        .expect_terminal_adapter(holder.clone(), session_id.clone(), holder_sub.clone())
+        .expect("expect holder");
+    let _ = daemon
+        .attach(holder.clone(), session_id.clone(), holder_sub.clone(), 20)
+        .expect("attach holder");
+    for now in 21..28 {
+        let drained = daemon.drain(&session_id, now).expect("accumulate hold");
+        assert!(
+            route_terminal_frames(&drained.client_egress, &holder, &session_id, &holder_sub)
+                .is_empty(),
+            "held dump must not leak before bind"
+        );
+    }
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == holder_sub)
+        .expect("holder inventory")
+        .generation;
+    let closed = SharedFakeTerminalAdapter::new();
+    closed.close_transport();
+    daemon
+        .bind_terminal_adapter(
+            holder.clone(),
+            session_id.clone(),
+            holder_sub.clone(),
+            generation,
+            advertised_ready_then_history(),
+            Box::new(closed.clone()),
+        )
+        .expect("bind closed adapter");
+    let started = Instant::now();
+    let mut saw_unsubscribe = false;
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let drained = daemon.drain(&session_id, 40).expect("drain closed bind");
+        if saw_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub) {
+            saw_unsubscribe = true;
+        }
+        if !daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == holder_sub)
+            && saw_unsubscribe
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .all(|row| row.subscription_id != holder_sub),
+        "closed adapter must remove the owner"
+    );
+    assert!(
+        saw_unsubscribe,
+        "closed adapter must run production UnsubscribeSession"
+    );
+    assert!(closed.snapshot_delivered_frame_bytes().is_empty());
+    assert_eq!(closed.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| row.subscription_id == sibling_sub && row.adapter_bound));
+    let before = sibling_adapter.snapshot_delivered_frame_bytes().len();
+    let _ = daemon.drain(&session_id, 41).expect("sibling drain");
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == sibling_sub),
+        "sibling must survive closed-adapter teardown"
+    );
+    let _ = before;
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn foreign_route_drains_while_another_route_holds() {
+    let data_dir = temp_data_dir("hold-foreign-drain");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_ghostty_max_scrollback_bytes(0),
+    );
+    let session_id = SessionId("hold-foreign-session".to_string());
+    let holder = ClientId("hold-foreign-holder".to_string());
+    let other = ClientId("hold-foreign-other".to_string());
+    let holder_sub = SubscriptionId("hold-foreign-holder-sub".to_string());
+    let other_sub = SubscriptionId("hold-foreign-other-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf 'foreign-live\\n'; sleep 30".to_string();
+    daemon.spawn(request, 10).expect("spawn");
+    daemon
+        .expect_terminal_adapter(holder.clone(), session_id.clone(), holder_sub.clone())
+        .expect("expect holder");
+    let _ = daemon
+        .attach(holder.clone(), session_id.clone(), holder_sub.clone(), 11)
+        .expect("attach holder");
+    let other_attached = daemon
+        .attach(other.clone(), session_id.clone(), other_sub.clone(), 12)
+        .expect("attach foreign");
+    assert!(
+        !route_terminal_frames(
+            &other_attached.client_egress,
+            &other,
+            &session_id,
+            &other_sub
+        )
+        .is_empty()
+            || {
+                let drained = daemon
+                    .drain_subscription(&other, &session_id, &other_sub, 13)
+                    .expect("drain foreign");
+                !route_terminal_frames(&drained.client_egress, &other, &session_id, &other_sub)
+                    .is_empty()
+                    && route_terminal_frames(
+                        &drained.client_egress,
+                        &holder,
+                        &session_id,
+                        &holder_sub,
+                    )
+                    .is_empty()
+            },
+        "foreign route must drain while the declared route holds"
+    );
+    let holder_drain = daemon
+        .drain_subscription(&holder, &session_id, &holder_sub, 14)
+        .expect("drain holder");
+    assert!(
+        route_terminal_frames(
+            &holder_drain.client_egress,
+            &holder,
+            &session_id,
+            &holder_sub
+        )
+        .is_empty(),
+        "holding route must stay empty on drain_subscription"
     );
     let _ = fs::remove_dir_all(data_dir);
 }
