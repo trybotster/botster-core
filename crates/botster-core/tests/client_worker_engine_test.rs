@@ -2085,6 +2085,42 @@ fn declaration_is_not_consumed_by_a_different_client() {
 }
 
 #[test]
+fn matching_attach_consumes_a_declaration_so_later_attach_does_not_hold() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-stale-decl");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    let (generation, teardowns) =
+        worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    assert!(teardowns.is_empty());
+    assert_eq!(
+        generation,
+        worker
+            .live_generation(&session, &subscription)
+            .expect("existing generation")
+    );
+    let teardown = worker.detach_live(&session, &subscription);
+    assert!(teardown.is_some());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let mut frames = vec![(
+        client,
+        TransportEgress::TerminalOutput {
+            session_id: session,
+            subscription_id: subscription,
+            data: b"LIVE".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    assert_eq!(
+        frames.len(),
+        1,
+        "later attach must not inherit a stale hold unless the host declares again"
+    );
+}
+
+#[test]
 fn cancel_expected_adapter_leaves_later_attach_on_the_drain_path() {
     let mut worker = ClientWorker::new();
     let session = session("hold-cancel");

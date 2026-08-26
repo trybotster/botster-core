@@ -140,10 +140,15 @@ impl ClientWorker {
             session_id,
             subscription_id,
         };
-        if let Some(existing) = self.live.get(&key) {
-            if existing.client_id == client_id {
-                return (existing.generation, replacements);
-            }
+        if let Some(generation) = self
+            .live
+            .get(&key)
+            .and_then(|existing| (existing.client_id == client_id).then_some(existing.generation))
+        {
+            self.expected_adapters.remove(&(client_id, key));
+            return (generation, replacements);
+        }
+        if self.live.contains_key(&key) {
             if let Some(stolen) = self.hard_stop_key(&key) {
                 replacements.push(stolen);
             }
@@ -181,9 +186,10 @@ impl ClientWorker {
 
     /// Record that the next attach for this identity will bind an adapter.
     ///
-    /// A matching [`Self::record_attach`] consumes the declaration and holds
-    /// initial attach frames until bind. A declaration for a different
-    /// `client_id` is not consumed.
+    /// A matching [`Self::record_attach`] consumes the declaration, including
+    /// an idempotent attach that reuses an existing owner. Only a new owner
+    /// created by that attach holds initial frames until bind. A declaration
+    /// for a different `client_id` is not consumed.
     pub fn expect_terminal_adapter(
         &mut self,
         client_id: ClientId,

@@ -28,8 +28,9 @@ down the host session.
    declaration is not a reservation generation.
 2. `attach` assigns a monotonic generation and publishes an inventory row with
    `adapter_bound=false` and `capabilities=None`. A matching declaration sets
-   `hold_until_bound` on the new owner. `AttachedSession.client_egress` is then
-   empty for that route.
+   `hold_until_bound` on a new owner. An idempotent matching attach consumes a
+   leftover declaration and does not convert an existing unbound owner into a
+   hold. `AttachedSession.client_egress` is then empty for that route.
 3. While `hold_until_bound` is set and no adapter is bound, ClientWorker keeps
    terminal frames in a per-owner hold. Capacity is
    `QueueSource::ClientWorker.default_capacity()` (512). Overflow hard-stops

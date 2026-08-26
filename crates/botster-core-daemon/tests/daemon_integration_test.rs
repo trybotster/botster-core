@@ -10494,28 +10494,31 @@ fn route_terminal_frames<'a>(
         .collect()
 }
 
-fn saw_production_unsubscribe(
+fn count_production_unsubscribe(
     observations: &[BotsterEngineObservation],
     client_id: &ClientId,
     session_id: &SessionId,
     subscription_id: &SubscriptionId,
-) -> bool {
-    observations.iter().any(|observation| {
-        matches!(
-            observation,
-            BotsterEngineObservation::Subscription(
-                SubscriptionMultiplexerObservation::ClientStream {
-                    client_id: observed_client,
-                    observation: ClientStreamObservation::Unsubscribed {
-                        session_id: observed_session,
-                        subscription_id: observed_sub,
-                    },
-                }
-            ) if observed_client == client_id
-                && observed_session == session_id
-                && observed_sub == subscription_id
-        )
-    })
+) -> usize {
+    observations
+        .iter()
+        .filter(|observation| {
+            matches!(
+                observation,
+                BotsterEngineObservation::Subscription(
+                    SubscriptionMultiplexerObservation::ClientStream {
+                        client_id: observed_client,
+                        observation: ClientStreamObservation::Unsubscribed {
+                            session_id: observed_session,
+                            subscription_id: observed_sub,
+                        },
+                    }
+                ) if observed_client == client_id
+                    && observed_session == session_id
+                    && observed_sub == subscription_id
+            )
+        })
+        .count()
 }
 
 #[cfg(unix)]
@@ -10662,21 +10665,23 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     );
 
     let started = Instant::now();
-    let mut saw_unsubscribe = false;
+    let mut unsubscribe_count = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         let drained = daemon.drain(&session_id, 30).expect("drain overflow");
-        if saw_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub) {
-            saw_unsubscribe = true;
-        }
+        unsubscribe_count +=
+            count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         let holder_live = daemon
             .list_terminal_subscriptions()
             .iter()
             .any(|row| row.subscription_id == holder_sub);
-        if !holder_live && saw_unsubscribe {
+        if !holder_live && unsubscribe_count > 0 {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
+    let extra = daemon.drain(&session_id, 30).expect("drain after overflow");
+    unsubscribe_count +=
+        count_production_unsubscribe(&extra.observations, &holder, &session_id, &holder_sub);
     assert!(
         daemon
             .list_terminal_subscriptions()
@@ -10684,9 +10689,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             .all(|row| row.subscription_id != holder_sub),
         "overflow must remove the holding owner"
     );
-    assert!(
-        saw_unsubscribe,
-        "overflow must run production UnsubscribeSession"
+    assert_eq!(
+        unsubscribe_count, 1,
+        "overflow must run production UnsubscribeSession exactly once"
     );
     assert!(
         daemon
@@ -10768,22 +10773,26 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         )
         .expect("bind closed adapter");
     let started = Instant::now();
-    let mut saw_unsubscribe = false;
+    let mut unsubscribe_count = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         let drained = daemon.drain(&session_id, 40).expect("drain closed bind");
-        if saw_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub) {
-            saw_unsubscribe = true;
-        }
+        unsubscribe_count +=
+            count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         if !daemon
             .list_terminal_subscriptions()
             .iter()
             .any(|row| row.subscription_id == holder_sub)
-            && saw_unsubscribe
+            && unsubscribe_count > 0
         {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
+    let extra = daemon
+        .drain(&session_id, 40)
+        .expect("drain after closed bind");
+    unsubscribe_count +=
+        count_production_unsubscribe(&extra.observations, &holder, &session_id, &holder_sub);
     assert!(
         daemon
             .list_terminal_subscriptions()
@@ -10791,18 +10800,35 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
             .all(|row| row.subscription_id != holder_sub),
         "closed adapter must remove the owner"
     );
-    assert!(
-        saw_unsubscribe,
-        "closed adapter must run production UnsubscribeSession"
+    assert_eq!(
+        unsubscribe_count, 1,
+        "closed adapter must run production UnsubscribeSession exactly once"
     );
     assert!(closed.snapshot_delivered_frame_bytes().is_empty());
     assert_eq!(closed.snapshot_pressure(), TerminalAdapterPressure::Closed);
-    assert!(daemon
-        .list_terminal_subscriptions()
-        .iter()
-        .any(|row| row.subscription_id == sibling_sub && row.adapter_bound));
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
+        "sibling must remain bound"
+    );
     let before = sibling_adapter.snapshot_delivered_frame_bytes().len();
-    let _ = daemon.drain(&session_id, 41).expect("sibling drain");
+    sibling_adapter.inject_ingress_frame(compact_input_frame(b"SIB\n"));
+    let sibling_started = Instant::now();
+    let mut sibling_progress = false;
+    while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        let _ = daemon.drain(&session_id, 41).expect("sibling drain");
+        if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
+            sibling_progress = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        sibling_progress,
+        "sibling must keep delivering after closed-adapter teardown"
+    );
     assert!(
         daemon
             .list_terminal_subscriptions()
@@ -10810,7 +10836,6 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
             .any(|row| row.subscription_id == sibling_sub),
         "sibling must survive closed-adapter teardown"
     );
-    let _ = before;
     let _ = fs::remove_dir_all(data_dir);
 }
 
