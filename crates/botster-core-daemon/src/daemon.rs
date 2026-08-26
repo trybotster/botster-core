@@ -886,12 +886,46 @@ impl CoreDaemon {
         std::mem::take(&mut self.journal_advanced)
     }
 
+    /// Record that the next attach for this identity will bind an adapter.
+    ///
+    /// After a matching [`Self::attach`], `AttachedSession.client_egress` holds
+    /// no terminal frame for that route. Those frames stay inside Core until
+    /// [`Self::bind_terminal_adapter`] and the next drain tick.
+    pub fn expect_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.engine
+            .expect_terminal_adapter(client_id, session_id, subscription_id);
+        Ok(())
+    }
+
+    /// Retire an unconsumed pre-attach adapter declaration.
+    pub fn cancel_expected_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.engine
+            .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
+        Ok(())
+    }
+
     /// Attach a client through the existing subscription path.
     ///
     /// A local attach returns the complete route-owned bootstrap. A capable
     /// worker attach returns `Attaching`. Later [`Self::drain`] calls return
     /// route-owned incremental Snapshot frames, `Attached`, and then live
     /// output. No other client receives these route-owned frames.
+    ///
+    /// When [`Self::expect_terminal_adapter`] was called for this identity,
+    /// `AttachedSession.client_egress` is empty for that route. The host must
+    /// bind an adapter and drain to receive the held frames.
     pub fn attach(
         &mut self,
         client_id: ClientId,
@@ -2980,6 +3014,38 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.spawn_session(request, metadata),
             Self::Worker(engine) => engine.spawn_session(request, metadata),
+        }
+    }
+
+    fn expect_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        match self {
+            Self::Local(engine) => {
+                engine.expect_terminal_adapter(client_id, session_id, subscription_id)
+            }
+            Self::Worker(engine) => {
+                engine.expect_terminal_adapter(client_id, session_id, subscription_id)
+            }
+        }
+    }
+
+    fn cancel_expected_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        match self {
+            Self::Local(engine) => {
+                engine.cancel_expected_terminal_adapter(client_id, session_id, subscription_id)
+            }
+            Self::Worker(engine) => {
+                engine.cancel_expected_terminal_adapter(client_id, session_id, subscription_id)
+            }
         }
     }
 

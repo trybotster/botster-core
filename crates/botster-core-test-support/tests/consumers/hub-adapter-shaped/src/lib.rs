@@ -352,4 +352,150 @@ mod tests {
         }
         panic!("hub-shaped ready-then-history never observed opaque live frames");
     }
+
+    #[derive(Clone, Default)]
+    struct SharedOneSlotHubAdapter {
+        inner: Arc<Mutex<HubShapedTerminalAdapter>>,
+    }
+
+    impl TerminalAdapter for SharedOneSlotHubAdapter {
+        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            self.inner.lock().expect("hub adapter lock").try_write(frame)
+        }
+
+        fn close(&mut self) {
+            self.inner.lock().expect("hub adapter lock").close();
+        }
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.inner.lock().expect("hub adapter lock").pressure()
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            self.inner.lock().expect("hub adapter lock").try_read()
+        }
+    }
+
+    impl SharedOneSlotHubAdapter {
+        fn complete_write(&self) {
+            self.inner
+                .lock()
+                .expect("hub adapter lock")
+                .complete_active_write();
+        }
+
+        fn delivered(&self) -> Vec<Vec<u8>> {
+            self.inner
+                .lock()
+                .expect("hub adapter lock")
+                .delivered_frame_bytes()
+                .to_vec()
+        }
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.inner.lock().expect("hub adapter lock").pressure()
+        }
+    }
+
+    fn frame_type(bytes: &[u8]) -> String {
+        let text = String::from_utf8_lossy(bytes);
+        for kind in ["terminal_output", "snapshot", "attach_state", "process_exit"] {
+            if text.contains(&format!("\"type\":\"{kind}\""))
+                || text.contains(&format!("\"type\": \"{kind}\""))
+            {
+                return kind.to_string();
+            }
+        }
+        String::new()
+    }
+
+    #[test]
+    fn held_dump_drains_one_frame_per_ready_then_live_output_follows() {
+        let mut engine = DefaultBotsterEngine::new();
+        let session = SessionId("hub-shaped-hold".to_string());
+        let client = ClientId("hub-shaped-hold-client".to_string());
+        let subscription = SubscriptionId("hub-shaped-hold-sub".to_string());
+        engine
+            .spawn_session(
+                SessionSpawnRequest {
+                    request_id: RequestId("hub-shaped-hold-spawn".to_string()),
+                    session_id: session.clone(),
+                    executable: "sh".to_string(),
+                    arguments: vec![
+                        "-c".to_string(),
+                        "printf 'hub-shaped-hold-live\\n'; sleep 30".to_string(),
+                    ],
+                    working_directory: SpawnWorkingDirectory {
+                        path: ".".to_string(),
+                    },
+                    environment: SpawnEnvironment::default(),
+                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                },
+                CoreSessionMetadata::new(),
+            )
+            .expect("spawn");
+        engine.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+        let attached = engine
+            .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+            .expect("attach");
+        assert!(
+            attached.client_egress.iter().all(|(routed, frame)| {
+                routed != &client
+                    || !matches!(
+                        frame,
+                        botster_core::TransportEgress::TerminalOutput { .. }
+                            | botster_core::TransportEgress::Snapshot { .. }
+                            | botster_core::TransportEgress::AttachState { .. }
+                    )
+            }),
+            "declared attach must not extract route frames: {:?}",
+            attached.client_egress
+        );
+        let generation = engine
+            .terminal_subscription_generation(&session, &subscription)
+            .expect("generation after attach");
+        let adapter = SharedOneSlotHubAdapter::default();
+        engine
+            .bind_terminal_adapter(
+                client,
+                session.clone(),
+                subscription,
+                generation,
+                TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
+                    .expect("optional token"),
+                Box::new(adapter.clone()),
+            )
+            .expect("bind one-slot");
+
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut saw_live_after_dump = false;
+        while Instant::now() < deadline {
+            let _ = engine.drain_runtime_once(&session, 2).expect("drain");
+            if adapter.pressure() == TerminalAdapterPressure::Full {
+                adapter.complete_write();
+            }
+            let delivered = adapter.delivered();
+            let types: Vec<String> = delivered.iter().map(|bytes| frame_type(bytes)).collect();
+            if let Some(live_at) = types.iter().position(|kind| kind == "terminal_output") {
+                assert!(
+                    live_at >= 2,
+                    "live output must follow a held dump of at least two frames: {types:?}"
+                );
+                assert!(
+                    types[..live_at]
+                        .iter()
+                        .all(|kind| kind != "terminal_output"),
+                    "live output must not interleave the dump: {types:?}"
+                );
+                saw_live_after_dump = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            saw_live_after_dump,
+            "one-slot adapter must drain the held dump then live output: {:?}",
+            adapter.delivered().iter().map(|bytes| frame_type(bytes)).collect::<Vec<_>>()
+        );
+    }
 }

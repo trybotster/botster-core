@@ -473,6 +473,28 @@ impl DefaultBotsterEngine {
         Ok(output)
     }
 
+    /// Record that the next attach for this identity will bind an adapter.
+    pub fn expect_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.runtime
+            .expect_terminal_adapter(client_id, session_id, subscription_id);
+    }
+
+    /// Retire an unconsumed pre-attach adapter declaration.
+    pub fn cancel_expected_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.runtime
+            .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
+    }
+
     /// Bind a content-blind adapter to a live attach generation.
     pub fn bind_terminal_adapter(
         &mut self,
@@ -1027,6 +1049,28 @@ impl WorkerBackedBotsterEngine {
         output.observations.extend(attach.observations);
         self.sync_worker_consumers(&session_id)?;
         Ok(output)
+    }
+
+    /// Record that the next attach for this identity will bind an adapter.
+    pub fn expect_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.runtime
+            .expect_terminal_adapter(client_id, session_id, subscription_id);
+    }
+
+    /// Retire an unconsumed pre-attach adapter declaration.
+    pub fn cancel_expected_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+    ) {
+        self.runtime
+            .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
     }
 
     /// Bind a content-blind adapter to a live attach generation.

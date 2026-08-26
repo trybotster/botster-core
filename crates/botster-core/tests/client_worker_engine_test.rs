@@ -2057,6 +2057,363 @@ fn intake_refuses_the_command_that_would_exceed_capacity() {
     assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
 }
 
+#[test]
+fn declaration_is_not_consumed_by_a_different_client() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-foreign-client");
+    let declared = client("declared");
+    let other = client("other");
+    let subscription = sub("shared-sub");
+    worker.expect_terminal_adapter(declared, session.clone(), subscription.clone());
+    worker.record_attach(other.clone(), session.clone(), subscription.clone());
+    let mut frames = vec![(
+        other.clone(),
+        TransportEgress::TerminalOutput {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            data: b"LIVE".to_vec(),
+        },
+    )];
+    let teardowns = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(teardowns.is_empty());
+    assert_eq!(
+        frames.len(),
+        1,
+        "undeclared client must keep the drain path"
+    );
+    assert!(worker.has_subscription(&session, &subscription));
+}
+
+#[test]
+fn cancel_expected_adapter_leaves_later_attach_on_the_drain_path() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-cancel");
+    let client = client("cancel");
+    let subscription = sub("cancel");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.cancel_expected_terminal_adapter(&client, session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let mut frames = vec![(
+        client,
+        TransportEgress::TerminalOutput {
+            session_id: session,
+            subscription_id: subscription,
+            data: b"LIVE".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    assert_eq!(frames.len(), 1, "cancelled declaration must not hold");
+}
+
+#[test]
+fn hold_keeps_detached_on_the_host_path() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-detached");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let mut frames = vec![(
+        client,
+        TransportEgress::AttachState {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            state: botster_core::TerminalAttachState::Detached,
+        },
+    )];
+    let teardowns = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(teardowns.is_empty());
+    assert_eq!(frames.len(), 1, "Detached must still reach the host");
+    assert!(worker.has_subscription(&session, &subscription));
+}
+
+#[test]
+fn hold_overflow_hard_stops_without_dropping_a_surviving_phase() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-overflow");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let capacity = QueueSource::ClientWorker.default_capacity();
+    let mut frames = Vec::new();
+    for index in 0..capacity {
+        frames.push((
+            client.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: format!("held-{index}").into_bytes(),
+            },
+        ));
+    }
+    let first = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(first.is_empty(), "exact capacity must stay live");
+    assert!(frames.is_empty());
+    assert!(worker.has_subscription(&session, &subscription));
+
+    let mut overflow = vec![(
+        client,
+        TransportEgress::TerminalOutput {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            data: b"overflow".to_vec(),
+        },
+    )];
+    let teardowns = worker.ingest_bound_terminal_frames(&mut overflow);
+    assert_eq!(teardowns.len(), 1);
+    assert!(!worker.has_subscription(&session, &subscription));
+}
+
+#[test]
+fn process_exit_before_bind_is_delivered_then_hard_stops() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-exit");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::TerminalOutput {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"LIVE".to_vec(),
+            },
+        ),
+        (
+            client.clone(),
+            TransportEgress::ProcessExit {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                code: Some(0),
+            },
+        ),
+    ];
+    let ingest = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(
+        ingest.is_empty(),
+        "held ProcessExit must not hard-stop before bind"
+    );
+    assert!(frames.is_empty(), "held frames must not leak: {frames:?}");
+    assert!(worker.has_subscription(&session, &subscription));
+
+    let adapter = SharedFakeTerminalAdapter::new();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let mut empty = Vec::new();
+    let flush = worker.ingest_bound_terminal_frames(&mut empty);
+    assert!(flush.is_empty());
+    let first = worker.pump();
+    assert!(first.is_empty(), "accepted LIVE stays in-flight");
+    adapter.complete_write();
+    let second = worker.pump();
+    assert!(second.is_empty(), "accepted process_exit stays in-flight");
+    adapter.complete_write();
+    let third = worker.pump();
+    assert_eq!(third.len(), 1, "hard-stop after completed process_exit");
+    assert!(!worker.has_subscription(&session, &subscription));
+    let types: Vec<String> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .map(|bytes| json_type(bytes))
+        .collect();
+    assert_eq!(
+        types,
+        vec!["terminal_output".to_string(), "process_exit".to_string()]
+    );
+}
+
+#[test]
+fn detach_before_bind_clears_the_hold() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-detach");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    let mut frames = vec![(
+        client,
+        TransportEgress::TerminalOutput {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            data: b"held".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    let teardown = worker.detach_live(&session, &subscription);
+    assert!(teardown.is_some());
+    assert!(!worker.has_subscription(&session, &subscription));
+}
+
+#[test]
+fn bind_without_ready_then_history_drops_held_snapshots() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-drop-snapshot");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::Ready);
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let mut frames = vec![
+        (
+            client.clone(),
+            TransportEgress::Snapshot {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"READY".to_vec(),
+            },
+        ),
+        (
+            client.clone(),
+            TransportEgress::AttachState {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                state: botster_core::TerminalAttachState::Attached,
+            },
+        ),
+    ];
+    let _ = worker.ingest_bound_terminal_frames(&mut frames);
+    assert!(frames.is_empty());
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let mut empty = Vec::new();
+    let _ = worker.ingest_bound_terminal_frames(&mut empty);
+    let _ = worker.pump();
+    let types: Vec<String> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .map(|bytes| json_type(bytes))
+        .collect();
+    assert!(
+        !types.iter().any(|kind| kind == "snapshot"),
+        "empty set must drop held Snapshot: {types:?}"
+    );
+    assert!(
+        types.iter().any(|kind| kind == "attach_state"),
+        "Attached must still flush: {types:?}"
+    );
+}
+
+#[test]
+fn declared_attach_then_bind_flushes_held_frames_in_order() {
+    let mut worker = ClientWorker::new();
+    let session = session("hold-order");
+    let client = client("hold");
+    let subscription = sub("hold");
+    worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+    worker.record_attach(client.clone(), session.clone(), subscription.clone());
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::Ready);
+    let generation = worker
+        .live_generation(&session, &subscription)
+        .expect("generation");
+    let mut first = vec![(
+        client.clone(),
+        TransportEgress::Snapshot {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+            data: b"READY".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut first);
+    assert!(first.is_empty(), "declared route must not leak READY");
+    worker.note_snapshot_phase(&session, &subscription, WorkerSnapshotPhase::Finish);
+    let mut second = vec![
+        (
+            client.clone(),
+            TransportEgress::Snapshot {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                data: b"FINISH".to_vec(),
+            },
+        ),
+        (
+            client.clone(),
+            TransportEgress::AttachState {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+                state: botster_core::TerminalAttachState::Attached,
+            },
+        ),
+    ];
+    let _ = worker.ingest_bound_terminal_frames(&mut second);
+    assert!(
+        second.is_empty(),
+        "declared route must not leak FINISH/Attached"
+    );
+
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            generation,
+            advertised_capabilities(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let mut live = vec![(
+        client,
+        TransportEgress::TerminalOutput {
+            session_id: session,
+            subscription_id: subscription,
+            data: b"LIVE".to_vec(),
+        },
+    )];
+    let _ = worker.ingest_bound_terminal_frames(&mut live);
+    assert!(live.is_empty());
+    let _ = worker.pump();
+    let types: Vec<String> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .map(|bytes| json_type(bytes))
+        .collect();
+    assert_eq!(
+        types,
+        vec![
+            "snapshot".to_string(),
+            "snapshot".to_string(),
+            "attach_state".to_string(),
+            "terminal_output".to_string(),
+        ]
+    );
+    let phases: Vec<String> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| {
+            serde_json::from_slice::<Value>(bytes)
+                .ok()
+                .and_then(|value| value.get("phase")?.as_str().map(str::to_string))
+        })
+        .collect();
+    assert_eq!(phases, vec!["ready".to_string(), "finish".to_string()]);
+}
+
 #[allow(dead_code)]
 fn _mutex_keeps_shared_adapter_send() {
     fn assert_send<T: Send>(_: T) {}
