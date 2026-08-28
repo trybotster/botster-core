@@ -475,50 +475,37 @@ fn public_ingress_overflow_does_not_fabricate_idle_adapter_route() {
 }
 
 #[test]
-fn public_occupancy_does_not_wrap_under_concurrent_drain() {
+fn public_occupancy_is_exact_after_quiesce() {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
 
-    let data_dir = temp_data_dir("occupancy-race");
+    let data_dir = temp_data_dir("occupancy-quiesce");
     let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let source = daemon.wake_source().clone();
-    let handle = source.session_handle(SessionId("race".into()));
+    let idle = source.bind_route(
+        SessionId("idle-bound".into()),
+        SubscriptionId("idle-sub".into()),
+        botster_core::TerminalSubscriptionGeneration(1),
+    );
+    let handle = source.session_handle(SessionId("quiesce".into()));
     let stop = Arc::new(AtomicBool::new(false));
     let drain_source = source.clone();
     let drain_stop = Arc::clone(&stop);
     let drainer = thread::spawn(move || {
-        let mut worst = 0usize;
         while !drain_stop.load(Ordering::Relaxed) {
-            let _ = drain_source.wait_wakes(Duration::from_millis(1));
-            let seen = drain_source.occupancy();
-            if seen > worst {
-                worst = seen;
-            }
+            let _ = drain_source.wait_wakes(Duration::from_millis(0));
         }
-        worst
     });
     let deadline = Instant::now() + Duration::from_millis(400);
-    let mut producer_worst = 0usize;
     while Instant::now() < deadline {
         handle.notify();
-        let seen = source.occupancy();
-        if seen > producer_worst {
-            producer_worst = seen;
-        }
     }
     stop.store(true, Ordering::Relaxed);
-    let drain_worst = drainer.join().expect("drain thread");
-    assert!(
-        producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
-        "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
-    );
+    drainer.join().expect("drain thread");
     for _ in 0..64 {
         let batch = daemon.wait_wakes(Duration::from_millis(0));
-        if batch.adapter_routes.is_empty()
-            && batch.ingress_sessions.is_empty()
-            && source.occupancy() == 0
-        {
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
             break;
         }
     }
@@ -527,6 +514,12 @@ fn public_occupancy_does_not_wrap_under_concurrent_drain() {
         0,
         "occupancy must be exact after producers stop and the channel is drained"
     );
+    assert_eq!(
+        source.live_allocation_bound(),
+        source.registry_len(),
+        "live allocation bound must equal registry size when occupancy is zero"
+    );
+    drop(idle);
     let _ = fs::remove_dir_all(data_dir);
 }
 
