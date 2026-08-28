@@ -27,6 +27,16 @@ use crate::terminal_subscription::TerminalSubscriptionGeneration;
 /// Bounded ready-channel capacity. Matches [`QueueSource::ClientWorker`].
 pub const WAKE_QUEUE_CAPACITY: usize = QueueSource::ClientWorker.default_capacity();
 
+fn record_channel_enqueue(occupancy: &AtomicUsize) {
+    occupancy.fetch_add(1, Ordering::Relaxed);
+}
+
+fn record_channel_dequeue(occupancy: &AtomicUsize) {
+    let _ = occupancy.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+        Some(n.saturating_sub(1))
+    });
+}
+
 /// Adapter-emitted wake classification.
 ///
 /// Kept in the public contract and conformance laws. The Core pump reads
@@ -127,7 +137,7 @@ impl TerminalWakeSink {
         }
         match self.tx.try_send(WakeNode::Adapter(Arc::clone(&state))) {
             Ok(()) => {
-                self.occupancy.fetch_add(1, Ordering::Relaxed);
+                record_channel_enqueue(&self.occupancy);
                 true
             }
             Err(TrySendError::Full(_)) => {
@@ -190,7 +200,7 @@ impl SessionWakeHandle {
         }
         match self.tx.try_send(WakeNode::Ingress(Arc::clone(&state))) {
             Ok(()) => {
-                self.occupancy.fetch_add(1, Ordering::Relaxed);
+                record_channel_enqueue(&self.occupancy);
             }
             Err(TrySendError::Full(_)) => {
                 // Leave queued true so overflow reconcile still sees need.
@@ -475,16 +485,16 @@ impl TerminalWakeSource {
             .unwrap_or_else(|error| error.into_inner());
         let mut nodes = Vec::new();
         while let Ok(node) = rx.try_recv() {
-            self.inner.occupancy.fetch_sub(1, Ordering::Relaxed);
+            record_channel_dequeue(&self.inner.occupancy);
             nodes.push(node);
         }
         if nodes.is_empty() && !timeout.is_zero() && !self.inner.overflow.load(Ordering::Acquire) {
             match rx.recv_timeout(timeout) {
                 Ok(node) => {
-                    self.inner.occupancy.fetch_sub(1, Ordering::Relaxed);
+                    record_channel_dequeue(&self.inner.occupancy);
                     nodes.push(node);
                     while let Ok(node) = rx.try_recv() {
-                        self.inner.occupancy.fetch_sub(1, Ordering::Relaxed);
+                        record_channel_dequeue(&self.inner.occupancy);
                         nodes.push(node);
                     }
                 }
@@ -710,6 +720,8 @@ impl TerminalWakeSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::thread;
     use std::time::Instant;
 
     fn ids(n: u32) -> (SessionId, SubscriptionId) {
@@ -904,6 +916,48 @@ mod tests {
         assert_eq!(batch.ingress_sessions.len(), WAKE_QUEUE_CAPACITY + 1);
         drop(idle);
         drop(handles);
+    }
+
+    #[test]
+    fn occupancy_does_not_wrap_under_concurrent_notify_and_drain() {
+        let source = TerminalWakeSource::new();
+        let session = SessionId("race".into());
+        let handle = source.session_handle(session);
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let drain_source = source.clone();
+        let drain_stop = std::sync::Arc::clone(&stop);
+        let drainer = thread::spawn(move || {
+            let mut worst = 0usize;
+            while !drain_stop.load(Ordering::Relaxed) {
+                let _ = drain_source.wait_wakes(Duration::from_millis(1));
+                let seen = drain_source.occupancy();
+                if seen > worst {
+                    worst = seen;
+                }
+            }
+            worst
+        });
+        let deadline = Instant::now() + Duration::from_millis(400);
+        let mut producer_worst = 0usize;
+        while Instant::now() < deadline {
+            handle.notify();
+            let seen = source.occupancy();
+            if seen > producer_worst {
+                producer_worst = seen;
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        let drain_worst = drainer.join().expect("drain thread");
+        assert!(
+            producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
+            "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
+        );
+        for _ in 0..8 {
+            if source.occupancy() == 0 {
+                break;
+            }
+            let _ = source.wait_wakes(Duration::from_millis(0));
+        }
     }
 
     #[test]
