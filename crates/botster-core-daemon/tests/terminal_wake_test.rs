@@ -513,12 +513,20 @@ fn public_occupancy_does_not_wrap_under_concurrent_drain() {
         producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
         "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
     );
-    for _ in 0..8 {
-        if source.occupancy() == 0 {
+    for _ in 0..64 {
+        let batch = daemon.wait_wakes(Duration::from_millis(0));
+        if batch.adapter_routes.is_empty()
+            && batch.ingress_sessions.is_empty()
+            && source.occupancy() == 0
+        {
             break;
         }
-        let _ = daemon.wait_wakes(Duration::from_millis(0));
     }
+    assert_eq!(
+        source.occupancy(),
+        0,
+        "occupancy must be exact after producers stop and the channel is drained"
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 
