@@ -1809,23 +1809,24 @@ impl CoreDaemon {
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
-            match self.engine.drain_runtime_once(&session_id, now_seconds) {
-                Ok(output) => {
-                    let drained = drain_result_from_engine_output(output);
-                    self.reconcile_lifecycle_observations(&drained.observations, now_seconds)?;
-                    merge_drain_result(&mut shutdown_drain, drained);
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let batch = self.wait_wakes(remaining);
+            match self.pump_woken(&batch, now_seconds) {
+                Ok(outcome) => {
+                    self.reconcile_lifecycle_observations(
+                        &outcome.drain.observations,
+                        now_seconds,
+                    )?;
+                    merge_drain_result(&mut shutdown_drain, outcome.drain);
                     final_output_drained = self.engine_session_exited(&session_id);
                 }
-                Err(error) if is_session_not_found(&error) => {
+                Err(CoreDaemonError::Engine(error)) if is_session_not_found(&error) => {
                     final_output_drained = self.engine_session_exited(&session_id);
                     if !final_output_drained {
                         return Err(error.into());
                     }
                 }
-                Err(error) => return Err(error.into()),
-            }
-            if !final_output_drained {
-                std::thread::sleep(Duration::from_millis(1));
+                Err(error) => return Err(error),
             }
         }
         if !final_output_drained {

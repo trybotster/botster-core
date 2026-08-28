@@ -61,9 +61,12 @@ routes. It does not `try_read` an unnamed adapter. One live-session registry
 owns ingress coalescing, overflow recovery, and retirement. `forget_session`
 runs after teardown commits. A retained reader handle cannot resurrect a
 forgotten session. Overflow sets a flag and leaves `queued` true; the next
-`wait_wakes` reconciles without a correctness timer. The current `drain` poll
-path remains for unbound adapters during the migration window. Core creates
-no extra OS thread for this wait.
+`wait_wakes` reconciles without a correctness timer. Session shutdown keeps
+the ingress wake while the lifecycle is Stopping. `ProcessExited` or runtime
+removal retires it. `CoreDaemon::shutdown` waits on `wait_wakes` plus
+`pump_woken` and uses the two-second bound only as a hang watchdog. The
+current `drain` poll path remains for unbound adapters during the migration
+window. Core creates no extra OS thread for this wait.
 
 `CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
 current Ghostty colors and durable GHOSTSNP state. It returns

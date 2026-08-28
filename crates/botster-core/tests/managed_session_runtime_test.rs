@@ -1828,7 +1828,7 @@ fn failed_shutdown_does_not_retire_session_wake() {
 }
 
 #[test]
-fn successful_shutdown_retires_session_wake() {
+fn successful_shutdown_keeps_wake_until_process_exit() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
     let source = runtime.wake_source().clone();
@@ -1836,6 +1836,30 @@ fn successful_shutdown_retires_session_wake() {
     runtime
         .shutdown_session(session_id(), "host shutdown", 20)
         .expect("shutdown");
+    assert_eq!(
+        runtime
+            .session(&session_id())
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Stopping)
+    );
+    assert_eq!(source.session_registry_len(), 1);
+    handle.notify();
+    assert_eq!(
+        source.occupancy(),
+        1,
+        "Stopping must keep the live session wake"
+    );
+    let _ = source.wait_wakes(Duration::from_millis(0));
+    runtime.session_runtime_mut().emit_exit(
+        session_id(),
+        ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    );
+    runtime
+        .drain_runtime_once(&session_id(), 21)
+        .expect("route ProcessExited");
     handle.notify();
     source.notify_session(&session_id());
     assert_eq!(source.occupancy(), 0);
