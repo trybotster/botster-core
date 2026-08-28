@@ -1485,7 +1485,6 @@ where
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.wake_source.forget_session(&session_id);
         let previous_lifecycle = self
             .engine
             .session(&session_id)
@@ -1499,10 +1498,11 @@ where
         ) {
             self.pending_input_teardowns
                 .extend(self.client_worker.teardown_session(&session_id));
-            let mut outcome = self
-                .engine
-                .shutdown_session(session_id, reason, now_seconds)?;
+            let mut outcome =
+                self.engine
+                    .shutdown_session(session_id.clone(), reason, now_seconds)?;
             self.apply_client_worker(&mut outcome)?;
+            self.wake_source.forget_session(&session_id);
             return Ok(outcome);
         }
         let outcome = self
@@ -1517,6 +1517,7 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
+        self.wake_source.forget_session(&session_id);
         Ok(outcome)
     }
 

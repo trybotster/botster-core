@@ -28,7 +28,9 @@ ingress seam. It does not overload the transport enum names.
 TerminalWakeSink, TerminalWakeSource}` is the wake-driven seam.
 `WakingTerminalAdapter` is a supertrait of `TerminalAdapter`. Wake kinds are
 `Writable` and `Closed`. Sinks hold a weak handle so a host-retained clone
-cannot pin Core memory after hard-stop. The public surface exposes no `RawFd`.
+cannot pin Core memory after hard-stop. Ingress session handles share one
+registry-owned coalesce state per live `SessionId`. The public surface
+exposes no `RawFd`.
 
 `try_read()` returns `TerminalIngress::{Empty, Frame, Lost, Closed}`. After
 `close()`, `try_read` stays `Closed` and buffered ingress is dropped. `Lost`

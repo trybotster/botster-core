@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use std::fs;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
@@ -440,4 +440,84 @@ fn ingress_overflow_then_bind_still_recovers() {
     );
     drop(sink);
     drop(sinks);
+}
+
+#[test]
+fn public_session_wakes_coalesce_by_session() {
+    let data_dir = temp_data_dir("coalesce");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let source = daemon.wake_source().clone();
+    let session = SessionId("coalesce".into());
+    let first = source.session_handle(session.clone());
+    let second = source.session_handle(session.clone());
+    first.notify();
+    second.notify();
+    source.notify_session(&session);
+    source.notify_session(&session);
+    assert_eq!(source.occupancy(), 1);
+    assert_eq!(source.session_registry_len(), 1);
+    let batch = daemon.wait_wakes(Duration::from_millis(0));
+    assert_eq!(batch.ingress_sessions, vec![session]);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn public_forget_session_retires_retained_handle() {
+    let data_dir = temp_data_dir("late-forget");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let source = daemon.wake_source().clone();
+    let mut sinks = Vec::new();
+    for n in 0..WAKE_QUEUE_CAPACITY {
+        let sink = source.bind_route(
+            SessionId(format!("cap{n}")),
+            SubscriptionId(format!("sub{n}")),
+            botster_core::TerminalSubscriptionGeneration(1),
+        );
+        assert!(sink.wake(TerminalWakeKind::Writable));
+        sinks.push(sink);
+    }
+    let session = SessionId("doomed".into());
+    let handle = source.session_handle(session.clone());
+    handle.notify();
+    assert_eq!(source.ingress_overflow_len(), 1);
+    source.forget_session(&session);
+    handle.notify();
+    source.notify_session(&session);
+    assert_eq!(source.ingress_overflow_len(), 0);
+    let batch = daemon.wait_wakes(Duration::from_millis(0));
+    assert!(
+        !batch.ingress_sessions.contains(&session),
+        "a retained reader handle must not resurrect a forgotten SessionId"
+    );
+    drop(sinks);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn public_overflow_wait_does_not_depend_on_timeout() {
+    let data_dir = temp_data_dir("overflow-wait");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let source = daemon.wake_source().clone();
+    let mut sinks = Vec::new();
+    for n in 0..WAKE_QUEUE_CAPACITY {
+        let sink = source.bind_route(
+            SessionId(format!("cap{n}")),
+            SubscriptionId(format!("sub{n}")),
+            botster_core::TerminalSubscriptionGeneration(1),
+        );
+        assert!(sink.wake(TerminalWakeKind::Writable));
+        sinks.push(sink);
+    }
+    let session = SessionId("overflow-ingress".into());
+    let handle = source.session_handle(session.clone());
+    handle.notify();
+    let started = Instant::now();
+    let batch = daemon.wait_wakes(Duration::from_secs(5));
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "a full ready channel plus overflow must not wait out the timeout"
+    );
+    assert!(batch.ingress_sessions.contains(&session));
+    drop(sinks);
+    let _ = fs::remove_dir_all(data_dir);
 }

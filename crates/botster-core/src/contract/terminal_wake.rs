@@ -67,6 +67,16 @@ pub(crate) struct RouteWakeState {
     generation: TerminalSubscriptionGeneration,
 }
 
+/// Per-session ingress wake state. One allocation per live session handle.
+///
+/// The session registry owns the strong reference. Handles hold a [`Weak`] so
+/// a retained reader cannot resurrect a forgotten `SessionId`.
+pub(crate) struct SessionWakeState {
+    queued: AtomicBool,
+    retired: AtomicBool,
+    session_id: SessionId,
+}
+
 /// Lock-free, non-blocking wake handle held by adapters.
 ///
 /// The strong `Arc` is intentionally a [`Weak`]. Changing this back to a strong
@@ -143,54 +153,51 @@ impl TerminalWakeSink {
 #[derive(Clone)]
 enum WakeNode {
     Adapter(Arc<RouteWakeState>),
-    Ingress {
-        session_id: SessionId,
-        queued: Arc<AtomicBool>,
-    },
+    Ingress(Arc<SessionWakeState>),
 }
 
-/// Per-session ingress coalescing owned by the live session.
+/// Per-session ingress coalescing owned by the live-session registry.
 ///
-/// Reader threads clone this handle. Notify is a CAS plus `try_send` and takes
-/// no map lock on the success path. Overflow recovery stores the session id in
-/// a Core-owned set that `forget_session` removes.
+/// Reader threads clone this handle. Every live handle for one `SessionId`
+/// shares the same [`SessionWakeState`]. Notify is a CAS plus `try_send` and
+/// takes no lock on any arm, including overflow.
 #[derive(Clone)]
 pub struct SessionWakeHandle {
-    session_id: SessionId,
-    queued: Arc<AtomicBool>,
+    state: Weak<SessionWakeState>,
     tx: SyncSender<WakeNode>,
     overflow: Arc<AtomicBool>,
     occupancy: Arc<AtomicUsize>,
-    ingress_overflow: Arc<Mutex<HashMap<SessionId, Arc<AtomicBool>>>>,
 }
 
 impl SessionWakeHandle {
-    /// Notify that this session has ingress work. Non-blocking on the success path.
+    /// Notify that this session has ingress work.
+    ///
+    /// Lock-free and non-blocking on every arm. A forgotten or dropped session
+    /// returns without sending.
     pub fn notify(&self) {
-        if self
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        if state.retired.load(Ordering::Acquire) {
+            return;
+        }
+        if state
             .queued
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
             return;
         }
-        match self.tx.try_send(WakeNode::Ingress {
-            session_id: self.session_id.clone(),
-            queued: Arc::clone(&self.queued),
-        }) {
+        match self.tx.try_send(WakeNode::Ingress(Arc::clone(&state))) {
             Ok(()) => {
                 self.occupancy.fetch_add(1, Ordering::Relaxed);
             }
             Err(TrySendError::Full(_)) => {
+                // Leave queued true so overflow reconcile still sees need.
                 self.overflow.store(true, Ordering::Release);
-                let mut overflowed = self
-                    .ingress_overflow
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                overflowed.insert(self.session_id.clone(), Arc::clone(&self.queued));
             }
             Err(TrySendError::Disconnected(_)) => {
-                self.queued.store(false, Ordering::Release);
+                state.queued.store(false, Ordering::Release);
             }
         }
     }
@@ -202,7 +209,7 @@ struct WakeInner {
     overflow: Arc<AtomicBool>,
     occupancy: Arc<AtomicUsize>,
     registry: Mutex<HashMap<(SessionId, SubscriptionId), Arc<RouteWakeState>>>,
-    ingress_overflow: Arc<Mutex<HashMap<SessionId, Arc<AtomicBool>>>>,
+    session_registry: Mutex<HashMap<SessionId, Arc<SessionWakeState>>>,
     visit_count: AtomicUsize,
     #[cfg(test)]
     reverse_clear: AtomicBool,
@@ -249,7 +256,7 @@ impl TerminalWakeSource {
                 overflow: Arc::new(AtomicBool::new(false)),
                 occupancy: Arc::new(AtomicUsize::new(0)),
                 registry: Mutex::new(HashMap::new()),
-                ingress_overflow: Arc::new(Mutex::new(HashMap::new())),
+                session_registry: Mutex::new(HashMap::new()),
                 visit_count: AtomicUsize::new(0),
                 #[cfg(test)]
                 reverse_clear: AtomicBool::new(false),
@@ -262,43 +269,95 @@ impl TerminalWakeSource {
     /// Block until a wake arrives or `timeout` elapses.
     ///
     /// Drains the channel, then if the overflow flag was set, runs one bounded
-    /// reconciliation over the live waking-adapter registry. The overflow flag
-    /// is cleared before that walk.
+    /// reconciliation over the live waking-adapter registry and the live-session
+    /// registry. The overflow flag is cleared before that walk. An already-set
+    /// overflow flag does not wait on an empty channel.
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         let nodes = self.recv_nodes(timeout);
         self.assemble_batch(nodes)
     }
 
-    /// Build a session-owned ingress handle. Call [`Self::forget_session`] on teardown.
+    /// Build a session-owned ingress handle. Call [`Self::forget_session`] after
+    /// teardown commits.
+    ///
+    /// Repeated calls for a live `SessionId` share one coalesce state.
     #[must_use]
     pub fn session_handle(&self, session_id: SessionId) -> SessionWakeHandle {
+        let state = {
+            let mut registry = self
+                .inner
+                .session_registry
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(existing) = registry.get(&session_id) {
+                if !existing.retired.load(Ordering::Acquire) {
+                    Arc::clone(existing)
+                } else {
+                    let fresh = Arc::new(SessionWakeState {
+                        queued: AtomicBool::new(false),
+                        retired: AtomicBool::new(false),
+                        session_id: session_id.clone(),
+                    });
+                    registry.insert(session_id, Arc::clone(&fresh));
+                    fresh
+                }
+            } else {
+                let fresh = Arc::new(SessionWakeState {
+                    queued: AtomicBool::new(false),
+                    retired: AtomicBool::new(false),
+                    session_id: session_id.clone(),
+                });
+                registry.insert(session_id, Arc::clone(&fresh));
+                fresh
+            }
+        };
         SessionWakeHandle {
-            session_id,
-            queued: Arc::new(AtomicBool::new(false)),
+            state: Arc::downgrade(&state),
             tx: self.inner.tx.clone(),
             overflow: Arc::clone(&self.inner.overflow),
             occupancy: Arc::clone(&self.inner.occupancy),
-            ingress_overflow: Arc::clone(&self.inner.ingress_overflow),
         }
     }
 
-    /// Drop overflow residue for a session that is no longer live.
+    /// Retire the session wake state and drop it from the live-session registry.
+    ///
+    /// Call this only after teardown commits. A retained handle then notifies
+    /// without sending or re-inserting.
     pub fn forget_session(&self, session_id: &SessionId) {
-        let mut overflowed = self
+        let mut registry = self
             .inner
-            .ingress_overflow
+            .session_registry
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        overflowed.remove(session_id);
+        if let Some(state) = registry.remove(session_id) {
+            state.retired.store(true, Ordering::Release);
+        }
     }
 
-    /// Notify that a session has ingress work. Non-blocking on the success path.
+    /// Notify that a live session has ingress work.
     ///
-    /// Reader threads should clone a [`SessionWakeHandle`] from spawn instead of
-    /// calling this each time, so coalescing state lives with the session.
+    /// This path uses the live-session registry. It does not allocate a new
+    /// coalesce state, and it does not resurrect a forgotten `SessionId`.
     pub fn notify_session(&self, session_id: &SessionId) {
-        self.session_handle(session_id.clone()).notify();
+        let state = {
+            let registry = self
+                .inner
+                .session_registry
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            match registry.get(session_id) {
+                Some(state) if !state.retired.load(Ordering::Acquire) => Arc::clone(state),
+                _ => return,
+            }
+        };
+        SessionWakeHandle {
+            state: Arc::downgrade(&state),
+            tx: self.inner.tx.clone(),
+            overflow: Arc::clone(&self.inner.overflow),
+            occupancy: Arc::clone(&self.inner.occupancy),
+        }
+        .notify();
     }
 
     /// Install a route in the waking-adapter registry and return its sink.
@@ -419,7 +478,7 @@ impl TerminalWakeSource {
             self.inner.occupancy.fetch_sub(1, Ordering::Relaxed);
             nodes.push(node);
         }
-        if nodes.is_empty() && !timeout.is_zero() {
+        if nodes.is_empty() && !timeout.is_zero() && !self.inner.overflow.load(Ordering::Acquire) {
             match rx.recv_timeout(timeout) {
                 Ok(node) => {
                     self.inner.occupancy.fetch_sub(1, Ordering::Relaxed);
@@ -446,14 +505,15 @@ impl TerminalWakeSource {
                 false
             }
         };
-        let overflowed = if reverse {
+        let (overflowed, overflowed_sessions) = if reverse {
             let walk = self.reconcile_registry();
+            let sessions = self.reconcile_sessions();
             self.take_race_hook();
             let flag = self.inner.overflow.swap(false, Ordering::AcqRel);
             if flag {
-                walk
+                (walk, sessions)
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             }
         } else {
             // Clear-before-reconcile: a producer that stored queued=true
@@ -463,9 +523,9 @@ impl TerminalWakeSource {
             let flag = self.inner.overflow.swap(false, Ordering::AcqRel);
             self.take_race_hook();
             if flag {
-                self.reconcile_registry()
+                (self.reconcile_registry(), self.reconcile_sessions())
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             }
         };
 
@@ -474,19 +534,26 @@ impl TerminalWakeSource {
         for node in nodes {
             match node {
                 WakeNode::Adapter(state) => adapter_states.push(state),
-                WakeNode::Ingress { session_id, queued } => {
-                    queued.store(false, Ordering::Release);
-                    ingress.push(session_id);
+                WakeNode::Ingress(state) => {
+                    if state.retired.load(Ordering::Acquire) {
+                        state.queued.store(false, Ordering::Release);
+                        continue;
+                    }
+                    state.queued.store(false, Ordering::Release);
+                    ingress.push(state.session_id.clone());
                 }
             }
         }
         for state in overflowed {
-            ingress.push(state.session_id.clone());
             adapter_states.push(state);
         }
-        for (session_id, queued) in self.take_ingress_overflow() {
-            queued.store(false, Ordering::Release);
-            ingress.push(session_id);
+        for state in overflowed_sessions {
+            if state.retired.load(Ordering::Acquire) {
+                state.queued.store(false, Ordering::Release);
+                continue;
+            }
+            state.queued.store(false, Ordering::Release);
+            ingress.push(state.session_id.clone());
         }
 
         let mut seen_ptr = HashSet::new();
@@ -535,13 +602,22 @@ impl TerminalWakeSource {
         out
     }
 
-    fn take_ingress_overflow(&self) -> HashMap<SessionId, Arc<AtomicBool>> {
-        let mut overflowed = self
+    fn reconcile_sessions(&self) -> Vec<Arc<SessionWakeState>> {
+        let registry = self
             .inner
-            .ingress_overflow
+            .session_registry
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        std::mem::take(&mut *overflowed)
+        let mut out = Vec::new();
+        for state in registry.values() {
+            if state.retired.load(Ordering::Acquire) {
+                continue;
+            }
+            if state.queued.load(Ordering::Acquire) {
+                out.push(Arc::clone(state));
+            }
+        }
+        out
     }
 
     fn take_race_hook(&self) {
@@ -560,10 +636,30 @@ impl TerminalWakeSource {
     }
 
     /// Live overflowed ingress sessions waiting for the next drain.
+    ///
+    /// Counts live session-registry entries whose queued gate is set while the
+    /// overflow flag is raised. Successful in-channel notifies do not count.
     #[must_use]
     pub fn ingress_overflow_len(&self) -> usize {
+        if !self.inner.overflow.load(Ordering::Acquire) {
+            return 0;
+        }
         self.inner
-            .ingress_overflow
+            .session_registry
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .values()
+            .filter(|state| {
+                !state.retired.load(Ordering::Acquire) && state.queued.load(Ordering::Acquire)
+            })
+            .count()
+    }
+
+    /// Live-session wake registry size.
+    #[must_use]
+    pub fn session_registry_len(&self) -> usize {
+        self.inner
+            .session_registry
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .len()
@@ -591,11 +687,25 @@ impl TerminalWakeSource {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(Box::new(hook));
     }
+
+    /// Set queued and overflow without enqueueing a channel node.
+    pub fn arm_queued_overflow_for_test(&self, session_id: &SessionId) {
+        let registry = self
+            .inner
+            .session_registry
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(state) = registry.get(session_id) {
+            state.queued.store(true, Ordering::Release);
+            self.inner.overflow.store(true, Ordering::Release);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     fn ids(n: u32) -> (SessionId, SubscriptionId) {
         (
@@ -779,6 +889,100 @@ mod tests {
         assert_eq!(source.ingress_overflow_len(), 1);
         source.forget_session(&session);
         assert_eq!(source.ingress_overflow_len(), 0);
+        drop(sinks);
+    }
+
+    #[test]
+    fn session_wakes_coalesce_across_handles_and_notify_session() {
+        let source = TerminalWakeSource::new();
+        let session = SessionId("coalesce".into());
+        let first = source.session_handle(session.clone());
+        let second = source.session_handle(session.clone());
+        first.notify();
+        second.notify();
+        source.notify_session(&session);
+        source.notify_session(&session);
+        assert_eq!(source.occupancy(), 1);
+        assert_eq!(source.session_registry_len(), 1);
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        assert_eq!(batch.ingress_sessions, vec![session]);
+        assert_eq!(source.occupancy(), 0);
+    }
+
+    #[test]
+    fn forget_session_retires_retained_handle() {
+        let source = TerminalWakeSource::new();
+        let mut sinks = Vec::new();
+        for n in 0..WAKE_QUEUE_CAPACITY {
+            let sink = source.bind_route(
+                SessionId(format!("a{n}")),
+                SubscriptionId(format!("s{n}")),
+                TerminalSubscriptionGeneration(1),
+            );
+            assert!(sink.wake(TerminalWakeKind::Writable));
+            sinks.push(sink);
+        }
+        let session = SessionId("dead".into());
+        let handle = source.session_handle(session.clone());
+        handle.notify();
+        assert_eq!(source.ingress_overflow_len(), 1);
+        source.forget_session(&session);
+        handle.notify();
+        source.notify_session(&session);
+        assert_eq!(source.ingress_overflow_len(), 0);
+        assert_eq!(source.session_registry_len(), 0);
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        assert!(
+            !batch.ingress_sessions.contains(&session),
+            "a retained handle must not resurrect a forgotten session"
+        );
+        drop(sinks);
+    }
+
+    #[test]
+    fn overflow_wait_does_not_use_timeout_as_progress() {
+        let source = TerminalWakeSource::new();
+        let session = SessionId("timer-free".into());
+        let _handle = source.session_handle(session.clone());
+        source.arm_queued_overflow_for_test(&session);
+        assert_eq!(source.ingress_overflow_len(), 1);
+        let started = Instant::now();
+        let batch = source.wait_wakes(Duration::from_secs(5));
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "overflow must wake wait_wakes without the timeout"
+        );
+        assert!(
+            batch.ingress_sessions.contains(&session),
+            "overflow reconcile must recover the armed session"
+        );
+    }
+
+    #[test]
+    fn overflow_race_hook_recovers_queued_session() {
+        let source = TerminalWakeSource::new();
+        let mut sinks = Vec::new();
+        for n in 0..=WAKE_QUEUE_CAPACITY {
+            let sink = source.bind_route(
+                SessionId(format!("fill{n}")),
+                SubscriptionId(format!("sub{n}")),
+                TerminalSubscriptionGeneration(1),
+            );
+            assert!(sink.wake(TerminalWakeKind::Writable));
+            sinks.push(sink);
+        }
+        let session = SessionId("racy-ingress".into());
+        let _handle = source.session_handle(session.clone());
+        let hooked = source.clone();
+        let hooked_session = session.clone();
+        source.set_overflow_race_hook_for_test(move || {
+            hooked.arm_queued_overflow_for_test(&hooked_session);
+        });
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        assert!(
+            batch.ingress_sessions.contains(&session),
+            "clear-before-reconcile must observe a session queued during the overflow race window"
+        );
         drop(sinks);
     }
 }

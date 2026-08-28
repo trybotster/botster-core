@@ -57,8 +57,11 @@ once.
 Wake-driven pumping is a parallel host loop. `CoreDaemon::wait_wakes(timeout)`
 blocks on a transport-neutral source. `CoreDaemon::pump_woken` drains runtime
 output only for named sessions and intakes/pumps only named waking-adapter
-routes. It does not `try_read` an unnamed adapter. Ingress overflow recovers
-sessions that have no waking-adapter registry entry. The current `drain` poll
+routes. It does not `try_read` an unnamed adapter. One live-session registry
+owns ingress coalescing, overflow recovery, and retirement. `forget_session`
+runs after teardown commits. A retained reader handle cannot resurrect a
+forgotten session. Overflow sets a flag and leaves `queued` true; the next
+`wait_wakes` reconciles without a correctness timer. The current `drain` poll
 path remains for unbound adapters during the migration window. Core creates
 no extra OS thread for this wait.
 
