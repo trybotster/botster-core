@@ -443,6 +443,38 @@ fn ingress_overflow_then_bind_still_recovers() {
 }
 
 #[test]
+fn public_ingress_overflow_does_not_fabricate_idle_adapter_route() {
+    let data_dir = temp_data_dir("idle-overflow");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let source = daemon.wake_source().clone();
+    let idle_session = SessionId("idle-route".into());
+    let idle_sub = SubscriptionId("idle-sub".into());
+    let idle = source.bind_route(
+        idle_session.clone(),
+        idle_sub.clone(),
+        botster_core::TerminalSubscriptionGeneration(1),
+    );
+    let mut handles = Vec::new();
+    for n in 0..=WAKE_QUEUE_CAPACITY {
+        let handle = source.session_handle(SessionId(format!("ingress{n}")));
+        handle.notify();
+        handles.push(handle);
+    }
+    let batch = daemon.wait_wakes(Duration::from_millis(0));
+    assert!(
+        !batch
+            .adapter_routes
+            .iter()
+            .any(|route| route.session_id == idle_session && route.subscription_id == idle_sub),
+        "ingress-only overflow must not name an idle adapter route"
+    );
+    assert_eq!(batch.ingress_sessions.len(), WAKE_QUEUE_CAPACITY + 1);
+    drop(idle);
+    drop(handles);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn public_session_wakes_coalesce_by_session() {
     let data_dir = temp_data_dir("coalesce");
     let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
