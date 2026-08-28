@@ -605,11 +605,6 @@ impl LocalProcessRegistry {
         session_id: &SessionId,
         options: LocalProcessRuntimeOptions,
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
-        if let Ok(slot) = self.wake_source.lock() {
-            if let Some(source) = slot.as_ref() {
-                source.forget_session(session_id);
-            }
-        }
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
         terminate_session(&mut session, options)

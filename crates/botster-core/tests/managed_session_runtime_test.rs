@@ -3,6 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::fs;
 use std::rc::Rc;
+use std::time::Duration;
 
 use botster_core::{
     BackpressureRoute, BackpressureSummary, CoreSessionMetadata, MailboxSendFailureReason,
@@ -1793,6 +1794,52 @@ fn failed_deferred_shutdown_does_not_consume_live_output_before_returning_error(
             .map(|session| &session.lifecycle),
         Some(&SessionLifecycleState::Running)
     );
+}
+
+#[test]
+fn failed_shutdown_does_not_retire_session_wake() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let source = runtime.wake_source().clone();
+    let handle = source.session_handle(session_id());
+    handle.notify();
+    let _ = source.wait_wakes(Duration::from_millis(0));
+    let shutdown = SessionRuntimeInput::Shutdown {
+        session_id: session_id(),
+    };
+    runtime.session_runtime_mut().fail_next_input(
+        shutdown,
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::InputFailed,
+            "worker control route closed",
+        ),
+    );
+    runtime
+        .shutdown_session(session_id(), "failed cleanup", 30)
+        .expect_err("delivery failure without exit evidence should remain an error");
+    handle.notify();
+    assert_eq!(
+        source.occupancy(),
+        1,
+        "shutdown rollback must keep the live session wake handle"
+    );
+    let batch = source.wait_wakes(Duration::from_millis(0));
+    assert!(batch.ingress_sessions.contains(&session_id()));
+}
+
+#[test]
+fn successful_shutdown_retires_session_wake() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    let source = runtime.wake_source().clone();
+    let handle = source.session_handle(session_id());
+    runtime
+        .shutdown_session(session_id(), "host shutdown", 20)
+        .expect("shutdown");
+    handle.notify();
+    source.notify_session(&session_id());
+    assert_eq!(source.occupancy(), 0);
+    assert_eq!(source.session_registry_len(), 0);
 }
 
 #[test]
