@@ -594,10 +594,15 @@ impl TerminalWakeSource {
             .registry
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let mut out = Vec::with_capacity(registry.len());
+        let mut out = Vec::new();
         for state in registry.values() {
             self.inner.visit_count.fetch_add(1, Ordering::Relaxed);
-            out.push(Arc::clone(state));
+            if state.retired.load(Ordering::Acquire) {
+                continue;
+            }
+            if state.queued.load(Ordering::Acquire) {
+                out.push(Arc::clone(state));
+            }
         }
         out
     }
@@ -869,6 +874,36 @@ mod tests {
         );
         assert_eq!(source.ingress_overflow_len(), 0);
         drop(sinks);
+    }
+
+    #[test]
+    fn ingress_overflow_does_not_fabricate_idle_adapter_route() {
+        let source = TerminalWakeSource::new();
+        let idle_session = SessionId("idle-route".into());
+        let idle_sub = SubscriptionId("idle-sub".into());
+        let idle = source.bind_route(
+            idle_session.clone(),
+            idle_sub.clone(),
+            TerminalSubscriptionGeneration(1),
+        );
+        let mut handles = Vec::new();
+        for n in 0..=WAKE_QUEUE_CAPACITY {
+            let session = SessionId(format!("ingress{n}"));
+            let handle = source.session_handle(session);
+            handle.notify();
+            handles.push(handle);
+        }
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        assert!(
+            !batch
+                .adapter_routes
+                .iter()
+                .any(|route| route.session_id == idle_session && route.subscription_id == idle_sub),
+            "ingress-only overflow must not name an idle adapter route"
+        );
+        assert_eq!(batch.ingress_sessions.len(), WAKE_QUEUE_CAPACITY + 1);
+        drop(idle);
+        drop(handles);
     }
 
     #[test]
