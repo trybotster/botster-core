@@ -31,10 +31,10 @@ pub use api::{
     OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 pub use botster_core::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
-    TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource,
-    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, SessionWakeHandle,
+    TerminalCapabilitySet, TerminalCapabilitySetError, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord, TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute,
+    TerminalWakeSink, TerminalWakeSource, WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use daemon::{
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,

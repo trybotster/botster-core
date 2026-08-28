@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
-use crate::contract::terminal_wake::TerminalWakeSource;
+use crate::contract::terminal_wake::{SessionWakeHandle, TerminalWakeSource};
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
     BackpressureRoute, BackpressureSummary, InitialSnapshotRequest, ModeFlagsReady,
@@ -132,7 +132,8 @@ impl LocalProcessRuntime {
     /// Share the engine wake source with PTY reader threads.
     #[must_use]
     pub fn with_wake_source(mut self, source: TerminalWakeSource) -> Self {
-        self.wake_source = Some(source);
+        self.wake_source = Some(source.clone());
+        self.registry.set_wake_source(source);
         self
     }
 
@@ -233,12 +234,15 @@ impl SessionRuntime for LocalProcessRuntime {
             overflow_error: Mutex::new(None),
             reader_finished: AtomicBool::new(false),
         });
+        let wake_handle = self
+            .wake_source
+            .as_ref()
+            .map(|source| source.session_handle(request.session_id.clone()));
         let (output_pressure, output_capacity) = spawn_reader(
             reader,
             reader_capacity,
             Arc::clone(&reader_fence),
-            request.session_id.clone(),
-            self.wake_source.clone(),
+            wake_handle,
         );
 
         self.registry.insert(
@@ -509,6 +513,7 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
 #[derive(Default)]
 struct LocalProcessRegistry {
     sessions: Mutex<HashMap<SessionId, LocalSessionHandle>>,
+    wake_source: Mutex<Option<TerminalWakeSource>>,
 }
 
 impl Drop for LocalProcessRegistry {
@@ -600,6 +605,11 @@ impl LocalProcessRegistry {
         session_id: &SessionId,
         options: LocalProcessRuntimeOptions,
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
+        if let Ok(slot) = self.wake_source.lock() {
+            if let Some(source) = slot.as_ref() {
+                source.forget_session(session_id);
+            }
+        }
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
         terminate_session(&mut session, options)
@@ -692,7 +702,18 @@ impl LocalProcessRegistry {
         })
     }
 
+    fn set_wake_source(&self, source: TerminalWakeSource) {
+        if let Ok(mut slot) = self.wake_source.lock() {
+            *slot = Some(source);
+        }
+    }
+
     fn remove(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        if let Ok(slot) = self.wake_source.lock() {
+            if let Some(source) = slot.as_ref() {
+                source.forget_session(session_id);
+            }
+        }
         let mut sessions = self.lock()?;
         sessions.remove(session_id);
         Ok(())
@@ -1160,9 +1181,9 @@ fn pty_size(size: Option<&ResizePayload>) -> PtySize {
     }
 }
 
-fn notify_session_wake(source: &Option<TerminalWakeSource>, session_id: &SessionId) {
-    if let Some(source) = source {
-        source.notify_session(session_id);
+fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
+    if let Some(handle) = handle {
+        handle.notify();
     }
 }
 
@@ -1170,8 +1191,7 @@ fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     capacity: usize,
     fence: Arc<ReaderFence>,
-    session_id: SessionId,
-    wake_source: Option<TerminalWakeSource>,
+    wake_handle: Option<SessionWakeHandle>,
 ) -> (Arc<ReaderPressure>, usize) {
     let capacity = capacity.max(1);
     let pressure = Arc::new(ReaderPressure::default());
@@ -1187,7 +1207,7 @@ fn spawn_reader(
                 Ok(0) => {
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
-                    notify_session_wake(&wake_source, &session_id);
+                    notify_session_wake(&wake_handle);
                     break;
                 }
                 Ok(bytes_read) => {
@@ -1209,7 +1229,7 @@ fn spawn_reader(
                                     }
                                 }
                                 reader_fence.leave_critical();
-                                notify_session_wake(&wake_source, &session_id);
+                                notify_session_wake(&wake_handle);
                                 break;
                             }
                             Err(returned) => {
@@ -1232,7 +1252,7 @@ fn spawn_reader(
                 Err(error) if is_terminal_closed(&error) => {
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
-                    notify_session_wake(&wake_source, &session_id);
+                    notify_session_wake(&wake_handle);
                     break;
                 }
                 Err(error) => {
@@ -1253,7 +1273,7 @@ fn spawn_reader(
                     }
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
-                    notify_session_wake(&wake_source, &session_id);
+                    notify_session_wake(&wake_handle);
                     break;
                 }
             }

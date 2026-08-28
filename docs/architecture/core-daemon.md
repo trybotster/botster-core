@@ -55,8 +55,10 @@ pending `CoreDaemon::drain` obligation: final egress remains available exactly
 once.
 
 Wake-driven pumping is a parallel host loop. `CoreDaemon::wait_wakes(timeout)`
-blocks on a transport-neutral source. `CoreDaemon::pump_woken` advances only
-the named waking-adapter routes and their sessions. The current `drain` poll
+blocks on a transport-neutral source. `CoreDaemon::pump_woken` drains runtime
+output only for named sessions and intakes/pumps only named waking-adapter
+routes. It does not `try_read` an unnamed adapter. Ingress overflow recovers
+sessions that have no waking-adapter registry entry. The current `drain` poll
 path remains for unbound adapters during the migration window. Core creates
 no extra OS thread for this wait.
 
