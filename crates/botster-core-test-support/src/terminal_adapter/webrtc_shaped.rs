@@ -3,6 +3,7 @@
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
+use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
 use botster_terminal_protocol::TerminalFrame;
 
 use super::core::OneSlotCore;
@@ -37,6 +38,12 @@ impl TerminalAdapter for WebRtcShapedTerminalAdapter {
 
     fn try_read(&mut self) -> TerminalIngress {
         self.inner.try_read()
+    }
+}
+
+impl WakingTerminalAdapter for WebRtcShapedTerminalAdapter {
+    fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+        self.inner.set_wake_sink(sink);
     }
 }
 

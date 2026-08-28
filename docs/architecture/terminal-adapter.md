@@ -8,7 +8,12 @@ ClientWorker now pushes bound-subscription frames through this trait. See
 production entry points are `CoreDaemon::bind_terminal_adapter` /
 `DefaultBotsterEngine::bind_terminal_adapter` plus the existing host drain
 tick. Bind requires a live generation and an immutable
-`TerminalCapabilitySet`. Hub Unix and WebRTC adapters are later Hub tickets.
+`TerminalCapabilitySet`. Waking adapters bind through
+`CoreDaemon::bind_waking_terminal_adapter`, which allocates route wake
+state only after the existing rejection ladder. The host waits on
+`CoreDaemon::wait_wakes` and advances named routes with
+`CoreDaemon::pump_woken`. The poll-path bind remains for one migration
+window. Hub Unix and WebRTC adapters are later Hub tickets.
 
 ## Adapter vs `TransportEgress`
 
@@ -18,6 +23,12 @@ semantic drain-path frame enums. They are not adapter traits.
 `contract::terminal_adapter::{TerminalAdapter, TerminalAdapterWriteError,
 TerminalAdapterPressure, TerminalIngress}` is the write/close/pressure and
 ingress seam. It does not overload the transport enum names.
+
+`contract::terminal_wake::{WakingTerminalAdapter, TerminalWakeKind,
+TerminalWakeSink, TerminalWakeSource}` is the wake-driven seam.
+`WakingTerminalAdapter` is a supertrait of `TerminalAdapter`. Wake kinds are
+`Writable` and `Closed`. Sinks hold a weak handle so a host-retained clone
+cannot pin Core memory after hard-stop. The public surface exposes no `RawFd`.
 
 `try_read()` returns `TerminalIngress::{Empty, Frame, Lost, Closed}`. After
 `close()`, `try_read` stays `Closed` and buffered ingress is dropped. `Lost`

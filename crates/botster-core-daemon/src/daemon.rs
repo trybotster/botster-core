@@ -14,6 +14,9 @@ use std::{
 };
 
 use botster_core::contract::terminal_adapter::TerminalAdapter;
+use botster_core::contract::terminal_wake::{
+    TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
+};
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession,
@@ -39,13 +42,14 @@ use crate::api::{
     GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult,
     ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, ReadModeFlagsRequest,
-    ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
-    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
-    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
+    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleBaselinePage, SessionLifecycleChange,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SessionRegistryStateLookup, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -1005,6 +1009,62 @@ impl CoreDaemon {
         Ok(())
     }
 
+    /// Bind a waking adapter. Allocates wake state only after rejection checks pass.
+    pub fn bind_waking_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
+        mut adapter: Box<dyn WakingTerminalAdapter + Send>,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session(&session_id)?;
+        if self.engine.control_plane_failed(&session_id) {
+            adapter.close();
+            drop(adapter);
+            return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id }.into());
+        }
+        self.engine.bind_waking_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            capabilities,
+            adapter,
+        )?;
+        Ok(())
+    }
+
+    /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
+    #[must_use]
+    pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
+        self.engine.wait_wakes(timeout)
+    }
+
+    /// Targeted pump of woken routes. Does not scan unnamed sessions.
+    pub fn pump_woken(
+        &mut self,
+        batch: &TerminalWakeBatch,
+        now_seconds: u64,
+    ) -> Result<PumpWokenOutcome, CoreDaemonError> {
+        self.ensure_running()?;
+        let pumped_routes = batch.adapter_routes.len();
+        let output = self.engine.pump_woken(batch, now_seconds)?;
+        let drain = drain_result_from_engine_output(output);
+        Ok(PumpWokenOutcome {
+            drain,
+            pumped_routes,
+        })
+    }
+
+    /// Shared wake source for census and host wait loops.
+    #[must_use]
+    pub fn wake_source(&self) -> &TerminalWakeSource {
+        self.engine.wake_source()
+    }
+
     /// Control-plane subscription inventory. No terminal state is included.
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
@@ -1223,6 +1283,7 @@ impl CoreDaemon {
                 },
             });
         }
+        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
         let mut output = self.engine.read_screen(
             request.request_id.clone(),
             request.session_id.clone(),
@@ -1261,6 +1322,7 @@ impl CoreDaemon {
                 },
             });
         }
+        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
         let mut output = self.engine.read_mode_flags(
             request.request_id.clone(),
             request.session_id.clone(),
@@ -1332,6 +1394,7 @@ impl CoreDaemon {
                 .into_snapshot_ready(request.request_id, request.session_id);
             return Ok(CaptureSnapshotResult { snapshot, payload });
         }
+        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
         let payload = self.engine.capture_snapshot_payload(&request.session_id)?;
         let snapshot = payload
             .clone()
@@ -1366,6 +1429,7 @@ impl CoreDaemon {
                 payload,
             });
         }
+        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
         let (color_profile, payload) = self
             .engine
             .capture_color_and_snapshot(&request.session_id)?;
@@ -2070,7 +2134,9 @@ impl CoreDaemon {
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<(), CoreDaemonError> {
-        let output = self.engine.drain_runtime_once(session_id, last_output_at)?;
+        let output = self
+            .engine
+            .drain_runtime_once_without_pump(session_id, last_output_at)?;
         let pending = drain_result_from_engine_output(output);
         self.retain_pending_drain_result(session_id, pending);
         Ok(())
@@ -3092,6 +3158,75 @@ impl DaemonEngine {
                 capabilities,
                 adapter,
             ),
+        }
+    }
+
+    fn bind_waking_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
+        adapter: Box<dyn WakingTerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        match self {
+            Self::Local(engine) => engine.bind_waking_terminal_adapter(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                capabilities,
+                adapter,
+            ),
+            Self::Worker(engine) => engine.bind_waking_terminal_adapter(
+                client_id,
+                session_id,
+                subscription_id,
+                generation,
+                capabilities,
+                adapter,
+            ),
+        }
+    }
+
+    fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
+        match self {
+            Self::Local(engine) => engine.wait_wakes(timeout),
+            Self::Worker(engine) => engine.wait_wakes(timeout),
+        }
+    }
+
+    fn pump_woken(
+        &mut self,
+        batch: &TerminalWakeBatch,
+        now_seconds: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.pump_woken(batch, now_seconds),
+            Self::Worker(engine) => engine.pump_woken(batch, now_seconds),
+        }
+    }
+
+    fn wake_source(&self) -> &TerminalWakeSource {
+        match self {
+            Self::Local(engine) => engine.wake_source(),
+            Self::Worker(engine) => engine.wake_source(),
+        }
+    }
+
+    fn drain_runtime_once_without_pump(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => {
+                engine.drain_runtime_once_without_pump(session_id, last_output_at)
+            }
+            Self::Worker(engine) => {
+                engine.drain_runtime_once_without_pump(session_id, last_output_at)
+            }
         }
     }
 

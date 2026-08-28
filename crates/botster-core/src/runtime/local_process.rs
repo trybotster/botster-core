@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
+use crate::contract::terminal_wake::TerminalWakeSource;
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
     BackpressureRoute, BackpressureSummary, InitialSnapshotRequest, ModeFlagsReady,
@@ -101,6 +102,7 @@ pub struct LocalProcessRuntime {
     registry: Arc<LocalProcessRegistry>,
     options: LocalProcessRuntimeOptions,
     write_test_hooks: Arc<WriteTestHooks>,
+    wake_source: Option<TerminalWakeSource>,
 }
 
 impl Default for LocalProcessRuntime {
@@ -123,7 +125,15 @@ impl LocalProcessRuntime {
             registry: Arc::new(LocalProcessRegistry::default()),
             write_test_hooks: Arc::new(WriteTestHooks::from_options(&options)),
             options,
+            wake_source: None,
         }
+    }
+
+    /// Share the engine wake source with PTY reader threads.
+    #[must_use]
+    pub fn with_wake_source(mut self, source: TerminalWakeSource) -> Self {
+        self.wake_source = Some(source);
+        self
     }
 
     /// Build a paired worker runtime backed by the same process registry.
@@ -223,8 +233,13 @@ impl SessionRuntime for LocalProcessRuntime {
             overflow_error: Mutex::new(None),
             reader_finished: AtomicBool::new(false),
         });
-        let (output_pressure, output_capacity) =
-            spawn_reader(reader, reader_capacity, Arc::clone(&reader_fence));
+        let (output_pressure, output_capacity) = spawn_reader(
+            reader,
+            reader_capacity,
+            Arc::clone(&reader_fence),
+            request.session_id.clone(),
+            self.wake_source.clone(),
+        );
 
         self.registry.insert(
             request.session_id.clone(),
@@ -1145,10 +1160,18 @@ fn pty_size(size: Option<&ResizePayload>) -> PtySize {
     }
 }
 
+fn notify_session_wake(source: &Option<TerminalWakeSource>, session_id: &SessionId) {
+    if let Some(source) = source {
+        source.notify_session(session_id);
+    }
+}
+
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     capacity: usize,
     fence: Arc<ReaderFence>,
+    session_id: SessionId,
+    wake_source: Option<TerminalWakeSource>,
 ) -> (Arc<ReaderPressure>, usize) {
     let capacity = capacity.max(1);
     let pressure = Arc::new(ReaderPressure::default());
@@ -1164,6 +1187,7 @@ fn spawn_reader(
                 Ok(0) => {
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
+                    notify_session_wake(&wake_source, &session_id);
                     break;
                 }
                 Ok(bytes_read) => {
@@ -1185,6 +1209,7 @@ fn spawn_reader(
                                     }
                                 }
                                 reader_fence.leave_critical();
+                                notify_session_wake(&wake_source, &session_id);
                                 break;
                             }
                             Err(returned) => {
@@ -1207,6 +1232,7 @@ fn spawn_reader(
                 Err(error) if is_terminal_closed(&error) => {
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
+                    notify_session_wake(&wake_source, &session_id);
                     break;
                 }
                 Err(error) => {
@@ -1227,6 +1253,7 @@ fn spawn_reader(
                     }
                     reader_fence.mark_reader_finished();
                     reader_fence.leave_critical();
+                    notify_session_wake(&wake_source, &session_id);
                     break;
                 }
             }

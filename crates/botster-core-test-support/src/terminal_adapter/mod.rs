@@ -9,10 +9,12 @@
 mod core;
 mod fake;
 mod unix_shaped;
+mod waking;
 mod webrtc_shaped;
 
 pub use fake::{FakeTerminalAdapter, SharedFakeTerminalAdapter};
 pub use unix_shaped::UnixShapedTerminalAdapter;
+pub use waking::assert_waking_terminal_adapter_conformance;
 pub use webrtc_shaped::WebRtcShapedTerminalAdapter;
 
 use botster_core::contract::terminal_adapter::{

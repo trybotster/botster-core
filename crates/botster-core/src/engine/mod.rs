@@ -23,6 +23,7 @@ pub mod session_activity;
 pub mod session_worker;
 pub mod subscription_multiplexer;
 pub mod terminal_screen;
+pub mod terminal_wake_queue;
 
 pub use botster::{
     BotsterEngine, BotsterEngineError, BotsterEngineObservation, BotsterEngineOutput,

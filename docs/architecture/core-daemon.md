@@ -46,12 +46,19 @@ are also part of the typed production daemon API.
 `CoreDaemon::read_screen`, `CoreDaemon::read_mode_flags`,
 `CoreDaemon::capture_snapshot`, and `CoreDaemon::capture_color_and_snapshot`
 internally drain the target session before reading terminal state because
-worker-backed terminal truth advances on the drain path. Any client egress or
-observations produced by that internal drain are retained and prepended to the
-next explicit `CoreDaemon::drain` result for the session, matching the attach
+worker-backed terminal truth advances on the drain path. That internal drain
+does not pump bound adapters. Any client egress or observations produced by
+that internal drain are retained and prepended to the next explicit
+`CoreDaemon::drain` result for the session, matching the attach
 retention contract. Natural-exit readback retention does not consume the host's
 pending `CoreDaemon::drain` obligation: final egress remains available exactly
 once.
+
+Wake-driven pumping is a parallel host loop. `CoreDaemon::wait_wakes(timeout)`
+blocks on a transport-neutral source. `CoreDaemon::pump_woken` advances only
+the named waking-adapter routes and their sessions. The current `drain` poll
+path remains for unbound adapters during the migration window. Core creates
+no extra OS thread for this wait.
 
 `CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
 current Ghostty colors and durable GHOSTSNP state. It returns
