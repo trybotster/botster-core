@@ -1233,10 +1233,13 @@ where
                 SessionRuntimeOutput::ProcessExited {
                     session_id,
                     payload,
-                } => crate::SessionWorkerRuntimeEvent::ProcessExited {
-                    session_id,
-                    payload,
-                },
+                } => {
+                    self.wake_source.forget_session(&session_id);
+                    crate::SessionWorkerRuntimeEvent::ProcessExited {
+                        session_id,
+                        payload,
+                    }
+                }
                 SessionRuntimeOutput::TitleChanged { session_id, title } => {
                     crate::SessionWorkerRuntimeEvent::TitleChanged { session_id, title }
                 }
@@ -1502,7 +1505,6 @@ where
                 self.engine
                     .shutdown_session(session_id.clone(), reason, now_seconds)?;
             self.apply_client_worker(&mut outcome)?;
-            self.wake_source.forget_session(&session_id);
             return Ok(outcome);
         }
         let outcome = self
@@ -1517,7 +1519,6 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
-        self.wake_source.forget_session(&session_id);
         Ok(outcome)
     }
 

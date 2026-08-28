@@ -216,7 +216,7 @@ fn readback_does_not_advance_bound_adapter() {
             Box::new(adapter.clone()),
         )
         .expect("bind");
-    let before = adapter.delivered_frame_bytes().len();
+    let before = adapter.snapshot_delivered_frame_bytes().len();
     let _ = daemon.read_screen(ReadScreenRequest {
         request_id: RequestId("screen".into()),
         session_id: session_id.clone(),
@@ -237,7 +237,7 @@ fn readback_does_not_advance_bound_adapter() {
         session_id: session_id.clone(),
         now_seconds: 6,
     });
-    assert_eq!(adapter.delivered_frame_bytes().len(), before);
+    assert_eq!(adapter.snapshot_delivered_frame_bytes().len(), before);
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -519,5 +519,43 @@ fn public_overflow_wait_does_not_depend_on_timeout() {
     );
     assert!(batch.ingress_sessions.contains(&session));
     drop(sinks);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn shutdown_completion_arrives_through_wait_wakes() {
+    let data_dir = temp_data_dir("shutdown-wake");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("shutdown-wake-session".into());
+    daemon
+        .spawn(
+            SpawnSessionRequest {
+                request: SessionSpawnRequest {
+                    request_id: RequestId("shutdown-wake-spawn".into()),
+                    session_id: session_id.clone(),
+                    executable: "sh".to_string(),
+                    arguments: vec!["-c".to_string(), "printf FINAL; exec sleep 30".to_string()],
+                    working_directory: SpawnWorkingDirectory {
+                        path: ".".to_string(),
+                    },
+                    environment: SpawnEnvironment::default(),
+                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                },
+                metadata: CoreSessionMetadata::new(),
+            },
+            1,
+        )
+        .expect("spawn");
+    let source = daemon.wake_source().clone();
+    assert_eq!(source.session_registry_len(), 1);
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 3)
+        .expect("shutdown through wait_wakes");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "shutdown must complete from wakes, not the watchdog timeout"
+    );
+    assert_eq!(source.session_registry_len(), 0);
     let _ = fs::remove_dir_all(data_dir);
 }

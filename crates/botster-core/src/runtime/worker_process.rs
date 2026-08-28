@@ -280,6 +280,7 @@ pub struct WorkerProcessRuntime {
     sessions: HashMap<SessionId, WorkerProcessSession>,
     wake_source: Option<TerminalWakeSource>,
     release_on_drop: bool,
+    fail_next_start_writer: bool,
     #[cfg(test)]
     fail_next_snapshot_cancel_count: usize,
     #[cfg(test)]
@@ -318,6 +319,7 @@ impl WorkerProcessRuntime {
             sessions: HashMap::new(),
             wake_source: None,
             release_on_drop: false,
+            fail_next_start_writer: false,
             #[cfg(test)]
             fail_next_snapshot_cancel_count: 0,
             #[cfg(test)]
@@ -332,6 +334,35 @@ impl WorkerProcessRuntime {
     pub fn with_wake_source(mut self, source: TerminalWakeSource) -> Self {
         self.wake_source = Some(source);
         self
+    }
+
+    /// Fail the next `start_writer` after the session wake handle is allocated.
+    pub fn fail_next_start_writer(&mut self) {
+        self.fail_next_start_writer = true;
+    }
+
+    fn forget_session_wake(&self, session_id: &SessionId) {
+        if let Some(source) = &self.wake_source {
+            source.forget_session(session_id);
+        }
+    }
+
+    fn start_writer_or_forget(
+        &mut self,
+        session: &mut WorkerProcessSession,
+        session_id: &SessionId,
+    ) -> Result<(), SessionRuntimeError> {
+        if self.fail_next_start_writer {
+            self.fail_next_start_writer = false;
+            self.forget_session_wake(session_id);
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "test-injected start_writer failure",
+            ));
+        }
+        session.start_writer().inspect_err(|_| {
+            self.forget_session_wake(session_id);
+        })
     }
 
     /// Fail the next snapshot cancel write. Crate tests use this to prove fail-closed takeover.
@@ -1202,7 +1233,7 @@ impl WorkerProcessRuntime {
             egress_capacity: self.options.egress_capacity.max(1),
             stall,
         };
-        session.start_writer()?;
+        self.start_writer_or_forget(&mut session, &session_id)?;
         self.sessions.insert(session_id.clone(), session);
 
         Ok(SessionRuntimeHandle {
@@ -1478,7 +1509,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             egress_capacity: self.options.egress_capacity.max(1),
             stall,
         };
-        session.start_writer()?;
+        self.start_writer_or_forget(&mut session, &request.session_id)?;
         self.sessions.insert(request.session_id.clone(), session);
 
         Ok(SessionRuntimeHandle {

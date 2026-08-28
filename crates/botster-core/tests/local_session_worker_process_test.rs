@@ -17,8 +17,8 @@ use botster_core::{
     PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionMetadata,
     SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TransportEgress,
-    WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalWakeSource,
+    TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
 use sha2::{Digest, Sha256};
 
@@ -291,6 +291,25 @@ where
     }
 
     bytes
+}
+
+#[test]
+fn failed_worker_start_does_not_leave_wake_registry_residue() {
+    let source = TerminalWakeSource::new();
+    let mut runtime =
+        WorkerProcessRuntime::with_options(worker_options()).with_wake_source(source.clone());
+    runtime.fail_next_start_writer();
+    let session = session_id("failed-start-wake");
+    let before = source.session_registry_len();
+    let error = runtime
+        .spawn_session(shell_request(session.clone(), "sleep 0.2"))
+        .expect_err("injected start_writer failure");
+    assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+    assert_eq!(source.session_registry_len(), before);
+    assert!(
+        !runtime.is_worker_process(&session),
+        "failed start must not insert a live worker session"
+    );
 }
 
 #[test]

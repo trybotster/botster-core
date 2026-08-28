@@ -910,6 +910,90 @@ fn default_botster_engine_exposes_fair_runtime_drain() {
         .expect("shutdown default runtime session");
 }
 
+#[cfg(feature = "local-runtime")]
+#[test]
+fn shutdown_process_exit_arrives_through_wait_wakes() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session_id = SessionId("wake-shutdown-session".to_string());
+    let request = SessionSpawnRequest {
+        request_id: request_id("wake-shutdown-spawn"),
+        session_id: session_id.clone(),
+        executable: "/bin/sh".to_string(),
+        arguments: vec![
+            "-c".to_string(),
+            "printf 'FINAL\\n'; exec sleep 30".to_string(),
+        ],
+        working_directory: SpawnWorkingDirectory {
+            path: std::env::current_dir()
+                .expect("current dir")
+                .display()
+                .to_string(),
+        },
+        environment: SpawnEnvironment::default(),
+        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+    };
+    engine
+        .spawn_session(request, CoreSessionMetadata::new())
+        .expect("spawn");
+    let source = engine.wake_source().clone();
+    let mut saw_final = false;
+    let mut saw_exit = false;
+    let mut clock = 1u64;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !saw_final {
+        let batch = engine.wait_wakes(Duration::from_millis(50));
+        let outcome = engine.pump_woken(&batch, clock).expect("pump");
+        clock += 1;
+        saw_final = outcome.session_events.iter().any(|event| match event {
+            SessionIoEvent::TerminalBytes { data, .. } => data
+                .windows(b"FINAL".len())
+                .any(|window| window == b"FINAL"),
+            _ => false,
+        });
+    }
+    assert!(saw_final, "wait_wakes must deliver FINAL before shutdown");
+    assert_eq!(source.session_registry_len(), 1);
+    engine
+        .shutdown_session(session_id.clone(), "wake shutdown", clock)
+        .expect("request shutdown");
+    clock += 1;
+    assert_eq!(
+        engine
+            .session(&session_id)
+            .map(|session| &session.lifecycle),
+        Some(&SessionLifecycleState::Stopping)
+    );
+    assert_eq!(source.session_registry_len(), 1);
+    let wait_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < wait_deadline && !saw_exit {
+        let batch = engine.wait_wakes(Duration::from_millis(50));
+        let outcome = engine.pump_woken(&batch, clock).expect("pump exit");
+        clock += 1;
+        saw_exit = outcome.session_events.iter().any(|event| {
+            matches!(
+                event,
+                SessionIoEvent::ProcessExited {
+                    session_id: observed,
+                    ..
+                } if observed == &session_id
+            )
+        }) || outcome.observations.iter().any(|observation| {
+            matches!(
+                observation,
+                BotsterEngineObservation::SessionLifecycle {
+                    session_id: observed,
+                    state: SessionLifecycleState::Exited { .. },
+                } if observed == &session_id
+            )
+        });
+    }
+    assert!(
+        saw_exit,
+        "ProcessExited must arrive through wait_wakes plus pump_woken"
+    );
+    assert_eq!(source.session_registry_len(), 0);
+}
+
 #[test]
 fn botster_engine_consumer_lifecycle_uses_public_api() {
     let mut engine: BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
