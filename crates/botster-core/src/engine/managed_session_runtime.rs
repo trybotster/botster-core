@@ -19,6 +19,9 @@ use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalInputDelivery, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
+use crate::contract::terminal_wake::{
+    TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
+};
 use crate::engine::client_worker::ClientWorker;
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
@@ -107,6 +110,7 @@ where
     engine: MultiplexerEngine<R, SessionRuntimeWorkerAdapter<T>>,
     terminal_backend_factory: TerminalBackendFactory<T>,
     client_worker: ClientWorker,
+    wake_source: TerminalWakeSource,
     pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
 }
 
@@ -625,14 +629,32 @@ where
         E: Error + Send + Sync + 'static,
         F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
     {
+        let wake_source = TerminalWakeSource::new();
+        let mut client_worker = ClientWorker::new();
+        client_worker.set_wake_source(wake_source.clone());
         Self {
             engine: MultiplexerEngine::new(runtime),
             terminal_backend_factory: Rc::new(move |size| {
                 factory(size).map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
             }),
-            client_worker: ClientWorker::new(),
+            client_worker,
+            wake_source,
             pending_input_teardowns: Vec::new(),
         }
+    }
+
+    /// Share one wake source with the session runtime and ClientWorker.
+    #[must_use]
+    pub fn with_shared_wake_source(mut self, source: TerminalWakeSource) -> Self {
+        self.client_worker.set_wake_source(source.clone());
+        self.wake_source = source;
+        self
+    }
+
+    /// Host wait source for adapter and ingress wakes.
+    #[must_use]
+    pub fn wake_source(&self) -> &TerminalWakeSource {
+        &self.wake_source
     }
 
     /// Return a recorded session from the assembled core engine.
@@ -858,6 +880,26 @@ where
         )
     }
 
+    /// Bind a waking adapter. Allocates wake state only after rejection checks pass.
+    pub fn bind_waking_terminal_adapter(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
+        adapter: Box<dyn WakingTerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        self.client_worker.bind_waking_terminal_adapter(
+            &client_id,
+            session_id,
+            subscription_id,
+            generation,
+            capabilities,
+            adapter,
+        )
+    }
+
     /// Control-plane subscription inventory.
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
@@ -991,6 +1033,15 @@ where
         request: SessionIoRequest,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.handle_session_request_with(request, now_seconds, true)
+    }
+
+    pub(crate) fn handle_session_request_with(
+        &mut self,
+        request: SessionIoRequest,
+        now_seconds: u64,
+        pump_bound: bool,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_session_request(&request)?;
         if let SessionIoRequest::GetModeFlags { session_id, .. } = &request {
             let worker = self
@@ -1016,7 +1067,9 @@ where
         }
         let mut outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
-        self.apply_client_worker(&mut outcome)?;
+        if pump_bound {
+            self.apply_client_worker(&mut outcome)?;
+        }
         Ok(outcome)
     }
 
@@ -1078,6 +1131,24 @@ where
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.drain_runtime_once_with(session_id, last_output_at, true)
+    }
+
+    /// Drain runtime output without pumping bound adapters (readback path).
+    pub fn drain_runtime_once_without_pump(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.drain_runtime_once_with(session_id, last_output_at, false)
+    }
+
+    fn drain_runtime_once_with(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+        pump: bool,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut outcome = match self.drain_runtime_output_for_session(session_id, last_output_at) {
             Ok(outcome) => outcome,
             Err(ManagedSessionRuntimeError::Runtime(error))
@@ -1089,7 +1160,9 @@ where
             Err(error) => return Err(error),
         };
         self.route_pending_runtime_events(&mut outcome)?;
-        self.apply_client_worker(&mut outcome)?;
+        if pump {
+            self.apply_client_worker(&mut outcome)?;
+        }
 
         Ok(outcome)
     }
@@ -1227,6 +1300,47 @@ where
         Ok(outcome)
     }
 
+    /// Targeted pump of woken routes. Never falls back to a global adapter scan.
+    pub fn pump_woken(
+        &mut self,
+        batch: &TerminalWakeBatch,
+        now_seconds: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        let mut sessions = HashSet::new();
+        for route in &batch.adapter_routes {
+            sessions.insert(route.session_id.clone());
+        }
+        for session_id in &batch.ingress_sessions {
+            sessions.insert(session_id.clone());
+        }
+        let intake = self.client_worker.intake_terminal_input();
+        self.pending_input_teardowns.extend(intake);
+        for session_id in &sessions {
+            match self.drain_runtime_output_for_session(session_id, now_seconds) {
+                Ok(step) => append_outcome(&mut outcome, step),
+                Err(ManagedSessionRuntimeError::Runtime(error))
+                    if error.kind == SessionRuntimeErrorKind::SessionNotFound
+                        && self.session_exited(session_id) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        self.route_pending_runtime_events(&mut outcome)?;
+        let mut teardowns = self
+            .client_worker
+            .ingest_bound_terminal_frames(&mut outcome.client_egress);
+        teardowns.extend(self.client_worker.pump_woken(batch));
+        teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
+        self.unsubscribe_owner_teardowns(&mut outcome, &mut teardowns)?;
+        Ok(outcome)
+    }
+
+    /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
+    #[must_use]
+    pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
+        self.wake_source.wait_wakes(timeout)
+    }
+
     /// Classify one session's activity at the provided clock value.
     pub fn classify_activity(
         &self,
@@ -1270,12 +1384,13 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let output = self.handle_session_request(
+        let output = self.handle_session_request_with(
             SessionIoRequest::GetScreen {
                 request_id,
                 session_id: session_id.clone(),
             },
             now_seconds,
+            false,
         )?;
         self.ensure_terminal_backend_ok(&session_id, "screen_state")?;
         Ok(output)
@@ -1288,12 +1403,13 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let output = self.handle_session_request(
+        let output = self.handle_session_request_with(
             SessionIoRequest::GetSnapshot {
                 request_id,
                 session_id: session_id.clone(),
             },
             now_seconds,
+            false,
         )?;
         self.ensure_terminal_backend_ok(&session_id, "capture_snapshot")?;
         Ok(output)

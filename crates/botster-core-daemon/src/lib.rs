@@ -20,18 +20,21 @@ pub use api::{
     GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult, ObserveLifecycleBudget,
     ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, ReadModeFlagsRequest,
-    ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
-    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
-    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
+    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleBaselinePage, SessionLifecycleChange,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SessionRegistryStateLookup, SpawnSessionRequest,
     OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 pub use botster_core::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalCapabilitySetError, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource,
+    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use daemon::{
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,

@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use sha2::{Digest, Sha256};
 
+use crate::contract::terminal_wake::TerminalWakeSource;
 use crate::runtime::control_queue::{
     write_slice_timeout, ControlFrameClass, ControlPlaneState, ControlQueue,
     ControlQueueAdmitError, ControlWriterError, ControlWriterOutcome, ControlWriterSlot,
@@ -277,6 +278,7 @@ pub struct WorkerSnapshotBoundaryPoll {
 pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
+    wake_source: Option<TerminalWakeSource>,
     release_on_drop: bool,
     #[cfg(test)]
     fail_next_snapshot_cancel_count: usize,
@@ -314,6 +316,7 @@ impl WorkerProcessRuntime {
         Self {
             options,
             sessions: HashMap::new(),
+            wake_source: None,
             release_on_drop: false,
             #[cfg(test)]
             fail_next_snapshot_cancel_count: 0,
@@ -322,6 +325,13 @@ impl WorkerProcessRuntime {
             #[cfg(test)]
             fail_next_pre_ready_error: false,
         }
+    }
+
+    /// Share the engine wake source with worker stdout reader threads.
+    #[must_use]
+    pub fn with_wake_source(mut self, source: TerminalWakeSource) -> Self {
+        self.wake_source = Some(source);
+        self
     }
 
     /// Fail the next snapshot cancel write. Crate tests use this to prove fail-closed takeover.
@@ -1144,6 +1154,10 @@ impl WorkerProcessRuntime {
             Arc::clone(&last_health),
             Arc::clone(&completion),
             Arc::clone(&stall),
+            SessionWakeNotify {
+                session_id: session_id.clone(),
+                wake_source: self.wake_source.clone(),
+            },
         );
         let metadata = SessionMetadata {
             session_uuid: session_id.0.clone(),
@@ -1437,6 +1451,10 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&last_health),
             Arc::clone(&completion),
             Arc::clone(&stall),
+            SessionWakeNotify {
+                session_id: request.session_id.clone(),
+                wake_source: self.wake_source.clone(),
+            },
         );
 
         let mut session = WorkerProcessSession {
@@ -2326,6 +2344,18 @@ fn reap_worker_child_in_background(mut child: Child) {
     });
 }
 
+struct SessionWakeNotify {
+    session_id: SessionId,
+    wake_source: Option<TerminalWakeSource>,
+}
+
+fn notify_session_wake(source: &Option<TerminalWakeSource>, session_id: &SessionId) {
+    if let Some(source) = source {
+        source.notify_session(session_id);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn spawn_stdout_reader(
     mut stdout: impl Read + Send + 'static,
     sender: SyncSender<WorkerChannelEvent>,
@@ -2334,7 +2364,10 @@ fn spawn_stdout_reader(
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
     stall: Arc<EgressStall>,
+    wake_notify: SessionWakeNotify,
 ) {
+    let session_id = wake_notify.session_id;
+    let wake_source = wake_notify.wake_source;
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
             match frame.frame_type {
@@ -2342,6 +2375,8 @@ fn spawn_stdout_reader(
                     &sender,
                     &overflow,
                     &stall,
+                    &wake_source,
+                    &session_id,
                     WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                 ),
                 FRAME_PROCESS_EXITED => {
@@ -2350,6 +2385,7 @@ fn spawn_stdout_reader(
                             state.process_exited = Some(payload);
                         }
                     }
+                    notify_session_wake(&wake_source, &session_id);
                 }
                 FRAME_TITLE_CHANGED => {
                     if let Ok(title) = String::from_utf8(frame.payload) {
@@ -2357,6 +2393,8 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
                     }
@@ -2367,6 +2405,8 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
                         );
                     }
@@ -2377,6 +2417,8 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
                     }
@@ -2386,6 +2428,8 @@ fn spawn_stdout_reader(
                         &sender,
                         &overflow,
                         &stall,
+                        &wake_source,
+                        &session_id,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
                 }
@@ -2395,6 +2439,8 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
                     }
@@ -2405,6 +2451,8 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
                             )),
@@ -2418,6 +2466,8 @@ fn spawn_stdout_reader(
                                 &sender,
                                 &overflow,
                                 &stall,
+                                &wake_source,
+                                &session_id,
                                 WorkerChannelEvent::ModeFlags(payload),
                             );
                         }
@@ -2433,12 +2483,16 @@ fn spawn_stdout_reader(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::ModeGatedResult(result),
                         ),
                         Err(error) => send_worker_event(
                             &sender,
                             &overflow,
                             &stall,
+                            &wake_source,
+                            &session_id,
                             WorkerChannelEvent::MalformedModeGated {
                                 request_id: String::new(),
                                 message: format!("malformed mode-gated result: {error}"),
@@ -2453,6 +2507,7 @@ fn spawn_stdout_reader(
                         if sender.send(WorkerChannelEvent::Snapshot(result)).is_err() {
                             break;
                         }
+                        notify_session_wake(&wake_source, &session_id);
                     }
                 }
                 FRAME_PONG => {
@@ -2469,6 +2524,7 @@ fn spawn_stdout_reader(
         if let Ok(mut state) = completion.lock() {
             state.reader_finished = true;
         }
+        notify_session_wake(&wake_source, &session_id);
     });
 }
 
@@ -2476,6 +2532,8 @@ fn send_worker_event(
     sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
     stall: &EgressStall,
+    wake_source: &Option<TerminalWakeSource>,
+    session_id: &SessionId,
     event: WorkerChannelEvent,
 ) {
     // Live PTY bytes are not replayable. While a parent consumer is attached,
@@ -2491,7 +2549,10 @@ fn send_worker_event(
         loop {
             if !stall.owners_present() {
                 match sender.try_send(event) {
-                    Ok(()) => return,
+                    Ok(()) => {
+                        notify_session_wake(wake_source, session_id);
+                        return;
+                    }
                     Err(TrySendError::Full(_)) => {
                         overflow.fetch_add(1, Ordering::AcqRel);
                         return;
@@ -2500,13 +2561,19 @@ fn send_worker_event(
                 }
             }
             match sender.try_send(event) {
-                Ok(()) => return,
+                Ok(()) => {
+                    notify_session_wake(wake_source, session_id);
+                    return;
+                }
                 Err(TrySendError::Full(returned)) => {
                     event = returned;
                     match stall.wait_for_space_or_detach(&mut seen_seq) {
                         StallWait::Retry => {}
                         StallWait::Detached => match sender.try_send(event) {
-                            Ok(()) => return,
+                            Ok(()) => {
+                                notify_session_wake(wake_source, session_id);
+                                return;
+                            }
                             Err(TrySendError::Full(_)) => {
                                 overflow.fetch_add(1, Ordering::AcqRel);
                                 return;
@@ -2521,7 +2588,7 @@ fn send_worker_event(
         }
     }
     match sender.try_send(event) {
-        Ok(()) => {}
+        Ok(()) => notify_session_wake(wake_source, session_id),
         Err(TrySendError::Full(_)) => {
             overflow.fetch_add(1, Ordering::AcqRel);
         }

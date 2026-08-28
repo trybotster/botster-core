@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use botster_core_test_support::terminal_adapter::{
-    assert_terminal_adapter_conformance, FakeTerminalAdapter, UnixShapedTerminalAdapter,
-    WebRtcShapedTerminalAdapter,
+    assert_terminal_adapter_conformance, assert_waking_terminal_adapter_conformance,
+    FakeTerminalAdapter, UnixShapedTerminalAdapter, WebRtcShapedTerminalAdapter,
 };
 
 #[test]
@@ -25,6 +25,24 @@ fn unix_shaped_terminal_adapter_passes_published_harness() {
 fn webrtc_shaped_terminal_adapter_passes_published_harness() {
     let mut driver = WebRtcShapedTerminalAdapter::default();
     assert_terminal_adapter_conformance(&mut driver);
+}
+
+#[test]
+fn fake_waking_terminal_adapter_passes_published_harness() {
+    let mut driver = FakeTerminalAdapter::default();
+    assert_waking_terminal_adapter_conformance(&mut driver);
+}
+
+#[test]
+fn unix_shaped_waking_terminal_adapter_passes_published_harness() {
+    let mut driver = UnixShapedTerminalAdapter::default();
+    assert_waking_terminal_adapter_conformance(&mut driver);
+}
+
+#[test]
+fn webrtc_shaped_waking_terminal_adapter_passes_published_harness() {
+    let mut driver = WebRtcShapedTerminalAdapter::default();
+    assert_waking_terminal_adapter_conformance(&mut driver);
 }
 
 #[test]

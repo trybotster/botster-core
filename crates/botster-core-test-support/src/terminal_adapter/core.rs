@@ -6,6 +6,7 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
     MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
+use botster_core::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink};
 use botster_terminal_protocol::TerminalFrame;
 
 #[derive(Debug, Default)]
@@ -17,6 +18,8 @@ pub(super) struct OneSlotCore {
     ingress: VecDeque<Vec<u8>>,
     ingress_partial: Option<Vec<u8>>,
     lost_pending: bool,
+    wake_sink: Option<TerminalWakeSink>,
+    closed_woke: bool,
 }
 
 impl OneSlotCore {
@@ -44,6 +47,25 @@ impl OneSlotCore {
         self.ingress.clear();
         self.ingress_partial = None;
         self.lost_pending = false;
+        if !self.closed_woke {
+            self.closed_woke = true;
+            if let Some(sink) = &self.wake_sink {
+                let _ = sink.wake(TerminalWakeKind::Closed);
+            }
+        }
+    }
+
+    pub(super) fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+        self.wake_sink = Some(sink);
+    }
+
+    fn emit_writable(&self) {
+        if self.closed {
+            return;
+        }
+        if let Some(sink) = &self.wake_sink {
+            let _ = sink.wake(TerminalWakeKind::Writable);
+        }
     }
 
     pub(super) fn try_read(&mut self) -> TerminalIngress {
@@ -69,6 +91,7 @@ impl OneSlotCore {
             return;
         }
         self.ingress.push_back(bytes);
+        self.emit_writable();
     }
 
     pub(super) fn inject_ingress_partial(&mut self, bytes: Vec<u8>) {
@@ -90,6 +113,7 @@ impl OneSlotCore {
         }
         if self.ingress.pop_back().is_some() {
             self.lost_pending = true;
+            self.emit_writable();
         }
     }
 
@@ -111,6 +135,7 @@ impl OneSlotCore {
 
     pub(super) fn clear_would_block(&mut self) {
         self.would_block = false;
+        self.emit_writable();
     }
 
     pub(super) fn is_closed(&self) -> bool {
@@ -118,7 +143,11 @@ impl OneSlotCore {
     }
 
     pub(super) fn take_active(&mut self) -> Option<Vec<u8>> {
-        self.active.take()
+        let taken = self.active.take();
+        if taken.is_some() {
+            self.emit_writable();
+        }
+        taken
     }
 
     pub(super) fn push_delivered(&mut self, bytes: Vec<u8>) {

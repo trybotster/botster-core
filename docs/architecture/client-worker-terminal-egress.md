@@ -43,7 +43,11 @@ down the host session.
    Pre-attach bind is a typed error. There is no reservation generation. A
    second bind of the live generation returns `AlreadyBound` and does not
    replace the adapter or the set. Bind only installs the adapter. It does
-   not flush.
+   not flush. `bind_waking_terminal_adapter` uses the same rejection ladder
+   and allocates `RouteWakeState` only after every check passes. Rejected
+   waking binds allocate nothing. The sink is installed before the adapter
+   is stored. Hard-stop marks the state retired and removes the registry
+   entry before `close()`.
 5. The next host drain tick flushes the hold through `encode_terminal_frame`
    into `owner.queue`, then `pump` writes through
    `TerminalAdapter::try_write`. Held frames precede live frames from the same

@@ -1659,11 +1659,7 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
 
         let mut saw_live = false;
         for tick in 0..80 {
-            let _ = daemon.read_screen(ReadScreenRequest {
-                request_id: RequestId(format!("bound-exit-screen-{round}-{tick}")),
-                session_id: session_id.clone(),
-                now_seconds: 13 + round + tick,
-            });
+            let _ = daemon.drain(&session_id, 13 + round + tick);
             complete_one_slot_if_full(&adapter);
             if adapter_has_live(&adapter, LIVE_B64) {
                 saw_live = true;
@@ -1797,11 +1793,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
 
     let mut saw_live = false;
     for tick in 0..400 {
-        let _ = daemon.read_screen(ReadScreenRequest {
-            request_id: RequestId(format!("bound-exit-attach-screen-{tick}")),
-            session_id: session_id.clone(),
-            now_seconds: 14 + tick,
-        });
+        let _ = daemon.drain(&session_id, 14 + tick);
         complete_one_slot_if_full(&adapter);
         if adapter_has_live(&adapter, LIVE_B64) {
             saw_live = true;

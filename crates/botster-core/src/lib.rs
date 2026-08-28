@@ -89,7 +89,7 @@ pub mod runtime;
 pub use contract::{
     actor, boundary, client, client_stream, durable_session, encrypted_stream, entity,
     notification, routed_envelope, session, session_protocol, terminal_adapter, terminal_metadata,
-    terminal_screen, terminal_subscription, transport,
+    terminal_screen, terminal_subscription, terminal_wake, transport,
 };
 
 /// Engine submodules. Prefer [`engine::BotsterEngine`] / `DefaultBotsterEngine`
@@ -99,6 +99,7 @@ pub use engine::{
     botster, client_worker, command as engine_command, managed_session_runtime, multiplexer,
     plugin_timer, plugin_worker, routed_envelope as routed_envelope_engine, session_activity,
     session_worker, subscription_multiplexer, terminal_screen as terminal_screen_engine,
+    terminal_wake_queue,
 };
 
 pub use identity::{crypto, device, keyring};
@@ -294,5 +295,9 @@ pub use terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+};
+pub use terminal_wake::{
+    TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource,
+    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use transport::{TransportEgress, TransportIngress};

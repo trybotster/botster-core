@@ -19,6 +19,7 @@ pub mod terminal_adapter;
 pub mod terminal_metadata;
 pub mod terminal_screen;
 pub mod terminal_subscription;
+pub mod terminal_wake;
 pub mod transport;
 
 pub use actor::{
@@ -115,5 +116,9 @@ pub use terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+};
+pub use terminal_wake::{
+    TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource,
+    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use transport::{TransportEgress, TransportIngress};

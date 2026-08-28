@@ -24,6 +24,9 @@ use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalInputDelivery,
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
+use crate::contract::terminal_wake::{
+    TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
+};
 use crate::session::{SessionId, SubscriptionId};
 use crate::transport::TransportEgress;
 use crate::WorkerSnapshotPhase;
@@ -70,6 +73,7 @@ pub struct ClientWorker {
     next_snapshot_phase: HashMap<OwnerKey, SnapshotPhase>,
     expected_adapters: HashSet<(ClientId, OwnerKey)>,
     input_cursor: usize,
+    wake_source: TerminalWakeSource,
     #[cfg(test)]
     fail_next_encode: bool,
 }
@@ -84,6 +88,7 @@ struct SubscriptionOwner {
     client_id: ClientId,
     generation: TerminalSubscriptionGeneration,
     adapter: Option<Box<dyn TerminalAdapter + Send>>,
+    waking: bool,
     capabilities: Option<TerminalCapabilitySet>,
     queue: VecDeque<QueuedFrame>,
     held: VecDeque<(TransportEgress, Option<SnapshotPhase>)>,
@@ -169,6 +174,7 @@ impl ClientWorker {
                 client_id,
                 generation,
                 adapter: None,
+                waking: false,
                 capabilities: None,
                 queue: VecDeque::new(),
                 held: VecDeque::new(),
@@ -243,8 +249,21 @@ impl ClientWorker {
     }
 
     fn hard_stop_key(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        self.wake_source
+            .retire_route(&key.session_id, &key.subscription_id);
         self.next_snapshot_phase.remove(key);
         hard_stop(&mut self.live, key)
+    }
+
+    /// Replace the wake source. Construction-only; do not call after a waking bind.
+    pub fn set_wake_source(&mut self, source: TerminalWakeSource) {
+        self.wake_source = source;
+    }
+
+    /// Shared host wait source for this worker.
+    #[must_use]
+    pub fn wake_source(&self) -> &TerminalWakeSource {
+        &self.wake_source
     }
 
     /// Bind a content-blind adapter to a live attach generation.
@@ -315,6 +334,80 @@ impl ClientWorker {
             });
         }
         owner.adapter = Some(adapter);
+        owner.waking = false;
+        owner.capabilities = Some(capabilities);
+        Ok(())
+    }
+
+    /// Bind a waking adapter after the live-generation rejection ladder.
+    ///
+    /// Allocation and registry insert happen only after every rejection returns.
+    /// Rejected binds close and drop the adapter and allocate nothing.
+    pub fn bind_waking_terminal_adapter(
+        &mut self,
+        client_id: &ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        generation: TerminalSubscriptionGeneration,
+        capabilities: TerminalCapabilitySet,
+        mut adapter: Box<dyn WakingTerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let live_generation = {
+            let Some(owner) = self.live.get_mut(&key) else {
+                adapter.close();
+                drop(adapter);
+                return Err(if self.last_generation.contains_key(&key) {
+                    BindTerminalAdapterError::UnknownSubscription {
+                        session_id,
+                        subscription_id,
+                    }
+                } else {
+                    BindTerminalAdapterError::BindBeforeAttach {
+                        session_id,
+                        subscription_id,
+                    }
+                });
+            };
+            if &owner.client_id != client_id || owner.generation != generation {
+                let live = Some(owner.generation);
+                adapter.close();
+                drop(adapter);
+                return Err(BindTerminalAdapterError::StaleGeneration {
+                    live,
+                    requested: generation,
+                });
+            }
+            if owner.adapter.is_some() {
+                adapter.close();
+                drop(adapter);
+                return Err(BindTerminalAdapterError::AlreadyBound {
+                    session_id,
+                    subscription_id,
+                    generation,
+                });
+            }
+            owner.generation
+        };
+        let sink = self
+            .wake_source
+            .bind_route(session_id, subscription_id, live_generation);
+        adapter.set_wake_sink(sink);
+        let Some(owner) = self.live.get_mut(&key) else {
+            adapter.close();
+            drop(adapter);
+            self.wake_source
+                .retire_route(&key.session_id, &key.subscription_id);
+            return Err(BindTerminalAdapterError::UnknownSubscription {
+                session_id: key.session_id,
+                subscription_id: key.subscription_id,
+            });
+        };
+        owner.adapter = Some(Box::new(WakingAdapterHolder { inner: adapter }));
+        owner.waking = true;
         owner.capabilities = Some(capabilities);
         Ok(())
     }
@@ -582,8 +675,60 @@ impl ClientWorker {
         let keys: Vec<_> = self.live.keys().cloned().collect();
         let mut teardowns = Vec::new();
         for key in keys {
-            if let Some(teardown) = pump_one(&mut self.live, &mut self.next_snapshot_phase, &key) {
+            if let Some(teardown) = pump_one(
+                &mut self.live,
+                &mut self.next_snapshot_phase,
+                &self.wake_source,
+                &key,
+            ) {
                 teardowns.push(teardown);
+            }
+        }
+        teardowns
+    }
+
+    /// Pump only routes named by a wake batch. Never scans unbound or unnamed routes.
+    pub fn pump_woken(&mut self, batch: &TerminalWakeBatch) -> Vec<ClientWorkerTeardown> {
+        let mut teardowns = Vec::new();
+        let mut seen = HashSet::new();
+        for route in &batch.adapter_routes {
+            let key = OwnerKey {
+                session_id: route.session_id.clone(),
+                subscription_id: route.subscription_id.clone(),
+            };
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            if let Some(teardown) = pump_one(
+                &mut self.live,
+                &mut self.next_snapshot_phase,
+                &self.wake_source,
+                &key,
+            ) {
+                teardowns.push(teardown);
+            }
+        }
+        for session_id in &batch.ingress_sessions {
+            let keys: Vec<_> = self
+                .live
+                .iter()
+                .filter(|(key, owner)| {
+                    &key.session_id == session_id && owner.waking && owner.adapter.is_some()
+                })
+                .map(|(key, _)| key.clone())
+                .collect();
+            for key in keys {
+                if !seen.insert(key.clone()) {
+                    continue;
+                }
+                if let Some(teardown) = pump_one(
+                    &mut self.live,
+                    &mut self.next_snapshot_phase,
+                    &self.wake_source,
+                    &key,
+                ) {
+                    teardowns.push(teardown);
+                }
             }
         }
         teardowns
@@ -887,17 +1032,50 @@ impl ClientWorker {
     }
 }
 
+struct WakingAdapterHolder {
+    inner: Box<dyn WakingTerminalAdapter + Send>,
+}
+
+impl TerminalAdapter for WakingAdapterHolder {
+    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        self.inner.try_write(frame)
+    }
+
+    fn close(&mut self) {
+        self.inner.close();
+    }
+
+    fn pressure(&self) -> TerminalAdapterPressure {
+        self.inner.pressure()
+    }
+
+    fn try_read(&mut self) -> TerminalIngress {
+        self.inner.try_read()
+    }
+}
+
+fn retire_and_hard_stop(
+    live: &mut HashMap<OwnerKey, SubscriptionOwner>,
+    phases: &mut HashMap<OwnerKey, SnapshotPhase>,
+    wake_source: &TerminalWakeSource,
+    key: &OwnerKey,
+) -> Option<ClientWorkerTeardown> {
+    wake_source.retire_route(&key.session_id, &key.subscription_id);
+    phases.remove(key);
+    hard_stop(live, key)
+}
+
 fn pump_one(
     live: &mut HashMap<OwnerKey, SubscriptionOwner>,
     phases: &mut HashMap<OwnerKey, SnapshotPhase>,
+    wake_source: &TerminalWakeSource,
     key: &OwnerKey,
 ) -> Option<ClientWorkerTeardown> {
     let owner = live.get_mut(key)?;
     let adapter = owner.adapter.as_mut()?;
 
     if adapter.pressure() == TerminalAdapterPressure::Closed {
-        phases.remove(key);
-        return hard_stop(live, key);
+        return retire_and_hard_stop(live, phases, wake_source, key);
     }
 
     if owner.in_flight {
@@ -912,14 +1090,12 @@ fn pump_one(
                 owner.unsuccessful_writes = 0;
             }
             TerminalAdapterPressure::Closed => {
-                phases.remove(key);
-                return hard_stop(live, key);
+                return retire_and_hard_stop(live, phases, wake_source, key);
             }
             TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
                 owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                 if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                    phases.remove(key);
-                    return hard_stop(live, key);
+                    return retire_and_hard_stop(live, phases, wake_source, key);
                 }
                 return None;
             }
@@ -929,13 +1105,11 @@ fn pump_one(
     loop {
         let owner = live.get_mut(key)?;
         if owner.process_exit_delivered {
-            phases.remove(key);
-            return hard_stop(live, key);
+            return retire_and_hard_stop(live, phases, wake_source, key);
         }
         let adapter = owner.adapter.as_mut()?;
         if adapter.pressure() == TerminalAdapterPressure::Closed {
-            phases.remove(key);
-            return hard_stop(live, key);
+            return retire_and_hard_stop(live, phases, wake_source, key);
         }
         let head = owner.queue.front()?;
         match adapter.try_write(&head.frame) {
@@ -956,14 +1130,12 @@ fn pump_one(
             Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
                 owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                 if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                    phases.remove(key);
-                    return hard_stop(live, key);
+                    return retire_and_hard_stop(live, phases, wake_source, key);
                 }
                 return None;
             }
             Err(TerminalAdapterWriteError::Closed) => {
-                phases.remove(key);
-                return hard_stop(live, key);
+                return retire_and_hard_stop(live, phases, wake_source, key);
             }
         }
     }
@@ -1092,6 +1264,28 @@ mod tests {
 
     struct ReadyAdapter;
 
+    struct ReadyWakingAdapter;
+
+    impl TerminalAdapter for ReadyWakingAdapter {
+        fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+            Ok(())
+        }
+
+        fn close(&mut self) {}
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            TerminalAdapterPressure::Ready
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            TerminalIngress::Empty
+        }
+    }
+
+    impl WakingTerminalAdapter for ReadyWakingAdapter {
+        fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
+    }
+
     impl TerminalAdapter for ReadyAdapter {
         fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
             Ok(())
@@ -1114,6 +1308,40 @@ mod tests {
             SessionId("s".into()),
             SubscriptionId("sub".into()),
         )
+    }
+
+    #[test]
+    fn waking_bind_after_attach_inserts_registry_and_rejection_does_not() {
+        let mut worker = ClientWorker::new();
+        let (client, session, subscription) = ids();
+        let before = worker.wake_source().registry_len();
+        let err = worker.bind_waking_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            TerminalSubscriptionGeneration(1),
+            TerminalCapabilitySet::empty(),
+            Box::new(ReadyWakingAdapter),
+        );
+        assert!(err.is_err());
+        assert_eq!(worker.wake_source().registry_len(), before);
+        worker.record_attach(client.clone(), session.clone(), subscription.clone());
+        let generation = worker
+            .live_generation(&session, &subscription)
+            .expect("generation");
+        worker
+            .bind_waking_terminal_adapter(
+                &client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(ReadyWakingAdapter),
+            )
+            .expect("bind");
+        assert_eq!(worker.wake_source().registry_len(), 1);
+        worker.teardown_session(&session);
+        assert_eq!(worker.wake_source().registry_len(), 0);
     }
 
     #[test]
