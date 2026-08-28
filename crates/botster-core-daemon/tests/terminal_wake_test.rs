@@ -493,16 +493,31 @@ fn public_occupancy_is_exact_after_quiesce() {
     let drain_source = source.clone();
     let drain_stop = Arc::clone(&stop);
     let drainer = thread::spawn(move || {
+        let mut worst = 0usize;
         while !drain_stop.load(Ordering::Relaxed) {
-            let _ = drain_source.wait_wakes(Duration::from_millis(0));
+            let _ = drain_source.wait_wakes(Duration::from_millis(1));
+            let seen = drain_source.occupancy();
+            if seen > worst {
+                worst = seen;
+            }
         }
+        worst
     });
     let deadline = Instant::now() + Duration::from_millis(400);
+    let mut producer_worst = 0usize;
     while Instant::now() < deadline {
         handle.notify();
+        let seen = source.occupancy();
+        if seen > producer_worst {
+            producer_worst = seen;
+        }
     }
     stop.store(true, Ordering::Relaxed);
-    drainer.join().expect("drain thread");
+    let drain_worst = drainer.join().expect("drain thread");
+    assert!(
+        producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
+        "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
+    );
     for _ in 0..64 {
         let batch = daemon.wait_wakes(Duration::from_millis(0));
         if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
