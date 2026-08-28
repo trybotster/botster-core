@@ -37,6 +37,20 @@ impl TerminalAdapter for FakeTerminalAdapter {
     }
 }
 
+impl FakeTerminalAdapter {
+    fn inner_read_count(&self) -> usize {
+        self.inner.read_count()
+    }
+
+    fn inner_write_count(&self) -> usize {
+        self.inner.write_count()
+    }
+
+    fn inner_wake(&self, kind: botster_core::TerminalWakeKind) -> bool {
+        self.inner.wake(kind)
+    }
+}
+
 impl WakingTerminalAdapter for FakeTerminalAdapter {
     fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
         self.inner.set_wake_sink(sink);
@@ -117,6 +131,24 @@ impl SharedFakeTerminalAdapter {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, FakeTerminalAdapter> {
         self.inner.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Number of `try_read` calls observed after bind.
+    #[must_use]
+    pub fn try_read_count(&self) -> usize {
+        self.lock().inner_read_count()
+    }
+
+    /// Number of `try_write` calls observed after construction.
+    #[must_use]
+    pub fn try_write_count(&self) -> usize {
+        self.lock().inner_write_count()
+    }
+
+    /// Emit a wake through the sink installed at waking bind.
+    #[must_use]
+    pub fn wake(&self, kind: botster_core::TerminalWakeKind) -> bool {
+        self.lock().inner_wake(kind)
     }
 }
 

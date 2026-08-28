@@ -118,7 +118,7 @@ pub use terminal_subscription::{
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use terminal_wake::{
-    TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource,
-    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
+    SessionWakeHandle, TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink,
+    TerminalWakeSource, WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use transport::{TransportEgress, TransportIngress};

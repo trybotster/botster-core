@@ -9,7 +9,8 @@ use botster_core::{
     TerminalWakeKind, WAKE_QUEUE_CAPACITY,
 };
 use botster_core_daemon::{
-    CoreDaemon, CoreDaemonConfig, ReadModeFlagsRequest, ReadScreenRequest, SpawnSessionRequest,
+    CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
+    ReadModeFlagsRequest, ReadScreenRequest, SpawnSessionRequest,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -154,12 +155,13 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
     assert!(daemon
         .wake_source()
         .registry_contains(&session_id, &subscription_id));
+    let _ = daemon.wait_wakes(Duration::from_millis(0));
     let batch = daemon.wait_wakes(Duration::from_millis(50));
     let outcome = daemon.pump_woken(&batch, 4).expect("pump");
     assert!(
-        outcome.pumped_routes <= 1
-            || !batch.adapter_routes.is_empty()
-            || batch.ingress_sessions.len() <= 1
+        outcome.pumped_routes <= 1,
+        "one waking bind must name at most one adapter route, got {}",
+        outcome.pumped_routes
     );
     daemon
         .detach_terminal_subscription(
@@ -225,6 +227,16 @@ fn readback_does_not_advance_bound_adapter() {
         session_id: session_id.clone(),
         now_seconds: 4,
     });
+    let _ = daemon.capture_snapshot(CaptureSnapshotRequest {
+        request_id: RequestId("snap".into()),
+        session_id: session_id.clone(),
+        now_seconds: 5,
+    });
+    let _ = daemon.capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
+        request_id: RequestId("color".into()),
+        session_id: session_id.clone(),
+        now_seconds: 6,
+    });
     assert_eq!(adapter.delivered_frame_bytes().len(), before);
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -266,5 +278,166 @@ fn overflow_reconcile_visits_only_registry() {
     let _ = source.wait_wakes(Duration::from_millis(0));
     let visits = source.visit_count().saturating_sub(before);
     assert!(visits <= source.registry_len() + WAKE_QUEUE_CAPACITY + 1);
+    drop(sinks);
+}
+
+fn bind_probe(
+    daemon: &mut CoreDaemon,
+    session: &str,
+    client: &str,
+    sub: &str,
+    adapter: SharedFakeTerminalAdapter,
+) -> (
+    SessionId,
+    ClientId,
+    SubscriptionId,
+    botster_core_daemon::TerminalSubscriptionGeneration,
+) {
+    let session_id = SessionId(session.into());
+    let client_id = ClientId(client.into());
+    let subscription_id = SubscriptionId(sub.into());
+    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("row")
+        .generation;
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter),
+        )
+        .expect("bind");
+    (session_id, client_id, subscription_id, generation)
+}
+
+#[test]
+fn pump_woken_does_not_try_read_unrelated_adapter() {
+    let data_dir = temp_data_dir("two-session");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let woken = SharedFakeTerminalAdapter::new();
+    let sibling = SharedFakeTerminalAdapter::new();
+    let (session_1, _, sub_1, _) =
+        bind_probe(&mut daemon, "session-1", "client-1", "sub-1", woken.clone());
+    let _ = bind_probe(
+        &mut daemon,
+        "session-2",
+        "client-2",
+        "sub-2",
+        sibling.clone(),
+    );
+    let _ = daemon.wait_wakes(Duration::from_millis(0));
+    let sibling_reads_before = sibling.try_read_count();
+    assert!(woken.wake(TerminalWakeKind::Writable));
+    let batch = daemon.wait_wakes(Duration::from_millis(0));
+    assert_eq!(
+        batch
+            .adapter_routes
+            .iter()
+            .filter(|route| route.session_id == session_1 && route.subscription_id == sub_1)
+            .count(),
+        1
+    );
+    daemon.pump_woken(&batch, 10).expect("pump");
+    assert_eq!(
+        sibling.try_read_count(),
+        sibling_reads_before,
+        "unrelated adapter must not receive try_read"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn spurious_writable_wakes_hard_stop_one_route() {
+    let data_dir = temp_data_dir("spurious");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut blocked = SharedFakeTerminalAdapter::new();
+    blocked.force_would_block();
+    let sibling = SharedFakeTerminalAdapter::auto_complete();
+    let (session, client, sub, generation) = bind_probe(
+        &mut daemon,
+        "blocked-session",
+        "blocked-client",
+        "blocked-sub",
+        blocked.clone(),
+    );
+    let (sibling_session, _, sibling_sub, _) = bind_probe(
+        &mut daemon,
+        "ok-session",
+        "ok-client",
+        "ok-sub",
+        sibling.clone(),
+    );
+    let _ = daemon.wait_wakes(Duration::from_millis(0));
+    for tick in 0..512 {
+        let _ = blocked.wake(TerminalWakeKind::Writable);
+        let batch = daemon.wait_wakes(Duration::from_millis(0));
+        let _ = daemon.pump_woken(&batch, 20 + tick);
+    }
+    assert!(
+        !daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.session_id == session && row.subscription_id == sub),
+        "512 rejected Writable pumps must UnsubscribeSession the blocked route"
+    );
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.session_id == sibling_session && row.subscription_id == sibling_sub),
+        "sibling must survive the spurious-wake hard-stop"
+    );
+    let _ = (client, generation);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn ingress_overflow_then_bind_still_recovers() {
+    let source = botster_core::TerminalWakeSource::new();
+    let mut sinks = Vec::new();
+    for n in 0..WAKE_QUEUE_CAPACITY {
+        let sink = source.bind_route(
+            SessionId(format!("cap{n}")),
+            SubscriptionId(format!("sub{n}")),
+            botster_core::TerminalSubscriptionGeneration(1),
+        );
+        assert!(sink.wake(TerminalWakeKind::Writable));
+        sinks.push(sink);
+    }
+    let late = SessionId("late-ingress".into());
+    let handle = source.session_handle(late.clone());
+    handle.notify();
+    let sink = source.bind_route(
+        late.clone(),
+        SubscriptionId("later-sub".into()),
+        botster_core::TerminalSubscriptionGeneration(1),
+    );
+    let batch = source.wait_wakes(Duration::from_millis(0));
+    assert!(
+        batch.ingress_sessions.contains(&late),
+        "bind after overflow must not drop the ingress-only session"
+    );
+    drop(sink);
     drop(sinks);
 }

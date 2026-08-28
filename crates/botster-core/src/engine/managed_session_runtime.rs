@@ -671,6 +671,7 @@ where
 
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.wake_source.forget_session(session_id);
         self.pending_input_teardowns
             .extend(self.client_worker.teardown_session(session_id));
         let mut outcome = MultiplexerEngineOutcome::empty();
@@ -1314,7 +1315,7 @@ where
         for session_id in &batch.ingress_sessions {
             sessions.insert(session_id.clone());
         }
-        let intake = self.client_worker.intake_terminal_input();
+        let intake = self.client_worker.intake_woken(batch);
         self.pending_input_teardowns.extend(intake);
         for session_id in &sessions {
             match self.drain_runtime_output_for_session(session_id, now_seconds) {
@@ -1484,6 +1485,7 @@ where
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        self.wake_source.forget_session(&session_id);
         let previous_lifecycle = self
             .engine
             .session(&session_id)

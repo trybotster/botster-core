@@ -737,6 +737,26 @@ impl ClientWorker {
     /// Stage A: intake complete frames from bound adapters.
     pub fn intake_terminal_input(&mut self) -> Vec<ClientWorkerTeardown> {
         let keys = self.rotated_live_keys();
+        self.intake_terminal_input_keys(keys)
+    }
+
+    /// Intake only routes named by a wake batch. Never `try_read`s an unnamed adapter.
+    pub fn intake_woken(&mut self, batch: &TerminalWakeBatch) -> Vec<ClientWorkerTeardown> {
+        let mut keys = Vec::new();
+        let mut seen = HashSet::new();
+        for route in &batch.adapter_routes {
+            let key = OwnerKey {
+                session_id: route.session_id.clone(),
+                subscription_id: route.subscription_id.clone(),
+            };
+            if seen.insert(key.clone()) {
+                keys.push(key);
+            }
+        }
+        self.intake_terminal_input_keys(keys)
+    }
+
+    fn intake_terminal_input_keys(&mut self, keys: Vec<OwnerKey>) -> Vec<ClientWorkerTeardown> {
         let mut teardowns = Vec::new();
         for key in keys {
             let reads = match self

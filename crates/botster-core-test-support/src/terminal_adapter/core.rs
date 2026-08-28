@@ -20,6 +20,8 @@ pub(super) struct OneSlotCore {
     lost_pending: bool,
     wake_sink: Option<TerminalWakeSink>,
     closed_woke: bool,
+    reads: usize,
+    writes: usize,
 }
 
 impl OneSlotCore {
@@ -27,6 +29,7 @@ impl OneSlotCore {
         &mut self,
         frame: &TerminalFrame,
     ) -> Result<(), TerminalAdapterWriteError> {
+        self.writes += 1;
         if self.closed {
             return Err(TerminalAdapterWriteError::Closed);
         }
@@ -69,6 +72,7 @@ impl OneSlotCore {
     }
 
     pub(super) fn try_read(&mut self) -> TerminalIngress {
+        self.reads += 1;
         if self.closed {
             return TerminalIngress::Closed;
         }
@@ -156,6 +160,18 @@ impl OneSlotCore {
 
     pub(super) fn delivered(&self) -> &[Vec<u8>] {
         &self.delivered
+    }
+
+    pub(super) fn read_count(&self) -> usize {
+        self.reads
+    }
+
+    pub(super) fn write_count(&self) -> usize {
+        self.writes
+    }
+
+    pub(super) fn wake(&self, kind: TerminalWakeKind) -> bool {
+        self.wake_sink.as_ref().is_some_and(|sink| sink.wake(kind))
     }
 }
 
