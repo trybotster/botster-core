@@ -28,11 +28,11 @@ use crate::terminal_subscription::TerminalSubscriptionGeneration;
 pub const WAKE_QUEUE_CAPACITY: usize = QueueSource::ClientWorker.default_capacity();
 
 fn record_channel_enqueue(occupancy: &AtomicUsize) {
-    occupancy.fetch_add(1, Ordering::Relaxed);
+    occupancy.fetch_add(1, Ordering::Release);
 }
 
 fn record_channel_dequeue(occupancy: &AtomicUsize) {
-    let _ = occupancy.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+    let _ = occupancy.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
         Some(n.saturating_sub(1))
     });
 }
@@ -135,18 +135,18 @@ impl TerminalWakeSink {
         {
             return false;
         }
+        record_channel_enqueue(&self.occupancy);
         match self.tx.try_send(WakeNode::Adapter(Arc::clone(&state))) {
-            Ok(()) => {
-                record_channel_enqueue(&self.occupancy);
-                true
-            }
+            Ok(()) => true,
             Err(TrySendError::Full(_)) => {
+                record_channel_dequeue(&self.occupancy);
                 // Producer may only set the overflow flag and return.
                 // Leave queued true so overflow reconcile still sees need.
                 self.overflow.store(true, Ordering::Release);
                 true
             }
             Err(TrySendError::Disconnected(_)) => {
+                record_channel_dequeue(&self.occupancy);
                 state.queued.store(false, Ordering::Release);
                 false
             }
@@ -198,15 +198,16 @@ impl SessionWakeHandle {
         {
             return;
         }
+        record_channel_enqueue(&self.occupancy);
         match self.tx.try_send(WakeNode::Ingress(Arc::clone(&state))) {
-            Ok(()) => {
-                record_channel_enqueue(&self.occupancy);
-            }
+            Ok(()) => {}
             Err(TrySendError::Full(_)) => {
+                record_channel_dequeue(&self.occupancy);
                 // Leave queued true so overflow reconcile still sees need.
                 self.overflow.store(true, Ordering::Release);
             }
             Err(TrySendError::Disconnected(_)) => {
+                record_channel_dequeue(&self.occupancy);
                 state.queued.store(false, Ordering::Release);
             }
         }
@@ -440,10 +441,14 @@ impl TerminalWakeSource {
             .contains_key(&(session_id.clone(), subscription_id.clone()))
     }
 
-    /// Current channel occupancy, counting adapter and ingress nodes.
+    /// Current ready-channel occupancy.
+    ///
+    /// Producers publish this count before `try_send` and roll it back on Full
+    /// or Disconnected. After `wait_wakes` returns and no producer is in
+    /// `notify`/`wake`, the value equals the number of unconsumed channel nodes.
     #[must_use]
     pub fn occupancy(&self) -> usize {
-        self.inner.occupancy.load(Ordering::Relaxed)
+        self.inner.occupancy.load(Ordering::Acquire)
     }
 
     /// Registry visits performed by overflow reconciliation since construction.
@@ -952,12 +957,20 @@ mod tests {
             producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
             "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
         );
-        for _ in 0..8 {
-            if source.occupancy() == 0 {
+        for _ in 0..64 {
+            let batch = source.wait_wakes(Duration::from_millis(0));
+            if batch.adapter_routes.is_empty()
+                && batch.ingress_sessions.is_empty()
+                && source.occupancy() == 0
+            {
                 break;
             }
-            let _ = source.wait_wakes(Duration::from_millis(0));
         }
+        assert_eq!(
+            source.occupancy(),
+            0,
+            "occupancy must be exact after producers stop and the channel is drained"
+        );
     }
 
     #[test]
