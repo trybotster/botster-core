@@ -2,8 +2,8 @@
 
 Ticket: `ticket_1788128130_441301`
 Run: `run_1788128178_478344`
-Revision: 4 (revised after Plan Review `review_1788129045_539289`, `review_1788129843_885975`,
-and `review_1788130604_251710`)
+Revision: 5 (revised after Plan Review `review_1788129045_539289`, `review_1788129843_885975`,
+`review_1788130604_251710`, and `review_1788131089_112145`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `3672c66` ("Rearm wake after obligation read errors")
@@ -95,7 +95,8 @@ wrong, and this revision removes it.
 - `crates/botster-core/src/runtime/worker_process.rs`
   (`send_input:1522`, `admit_encoded:1840` with `control queue full` and
   `control plane sealed`)
-- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon::pump_woken:1092`, `drain:1333`,
+- `crates/botster-core-daemon/src/daemon.rs` (no change expected: `CoreDaemon::pump_woken` already
+  calls `engine.pump_woken`, which now completes the transition; confirm during Implement) (`CoreDaemon::pump_woken:1092`, `drain:1333`,
   `DaemonEngine:469`)
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs`,
   `crates/botster-core-daemon/tests/daemon_integration_test.rs`
@@ -148,8 +149,10 @@ repeated pump cycle. No sleep, wait, or `block_on` enters the pump.
 `CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` (Stage A `intake_woken`) ->
 `DaemonEngine::apply_woken_terminal_input` -> route-scoped Stage B under the three-state probe, one command at a time ->
 `MultiplexerEngine::handle_client_ingress` or `submit_mode_gated_pty_input` ->
-`flush_runtime_inputs_for_session` -> PTY write. Proof drives `CoreDaemon::pump_woken`
-itself, never a direct `apply_terminal_input` call and never a ClientWorker helper call. The
+`flush_runtime_inputs_for_session` -> PTY write, then Phase 3, the single adapter egress pump,
+which carries every result queued in Phase 2 on the same tick. Proof drives
+`CoreDaemon::pump_woken` itself, never a direct `apply_terminal_input` call and never a
+ClientWorker helper call. The
 retry path is: control writer pops -> session capacity wake -> `wait_wakes` -> the same
 `CoreDaemon::pump_woken` entry -> parked owner whose generation still matches.
 
@@ -267,24 +270,42 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    it to return the failed input and every later input to the same queue in original order.
    Mechanism A means the woken path does not rely on this, but the loss defect is real and the
    ticket requires no loss.
-9. **Woken apply, worker runtime.** Add
-   `ManagedSessionRuntime<WorkerProcessRuntime, T>::apply_woken_terminal_input(batch, last_output_at)`.
-   For each session named by `batch.adapter_routes` or holding a matching parked owner: consume
-   control-writer failure, poll the gated result or timeout, build the held set from
-   `session_runtime().sessions_holding_gated()` plus `client_worker.sessions_awaiting_gated()`,
-   then, for each selected route, probe admission and take and apply exactly one command at a
-   time through the shared body with the targeted applier until the probe answers `Full`, the
-   owner budget ends, or the queue empties. `Sealed` hard-stops that owner. Retain teardowns.
-10. **Incremental-attach deferral.** Expose the woken apply on `BotsterEngine` for both runtimes.
-    The `WorkerBackedBotsterEngine` arm keeps the existing gate: a woken session inside
-    `incremental_attaches` runs `prepare_terminal_input` only, its routes park in the same index,
-    and attach completion plus the next wake applies the deferred input.
-11. **Local runtime arm.** Add the same method to
-    `ManagedSessionRuntime<LocalProcessRuntime, T>` without the gated stage.
-12. **Daemon wiring.** Add the `DaemonEngine` dispatch arm and call
-    `apply_woken_terminal_input(&sub_batch, now_seconds)` from `CoreDaemon::pump_woken` after the
-    per-session `engine.pump_woken` succeeds and before the lifecycle commit. An apply error
-    follows the same `first_error` plus `record_terminal_commit_failure` handling.
+9. **Stage order inside one tick.** Split `ManagedSessionRuntime::pump_woken` into two generic
+   phases that the runtime-specific facade orders around the new apply:
+   - Phase 1: `intake_woken` for named adapter routes, runtime-output drain for named sessions,
+     and pending runtime-event routing. Unchanged content.
+   - Phase 3: `ingest_bound_terminal_frames`, `ClientWorker::pump_woken`, and teardown routing.
+     Unchanged content. This stays the only adapter egress pump.
+   Both `BotsterEngine::pump_woken` (`botster.rs:559`) and
+   `WorkerBackedBotsterEngine::pump_woken` (`botster.rs:1213`) already own a concrete
+   `pump_woken`, so each facade calls Phase 1, then its own Phase 2, then Phase 3. No second pump
+   appears, and `CoreDaemon::pump_woken` keeps its current single call and its current lifecycle
+   commit order.
+10. **Phase 2, worker runtime.** Add
+    `ManagedSessionRuntime<WorkerProcessRuntime, T>::apply_woken_terminal_input(batch, last_output_at)`
+    with two sub-stages that use different selection rules:
+    - **2a Gated completion.** For every session the batch names in *either* wake class that holds
+      an owner with `awaiting_gated`, consume control-writer failure and poll the gated result or
+      timeout, then enqueue the mapped result. A `ModeGatedPtyInputResult` arrives on a session
+      ingress wake, so restricting this sub-stage to adapter routes would strand `awaiting_gated`
+      and block every later gated command on that session.
+    - **2b Stage B apply.** Selection stays restricted to `adapter_route_keys(batch)` plus exact
+      capacity-parked owners with a matching generation. Build the held set from
+      `session_runtime().sessions_holding_gated()` plus `client_worker.sessions_awaiting_gated()`,
+      then probe admission and take and apply exactly one command at a time through the shared
+      body with the targeted applier until the probe answers `Full`, the owner budget ends, or the
+      queue empties. `Sealed` hard-stops that owner. Retain teardowns.
+    Phase 2 runs before Phase 3, so every `TerminalInputResult` that 2a or 2b enqueues leaves on
+    the same tick through the existing single egress pump. `enqueue_input_result` arms no wake, and
+    a resize result, a rejected gated result, and input applied in a no-echo mode can produce no
+    later session wake at all, so a result queued after Phase 3 could sit forever.
+11. **Incremental-attach deferral.** The `WorkerBackedBotsterEngine` Phase 2 keeps the existing
+    gate: a woken session inside `incremental_attaches` runs `prepare_terminal_input` only, its
+    routes park in the same index, and attach completion plus the next wake applies the deferred
+    input. Gated completion still runs, because a parked attach must not strand `awaiting_gated`.
+12. **Phase 2, local runtime.** Add the same method to
+    `ManagedSessionRuntime<LocalProcessRuntime, T>` without sub-stage 2a, and order it the same way
+    inside `BotsterEngine::pump_woken`.
 13. Update the `docs/architecture/` terminal wake document: input intake and apply are
     adapter-route scoped, and parked routes retry on a control-queue capacity wake.
 
@@ -300,6 +321,8 @@ Core-only change in `botster-core` and `botster-core-daemon`.
   removes a loss defect, adds no new drop site, and the existing drain tests must stay green
   unedited.
 - No new wire protocol variant and no change to `TerminalWakeBatch`.
+- No second adapter egress pump. Phase 3 stays the single egress pump; revision 5 only moves the
+  apply ahead of it inside the same tick.
 
 ## Repository ownership boundaries and cross-repository dependencies
 
@@ -311,8 +334,8 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 - Consequence, not prerequisite: `botster-hub` main pins Core `7eafa470a18025895995bbedc20d34b58106a03b`,
   which is 37 commits behind this base. Advancing that pin after merge is follow-up work owned
   by the `botster-hub` target, not by this run.
-- Revision 3 adds no public Core contract. The capacity predicate, the parked-owner index, and
-  the capacity wake are all internal. The behavior of the public `pump_woken` entry still changes,
+- Revision 5 adds no public Core contract. The admission probe, the parked-owner index, the
+  capacity wake, and the phase split are all internal. The behavior of the public `pump_woken` entry still changes,
   so the downstream-shaped proof below stays required, per
   [[botster core contract surface needs consumer proof]].
 
@@ -327,7 +350,8 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    makes the child produce output, which raises the existing session ingress wake, so no extra
    rearm is needed for the success path. Only the capacity-parked path needs the new wake in
    mechanism B.
-7. Assumption: adding `can_admit_ordinary`, the parked-owner index, and the control-writer
+7. Assumption: adding `probe_ordinary` with its three-state result, the parked-owner index,
+   and the control-writer
    capacity wake is inside this ticket's intent. The ticket requires preserving accepted frames
    across backpressure without loss and forbids a polling path. The current code offers no
    capacity query and no capacity signal, so the only alternative is the present fail-closed
@@ -347,10 +371,12 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 - `crates/botster-core/src/engine/managed_session_runtime.rs` (targeted ingress applier,
   parameterized delivery body, two `apply_woken_terminal_input` impls, retention fix)
 - `crates/botster-core/src/engine/botster.rs` (facade methods, incremental-attach gate)
-- `crates/botster-core/src/runtime/control_queue.rs` (`can_admit_ordinary`)
+- `crates/botster-core/src/runtime/control_queue.rs` (`ControlAdmission`, `probe_ordinary`)
 - `crates/botster-core/src/runtime/worker_process.rs` (per-session capacity query, control-writer
   capacity wake)
-- `crates/botster-core-daemon/src/daemon.rs` (`DaemonEngine` arm, `CoreDaemon::pump_woken`)
+- `crates/botster-core-daemon/src/daemon.rs` (no change expected: `CoreDaemon::pump_woken` already
+  calls `engine.pump_woken`, which now completes the transition; confirm during Implement) (no change expected: `CoreDaemon::pump_woken` already
+  calls `engine.pump_woken`, which now completes the transition; confirm during Implement)
 - `crates/botster-core/tests/client_worker_engine_test.rs`
 - `crates/botster-core/tests/managed_session_runtime_test.rs`
 - `crates/botster-core/tests/terminal_wake_*` or the contract test that owns wake-source laws
@@ -378,6 +404,12 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 5c. **Batch admission gap.** Probing several commands before admitting any would let more than
    one command leave its owner queue against one free slot. Stage B takes and applies exactly one
    command per probe, proven by the one-slot two-command test and ablation A8.
+5e. **Stranded gated wait.** Restricting gated completion to adapter routes would leave
+   `awaiting_gated` set on a session whose result arrived on an ingress wake, blocking every later
+   gated command. Sub-stage 2a selects on either wake class, proven by ablation A11.
+5f. **Unwired result egress.** A result enqueued after the single egress pump can sit forever,
+   because `enqueue_input_result` arms no wake and resize, rejected gated input, and no-echo input
+   raise no incidental session wake. Phase 2 runs before Phase 3, proven by ablation A10.
 5d. **Sealed mistaken for full.** A merged predicate would park an owner forever after a clean
    stop, because `ControlPlaneState` has no `Sealed` variant and a clean seal raises no writer
    failure. The probe reports `Sealed` separately and hard-stops, proven by ablation A9.
@@ -420,6 +452,12 @@ Behavior, all driven through `CoreDaemon::pump_woken`:
    input to the replacement owner.
 10. The pump stays bounded: per-owner per-tick budget, input queue capacity, and no global scan.
     `pump_woken_does_not_try_read_unrelated_adapter` (`terminal_wake_test.rs:335`) stays green.
+11b. Gated completion on an ingress-only batch: drive `wait_wakes` plus `pump_woken`, complete one
+   gated request, deliver its exact result to the client, then admit a second gated request on the
+   same session. The second admission proves `awaiting_gated` cleared.
+11c. No-incidental-wake results reach the client on the same tick. Prove it for a resize result,
+   for a rejected gated result, and for input applied in a no-echo mode, where the child produces
+   no output and raises no later session wake.
 11. Existing lifecycle commit and output delivery tests from `3672c667` stay green with no edit.
 
 Oracles:
@@ -444,6 +482,10 @@ Red ablations, each must fail before the fix and pass after:
   turns red.
 - A8: collect a batch of deliveries before the first admit; the one-slot two-command test turns red.
 - A9: fold `Sealed` into `Full`; the post-seal input test hangs or turns red instead of hard-stopping.
+- A10: move Phase 2 after the Phase 3 egress pump; the no-incidental-wake tests for resize,
+  rejected gated input, and no-echo input turn red.
+- A11: restrict gated completion to adapter-route sessions; the ingress-only gated test turns red
+  at its second admission.
 
 Core gates, per [[botster-core uses CI-owned Cargo commands because it has no test script]]:
 
@@ -506,5 +548,9 @@ RUSTUP_TOOLCHAIN=1.97.0 ./test.sh --locked -p botster-hub --test hub_daemon_life
    admitting any reopens the loss the check was meant to close.
 3e. "An admission probe must separate Full from Sealed" — merging them parks an owner forever
    when a clean stop seals the queue without a writer failure.
-4. "Downstream locked proof requires an explicit candidate-pin procedure" — a git-pinned
+4. "A wake-driven tick must order apply before its single egress pump" — a result queued after
+   the pump has no wake to carry it when the command produces no output.
+5. "Completion selection and dequeue selection are different rules" — a gated result arrives on a
+   session ingress wake even though input dequeue stays adapter-route scoped.
+6. "Downstream locked proof requires an explicit candidate-pin procedure" — a git-pinned
    consumer proves nothing under `--locked` until every manifest pin names the candidate.
