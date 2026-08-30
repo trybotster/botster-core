@@ -35,9 +35,11 @@ sees the PTY echo.
 [[core terminal progress is wake driven and targeted]] and the wake-driven data-plane
 capture define them:
 
-- `adapter_routes`: one exact route (`session_id`, `subscription_id`, `generation`) has
+- `adapter_routes`: one exact route (`session_id`, `subscription_id`) has
   adapter work — readable client bytes, returned write capacity, or closure. Client input
   exists only on this class.
+  A batch route entry carries no generation. `bind_route` keeps the generation inside
+  `RouteWakeState`, so generation identity comes from the live owner, never from the batch.
 - `ingress_sessions`: one session has new worker or PTY output. This class carries no client
   input.
 
