@@ -38,8 +38,8 @@ or `botster-hub-client`.
 | Protocol name | `botster-terminal-v1` |
 | Protocol version | `1` |
 | Conformance fixture revision | `2` |
-| Default required features | `terminal_streaming`, `resize` |
-| Advertised features | `terminal_streaming`, `resize`, `transport=duplex_binary`, `snapshot_delivery=ready_then_history` |
+| Default required features | `terminal_streaming`, `resize`, `transport=duplex_binary` |
+| Advertised optional feature | `snapshot_delivery=ready_then_history` |
 | Request tags | `attach`, `detach`, `send_input`, `resize` |
 | Event tags | `snapshot`, `terminal_output`, `process_exit`, `attach_state`, `input_result` |
 | Snapshot phases | `ready`, `history`, `finish` |
@@ -48,11 +48,6 @@ or `botster-hub-client`.
 `snapshot_delivery=ready_then_history` is a compatibility feature. It is not an
 Attach field. The default client requirement does not include it.
 `TerminalCompatibilityRequirement::for_ready_then_history_attach()` adds it.
-
-`transport=duplex_binary` is advertised. The default requirement stays lower
-until the Hub WebRTC, Hub Unix, Web, and TUI cutovers land.
-`TerminalCompatibilityRequirement::for_duplex_binary_transport()` is the
-explicit requirement for consumers that have completed that cutover.
 
 `TerminalCapabilitySet` is the Hub-safe opaque token set for a bound
 subscription. Hub constructs it from advertised feature tokens, including an
