@@ -1,7 +1,9 @@
 //! Isolated Hub-shaped consumer. Depends only on the opaque protocol crate.
 
 use botster_terminal_protocol::{
-    Attach, TerminalCapabilitySet, TerminalFrame, FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING,
+    ensure_compatible, Attach, TerminalCapabilitySet, TerminalCompatibility,
+    TerminalCompatibilityError, TerminalCompatibilityRequirement, TerminalFrame, FEATURE_RESIZE,
+    FEATURE_TERMINAL_STREAMING,
 };
 
 pub fn forward_attach(session_id: &str, subscription_id: &str) -> String {
@@ -29,4 +31,11 @@ pub fn empty_capabilities() -> TerminalCapabilitySet {
 
 pub fn baseline_capabilities() -> TerminalCapabilitySet {
     negotiated_capabilities(&[FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE])
+}
+
+pub fn ensure_advertised_duplex() -> Result<(), TerminalCompatibilityError> {
+    ensure_compatible(
+        &TerminalCompatibilityRequirement::for_duplex_binary_transport(),
+        &TerminalCompatibility::current(),
+    )
 }

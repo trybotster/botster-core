@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use botster_terminal_protocol::{
-    Attach, Detach, Resize, SendInput, TerminalCapabilitySet, TerminalCompatibility,
-    TerminalCompatibilityRequirement, TerminalFrame, TerminalInputFrame, FEATURE_RESIZE,
-    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL,
+    ensure_compatible, Attach, Detach, Resize, SendInput, TerminalCapabilitySet,
+    TerminalCompatibility, TerminalCompatibilityRequirement, TerminalFrame, TerminalInputFrame,
+    FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL,
 };
 
 #[test]
@@ -58,8 +58,14 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     let round_trip: serde_json::Value = serde_json::from_slice(&emitted).expect("json");
     assert_eq!(round_trip["type"], "snapshot");
     assert_eq!(PROTOCOL, "botster-terminal-v1");
-    let _ = TerminalCompatibility::current();
-    let _ = TerminalCompatibilityRequirement::current();
+    let advertised = TerminalCompatibility::current();
+    ensure_compatible(&TerminalCompatibilityRequirement::current(), &advertised)
+        .expect("Hub-shaped advertisement must satisfy the default requirement");
+    ensure_compatible(
+        &TerminalCompatibilityRequirement::for_duplex_binary_transport(),
+        &advertised,
+    )
+    .expect("Hub-shaped advertisement must satisfy the explicit duplex requirement");
     let empty = TerminalCapabilitySet::empty();
     assert!(empty.is_empty());
     let negotiated = TerminalCapabilitySet::from_tokens([
