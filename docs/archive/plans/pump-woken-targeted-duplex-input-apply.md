@@ -2,6 +2,7 @@
 
 Ticket: `ticket_1788128130_441301`
 Run: `run_1788128178_478344`
+Revision: 2 (revised after Plan Review `review_1788129045_539289`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `3672c66` ("Rearm wake after obligation read errors")
@@ -16,238 +17,320 @@ runs only Stage A for named adapter routes:
 
 - `self.client_worker.intake_woken(batch)` reads adapter bytes and pushes decoded
   `TerminalInputCommand` values into `owner.input_queue`.
-- No caller then runs Stage B (`ClientWorker::take_terminal_input`) or the apply stage
-  (`ManagedSessionRuntime::apply_terminal_input`).
+- No caller then runs Stage B (`ClientWorker::take_terminal_input`) or an apply stage.
 
 `CoreDaemon::pump_woken` (`crates/botster-core-daemon/src/daemon.rs:1092`) calls only
 `DaemonEngine::pump_woken`. The session-scoped `DaemonEngine::apply_terminal_input`
-(`daemon.rs:3627`) runs only from `CoreDaemon::drain` (`daemon.rs:1341`). A host that
-drives the runtime with `wait_wakes` + `pump_woken` never reaches the apply stage, so an
-accepted `TerminalInputFrame` stays in `input_queue` forever and never reaches the PTY.
+(`daemon.rs:3627`) runs only from `CoreDaemon::drain` (`daemon.rs:1341`). A host that drives
+the runtime with `wait_wakes` + `pump_woken` never reaches the apply stage, so an accepted
+`TerminalInputFrame` stays in `input_queue` forever and never reaches the PTY.
 
-That is the exact Hub failure:
+That is the exact Hub failure named in the ticket: the Hub test receives initial output,
+sends a valid binary `TerminalInputFrame`, observes successful targeted pumps, and never
+sees the PTY echo.
 
-```
-RUSTUP_TOOLCHAIN=1.97.0 ./test.sh --locked -p botster-hub --test hub_daemon_lifecycle_test \
-  unix_adapter_unbound_scoped_drain_delivers_terminal_output -- --exact --nocapture
-```
+## Wake classes (corrected after Plan Review)
 
-The Hub test receives initial output, sends a valid binary `TerminalInputFrame`, observes
-successful targeted pumps, and never sees the PTY echo.
+`TerminalWakeBatch` carries two different wake classes, and they are not interchangeable.
+[[core terminal progress is wake driven and targeted]] and the wake-driven data-plane
+capture define them:
+
+- `adapter_routes`: one exact route (`session_id`, `subscription_id`, `generation`) has
+  adapter work — readable client bytes, returned write capacity, or closure. Client input
+  exists only on this class.
+- `ingress_sessions`: one session has new worker or PTY output. This class carries no client
+  input.
+
+Therefore **client input intake and input apply are scoped to `adapter_routes` only**.
+Session ingress continues to drive runtime-output drain and adapter egress pumping, exactly
+as `3672c667` shipped. Revision 1 of this plan merged the two classes for Stage B; that was
+wrong, and this revision removes it.
 
 ## Playbooks and notes loaded
 
 - [[planner-playbook]]
 - [[botster-planner-playbook]]
+- [[botster-architecture]]
 - [[botster-core-playbook]] (repository charter for the resolved target)
 - [[botster runtime teardown lenses]] (runtime-teardown class applies; see below)
+- Botster architecture capture: `ops/archive/inbox/2026-08-27-botster-wake-driven-data-plane-and-hub-decomposition.md`
 - [[core owns duplex terminal transport while Hub stays content blind]]
 - [[core terminal progress is wake driven and targeted]]
+- [[terminal adapters emit coalesced writable and closed wakes]]
+- [[session wake coalescing belongs in a lifecycle registry not each handle]]
+- [[an overflow reconcile walk must reuse the readiness filter it backstops]]
 - [[Core terminal subscription ownership is session, subscription, and generation]]
+- [[Core queues concurrent attaches and serializes snapshot encoding]]
+- [[core holds declared attach frames until the bound adapter drains]]
 - [[a global owner walk needs a global per session gated hold]]
 - [[a batch dequeue loop must update its exclusion set as it grants work]]
 - [[every TerminalInputResult must stamp the live subscription id]]
 - [[adapter accepted writes are not consumer flushed writes]]
+- [[botster core contract surface needs consumer proof]]
 - [[botster-core uses CI-owned Cargo commands because it has no test script]]
 - [[botster-core CI runs a contract only test lane because workspace feature unification hides breaks]]
 - [[spawned Hub tests can reach only four of fourteen Core test builders]]
 - [[bound attach suppression skip is unproven without a red oracle]]
-- [[vault example paths are not repository placement conventions]] (plan destination taken from `docs/README.md`)
+- [[vault example paths are not repository placement conventions]]
 
 ## Context loaded
 
-- `crates/botster-core/src/engine/managed_session_runtime.rs` (Stage A/B/apply, `pump_woken`,
-  `apply_terminal_input` for `WorkerProcessRuntime` and for `LocalProcessRuntime`,
-  `flush_runtime_inputs_for_session`)
-- `crates/botster-core/src/engine/client_worker.rs` (`intake_woken`, `take_terminal_input`,
-  `pump_woken`, `sessions_awaiting_gated`, `enqueue_input_result`)
-- `crates/botster-core/src/contract/terminal_wake.rs` (`TerminalWakeSource`, `notify_session`)
-- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon::pump_woken`, `CoreDaemon::drain`,
-  `DaemonEngine` dispatch)
+- `crates/botster-core/src/engine/managed_session_runtime.rs`
+  (`pump_woken:1305`, `apply_terminal_input:263` and `:535`, `handle_client_ingress:715`,
+  `flush_runtime_inputs:813`-shaped global walk, `flush_runtime_inputs_for_session`,
+  `apply_client_worker_with`, `prepend_inputs:1875`, `drain_inputs:1871`)
+- `crates/botster-core/src/engine/client_worker.rs`
+  (`intake_woken:744`, `intake_terminal_input_keys`, `take_terminal_input`, `pump_woken:690`,
+  `sessions_awaiting_gated`, `enqueue_input_result:922`)
+- `crates/botster-core/src/engine/multiplexer.rs` (`handle_client_ingress:366`, session-scoped)
+- `crates/botster-core/src/engine/botster.rs`
+  (`apply_terminal_input:687` local, `apply_terminal_input:1424` worker with the
+  incremental-attach gate)
+- `crates/botster-core/src/contract/terminal_wake.rs`
+  (`TerminalWakeSink::wake:123`, `notify_session:353`, `bind_route:379`, `retire_route:409`,
+  route registry keyed by `(SessionId, SubscriptionId)`)
+- `crates/botster-core/src/runtime/worker_process.rs`
+  (`send_input:1522`, `admit_encoded:1840` with `control queue full` and
+  `control plane sealed`)
+- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon::pump_woken:1092`, `drain:1333`,
+  `DaemonEngine:469`)
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs`,
   `crates/botster-core-daemon/tests/daemon_integration_test.rs`
-- `docs/README.md`, `docs/plans/README.md` (plan destination), `.github/workflows/ci.yml`
+- `botster-hub` `Cargo.toml`, `crates/botster-hub-test-support/Cargo.toml`,
+  `crates/botster-hub-client/Cargo.toml`, `Cargo.lock` (read only, for the pin procedure)
+- `docs/README.md`, `docs/plans/README.md`, `.github/workflows/ci.yml`
+
+## Defects the plan must not reproduce (verified in the current base)
+
+1. `ManagedSessionRuntime::handle_client_ingress:758` calls `self.flush_runtime_inputs()`,
+   which walks every engine session, and then `apply_client_worker_with`, which calls the
+   global `ClientWorker::pump()`. Reusing that helper inside the pump would add both a global
+   scan and a second global pump. The woken path must not call it.
+2. `flush_runtime_inputs_for_session` drains all inputs, sends `input.clone()`, and on failure
+   prepends only the *remaining* iterator. The failed input is dropped. A transient
+   `control queue full` therefore loses an accepted frame today.
+3. `WorkerBackedBotsterEngine::apply_terminal_input:1424` defers to
+   `prepare_terminal_input(session_id)` while `incremental_attaches` holds the session. A new
+   apply path that skips this gate would push input and resize past the attach barrier.
 
 ## Runtime-teardown class answers
 
-`teardown_class_applies`: **yes**. The change touches ClientWorker route ownership,
-per-route generation fencing, hard-stop teardown on decode/apply failure, and
-terminal-state vs live-runtime divergence (queued frame vs PTY).
+`teardown_class_applies`: **yes**. The change touches ClientWorker route ownership, per-route
+generation fencing, hard-stop teardown on decode or apply failure, and terminal-state versus
+live-runtime divergence between a queued frame and the PTY.
 
-`teardown_isolation`: The ownership set is one `OwnerKey { session_id, subscription_id }`
-with its `generation`. An apply failure hard-stops only that owner through the existing
-`owner_apply_teardown` / `detach_live` path and emits one `UnsubscribeSession` ingress.
-Sibling routes on the same session and other sessions keep running. No shared resource is
-sacrificed.
+`teardown_isolation`: The ownership set is one `OwnerKey { session_id, subscription_id }` with
+its `generation`. An apply failure hard-stops only that owner through `owner_apply_teardown`
+and `detach_live`, and emits one `UnsubscribeSession` ingress. Sibling routes on the same
+session and all other sessions keep running.
 
-`teardown_bounds`: The apply stage stays bounded and non-blocking. Stage B keeps
+`teardown_bounds`: The apply stays bounded and non-blocking. Stage B keeps
 `APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK` per owner per tick, `INPUT_QUEUE_CAPACITY` bounds
 the queue, and the gated path parks the owner with the existing
-`DEFAULT_MODE_GATED_INPUT_TIMEOUT` deadline instead of blocking. No new wait, sleep, or
-`block_on` enters the pump. Control-writer failure is consumed and converted to a session
-teardown, exactly as `apply_terminal_input` already does.
+`DEFAULT_MODE_GATED_INPUT_TIMEOUT` deadline instead of blocking. The exact-route rearm is one
+registry lookup plus one lock-free coalesce arm. No sleep, wait, or `block_on` enters the pump.
 
 `late_message_matrix`:
 
 | Command | Owner tag | Rejection after terminal failure | Residual sweep |
 |---|---|---|---|
-| `Input` | route key + owner `generation` + `client_id` | ingress error returns `owner_apply_teardown` for that route only | teardown returned to `unsubscribe_owner_teardowns` in the same `pump_woken` |
-| `ModeGatedInput` | route key + `generation`, plus `awaiting_gated` park state | session held by `sessions_holding_gated` + `sessions_awaiting_gated`; sealed/full control queue hard-stops the owner; `already in flight` returns `SessionNotWritable` | `cancel_mode_gated_pty_input` on teardown; `clear_awaiting_gated` on Ready/TimedOut |
-| `Resize` | route key + `generation` + `client_id` | ingress error returns `owner_apply_teardown` | same tick teardown routing |
-| Retired route wake | `wake_source.retire_route` removed the route | `live.get_mut` miss makes Stage B skip the key | no queue growth; owner already dropped |
+| `Input` | route key + owner `generation` + `client_id` | sealed or failed control state returns `owner_apply_teardown` for that route only | teardown routes through `unsubscribe_owner_teardowns` in the same `pump_woken` |
+| `ModeGatedInput` | route key + `generation` + `awaiting_gated` park state | session held by `sessions_holding_gated` plus `sessions_awaiting_gated`; `control plane sealed` or full control queue hard-stops the owner; `already in flight` returns `SessionNotWritable` | `cancel_mode_gated_pty_input` on teardown; `clear_awaiting_gated` on Ready or TimedOut |
+| `Resize` | route key + `generation` + `client_id` | same as `Input` | same tick teardown routing |
+| Retired route wake | route already removed by `retire_route` | `live.get_mut` misses, so Stage B skips the key | no queue growth; the owner is already dropped |
+| Session-ingress wake | carries no client input | Stage B never runs for this class | not applicable |
 
-`production_path_proof`: The production path is
-`TerminalWakeSource::wait_wakes` -> host loop -> `CoreDaemon::pump_woken` ->
-`DaemonEngine::pump_woken` (`intake_woken`) -> new `DaemonEngine::apply_woken_terminal_input`
--> `ManagedSessionRuntime` Stage B for named routes -> `handle_client_ingress` /
-`submit_mode_gated_pty_input` -> `flush_runtime_inputs_for_session` -> PTY write.
-Proof drives `CoreDaemon::pump_woken` itself, never a direct call to
-`apply_terminal_input` or to a ClientWorker helper.
+`production_path_proof`: `TerminalWakeSource::wait_wakes` -> host loop ->
+`CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` (Stage A `intake_woken`) ->
+`DaemonEngine::apply_woken_terminal_input` -> route-scoped Stage B ->
+`MultiplexerEngine::handle_client_ingress` or `submit_mode_gated_pty_input` ->
+`flush_runtime_inputs_for_session` -> PTY write. Proof drives `CoreDaemon::pump_woken`
+itself, never a direct `apply_terminal_input` call and never a ClientWorker helper call.
 
-`ownership_identity`: Deliveries carry `client_id`, `session_id`, `subscription_id`, and
-`generation` from the live owner, so a reused subscription id cannot inherit a stale
-delivery. Stage B reads owners under the current `live` map only. `TerminalInputResult`
-keeps `with_subscription`, preserving
-[[every TerminalInputResult must stamp the live subscription id]].
+`ownership_identity`: Each delivery carries `client_id`, `session_id`, `subscription_id`, and
+`generation` from the live owner, so a reused subscription id cannot inherit a stale delivery.
+Stage B reads only the current `live` map. `TerminalInputResult` keeps `with_subscription`.
 
-`sibling_fail_closed_policy`: On success, siblings keep working. On owner apply failure,
-only the failing owner hard-stops. On session control-plane failure, the existing
-`teardown_session` sweep removes every route of that one session; other sessions survive.
+`sibling_fail_closed_policy`: On success siblings keep working. On owner apply failure only
+the failing owner hard-stops. On session control-plane failure the existing `teardown_session`
+sweep removes every route of that one session; other sessions survive.
 
 ## Scope
 
 Core-only change in `botster-core` and `botster-core-daemon`.
 
-1. `ClientWorker`: add a route-targeted Stage B entry point
-   `take_terminal_input_keys(keys, sessions_holding_gated)`. Refactor the existing
-   `take_terminal_input` to build `rotated_live_keys()` and delegate, so both paths share one
-   dequeue body, including the "insert into the held set after every gated grant" rule from
-   [[a batch dequeue loop must update its exclusion set as it grants work]].
-2. `ClientWorker`: add `woken_input_keys(batch)` that resolves the same route set that
-   `intake_woken` and `pump_woken` use: named adapter routes, plus, for `ingress_sessions`,
-   only live owners of that session with `waking && adapter.is_some()`. Reuse one helper so
-   the route filter cannot drift between intake, apply, and pump.
-3. `ManagedSessionRuntime<WorkerProcessRuntime, T>`: add
-   `apply_woken_terminal_input(&mut self, batch, last_output_at)` that, for the named routes
-   only, (a) consumes control-writer failure per woken session, (b) polls the gated result or
-   timeout per woken session, (c) builds the held set from
+1. **Route-scoped Stage B.** Add `ClientWorker::take_terminal_input_keys(keys, sessions_holding_gated)`.
+   Refactor `take_terminal_input` to build `rotated_live_keys()` and delegate, so both paths
+   share one dequeue body, including the rule that every gated grant inserts its session into
+   the held set before the next dequeue.
+2. **One shared adapter-route filter.** Add `ClientWorker::adapter_route_keys(batch)` that
+   returns the deduplicated `batch.adapter_routes` key list. `intake_woken` and the new apply
+   both use it, so Stage A and Stage B can never select different routes. `ClientWorker::pump_woken`
+   keeps its existing two-class behavior (adapter routes plus waking bound owners of
+   `ingress_sessions`) unchanged, because egress is not input.
+3. **Targeted ingress applier.** Add a private
+   `ManagedSessionRuntime::apply_targeted_client_ingress(client_id, ingress, now)` that keeps
+   `reject_unsupported_ingress` and the `ensure_terminal_backend_ok` check, calls the
+   session-scoped `self.engine.handle_client_ingress` (`multiplexer.rs:366`), and then calls
+   `flush_runtime_inputs_for_session` for that one session. It never calls
+   `flush_runtime_inputs()` and never calls `apply_client_worker_with`.
+4. **Shared delivery body.** Parameterize the existing `apply_one_delivery` over its ingress
+   applier. `CoreDaemon::drain` keeps the current global applier, so its behavior does not
+   change. The woken path passes the targeted applier from step 3.
+5. **Backpressure retention fix.** Change `flush_runtime_inputs_for_session` so a failed
+   `send_input` returns the failed input *and* every later input to the same worker queue in
+   the original order, with no clone-and-drop. Classify the failure: `control queue full` is
+   transient and keeps the owner alive with the input retained; `control plane sealed` and any
+   other `InputFailed` keep the existing failure path.
+6. **Woken apply, worker runtime.** Add
+   `ManagedSessionRuntime<WorkerProcessRuntime, T>::apply_woken_terminal_input(batch, last_output_at)`.
+   For each session named by `batch.adapter_routes` only: consume control-writer failure,
+   poll the gated result or timeout, build the held set from
    `session_runtime().sessions_holding_gated()` plus `client_worker.sessions_awaiting_gated()`,
-   (d) dequeues with `take_terminal_input_keys`, (e) applies each delivery through the existing
-   `apply_one_delivery`, (f) flushes runtime inputs for the woken sessions only, and
-   (g) retains teardowns in `pending_input_teardowns`.
-4. `ManagedSessionRuntime<LocalProcessRuntime, T>`: add the same method without the gated
-   stage, applying through the existing `apply_one_local_delivery`.
-5. `BotsterEngine` facade: expose `apply_woken_terminal_input` on both runtime impls.
-6. `DaemonEngine`: add the matching enum dispatch arm.
-7. `CoreDaemon::pump_woken`: after `self.engine.pump_woken(&sub_batch, now_seconds)` succeeds
-   for one session, call `self.engine.apply_woken_terminal_input(&sub_batch, now_seconds)`
-   before the existing lifecycle commit and output retention run. An apply error follows the
-   same `first_error` + `record_terminal_commit_failure` handling the pump error already uses,
-   so the loop keeps its per-session isolation.
-8. Emit one targeted `wake_source.notify_session(&session_id)` only when at least one delivery
-   applied for that session, so the resulting `input_result` frame and PTY echo get a wake on
-   the same route set. This reuses the existing bounded session wake; it adds no scan and no
-   second pump.
-9. Update `docs/architecture/` terminal wake documentation where it states the pump stage list.
+   dequeue with `take_terminal_input_keys(adapter_route_keys(batch), held)`, apply each
+   delivery through the shared body with the targeted applier, and retain teardowns.
+7. **Incremental-attach deferral.** Expose the woken apply on `BotsterEngine` for both
+   runtimes. The `WorkerBackedBotsterEngine` arm keeps the existing gate: when
+   `incremental_attaches` contains a woken session, that session runs
+   `prepare_terminal_input` only, Stage B stays deferred for its routes, and the plan rearms
+   those routes (step 9) so the deferred input applies after the attach completes.
+8. **Local runtime arm.** Add the same method to
+   `ManagedSessionRuntime<LocalProcessRuntime, T>` without the gated stage, applying through
+   the existing local delivery body.
+9. **Exact-route rearm.** Add `TerminalWakeSource::rearm_route(session_id, subscription_id)`:
+   one lookup in the existing route registry, then the same lock-free coalesce arm that
+   `TerminalWakeSink::wake` performs, returning without effect for a retired or absent route.
+   Core calls it for one exact route only when that route still holds retained input or a
+   queued egress frame after the apply. This replaces revision 1's `notify_session`, which
+   would have crossed wake classes. It adds no scan, no timer, and no second pump.
+10. **Daemon wiring.** Add the `DaemonEngine` dispatch arm and call
+    `apply_woken_terminal_input(&sub_batch, now_seconds)` from `CoreDaemon::pump_woken` after
+    the per-session `engine.pump_woken` succeeds and before the lifecycle commit. An apply
+    error follows the same `first_error` plus `record_terminal_commit_failure` handling the
+    pump error already uses, so per-session isolation is unchanged.
+11. Update the `docs/architecture/` terminal wake document where it lists the pump stages, and
+    state that input intake and apply are adapter-route scoped.
 
 ## Non-scope
 
 - No change to `botster-hub`, `botster-web`, `botster-tui`, WebRTC code, or Unix transport code.
 - No replay buffer and no second terminal route.
-- No global scan, no polling loop, no host-side input queue, no second `ClientWorker::pump`,
+- No global scan, no polling path, no host-side input queue, no second `ClientWorker::pump`,
   no JSON input route, and no compatibility fallback.
-- No change to `CoreDaemon::drain`, to `apply_terminal_input`, or to the existing lifecycle
-  commit and output delivery behavior introduced by `3672c667`.
-- No new public enum variant and no change to the terminal wire protocol.
+- No behavior change to `CoreDaemon::drain`, to `apply_terminal_input`, or to the lifecycle
+  commit and output delivery behavior from `3672c667`. The step 5 retention fix changes a
+  shared helper; it removes a loss defect and adds no new drop site, and the existing drain
+  tests must stay green unedited.
+- No new wire protocol variant and no change to `TerminalWakeBatch`.
 
 ## Repository ownership boundaries and cross-repository dependencies
 
 - Core owns duplex terminal input, mode gating, resize, ordering, bounded queues, generation
-  fencing, and targeted pumping ([[core owns duplex terminal transport while Hub stays content blind]]).
-- Hub stays content blind. Hub only supplies adapters and calls `wait_wakes` + `pump_woken`.
-  This ticket adds no Hub-side call and no new Hub obligation.
-- The fix requires no cross-repository prerequisite. Hub gains the corrected behavior when it
-  bumps its Core pin after this merges. No dependency ticket is registered for this run.
-- The Hub reproduction command is downstream evidence only. It runs against a Hub checkout
-  pointed at this Core branch; this run changes no Hub file.
+  fencing, wake classes, and targeted pumping.
+- Hub stays content blind. Hub only supplies adapters and calls `wait_wakes` plus `pump_woken`.
+  This run changes no Hub file and adds no Hub obligation.
+- No cross-repository prerequisite exists, so this run registers no dependency ticket.
+- Consequence, not prerequisite: `botster-hub` main pins Core `7eafa470a18025895995bbedc20d34b58106a03b`,
+  which is 37 commits behind this base. Advancing that pin after merge is follow-up work owned
+  by the `botster-hub` target, not by this run.
+- `TerminalWakeSource::rearm_route` is a public Core contract addition, so it needs the
+  downstream-shaped proof below, per [[botster core contract surface needs consumer proof]].
 
 ## Assumptions and unknowns
 
-1. Assumption: the intended tick order is intake (inside `engine.pump_woken`) then apply, so a
-   single wake both accepts and applies a frame. Applying before intake would need a second
-   wake that the PTY cannot produce, which would deadlock the Hub reproduction.
-2. Assumption: the resulting `input_result` frame and the PTY echo may leave on the next wake.
-   `ClientWorker::enqueue_input_result` arms no wake today, so step 8 uses the existing
-   `TerminalWakeSource::notify_session` to guarantee that next wake. If the wake-loop evidence
-   shows the echo already arrives without it, step 8 is dropped rather than kept as dead code.
-3. Assumption: `docs/archive/plans/` is the plan destination, from `docs/README.md` and
-   `docs/plans/README.md`, not a vault example path.
-4. Unknown: whether any current caller depends on `pump_woken` leaving input unapplied. The
-   existing `pump_woken` tests are the oracle; the Implement step must not relax one to pass.
-5. Unknown: exact `botster-hub` revision used for the downstream reproduction. Verify records
-   the Hub SHA and the Core SHA it pins.
+1. Assumption: intake must precede apply on one tick. Applying first would need a second wake
+   that the PTY cannot produce before the input lands, which would deadlock the reproduction.
+2. Assumption: input arrives only on `adapter_routes`, per the wake-class contract above. If
+   Implement finds a production path that delivers client input under an ingress-only wake,
+   that is a blocking question for a human, not a silent filter widening.
+3. Assumption: the `input_result` frame and the PTY echo may leave on a later wake.
+   `enqueue_input_result` arms no wake, so step 9 rearms the exact route. If Implement shows
+   the echo wake already arrives for every case, step 9 narrows to the retained-input case
+   rather than remaining as dead code.
+4. Assumption: `docs/archive/plans/` is the plan home, from `docs/README.md` and
+   `docs/plans/README.md`.
+5. Unknown: whether any current test depends on `pump_woken` leaving input unapplied. The
+   existing `pump_woken` tests are the oracle; Implement must not relax one to pass.
+6. Unknown: whether the step 5 retention fix changes any existing drain-path assertion. If a
+   current test asserts the dropped-input behavior, Implement must stop and report it rather
+   than edit the assertion.
 
 ## Affected surfaces and files
 
-- `crates/botster-core/src/engine/client_worker.rs` (targeted Stage B, shared woken route helper)
-- `crates/botster-core/src/engine/managed_session_runtime.rs` (two `apply_woken_terminal_input`
-  impls, targeted flush)
-- `crates/botster-core/src/engine/botster.rs` (facade methods on both runtime impls)
+- `crates/botster-core/src/engine/client_worker.rs` (route-scoped Stage B, shared adapter-route filter)
+- `crates/botster-core/src/engine/managed_session_runtime.rs` (targeted ingress applier,
+  parameterized delivery body, two `apply_woken_terminal_input` impls, retention fix)
+- `crates/botster-core/src/engine/botster.rs` (facade methods, incremental-attach gate)
+- `crates/botster-core/src/contract/terminal_wake.rs` (`rearm_route`)
 - `crates/botster-core-daemon/src/daemon.rs` (`DaemonEngine` arm, `CoreDaemon::pump_woken`)
-- `crates/botster-core/tests/client_worker_engine_test.rs` (targeted Stage B unit proof)
-- `crates/botster-core/tests/managed_session_runtime_test.rs` (route filter proof)
-- `crates/botster-core-daemon/tests/terminal_wake_test.rs` and
-  `crates/botster-core-daemon/tests/daemon_integration_test.rs` (production `pump_woken` proof)
-- `docs/architecture/` terminal wake or adapter document that lists the pump stages
+- `crates/botster-core/tests/client_worker_engine_test.rs`
+- `crates/botster-core/tests/managed_session_runtime_test.rs`
+- `crates/botster-core/tests/terminal_wake_*` or the contract test that owns wake-source laws
+- `crates/botster-core-daemon/tests/terminal_wake_test.rs`
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs`
+- `docs/architecture/` terminal wake or adapter document
 - `docs/archive/plans/pump-woken-targeted-duplex-input-apply.md` (this plan)
 
 ## Risks
 
-1. **Double apply.** If both `pump_woken` and a later `drain` apply, one frame could reach the
-   PTY twice. Stage B pops from `input_queue`, so a popped command cannot be re-dequeued;
-   the mixed-path test must still assert exactly one PTY write.
-2. **Route leakage.** A careless Stage B could dequeue a sibling route on the woken session.
-   The shared `woken_input_keys` helper plus a red ablation guards this.
-3. **Gated regression.** Dropping the session-wide held set would let two owners submit gated
-   input for one session. The held set must keep both
-   `sessions_holding_gated()` and `sessions_awaiting_gated()`.
-4. **Backpressure loss.** A PTY write that cannot accept every byte must keep the accepted
-   frame. The existing `flush_runtime_inputs_for_session` `prepend_inputs` path preserves the
-   remainder; the plan adds no new drop site and no re-send of already-sent input.
-5. **Lifecycle commit order.** Inserting the apply before the commit could hide a commit
-   failure. The apply reuses the same `first_error` handling, and the existing commit tests at
-   `daemon_integration_test.rs:315-620` must stay green unchanged.
-6. **Feature unification.** The local-runtime impl is feature gated. The contract-only lane
-   (`cargo test -p botster-core --no-default-features --lib`) must run, per
-   [[botster-core CI runs a contract only test lane because workspace feature unification hides breaks]].
-7. **Downstream reach.** Only some Core builders are reachable from a Hub daemon child
-   ([[spawned Hub tests can reach only four of fourteen Core test builders]]), so downstream
-   proof uses the Hub test named in the ticket, not a Core-only harness.
+1. **Wake-class drift.** Widening the input filter to ingress sessions would apply sibling
+   input. One shared `adapter_route_keys` helper plus red ablation A2 guards this.
+2. **Hidden global work.** The managed `handle_client_ingress` hides a global flush and a
+   global pump. The targeted applier plus the no-unnamed-session oracle guards this.
+3. **Retention regression.** The step 5 fix touches a helper shared with `drain`. Existing
+   drain tests must stay green unedited, and a duplicate-byte assertion must accompany the
+   retention assertion.
+4. **Attach bypass.** Losing the `incremental_attaches` gate would push input past the attach
+   barrier. A deferral test drives attach and asserts no PTY write until completion.
+5. **Rearm storm.** An unconditional rearm could spin. The rearm fires only when the exact
+   route still holds retained input or a queued frame, and the coalesce gate already collapses
+   repeats. A no-work tick must arm nothing.
+6. **Double apply.** Stage B pops the command, so a popped command cannot be re-dequeued. The
+   mixed pump-then-drain test must still assert exactly one PTY write.
+7. **Feature unification.** The local-runtime arm is feature gated, so the contract-only lane
+   must run.
+8. **Downstream reach.** Only some Core builders are reachable from a Hub daemon child, so
+   downstream proof uses the Hub test named in the ticket at an actual candidate pin.
 
 ## Acceptance checks and tests
 
-Behavior:
+Behavior, all driven through `CoreDaemon::pump_woken`:
 
-1. Plain input: a wake carrying one adapter route with a `TerminalInputFrame` reaches the PTY
-   exactly once through `CoreDaemon::pump_woken`.
-2. Mode-gated input: the gated command uses the authoritative Core mode state, submits once,
-   parks the owner, and completes through the existing gated result path.
-3. Resize: a resize command reaches the named session exactly once.
-4. Route targeting: a wake for route A never applies queued input owned by route B, and never
-   applies input for a session absent from the batch.
-5. Backpressure: when the runtime input write cannot complete, the accepted frame survives and
-   is delivered once, with no duplicate byte on retry.
-6. Bounds: the apply respects the per-owner per-tick budget and the input queue capacity, and
-   performs no global scan (the unrelated-adapter test at `terminal_wake_test.rs:335` stays green).
-7. Lifecycle: the commit and output delivery tests from `3672c667` stay green with no edit.
+1. Plain input reaches the PTY exactly once.
+2. Mode-gated input uses the authoritative Core mode state, submits once, parks the owner, and
+   completes through the existing gated result path, reaching the PTY exactly once.
+3. Resize reaches the named session exactly once.
+4. A wake naming route A never applies input queued on sibling route B, and never applies input
+   for a session absent from the batch.
+5. A batch carrying only `ingress_sessions` applies no client input, and still drains runtime
+   output and pumps adapter egress as `3672c667` shipped.
+6. Transient `control queue full` retains the exact accepted bytes in original order, keeps the
+   owner alive, produces no duplicate byte, and the next wake completes delivery.
+7. `control plane sealed` still hard-stops the owner and leaves siblings live.
+8. While an incremental attach is active, input and resize stay deferred, and both apply after
+   the attach completes, still exactly once.
+9. The exact-route rearm arms only the route that retains work, and a no-work tick arms nothing.
+10. The pump stays bounded: per-owner per-tick budget, input queue capacity, and no global scan.
+    `pump_woken_does_not_try_read_unrelated_adapter` (`terminal_wake_test.rs:335`) stays green.
+11. Existing lifecycle commit and output delivery tests from `3672c667` stay green with no edit.
 
-Red ablations (each must fail before the fix and pass after):
+Oracles:
 
-- A1: remove the new apply call from `CoreDaemon::pump_woken`; the plain-input PTY test turns red.
-- A2: replace the targeted route filter with every live owner; the sibling-route isolation test
-  turns red.
+- **No-unnamed-session oracle**: instrument the woken apply path so a visit to a session that
+  the batch did not name fails the test. This is the positive control for finding
+  "existing apply helper performs a global runtime-input scan".
+- **Exact-bytes oracle**: assert the PTY received the exact frame payload once, not merely that
+  some output appeared.
 
-Gates (repository-owned commands, per [[botster-core uses CI-owned Cargo commands because it has no test script]]):
+Red ablations, each must fail before the fix and pass after:
+
+- A1: remove the apply call from `CoreDaemon::pump_woken`; the plain-input PTY test turns red.
+- A2: widen the Stage B key set to include `ingress_sessions` owners; the sibling isolation
+  test and the ingress-only test turn red.
+- A3: restore the old `flush_runtime_inputs_for_session` failure arm; the retention test turns red.
+- A4: remove the `incremental_attaches` gate from the woken apply; the deferral test turns red.
+
+Core gates, per [[botster-core uses CI-owned Cargo commands because it has no test script]]:
 
 ```bash
 cargo fmt --all -- --check
@@ -258,23 +341,47 @@ BOTSTER_ENV=test cargo test --doc --workspace
 cargo test -p botster-core --test local_process_runtime_test
 ```
 
-Downstream-shaped proof (required by the charter for public contract behavior):
+### Downstream candidate-pin procedure (required)
+
+`botster-hub` consumes Core as a pinned git revision, so `--locked` proves nothing until every
+pin names the candidate. Current Hub main pins `7eafa470a18025895995bbedc20d34b58106a03b` in
+nine places across three manifests:
+
+- `Cargo.toml`: `botster-core`, `botster-core-daemon`, `botster-terminal-protocol`,
+  `botster-core-test-support`, `botster-terminal-ghostty`
+- `crates/botster-hub-test-support/Cargo.toml`: `botster-core`, `botster-terminal-protocol`,
+  `botster-terminal-ghostty`
+- `crates/botster-hub-client/Cargo.toml`: `botster-terminal-protocol`
+
+Procedure:
+
+1. Push the candidate Core branch and record its SHA.
+2. Use a clean, colon-free `botster-hub` proof checkout. Record the Hub SHA and confirm
+   `git status` is clean before the pin edit.
+3. Replace all nine `rev = "7eafa470..."` values with the candidate Core SHA.
+4. Refresh `Cargo.lock` without `--locked`, then assert the lock contains no remaining
+   `7eafa470` source line and that every `botster-core*`, `botster-terminal-protocol*`, and
+   `botster-terminal-ghostty` source line names the candidate SHA.
+5. Run the reproduction with the default target layout and `CARGO_TARGET_DIR` unset:
 
 ```bash
 RUSTUP_TOOLCHAIN=1.97.0 ./test.sh --locked -p botster-hub --test hub_daemon_lifecycle_test \
   unix_adapter_unbound_scoped_drain_delivers_terminal_output -- --exact --nocapture
 ```
 
-Run this in a `botster-hub` checkout pinned to this Core branch. Record the Hub SHA, the Core
-SHA, and the observed PTY echo. Per the Hub gate rule, use a colon-free worktree and do not set
-`CARGO_TARGET_DIR` for the Hub `./test.sh --locked` run.
+6. Record: Hub SHA, candidate Core SHA, the nine edited pins, the lock source lines, the clean
+   pre-edit state, the exact command, the selected-test count (must be 1, per
+   [[exact Rust test ablations require a one test baseline]]), and the observed PTY echo.
+7. The pin edit is proof-only. Do not merge it to Hub. Advancing the Hub pin is separate
+   follow-up work owned by the `botster-hub` target.
 
 ## Vault gaps worth capturing
 
 1. "A targeted wake pump must complete every Core-owned stage, not only intake" — the general
-   rule behind this defect: a stage split across `pump_woken` and `drain` leaves the wake-driven
-   host path incomplete.
-2. "Route-targeted and global stage entry points must share one route filter" — prevents drift
-   between `intake_woken`, `pump_woken`, and the new apply.
-3. Whether `enqueue_input_result` should arm its own route wake, instead of each caller
-   notifying the session. Capture the decision after the Implement step measures it.
+   rule behind this defect.
+2. "Adapter-route wakes and session-ingress wakes select different work" — client input follows
+   routes; runtime output follows sessions. Revision 1 of this plan conflated them.
+3. "A retained runtime input must return to its queue with the failed item first" — the
+   `flush_runtime_inputs_for_session` loss defect.
+4. "Downstream locked proof requires an explicit candidate-pin procedure" — a git-pinned
+   consumer proves nothing under `--locked` until every manifest pin names the candidate.
