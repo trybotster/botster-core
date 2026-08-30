@@ -27,7 +27,8 @@ pub struct TerminalCompatibility {
 impl TerminalCompatibility {
     /// Advertised support for the current producer.
     ///
-    /// Includes the default required tokens plus optional
+    /// Includes the default required tokens, advertised
+    /// `transport=duplex_binary`, and optional
     /// `snapshot_delivery=ready_then_history`.
     #[must_use]
     pub fn current() -> Self {
@@ -67,9 +68,11 @@ pub struct TerminalCompatibilityRequirement {
 impl TerminalCompatibilityRequirement {
     /// Default requirement for ordinary terminal operations.
     ///
-    /// Requires `terminal_streaming`, `resize`, and
-    /// `transport=duplex_binary`. Additive snapshot delivery does not raise
-    /// this floor.
+    /// Requires `terminal_streaming` and `resize`. It does not require
+    /// `transport=duplex_binary` until the Hub WebRTC, Hub Unix, Web, and TUI
+    /// cutovers land. Use [`Self::for_duplex_binary_transport`] after a
+    /// consumer completes that cutover. Additive snapshot delivery does not
+    /// raise this floor.
     #[must_use]
     pub fn current() -> Self {
         Self {
@@ -85,6 +88,9 @@ impl TerminalCompatibilityRequirement {
     }
 
     /// Requirement for READY-then-history snapshot attach.
+    ///
+    /// Derives from [`Self::current`], so it also omits
+    /// `transport=duplex_binary` during the migration window.
     #[must_use]
     pub fn for_ready_then_history_attach() -> Self {
         let mut requirement = Self::current();
@@ -92,6 +98,19 @@ impl TerminalCompatibilityRequirement {
             .required_features
             .push(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY.to_string());
         requirement.minimum_conformance_fixture_revision = CONFORMANCE_FIXTURE_REVISION;
+        requirement
+    }
+
+    /// Requirement for consumers that have completed the duplex binary cutover.
+    ///
+    /// Returns [`Self::current`] plus `transport=duplex_binary`. The
+    /// conformance floor stays at [`DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION`].
+    #[must_use]
+    pub fn for_duplex_binary_transport() -> Self {
+        let mut requirement = Self::current();
+        requirement
+            .required_features
+            .push(FEATURE_TRANSPORT_DUPLEX_BINARY.to_string());
         requirement
     }
 }
@@ -201,14 +220,11 @@ fn compatibility_error(
 
 fn current_feature_list() -> Vec<&'static str> {
     let mut features = default_required_feature_list();
+    features.push(FEATURE_TRANSPORT_DUPLEX_BINARY);
     features.push(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY);
     features
 }
 
 fn default_required_feature_list() -> Vec<&'static str> {
-    vec![
-        FEATURE_TERMINAL_STREAMING,
-        FEATURE_RESIZE,
-        FEATURE_TRANSPORT_DUPLEX_BINARY,
-    ]
+    vec![FEATURE_TERMINAL_STREAMING, FEATURE_RESIZE]
 }

@@ -2,8 +2,9 @@
 
 use botster_terminal_protocol::{
     ensure_compatible, TerminalCapabilitySet, TerminalCapabilitySetError, TerminalCompatibility,
-    TerminalCompatibilityRequirement, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
+    TerminalCompatibilityRequirement, CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE,
+    FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING,
+    FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
 };
 
 fn baseline_descriptor() -> TerminalCompatibility {
@@ -36,18 +37,37 @@ fn advertised_support_includes_optional_ready_then_history() {
     assert!(advertised.supports_feature(FEATURE_RESIZE));
     assert!(advertised.supports_feature(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY));
     assert!(advertised.supports_feature(FEATURE_TRANSPORT_DUPLEX_BINARY));
-    ensure_compatible(&TerminalCompatibilityRequirement::current(), &advertised)
-        .expect("current advertised must satisfy default");
+    let requirement = TerminalCompatibilityRequirement::current();
+    assert!(!requirement
+        .required_features
+        .iter()
+        .any(|feature| feature == FEATURE_TRANSPORT_DUPLEX_BINARY));
+    ensure_compatible(&requirement, &advertised).expect("current advertised must satisfy default");
 }
 
 #[test]
-fn default_requirement_rejects_descriptor_without_duplex_binary() {
+fn default_requirement_accepts_descriptor_without_duplex_binary() {
+    let requirement = TerminalCompatibilityRequirement::current();
+    assert!(!requirement
+        .required_features
+        .iter()
+        .any(|feature| feature == FEATURE_TRANSPORT_DUPLEX_BINARY));
+    let mut missing_duplex = baseline_descriptor();
+    missing_duplex
+        .features
+        .retain(|feature| feature != FEATURE_TRANSPORT_DUPLEX_BINARY);
+    ensure_compatible(&requirement, &missing_duplex)
+        .expect("default requirement must accept a peer without duplex");
+}
+
+#[test]
+fn explicit_duplex_requirement_rejects_descriptor_without_duplex_binary() {
     let mut missing_duplex = baseline_descriptor();
     missing_duplex
         .features
         .retain(|feature| feature != FEATURE_TRANSPORT_DUPLEX_BINARY);
     let rejected = ensure_compatible(
-        &TerminalCompatibilityRequirement::current(),
+        &TerminalCompatibilityRequirement::for_duplex_binary_transport(),
         &missing_duplex,
     );
     let diagnostic = rejected.expect_err("duplex token is required").diagnostic;
@@ -55,6 +75,15 @@ fn default_requirement_rejects_descriptor_without_duplex_binary() {
         diagnostic.contains(FEATURE_TRANSPORT_DUPLEX_BINARY),
         "{diagnostic}"
     );
+}
+
+#[test]
+fn explicit_duplex_requirement_accepts_advertised_support() {
+    ensure_compatible(
+        &TerminalCompatibilityRequirement::for_duplex_binary_transport(),
+        &TerminalCompatibility::current(),
+    )
+    .expect("advertised support must satisfy the explicit duplex requirement");
 }
 
 #[test]
@@ -76,6 +105,25 @@ fn ready_then_history_requirement_rejects_baseline_and_accepts_advertised() {
     );
     ensure_compatible(&requirement, &TerminalCompatibility::current())
         .expect("advertised support must satisfy the operation-specific requirement");
+}
+
+#[test]
+fn ready_then_history_requirement_accepts_descriptor_without_duplex_binary() {
+    let descriptor = TerminalCompatibility {
+        protocol: PROTOCOL.to_string(),
+        protocol_version: PROTOCOL_VERSION,
+        features: vec![
+            FEATURE_TERMINAL_STREAMING.to_string(),
+            FEATURE_RESIZE.to_string(),
+            FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY.to_string(),
+        ],
+        conformance_fixture_revision: CONFORMANCE_FIXTURE_REVISION,
+    };
+    ensure_compatible(
+        &TerminalCompatibilityRequirement::for_ready_then_history_attach(),
+        &descriptor,
+    )
+    .expect("ready-then-history requirement must accept a peer without duplex");
 }
 
 #[test]
