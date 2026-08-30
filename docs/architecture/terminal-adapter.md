@@ -15,6 +15,13 @@ state only after the existing rejection ladder. The host waits on
 `CoreDaemon::pump_woken`. The poll-path bind remains for one migration
 window. Hub Unix and WebRTC adapters are later Hub tickets.
 
+`pump_woken` returns a content-free outcome. Core commits lifecycle observations
+and retains unconsumed drain content before the method returns. A host does not
+inspect or retain terminal bodies from this outcome. Routing `ProcessExited`
+does not retire the session ingress wake. `CoreDaemon` retires that wake only
+after the lifecycle registry, lifecycle journal, and required final terminal
+state all commit. Shutdown acceptance does not retire the wake.
+
 ## Adapter vs `TransportEgress`
 
 `contract::transport::{TransportIngress, TransportEgress}` remain the current

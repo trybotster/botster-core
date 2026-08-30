@@ -1233,13 +1233,10 @@ where
                 SessionRuntimeOutput::ProcessExited {
                     session_id,
                     payload,
-                } => {
-                    self.wake_source.forget_session(&session_id);
-                    crate::SessionWorkerRuntimeEvent::ProcessExited {
-                        session_id,
-                        payload,
-                    }
-                }
+                } => crate::SessionWorkerRuntimeEvent::ProcessExited {
+                    session_id,
+                    payload,
+                },
                 SessionRuntimeOutput::TitleChanged { session_id, title } => {
                     crate::SessionWorkerRuntimeEvent::TitleChanged { session_id, title }
                 }
@@ -1329,12 +1326,19 @@ where
                 Err(error) => return Err(error),
             }
         }
-        self.route_pending_runtime_events(&mut outcome)?;
+        for session_id in &sessions {
+            self.route_pending_runtime_events_for(session_id, &mut outcome)?;
+        }
         let mut teardowns = self
             .client_worker
             .ingest_bound_terminal_frames(&mut outcome.client_egress);
         teardowns.extend(self.client_worker.pump_woken(batch));
-        teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
+        let (owned_teardowns, foreign_teardowns) =
+            std::mem::take(&mut self.pending_input_teardowns)
+                .into_iter()
+                .partition(|teardown| sessions.contains(&teardown.session_id));
+        self.pending_input_teardowns = foreign_teardowns;
+        teardowns.splice(0..0, owned_teardowns);
         self.unsubscribe_owner_teardowns(&mut outcome, &mut teardowns)?;
         Ok(outcome)
     }
@@ -1629,6 +1633,22 @@ where
                 let step = self.engine.handle_runtime_event(event)?;
                 append_outcome(outcome, step);
             }
+        }
+        Ok(())
+    }
+
+    fn route_pending_runtime_events_for(
+        &mut self,
+        session_id: &SessionId,
+        outcome: &mut MultiplexerEngineOutcome,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let events = self
+            .engine_worker(session_id)
+            .map(SessionRuntimeWorkerAdapter::drain_pending_runtime_events)
+            .unwrap_or_default();
+        for event in events {
+            let step = self.engine.handle_runtime_event(event)?;
+            append_outcome(outcome, step);
         }
         Ok(())
     }

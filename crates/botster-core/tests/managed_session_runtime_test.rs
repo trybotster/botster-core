@@ -1828,7 +1828,7 @@ fn failed_shutdown_does_not_retire_session_wake() {
 }
 
 #[test]
-fn successful_shutdown_keeps_wake_until_process_exit() {
+fn process_exit_keeps_wake_until_the_commit_owner_retires_it() {
     let mut runtime = managed_runtime();
     subscribe(&mut runtime);
     let source = runtime.wake_source().clone();
@@ -1862,7 +1862,9 @@ fn successful_shutdown_keeps_wake_until_process_exit() {
         .expect("route ProcessExited");
     handle.notify();
     source.notify_session(&session_id());
-    assert_eq!(source.occupancy(), 0);
+    assert_eq!(source.occupancy(), 1);
+    assert_eq!(source.session_registry_len(), 1);
+    source.forget_session(&session_id());
     assert_eq!(source.session_registry_len(), 0);
 }
 
