@@ -146,9 +146,9 @@ repeated pump cycle. No sleep, wait, or `block_on` enters the pump.
 | Session-ingress wake | carries no client input | Stage B never runs for this class | not applicable |
 
 `production_path_proof`: `TerminalWakeSource::wait_wakes` -> host loop ->
-`CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` (Stage A `intake_woken`) ->
-`DaemonEngine::apply_woken_terminal_input` -> route-scoped Stage B under the three-state probe, one command at a time ->
-`MultiplexerEngine::handle_client_ingress` or `submit_mode_gated_pty_input` ->
+`CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` -> facade `pump_woken` Phase 1
+(`intake_woken` plus runtime-output drain) -> Phase 2a gated completion -> Phase 2b route-scoped
+Stage B under the three-state probe, one command at a time ->
 `flush_runtime_inputs_for_session` -> PTY write, then Phase 3, the single adapter egress pump,
 which carries every result queued in Phase 2 on the same tick. Proof drives
 `CoreDaemon::pump_woken` itself, never a direct `apply_terminal_input` call and never a
