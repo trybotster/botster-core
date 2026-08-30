@@ -3,6 +3,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 #[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Command;
@@ -154,6 +156,31 @@ fn pump_commit_visible_without_second_call() {
         1,
         "one exit must append one Exited journal entry"
     );
+    let _ = daemon
+        .drain(&session_id, 21)
+        .expect("later drain must not replay lifecycle history");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("exact lookup after later drain"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+    ));
+    let after_drain = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("journal page after later drain");
+    assert_eq!(
+        after_drain
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -201,6 +228,106 @@ fn pump_woken_ignore_payload_hub_shape() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[test]
+fn mixed_session_batch_retains_output_per_session() {
+    let data_dir = temp_data_dir("mixed-pump-retention");
+    let session_a = SessionId("mixed-pump-a".to_string());
+    let session_b = SessionId("mixed-pump-b".to_string());
+    let client_a = ClientId("mixed-client-a".to_string());
+    let client_b = ClientId("mixed-client-b".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    for (session_id, marker) in [(&session_a, "MIXED-A"), (&session_b, "MIXED-B")] {
+        let mut request = delayed_output_exit_spawn_request(session_id);
+        request.request.arguments[1] = format!("sleep 0.1; printf {marker}; exit 0");
+        daemon.spawn(request, 10).expect("spawn mixed session");
+    }
+    daemon
+        .attach(
+            client_a.clone(),
+            session_a.clone(),
+            SubscriptionId("mixed-sub-a".to_string()),
+            11,
+        )
+        .expect("attach session A");
+    daemon
+        .attach(
+            client_b.clone(),
+            session_b.clone(),
+            SubscriptionId("mixed-sub-b".to_string()),
+            12,
+        )
+        .expect("attach session B");
+
+    thread::sleep(Duration::from_millis(200));
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert!(batch.ingress_sessions.contains(&session_a));
+    assert!(batch.ingress_sessions.contains(&session_b));
+    let _ = daemon.pump_woken(&batch, 20).expect("pump mixed batch");
+
+    let first_a = daemon.drain(&session_a, 21).expect("drain session A");
+    let first_b = daemon.drain(&session_b, 22).expect("drain session B");
+    let text_a = terminal_output(&first_a.client_egress);
+    let text_b = terminal_output(&first_b.client_egress);
+    assert!(text_a.contains("MIXED-A"));
+    assert!(!text_a.contains("MIXED-B"));
+    assert!(text_b.contains("MIXED-B"));
+    assert!(!text_b.contains("MIXED-A"));
+    assert_no_duplicate_exit_output(
+        &daemon.drain(&session_a, 23).expect("second drain A"),
+        "MIXED-A",
+    );
+    assert_no_duplicate_exit_output(
+        &daemon.drain(&session_b, 24).expect("second drain B"),
+        "MIXED-B",
+    );
+
+    let _ = daemon.remove_session(&session_a);
+    let _ = daemon.remove_session(&session_b);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn pump_failure_retains_failing_session_output_once() {
+    let data_dir = temp_data_dir("pump-failure-retention");
+    let session_id = SessionId("pump-failure-retention".to_string());
+    let client_id = ClientId("pump-failure-retention-client".to_string());
+    let failure_text = "test-injected pump retention failure";
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_test_fail_runtime_drain_for(Some(session_id.clone()))
+            .with_test_fail_runtime_drain_message(Some(failure_text.to_string())),
+    );
+    daemon
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .expect("spawn output session");
+    daemon
+        .attach(
+            client_id,
+            session_id.clone(),
+            SubscriptionId("pump-failure-retention-sub".to_string()),
+            11,
+        )
+        .expect("attach output session");
+
+    thread::sleep(Duration::from_millis(300));
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    let error = daemon
+        .pump_woken(&batch, 20)
+        .expect_err("inject pump failure");
+    assert!(error.to_string().contains(failure_text));
+
+    let first = daemon
+        .drain(&session_id, 21)
+        .expect("drain retained output");
+    assert_retained_exit_output(&first, &session_id, "PUMP-RETAINED");
+    let second = daemon
+        .drain(&session_id, 22)
+        .expect("second retained drain");
+    assert_no_duplicate_exit_output(&second, "PUMP-RETAINED");
+    let _ = daemon.remove_session(&session_id);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn final_state_retention_failure_rearms_and_later_commit_retires_the_wake() {
@@ -214,6 +341,7 @@ fn final_state_retention_failure_rearms_and_later_commit_retires_the_wake() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("spawn short-lived worker");
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let injected = loop {
@@ -252,6 +380,22 @@ fn final_state_retention_failure_rearms_and_later_commit_retires_the_wake() {
         SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
     ));
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("final-retention journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -265,8 +409,16 @@ fn local_final_state_failure_rearms_and_later_commit_retires_the_wake() {
             .with_test_fail_retain_final_terminal_state_for(Some(session_id.clone())),
     );
     daemon
-        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
         .expect("spawn short-lived local process");
+    daemon
+        .attach(
+            ClientId("local-pump-final-retention-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("local-pump-final-retention-sub".to_string()),
+            11,
+        )
+        .expect("attach local final-retention session");
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -302,6 +454,307 @@ fn local_final_state_failure_rearms_and_later_commit_retires_the_wake() {
         SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
     ));
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let retained = daemon
+        .drain(&session_id, 22)
+        .expect("retained local final output");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 23)
+            .expect("second local final drain"),
+        "PUMP-RETAINED",
+    );
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
+    let data_dir = temp_data_dir("pump-persistence-retry");
+    let sessions_dir = data_dir.join("sessions");
+    let session_id = SessionId("pump-persistence-retry".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .expect("spawn output process");
+    daemon
+        .attach(
+            ClientId("pump-persistence-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("pump-persistence-sub".to_string()),
+            11,
+        )
+        .expect("attach persistence session");
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
+
+    let original_mode = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions()
+        .mode();
+    let mut read_only = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    read_only.set_mode(0o500);
+    fs::set_permissions(&sessions_dir, read_only).expect("make sessions directory read-only");
+    let probe = fs::write(sessions_dir.join("write-probe"), b"probe");
+    if probe.is_ok() {
+        let mut restored = fs::metadata(&sessions_dir)
+            .expect("sessions directory metadata")
+            .permissions();
+        restored.set_mode(original_mode);
+        fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+        panic!("read-only sessions directory accepted a probe write");
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let failure = loop {
+        assert!(
+            Instant::now() < deadline,
+            "registry persistence did not fail"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if !batch.ingress_sessions.contains(&session_id) {
+            continue;
+        }
+        if let Err(error) = daemon.pump_woken(&batch, 20) {
+            break error;
+        }
+    };
+    let mut restored = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    restored.set_mode(original_mode);
+    fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+
+    assert!(failure.to_string().contains("Permission denied"));
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    let retry = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(retry.ingress_sessions, vec![session_id.clone()]);
+    let _ = daemon
+        .pump_woken(&retry, 21)
+        .expect("retry persistence commit");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("persistence retry exact lookup"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+    ));
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("persistence retry journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
+    let retained = daemon
+        .drain(&session_id, 22)
+        .expect("retained persistence output");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 23)
+            .expect("second persistence drain"),
+        "PUMP-RETAINED",
+    );
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pump_persist_resize_error_retains_once() {
+    let data_dir = temp_data_dir("pump-resize-persistence");
+    let sessions_dir = data_dir.join("sessions");
+    let session_id = SessionId("pump-resize-persistence".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_applied_attach_resize(Some((
+            session_id.clone(),
+            40,
+            120,
+            12,
+        ))),
+    );
+    daemon
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .expect("spawn resize process");
+    daemon
+        .attach(
+            ClientId("pump-resize-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("pump-resize-sub".to_string()),
+            11,
+        )
+        .expect("attach resize session");
+
+    let original_mode = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions()
+        .mode();
+    let mut read_only = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    read_only.set_mode(0o500);
+    fs::set_permissions(&sessions_dir, read_only).expect("make sessions directory read-only");
+    let probe = fs::write(sessions_dir.join("write-probe"), b"probe");
+    if probe.is_ok() {
+        let mut restored = fs::metadata(&sessions_dir)
+            .expect("sessions directory metadata")
+            .permissions();
+        restored.set_mode(original_mode);
+        fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+        panic!("read-only sessions directory accepted a probe write");
+    }
+    thread::sleep(Duration::from_millis(300));
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(batch.ingress_sessions, vec![session_id.clone()]);
+    let failure = daemon
+        .pump_woken(&batch, 20)
+        .expect_err("resize persistence must fail");
+    let mut restored = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    restored.set_mode(original_mode);
+    fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+
+    assert!(failure.to_string().contains("Permission denied"));
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resize record")
+        .expect("resize registry row");
+    assert_eq!((record.rows, record.cols), (24, 80));
+    let retained = daemon
+        .drain(&session_id, 30)
+        .expect("drain retained resize output");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 31)
+            .expect("second retained resize drain"),
+        "PUMP-RETAINED",
+    );
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn shutdown_watchdog_timeout_retains_once() {
+    let data_dir = temp_data_dir("shutdown-watchdog-retention");
+    let session_id = SessionId("shutdown-watchdog-retention".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_test_force_shutdown_watchdog_for(Some(session_id.clone())),
+    );
+    daemon
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .expect("spawn watchdog process");
+    daemon
+        .attach(
+            ClientId("shutdown-watchdog-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("shutdown-watchdog-sub".to_string()),
+            11,
+        )
+        .expect("attach watchdog session");
+    thread::sleep(Duration::from_millis(300));
+
+    let error = daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect_err("inject daemon shutdown watchdog");
+    assert!(matches!(
+        error,
+        CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Runtime(
+            botster_core::SessionRuntimeError {
+                kind: botster_core::SessionRuntimeErrorKind::ShutdownFailed,
+                ref message,
+            }
+        )) if message.contains("test-injected daemon shutdown watchdog timeout")
+    ));
+    let retained = daemon
+        .drain(&session_id, 21)
+        .expect("drain watchdog output");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 22)
+            .expect("second watchdog drain"),
+        "PUMP-RETAINED",
+    );
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn shutdown_daemon_error_after_engine_output_retains_once() {
+    let data_dir = temp_data_dir("shutdown-registry-error-retention");
+    let sessions_dir = data_dir.join("sessions");
+    let session_id = SessionId("shutdown-registry-error-retention".to_string());
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .expect("spawn shutdown registry process");
+    daemon
+        .attach(
+            ClientId("shutdown-registry-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("shutdown-registry-sub".to_string()),
+            11,
+        )
+        .expect("attach shutdown registry session");
+    thread::sleep(Duration::from_millis(300));
+
+    let original_mode = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions()
+        .mode();
+    let mut read_only = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    read_only.set_mode(0o500);
+    fs::set_permissions(&sessions_dir, read_only).expect("make sessions directory read-only");
+    let probe = fs::write(sessions_dir.join("write-probe"), b"probe");
+    if probe.is_ok() {
+        let mut restored = fs::metadata(&sessions_dir)
+            .expect("sessions directory metadata")
+            .permissions();
+        restored.set_mode(original_mode);
+        fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+        panic!("read-only sessions directory accepted a probe write");
+    }
+
+    let error = daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect_err("shutdown registry save must fail");
+    let mut restored = fs::metadata(&sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    restored.set_mode(original_mode);
+    fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
+    assert!(error.to_string().contains("Permission denied"));
+
+    let retained = daemon
+        .drain(&session_id, 21)
+        .expect("drain retained shutdown output");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 22)
+            .expect("second shutdown registry drain"),
+        "PUMP-RETAINED",
+    );
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -316,6 +769,7 @@ fn direct_drain_exit_commits_and_retires_once() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("spawn short-lived worker");
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -336,6 +790,56 @@ fn direct_drain_exit_commits_and_retires_once() {
     }
 
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("direct drain journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn direct_drain_failure_preserves_obligation_and_wake() {
+    let data_dir = temp_data_dir("direct-drain-failure");
+    let session_id = SessionId("direct-drain-failure".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_test_fail_retain_final_terminal_state_for(Some(session_id.clone())),
+    );
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("spawn direct failure process");
+    thread::sleep(Duration::from_millis(50));
+
+    let error = daemon
+        .drain(&session_id, 20)
+        .expect_err("direct drain final-state failure");
+    assert!(error
+        .to_string()
+        .contains("test-injected final terminal state retention failure"));
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    daemon
+        .drain(&session_id, 21)
+        .expect("direct drain retry commit");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("direct retry exact lookup"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+    ));
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -350,6 +854,7 @@ fn observe_lifecycle_exit_commits_and_retires_once() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("spawn short-lived worker");
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -367,6 +872,22 @@ fn observe_lifecycle_exit_commits_and_retires_once() {
     }
 
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("observe journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -377,10 +898,19 @@ fn readback_exit_records_obligation_and_rearms() {
     let session_id = SessionId("readback-exit-obligation".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     daemon
-        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
         .expect("spawn short-lived local process");
+    daemon
+        .attach(
+            ClientId("readback-exit-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("readback-exit-sub".to_string()),
+            11,
+        )
+        .expect("attach readback session");
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
 
-    thread::sleep(Duration::from_millis(50));
+    thread::sleep(Duration::from_millis(300));
     daemon
         .read_screen(ReadScreenRequest {
             request_id: RequestId("readback-exit-screen".to_string()),
@@ -402,6 +932,32 @@ fn readback_exit_records_obligation_and_rearms() {
         SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
     ));
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("readback journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
+    );
+    let retained = daemon
+        .drain(&session_id, 22)
+        .expect("readback retained drain");
+    assert_retained_exit_output(&retained, &session_id, "PUMP-RETAINED");
+    assert_no_duplicate_exit_output(
+        &daemon
+            .drain(&session_id, 23)
+            .expect("second readback drain"),
+        "PUMP-RETAINED",
+    );
     assert!(daemon.remove_session(&session_id).expect("remove exited"));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -478,6 +1034,124 @@ fn repeated_failure_stops_rearming_at_the_bound() {
     daemon
         .remove_session(&session_id)
         .expect("remove failed session");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn reused_session_id_starts_with_a_clean_failure_counter() {
+    let data_dir = temp_data_dir("reused-pump-failure-counter");
+    let session_id = SessionId("reused-pump-failure-counter".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_fail_runtime_drain_for(Some(session_id.clone())),
+    );
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("spawn first session");
+    for attempt in 1..=3 {
+        let batch = daemon.wait_wakes(Duration::from_secs(1));
+        assert!(batch.ingress_sessions.contains(&session_id));
+        daemon
+            .pump_woken(&batch, 20 + attempt)
+            .expect_err("reach the first session failure bound");
+    }
+    assert!(daemon
+        .wait_wakes(Duration::from_millis(50))
+        .ingress_sessions
+        .is_empty());
+    let mut record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load first session")
+        .expect("first registry row");
+    record.mark(RegistrySessionState::Stale, 29);
+    daemon
+        .registry()
+        .save(&record)
+        .expect("mark first session stale");
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("remove first session"));
+
+    let mut reused_request = spawn_request(&session_id);
+    reused_request.request.arguments[1] = "sleep 30".to_string();
+    daemon
+        .spawn(reused_request, 30)
+        .expect("spawn reused session id");
+    daemon.wake_source().notify_session(&session_id);
+    let first = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&first, 31)
+        .expect_err("first reused-session failure");
+    let rearmed = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(rearmed.ingress_sessions, vec![session_id.clone()]);
+
+    daemon
+        .remove_session(&session_id)
+        .expect("remove reused session");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn genuine_adapter_wake_after_the_bound_applies_teardown() {
+    let data_dir = temp_data_dir("genuine-wake-after-bound");
+    let session_id = SessionId("genuine-wake-after-bound".to_string());
+    let client_id = ClientId("genuine-wake-client".to_string());
+    let subscription_id = SubscriptionId("genuine-wake-sub".to_string());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_fail_runtime_drain_for(Some(session_id.clone())),
+    );
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "sleep 30".to_string();
+    daemon.spawn(request, 10).expect("spawn live session");
+    daemon.wake_source().notify_session(&session_id);
+    for attempt in 1..=3 {
+        let batch = daemon.wait_wakes(Duration::from_secs(1));
+        daemon
+            .pump_woken(&batch, 20 + attempt)
+            .expect_err("reach the re-arm bound");
+    }
+    assert!(daemon
+        .wait_wakes(Duration::from_millis(50))
+        .ingress_sessions
+        .is_empty());
+
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            30,
+        )
+        .expect("attach after bound");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("live generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+    adapter.close_transport();
+
+    let genuine = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(genuine.adapter_routes.len(), 1);
+    assert_eq!(genuine.adapter_routes[0].session_id, session_id);
+    daemon
+        .pump_woken(&genuine, 31)
+        .expect_err("configured failure follows adapter teardown");
+    assert!(daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .is_none());
+
+    daemon
+        .remove_session(&session_id)
+        .expect("remove live session");
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -5933,6 +6607,7 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("W1 session should spawn");
+    let after_spawn = daemon.lifecycle_baseline().expect("W1 baseline").cursor;
     let (worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
     wait_for_condition("W1 session process exit with worker still alive", || {
         !process_exists(pty_child_pid) && process_exists(worker_pid)
@@ -5975,6 +6650,23 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
     assert_eq!(
         daemon.list().expect("list W1 session")[0].registry_state,
         RegistrySessionState::Exited
+    );
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let changes = daemon
+        .lifecycle_changes_page(&after_spawn, 16, 64 * 1024)
+        .expect("W1 journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            ))
+            .count(),
+        1
     );
     wait_for_condition("W1 bounded reaper", || !process_exists(worker_pid));
 

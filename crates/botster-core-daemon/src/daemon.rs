@@ -123,6 +123,10 @@ pub struct CoreDaemonConfig {
     pub test_fail_runtime_drain_message: Option<String>,
     /// Test-only: fail final terminal-state retention for this session.
     pub test_fail_retain_final_terminal_state_for: Option<SessionId>,
+    /// Test-only: return one applied attach resize for this session.
+    pub test_applied_attach_resize: Option<(SessionId, u16, u16, u64)>,
+    /// Test-only: force the daemon shutdown watchdog for this session.
+    pub test_force_shutdown_watchdog_for: Option<SessionId>,
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
@@ -155,6 +159,8 @@ impl CoreDaemonConfig {
             test_fail_runtime_drain_for: None,
             test_fail_runtime_drain_message: None,
             test_fail_retain_final_terminal_state_for: None,
+            test_applied_attach_resize: None,
+            test_force_shutdown_watchdog_for: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
         }
@@ -251,6 +257,23 @@ impl CoreDaemonConfig {
         session_id: Option<SessionId>,
     ) -> Self {
         self.test_fail_retain_final_terminal_state_for = session_id;
+        self
+    }
+
+    /// Return one test-only applied attach resize for this session.
+    #[must_use]
+    pub fn with_test_applied_attach_resize(
+        mut self,
+        resize: Option<(SessionId, u16, u16, u64)>,
+    ) -> Self {
+        self.test_applied_attach_resize = resize;
+        self
+    }
+
+    /// Force the test-only daemon shutdown watchdog for this session.
+    #[must_use]
+    pub fn with_test_force_shutdown_watchdog_for(mut self, session_id: Option<SessionId>) -> Self {
+        self.test_force_shutdown_watchdog_for = session_id;
         self
     }
 
@@ -1110,9 +1133,7 @@ impl CoreDaemon {
                 }
             };
             let result = drain_result_from_engine_output(output);
-            debug_assert!(result.client_egress.iter().all(|(_, frame)| {
-                egress_session_id(frame).is_none_or(|owner| owner == &session_id)
-            }));
+            debug_assert_drain_owner(&result, &session_id);
 
             if self
                 .config
@@ -1138,9 +1159,25 @@ impl CoreDaemon {
                 continue;
             }
 
-            if let Some((rows, cols, resize_at)) =
-                self.engine.take_applied_attach_resize(&session_id)
-            {
+            let applied_attach_resize = self
+                .engine
+                .take_applied_attach_resize(&session_id)
+                .or_else(|| {
+                    if self
+                        .config
+                        .test_applied_attach_resize
+                        .as_ref()
+                        .is_some_and(|(candidate, _, _, _)| candidate == &session_id)
+                    {
+                        self.config
+                            .test_applied_attach_resize
+                            .take()
+                            .map(|(_, rows, cols, resize_at)| (rows, cols, resize_at))
+                    } else {
+                        None
+                    }
+                });
+            if let Some((rows, cols, resize_at)) = applied_attach_resize {
                 if let Err(error) = self.persist_session_size(&session_id, rows, cols, resize_at) {
                     self.record_terminal_obligations(&result.observations);
                     self.record_terminal_commit_failure(&session_id, None);
@@ -1917,6 +1954,23 @@ impl CoreDaemon {
         let shutdown_observations = shutdown_drain.observations.clone();
         self.retain_pending_drain_result(&session_id, shutdown_drain);
         self.commit_terminal_lifecycle(&session_id, &shutdown_observations, now_seconds)?;
+        if self
+            .config
+            .test_force_shutdown_watchdog_for
+            .as_ref()
+            .is_some_and(|candidate| candidate == &session_id)
+        {
+            self.config.test_force_shutdown_watchdog_for = None;
+            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::ShutdownFailed,
+                    format!(
+                        "test-injected daemon shutdown watchdog timeout: {}",
+                        session_id.0
+                    ),
+                ),
+            )));
+        }
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
@@ -3108,6 +3162,13 @@ fn egress_session_id(frame: &TransportEgress) -> Option<&SessionId> {
     egress_route(frame).map(|(session_id, _)| session_id)
 }
 
+fn debug_assert_drain_owner(result: &DrainResult, session_id: &SessionId) {
+    debug_assert!(result
+        .client_egress
+        .iter()
+        .all(|(_, frame)| egress_session_id(frame).is_none_or(|owner| owner == session_id)));
+}
+
 fn egress_route(frame: &TransportEgress) -> Option<(&SessionId, &SubscriptionId)> {
     match frame {
         TransportEgress::TerminalOutput {
@@ -3776,6 +3837,66 @@ mod terminal_backend_failure_tests {
     };
 
     use super::*;
+
+    #[test]
+    #[should_panic]
+    fn pump_retention_rejects_foreign_route() {
+        let owner = SessionId("owner".to_string());
+        let foreign = SessionId("foreign".to_string());
+        let mut result = DrainResult::default();
+        result.client_egress.push((
+            ClientId("foreign-client".to_string()),
+            TransportEgress::ProcessExit {
+                session_id: foreign,
+                subscription_id: SubscriptionId("foreign-sub".to_string()),
+                code: Some(0),
+            },
+        ));
+
+        debug_assert_drain_owner(&result, &owner);
+    }
+
+    #[test]
+    fn terminal_obligation_does_not_regress_an_exited_row() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-core-daemon-monotonic-obligation-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let session_id = SessionId("monotonic-obligation".to_string());
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let mut record = RegistryRecord::running(
+            session_id.clone(),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "test".to_string(),
+            10,
+        );
+        record.mark(RegistrySessionState::Exited, 11);
+        daemon.registry.save(&record).expect("save exited row");
+        daemon
+            .terminal_commit_obligations
+            .insert(session_id.clone(), SessionLifecycleState::Stopping);
+
+        daemon
+            .commit_terminal_lifecycle(&session_id, &[], 12)
+            .expect("drop stale stopping obligation");
+
+        assert_eq!(
+            daemon
+                .registry
+                .load(&session_id)
+                .expect("load exited row")
+                .expect("exited row")
+                .state,
+            RegistrySessionState::Exited
+        );
+        assert!(!daemon.terminal_commit_obligations.contains_key(&session_id));
+        assert!(daemon.lifecycle_journal.is_empty());
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
 
     struct ControlledGhosttyTerminal {
         inner: GhosttyTerminal,
