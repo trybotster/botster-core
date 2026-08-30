@@ -13,7 +13,7 @@ use botster_core::{
     SessionRuntimeInput, SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory,
     SubscriptionId, TerminalAttachState, TerminalBackendError, TerminalColorProfile,
     TerminalOutputChunk, TerminalScreenRuntime, TerminalScreenSize, TerminalScreenState,
-    TerminalSnapshotPayload, TransportEgress, TransportIngress,
+    TerminalSnapshotPayload, TerminalWakeBatch, TransportEgress, TransportIngress,
 };
 use botster_core_test_support::fake::{FakeSessionIoMailbox, FakeSessionRuntime};
 
@@ -524,6 +524,80 @@ fn managed_session_runtime_fair_drain_routes_pending_runtime_events_once() {
         1,
         "pending worker runtime events should be routed once per aggregate tick, not once per session"
     );
+}
+
+#[test]
+fn targeted_pump_routes_pending_runtime_events_only_for_the_named_session() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    let sessions = spawn_numbered_sessions(&mut runtime, 2);
+    let session_a = &sessions[0];
+    let session_b = &sessions[1];
+
+    runtime
+        .handle_session_request(
+            SessionIoRequest::SubscribeTerminal {
+                request_id: request_id("targeted-pending-b"),
+                session_id: session_b.0.clone(),
+                client_id: session_b.1.clone(),
+                subscription_id: session_b.2.clone(),
+                rows: 30,
+                cols: 100,
+            },
+            20,
+        )
+        .expect("queue session B boundary event");
+
+    let a_only = runtime
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![session_a.0.clone()],
+            },
+            21,
+        )
+        .expect("pump session A");
+    assert!(a_only.session_events.iter().all(|event| !matches!(
+        event,
+        SessionIoEvent::InitialSnapshotReady(snapshot)
+            if snapshot.request_id == request_id("targeted-pending-b")
+    )));
+
+    let b_only = runtime
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![session_b.0.clone()],
+            },
+            22,
+        )
+        .expect("pump session B");
+    assert_eq!(
+        b_only
+            .session_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                SessionIoEvent::InitialSnapshotReady(snapshot)
+                    if snapshot.request_id == request_id("targeted-pending-b")
+            ))
+            .count(),
+        1
+    );
+
+    let b_again = runtime
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![session_b.0.clone()],
+            },
+            23,
+        )
+        .expect("pump session B again");
+    assert!(b_again.session_events.iter().all(|event| !matches!(
+        event,
+        SessionIoEvent::InitialSnapshotReady(snapshot)
+            if snapshot.request_id == request_id("targeted-pending-b")
+    )));
 }
 
 #[test]
