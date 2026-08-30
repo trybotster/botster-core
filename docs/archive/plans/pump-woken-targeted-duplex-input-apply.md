@@ -149,11 +149,11 @@ repeated pump cycle. No sleep, wait, or `block_on` enters the pump.
 `CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` -> facade `pump_woken` Phase 1
 (`intake_woken` plus runtime-output drain) -> Phase 2a gated completion -> Phase 2b route-scoped
 Stage B under the three-state probe, one command at a time ->
+`MultiplexerEngine::handle_client_ingress` or `submit_mode_gated_pty_input` ->
 `flush_runtime_inputs_for_session` -> PTY write, then Phase 3, the single adapter egress pump,
 which carries every result queued in Phase 2 on the same tick. Proof drives
 `CoreDaemon::pump_woken` itself, never a direct `apply_terminal_input` call and never a
-ClientWorker helper call. The
-retry path is: control writer pops -> session capacity wake -> `wait_wakes` -> the same
+ClientWorker helper call. The retry path is: control writer pops -> session capacity wake -> `wait_wakes` -> the same
 `CoreDaemon::pump_woken` entry -> parked owner whose generation still matches.
 
 `ownership_identity`: Each delivery carries `client_id`, `session_id`, `subscription_id`, and
