@@ -19,8 +19,6 @@ use crate::registry::{RegistryRecord, RegistrySessionState};
 /// Outcome of a targeted `pump_woken` tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PumpWokenOutcome {
-    /// Drain result produced while pumping named routes.
-    pub drain: DrainResult,
     /// Number of adapter routes named by the wake batch.
     pub pumped_routes: usize,
 }

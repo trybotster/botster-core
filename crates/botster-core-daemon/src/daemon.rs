@@ -67,6 +67,8 @@ pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
 /// Default number of ordered lifecycle changes retained for replay.
 pub const DEFAULT_LIFECYCLE_JOURNAL_CAPACITY: usize = 1_024;
 
+const TERMINAL_COMMIT_REARM_LIMIT: u8 = 3;
+
 static NEXT_LIFECYCLE_SOURCE_ORDINAL: AtomicU64 = AtomicU64::new(1);
 static NEXT_OBSERVE_PASS_ORDINAL: AtomicU64 = AtomicU64::new(1);
 
@@ -119,6 +121,8 @@ pub struct CoreDaemonConfig {
     pub test_fail_runtime_drain_for: Option<SessionId>,
     /// Test-only: `Display` text for the injected observe drain failure.
     pub test_fail_runtime_drain_message: Option<String>,
+    /// Test-only: fail final terminal-state retention for this session.
+    pub test_fail_retain_final_terminal_state_for: Option<SessionId>,
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
@@ -150,6 +154,7 @@ impl CoreDaemonConfig {
             test_exit_code: None,
             test_fail_runtime_drain_for: None,
             test_fail_runtime_drain_message: None,
+            test_fail_retain_final_terminal_state_for: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
         }
@@ -236,6 +241,16 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_test_fail_runtime_drain_message(mut self, message: Option<String>) -> Self {
         self.test_fail_runtime_drain_message = message;
+        self
+    }
+
+    /// Fail final terminal-state retention for this session id.
+    #[must_use]
+    pub fn with_test_fail_retain_final_terminal_state_for(
+        mut self,
+        session_id: Option<SessionId>,
+    ) -> Self {
+        self.test_fail_retain_final_terminal_state_for = session_id;
         self
     }
 
@@ -378,6 +393,8 @@ pub struct CoreDaemon {
     envelope_router: RoutedEnvelopeRouter,
     pending_drain: Vec<PendingDrainResult>,
     retained_terminal: HashMap<SessionId, RetainedTerminalState>,
+    terminal_commit_obligations: HashMap<SessionId, SessionLifecycleState>,
+    terminal_commit_failures: HashMap<SessionId, u8>,
     last_mode_freshness: HashMap<SessionId, ModeFreshnessToken>,
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
@@ -504,6 +521,8 @@ impl CoreDaemon {
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            terminal_commit_obligations: HashMap::new(),
+            terminal_commit_failures: HashMap::new(),
             last_mode_freshness: HashMap::new(),
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
@@ -1044,6 +1063,9 @@ impl CoreDaemon {
     }
 
     /// Targeted pump of woken routes. Does not scan unnamed sessions.
+    ///
+    /// Core commits lifecycle observations and retains unmatched output before
+    /// this method returns. Hosts can ignore the content-free outcome.
     pub fn pump_woken(
         &mut self,
         batch: &TerminalWakeBatch,
@@ -1051,12 +1073,97 @@ impl CoreDaemon {
     ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         self.ensure_running()?;
         let pumped_routes = batch.adapter_routes.len();
-        let output = self.engine.pump_woken(batch, now_seconds)?;
-        let drain = drain_result_from_engine_output(output);
-        Ok(PumpWokenOutcome {
-            drain,
-            pumped_routes,
-        })
+        let mut session_ids: Vec<_> = batch
+            .adapter_routes
+            .iter()
+            .map(|route| route.session_id.clone())
+            .chain(batch.ingress_sessions.iter().cloned())
+            .collect();
+        session_ids.sort_by(|left, right| left.0.cmp(&right.0));
+        session_ids.dedup();
+
+        let mut first_error = None;
+        for session_id in session_ids {
+            let sub_batch = TerminalWakeBatch {
+                adapter_routes: batch
+                    .adapter_routes
+                    .iter()
+                    .filter(|route| route.session_id == session_id)
+                    .cloned()
+                    .collect(),
+                ingress_sessions: if batch
+                    .ingress_sessions
+                    .iter()
+                    .any(|candidate| candidate == &session_id)
+                {
+                    vec![session_id.clone()]
+                } else {
+                    Vec::new()
+                },
+            };
+            let output = match self.engine.pump_woken(&sub_batch, now_seconds) {
+                Ok(output) => output,
+                Err(error) => {
+                    self.record_terminal_commit_failure(&session_id, None);
+                    first_error.get_or_insert_with(|| error.into());
+                    continue;
+                }
+            };
+            let result = drain_result_from_engine_output(output);
+            debug_assert!(result.client_egress.iter().all(|(_, frame)| {
+                egress_session_id(frame).is_none_or(|owner| owner == &session_id)
+            }));
+
+            if self
+                .config
+                .test_fail_runtime_drain_for
+                .as_ref()
+                .is_some_and(|failed| failed == &session_id)
+            {
+                let error = CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::OutputFailed,
+                        self.config
+                            .test_fail_runtime_drain_message
+                            .clone()
+                            .unwrap_or_else(|| {
+                                format!("test-injected observe drain failure: {}", session_id.0)
+                            }),
+                    ),
+                ));
+                self.record_terminal_obligations(&result.observations);
+                self.record_terminal_commit_failure(&session_id, None);
+                self.retain_pending_drain_result(&session_id, result);
+                first_error.get_or_insert(error);
+                continue;
+            }
+
+            if let Some((rows, cols, resize_at)) =
+                self.engine.take_applied_attach_resize(&session_id)
+            {
+                if let Err(error) = self.persist_session_size(&session_id, rows, cols, resize_at) {
+                    self.record_terminal_obligations(&result.observations);
+                    self.record_terminal_commit_failure(&session_id, None);
+                    self.retain_pending_drain_result(&session_id, result);
+                    first_error.get_or_insert(error);
+                    continue;
+                }
+            }
+            if let Err(error) =
+                self.commit_terminal_lifecycle(&session_id, &result.observations, now_seconds)
+            {
+                self.retain_pending_drain_result(&session_id, result);
+                first_error.get_or_insert(error);
+                continue;
+            }
+            self.retain_pending_drain_result(&session_id, result);
+        }
+
+        if let Some(error) = first_error {
+            Err(error)
+        } else {
+            Ok(PumpWokenOutcome { pumped_routes })
+        }
     }
 
     /// Shared wake source for census and host wait loops.
@@ -1210,16 +1317,16 @@ impl CoreDaemon {
             }
         }
         if let Some((rows, cols, resize_at)) = self.engine.take_applied_attach_resize(session_id) {
-            self.persist_session_size(session_id, rows, cols, resize_at)?;
-        }
-        self.reconcile_lifecycle_observations(&result.observations, last_output_at)?;
-        if self.engine_session_exited(session_id)
-            && !self.retained_terminal.contains_key(session_id)
-        {
-            if let Err(error) = self.retain_final_terminal_state(session_id) {
+            if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
                 self.retain_pending_drain_result(session_id, result);
                 return Err(error);
             }
+        }
+        if let Err(error) =
+            self.commit_terminal_lifecycle(session_id, &result.observations, last_output_at)
+        {
+            self.retain_pending_drain_result(session_id, result);
+            return Err(error);
         }
         Ok(result)
     }
@@ -1758,6 +1865,8 @@ impl CoreDaemon {
             );
         }
         self.retained_terminal.remove(session_id);
+        self.terminal_commit_obligations.remove(session_id);
+        self.terminal_commit_failures.remove(session_id);
         self.observe_live_sessions.remove(&session_id.0);
         self.drop_pending_drain(session_id);
         self.append_lifecycle_change(SessionLifecycleChangeKind::Removed {
@@ -1797,7 +1906,7 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
-        let (mut shutdown_drain, shutdown_error) =
+        let (shutdown_drain, shutdown_error) =
             match self
                 .engine
                 .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds)
@@ -1805,19 +1914,16 @@ impl CoreDaemon {
                 Ok(output) => (drain_result_from_engine_output(output), None),
                 Err(error) => (DrainResult::default(), Some(error)),
             };
-        self.reconcile_lifecycle_observations(&shutdown_drain.observations, now_seconds)?;
+        let shutdown_observations = shutdown_drain.observations.clone();
+        self.retain_pending_drain_result(&session_id, shutdown_drain);
+        self.commit_terminal_lifecycle(&session_id, &shutdown_observations, now_seconds)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let batch = self.wait_wakes(remaining);
             match self.pump_woken(&batch, now_seconds) {
-                Ok(outcome) => {
-                    self.reconcile_lifecycle_observations(
-                        &outcome.drain.observations,
-                        now_seconds,
-                    )?;
-                    merge_drain_result(&mut shutdown_drain, outcome.drain);
+                Ok(_) => {
                     final_output_drained = self.engine_session_exited(&session_id);
                 }
                 Err(CoreDaemonError::Engine(error)) if is_session_not_found(&error) => {
@@ -1830,7 +1936,6 @@ impl CoreDaemon {
             }
         }
         if !final_output_drained {
-            self.retain_pending_drain_result(&session_id, shutdown_drain);
             if let Some(error) = shutdown_error {
                 return Err(error.into());
             }
@@ -1845,7 +1950,6 @@ impl CoreDaemon {
             )));
         }
 
-        self.retain_pending_drain_result(&session_id, shutdown_drain);
         self.retain_final_terminal_state(&session_id)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             if record.state != RegistrySessionState::Exited {
@@ -1898,6 +2002,131 @@ impl CoreDaemon {
             self.cleanup_worker_socket_dir_if_empty();
         }
         Ok(())
+    }
+
+    fn commit_terminal_lifecycle(
+        &mut self,
+        session_id: &SessionId,
+        observations: &[BotsterEngineObservation],
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        let obligation = self.terminal_commit_obligations.get(session_id).cloned();
+        let obligation_is_terminal = obligation.as_ref().is_some_and(|state| {
+            matches!(
+                state,
+                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
+            )
+        });
+        if let Some(state) = obligation {
+            if self.obligation_can_advance(session_id, &state)? {
+                let obligation_observation = BotsterEngineObservation::SessionLifecycle {
+                    session_id: session_id.clone(),
+                    state,
+                };
+                if let Err(error) = self.reconcile_lifecycle_observations(
+                    std::slice::from_ref(&obligation_observation),
+                    now_seconds,
+                ) {
+                    self.record_terminal_commit_failure(session_id, None);
+                    return Err(error);
+                }
+            }
+            self.terminal_commit_obligations.remove(session_id);
+        }
+
+        if let Err(error) = self.reconcile_lifecycle_observations(observations, now_seconds) {
+            self.record_terminal_obligations(observations);
+            self.record_terminal_commit_failure(session_id, None);
+            return Err(error);
+        }
+
+        let mut touched = vec![session_id.clone()];
+        touched.extend(observations.iter().filter_map(|observation| {
+            let BotsterEngineObservation::SessionLifecycle { session_id, .. } = observation else {
+                return None;
+            };
+            Some(session_id.clone())
+        }));
+        touched.sort_by(|left, right| left.0.cmp(&right.0));
+        touched.dedup();
+        for touched_session in &touched {
+            if self.engine_session_exited(touched_session) {
+                if let Err(error) = self.retain_final_terminal_state(touched_session) {
+                    let state = self
+                        .engine
+                        .session(touched_session)
+                        .map(|session| session.lifecycle.clone());
+                    self.record_terminal_commit_failure(touched_session, state);
+                    return Err(error);
+                }
+            }
+        }
+        for touched_session in touched {
+            let terminal_observation = observations.iter().any(|observation| {
+                matches!(
+                    observation,
+                    BotsterEngineObservation::SessionLifecycle {
+                        session_id,
+                        state: SessionLifecycleState::Exited { .. }
+                            | SessionLifecycleState::Failed { .. },
+                    } if session_id == &touched_session
+                )
+            });
+            if terminal_observation || (touched_session == *session_id && obligation_is_terminal) {
+                self.engine.wake_source().forget_session(&touched_session);
+            }
+            self.terminal_commit_obligations.remove(&touched_session);
+            self.terminal_commit_failures.remove(&touched_session);
+        }
+        Ok(())
+    }
+
+    fn obligation_can_advance(
+        &self,
+        session_id: &SessionId,
+        state: &SessionLifecycleState,
+    ) -> Result<bool, CoreDaemonError> {
+        let terminal_record = self.registry.load(session_id)?.is_some_and(|record| {
+            matches!(
+                record.state,
+                RegistrySessionState::Exited | RegistrySessionState::Stale
+            )
+        });
+        Ok(!terminal_record
+            || !matches!(
+                state,
+                SessionLifecycleState::Starting
+                    | SessionLifecycleState::Running
+                    | SessionLifecycleState::Stopping
+            ))
+    }
+
+    fn record_terminal_obligations(&mut self, observations: &[BotsterEngineObservation]) {
+        for observation in observations {
+            if let BotsterEngineObservation::SessionLifecycle { session_id, state } = observation {
+                self.terminal_commit_obligations
+                    .insert(session_id.clone(), state.clone());
+            }
+        }
+    }
+
+    fn record_terminal_commit_failure(
+        &mut self,
+        session_id: &SessionId,
+        obligation: Option<SessionLifecycleState>,
+    ) {
+        if let Some(state) = obligation {
+            self.terminal_commit_obligations
+                .insert(session_id.clone(), state);
+        }
+        let failures = self
+            .terminal_commit_failures
+            .entry(session_id.clone())
+            .or_default();
+        *failures = failures.saturating_add(1);
+        if *failures < TERMINAL_COMMIT_REARM_LIMIT {
+            self.engine.wake_source().notify_session(session_id);
+        }
     }
 
     fn cleanup_worker_socket_dir_if_empty(&self) {
@@ -2049,6 +2278,23 @@ impl CoreDaemon {
         if self.retained_terminal.contains_key(session_id) {
             return Ok(());
         }
+        if self
+            .config
+            .test_fail_retain_final_terminal_state_for
+            .as_ref()
+            .is_some_and(|failed| failed == session_id)
+        {
+            self.config.test_fail_retain_final_terminal_state_for = None;
+            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    format!(
+                        "test-injected final terminal state retention failure: {}",
+                        session_id.0
+                    ),
+                ),
+            )));
+        }
         let (screen, snapshot, mode_flags) = self.engine.capture_terminal_state(session_id)?;
         let mode_freshness = self
             .last_mode_freshness
@@ -2139,6 +2385,19 @@ impl CoreDaemon {
             .engine
             .drain_runtime_once_without_pump(session_id, last_output_at)?;
         let pending = drain_result_from_engine_output(output);
+        let mut rearm = Vec::new();
+        for observation in &pending.observations {
+            if let BotsterEngineObservation::SessionLifecycle { session_id, state } = observation {
+                self.terminal_commit_obligations
+                    .insert(session_id.clone(), state.clone());
+                if !rearm.contains(session_id) {
+                    rearm.push(session_id.clone());
+                }
+            }
+        }
+        for session_id in rearm {
+            self.engine.wake_source().notify_session(&session_id);
+        }
         self.retain_pending_drain_result(session_id, pending);
         Ok(())
     }
@@ -2313,6 +2572,8 @@ impl CoreDaemon {
     }
 
     fn track_live_session(&mut self, session_id: &SessionId) {
+        self.terminal_commit_obligations.remove(session_id);
+        self.terminal_commit_failures.remove(session_id);
         self.observe_live_generation = self.observe_live_generation.saturating_add(1);
         self.observe_live_sessions
             .insert(session_id.0.clone(), self.observe_live_generation);
@@ -2728,18 +2989,11 @@ impl CoreDaemon {
                 return Err(error);
             }
         }
-        if let Err(error) = self.reconcile_lifecycle_observations(&result.observations, now_seconds)
+        if let Err(error) =
+            self.commit_terminal_lifecycle(session_id, &result.observations, now_seconds)
         {
             self.retain_pending_drain_result(session_id, result);
             return Err(error);
-        }
-        if self.engine_session_exited(session_id)
-            && !self.retained_terminal.contains_key(session_id)
-        {
-            if let Err(error) = self.retain_final_terminal_state(session_id) {
-                self.retain_pending_drain_result(session_id, result);
-                return Err(error);
-            }
         }
         self.retain_pending_drain_result(session_id, result);
         Ok(())
@@ -3837,6 +4091,8 @@ mod terminal_backend_failure_tests {
             envelope_router: RoutedEnvelopeRouter::new(),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            terminal_commit_obligations: HashMap::new(),
+            terminal_commit_failures: HashMap::new(),
             last_mode_freshness: HashMap::new(),
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,

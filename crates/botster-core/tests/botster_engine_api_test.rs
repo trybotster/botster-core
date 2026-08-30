@@ -991,7 +991,12 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
         saw_exit,
         "ProcessExited must arrive through wait_wakes plus pump_woken"
     );
-    assert_eq!(source.session_registry_len(), 0);
+    assert_eq!(
+        source.session_registry_len(),
+        1,
+        "engine exit routing must transfer wake retirement to CoreDaemon"
+    );
+    source.forget_session(&session_id);
 }
 
 #[test]

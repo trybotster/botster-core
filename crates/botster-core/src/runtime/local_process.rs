@@ -523,6 +523,19 @@ impl Drop for LocalProcessRegistry {
             Err(poisoned) => poisoned.into_inner(),
         };
 
+        if let Some(source) = match self.wake_source.get_mut() {
+            Ok(source) => source,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+        .as_ref()
+        {
+            // Map membership means that the runtime still owns wake retirement.
+            // Exit delivery removes the session and transfers ownership to CoreDaemon.
+            for session_id in sessions.keys() {
+                source.forget_session(session_id);
+            }
+        }
+
         let sessions: Vec<_> = sessions.drain().map(|(_, session)| session).collect();
         for session in sessions {
             if let Ok(mut session) = session.lock() {
@@ -642,6 +655,7 @@ impl LocalProcessRegistry {
 
         if session.exit_payload.is_some() && session.exit_output_queued {
             drop(session);
+            // Removal transfers wake-retirement ownership to the ProcessExited consumer.
             self.remove(session_id)?;
         }
 
@@ -704,11 +718,6 @@ impl LocalProcessRegistry {
     }
 
     fn remove(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
-        if let Ok(slot) = self.wake_source.lock() {
-            if let Some(source) = slot.as_ref() {
-                source.forget_session(session_id);
-            }
-        }
         let mut sessions = self.lock()?;
         sessions.remove(session_id);
         Ok(())
@@ -1544,6 +1553,8 @@ fn signal_number(signal: Option<&str>) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{SpawnEnvironment, SpawnWorkingDirectory};
+    use std::time::{Duration, Instant};
 
     fn test_session_id() -> SessionId {
         SessionId("reader-finalization-test".to_string())
@@ -1561,6 +1572,76 @@ mod tests {
             overflow_error: Mutex::new(None),
             reader_finished: AtomicBool::new(false),
         })
+    }
+
+    fn immediate_exit_request(session_id: &SessionId) -> SessionSpawnRequest {
+        SessionSpawnRequest {
+            request_id: RequestId("local-wake-transfer-request".to_string()),
+            session_id: session_id.clone(),
+            executable: "/bin/sh".to_string(),
+            arguments: vec!["-c".to_string(), "exit 0".to_string()],
+            working_directory: SpawnWorkingDirectory {
+                path: "/tmp".to_string(),
+            },
+            environment: SpawnEnvironment::default(),
+            initial_pty_size: None,
+        }
+    }
+
+    #[test]
+    fn process_exit_transfers_wake_retirement_to_the_consumer() {
+        let source = TerminalWakeSource::new();
+        let session_id = SessionId("local-wake-transfer".to_string());
+        let mut runtime = LocalProcessRuntime::new().with_wake_source(source.clone());
+        runtime
+            .spawn_session(immediate_exit_request(&session_id))
+            .expect("spawn local process");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(Instant::now() < deadline, "local process did not exit");
+            let output = runtime
+                .drain_output(&session_id)
+                .expect("drain local process");
+            if output.iter().any(|event| {
+                matches!(
+                    event,
+                    SessionRuntimeOutput::ProcessExited {
+                        session_id: exited_session_id,
+                        ..
+                    } if exited_session_id == &session_id
+                )
+            }) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(source.session_registry_len(), 1);
+        drop(runtime);
+        assert_eq!(
+            source.session_registry_len(),
+            1,
+            "runtime Drop must not retire a transferred wake"
+        );
+        source.forget_session(&session_id);
+    }
+
+    #[test]
+    fn abandoned_runtime_drop_retires_its_wake() {
+        let source = TerminalWakeSource::new();
+        let session_id = SessionId("local-abandoned-wake".to_string());
+        let mut request = immediate_exit_request(&session_id);
+        request.arguments = vec!["-c".to_string(), "sleep 30".to_string()];
+        let mut runtime = LocalProcessRuntime::new().with_wake_source(source.clone());
+        runtime
+            .spawn_session(request)
+            .expect("spawn abandoned local process");
+        assert_eq!(source.session_registry_len(), 1);
+
+        drop(runtime);
+
+        assert_eq!(source.session_registry_len(), 0);
     }
 
     #[test]

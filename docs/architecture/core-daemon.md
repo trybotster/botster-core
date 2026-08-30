@@ -57,16 +57,25 @@ once.
 Wake-driven pumping is a parallel host loop. `CoreDaemon::wait_wakes(timeout)`
 blocks on a transport-neutral source. `CoreDaemon::pump_woken` drains runtime
 output only for named sessions and intakes/pumps only named waking-adapter
-routes. It does not `try_read` an unnamed adapter. One live-session registry
-owns ingress coalescing, overflow recovery, and retirement. `forget_session`
-runs after teardown commits. A retained reader handle cannot resurrect a
-forgotten session. Overflow sets a flag and leaves `queued` true; the next
-`wait_wakes` reconciles without a correctness timer. Session shutdown keeps
-the ingress wake while the lifecycle is Stopping. `ProcessExited` or runtime
-removal retires it. `CoreDaemon::shutdown` waits on `wait_wakes` plus
-`pump_woken` and uses the two-second bound only as a hang watchdog. The
-current `drain` poll path remains for unbound adapters during the migration
-window. Core creates no extra OS thread for this wait.
+routes. It does not `try_read` an unnamed adapter. The method commits lifecycle
+observations and retains unmatched output before it returns. Its public outcome
+contains no terminal or lifecycle body, so a content-blind host can ignore it.
+
+One live-session registry owns ingress coalescing, overflow recovery, and
+retirement. A retained reader handle cannot resurrect a forgotten session.
+Overflow sets a flag and leaves `queued` true. The next `wait_wakes` reconciles
+without a correctness timer. Session shutdown keeps the ingress wake while the
+lifecycle is `Stopping`. Converting or routing `ProcessExited` is not an
+authoritative observation. `CoreDaemon` retires the session ingress wake only
+after it persists the terminal lifecycle transition, appends the lifecycle
+journal entry, and completes required final-state retention. A failed commit
+keeps or re-arms that exact wake under a bounded retry rule. Shutdown acceptance
+still retires nothing. Explicit runtime removal also retires the wake.
+
+`CoreDaemon::shutdown` waits on `wait_wakes` plus `pump_woken` and uses the
+two-second bound only as a hang watchdog. The current `drain` poll path remains
+for unbound adapters during the migration window. Core creates no extra OS
+thread for this wait.
 
 `CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
 current Ghostty colors and durable GHOSTSNP state. It returns

@@ -1588,9 +1588,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                     output.push(event.into_runtime_output(session_id));
                 }
             }
-            if let Some(source) = &self.wake_source {
-                source.forget_session(session_id);
-            }
+            // Map removal transfers wake-retirement ownership to CoreDaemon.
             if let Some(mut removed) = self.sessions.remove(session_id) {
                 removed.close_before_blocking_shutdown();
                 removed.shutdown_control();
@@ -1618,6 +1616,8 @@ impl Drop for WorkerProcessRuntime {
             return;
         }
         if let Some(source) = &self.wake_source {
+            // Map membership means that the runtime still owns wake retirement.
+            // Exit delivery removes the session and transfers ownership to CoreDaemon.
             for session_id in self.sessions.keys() {
                 source.forget_session(session_id);
             }
