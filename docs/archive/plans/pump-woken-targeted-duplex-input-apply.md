@@ -2,7 +2,8 @@
 
 Ticket: `ticket_1788128130_441301`
 Run: `run_1788128178_478344`
-Revision: 3 (revised after Plan Review `review_1788129045_539289` and `review_1788129843_885975`)
+Revision: 4 (revised after Plan Review `review_1788129045_539289`, `review_1788129843_885975`,
+and `review_1788130604_251710`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `3672c66` ("Rearm wake after obligation read errors")
@@ -137,15 +138,15 @@ repeated pump cycle. No sleep, wait, or `block_on` enters the pump.
 
 | Command | Owner tag | Rejection after terminal failure | Residual sweep |
 |---|---|---|---|
-| `Input` | route key + owner `generation` + `client_id` | a full ordinary control queue parks the owner before dequeue and loses nothing; sealed or failed control state returns `owner_apply_teardown` for that route only | teardown routes through `unsubscribe_owner_teardowns` in the same `pump_woken`; the parked entry clears on dequeue, teardown, or generation replacement |
-| `ModeGatedInput` | route key + `generation` + `awaiting_gated` park state | session held by `sessions_holding_gated` plus `sessions_awaiting_gated`; a full ordinary control queue parks the owner with the frame still queued and never hard-stops; `control plane sealed` hard-stops the owner; `already in flight` returns `SessionNotWritable` | `cancel_mode_gated_pty_input` on teardown; `clear_awaiting_gated` on Ready or TimedOut; the parked entry clears on dequeue, teardown, or generation replacement |
-| `Resize` | route key + `generation` + `client_id` | same parking and failure rules as `Input` | same tick teardown routing and the same parked-entry clearing |
+| `Input` | route key + owner `generation` + `client_id` | probe `Full` parks the owner before dequeue and loses nothing; probe `Sealed` and failed control state return `owner_apply_teardown` for that route only | teardown routes through `unsubscribe_owner_teardowns` in the same `pump_woken`; the parked entry clears on dequeue, teardown, or generation replacement |
+| `ModeGatedInput` | route key + `generation` + `awaiting_gated` park state | session held by `sessions_holding_gated` plus `sessions_awaiting_gated`; probe `Full` parks the owner with the frame still queued and never hard-stops; probe `Sealed` hard-stops the owner; `already in flight` returns `SessionNotWritable` | `cancel_mode_gated_pty_input` on teardown; `clear_awaiting_gated` on Ready or TimedOut; the parked entry clears on dequeue, teardown, or generation replacement |
+| `Resize` | route key + `generation` + `client_id` | same probe rules as `Input` | same tick teardown routing and the same parked-entry clearing |
 | Retired or replaced route | route removed by `retire_route`, or the live owner now holds a newer generation | `live.get_mut` misses, or the parked generation no longer matches, so Stage B skips the key | the stale parked entry is dropped, never retried; no queue grows |
 | Session-ingress wake | carries no client input | Stage B never runs for this class | not applicable |
 
 `production_path_proof`: `TerminalWakeSource::wait_wakes` -> host loop ->
 `CoreDaemon::pump_woken` -> `DaemonEngine::pump_woken` (Stage A `intake_woken`) ->
-`DaemonEngine::apply_woken_terminal_input` -> route-scoped Stage B under the capacity predicate ->
+`DaemonEngine::apply_woken_terminal_input` -> route-scoped Stage B under the three-state probe, one command at a time ->
 `MultiplexerEngine::handle_client_ingress` or `submit_mode_gated_pty_input` ->
 `flush_runtime_inputs_for_session` -> PTY write. Proof drives `CoreDaemon::pump_woken`
 itself, never a direct `apply_terminal_input` call and never a ClientWorker helper call. The
@@ -176,19 +177,42 @@ confirms all three:
 - The `ModeGatedInput` arm still hard-stopped on a full control queue after Stage B had already
   removed the frame, which loses an accepted frame.
 
-Revision 3 replaces that design with three mechanisms.
+Revision 3 replaced that design with three mechanisms. Revision 4 keeps mechanisms B and C and
+corrects mechanism A, which still had a batch admission gap and could not tell a full queue from
+a sealed one.
 
-**A. Do not dequeue what the control plane cannot accept.** `ControlQueue::admit`
-(`control_queue.rs:110`) rejects an ordinary frame at
-`WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS`. Add a bounded
-`ControlQueue::can_admit_ordinary()` under the same lock, and expose it on the worker runtime
-as a per-session query. Woken Stage B asks before it dequeues. Without capacity it does not
-pop the command, does not call the engine, and does not enqueue an `input_result`. The accepted
-frame stays at its original position in the owner's `input_queue`, which already carries route
-identity and generation. This is lossless and duplicate-free for `Input`, `ModeGatedInput`, and
-`Resize` by the same rule. Only the Core host thread admits ordinary frames, so a passing check
-cannot be invalidated before the admit; the writer thread only frees capacity. Sealed or failed
-control state keeps the existing hard-stop.
+**A. Do not dequeue what the control plane cannot accept, one command at a time.**
+`ControlQueue::admit` (`control_queue.rs:110`) rejects an ordinary frame at
+`WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS`, and it seals the queue when it
+admits a `Terminal` frame. Add a bounded three-state probe, not a boolean:
+
+```
+ControlAdmission { Ready, Full, Sealed }
+```
+
+`Sealed` mirrors `ControlQueueAdmitError::Sealed` and `Full` mirrors
+`ControlQueueAdmitError::ControlQueueFull`, read under the same lock. A boolean would merge the
+two, and revision 3 did merge them. `ControlPlaneState` carries only `Live` and `Failed`
+(`control_queue.rs:62`), and a clean stop seals the queue without a writer failure, so a merged
+predicate would park an owner forever on a sealed queue.
+
+- `Ready`: dequeue exactly one command and apply it before probing again.
+- `Full`: park that owner, leave the command queued, and stop Stage B for that session this tick.
+- `Sealed`: hard-stop that exact owner through the existing `owner_apply_teardown` path. Do not
+  park.
+
+Stage B must not build a batch of deliveries ahead of admission. Revision 3 collected a `Vec`
+and admitted later, so with one free ordinary slot several probes could all answer `Ready`,
+several commands could leave their owner queues, and every command after the first would meet a
+full queue with no owner queue to return to. Revision 4 makes capacity consumption part of the
+dequeue contract: the woken apply calls a single-command
+`ClientWorker::take_one_terminal_input(key, held)` and applies that delivery before it probes and
+dequeues again. The per-owner per-tick budget, the rotation, and the gated-hold update rule are
+unchanged; only the batch gap is removed.
+
+Because exactly one command is in flight between probe and admit, and only the Core host thread
+admits ordinary frames while the writer thread only frees capacity, a `Ready` probe cannot be
+invalidated before its admit.
 
 **B. Retry on a real capacity transition.** Extend the control writer so that popping an
 ordinary frame away from the full boundary notifies that session's wake once. The worker
@@ -208,22 +232,25 @@ Core itself parked while holding an accepted frame. Revision 2's public
 
 Core-only change in `botster-core` and `botster-core-daemon`.
 
-1. **Route-scoped Stage B.** Add `ClientWorker::take_terminal_input_keys(keys, sessions_holding_gated, admit)`.
-   Refactor `take_terminal_input` to build `rotated_live_keys()` and delegate, so both paths
-   share one dequeue body, including the rule that every gated grant inserts its session into
-   the held set before the next dequeue. `admit` is the per-session capacity predicate from
-   mechanism A; the existing global caller passes an always-admit predicate so `CoreDaemon::drain`
-   behavior does not change.
+1. **Single-command route-scoped Stage B.** Add
+   `ClientWorker::take_one_terminal_input(key, sessions_holding_gated)` returning at most one
+   delivery for one owner. Refactor `take_terminal_input` to build `rotated_live_keys()` and loop
+   over that same body, so both paths share one dequeue rule, including the rule that every gated
+   grant inserts its session into the held set before the next dequeue. The woken caller probes
+   admission, takes one command, and applies it before it probes again. `CoreDaemon::drain` keeps
+   its current batch behavior and never probes.
 2. **One shared adapter-route filter.** Add `ClientWorker::adapter_route_keys(batch)` returning
    the deduplicated `batch.adapter_routes` key list. `intake_woken` and the woken apply both use
    it. `ClientWorker::pump_woken` keeps its existing two-class egress behavior unchanged.
 3. **Parked-owner index.** Add a bounded `ClientWorker` record of owners parked for capacity,
    keyed by `OwnerKey` with the owner `generation`. Parking sets it, a successful dequeue clears
    it, and teardown or generation replacement removes it.
-4. **Capacity predicate.** Add `ControlQueue::can_admit_ordinary()` and a
-   `WorkerProcessRuntime` per-session query over it. `LocalProcessRuntime` writes straight to the
-   PTY through `registry.write_input` and has no control queue, so its predicate always admits
-   and its behavior does not change.
+4. **Three-state admission probe.** Add `ControlQueue::probe_ordinary() -> ControlAdmission`
+   with `Ready`, `Full`, and `Sealed`, read under the same lock that `admit` uses, and a
+   `WorkerProcessRuntime` per-session query over it. `Full` parks the owner, `Sealed` hard-stops
+   that exact owner, and `Ready` allows exactly one dequeue. `LocalProcessRuntime` writes straight
+   to the PTY through `registry.write_input` and has no control queue, so it always answers
+   `Ready` and its behavior does not change.
 5. **Capacity wake.** Notify the session wake handle once when the control writer pops an
    ordinary frame away from the full boundary, coalesced through the existing wake state.
 6. **Targeted ingress applier.** Add a private
@@ -245,8 +272,9 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    For each session named by `batch.adapter_routes` or holding a matching parked owner: consume
    control-writer failure, poll the gated result or timeout, build the held set from
    `session_runtime().sessions_holding_gated()` plus `client_worker.sessions_awaiting_gated()`,
-   dequeue with the route-scoped Stage B under the capacity predicate, apply each delivery
-   through the shared body with the targeted applier, and retain teardowns.
+   then, for each selected route, probe admission and take and apply exactly one command at a
+   time through the shared body with the targeted applier until the probe answers `Full`, the
+   owner budget ends, or the queue empties. `Sealed` hard-stops that owner. Retain teardowns.
 10. **Incremental-attach deferral.** Expose the woken apply on `BotsterEngine` for both runtimes.
     The `WorkerBackedBotsterEngine` arm keeps the existing gate: a woken session inside
     `incremental_attaches` runs `prepare_terminal_input` only, its routes park in the same index,
@@ -347,6 +375,12 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    full must produce bounded work and no repeated pump cycle.
 5b. **Stale retry.** A parked entry from a replaced owner must never move a new owner's input.
    Each entry carries its generation and is dropped on mismatch.
+5c. **Batch admission gap.** Probing several commands before admitting any would let more than
+   one command leave its owner queue against one free slot. Stage B takes and applies exactly one
+   command per probe, proven by the one-slot two-command test and ablation A8.
+5d. **Sealed mistaken for full.** A merged predicate would park an owner forever after a clean
+   stop, because `ControlPlaneState` has no `Sealed` variant and a clean seal raises no writer
+   failure. The probe reports `Sealed` separately and hard-stops, proven by ablation A9.
 6. **Double apply.** Stage B pops the command, so a popped command cannot be re-dequeued. The
    mixed pump-then-drain test must still assert exactly one PTY write.
 7. **Feature unification.** The local-runtime arm is feature gated, so the contract-only lane
@@ -372,6 +406,11 @@ Behavior, all driven through `CoreDaemon::pump_woken`:
    completes delivery. Prove this separately for `Input`, for `ModeGatedInput`, and for `Resize`.
    Use the existing `ControlQueue` `hold_pops` hook to hold the bound.
 7. `control plane sealed` still hard-stops the owner and leaves siblings live.
+7b. With exactly one free ordinary slot and at least two eligible commands on one session, only
+   one command leaves its owner queue. The second stays queued in order and delivers once after
+   the capacity wake.
+7c. Input that arrives after a clean queue seal hard-stops that exact owner and never parks. The
+   test drives a clean stop, which raises no writer failure, so a merged predicate would hang.
 8. While an incremental attach is active, input and resize stay deferred, and both apply after
    the attach completes, still exactly once.
 9. A control queue held full parks the exact owner, keeps the frame queued, performs bounded work,
@@ -396,13 +435,15 @@ Red ablations, each must fail before the fix and pass after:
 - A1: remove the apply call from `CoreDaemon::pump_woken`; the plain-input PTY test turns red.
 - A2: widen the Stage B key set to include `ingress_sessions` owners; the sibling isolation
   test and the ingress-only test turn red.
-- A3: make the capacity predicate always admit; the transient-full tests for `Input`,
+- A3: make the admission probe always answer `Ready`; the transient-full tests for `Input`,
   `ModeGatedInput`, and `Resize` turn red.
 - A4: remove the `incremental_attaches` gate from the woken apply; the deferral test turns red.
 - A5: drop the generation from the parked-owner entry; the stale-retry test turns red.
 - A6: remove the control-writer capacity wake; the parked frame stalls and the retry test turns red.
 - A7: restore the old `flush_runtime_inputs_for_session` failure arm; the retention-order test
   turns red.
+- A8: collect a batch of deliveries before the first admit; the one-slot two-command test turns red.
+- A9: fold `Sealed` into `Full`; the post-seal input test hangs or turns red instead of hard-stopping.
 
 Core gates, per [[botster-core uses CI-owned Cargo commands because it has no test script]]:
 
@@ -461,5 +502,9 @@ RUSTUP_TOOLCHAIN=1.97.0 ./test.sh --locked -p botster-hub --test hub_daemon_life
    capacity check before the dequeue, not from retention after a failed send.
 3c. "A retry needs a capacity transition, not a self-rearm" — a consumer that frees capacity
    without a wake turns any self-rearm into a polling loop.
+3d. "A capacity check must reserve, or take one at a time" — probing several items before
+   admitting any reopens the loss the check was meant to close.
+3e. "An admission probe must separate Full from Sealed" — merging them parks an owner forever
+   when a clean stop seals the queue without a writer failure.
 4. "Downstream locked proof requires an explicit candidate-pin procedure" — a git-pinned
    consumer proves nothing under `--locked` until every manifest pin names the candidate.
