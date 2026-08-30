@@ -2,8 +2,8 @@
 
 Ticket: `ticket_1788128130_441301`
 Run: `run_1788128178_478344`
-Revision: 5 (revised after Plan Review `review_1788129045_539289`, `review_1788129843_885975`,
-`review_1788130604_251710`, and `review_1788131089_112145`)
+Revision: 6 (revised after Plan Review `review_1788129045_539289`, `review_1788129843_885975`,
+`review_1788130604_251710`, `review_1788131089_112145`, and `review_1788131545_400072`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `3672c66` ("Rearm wake after obligation read errors")
@@ -95,8 +95,7 @@ wrong, and this revision removes it.
 - `crates/botster-core/src/runtime/worker_process.rs`
   (`send_input:1522`, `admit_encoded:1840` with `control queue full` and
   `control plane sealed`)
-- `crates/botster-core-daemon/src/daemon.rs` (no change expected: `CoreDaemon::pump_woken` already
-  calls `engine.pump_woken`, which now completes the transition; confirm during Implement) (`CoreDaemon::pump_woken:1092`, `drain:1333`,
+- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon::pump_woken:1092`, `drain:1333`,
   `DaemonEngine:469`)
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs`,
   `crates/botster-core-daemon/tests/daemon_integration_test.rs`
@@ -374,9 +373,8 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 - `crates/botster-core/src/runtime/control_queue.rs` (`ControlAdmission`, `probe_ordinary`)
 - `crates/botster-core/src/runtime/worker_process.rs` (per-session capacity query, control-writer
   capacity wake)
-- `crates/botster-core-daemon/src/daemon.rs` (no change expected: `CoreDaemon::pump_woken` already
-  calls `engine.pump_woken`, which now completes the transition; confirm during Implement) (no change expected: `CoreDaemon::pump_woken` already
-  calls `engine.pump_woken`, which now completes the transition; confirm during Implement)
+- `crates/botster-core-daemon/src/daemon.rs` — no change expected. `CoreDaemon::pump_woken`
+  already calls `engine.pump_woken`, which now completes the transition. Confirm during Implement.
 - `crates/botster-core/tests/client_worker_engine_test.rs`
 - `crates/botster-core/tests/managed_session_runtime_test.rs`
 - `crates/botster-core/tests/terminal_wake_*` or the contract test that owns wake-source laws
@@ -470,7 +468,10 @@ Oracles:
 
 Red ablations, each must fail before the fix and pass after:
 
-- A1: remove the apply call from `CoreDaemon::pump_woken`; the plain-input PTY test turns red.
+- A1: remove or bypass the Phase 2 call in both concrete facade methods,
+  `BotsterEngine::pump_woken` (`botster.rs:559`) and `WorkerBackedBotsterEngine::pump_woken`
+  (`botster.rs:1213`); the plain-input production-path PTY test turns red. `CoreDaemon` holds no
+  apply call in revision 5, so an ablation there would change nothing.
 - A2: widen the Stage B key set to include `ingress_sessions` owners; the sibling isolation
   test and the ingress-only test turn red.
 - A3: make the admission probe always answer `Ready`; the transient-full tests for `Input`,
