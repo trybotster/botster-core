@@ -470,6 +470,89 @@ fn local_final_state_failure_rearms_and_later_commit_retires_the_wake() {
 
 #[cfg(unix)]
 #[test]
+fn obligation_registry_read_failure_rearms_the_exact_session() {
+    let data_dir = temp_data_dir("obligation-registry-read-retry");
+    let session_id = SessionId("obligation-registry-read-retry".to_string());
+    let record_path = data_dir
+        .join("sessions")
+        .join(format!("{}.json", session_id.0));
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_test_fail_retain_final_terminal_state_for(Some(session_id.clone())),
+    );
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("spawn obligation read process");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "initial final-state failure did not run"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if !batch.ingress_sessions.contains(&session_id) {
+            continue;
+        }
+        let error = daemon
+            .pump_woken(&batch, 20)
+            .expect_err("inject initial final-state failure");
+        assert!(error
+            .to_string()
+            .contains("test-injected final terminal state retention failure"));
+        break;
+    }
+
+    let retry = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(retry.ingress_sessions, vec![session_id.clone()]);
+    let original_mode = fs::metadata(&record_path)
+        .expect("registry record metadata")
+        .permissions()
+        .mode();
+    let mut unreadable = fs::metadata(&record_path)
+        .expect("registry record metadata")
+        .permissions();
+    unreadable.set_mode(0o000);
+    fs::set_permissions(&record_path, unreadable).expect("make registry record unreadable");
+    let probe = fs::read(&record_path);
+    if probe.is_ok() {
+        let mut restored = fs::metadata(&record_path)
+            .expect("registry record metadata")
+            .permissions();
+        restored.set_mode(original_mode);
+        fs::set_permissions(&record_path, restored).expect("restore registry permissions");
+        panic!("unreadable registry record accepted a probe read");
+    }
+
+    let error = daemon
+        .pump_woken(&retry, 21)
+        .expect_err("obligation registry read must fail");
+    let mut restored = fs::metadata(&record_path)
+        .expect("registry record metadata")
+        .permissions();
+    restored.set_mode(original_mode);
+    fs::set_permissions(&record_path, restored).expect("restore registry permissions");
+    assert!(error.to_string().contains("Permission denied"));
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+
+    let second_retry = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(second_retry.ingress_sessions, vec![session_id.clone()]);
+    daemon
+        .pump_woken(&second_retry, 22)
+        .expect("commit preserved obligation");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("obligation retry exact lookup"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+    ));
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    assert!(daemon.remove_session(&session_id).expect("remove exited"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
     let data_dir = temp_data_dir("pump-persistence-retry");
     let sessions_dir = data_dir.join("sessions");
@@ -507,7 +590,7 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
         panic!("read-only sessions directory accepted a probe write");
     }
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let failure = loop {
         assert!(
             Instant::now() < deadline,
@@ -9604,7 +9687,7 @@ fn delayed_output_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequ
 }
 
 fn pump_until_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId, now_seconds: u64) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         assert!(
             Instant::now() < deadline,

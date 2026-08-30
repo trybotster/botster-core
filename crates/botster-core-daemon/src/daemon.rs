@@ -2072,7 +2072,14 @@ impl CoreDaemon {
             )
         });
         if let Some(state) = obligation {
-            if self.obligation_can_advance(session_id, &state)? {
+            let can_advance = match self.obligation_can_advance(session_id, &state) {
+                Ok(can_advance) => can_advance,
+                Err(error) => {
+                    self.record_terminal_commit_failure(session_id, None);
+                    return Err(error);
+                }
+            };
+            if can_advance {
                 let obligation_observation = BotsterEngineObservation::SessionLifecycle {
                     session_id: session_id.clone(),
                     state,
