@@ -45,7 +45,10 @@ pub const FEATURE_RESIZE: &str = "resize";
 /// Optional READY-then-history snapshot delivery token.
 pub const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY: &str =
     "snapshot_delivery=ready_then_history";
-/// Required duplex opaque-byte transport token.
+/// Advertised duplex opaque-byte transport token.
+///
+/// [`TerminalCompatibilityRequirement::for_duplex_binary_transport`] is the
+/// explicit requirement constructor.
 pub const FEATURE_TRANSPORT_DUPLEX_BINARY: &str = "transport=duplex_binary";
 
 /// Published public item names for the Hub-consumable crate.
