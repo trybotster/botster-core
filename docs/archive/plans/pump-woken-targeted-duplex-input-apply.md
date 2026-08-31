@@ -264,11 +264,15 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 7. **Shared delivery body.** Parameterize the existing `apply_one_delivery` over its ingress
    applier. `CoreDaemon::drain` keeps the current global applier. The woken path passes the
    targeted applier.
-8. **Retention-order fix (defense in depth).** `flush_runtime_inputs_for_session` drops the
-   failed input today: it sends `input.clone()` and prepends only the remaining iterator. Change
-   it to return the failed input and every later input to the same queue in original order.
-   Mechanism A means the woken path does not rely on this, but the loss defect is real and the
-   ticket requires no loss.
+8. **Transient retention-order fix (defense in depth; Implement human ruling).**
+   `flush_runtime_inputs_for_session` retains the failed input and every later input in original
+   order only when the failure is the retryable `control queue full` result. A non-transient PTY
+   failure or owner hard-stop discards that owner's failed frame and never retries it against the
+   stopped owner; transactional callers still retain unattempted tail work as before. Mechanism A means the
+   woken path normally avoids the transient failure, but the shared helper preserves the result
+   matrix approved in answer `question_1788133299_689871`: Applied consumes once; transient full
+   retains the failed frame and tail in order; non-transient failure discards the failed frame
+   while hard-stop prevents owner retry; stale identity cannot affect a live owner or sibling.
 9. **Stage order inside one tick.** Split `ManagedSessionRuntime::pump_woken` into two generic
    phases that the runtime-specific facade orders around the new apply:
    - Phase 1: `intake_woken` for named adapter routes, runtime-output drain for named sessions,
@@ -316,9 +320,9 @@ Core-only change in `botster-core` and `botster-core-daemon`.
   no JSON input route, and no compatibility fallback.
 - No public `rearm_route` and no generation-blind wake entry point.
 - No behavior change to `CoreDaemon::drain`, to `apply_terminal_input`, or to the lifecycle
-  commit and output delivery behavior from `3672c667`. Step 8 changes a shared helper; it
-  removes a loss defect, adds no new drop site, and the existing drain tests must stay green
-  unedited.
+  commit and output delivery behavior from `3672c667`. Step 8 changes a shared helper only for
+  transient queue-full retention; non-transient hard-stop discard stays unchanged, and the
+  existing drain tests must stay green unedited.
 - No new wire protocol variant and no change to `TerminalWakeBatch`.
 - No second adapter egress pump. Phase 3 stays the single egress pump; revision 5 only moves the
   apply ahead of it inside the same tick.
@@ -345,10 +349,9 @@ Core-only change in `botster-core` and `botster-core-daemon`.
 2. Assumption: input arrives only on `adapter_routes`, per the wake-class contract above. If
    Implement finds a production path that delivers client input under an ingress-only wake,
    that is a blocking question for a human, not a silent filter widening.
-3. Assumption: the `input_result` frame and the PTY echo leave on the next wake. Applying input
-   makes the child produce output, which raises the existing session ingress wake, so no extra
-   rearm is needed for the success path. Only the capacity-parked path needs the new wake in
-   mechanism B.
+3. Assumption: the `input_result` frame leaves on the apply tick. A later session ingress wake
+   carries the PTY echo after the child produces output. The success path needs no extra rearm.
+   Only the capacity-parked path needs the new wake in mechanism B.
 7. Assumption: adding `probe_ordinary` with its three-state result, the parked-owner index,
    and the control-writer
    capacity wake is inside this ticket's intent. The ticket requires preserving accepted frames
@@ -360,9 +363,9 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    `docs/plans/README.md`.
 5. Unknown: whether any current test depends on `pump_woken` leaving input unapplied. The
    existing `pump_woken` tests are the oracle; Implement must not relax one to pass.
-6. Unknown: whether the step 5 retention fix changes any existing drain-path assertion. If a
-   current test asserts the dropped-input behavior, Implement must stop and report it rather
-   than edit the assertion.
+6. Resolved during Implement: `local_apply_errors_fail_closed_and_leave_siblings` depends on
+   non-transient hard-stop discard. Human answer `question_1788133299_689871` preserves that
+   behavior and narrows retention to retryable `control queue full` only.
 
 ## Affected surfaces and files
 
@@ -389,9 +392,9 @@ Core-only change in `botster-core` and `botster-core-daemon`.
    input. One shared `adapter_route_keys` helper plus red ablation A2 guards this.
 2. **Hidden global work.** The managed `handle_client_ingress` hides a global flush and a
    global pump. The targeted applier plus the no-unnamed-session oracle guards this.
-3. **Retention regression.** The step 5 fix touches a helper shared with `drain`. Existing
-   drain tests must stay green unedited, and a duplicate-byte assertion must accompany the
-   retention assertion.
+3. **Retention regression.** The step 8 fix touches a helper shared with `drain`. Existing
+   drain tests must stay green unedited. Retryable-full proof must assert original order and no
+   duplicate bytes; permanent-failure proof must assert hard-stop discard and no retry.
 4. **Attach bypass.** Losing the `incremental_attaches` gate would push input past the attach
    barrier. A deferral test drives attach and asserts no PTY write until completion.
 5. **Retry spin.** A self-rearm on a full queue would poll. Retry now follows only the control
@@ -479,8 +482,9 @@ Red ablations, each must fail before the fix and pass after:
 - A4: remove the `incremental_attaches` gate from the woken apply; the deferral test turns red.
 - A5: drop the generation from the parked-owner entry; the stale-retry test turns red.
 - A6: remove the control-writer capacity wake; the parked frame stalls and the retry test turns red.
-- A7: restore the old `flush_runtime_inputs_for_session` failure arm; the retention-order test
-  turns red.
+- A7: omit the failed frame from the retryable `control queue full` retention arm; the
+  retention-order test turns red. Conversely, retain after a non-transient PTY failure; the
+  existing hard-stop discard test turns red.
 - A8: collect a batch of deliveries before the first admit; the one-slot two-command test turns red.
 - A9: fold `Sealed` into `Full`; the post-seal input test hangs or turns red instead of hard-stopping.
 - A10: move Phase 2 after the Phase 3 egress pump; the no-incidental-wake tests for resize,

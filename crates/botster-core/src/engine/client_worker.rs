@@ -72,6 +72,7 @@ pub struct ClientWorker {
     last_generation: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     next_snapshot_phase: HashMap<OwnerKey, SnapshotPhase>,
     expected_adapters: HashSet<(ClientId, OwnerKey)>,
+    capacity_parked: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     input_cursor: usize,
     wake_source: TerminalWakeSource,
     #[cfg(test)]
@@ -79,9 +80,9 @@ pub struct ClientWorker {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct OwnerKey {
-    session_id: SessionId,
-    subscription_id: SubscriptionId,
+pub(crate) struct OwnerKey {
+    pub(crate) session_id: SessionId,
+    pub(crate) subscription_id: SubscriptionId,
 }
 
 struct SubscriptionOwner {
@@ -252,6 +253,7 @@ impl ClientWorker {
         self.wake_source
             .retire_route(&key.session_id, &key.subscription_id);
         self.next_snapshot_phase.remove(key);
+        self.capacity_parked.remove(key);
         hard_stop(&mut self.live, key)
     }
 
@@ -742,6 +744,12 @@ impl ClientWorker {
 
     /// Intake only routes named by a wake batch. Never `try_read`s an unnamed adapter.
     pub fn intake_woken(&mut self, batch: &TerminalWakeBatch) -> Vec<ClientWorkerTeardown> {
+        let keys = self.adapter_route_keys(batch);
+        self.intake_terminal_input_keys(keys)
+    }
+
+    /// Deduplicated exact routes named by adapter wakes.
+    pub(crate) fn adapter_route_keys(&self, batch: &TerminalWakeBatch) -> Vec<OwnerKey> {
         let mut keys = Vec::new();
         let mut seen = HashSet::new();
         for route in &batch.adapter_routes {
@@ -753,7 +761,59 @@ impl ClientWorker {
                 keys.push(key);
             }
         }
-        self.intake_terminal_input_keys(keys)
+        keys
+    }
+
+    /// Exact parked owners selected by a named session wake and live generation.
+    pub(crate) fn parked_route_keys(&mut self, batch: &TerminalWakeBatch) -> Vec<OwnerKey> {
+        let named_sessions: HashSet<_> = batch
+            .adapter_routes
+            .iter()
+            .map(|route| route.session_id.clone())
+            .chain(batch.ingress_sessions.iter().cloned())
+            .collect();
+        self.capacity_parked.retain(|key, generation| {
+            self.live
+                .get(key)
+                .is_some_and(|owner| owner.generation == *generation)
+        });
+        let mut keys: Vec<_> = self
+            .capacity_parked
+            .keys()
+            .filter(|key| named_sessions.contains(&key.session_id))
+            .cloned()
+            .collect();
+        keys.sort_by(|left, right| {
+            left.session_id
+                .0
+                .cmp(&right.session_id.0)
+                .then(left.subscription_id.0.cmp(&right.subscription_id.0))
+        });
+        keys
+    }
+
+    /// Park an exact live owner until its session reports capacity.
+    pub(crate) fn park_for_capacity(&mut self, key: &OwnerKey) {
+        if let Some(owner) = self.live.get(key) {
+            self.capacity_parked.insert(key.clone(), owner.generation);
+        }
+    }
+
+    /// Clear a capacity obligation after progress or hard-stop.
+    pub(crate) fn clear_capacity_parked(&mut self, key: &OwnerKey) {
+        self.capacity_parked.remove(key);
+    }
+
+    /// Whether one exact owner has accepted input awaiting Stage B.
+    pub(crate) fn has_terminal_input(&self, key: &OwnerKey) -> bool {
+        self.live
+            .get(key)
+            .is_some_and(|owner| !owner.input_queue.is_empty())
+    }
+
+    /// Hard-stop one exact owner selected by the targeted apply path.
+    pub(crate) fn hard_stop_owner(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        self.hard_stop_key(key)
     }
 
     fn intake_terminal_input_keys(&mut self, keys: Vec<OwnerKey>) -> Vec<ClientWorkerTeardown> {
@@ -835,39 +895,51 @@ impl ClientWorker {
         let keys = self.rotated_live_keys();
         let mut deliveries = Vec::new();
         for key in keys {
-            let Some(owner) = self.live.get_mut(&key) else {
-                continue;
-            };
-            if owner.awaiting_gated.is_some() {
-                continue;
-            }
             for _ in 0..APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK {
-                let Some(head) = owner.input_queue.front() else {
+                let Some(delivery) = self.take_one_terminal_input(&key, &mut held) else {
                     break;
                 };
-                if matches!(head, TerminalInputCommand::ModeGatedInput { .. })
-                    && held.contains(&key.session_id)
-                {
-                    break;
-                }
-                let Some(command) = owner.input_queue.pop_front() else {
-                    break;
-                };
-                let gated = matches!(command, TerminalInputCommand::ModeGatedInput { .. });
-                deliveries.push(TerminalInputDelivery {
-                    client_id: owner.client_id.clone(),
-                    session_id: key.session_id.clone(),
-                    subscription_id: key.subscription_id.clone(),
-                    generation: owner.generation,
-                    command,
-                });
+                let gated = matches!(
+                    delivery.command,
+                    TerminalInputCommand::ModeGatedInput { .. }
+                );
+                deliveries.push(delivery);
                 if gated {
-                    held.insert(key.session_id.clone());
                     break;
                 }
             }
         }
         deliveries
+    }
+
+    /// Dequeue at most one command from one exact live owner.
+    pub(crate) fn take_one_terminal_input(
+        &mut self,
+        key: &OwnerKey,
+        held: &mut HashSet<SessionId>,
+    ) -> Option<TerminalInputDelivery> {
+        let owner = self.live.get_mut(key)?;
+        if owner.awaiting_gated.is_some() {
+            return None;
+        }
+        let head = owner.input_queue.front()?;
+        if matches!(head, TerminalInputCommand::ModeGatedInput { .. })
+            && held.contains(&key.session_id)
+        {
+            return None;
+        }
+        let command = owner.input_queue.pop_front()?;
+        if matches!(command, TerminalInputCommand::ModeGatedInput { .. }) {
+            held.insert(key.session_id.clone());
+        }
+        self.capacity_parked.remove(key);
+        Some(TerminalInputDelivery {
+            client_id: owner.client_id.clone(),
+            session_id: key.session_id.clone(),
+            subscription_id: key.subscription_id.clone(),
+            generation: owner.generation,
+            command,
+        })
     }
 
     /// Record that this owner is parked on a submitted gated request.

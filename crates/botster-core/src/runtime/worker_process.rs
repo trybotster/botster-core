@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 
 use crate::contract::terminal_wake::{SessionWakeHandle, TerminalWakeSource};
 use crate::runtime::control_queue::{
-    write_slice_timeout, ControlFrameClass, ControlPlaneState, ControlQueue,
+    write_slice_timeout, ControlAdmission, ControlFrameClass, ControlPlaneState, ControlQueue,
     ControlQueueAdmitError, ControlWriterError, ControlWriterOutcome, ControlWriterSlot,
     WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_TIMEOUT,
 };
@@ -987,6 +987,15 @@ impl WorkerProcessRuntime {
             .unwrap_or(ControlPlaneState::Live)
     }
 
+    /// Probe whether one ordinary frame can enter a session control queue.
+    #[must_use]
+    pub(crate) fn probe_ordinary(&self, session_id: &SessionId) -> ControlAdmission {
+        self.sessions
+            .get(session_id)
+            .map(|session| session.control_queue.probe_ordinary())
+            .unwrap_or(ControlAdmission::Sealed)
+    }
+
     /// Observe the writer outcome without consuming a failure.
     #[must_use]
     pub fn control_writer_outcome(&self, session_id: &SessionId) -> ControlWriterOutcome {
@@ -1217,6 +1226,10 @@ impl WorkerProcessRuntime {
             writer_slot: ControlWriterSlot::running(),
             control_plane: ControlPlaneState::Live,
             writer: None,
+            wake_handle: self
+                .wake_source
+                .as_ref()
+                .map(|source| source.session_handle(session_id.clone())),
             metadata,
             output: receiver,
             overflow,
@@ -1493,6 +1506,10 @@ impl SessionRuntime for WorkerProcessRuntime {
             writer_slot: ControlWriterSlot::running(),
             control_plane: ControlPlaneState::Live,
             writer: None,
+            wake_handle: self
+                .wake_source
+                .as_ref()
+                .map(|source| source.session_handle(request.session_id.clone())),
             metadata,
             output: receiver,
             overflow,
@@ -1778,6 +1795,7 @@ struct WorkerProcessSession {
     writer_slot: ControlWriterSlot,
     control_plane: ControlPlaneState,
     writer: Option<thread::JoinHandle<()>>,
+    wake_handle: Option<SessionWakeHandle>,
     metadata: SessionMetadata,
     output: Receiver<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
@@ -1809,8 +1827,9 @@ impl WorkerProcessSession {
         let write = self.control.take_write_half()?;
         let queue = self.control_queue.clone();
         let slot = self.writer_slot.clone();
+        let wake_handle = self.wake_handle.clone();
         self.writer = Some(thread::spawn(move || {
-            run_control_writer(queue, write, slot);
+            run_control_writer(queue, write, slot, wake_handle);
         }));
         Ok(())
     }
@@ -2735,7 +2754,12 @@ fn set_fd_nonblocking(fd: std::os::unix::io::RawFd) -> io::Result<()> {
     }
 }
 
-fn run_control_writer(queue: ControlQueue, mut write: WorkerWriteHalf, slot: ControlWriterSlot) {
+fn run_control_writer(
+    queue: ControlQueue,
+    mut write: WorkerWriteHalf,
+    slot: ControlWriterSlot,
+    wake_handle: Option<SessionWakeHandle>,
+) {
     if let Err(error) = write.prepare() {
         queue.seal();
         slot.set(ControlWriterOutcome::Failed {
@@ -2745,10 +2769,14 @@ fn run_control_writer(queue: ControlQueue, mut write: WorkerWriteHalf, slot: Con
         return;
     }
     loop {
-        let Some((class, frame)) = queue.pop() else {
+        let Some((class, frame, freed_ordinary_capacity)) = queue.pop_with_capacity_transition()
+        else {
             slot.set(ControlWriterOutcome::Stopped);
             return;
         };
+        if freed_ordinary_capacity {
+            notify_session_wake(&wake_handle);
+        }
         match write_control_bytes(&mut write, &frame) {
             Ok(()) => {
                 if class == ControlFrameClass::Terminal {
