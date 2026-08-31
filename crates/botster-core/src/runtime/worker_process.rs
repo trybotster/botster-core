@@ -47,7 +47,7 @@ use crate::{
     FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
     FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
     FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
-    FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -138,6 +138,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_hold_after_enqueue_ms: Option<u64>,
     /// Test-only: fail snapshot encode when the first history PAGE is ready.
     pub test_fail_snapshot_history_after_ready: bool,
+    /// Test-only: omit resize acknowledgments after successful worker application.
+    pub test_omit_resize_applied: bool,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -167,6 +169,7 @@ impl WorkerProcessRuntimeOptions {
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             test_fail_snapshot_history_after_ready: false,
+            test_omit_resize_applied: false,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
@@ -1215,6 +1218,34 @@ impl WorkerProcessRuntime {
         let identity = socket_identity(&socket_path).ok();
         write_hello(&mut control)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
+        control
+            .set_read_timeout(Some(self.options.mode_gated_input_timeout))
+            .map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("set adopted worker handshake timeout failed: {error}"),
+                )
+            })?;
+        let (peer_version, metadata) = read_welcome(&mut control)
+            .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
+        if peer_version != PROTOCOL_VERSION {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("unsupported worker protocol version: {peer_version}"),
+            ));
+        }
+        control.set_read_timeout(None).map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("clear adopted worker handshake timeout failed: {error}"),
+            )
+        })?;
+        if metadata.session_uuid != session_id.0 {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "adopted worker welcome identified a different session",
+            ));
+        }
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
         let overflow = Arc::new(AtomicUsize::new(0));
         let pong_count = Arc::new(AtomicUsize::new(0));
@@ -1238,23 +1269,6 @@ impl WorkerProcessRuntime {
                 .as_ref()
                 .map(|source| source.session_handle(session_id.clone())),
         );
-        let metadata = SessionMetadata {
-            session_uuid: session_id.0.clone(),
-            pid: process.pid.unwrap_or_default(),
-            rows: 24,
-            cols: 80,
-            last_output_at: 0,
-            title: None,
-            cwd: None,
-            port: None,
-            mode_flags: Default::default(),
-            recovery_identity: Some(serde_json::json!({
-                "session_uuid": session_id.0,
-                "runtime_id": process.runtime_id,
-                "worker_control_socket": socket_path,
-            })),
-        };
-
         let mut session = WorkerProcessSession {
             child: None,
             control: WorkerControl::Socket {
@@ -1374,6 +1388,9 @@ impl SessionRuntime for WorkerProcessRuntime {
         if self.options.test_fail_snapshot_history_after_ready {
             command.arg("--test-fail-snapshot-history-after-ready");
         }
+        if self.options.test_omit_resize_applied {
+            command.arg("--test-omit-resize-applied");
+        }
         if let Some(hold_ms) = self.options.test_hold_before_exit_ms {
             command
                 .arg("--test-hold-before-exit-ms")
@@ -1471,8 +1488,14 @@ impl SessionRuntime for WorkerProcessRuntime {
         .map_err(|error: SessionRuntimeError| {
             SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.message)
         });
-        let (_peer_version, metadata) = match startup {
+        let metadata = match startup {
             Ok((peer_version, metadata)) => {
+                if peer_version != PROTOCOL_VERSION {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("unsupported worker protocol version: {peer_version}"),
+                    ));
+                }
                 let worker_pid = metadata
                     .recovery_identity
                     .as_ref()
@@ -1485,7 +1508,7 @@ impl SessionRuntime for WorkerProcessRuntime {
                     ));
                 }
                 control.clear_startup_read_timeout()?;
-                (peer_version, metadata)
+                metadata
             }
             Err(error) => {
                 if let Some(diagnostic) = pending_worker.exited_diagnostic() {
@@ -2928,6 +2951,7 @@ fn lock_error<T>(_error: std::sync::PoisonError<T>) -> SessionRuntimeError {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::io::Write;
     use std::os::unix::net::UnixListener;
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -3035,5 +3059,55 @@ mod tests {
         assert!(error
             .message
             .starts_with("connect worker control socket failed: "));
+    }
+
+    #[test]
+    fn adoption_rejects_a_worker_from_the_previous_protocol() {
+        let path = Path::new("/tmp").join(format!(
+            "botster-old-worker-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).expect("bind old worker socket");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept parent");
+            crate::read_hello(&mut stream).expect("read parent hello");
+            let metadata = crate::SessionMetadata {
+                session_uuid: "old-worker-adoption".to_string(),
+                pid: std::process::id(),
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            };
+            let bytes = crate::encode_welcome(crate::PROTOCOL_VERSION - 1, &metadata)
+                .expect("encode old welcome");
+            stream.write_all(&bytes).expect("write old welcome");
+        });
+
+        let mut runtime = WorkerProcessRuntime::new("/missing/worker");
+        let error = runtime
+            .adopt_session(
+                SessionId("old-worker-adoption".to_string()),
+                ProcessIdentity {
+                    pid: Some(std::process::id()),
+                    runtime_id: Some("old-worker-adoption".to_string()),
+                },
+                &path,
+                false,
+            )
+            .expect_err("old worker protocol must fail adoption");
+        server.join().expect("old worker server");
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+        assert_eq!(error.message, "unsupported worker protocol version: 2");
     }
 }

@@ -7612,7 +7612,7 @@ fn adoption_scan_reports_incompatible_protocol_version() {
     let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("daemon-incompatible-worker-session".to_string());
     let mut record = adoptable_record(&session_id, 10);
-    record.protocol_version = botster_core::PROTOCOL_VERSION.saturating_add(1);
+    record.protocol_version = botster_core::PROTOCOL_VERSION.saturating_sub(1);
     daemon
         .registry()
         .save(&record)

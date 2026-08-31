@@ -620,6 +620,49 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
 
 #[cfg(unix)]
 #[test]
+fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
+    let data_dir = temp_data_dir("pump-resize-stalled-sibling");
+    let mut config = CoreDaemonConfig::new(&data_dir)
+        .with_worker_path(worker_path())
+        .with_mode_gated_input_timeout(Duration::from_millis(200));
+    config.test_omit_resize_applied = true;
+    let mut daemon = CoreDaemon::new(config);
+    let (session_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-stalled-resize");
+    let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "z-live-input");
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(batch.adapter_routes.len(), 2);
+
+    let started = Instant::now();
+    let error = daemon
+        .pump_woken(&batch, 3)
+        .expect_err("missing resize acknowledgment must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("resize acknowledgment timed out"),
+        "unexpected error: {error}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
+    assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
+
+    let sibling_wake = daemon.wait_wakes(Duration::from_secs(1));
+    assert!(sibling_wake.ingress_sessions.contains(&session_b));
+    let stalled_record = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load stalled record")
+        .expect("stalled record");
+    assert_eq!((stalled_record.rows, stalled_record.cols), (24, 80));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
     let data_dir = temp_data_dir("pump-result-egress");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));

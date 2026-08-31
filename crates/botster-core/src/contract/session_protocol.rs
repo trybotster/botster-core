@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Current session-process protocol version.
-pub const PROTOCOL_VERSION: u8 = 2;
+pub const PROTOCOL_VERSION: u8 = 3;
 
 /// Daemon endpoint to session hello magic.
 pub const HELLO_MAGIC: &[u8; 4] = b"SPH1";

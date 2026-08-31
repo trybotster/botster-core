@@ -2,10 +2,11 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 4 (revised after Plan Review `review_1788201761_105279` finding
+Revision: 5 (revised after Plan Review `review_1788201761_105279` finding
 `finding_1788201761_141189`, and `review_1788202487_787926` finding
 `finding_1788202487_209804`; implementation review `review_1788206013_833802`
-required worker acknowledgment before persistence)
+required worker acknowledgment before persistence; implementation review
+`review_1788208349_777769` required sibling progress and a cold protocol boundary)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -115,6 +116,12 @@ named by the batch. No unnamed session is loaded, saved, or patched.
    `(frame_type, payload)` pairs, beside the existing `#[cfg(test)]` `hold_pops`.
 6. Documentation. Update `docs/architecture/terminal-adapter.md` with the completed
    resize hop, and land this plan under `docs/archive/plans/`.
+7. Isolate acknowledgment waits. `CoreDaemon::pump_woken` first pumps all named
+   sessions. A second loop waits for resize acknowledgments and persists applied sizes.
+   A missing acknowledgment from one worker cannot prevent a later named session from
+   receiving its input.
+8. Use a cold worker protocol boundary. Session worker protocol version 3 requires
+   `FRAME_RESIZE_APPLIED`. Spawn and adoption reject workers with another version.
 
 ## Non-scope
 
@@ -212,6 +219,10 @@ named by the batch. No unnamed session is loaded, saved, or patched.
 - R8: held-pop tests cannot also observe the live PTY, because held frames never reach the
   worker. Mitigation: the plan splits the two oracles across separate tests and requires
   both, so neither the operation count nor the live final-size proof is dropped.
+- R9: a worker can omit the required acknowledgment and use the full RPC time bound.
+  Mitigation: Core pumps all named sessions before it starts an acknowledgment wait.
+- R10: a worker from protocol version 2 does not send `FRAME_RESIZE_APPLIED`.
+  Mitigation: protocol version 3 is a cold boundary. Spawn and adoption reject version 2.
 - R6: an unrelated flake could mask a real failure
   ([[botster core bounded waiting queue test flakes under workspace load]]). Mitigation:
   matched base evidence plus a later green workspace gate.
@@ -234,7 +245,9 @@ continues the loop over the other named sessions.
 After admission, the daemon waits for `FRAME_RESIZE_APPLIED` with the existing worker RPC
 time bound. Registry save is a bounded local file write; on error the daemon records
 the failure, retains the drain result, and returns the first error without dropping
-output. No unbounded `block_on` is introduced.
+output. Core pumps all named sessions before it starts an acknowledgment wait. Thus, a
+stalled worker cannot prevent a later named session from receiving its input. No
+unbounded `block_on` is introduced.
 
 `late_message_matrix`:
 
@@ -265,7 +278,8 @@ clears the input queue and the parked flag.
 `sibling_fail_closed_policy`: on success, siblings keep running and keep their own sizes.
 On resize apply failure, only the failing owner is torn down. On persistence failure, only
 the failing session records a terminal commit failure and retains its drain result; the
-loop continues for the remaining named sessions. No sibling is sacrificed.
+commit loop continues for the remaining named sessions. Core pumps all named sessions
+before this loop. No sibling is sacrificed.
 
 ## Acceptance checks and tests
 
@@ -418,9 +432,11 @@ contains no `:`, so no `CARGO_TARGET_DIR` override is required.
 Implementation keeps the approved behavior and ownership scope. It places the new
 registry, lifecycle-patch, repeated-identical, and sibling proofs in
 `terminal_wake_test.rs`. That test target already owns the Hub-shaped `wait_wakes` plus
-`pump_woken` path and can run real worker PTYs. `daemon_integration_test.rs` remains
-unchanged and supplies the existing `pump_persist_resize_error_retains_once` regression.
-No acceptance oracle or runtime-teardown lens was removed.
+`pump_woken` path and can run real worker PTYs. It also proves that a missing resize
+acknowledgment does not block input to a later named sibling. `daemon_integration_test.rs`
+supplies the existing persistence regression and the previous-protocol adoption proof.
+`worker_process.rs` proves that live adoption rejects a version 2 worker. No acceptance
+oracle or runtime-teardown lens was removed.
 
 ## Vault gaps worth capturing
 

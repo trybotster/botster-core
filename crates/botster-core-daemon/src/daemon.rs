@@ -113,6 +113,8 @@ pub struct CoreDaemonConfig {
     pub test_worker_egress_capacity: Option<usize>,
     /// Test-only: fail snapshot history after READY.
     pub test_fail_snapshot_history_after_ready: bool,
+    /// Test-only: omit worker resize acknowledgments after successful application.
+    pub test_omit_resize_applied: bool,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -154,6 +156,7 @@ impl CoreDaemonConfig {
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
             test_fail_snapshot_history_after_ready: false,
+            test_omit_resize_applied: false,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             test_fail_runtime_drain_for: None,
@@ -515,6 +518,7 @@ impl CoreDaemon {
                 options.terminal_color_profile = terminal_color_profile.clone();
                 options.test_fail_snapshot_history_after_ready =
                     config.test_fail_snapshot_history_after_ready;
+                options.test_omit_resize_applied = config.test_omit_resize_applied;
                 options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
                 options.test_exit_code = config.test_exit_code;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
@@ -1106,6 +1110,7 @@ impl CoreDaemon {
         session_ids.dedup();
 
         let mut first_error = None;
+        let mut pumped_results = Vec::with_capacity(session_ids.len());
         for session_id in session_ids {
             let sub_batch = TerminalWakeBatch {
                 adapter_routes: batch
@@ -1134,7 +1139,10 @@ impl CoreDaemon {
             };
             let result = drain_result_from_engine_output(output);
             debug_assert_drain_owner(&result, &session_id);
+            pumped_results.push((session_id, result));
+        }
 
+        for (session_id, result) in pumped_results {
             if let Err(error) = self.engine.complete_pending_terminal_resize(&session_id) {
                 self.record_terminal_obligations(&result.observations);
                 self.record_terminal_commit_failure(&session_id, None);
