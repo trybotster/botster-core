@@ -2,14 +2,15 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 7 (revised after Plan Review `review_1788201761_105279` finding
+Revision: 8 (revised after Plan Review `review_1788201761_105279` finding
 `finding_1788201761_141189`, and `review_1788202487_787926` finding
 `finding_1788202487_209804`; implementation review `review_1788206013_833802`
 required worker acknowledgment before persistence; implementation review
 `review_1788208349_777769` required sibling progress and a cold protocol boundary;
 Verify review `review_1788210791_369985` required a valid sibling red ablation and
 local-engine completion; implementation review `review_1788211964_445761` required
-the exact old-loop ablation)
+the exact old-loop ablation; Verify review `review_1788213922_511254` and human answer
+`question_1788213748_865420` required a load-tolerant sibling decision oracle)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -449,6 +450,13 @@ implementation must fail this test. `daemon_integration_test.rs`
 supplies the existing persistence regression and the previous-protocol adoption proof.
 `worker_process.rs` proves that live adoption rejects a version 2 worker. No acceptance
 oracle or runtime-teardown lens was removed.
+
+Revision 8 changes only `adapter_closed_is_one_effective_detach`. The test now uses a
+waking adapter and a finite child process. The child waits for sibling input, prints a
+marker, and exits. The test pumps each wake until the session records the process exit.
+It then requires the sibling adapter to contain the marker. A 30-second wake timeout is
+only a deadlock guard. The process exit state is the decision oracle. This test must fail
+when the pump does not service the sibling adapter.
 
 ## Vault gaps worth capturing
 
