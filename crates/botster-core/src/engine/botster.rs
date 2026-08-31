@@ -1228,6 +1228,8 @@ impl WorkerBackedBotsterEngine {
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         let (mut outcome, sessions) = self.runtime.pump_woken_phase_one(batch, now_seconds)?;
+        self.runtime
+            .reconcile_terminal_resize_acknowledgments(&sessions)?;
         let deferred_sessions = self.incremental_attaches.keys().cloned().collect();
         self.runtime.apply_woken_terminal_input(
             batch,
@@ -1245,6 +1247,15 @@ impl WorkerBackedBotsterEngine {
         session_id: &SessionId,
     ) -> Option<(u16, u16, u64)> {
         self.runtime.take_applied_terminal_resize(session_id)
+    }
+
+    /// Wait for the worker to confirm the oldest targeted resize for one session.
+    #[doc(hidden)]
+    pub fn complete_pending_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        self.runtime.complete_pending_terminal_resize(session_id)
     }
 
     /// Shared wake source for tests and host wait loops.

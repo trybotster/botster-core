@@ -520,11 +520,12 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
     }
 
     adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
     let repeated_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&repeated_batch, 6)
         .expect("identical resize apply tick");
-    assert_eq!(delivered_input_result_count(&adapter, "resize"), 2);
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 3);
     let resize_changes = daemon
         .lifecycle_changes_page(&before_resize, 16, 64 * 1024)
         .expect("resize journal page")

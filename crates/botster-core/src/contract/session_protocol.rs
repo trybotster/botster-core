@@ -84,6 +84,8 @@ pub const FRAME_MODE_GATED_PTY_INPUT: u8 = 0x19;
 pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
 /// Data-plane peer to session: cancel one in-flight mode-gated request.
 pub const FRAME_MODE_GATED_CANCEL: u8 = 0x1b;
+/// Session to daemon data plane: the worker applied one resize command.
+pub const FRAME_RESIZE_APPLIED: u8 = 0x1c;
 
 /// Correlated request for an atomic worker-owned terminal snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

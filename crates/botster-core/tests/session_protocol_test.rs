@@ -88,6 +88,7 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_MODE_GATED_PTY_INPUT, 0x19);
     assert_eq!(FRAME_MODE_GATED_PTY_INPUT_RESULT, 0x1a);
     assert_eq!(FRAME_MODE_GATED_CANCEL, 0x1b);
+    assert_eq!(FRAME_RESIZE_APPLIED, 0x1c);
 }
 
 #[test]

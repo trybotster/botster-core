@@ -1135,6 +1135,14 @@ impl CoreDaemon {
             let result = drain_result_from_engine_output(output);
             debug_assert_drain_owner(&result, &session_id);
 
+            if let Err(error) = self.engine.complete_pending_terminal_resize(&session_id) {
+                self.record_terminal_obligations(&result.observations);
+                self.record_terminal_commit_failure(&session_id, None);
+                self.retain_pending_drain_result(&session_id, result);
+                first_error.get_or_insert_with(|| error.into());
+                continue;
+            }
+
             if self
                 .config
                 .test_fail_runtime_drain_for
@@ -3730,6 +3738,16 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.take_applied_terminal_resize(session_id),
             Self::Worker(engine) => engine.take_applied_terminal_resize(session_id),
+        }
+    }
+
+    fn complete_pending_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        match self {
+            Self::Local(_) => Ok(()),
+            Self::Worker(engine) => engine.complete_pending_terminal_resize(session_id),
         }
     }
 

@@ -841,6 +841,7 @@ fn pump_woken_admits_one_worker_resize_frame_for_one_request() {
         }]
     );
     assert_eq!(input_result_count(&adapter, "resize"), 1);
+    queue.hold_pops(false);
 }
 
 #[test]
@@ -863,6 +864,7 @@ fn pump_woken_admits_one_worker_resize_frame_per_identical_request() {
         ]
     );
     assert_eq!(input_result_count(&adapter, "resize"), 2);
+    queue.hold_pops(false);
 }
 
 #[test]
@@ -884,6 +886,7 @@ fn pump_woken_preserves_worker_resize_frame_order() {
             },
         ]
     );
+    queue.hold_pops(false);
 }
 
 #[test]
@@ -900,6 +903,7 @@ fn pump_woken_ingress_only_wake_admits_no_worker_resize_frame() {
         .expect("ingress-only pump");
 
     assert!(held_resize_payloads(&queue).is_empty());
+    queue.hold_pops(false);
 }
 
 #[test]
@@ -934,6 +938,7 @@ fn pump_woken_capacity_parked_resize_is_admitted_once_after_capacity_returns() {
         }]
     );
     assert_eq!(input_result_count(&adapter, "resize"), 1);
+    queue.hold_pops(false);
 }
 
 #[test]

@@ -34,7 +34,8 @@ use botster_core::{
     FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
     FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
     FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
+    FRAME_TITLE_CHANGED,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
@@ -252,9 +253,10 @@ fn run() -> Result<(), String> {
                         runtime
                             .send_input(SessionRuntimeInput::Resize {
                                 session_id: handle.session_id.clone(),
-                                size,
+                                size: size.clone(),
                             })
                             .map_err(|error| error.to_string())?;
+                        egress.send_protected_json(FRAME_RESIZE_APPLIED, &size);
                     }
                     FRAME_GET_SNAPSHOT => {
                         let request =
