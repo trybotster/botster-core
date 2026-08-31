@@ -815,6 +815,10 @@ where
         let session_id = delivery.session_id.clone();
         let subscription_id = delivery.subscription_id.clone();
         let client_id = delivery.client_id;
+        let applied_resize = match &delivery.command {
+            TerminalInputCommand::Resize { rows, cols } => Some((*rows, *cols, last_output_at)),
+            _ => None,
+        };
         let (ingress, result) = match delivery.command {
             TerminalInputCommand::Input { data } => (
                 TransportIngress::TerminalInput {
@@ -861,6 +865,10 @@ where
                     .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
             }
         };
+        if let Some(size) = applied_resize {
+            self.applied_terminal_resizes
+                .insert(session_id.clone(), size);
+        }
         let result = with_subscription(result, &subscription_id);
         if self
             .client_worker

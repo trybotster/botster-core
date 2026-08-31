@@ -2,11 +2,13 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 5 (revised after Plan Review `review_1788201761_105279` finding
+Revision: 6 (revised after Plan Review `review_1788201761_105279` finding
 `finding_1788201761_141189`, and `review_1788202487_787926` finding
 `finding_1788202487_209804`; implementation review `review_1788206013_833802`
 required worker acknowledgment before persistence; implementation review
-`review_1788208349_777769` required sibling progress and a cold protocol boundary)
+`review_1788208349_777769` required sibling progress and a cold protocol boundary;
+Verify review `review_1788210791_369985` required a valid sibling red ablation and
+local-engine completion)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -122,6 +124,9 @@ named by the batch. No unnamed session is loaded, saved, or patched.
    receiving its input.
 8. Use a cold worker protocol boundary. Session worker protocol version 3 requires
    `FRAME_RESIZE_APPLIED`. Spawn and adoption reject workers with another version.
+9. Complete local resizes synchronously. The local runtime returns only after its PTY
+   resize succeeds. The local targeted input path records the applied size at once and
+   creates no worker-only acknowledgment state.
 
 ## Non-scope
 
@@ -223,6 +228,9 @@ named by the batch. No unnamed session is loaded, saved, or patched.
   Mitigation: Core pumps all named sessions before it starts an acknowledgment wait.
 - R10: a worker from protocol version 2 does not send `FRAME_RESIZE_APPLIED`.
   Mitigation: protocol version 3 is a cold boundary. Spawn and adoption reject version 2.
+- R11: the local targeted path can omit durable geometry because it has no worker
+  acknowledgment path. Mitigation: the specialized local path records its successful
+  synchronous resize directly.
 - R6: an unrelated flake could mask a real failure
   ([[botster core bounded waiting queue test flakes under workspace load]]). Mitigation:
   matched base evidence plus a later green workspace gate.
