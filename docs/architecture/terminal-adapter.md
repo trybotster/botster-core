@@ -34,6 +34,13 @@ lifecycle upsert before it returns. An identical later resize still reaches the
 worker and emits its `input_result`, but it does not rewrite unchanged geometry
 or append a duplicate lifecycle upsert.
 
+The session worker protocol version is 3. This version requires
+`FRAME_RESIZE_APPLIED`. Core rejects workers with another protocol version during
+spawn and adoption. During one targeted pump, Core first pumps all named
+sessions. Core then waits for each resize acknowledgment and persists each
+applied size. Thus, one missing acknowledgment cannot stop a later named session
+from receiving its input.
+
 `pump_woken` returns a content-free outcome. Core commits lifecycle observations
 and retains unconsumed drain content before the method returns. A host does not
 inspect or retain terminal bodies from this outcome. Routing `ProcessExited`

@@ -53,7 +53,7 @@ fn handshake_round_trips_magic_version_and_metadata() {
 fn frame_constants_match_session_process_wire_spec() {
     // Values are pinned from reference evidence:
     // /Users/jasonconigliari/Rails/trybotster/cli/src/session/protocol.rs
-    assert_eq!(PROTOCOL_VERSION, 2);
+    assert_eq!(PROTOCOL_VERSION, 3);
     assert_eq!(HELLO_MAGIC, b"SPH1");
     assert_eq!(WELCOME_MAGIC, b"SPA1");
     assert_eq!(MAX_METADATA_LEN, 64 * 1024);

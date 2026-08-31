@@ -35,7 +35,7 @@ use botster_core::{
     FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
     FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
     FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
-    FRAME_TITLE_CHANGED,
+    FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
@@ -69,7 +69,12 @@ fn run() -> Result<(), String> {
     let shutdown_on_disconnect = control.shutdown_on_disconnect();
     let mut initial_control = control.accept_initial()?;
 
-    let _peer_version = read_hello(&mut initial_control).map_err(|error| error.to_string())?;
+    let peer_version = read_hello(&mut initial_control).map_err(|error| error.to_string())?;
+    if peer_version != PROTOCOL_VERSION {
+        return Err(format!(
+            "unsupported parent protocol version: {peer_version}"
+        ));
+    }
     let spawn_frame = read_frame(&mut initial_control)?;
     if spawn_frame.frame_type != FRAME_SPAWN_SESSION {
         return Err("worker expected FRAME_SPAWN_SESSION after hello".to_string());
@@ -145,6 +150,7 @@ fn run() -> Result<(), String> {
         frame_sender,
         Arc::clone(&snapshot_barrier),
         Arc::clone(&cancel_cell),
+        metadata.clone(),
     );
 
     let (egress, protected_receiver, metadata_receiver) =
@@ -256,7 +262,9 @@ fn run() -> Result<(), String> {
                                 size: size.clone(),
                             })
                             .map_err(|error| error.to_string())?;
-                        egress.send_protected_json(FRAME_RESIZE_APPLIED, &size);
+                        if !args.test_omit_resize_applied {
+                            egress.send_protected_json(FRAME_RESIZE_APPLIED, &size);
+                        }
                     }
                     FRAME_GET_SNAPSHOT => {
                         let request =
@@ -1142,6 +1150,7 @@ impl WorkerControl {
         sender: mpsc::Sender<Frame>,
         snapshot_barrier: Arc<SnapshotBarrierControl>,
         cancel_cell: Arc<Mutex<Option<String>>>,
+        metadata: SessionMetadata,
     ) {
         spawn_control_reader(
             initial,
@@ -1158,7 +1167,10 @@ impl WorkerControl {
             let writer = Arc::clone(writer);
             thread::spawn(move || {
                 while let Ok((mut stream, _)) = listener.accept() {
-                    if read_hello(&mut stream).is_err() {
+                    if read_hello(&mut stream).ok() != Some(PROTOCOL_VERSION) {
+                        continue;
+                    }
+                    if write_welcome(&mut stream, &metadata).is_err() {
                         continue;
                     }
                     if let Ok(clone) = stream.try_clone() {
@@ -1529,6 +1541,7 @@ struct WorkerArgs {
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
     test_fail_snapshot_history_after_ready: bool,
+    test_omit_resize_applied: bool,
     test_hold_before_exit_ms: Option<u64>,
     test_exit_code: Option<i32>,
     ghostty_max_scrollback_bytes: usize,
@@ -1548,6 +1561,7 @@ impl WorkerArgs {
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
         let mut test_fail_snapshot_history_after_ready = false;
+        let mut test_omit_resize_applied = false;
         let mut test_hold_before_exit_ms = None;
         let mut test_exit_code = None;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
@@ -1607,6 +1621,9 @@ impl WorkerArgs {
                 "--test-fail-snapshot-history-after-ready" => {
                     test_fail_snapshot_history_after_ready = true;
                 }
+                "--test-omit-resize-applied" => {
+                    test_omit_resize_applied = true;
+                }
                 "--test-hold-before-exit-ms" => {
                     index += 1;
                     test_hold_before_exit_ms =
@@ -1649,6 +1666,7 @@ impl WorkerArgs {
             test_pending_capacity,
             test_hold_after_enqueue_ms,
             test_fail_snapshot_history_after_ready,
+            test_omit_resize_applied,
             test_hold_before_exit_ms,
             test_exit_code,
             ghostty_max_scrollback_bytes,
