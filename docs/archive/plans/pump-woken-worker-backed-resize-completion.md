@@ -183,8 +183,8 @@ named by the batch. No unnamed session is loaded, saved, or patched.
 - `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`: the
   operation-count tests T4, T4b, T4c, T4d, and the T6 sibling companion.
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs`: targeted wake proofs.
-- `crates/botster-core-daemon/tests/daemon_integration_test.rs`: registry, patch, and
-  sibling proofs.
+- `crates/botster-core-daemon/tests/daemon_integration_test.rs`: run the existing
+  persistence-failure regression without a source change.
 - `docs/architecture/terminal-adapter.md`: the completed resize hop.
 - `docs/archive/plans/pump-woken-worker-backed-resize-completion.md`: this plan.
 
@@ -409,6 +409,15 @@ Downstream proof:
 
 Worktree hygiene: the tracked `.gitignore` is 63 bytes and intact. The worktree path
 contains no `:`, so no `CARGO_TARGET_DIR` override is required.
+
+## Implementation allocation
+
+Implementation keeps the approved behavior and ownership scope. It places the new
+registry, lifecycle-patch, repeated-identical, and sibling proofs in
+`terminal_wake_test.rs`. That test target already owns the Hub-shaped `wait_wakes` plus
+`pump_woken` path and can run real worker PTYs. `daemon_integration_test.rs` remains
+unchanged and supplies the existing `pump_persist_resize_error_retains_once` regression.
+No acceptance oracle or runtime-teardown lens was removed.
 
 ## Vault gaps worth capturing
 

@@ -568,6 +568,14 @@ impl DefaultBotsterEngine {
             .pump_woken_phase_three(batch, outcome, &sessions)
     }
 
+    /// Take the latest resize applied from targeted terminal input for one session.
+    pub fn take_applied_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(u16, u16, u64)> {
+        self.runtime.take_applied_terminal_resize(session_id)
+    }
+
     /// Shared wake source for tests and host wait loops.
     #[must_use]
     pub fn wake_source(&self) -> &TerminalWakeSource {
@@ -1229,6 +1237,14 @@ impl WorkerBackedBotsterEngine {
         )?;
         self.runtime
             .pump_woken_phase_three(batch, outcome, &sessions)
+    }
+
+    /// Take the latest resize applied from targeted terminal input for one session.
+    pub fn take_applied_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(u16, u16, u64)> {
+        self.runtime.take_applied_terminal_resize(session_id)
     }
 
     /// Shared wake source for tests and host wait loops.
