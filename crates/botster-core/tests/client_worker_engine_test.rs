@@ -13,9 +13,9 @@ use botster_core::contract::terminal_adapter::{
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineOutput, ClientId, ClientWorker, CoreSessionMetadata,
     DefaultBotsterEngine, DetachTerminalSubscriptionResult, LocalProcessRuntimeOptions,
-    QueueSource, RequestId, ResizePayload, SessionId, SessionSpawnRequest, SpawnEnvironment,
-    SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet, TerminalSubscriptionGeneration,
-    TransportEgress, WorkerSnapshotPhase,
+    QueueSource, RequestId, ResizePayload, SessionId, SessionLifecycleState, SessionSpawnRequest,
+    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
+    TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
@@ -323,7 +323,10 @@ fn adapter_closed_is_one_effective_detach() {
     let sub_b = sub("closed-b");
     engine
         .spawn_session(
-            shell_request(session.clone(), "printf 'sib\\n'; sleep 30"),
+            shell_request(
+                session.clone(),
+                "read sibling_signal; printf 'sib:%s\\n' \"$sibling_signal\"",
+            ),
             CoreSessionMetadata::new(),
         )
         .expect("spawn");
@@ -342,7 +345,7 @@ fn adapter_closed_is_one_effective_detach() {
     let adapter_a = SharedFakeTerminalAdapter::auto_complete();
     let adapter_b = SharedFakeTerminalAdapter::auto_complete();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_a,
             session.clone(),
             sub_a.clone(),
@@ -352,7 +355,7 @@ fn adapter_closed_is_one_effective_detach() {
         )
         .expect("bind a");
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_b,
             session.clone(),
             sub_b.clone(),
@@ -363,27 +366,51 @@ fn adapter_closed_is_one_effective_detach() {
         .expect("bind b");
 
     adapter_a.close_transport();
+    let close_batch = engine.wait_wakes(Duration::from_secs(30));
     engine
-        .drain_runtime_once(&session, 2)
-        .expect("drain closed");
+        .pump_woken(&close_batch, 2)
+        .expect("pump closed wake");
     assert!(!engine.has_live(&session, &sub_a));
     assert!(engine.adapter_is_bound(&session, &sub_b));
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        engine
-            .drain_runtime_once(&session, 3)
-            .expect("sibling drain");
-        if adapter_b
-            .snapshot_delivered_frame_bytes()
+    adapter_b.inject_ingress_frame(compact_input_frame(b"continue\n"));
+    let input_batch = engine.wait_wakes(Duration::from_secs(30));
+    assert!(
+        input_batch
+            .adapter_routes
             .iter()
-            .any(|bytes| frame_payload_text(bytes).contains("sib"))
-        {
+            .any(|route| { route.session_id == session && route.subscription_id == sub_b }),
+        "sibling input did not wake its adapter route"
+    );
+    engine
+        .pump_woken(&input_batch, 3)
+        .expect("pump sibling input wake");
+
+    for wake_number in 1..=16 {
+        let batch = engine.wait_wakes(Duration::from_secs(30));
+        assert!(
+            !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty(),
+            "runtime did not wake before sibling process exit"
+        );
+        engine.pump_woken(&batch, 3).expect("pump sibling wake");
+        if matches!(
+            engine.session(&session).map(|session| &session.lifecycle),
+            Some(SessionLifecycleState::Exited { .. })
+        ) {
+            let delivered = adapter_b.snapshot_delivered_frame_bytes();
+            assert!(
+                delivered
+                    .iter()
+                    .any(|bytes| frame_payload_text(bytes).contains("sib:continue")),
+                "sibling adapter stopped pumping before process exit: {delivered:?}"
+            );
             return;
         }
-        thread::sleep(Duration::from_millis(20));
+        assert!(
+            wake_number < 16,
+            "sibling process did not exit after 16 wakes"
+        );
     }
-    panic!("sibling adapter stopped pumping after Closed");
 }
 
 trait LiveInventory {
