@@ -1,7 +1,7 @@
 //! Scheduling-neutral managed session runtime over core engine primitives.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -119,6 +119,7 @@ where
     client_worker: ClientWorker,
     wake_source: TerminalWakeSource,
     pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    pending_terminal_resizes: HashMap<SessionId, VecDeque<(u16, u16, u64)>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
 }
 
@@ -164,6 +165,51 @@ impl<T> ManagedSessionRuntime<WorkerProcessRuntime, T>
 where
     T: TerminalScreenRuntime + 'static,
 {
+    /// Wait for the worker to confirm the oldest targeted resize for one session.
+    pub(crate) fn complete_pending_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        while let Some((rows, cols, _)) = self
+            .pending_terminal_resizes
+            .get(session_id)
+            .and_then(|pending| pending.front().copied())
+        {
+            let size = ResizePayload { rows, cols };
+            self.engine
+                .session_runtime_mut()
+                .wait_for_resize_applied(session_id, &size)?;
+            self.acknowledge_terminal_resize(session_id, &size);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reconcile_terminal_resize_acknowledgments(
+        &mut self,
+        session_ids: &HashSet<SessionId>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        for session_id in session_ids {
+            let sizes = match self
+                .engine
+                .session_runtime_mut()
+                .take_resize_applied(session_id)
+            {
+                Ok(sizes) => sizes,
+                Err(error)
+                    if error.kind == SessionRuntimeErrorKind::SessionNotFound
+                        && self.session_exited(session_id) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for size in sizes {
+                self.acknowledge_terminal_resize(session_id, &size);
+            }
+        }
+        Ok(())
+    }
+
     /// Synchronize the parent terminal with one atomic worker snapshot boundary.
     pub fn synchronize_worker_snapshot_boundary(
         &mut self,
@@ -228,6 +274,7 @@ where
 
     /// Release worker processes for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
+        self.pending_terminal_resizes.clear();
         self.applied_terminal_resizes.clear();
         self.engine.session_runtime_mut().release_for_restart();
     }
@@ -515,8 +562,10 @@ where
                 match applied {
                     Ok(outcome) => {
                         if matches!(apply, DeliveryApply::Targeted) {
-                            self.applied_terminal_resizes
-                                .insert(session_id.clone(), (rows, cols, last_output_at));
+                            self.pending_terminal_resizes
+                                .entry(session_id.clone())
+                                .or_default()
+                                .push_back((rows, cols, last_output_at));
                             targeted_outcome = Some(outcome);
                         }
                         input_result_ok(kind, 0)
@@ -916,6 +965,7 @@ where
             client_worker,
             wake_source,
             pending_input_teardowns: Vec::new(),
+            pending_terminal_resizes: HashMap::new(),
             applied_terminal_resizes: HashMap::new(),
         }
     }
@@ -950,6 +1000,7 @@ where
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
         self.wake_source.forget_session(session_id);
         self.applied_terminal_resizes.remove(session_id);
+        self.pending_terminal_resizes.remove(session_id);
         self.pending_input_teardowns
             .extend(self.client_worker.teardown_session(session_id));
         let mut outcome = MultiplexerEngineOutcome::empty();
@@ -963,6 +1014,24 @@ where
         session_id: &SessionId,
     ) -> Option<(u16, u16, u64)> {
         self.applied_terminal_resizes.remove(session_id)
+    }
+
+    fn acknowledge_terminal_resize(&mut self, session_id: &SessionId, size: &ResizePayload) {
+        let Some(pending) = self.pending_terminal_resizes.get_mut(session_id) else {
+            return;
+        };
+        let Some((rows, cols, applied_at)) = pending.front().copied() else {
+            return;
+        };
+        if rows != size.rows || cols != size.cols {
+            return;
+        }
+        pending.pop_front();
+        if pending.is_empty() {
+            self.pending_terminal_resizes.remove(session_id);
+        }
+        self.applied_terminal_resizes
+            .insert(session_id.clone(), (rows, cols, applied_at));
     }
 
     /// Return the host session runtime adapter.
@@ -1846,6 +1915,7 @@ where
                 self.engine
                     .shutdown_session(session_id.clone(), reason, now_seconds)?;
             self.apply_client_worker(&mut outcome)?;
+            self.pending_terminal_resizes.remove(&session_id);
             self.applied_terminal_resizes.remove(&session_id);
             return Ok(outcome);
         }
@@ -1861,6 +1931,7 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
+        self.pending_terminal_resizes.remove(&session_id);
         self.applied_terminal_resizes.remove(&session_id);
         Ok(outcome)
     }

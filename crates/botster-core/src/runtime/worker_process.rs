@@ -46,8 +46,8 @@ use crate::{
     FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL,
     FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
     FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
-    FRAME_RESIZE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
-    FRAME_TITLE_CHANGED,
+    FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
+    FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -1113,6 +1113,9 @@ impl WorkerProcessRuntime {
                         break;
                     }
                 }
+                WorkerChannelEvent::ResizeApplied(size) => {
+                    session.applied_resizes.push_back(size);
+                }
                 WorkerChannelEvent::MalformedModeGated {
                     request_id,
                     message,
@@ -1133,6 +1136,43 @@ impl WorkerProcessRuntime {
             session.stall.note_space();
         }
         Ok(())
+    }
+
+    /// Wait until the worker confirms one PTY resize operation.
+    pub(crate) fn wait_for_resize_applied(
+        &mut self,
+        session_id: &SessionId,
+        expected: &crate::ResizePayload,
+    ) -> Result<(), SessionRuntimeError> {
+        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
+        loop {
+            self.pump_session_output(session_id)?;
+            let session = self.session_mut(session_id)?;
+            while let Some(size) = session.applied_resizes.pop_front() {
+                if &size == expected {
+                    return Ok(());
+                }
+            }
+            if Instant::now() >= deadline {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker resize acknowledgment timed out",
+                ));
+            }
+            thread::sleep(GATED_POLL);
+        }
+    }
+
+    pub(crate) fn take_resize_applied(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<crate::ResizePayload>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .applied_resizes
+            .drain(..)
+            .collect())
     }
 
     fn session_reader_finished(
@@ -1240,6 +1280,7 @@ impl WorkerProcessRuntime {
             mode_flags_slot: Arc::new(Mutex::new(None)),
             outstanding_mode_probe: Arc::new(Mutex::new(None)),
             pending_output: std::collections::VecDeque::new(),
+            applied_resizes: std::collections::VecDeque::new(),
             snapshot_boundary: std::collections::VecDeque::new(),
             outstanding_snapshot_request: None,
             supports_snapshot_boundary,
@@ -1520,6 +1561,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             mode_flags_slot: Arc::new(Mutex::new(None)),
             outstanding_mode_probe: Arc::new(Mutex::new(None)),
             pending_output: std::collections::VecDeque::new(),
+            applied_resizes: std::collections::VecDeque::new(),
             snapshot_boundary: std::collections::VecDeque::new(),
             outstanding_snapshot_request: None,
             supports_snapshot_boundary,
@@ -1806,6 +1848,7 @@ struct WorkerProcessSession {
     mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
     outstanding_mode_probe: Arc<Mutex<Option<String>>>,
     pending_output: std::collections::VecDeque<WorkerOutputEvent>,
+    applied_resizes: std::collections::VecDeque<crate::ResizePayload>,
     snapshot_boundary: std::collections::VecDeque<(WorkerSnapshotResult, usize)>,
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
@@ -2343,6 +2386,7 @@ enum WorkerChannelEvent {
     Output(WorkerOutputEvent),
     ModeFlags(ModeFlagsPayload),
     ModeGatedResult(ModeGatedPtyInputResult),
+    ResizeApplied(crate::ResizePayload),
     Snapshot(WorkerSnapshotResult),
     MalformedModeGated { request_id: String, message: String },
 }
@@ -2537,6 +2581,17 @@ fn spawn_stdout_reader(
                                 message: format!("malformed mode-gated result: {error}"),
                             },
                         ),
+                    }
+                }
+                FRAME_RESIZE_APPLIED => {
+                    if let Ok(size) = serde_json::from_slice(&frame.payload) {
+                        if sender
+                            .send(WorkerChannelEvent::ResizeApplied(size))
+                            .is_err()
+                        {
+                            break;
+                        }
+                        notify_session_wake(&wake_handle);
                     }
                 }
                 FRAME_SNAPSHOT => {

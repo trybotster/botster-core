@@ -2,9 +2,10 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 3 (revised after Plan Review `review_1788201761_105279` finding
+Revision: 4 (revised after Plan Review `review_1788201761_105279` finding
 `finding_1788201761_141189`, and `review_1788202487_787926` finding
-`finding_1788202487_209804`)
+`finding_1788202487_209804`; implementation review `review_1788206013_833802`
+required worker acknowledgment before persistence)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -90,9 +91,10 @@ named by the batch. No unnamed session is loaded, saved, or patched.
 
 ## Scope
 
-1. Record the applied targeted resize in `ManagedSessionRuntime`.
-   `apply_one_delivery` inserts `(rows, cols, last_output_at)` for the session when a
-   `DeliveryApply::Targeted` resize succeeds. The latest resize in one tick wins.
+1. Record the pending targeted resize in `ManagedSessionRuntime`.
+   `apply_one_delivery` queues `(rows, cols, last_output_at)` after parent control-queue
+   admission. The worker sends `FRAME_RESIZE_APPLIED` only after Ghostty and the PTY
+   accept the resize. The daemon promotes the pending record only after that acknowledgment.
 2. Expose the record. Add `take_applied_terminal_resize(&SessionId)` on
    `ManagedSessionRuntime`, on `DefaultBotsterEngine`, on `WorkerBackedBotsterEngine`,
    and on `DaemonEngine`. This keeps the shipped
@@ -227,9 +229,10 @@ sibling subscriptions on the same tick keep their owners, their PTY size, and th
 records. A persistence failure marks a terminal commit failure for that one session and
 continues the loop over the other named sessions.
 
-`teardown_bounds`: the resize apply performs no blocking wait. `enqueue_json` for
-`FRAME_RESIZE` returns `ControlAdmission::Full` under pressure instead of blocking, and
-the owner parks. Registry save is a bounded local file write; on error the daemon records
+`teardown_bounds`: parent queue admission does not block. `enqueue_json` for
+`FRAME_RESIZE` returns `ControlAdmission::Full` under pressure, and the owner parks.
+After admission, the daemon waits for `FRAME_RESIZE_APPLIED` with the existing worker RPC
+time bound. Registry save is a bounded local file write; on error the daemon records
 the failure, retains the drain result, and returns the first error without dropping
 output. No unbounded `block_on` is introduced.
 
