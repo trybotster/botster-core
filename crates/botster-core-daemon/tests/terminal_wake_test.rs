@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::process::Command;
-use std::sync::Once;
+use std::sync::{mpsc, Once};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
@@ -622,9 +622,10 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
 #[test]
 fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
     let data_dir = temp_data_dir("pump-resize-stalled-sibling");
+    let acknowledgment_timeout = Duration::from_secs(1);
     let mut config = CoreDaemonConfig::new(&data_dir)
         .with_worker_path(worker_path())
-        .with_mode_gated_input_timeout(Duration::from_secs(1));
+        .with_mode_gated_input_timeout(acknowledgment_timeout);
     config.test_omit_resize_applied = true;
     let mut daemon = CoreDaemon::new(config);
     let (session_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-stalled-resize");
@@ -635,17 +636,39 @@ fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
     let batch = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(batch.adapter_routes.len(), 2);
 
-    let started = Instant::now();
+    let observer_started = Instant::now();
+    let observed_adapter = adapter_b.clone();
+    let (observed_tx, observed_rx) = mpsc::sync_channel(1);
+    let observer = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            assert!(Instant::now() < deadline, "sibling input was not delivered");
+            if delivered_input_result_count(&observed_adapter, "input") == 1 {
+                observed_tx
+                    .send(observer_started.elapsed())
+                    .expect("send sibling delivery time");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
     let error = daemon
         .pump_woken(&batch, 3)
         .expect_err("missing resize acknowledgment must fail");
+    let sibling_delivery_elapsed = observed_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("receive sibling delivery time");
+    observer.join().expect("sibling delivery observer");
     assert!(
         error
             .to_string()
             .contains("resize acknowledgment timed out"),
         "unexpected error: {error}"
     );
-    assert!(started.elapsed() < Duration::from_millis(1_500));
+    assert!(
+        sibling_delivery_elapsed < acknowledgment_timeout,
+        "sibling input arrived after the resize acknowledgment wait: {sibling_delivery_elapsed:?}"
+    );
     assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
     assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
 

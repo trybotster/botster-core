@@ -2,13 +2,14 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 6 (revised after Plan Review `review_1788201761_105279` finding
+Revision: 7 (revised after Plan Review `review_1788201761_105279` finding
 `finding_1788201761_141189`, and `review_1788202487_787926` finding
 `finding_1788202487_209804`; implementation review `review_1788206013_833802`
 required worker acknowledgment before persistence; implementation review
 `review_1788208349_777769` required sibling progress and a cold protocol boundary;
 Verify review `review_1788210791_369985` required a valid sibling red ablation and
-local-engine completion)
+local-engine completion; implementation review `review_1788211964_445761` required
+the exact old-loop ablation)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -441,7 +442,10 @@ Implementation keeps the approved behavior and ownership scope. It places the ne
 registry, lifecycle-patch, repeated-identical, and sibling proofs in
 `terminal_wake_test.rs`. That test target already owns the Hub-shaped `wait_wakes` plus
 `pump_woken` path and can run real worker PTYs. It also proves that a missing resize
-acknowledgment does not block input to a later named sibling. `daemon_integration_test.rs`
+acknowledgment does not block input to a later named sibling. An observer thread records
+the sibling result time while the daemon waits for the missing acknowledgment. The result
+must arrive before the one-second acknowledgment timeout. The exact `6f52148` single-loop
+implementation must fail this test. `daemon_integration_test.rs`
 supplies the existing persistence regression and the previous-protocol adoption proof.
 `worker_process.rs` proves that live adoption rejects a version 2 worker. No acceptance
 oracle or runtime-teardown lens was removed.
