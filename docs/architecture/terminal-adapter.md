@@ -41,6 +41,10 @@ sessions. Core then waits for each resize acknowledgment and persists each
 applied size. Thus, one missing acknowledgment cannot stop a later named session
 from receiving its input.
 
+The local engine applies a PTY resize synchronously. Its targeted input path
+records the applied size immediately after success. Thus, the local engine does
+not create worker-only pending acknowledgment state.
+
 `pump_woken` returns a content-free outcome. Core commits lifecycle observations
 and retains unconsumed drain content before the method returns. A host does not
 inspect or retain terminal bodies from this outcome. Routing `ProcessExited`

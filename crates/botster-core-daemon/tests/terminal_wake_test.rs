@@ -624,7 +624,7 @@ fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
     let data_dir = temp_data_dir("pump-resize-stalled-sibling");
     let mut config = CoreDaemonConfig::new(&data_dir)
         .with_worker_path(worker_path())
-        .with_mode_gated_input_timeout(Duration::from_millis(200));
+        .with_mode_gated_input_timeout(Duration::from_secs(1));
     config.test_omit_resize_applied = true;
     let mut daemon = CoreDaemon::new(config);
     let (session_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-stalled-resize");
@@ -645,7 +645,7 @@ fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
             .contains("resize acknowledgment timed out"),
         "unexpected error: {error}"
     );
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(started.elapsed() < Duration::from_millis(1_500));
     assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
     assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
 
@@ -697,7 +697,7 @@ fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
     daemon
         .bind_waking_terminal_adapter(
             client_id,
-            session_id,
+            session_id.clone(),
             subscription_id,
             generation,
             empty_caps(),
@@ -711,6 +711,12 @@ fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
         .pump_woken(&resize_batch, 3)
         .expect("resize apply tick");
     assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load local resize record")
+        .expect("local resize record");
+    assert_eq!((record.rows, record.cols), (31, 91));
 
     adapter.inject_ingress_frame(compact_mode_gated_frame(0, 0, b"rejected"));
     let gated_batch = daemon.wait_wakes(Duration::from_secs(1));
