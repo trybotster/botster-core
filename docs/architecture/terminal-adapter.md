@@ -26,6 +26,13 @@ queue leaves the command in its bounded owner queue; the writer's transition
 away from full emits one coalesced session wake for retry. A sealed queue is a
 hard stop rather than a parked retry.
 
+A successful targeted resize also records the worker-applied rows and columns.
+After phase three, `CoreDaemon::pump_woken` takes that record for the named
+session. The daemon updates `sessions/<id>.json` and appends one lifecycle
+upsert before it returns. An identical later resize still reaches the worker
+and emits its `input_result`, but it does not rewrite unchanged geometry or
+append a duplicate lifecycle upsert.
+
 `pump_woken` returns a content-free outcome. Core commits lifecycle observations
 and retains unconsumed drain content before the method returns. A host does not
 inspect or retain terminal bodies from this outcome. Routing `ProcessExited`

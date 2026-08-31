@@ -1,7 +1,7 @@
 //! Scheduling-neutral managed session runtime over core engine primitives.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -119,6 +119,7 @@ where
     client_worker: ClientWorker,
     wake_source: TerminalWakeSource,
     pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
 }
 
 impl<R> ManagedSessionRuntime<R, PlainTerminalScreenRuntime>
@@ -227,6 +228,7 @@ where
 
     /// Release worker processes for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
+        self.applied_terminal_resizes.clear();
         self.engine.session_runtime_mut().release_for_restart();
     }
 
@@ -513,6 +515,8 @@ where
                 match applied {
                     Ok(outcome) => {
                         if matches!(apply, DeliveryApply::Targeted) {
+                            self.applied_terminal_resizes
+                                .insert(session_id.clone(), (rows, cols, last_output_at));
                             targeted_outcome = Some(outcome);
                         }
                         input_result_ok(kind, 0)
@@ -912,6 +916,7 @@ where
             client_worker,
             wake_source,
             pending_input_teardowns: Vec::new(),
+            applied_terminal_resizes: HashMap::new(),
         }
     }
 
@@ -944,11 +949,20 @@ where
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
         self.wake_source.forget_session(session_id);
+        self.applied_terminal_resizes.remove(session_id);
         self.pending_input_teardowns
             .extend(self.client_worker.teardown_session(session_id));
         let mut outcome = MultiplexerEngineOutcome::empty();
         let _ = self.apply_client_worker(&mut outcome);
         self.engine.forget_terminal_session(session_id)
+    }
+
+    /// Take the latest resize applied from targeted terminal input for one session.
+    pub fn take_applied_terminal_resize(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(u16, u16, u64)> {
+        self.applied_terminal_resizes.remove(session_id)
     }
 
     /// Return the host session runtime adapter.
@@ -1832,6 +1846,7 @@ where
                 self.engine
                     .shutdown_session(session_id.clone(), reason, now_seconds)?;
             self.apply_client_worker(&mut outcome)?;
+            self.applied_terminal_resizes.remove(&session_id);
             return Ok(outcome);
         }
         let outcome = self
@@ -1846,6 +1861,7 @@ where
         }
 
         self.flush_remaining_runtime_inputs(&session_id)?;
+        self.applied_terminal_resizes.remove(&session_id);
         Ok(outcome)
     }
 

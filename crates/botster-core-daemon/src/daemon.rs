@@ -1159,6 +1159,7 @@ impl CoreDaemon {
                 continue;
             }
 
+            let applied_terminal_resize = self.engine.take_applied_terminal_resize(&session_id);
             let applied_attach_resize = self
                 .engine
                 .take_applied_attach_resize(&session_id)
@@ -1177,8 +1178,11 @@ impl CoreDaemon {
                         None
                     }
                 });
-            if let Some((rows, cols, resize_at)) = applied_attach_resize {
-                if let Err(error) = self.persist_session_size(&session_id, rows, cols, resize_at) {
+            if let Some((rows, cols, resize_at)) = applied_terminal_resize.or(applied_attach_resize)
+            {
+                if let Err(error) =
+                    self.persist_changed_session_size(&session_id, rows, cols, resize_at)
+                {
                     self.record_terminal_obligations(&result.observations);
                     self.record_terminal_commit_failure(&session_id, None);
                     self.retain_pending_drain_result(&session_id, result);
@@ -1329,6 +1333,23 @@ impl CoreDaemon {
             self.append_lifecycle_upsert(&record, lifecycle);
         }
         Ok(())
+    }
+
+    fn persist_changed_session_size(
+        &mut self,
+        session_id: &SessionId,
+        rows: u16,
+        cols: u16,
+        updated_at: u64,
+    ) -> Result<(), CoreDaemonError> {
+        if self
+            .registry
+            .load(session_id)?
+            .is_some_and(|record| record.rows == rows && record.cols == cols)
+        {
+            return Ok(());
+        }
+        self.persist_session_size(session_id, rows, cols, updated_at)
     }
 
     /// Drain one session's runtime output through subscription fanout.
@@ -3702,6 +3723,13 @@ impl DaemonEngine {
         match self {
             Self::Local(_) => None,
             Self::Worker(engine) => engine.take_applied_attach_resize(session_id),
+        }
+    }
+
+    fn take_applied_terminal_resize(&mut self, session_id: &SessionId) -> Option<(u16, u16, u64)> {
+        match self {
+            Self::Local(engine) => engine.take_applied_terminal_resize(session_id),
+            Self::Worker(engine) => engine.take_applied_terminal_resize(session_id),
         }
     }
 

@@ -12,7 +12,7 @@ use botster_core::{
 };
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
-    ReadModeFlagsRequest, ReadScreenRequest, SpawnSessionRequest,
+    ReadModeFlagsRequest, ReadScreenRequest, SessionLifecycleChangeKind, SpawnSessionRequest,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -50,6 +50,92 @@ fn worker_path() -> std::path::PathBuf {
         assert!(path.pop(), "test executable must be under target");
     }
     path.join("botster-session-worker")
+}
+
+#[cfg(unix)]
+fn bind_size_reporting_worker(
+    daemon: &mut CoreDaemon,
+    label: &str,
+) -> (SessionId, SharedFakeTerminalAdapter) {
+    let session_id = SessionId(format!("{label}-session"));
+    let client_id = ClientId(format!("{label}-client"));
+    let subscription_id = SubscriptionId(format!("{label}-sub"));
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty -echo; printf ready; while IFS= read -r _; do stty size; done".into();
+    daemon.spawn(request, 1).expect("spawn size reporter");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(Instant::now() < deadline, "worker attach did not finish");
+        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            return (session_id, adapter);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+fn pump_until_encoded_output(
+    daemon: &mut CoreDaemon,
+    adapter: &SharedFakeTerminalAdapter,
+    encoded: &str,
+    tick: u64,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(Instant::now() < deadline, "worker output did not arrive");
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon.pump_woken(&batch, tick).expect("pump worker output");
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains(encoded))
+        {
+            return;
+        }
+    }
 }
 
 fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
@@ -324,6 +410,210 @@ fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
             .collect::<Vec<_>>(),
         vec![Some(10), Some(10)]
     );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
+    let data_dir = temp_data_dir("pump-result-egress");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_lifecycle_journal_capacity(16),
+    );
+    let session_id = SessionId("pump-result-session".into());
+    let client_id = ClientId("pump-result-client".into());
+    let subscription_id = SubscriptionId("pump-result-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty -echo; printf ready; while IFS= read -r _; do stty size; done".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let attach_deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < attach_deadline,
+            "worker attach did not finish"
+        );
+        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&resize_batch, 3)
+        .expect("resize apply tick");
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("registry load")
+        .expect("registry record");
+    assert_eq!((record.rows, record.cols), (31, 91));
+
+    adapter.inject_ingress_frame(compact_input_frame(b"report-size\n"));
+    let input_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&input_batch, 4)
+        .expect("size request apply tick");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "worker did not report live PTY size"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon.pump_woken(&batch, 5).expect("pump size report");
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgOTENCg=="))
+        {
+            break;
+        }
+    }
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    let repeated_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&repeated_batch, 6)
+        .expect("identical resize apply tick");
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 2);
+    let resize_changes = daemon
+        .lifecycle_changes_page(&before_resize, 16, 64 * 1024)
+        .expect("resize journal page")
+        .changes
+        .into_iter()
+        .filter(|change| {
+            matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_id
+                        && record.session.size.rows == 31
+                        && record.session.size.cols == 91
+            )
+        })
+        .count();
+    assert_eq!(
+        resize_changes, 1,
+        "identical resize must not append a patch"
+    );
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pump_woken_worker_resize_isolates_the_named_sibling() {
+    let data_dir = temp_data_dir("pump-resize-sibling");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_lifecycle_journal_capacity(32),
+    );
+    let (session_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "resize-sibling-a");
+    let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "resize-sibling-b");
+    let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&resize_batch, 3)
+        .expect("resize named worker");
+    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
+    assert_eq!(delivered_input_result_count(&adapter_b, "resize"), 0);
+
+    let record_a = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load A")
+        .expect("record A");
+    let record_b = daemon
+        .registry()
+        .load(&session_b)
+        .expect("load B")
+        .expect("record B");
+    assert_eq!((record_a.rows, record_a.cols), (31, 101));
+    assert_eq!((record_b.rows, record_b.cols), (24, 80));
+
+    adapter_a.inject_ingress_frame(compact_input_frame(b"report-a\n"));
+    let input_a = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&input_a, 4).expect("request A size");
+    pump_until_encoded_output(&mut daemon, &adapter_a, "MzEgMTAxDQo=", 5);
+    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
+    let input_b = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&input_b, 6).expect("request B size");
+    pump_until_encoded_output(&mut daemon, &adapter_b, "MjQgODANCg==", 7);
+
+    let changes = daemon
+        .lifecycle_changes_page(&before_resize, 32, 64 * 1024)
+        .expect("resize journal page");
+    assert_eq!(
+        changes
+            .changes
+            .iter()
+            .filter(|change| matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == session_a
+                        && record.session.size.rows == 31
+                        && record.session.size.cols == 101
+            ))
+            .count(),
+        1
+    );
+    assert!(changes.changes.iter().all(|change| !matches!(
+        &change.kind,
+        SessionLifecycleChangeKind::Upsert { record }
+            if record.session.session_id == session_b
+                && (record.session.size.rows != 24 || record.session.size.cols != 80)
+    )));
     let _ = fs::remove_dir_all(data_dir);
 }
 

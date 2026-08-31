@@ -240,6 +240,19 @@ impl ControlQueue {
         self.ready.notify_all();
     }
 
+    /// Return queued frame types and payloads while crate tests hold queue pops.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn held_frames(&self) -> Vec<(u8, Vec<u8>)> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        debug_assert!(state.hold_pops);
+        state
+            .frames
+            .iter()
+            .filter_map(|(_, frame)| Some((*frame.get(4)?, frame.get(5..)?.to_vec())))
+            .collect()
+    }
+
     /// Count queued frames by class for crate unit tests.
     #[cfg(test)]
     #[must_use]

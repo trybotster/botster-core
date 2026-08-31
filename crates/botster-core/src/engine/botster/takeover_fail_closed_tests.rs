@@ -13,14 +13,14 @@ use crate::contract::terminal_wake::{
 };
 use crate::contract::transport::TransportEgress;
 use crate::runtime::{
-    ControlFrameClass, SessionRuntime, SessionSpawnRequest, WORKER_CONTROL_QUEUE_FRAMES,
-    WORKER_CONTROL_RESERVED_SLOTS,
+    ControlFrameClass, ControlQueue, SessionRuntime, SessionSpawnRequest,
+    WORKER_CONTROL_QUEUE_FRAMES, WORKER_CONTROL_RESERVED_SLOTS,
 };
 use crate::session::CoreSessionMetadata;
 use crate::{
     QueueSource, RequestId, ResizePayload, SessionIoEvent, SessionRuntimeInput,
     SessionRuntimeOutput, SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState,
-    TerminalCapabilitySet, TerminalScreenSize, WorkerProcessRuntimeOptions,
+    TerminalCapabilitySet, TerminalScreenSize, WorkerProcessRuntimeOptions, FRAME_RESIZE,
 };
 use botster_terminal_protocol::TerminalFrame;
 
@@ -758,6 +758,182 @@ fn settle_wakes(engine: &mut WorkerBackedBotsterEngine, tick: u64) {
         }
         engine.pump_woken(&batch, tick).expect("settle prior wakes");
     }
+}
+
+fn held_resize_engine(
+    label: &str,
+) -> (
+    WorkerBackedBotsterEngine,
+    SessionId,
+    SubscriptionId,
+    InjectAdapter,
+    ControlQueue,
+) {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId(format!("{label}-session"));
+    let client = ClientId(format!("{label}-client"));
+    let subscription = SubscriptionId(format!("{label}-sub"));
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("generation");
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client,
+            session_id.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    settle_wakes(&mut engine, 19);
+    let queue = engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("control queue");
+    queue.hold_pops(true);
+    assert!(
+        queue.held_frames().is_empty(),
+        "settled queue must be empty"
+    );
+    (engine, session_id, subscription, adapter, queue)
+}
+
+fn pump_adapter_wake(
+    engine: &mut WorkerBackedBotsterEngine,
+    adapter: &InjectAdapter,
+    frame: Vec<u8>,
+    tick: u64,
+) {
+    adapter.inject(frame);
+    let batch = engine.wait_wakes(Duration::from_secs(1));
+    assert!(!batch.adapter_routes.is_empty(), "adapter wake must arrive");
+    engine.pump_woken(&batch, tick).expect("targeted pump");
+}
+
+fn held_resize_payloads(queue: &ControlQueue) -> Vec<ResizePayload> {
+    queue
+        .held_frames()
+        .into_iter()
+        .filter(|(frame_type, _)| *frame_type == FRAME_RESIZE)
+        .map(|(_, payload)| serde_json::from_slice(&payload).expect("resize payload"))
+        .collect()
+}
+
+#[test]
+fn pump_woken_admits_one_worker_resize_frame_for_one_request() {
+    let (mut engine, _, _, adapter, queue) = held_resize_engine("woken-resize-once");
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(31, 101), 20);
+
+    assert_eq!(
+        held_resize_payloads(&queue),
+        vec![ResizePayload {
+            rows: 31,
+            cols: 101
+        }]
+    );
+    assert_eq!(input_result_count(&adapter, "resize"), 1);
+}
+
+#[test]
+fn pump_woken_admits_one_worker_resize_frame_per_identical_request() {
+    let (mut engine, _, _, adapter, queue) = held_resize_engine("woken-resize-identical");
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(31, 101), 20);
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(31, 101), 21);
+
+    assert_eq!(
+        held_resize_payloads(&queue),
+        vec![
+            ResizePayload {
+                rows: 31,
+                cols: 101
+            },
+            ResizePayload {
+                rows: 31,
+                cols: 101
+            },
+        ]
+    );
+    assert_eq!(input_result_count(&adapter, "resize"), 2);
+}
+
+#[test]
+fn pump_woken_preserves_worker_resize_frame_order() {
+    let (mut engine, _, _, adapter, queue) = held_resize_engine("woken-resize-order");
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(31, 101), 20);
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(32, 102), 21);
+
+    assert_eq!(
+        held_resize_payloads(&queue),
+        vec![
+            ResizePayload {
+                rows: 31,
+                cols: 101
+            },
+            ResizePayload {
+                rows: 32,
+                cols: 102
+            },
+        ]
+    );
+}
+
+#[test]
+fn pump_woken_ingress_only_wake_admits_no_worker_resize_frame() {
+    let (mut engine, session_id, _, _, queue) = held_resize_engine("woken-resize-ingress");
+    engine
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![session_id],
+            },
+            20,
+        )
+        .expect("ingress-only pump");
+
+    assert!(held_resize_payloads(&queue).is_empty());
+}
+
+#[test]
+fn pump_woken_capacity_parked_resize_is_admitted_once_after_capacity_returns() {
+    let (mut engine, session_id, _, adapter, queue) = held_resize_engine("woken-resize-capacity");
+    for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS) {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: Vec::new(),
+            })
+            .expect("fill ordinary queue");
+    }
+    pump_adapter_wake(&mut engine, &adapter, compact_resize_frame(31, 101), 20);
+    assert!(held_resize_payloads(&queue).is_empty());
+    assert_eq!(input_result_count(&adapter, "resize"), 0);
+
+    queue.hold_pops(false);
+    let capacity_batch = engine.wait_wakes(Duration::from_secs(1));
+    assert!(capacity_batch.ingress_sessions.contains(&session_id));
+    queue.hold_pops(true);
+    engine
+        .pump_woken(&capacity_batch, 21)
+        .expect("capacity retry pump");
+
+    assert_eq!(
+        held_resize_payloads(&queue),
+        vec![ResizePayload {
+            rows: 31,
+            cols: 101
+        }]
+    );
+    assert_eq!(input_result_count(&adapter, "resize"), 1);
 }
 
 #[test]
