@@ -22,7 +22,7 @@ use crate::contract::terminal_subscription::{
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
 };
-use crate::engine::client_worker::ClientWorker;
+use crate::engine::client_worker::{ClientWorker, OwnerKey};
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
@@ -612,6 +612,13 @@ where
         {
             return self.client_worker.detach_live(session_id, &subscription_id);
         }
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id,
+        };
+        if self.client_worker.has_terminal_input(&key) {
+            self.client_worker.park_for_capacity(&key);
+        }
         None
     }
 
@@ -633,6 +640,13 @@ where
             .is_err()
         {
             return self.client_worker.detach_live(session_id, &subscription_id);
+        }
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id,
+        };
+        if self.client_worker.has_terminal_input(&key) {
+            self.client_worker.park_for_capacity(&key);
         }
         None
     }

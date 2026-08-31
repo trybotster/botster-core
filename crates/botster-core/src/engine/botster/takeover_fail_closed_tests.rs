@@ -8,7 +8,9 @@ use super::{ClientId, SessionId, SubscriptionId, WorkerBackedBotsterEngine};
 use crate::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
-use crate::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter};
+use crate::contract::terminal_wake::{
+    TerminalWakeBatch, TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter,
+};
 use crate::contract::transport::TransportEgress;
 use crate::runtime::{
     ControlFrameClass, SessionRuntime, SessionSpawnRequest, WORKER_CONTROL_QUEUE_FRAMES,
@@ -729,6 +731,35 @@ fn compact_input_frame(data: &[u8]) -> Vec<u8> {
     bytes
 }
 
+fn compact_resize_frame(rows: u16, cols: u16) -> Vec<u8> {
+    let mut bytes = vec![1, 3, 0, 4];
+    bytes.extend_from_slice(&rows.to_be_bytes());
+    bytes.extend_from_slice(&cols.to_be_bytes());
+    bytes
+}
+
+fn input_result_count(adapter: &InjectAdapter, kind: &str) -> usize {
+    adapter
+        .writes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
+                && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
+        })
+        .count()
+}
+
+fn settle_wakes(engine: &mut WorkerBackedBotsterEngine, tick: u64) {
+    for _ in 0..4 {
+        let batch = engine.wait_wakes(Duration::from_millis(50));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            break;
+        }
+        engine.pump_woken(&batch, tick).expect("settle prior wakes");
+    }
+}
+
 #[test]
 fn pump_woken_retries_capacity_parked_input_once_after_the_capacity_wake() {
     let mut engine = WorkerBackedBotsterEngine::new(worker_path());
@@ -826,6 +857,271 @@ fn pump_woken_retries_capacity_parked_input_once_after_the_capacity_wake() {
         "capacity retry did not deliver once: {:?}",
         adapter.writes()
     );
+}
+
+#[test]
+fn pump_woken_uses_only_one_free_slot_for_two_input_commands() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("woken-one-slot".to_string());
+    let client = ClientId("woken-one-slot-client".to_string());
+    let subscription = SubscriptionId("woken-one-slot-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("generation");
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client,
+            session_id.clone(),
+            subscription,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    settle_wakes(&mut engine, 19);
+    let queue = engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("control queue");
+    queue.hold_pops(true);
+    for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS - 1) {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: Vec::new(),
+            })
+            .expect("leave one ordinary slot");
+    }
+    adapter.inject(compact_input_frame(b"FIRST\n"));
+    adapter.inject(compact_input_frame(b"SECOND\n"));
+    let route_batch = engine.wait_wakes(Duration::from_secs(1));
+    engine
+        .pump_woken(&route_batch, 20)
+        .expect("use one free slot");
+    assert_eq!(input_result_count(&adapter, "input"), 1);
+    assert_eq!(
+        queue.class_counts().0,
+        WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS
+    );
+
+    queue.hold_pops(false);
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        let batch = engine.wait_wakes(Duration::from_millis(100));
+        engine.pump_woken(&batch, 21).expect("retry second input");
+        if input_result_count(&adapter, "input") == 2 {
+            return;
+        }
+    }
+    panic!("second input did not complete once: {:?}", adapter.writes());
+}
+
+#[test]
+fn pump_woken_preserves_all_command_kinds_under_full_pressure() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("woken-pressure-matrix".to_string());
+    let client = ClientId("woken-pressure-client".to_string());
+    let subscription = SubscriptionId("woken-pressure-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("generation");
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client,
+            session_id.clone(),
+            subscription,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    settle_wakes(&mut engine, 19);
+    let flags = engine
+        .read_mode_flags(
+            RequestId("woken-pressure-modes".to_string()),
+            session_id.clone(),
+            20,
+        )
+        .expect("mode flags");
+    let (mode_generation, mode_revision) = flags
+        .session_events
+        .iter()
+        .find_map(|event| match event {
+            SessionIoEvent::ModeFlagsReady(ready) => Some((
+                ready.mode_freshness.mode_generation,
+                ready.mode_freshness.mode_revision,
+            )),
+            _ => None,
+        })
+        .expect("authoritative mode freshness");
+    let queue = engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("control queue");
+    queue.hold_pops(true);
+    for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS) {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: Vec::new(),
+            })
+            .expect("fill ordinary queue");
+    }
+    adapter.inject(compact_input_frame(b"PRESSURE\n"));
+    adapter.inject(compact_mode_gated_frame(
+        mode_generation,
+        mode_revision,
+        b"GATED\n",
+    ));
+    adapter.inject(compact_resize_frame(35, 95));
+    let route_batch = engine.wait_wakes(Duration::from_secs(1));
+    engine
+        .pump_woken(&route_batch, 21)
+        .expect("park all command kinds");
+    assert_eq!(input_result_count(&adapter, "input"), 0);
+    assert_eq!(input_result_count(&adapter, "mode_gated_input"), 0);
+    assert_eq!(input_result_count(&adapter, "resize"), 0);
+
+    queue.hold_pops(false);
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        let batch = engine.wait_wakes(Duration::from_millis(100));
+        engine
+            .pump_woken(&batch, 22)
+            .expect("retry pressured commands");
+        if input_result_count(&adapter, "input") == 1
+            && input_result_count(&adapter, "mode_gated_input") == 1
+            && input_result_count(&adapter, "resize") == 1
+        {
+            return;
+        }
+    }
+    panic!(
+        "pressure matrix did not complete once: {:?}",
+        adapter.writes()
+    );
+}
+
+#[test]
+fn pump_woken_hard_stops_input_owner_after_clean_queue_seal() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("woken-clean-seal".to_string());
+    let client = ClientId("woken-clean-seal-client".to_string());
+    let subscription = SubscriptionId("woken-clean-seal-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("generation");
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client,
+            session_id.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    settle_wakes(&mut engine, 19);
+    engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("control queue")
+        .seal();
+    adapter.inject(compact_input_frame(b"SEALED\n"));
+    let route_batch = engine.wait_wakes(Duration::from_secs(1));
+    engine
+        .pump_woken(&route_batch, 20)
+        .expect("hard-stop sealed owner");
+    assert!(engine
+        .list_terminal_subscriptions()
+        .iter()
+        .all(|row| row.subscription_id != subscription));
+    assert_eq!(input_result_count(&adapter, "input"), 0);
+}
+
+#[test]
+fn pump_woken_defers_adapter_input_during_incremental_attach() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("woken-attach-deferral".to_string());
+    let client = ClientId("woken-attach-client".to_string());
+    let subscription = SubscriptionId("woken-attach-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("start attach");
+    assert!(engine.incremental_attach_active(&session_id));
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("generation");
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client.clone(),
+            session_id.clone(),
+            subscription,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind during attach");
+    adapter.inject(compact_input_frame(b"AFTER-ATTACH\n"));
+    let route_batch = engine.wait_wakes(Duration::from_secs(1));
+    engine
+        .pump_woken(&route_batch, 11)
+        .expect("defer during attach");
+    assert!(engine.incremental_attach_active(&session_id));
+    assert_eq!(input_result_count(&adapter, "input"), 0);
+
+    let started = Instant::now();
+    let mut tick = 12;
+    while engine.incremental_attach_active(&session_id) {
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "incremental attach did not complete"
+        );
+        engine
+            .drain_runtime_once(&session_id, tick)
+            .expect("drain attach boundary");
+        tick += 1;
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!engine.incremental_attach_active(&session_id));
+    let capacity_batch = TerminalWakeBatch {
+        adapter_routes: Vec::new(),
+        ingress_sessions: vec![session_id],
+    };
+    engine
+        .pump_woken(&capacity_batch, 20)
+        .expect("apply after attach");
+    assert_eq!(input_result_count(&adapter, "input"), 1);
 }
 
 #[test]
