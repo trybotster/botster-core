@@ -2,8 +2,9 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 2 (revised after Plan Review `review_1788201761_105279`, finding
-`finding_1788201761_141189`)
+Revision: 3 (revised after Plan Review `review_1788201761_105279` finding
+`finding_1788201761_141189`, and `review_1788202487_787926` finding
+`finding_1788202487_209804`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -106,7 +107,10 @@ named by the batch. No unnamed session is loaded, saved, or patched.
    lifecycle upsert only when the persisted `rows` or `cols` actually change. Refactor
    `persist_session_size` into a shared inner writer plus a changed-only wrapper. The
    control-plane `CoreDaemon::resize` path keeps its current unconditional write.
-5. Tests. Add live worker-backed proofs and three separate red ablations.
+5. Tests. Add operation-count proofs at the worker-bound `FRAME_RESIZE` seam, live
+   worker-backed proofs of the final PTY size, and three separate red ablations. Add one
+   `#[cfg(test)]` `pub(crate)` accessor on `ControlQueue` that returns held
+   `(frame_type, payload)` pairs, beside the existing `#[cfg(test)]` `hold_pops`.
 6. Documentation. Update `docs/architecture/terminal-adapter.md` with the completed
    resize hop, and land this plan under `docs/archive/plans/`.
 
@@ -142,6 +146,16 @@ named by the batch. No unnamed session is loaded, saved, or patched.
   `apply_targeted_client_ingress` with the input hop proven at `a781556`. The first new
   test asserts live `stty size` output. If that test shows the PTY does not resize, the
   apply hop repair is in scope for this ticket and the plan needs one revision.
+- Assumption A4, measured and then superseded as an oracle: the kernel raises `SIGWINCH`
+  only when `TIOCSWINSZ` changes the stored size. A local Darwin PTY given 31x101,
+  31x101, 32x102 produced only `WINCH-1 31 101` and `WINCH-2 32 102`, and Linux
+  `tty_do_resize` returns early on an unchanged size. That measurement is why revision 3
+  counts admitted `FRAME_RESIZE` frames instead of signals for every exactly-once claim.
+- Assumption A5: one admitted `FRAME_RESIZE` frame equals one PTY resize operation,
+  because the worker child performs one `ghostty.resize` plus one runtime resize for each
+  received frame and applies no same-size suppression
+  (`crates/botster-core-daemon/src/bin/botster-session-worker.rs:248`). The Implementer
+  must re-read that handler before relying on the count.
 - Assumption A2: "repeated identical resize exactly-once behavior without duplicate
   patches" means the registry save and the lifecycle upsert are skipped when the size is
   unchanged, while each accepted command still produces one `FRAME_RESIZE` and one
@@ -164,6 +178,10 @@ named by the batch. No unnamed session is loaded, saved, or patched.
   existing `applied_attach_resizes` cleanup (`botster.rs:990`, `botster.rs:2007`).
 - `crates/botster-core-daemon/src/daemon.rs`: `DaemonEngine::take_applied_terminal_resize`,
   the `pump_woken` persistence step, and the changed-only persistence wrapper.
+- `crates/botster-core/src/runtime/control_queue.rs`: one `#[cfg(test)]` `pub(crate)`
+  accessor for held `(frame_type, payload)` pairs.
+- `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`: the
+  operation-count tests T4, T4b, T4c, T4d, and the T6 sibling companion.
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs`: targeted wake proofs.
 - `crates/botster-core-daemon/tests/daemon_integration_test.rs`: registry, patch, and
   sibling proofs.
@@ -185,9 +203,13 @@ named by the batch. No unnamed session is loaded, saved, or patched.
   `FRAME_RESIZE`-derived size change, one input result, and no duplicate patch.
 - R5: registry save failure must not lose retained output. Mitigation: reuse the shipped
   retain-and-first-error arm and keep `pump_persist_resize_error_retains_once` green.
-- R7: the `WINCH` trap oracle depends on kernel signal behavior. Mitigation: the kernel
-  rule above is measured, T4b forces a real size change for each request, and A1 proves
-  the notification assertions go red when the apply hop is removed.
+- R7: a signal-based or final-size oracle cannot detect a duplicate same-size resize call,
+  because the kernel suppresses `SIGWINCH` for an unchanged size. Mitigation: the
+  exactly-once oracle counts admitted `FRAME_RESIZE` frames before the kernel, and the
+  `WINCH` trap is demoted to live-PTY corroboration.
+- R8: held-pop tests cannot also observe the live PTY, because held frames never reach the
+  worker. Mitigation: the plan splits the two oracles across separate tests and requires
+  both, so neither the operation count nor the live final-size proof is dropped.
 - R6: an unrelated flake could mask a real failure
   ([[botster core bounded waiting queue test flakes under workspace load]]). Mitigation:
   matched base evidence plus a later green workspace gate.
@@ -246,10 +268,49 @@ loop continues for the remaining named sessions. No sibling is sacrificed.
 
 ### PTY resize oracle
 
-A final-size assertion proves the last value, not the number of resize operations. Two
-`TIOCSWINSZ` calls for one request leave the same final `stty size` output, so
-`stty size` alone cannot prove exactly-once. The tests therefore count PTY resize
-notifications inside the child:
+Revision 2 used a `SIGWINCH` count. Plan Review rejected that, correctly. The kernel
+raises `SIGWINCH` only when `TIOCSWINSZ` changes the stored size, so two calls that carry
+the same rows and columns raise one signal. A duplicate call for one request carries
+exactly the same size, so a signal count can never detect it. A final `stty size` read has
+the same blind spot.
+
+The exactly-once proof therefore counts resize operations **before** the kernel, at the
+worker-bound control frame seam. The chain is one to one at every hop:
+
+1. `apply_one_delivery` applies one `TransportIngress::Resize`
+   (`managed_session_runtime.rs:498`).
+2. `SessionRuntimeWorkerAdapter::resize` records one `SessionRuntimeInput::Resize`
+   (`managed_session_runtime.rs:2430`).
+3. `WorkerProcessRuntime::send_input` admits one `FRAME_RESIZE` control frame
+   (`worker_process.rs:1545`).
+4. The worker child performs one `ghostty.resize` and one PTY resize for each received
+   `FRAME_RESIZE` (`crates/botster-core-daemon/src/bin/botster-session-worker.rs:248`).
+   The child applies no same-size suppression of its own.
+
+Counting admitted `FRAME_RESIZE` frames therefore counts PTY resize operations, including
+duplicate same-size calls that the kernel would hide.
+
+Mechanism. The in-crate tests already reach this seam.
+`crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs:800` takes
+`engine.session_runtime().test_control_queue(&session_id)` and calls
+`queue.hold_pops(true)`. Held frames stay in `ControlQueue` instead of reaching the writer
+thread. Frames are encoded as `[u32 LE length][u8 frame_type][payload]`
+(`session_protocol.rs:436`), so the frame type is byte 4 and the payload is the
+`ResizePayload` JSON.
+
+This plan adds one `#[cfg(test)]` `pub(crate)` accessor on `ControlQueue` that returns the
+held `(frame_type, payload)` pairs. It sits beside the existing `#[cfg(test)]`
+`hold_pops`, ships in no production build, and adds no `CoreDaemonConfig` builder, which
+keeps [[spawned Hub tests can reach only four of fourteen Core test builders]] satisfied.
+
+Two oracles with separate jobs, because one test cannot hold both:
+
+- Held pops count operations. Frames never reach the worker, so these tests assert counts
+  and payloads only.
+- Flowing pops prove the live PTY. These tests assert the live final size, which Plan
+  Review requires the plan to keep.
+
+The child in the live tests keeps the counting `WINCH` trap:
 
 ```sh
 c=0
@@ -259,56 +320,55 @@ while IFS= read -r _; do printf "SIZE %s\n" "$(stty size)"; done
 ```
 
 `crates/botster-core-daemon/tests/daemon_integration_test.rs:4013` already uses a `WINCH`
-trap in a real worker child, so this oracle needs no new harness.
-
-Kernel rule, measured before this revision: the kernel raises `SIGWINCH` only when
-`TIOCSWINSZ` changes the stored size. A local Darwin PTY measurement produced
-`WINCH-1 31 101` and `WINCH-2 32 102` for the request sequence 31x101, 31x101, 32x102,
-with no notification for the identical repeat. Linux `tty_do_resize` returns early on an
-unchanged size in the same way, and CI runs `ubuntu-latest`. Two consequences follow:
-
-- A duplicate PTY resize for one request stays visible, because T4b forces a real size
-  change for each request and A1 forces zero notifications.
-- A missing second notification in T5 is kernel behavior, not a lost Core command. T5
-  therefore uses the two input results and the single lifecycle patch as its exactly-once
-  evidence, and uses the single notification as a consistency check. If the CI platform
-  ever raises a second notification for an unchanged size, the Implementer records the
-  observed behavior and keeps the patch count as the T5 oracle.
+trap in a real worker child. The trap now serves as live-PTY corroboration and sibling
+liveness, never as the exactly-once oracle.
 
 New tests. Each names the live oracle it uses.
 
-- T1 live PTY resize, worker-backed. Spawn a worker-backed session, through
-  `with_worker_path(worker_path())`, whose child installs the counting `WINCH` trap and
-  prints `stty size` for each input line. Bind a waking adapter, inject one compact resize
-  frame for 31x101, and pump the wake. Assert the delivered output contains `31 101`. This
-  proves the named PTY reached the requested size.
+Operation-count tests, in-crate in
+`crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`, over
+`WorkerBackedBotsterEngine::new(worker_path())` with `hold_pops(true)`:
+
+- T4 exactly one operation for one request. Inject one compact 31x101 resize frame, wake,
+  and pump once. Assert the held queue gained exactly one `FRAME_RESIZE` frame whose
+  payload decodes to `rows: 31, cols: 101`. Assert exactly one `resize`
+  `TerminalInputResult`. Two frames mean Core resized twice.
+- T4b exactly one operation per identical repeated request. Inject 31x101, pump, inject
+  31x101 again, and pump again. Assert exactly two `FRAME_RESIZE` frames, both decoding to
+  31x101. This is the case the `SIGWINCH` oracle could not see, and it proves one PTY
+  resize per accepted request with no coalescing and no duplication.
+- T4c ordered distinct sizes. Inject 31x101, pump, then 32x102, and pump. Assert exactly
+  two `FRAME_RESIZE` frames in order, 31x101 then 32x102.
+- T4d no operation without a request. Pump an ingress-only wake for the same session and
+  assert the held queue gained zero `FRAME_RESIZE` frames.
+- T7 backpressure retention. Fill the ordinary control queue to
+  `ControlAdmission::Full`, following the shipped pattern at
+  `takeover_fail_closed_tests.rs:800`, so the resize parks. Assert zero `FRAME_RESIZE`
+  frames admitted while the owner stays parked, which proves retention without an early
+  apply. Release capacity, deliver the matching session ingress wake, and assert exactly
+  one `FRAME_RESIZE` frame carrying 31x101. A daemon-level companion then asserts one
+  record update and one lifecycle patch. Together these prove retention without loss and
+  without duplication.
+
+Live-path tests, in `crates/botster-core-daemon/tests/`, with pops flowing and the real
+worker binary:
+
+- T1 live PTY final size, worker-backed. Spawn through `with_worker_path(worker_path())`
+  with the counting `WINCH` child. Bind a waking adapter, inject one 31x101 frame, and
+  pump. Assert the delivered output reports `31 101`, which proves the named PTY reached
+  the requested size through the live path.
 - T2 persistence. Same tick as T1. Assert `sessions/<id>.json` through
   `daemon.registry().load(...)` reports `(31, 101)`.
 - T3 one lifecycle patch. Assert exactly one lifecycle upsert carries `rows=31` and
   `cols=101` after the pump.
-- T4 exactly one PTY resize operation for one request. Same child as T1. Inject one
-  31x101 frame and pump once. Assert exactly one `WINCH-` line, and assert that line
-  reports `31 101`. Assert exactly one `resize` `TerminalInputResult` reaches the adapter.
-  A second `WINCH-` line means Core issued the PTY resize twice.
-- T4b one PTY resize per accepted request. Inject 31x101, pump, then inject 32x102, and
-  pump again. Assert exactly two `WINCH-` lines in order, `WINCH-1 31 101` then
-  `WINCH-2 32 102`. This distinguishes one resize per request from coalescing and from
-  duplication, which a final-size assertion cannot do.
-- T5 repeated identical resize. Inject 31x101 twice across two pumps. Assert two `resize`
-  input results, one persisted record at `(31, 101)`, exactly one lifecycle patch, and
-  exactly one `WINCH-` line. The single notification follows the kernel rule stated above,
-  not a Core suppression.
-- T6 sibling isolation. Two worker-backed sessions with one bound route each, both
-  running the counting `WINCH` child. Resize session A only. Assert A reaches
-  `(31, 101)` in the record and in `stty size` with exactly one `WINCH-` line, and assert
-  session B keeps `(24, 80)` in the record and in `stty size`, emits zero `WINCH-` lines,
-  and receives no lifecycle patch.
-- T7 backpressure retention. Fill the control queue so the resize parks with
-  `ControlAdmission::Full`. Assert zero `WINCH-` lines while the owner stays parked, which
-  proves the resize is retained and not applied early. Release capacity, deliver the
-  matching session ingress wake, and assert exactly one `WINCH-` line reporting
-  `31 101`, one record update, and one lifecycle patch. This proves retention without
-  loss and without duplication.
+- T5 repeated identical resize, durable side. Inject 31x101 twice across two pumps. Assert
+  two `resize` input results, one persisted record at `(31, 101)`, and exactly one
+  lifecycle patch. T4b already proved the operation count for this case.
+- T6 sibling isolation. Two worker-backed sessions with one bound route each, both running
+  the counting `WINCH` child. Resize session A only. Assert A reports `31 101` and the
+  record `(31, 101)`. Assert session B reports zero `WINCH-` lines, keeps `(24, 80)` in
+  the record and in `stty size`, and receives no lifecycle patch. The in-crate companion
+  asserts zero `FRAME_RESIZE` frames on session B's control queue.
 - T8 preservation. In one scenario, assert ordinary input still echoes, mode-gated input
   still resolves, lifecycle commit still runs, and output delivery still reaches the
   adapter after the resize tick.
@@ -318,8 +378,9 @@ New tests. Each names the live oracle it uses.
 Red ablations. Each is a separate revert with recorded red output.
 
 - A1 resize apply. Remove the `TerminalInputCommand::Resize` targeted apply arm.
-  Expected red: T1, T4, T4b, T6. T4 and T4b go red with zero `WINCH-` lines, which proves
-  the assertions read the live PTY and not a cached value.
+  Expected red: T1, T4, T4b, T4c, T6. The operation-count tests go red with zero
+  `FRAME_RESIZE` frames, and T1 goes red with no `31 101` report, which proves the
+  assertions read the real seam and the live PTY rather than a cached value.
 - A2 persistence. Remove only the registry save in the pump persistence step and keep the
   patch append. Expected red: T2, T6.
 - A3 patch publication. Remove only the `append_lifecycle_upsert` call in the pump
