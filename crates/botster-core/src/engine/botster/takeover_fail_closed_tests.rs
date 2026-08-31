@@ -8,6 +8,7 @@ use super::{ClientId, SessionId, SubscriptionId, WorkerBackedBotsterEngine};
 use crate::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
+use crate::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter};
 use crate::contract::transport::TransportEgress;
 use crate::runtime::{
     ControlFrameClass, SessionRuntime, SessionSpawnRequest, WORKER_CONTROL_QUEUE_FRAMES,
@@ -609,6 +610,8 @@ fn teardown_reconcile_discards_removed_owner_queues() {
 struct InjectAdapter {
     ingress: Arc<Mutex<VecDeque<Vec<u8>>>>,
     closed: Arc<Mutex<bool>>,
+    writes: Arc<Mutex<Vec<Vec<u8>>>>,
+    wake_sink: Arc<Mutex<Option<TerminalWakeSink>>>,
 }
 
 impl InjectAdapter {
@@ -616,6 +619,8 @@ impl InjectAdapter {
         Self {
             ingress: Arc::new(Mutex::new(VecDeque::new())),
             closed: Arc::new(Mutex::new(false)),
+            writes: Arc::new(Mutex::new(Vec::new())),
+            wake_sink: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -624,11 +629,26 @@ impl InjectAdapter {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .push_back(bytes);
+        if let Some(sink) = self
+            .wake_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            let _ = sink.wake(TerminalWakeKind::Writable);
+        }
+    }
+
+    fn writes(&self) -> Vec<Vec<u8>> {
+        self.writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 }
 
 impl TerminalAdapter for InjectAdapter {
-    fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         if *self
             .closed
             .lock()
@@ -636,6 +656,10 @@ impl TerminalAdapter for InjectAdapter {
         {
             return Err(TerminalAdapterWriteError::Closed);
         }
+        self.writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(frame.to_bytes().expect("terminal frame bytes"));
         Ok(())
     }
 
@@ -678,6 +702,15 @@ impl TerminalAdapter for InjectAdapter {
     }
 }
 
+impl WakingTerminalAdapter for InjectAdapter {
+    fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+        *self
+            .wake_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(sink);
+    }
+}
+
 fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
     let body_len = u16::try_from(16 + data.len()).expect("gated body fits u16");
     let mut bytes = vec![1, 2];
@@ -686,6 +719,113 @@ fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8
     bytes.extend_from_slice(&mode_revision.to_be_bytes());
     bytes.extend_from_slice(data);
     bytes
+}
+
+fn compact_input_frame(data: &[u8]) -> Vec<u8> {
+    let len = u16::try_from(data.len()).expect("input fits u16");
+    let mut bytes = vec![1, 1];
+    bytes.extend_from_slice(&len.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+#[test]
+fn pump_woken_retries_capacity_parked_input_once_after_the_capacity_wake() {
+    let mut engine = WorkerBackedBotsterEngine::new(worker_path());
+    let session_id = SessionId("woken-capacity-retry".to_string());
+    let client = ClientId("woken-capacity-client".to_string());
+    let subscription = SubscriptionId("woken-capacity-sub".to_string());
+    engine
+        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .expect("spawn");
+    engine
+        .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
+        .expect("attach");
+    let _ = drain_until_attached(&mut engine, &session_id, &client);
+    let generation = engine
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription)
+        .expect("inventory")
+        .generation;
+    let adapter = InjectAdapter::new();
+    engine
+        .bind_waking_terminal_adapter(
+            client,
+            session_id.clone(),
+            subscription.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    for _ in 0..4 {
+        let batch = engine.wait_wakes(Duration::from_millis(50));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            break;
+        }
+        engine.pump_woken(&batch, 19).expect("settle prior wakes");
+    }
+    let queue = engine
+        .session_runtime()
+        .test_control_queue(&session_id)
+        .expect("control queue");
+    queue.hold_pops(true);
+    for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS) {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: Vec::new(),
+            })
+            .expect("fill ordinary queue");
+    }
+    adapter.inject(compact_input_frame(b"CAPACITY-ONCE\n"));
+    let route_batch = engine.wait_wakes(Duration::from_secs(1));
+    assert!(route_batch
+        .adapter_routes
+        .iter()
+        .any(|route| { route.session_id == session_id && route.subscription_id == subscription }));
+    engine
+        .pump_woken(&route_batch, 20)
+        .expect("park full input");
+    assert!(
+        engine
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == subscription),
+        "transient full must keep the exact owner live"
+    );
+    assert!(
+        adapter
+            .writes()
+            .iter()
+            .all(|bytes| { !String::from_utf8_lossy(bytes).contains("input_result") }),
+        "a parked frame must not report completion"
+    );
+
+    queue.hold_pops(false);
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        let batch = engine.wait_wakes(Duration::from_millis(100));
+        engine.pump_woken(&batch, 21).expect("capacity retry pump");
+        let writes = adapter.writes();
+        let results = writes
+            .iter()
+            .filter(|bytes| String::from_utf8_lossy(bytes).contains("input_result"))
+            .count();
+        let echoes = writes
+            .iter()
+            .filter(|bytes| String::from_utf8_lossy(bytes).contains("Q0FQQUNJVFktT05DRQ"))
+            .count();
+        if results == 1 && echoes == 1 {
+            return;
+        }
+    }
+    panic!(
+        "capacity retry did not deliver once: {:?}",
+        adapter.writes()
+    );
 }
 
 #[test]

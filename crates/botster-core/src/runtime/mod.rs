@@ -48,6 +48,8 @@ pub use capability::{
     DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
 };
 #[cfg(feature = "local-runtime")]
+pub(crate) use control_queue::ControlAdmission;
+#[cfg(feature = "local-runtime")]
 pub use control_queue::{
     ControlFrameClass, ControlPlaneState, ControlQueue, ControlQueueAdmitError, ControlWriterError,
     ControlWriterOutcome, ControlWriterSlot, WORKER_CONTROL_QUEUE_FRAMES,

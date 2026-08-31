@@ -6,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
     SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
-    TerminalWakeKind, WAKE_QUEUE_CAPACITY,
+    TerminalWakeBatch, TerminalWakeKind, WAKE_QUEUE_CAPACITY,
 };
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
@@ -43,6 +43,211 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
 
 fn empty_caps() -> TerminalCapabilitySet {
     TerminalCapabilitySet::empty()
+}
+
+fn compact_input_frame(data: &[u8]) -> Vec<u8> {
+    let len = u16::try_from(data.len()).expect("input fits u16");
+    let mut bytes = vec![1, 1];
+    bytes.extend_from_slice(&len.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn compact_resize_frame(rows: u16, cols: u16) -> Vec<u8> {
+    let mut bytes = vec![1, 3, 0, 4];
+    bytes.extend_from_slice(&rows.to_be_bytes());
+    bytes.extend_from_slice(&cols.to_be_bytes());
+    bytes
+}
+
+fn compact_mode_gated_frame(data: &[u8]) -> Vec<u8> {
+    let body_len = u16::try_from(16 + data.len()).expect("gated input fits u16");
+    let mut bytes = vec![1, 2];
+    bytes.extend_from_slice(&body_len.to_be_bytes());
+    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(data);
+    bytes
+}
+
+fn delivered_input_result_count(adapter: &SharedFakeTerminalAdapter, kind: &str) -> usize {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .is_some_and(|value| {
+                    value.get("type").and_then(|field| field.as_str()) == Some("input_result")
+                        && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
+                })
+        })
+        .count()
+}
+
+#[cfg(unix)]
+#[test]
+fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
+    let data_dir = temp_data_dir("pump-input");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("pump-input-session".into());
+    let client_id = ClientId("pump-input-client".into());
+    let subscription_id = SubscriptionId("pump-input-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    adapter.inject_ingress_frame(compact_input_frame(b"WAKE-INPUT\n"));
+    let first = daemon.wait_wakes(Duration::from_secs(1));
+    assert!(first.adapter_routes.iter().any(|route| {
+        route.session_id == session_id && route.subscription_id == subscription_id
+    }));
+    daemon.pump_woken(&first, 3).expect("apply input wake");
+
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon.pump_woken(&batch, 4).expect("pump PTY echo");
+        let delivered = adapter.snapshot_delivered_frame_bytes();
+        let input_results = delivered
+            .iter()
+            .filter(|bytes| {
+                serde_json::from_slice::<serde_json::Value>(bytes)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("type")
+                            .and_then(|kind| kind.as_str())
+                            .map(str::to_owned)
+                    })
+                    .as_deref()
+                    == Some("input_result")
+            })
+            .count();
+        let echoes = delivered
+            .iter()
+            .filter(|bytes| {
+                serde_json::from_slice::<serde_json::Value>(bytes)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("payload_base64")
+                            .and_then(|payload| payload.as_str())
+                            .map(str::to_owned)
+                    })
+                    .is_some_and(|payload| {
+                        matches!(
+                            payload.as_str(),
+                            "ZWNobzpXQUtFLUlOUFVUDQo=" | "V0FLRS1JTlBVVA0KZWNobzpXQUtFLUlOUFVUDQo="
+                        )
+                    })
+            })
+            .count();
+        if input_results == 1 && echoes == 1 {
+            let _ = fs::remove_dir_all(data_dir);
+            return;
+        }
+    }
+    panic!(
+        "targeted pump must deliver one result and one PTY echo: {:?}",
+        adapter.snapshot_delivered_frame_bytes()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
+    let data_dir = temp_data_dir("pump-result-egress");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("pump-result-session".into());
+    let client_id = ClientId("pump-result-client".into());
+    let subscription_id = SubscriptionId("pump-result-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "stty -echo; while IFS= read -r _; do :; done".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&resize_batch, 3)
+        .expect("resize apply tick");
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
+
+    adapter.inject_ingress_frame(compact_mode_gated_frame(b"rejected"));
+    let gated_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&gated_batch, 4)
+        .expect("gated rejection tick");
+    assert_eq!(
+        delivered_input_result_count(&adapter, "mode_gated_input"),
+        1
+    );
+    let _ = fs::remove_dir_all(data_dir);
 }
 
 #[test]
@@ -364,6 +569,67 @@ fn pump_woken_does_not_try_read_unrelated_adapter() {
         sibling_reads_before,
         "unrelated adapter must not receive try_read"
     );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn ingress_only_wake_does_not_apply_sibling_route_input() {
+    let data_dir = temp_data_dir("ingress-route-isolation");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("ingress-route-session".into());
+    let first_client = ClientId("ingress-route-first-client".into());
+    let sibling_client = ClientId("ingress-route-sibling-client".into());
+    let first_sub = SubscriptionId("ingress-route-first-sub".into());
+    let sibling_sub = SubscriptionId("ingress-route-sibling-sub".into());
+    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+    for (client, subscription) in [
+        (first_client.clone(), first_sub.clone()),
+        (sibling_client.clone(), sibling_sub.clone()),
+    ] {
+        daemon
+            .attach(client, session_id.clone(), subscription, 2)
+            .expect("attach route");
+    }
+    let first = SharedFakeTerminalAdapter::auto_complete();
+    let sibling = SharedFakeTerminalAdapter::auto_complete();
+    for (client, subscription, adapter) in [
+        (first_client, first_sub, first.clone()),
+        (sibling_client, sibling_sub.clone(), sibling.clone()),
+    ] {
+        let generation = daemon
+            .list_terminal_subscriptions()
+            .into_iter()
+            .find(|row| row.subscription_id == subscription)
+            .expect("inventory")
+            .generation;
+        daemon
+            .bind_waking_terminal_adapter(
+                client,
+                session_id.clone(),
+                subscription,
+                generation,
+                empty_caps(),
+                Box::new(adapter),
+            )
+            .expect("bind route");
+    }
+    sibling.inject_ingress_frame(compact_input_frame(b"MUST-STAY-QUEUED\n"));
+    let reads_before = sibling.try_read_count();
+    daemon
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![session_id],
+            },
+            3,
+        )
+        .expect("ingress-only pump");
+    assert_eq!(
+        sibling.try_read_count(),
+        reads_before,
+        "session ingress must not intake a sibling adapter route"
+    );
+    assert_eq!(delivered_input_result_count(&sibling, "input"), 0);
     let _ = fs::remove_dir_all(data_dir);
 }
 

@@ -75,6 +75,17 @@ pub enum ControlQueueAdmitError {
     Sealed,
 }
 
+/// Current admission state for one ordinary control frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControlAdmission {
+    /// One ordinary frame can be admitted now.
+    Ready,
+    /// The bounded ordinary lane is full.
+    Full,
+    /// The queue has stopped accepting frames.
+    Sealed,
+}
+
 struct ControlQueueState {
     frames: VecDeque<(ControlFrameClass, Vec<u8>)>,
     ordinary_len: usize,
@@ -139,6 +150,20 @@ impl ControlQueue {
         Ok(())
     }
 
+    /// Probe ordinary capacity under the same lock used by [`Self::admit`].
+    #[must_use]
+    pub(crate) fn probe_ordinary(&self) -> ControlAdmission {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state.sealed {
+            ControlAdmission::Sealed
+        } else if state.ordinary_len >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS
+        {
+            ControlAdmission::Full
+        } else {
+            ControlAdmission::Ready
+        }
+    }
+
     /// Seal without enqueueing. Used after a truncated write.
     pub fn seal(&self) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -148,6 +173,14 @@ impl ControlQueue {
 
     /// Pop one frame. Waits while empty and not sealed.
     pub fn pop(&self) -> Option<(ControlFrameClass, Vec<u8>)> {
+        self.pop_with_capacity_transition()
+            .map(|(class, frame, _)| (class, frame))
+    }
+
+    /// Pop one frame and report an ordinary-capacity transition.
+    pub(crate) fn pop_with_capacity_transition(
+        &self,
+    ) -> Option<(ControlFrameClass, Vec<u8>, bool)> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
             #[cfg(test)]
@@ -162,10 +195,16 @@ impl ControlQueue {
                 continue;
             }
             if let Some((class, frame)) = state.frames.pop_front() {
+                let was_ordinary_full = state.ordinary_len
+                    >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
                 if class == ControlFrameClass::Ordinary {
                     state.ordinary_len = state.ordinary_len.saturating_sub(1);
                 }
-                return Some((class, frame));
+                return Some((
+                    class,
+                    frame,
+                    class == ControlFrameClass::Ordinary && was_ordinary_full,
+                ));
             }
             if state.sealed {
                 return None;
@@ -297,6 +336,7 @@ mod tests {
     #[test]
     fn ordinary_capacity_is_thirty_and_reserved_slots_remain() {
         let queue = ControlQueue::new();
+        assert_eq!(queue.probe_ordinary(), ControlAdmission::Ready);
         for _ in 0..30 {
             queue
                 .admit(ControlFrameClass::Ordinary, vec![1])
@@ -306,6 +346,7 @@ mod tests {
             queue.admit(ControlFrameClass::Ordinary, vec![2]),
             Err(ControlQueueAdmitError::ControlQueueFull)
         );
+        assert_eq!(queue.probe_ordinary(), ControlAdmission::Full);
         queue
             .admit(ControlFrameClass::Cancel, vec![3])
             .expect("cancel reserved");
@@ -313,6 +354,7 @@ mod tests {
             .admit(ControlFrameClass::Terminal, vec![4])
             .expect("shutdown reserved");
         assert!(queue.is_sealed());
+        assert_eq!(queue.probe_ordinary(), ControlAdmission::Sealed);
         assert_eq!(
             queue.admit(ControlFrameClass::Cancel, vec![5]),
             Err(ControlQueueAdmitError::Sealed)

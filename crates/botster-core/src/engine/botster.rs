@@ -561,7 +561,11 @@ impl DefaultBotsterEngine {
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
-        self.runtime.pump_woken(batch, now_seconds)
+        let (mut outcome, sessions) = self.runtime.pump_woken_phase_one(batch, now_seconds)?;
+        self.runtime
+            .apply_woken_terminal_input(batch, now_seconds, &mut outcome)?;
+        self.runtime
+            .pump_woken_phase_three(batch, outcome, &sessions)
     }
 
     /// Shared wake source for tests and host wait loops.
@@ -1215,7 +1219,16 @@ impl WorkerBackedBotsterEngine {
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.runtime.pump_woken(batch, now_seconds)
+        let (mut outcome, sessions) = self.runtime.pump_woken_phase_one(batch, now_seconds)?;
+        let deferred_sessions = self.incremental_attaches.keys().cloned().collect();
+        self.runtime.apply_woken_terminal_input(
+            batch,
+            now_seconds,
+            &deferred_sessions,
+            &mut outcome,
+        )?;
+        self.runtime
+            .pump_woken_phase_three(batch, outcome, &sessions)
     }
 
     /// Shared wake source for tests and host wait loops.

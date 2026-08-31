@@ -15,6 +15,17 @@ state only after the existing rejection ladder. The host waits on
 `CoreDaemon::pump_woken`. The poll-path bind remains for one migration
 window. Hub Unix and WebRTC adapters are later Hub tickets.
 
+One wake-driven tick has three ordered phases. Core first intakes only the
+named adapter routes and drains only named session ingress. It then applies
+accepted input only for those exact routes, plus generation-matching owners
+that Core previously parked for worker control-queue capacity. Finally it runs
+the existing single adapter egress pump. This ordering makes plain input,
+mode-gated completion, resize, and their `input_result` frames complete without
+a second pump or an incidental PTY-output wake. A full ordinary worker control
+queue leaves the command in its bounded owner queue; the writer's transition
+away from full emits one coalesced session wake for retry. A sealed queue is a
+hard stop rather than a parked retry.
+
 `pump_woken` returns a content-free outcome. Core commits lifecycle observations
 and retains unconsumed drain content before the method returns. A host does not
 inspect or retain terminal bodies from this outcome. Routing `ProcessExited`
