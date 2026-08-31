@@ -2,7 +2,8 @@
 
 Ticket: `ticket_1788198279_441580`
 Run: `run_1788200376_394138`
-Revision: 1
+Revision: 2 (revised after Plan Review `review_1788201761_105279`, finding
+`finding_1788201761_141189`)
 Target repository: `botster-core` (`trybotster/botster-core`)
 Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base: `main` at `a781556` ("Prove targeted duplex wake edge cases")
@@ -184,6 +185,9 @@ named by the batch. No unnamed session is loaded, saved, or patched.
   `FRAME_RESIZE`-derived size change, one input result, and no duplicate patch.
 - R5: registry save failure must not lose retained output. Mitigation: reuse the shipped
   retain-and-first-error arm and keep `pump_persist_resize_error_retains_once` green.
+- R7: the `WINCH` trap oracle depends on kernel signal behavior. Mitigation: the kernel
+  rule above is measured, T4b forces a real size change for each request, and A1 proves
+  the notification assertions go red when the apply hop is removed.
 - R6: an unrelated flake could mask a real failure
   ([[botster core bounded waiting queue test flakes under workspace load]]). Mitigation:
   matched base evidence plus a later green workspace gate.
@@ -240,28 +244,71 @@ loop continues for the remaining named sessions. No sibling is sacrificed.
 
 ## Acceptance checks and tests
 
+### PTY resize oracle
+
+A final-size assertion proves the last value, not the number of resize operations. Two
+`TIOCSWINSZ` calls for one request leave the same final `stty size` output, so
+`stty size` alone cannot prove exactly-once. The tests therefore count PTY resize
+notifications inside the child:
+
+```sh
+c=0
+trap 'c=$((c+1)); printf "WINCH-%d %s\n" "$c" "$(stty size)"' WINCH
+printf ready
+while IFS= read -r _; do printf "SIZE %s\n" "$(stty size)"; done
+```
+
+`crates/botster-core-daemon/tests/daemon_integration_test.rs:4013` already uses a `WINCH`
+trap in a real worker child, so this oracle needs no new harness.
+
+Kernel rule, measured before this revision: the kernel raises `SIGWINCH` only when
+`TIOCSWINSZ` changes the stored size. A local Darwin PTY measurement produced
+`WINCH-1 31 101` and `WINCH-2 32 102` for the request sequence 31x101, 31x101, 32x102,
+with no notification for the identical repeat. Linux `tty_do_resize` returns early on an
+unchanged size in the same way, and CI runs `ubuntu-latest`. Two consequences follow:
+
+- A duplicate PTY resize for one request stays visible, because T4b forces a real size
+  change for each request and A1 forces zero notifications.
+- A missing second notification in T5 is kernel behavior, not a lost Core command. T5
+  therefore uses the two input results and the single lifecycle patch as its exactly-once
+  evidence, and uses the single notification as a consistency check. If the CI platform
+  ever raises a second notification for an unchanged size, the Implementer records the
+  observed behavior and keeps the patch count as the T5 oracle.
+
 New tests. Each names the live oracle it uses.
 
-- T1 live PTY resize, worker-backed. Spawn a worker-backed session whose child prints
-  `stty size` for each input line. Bind a waking adapter, inject one compact resize frame
-  for 31x101, and pump the wake. Assert the delivered output contains `31 101`. This
-  proves the named PTY resized.
+- T1 live PTY resize, worker-backed. Spawn a worker-backed session, through
+  `with_worker_path(worker_path())`, whose child installs the counting `WINCH` trap and
+  prints `stty size` for each input line. Bind a waking adapter, inject one compact resize
+  frame for 31x101, and pump the wake. Assert the delivered output contains `31 101`. This
+  proves the named PTY reached the requested size.
 - T2 persistence. Same tick as T1. Assert `sessions/<id>.json` through
   `daemon.registry().load(...)` reports `(31, 101)`.
 - T3 one lifecycle patch. Assert exactly one lifecycle upsert carries `rows=31` and
   `cols=101` after the pump.
-- T4 exactly-once PTY resize. Assert the child reports the new size once for one injected
-  resize frame, and assert exactly one `resize` `TerminalInputResult` reaches the adapter.
-- T5 repeated identical resize. Inject 31x101 twice across two pumps. Assert two
-  `resize` input results, one persisted record at `(31, 101)`, and no second lifecycle
-  patch.
-- T6 sibling isolation. Two worker-backed sessions with one bound route each. Resize
-  session A only. Assert A reaches `(31, 101)` in the record and in `stty size`, and
-  assert session B keeps `(24, 80)` in both, with no lifecycle patch for B.
+- T4 exactly one PTY resize operation for one request. Same child as T1. Inject one
+  31x101 frame and pump once. Assert exactly one `WINCH-` line, and assert that line
+  reports `31 101`. Assert exactly one `resize` `TerminalInputResult` reaches the adapter.
+  A second `WINCH-` line means Core issued the PTY resize twice.
+- T4b one PTY resize per accepted request. Inject 31x101, pump, then inject 32x102, and
+  pump again. Assert exactly two `WINCH-` lines in order, `WINCH-1 31 101` then
+  `WINCH-2 32 102`. This distinguishes one resize per request from coalescing and from
+  duplication, which a final-size assertion cannot do.
+- T5 repeated identical resize. Inject 31x101 twice across two pumps. Assert two `resize`
+  input results, one persisted record at `(31, 101)`, exactly one lifecycle patch, and
+  exactly one `WINCH-` line. The single notification follows the kernel rule stated above,
+  not a Core suppression.
+- T6 sibling isolation. Two worker-backed sessions with one bound route each, both
+  running the counting `WINCH` child. Resize session A only. Assert A reaches
+  `(31, 101)` in the record and in `stty size` with exactly one `WINCH-` line, and assert
+  session B keeps `(24, 80)` in the record and in `stty size`, emits zero `WINCH-` lines,
+  and receives no lifecycle patch.
 - T7 backpressure retention. Fill the control queue so the resize parks with
-  `ControlAdmission::Full`. Assert the resize is not lost and is not applied while
-  parked. Release capacity, deliver the matching session ingress wake, and assert exactly
-  one applied resize, one record update, and one lifecycle patch.
+  `ControlAdmission::Full`. Assert zero `WINCH-` lines while the owner stays parked, which
+  proves the resize is retained and not applied early. Release capacity, deliver the
+  matching session ingress wake, and assert exactly one `WINCH-` line reporting
+  `31 101`, one record update, and one lifecycle patch. This proves retention without
+  loss and without duplication.
 - T8 preservation. In one scenario, assert ordinary input still echoes, mode-gated input
   still resolves, lifecycle commit still runs, and output delivery still reaches the
   adapter after the resize tick.
@@ -271,7 +318,8 @@ New tests. Each names the live oracle it uses.
 Red ablations. Each is a separate revert with recorded red output.
 
 - A1 resize apply. Remove the `TerminalInputCommand::Resize` targeted apply arm.
-  Expected red: T1, T4, T6.
+  Expected red: T1, T4, T4b, T6. T4 and T4b go red with zero `WINCH-` lines, which proves
+  the assertions read the live PTY and not a cached value.
 - A2 persistence. Remove only the registry save in the pump persistence step and keep the
   patch append. Expected red: T2, T6.
 - A3 patch publication. Remove only the `append_lifecycle_upsert` call in the pump
