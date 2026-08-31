@@ -1,6 +1,8 @@
 #![allow(missing_docs)]
 
 use std::fs;
+use std::process::Command;
+use std::sync::Once;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
@@ -22,6 +24,32 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .expect("clock")
         .as_nanos();
     std::env::temp_dir().join(format!("botster-core-wake-{label}-{nanos}"))
+}
+
+#[cfg(unix)]
+fn worker_path() -> std::path::PathBuf {
+    static BUILD_WORKER: Once = Once::new();
+    BUILD_WORKER.call_once(|| {
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "botster-core-daemon",
+                "--bin",
+                "botster-session-worker",
+            ])
+            .status()
+            .expect("worker build command");
+        assert!(status.success(), "worker binary must build");
+    });
+    let mut path = std::env::current_exe().expect("test executable path");
+    while !matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("debug" | "release")
+    ) {
+        assert!(path.pop(), "test executable must be under target");
+    }
+    path.join("botster-session-worker")
 }
 
 fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
@@ -60,12 +88,12 @@ fn compact_resize_frame(rows: u16, cols: u16) -> Vec<u8> {
     bytes
 }
 
-fn compact_mode_gated_frame(data: &[u8]) -> Vec<u8> {
+fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8]) -> Vec<u8> {
     let body_len = u16::try_from(16 + data.len()).expect("gated input fits u16");
     let mut bytes = vec![1, 2];
     bytes.extend_from_slice(&body_len.to_be_bytes());
-    bytes.extend_from_slice(&0_u64.to_be_bytes());
-    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(&mode_generation.to_be_bytes());
+    bytes.extend_from_slice(&mode_revision.to_be_bytes());
     bytes.extend_from_slice(data);
     bytes
 }
@@ -83,6 +111,22 @@ fn delivered_input_result_count(adapter: &SharedFakeTerminalAdapter, kind: &str)
                 })
         })
         .count()
+}
+
+fn delivered_admitted_input_results(
+    adapter: &SharedFakeTerminalAdapter,
+    kind: &str,
+) -> Vec<serde_json::Value> {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
+                && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
+                && value.get("admitted").and_then(|field| field.as_bool()) == Some(true)
+        })
+        .collect()
 }
 
 #[cfg(unix)]
@@ -189,6 +233,102 @@ fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
 
 #[cfg(unix)]
 #[test]
+fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
+    let data_dir = temp_data_dir("pump-gated");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("pump-gated-session".into());
+    let client_id = ClientId("pump-gated-client".into());
+    let subscription_id = SubscriptionId("pump-gated-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "printf ready; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let started = Instant::now();
+    let mut probe = 0;
+    let token = loop {
+        probe += 1;
+        daemon
+            .drain(&session_id, 2 + probe)
+            .expect("drain attach boundary");
+        if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("pump-gated-modes-{probe}")),
+            session_id: session_id.clone(),
+            now_seconds: 20 + probe,
+        }) {
+            break result.mode_flags.mode_freshness;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "worker mode authority did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    for (index, input) in [b"GATED-ONE\n".as_slice(), b"GATED-TWO\n".as_slice()]
+        .into_iter()
+        .enumerate()
+    {
+        adapter.inject_ingress_frame(compact_mode_gated_frame(
+            token.mode_generation,
+            token.mode_revision,
+            input,
+        ));
+        let route_batch = daemon.wait_wakes(Duration::from_secs(1));
+        daemon
+            .pump_woken(&route_batch, 5 + index as u64)
+            .expect("submit gated input");
+        let started = Instant::now();
+        while delivered_admitted_input_results(&adapter, "mode_gated_input").len() < index + 1 {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "gated input did not complete"
+            );
+            let batch = daemon.wait_wakes(Duration::from_millis(100));
+            daemon
+                .pump_woken(&batch, 10 + index as u64)
+                .expect("complete gated input");
+        }
+    }
+    let results = delivered_admitted_input_results(&adapter, "mode_gated_input");
+    assert_eq!(results.len(), 2, "each gated input must complete once");
+    assert_eq!(
+        results
+            .iter()
+            .map(|result| result["bytes_written"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![Some(10), Some(10)]
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
     let data_dir = temp_data_dir("pump-result-egress");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
@@ -238,7 +378,7 @@ fn pump_woken_delivers_resize_and_rejected_gated_results_on_the_apply_tick() {
         .expect("resize apply tick");
     assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
 
-    adapter.inject_ingress_frame(compact_mode_gated_frame(b"rejected"));
+    adapter.inject_ingress_frame(compact_mode_gated_frame(0, 0, b"rejected"));
     let gated_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&gated_batch, 4)

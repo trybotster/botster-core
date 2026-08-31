@@ -766,12 +766,7 @@ impl ClientWorker {
 
     /// Exact parked owners selected by a named session wake and live generation.
     pub(crate) fn parked_route_keys(&mut self, batch: &TerminalWakeBatch) -> Vec<OwnerKey> {
-        let named_sessions: HashSet<_> = batch
-            .adapter_routes
-            .iter()
-            .map(|route| route.session_id.clone())
-            .chain(batch.ingress_sessions.iter().cloned())
-            .collect();
+        let named_sessions: HashSet<_> = batch.ingress_sessions.iter().cloned().collect();
         self.capacity_parked.retain(|key, generation| {
             self.live
                 .get(key)
@@ -1400,6 +1395,77 @@ mod tests {
             SessionId("s".into()),
             SubscriptionId("sub".into()),
         )
+    }
+
+    #[test]
+    fn adapter_route_does_not_select_capacity_parked_sibling() {
+        let mut worker = ClientWorker::new();
+        let session = SessionId("shared-session".into());
+        let route_a = OwnerKey {
+            session_id: session.clone(),
+            subscription_id: SubscriptionId("route-a".into()),
+        };
+        let route_b = OwnerKey {
+            session_id: session.clone(),
+            subscription_id: SubscriptionId("route-b".into()),
+        };
+        worker.record_attach(
+            ClientId("client-a".into()),
+            session.clone(),
+            route_a.subscription_id.clone(),
+        );
+        worker.record_attach(
+            ClientId("client-b".into()),
+            session.clone(),
+            route_b.subscription_id.clone(),
+        );
+        worker.park_for_capacity(&route_b);
+
+        let route_only = TerminalWakeBatch {
+            adapter_routes: vec![crate::contract::terminal_wake::TerminalWakeRoute {
+                session_id: session.clone(),
+                subscription_id: route_a.subscription_id.clone(),
+            }],
+            ingress_sessions: Vec::new(),
+        };
+        assert!(worker.parked_route_keys(&route_only).is_empty());
+
+        let capacity_wake = TerminalWakeBatch {
+            adapter_routes: Vec::new(),
+            ingress_sessions: vec![session],
+        };
+        assert_eq!(worker.parked_route_keys(&capacity_wake), vec![route_b]);
+    }
+
+    #[test]
+    fn stale_parked_generation_does_not_select_replacement_owner() {
+        let mut worker = ClientWorker::new();
+        let session = SessionId("parked-generation-session".into());
+        let subscription = SubscriptionId("parked-generation-sub".into());
+        let key = OwnerKey {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+        };
+        let (old_generation, _) = worker.record_attach(
+            ClientId("parked-generation-old".into()),
+            session.clone(),
+            subscription.clone(),
+        );
+        worker.park_for_capacity(&key);
+        let _ = worker.detach_generation(&session, &subscription, old_generation);
+        let (new_generation, _) = worker.record_attach(
+            ClientId("parked-generation-new".into()),
+            session.clone(),
+            subscription,
+        );
+        assert_ne!(old_generation, new_generation);
+        worker.capacity_parked.insert(key, old_generation);
+
+        let capacity_wake = TerminalWakeBatch {
+            adapter_routes: Vec::new(),
+            ingress_sessions: vec![session],
+        };
+        assert!(worker.parked_route_keys(&capacity_wake).is_empty());
     }
 
     #[test]

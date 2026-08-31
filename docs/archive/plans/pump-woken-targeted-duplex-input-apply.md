@@ -506,35 +506,38 @@ cargo test -p botster-core --test local_process_runtime_test
 ### Downstream candidate-pin procedure (required)
 
 `botster-hub` consumes Core as a pinned git revision, so `--locked` proves nothing until every
-pin names the candidate. Current Hub main pins `7eafa470a18025895995bbedc20d34b58106a03b` in
-nine places across three manifests:
+pin names the candidate. Current Hub main has ten active Core revision pins across four files:
 
 - `Cargo.toml`: `botster-core`, `botster-core-daemon`, `botster-terminal-protocol`,
   `botster-core-test-support`, `botster-terminal-ghostty`
 - `crates/botster-hub-test-support/Cargo.toml`: `botster-core`, `botster-terminal-protocol`,
   `botster-terminal-ghostty`
 - `crates/botster-hub-client/Cargo.toml`: `botster-terminal-protocol`
+- `crates/botster-hub-test-support/build.rs`: `PROTOCOL_REV`
 
 Procedure:
 
 1. Push the candidate Core branch and record its SHA.
 2. Use a clean, colon-free `botster-hub` proof checkout. Record the Hub SHA and confirm
    `git status` is clean before the pin edit.
-3. Replace all nine `rev = "7eafa470..."` values with the candidate Core SHA.
-4. Refresh `Cargo.lock` without `--locked`, then assert the lock contains no remaining
+3. Replace all nine manifest `rev` values with the candidate Core SHA.
+4. Replace the `PROTOCOL_REV` value in `crates/botster-hub-test-support/build.rs`.
+5. Refresh `Cargo.lock` without `--locked`, then assert the lock contains no remaining
    `7eafa470` source line and that every `botster-core*`, `botster-terminal-protocol*`, and
    `botster-terminal-ghostty` source line names the candidate SHA.
-5. Run the reproduction with the default target layout and `CARGO_TARGET_DIR` unset:
+6. Run the reproduction with the default target layout and `CARGO_TARGET_DIR` unset:
 
 ```bash
 RUSTUP_TOOLCHAIN=1.97.0 ./test.sh --locked -p botster-hub --test hub_daemon_lifecycle_test \
   unix_adapter_unbound_scoped_drain_delivers_terminal_output -- --exact --nocapture
 ```
 
-6. Record: Hub SHA, candidate Core SHA, the nine edited pins, the lock source lines, the clean
+7. If Hub does not compile, run matched candidate and base `cargo check` arms. Use the same
+   Hub SHA, proof patch, target layout, and selected test target. Record the exact error-set diff.
+8. Record: Hub SHA, candidate Core SHA, the ten edited pins, the lock source lines, the clean
    pre-edit state, the exact command, the selected-test count (must be 1, per
    [[exact Rust test ablations require a one test baseline]]), and the observed PTY echo.
-7. The pin edit is proof-only. Do not merge it to Hub. Advancing the Hub pin is separate
+9. The pin edit is proof-only. Do not merge it to Hub. Advancing the Hub pin is separate
    follow-up work owned by the `botster-hub` target.
 
 ## Vault gaps worth capturing
