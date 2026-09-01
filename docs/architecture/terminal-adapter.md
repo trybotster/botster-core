@@ -10,10 +10,11 @@ production entry points are `CoreDaemon::bind_terminal_adapter` /
 tick. Bind requires a live generation and an immutable
 `TerminalCapabilitySet`. Waking adapters bind through
 `CoreDaemon::bind_waking_terminal_adapter`, which allocates route wake
-state only after the existing rejection ladder. The host waits on
-`CoreDaemon::wait_wakes` and advances named routes with
-`CoreDaemon::pump_woken`. The poll-path bind remains for one migration
-window. Hub Unix and WebRTC adapters are later Hub tickets.
+state only after the existing rejection ladder. A single-thread host can wait
+with `CoreDaemon::wait_wakes`. A host-owned data-plane thread uses
+`CoreDaemon::wait_pump` and `WakePumpControl`. Both paths advance only named
+routes with `CoreDaemon::pump_woken`. The poll-path bind remains for one
+migration window. Hub Unix and WebRTC adapters are later Hub tickets.
 
 One wake-driven tick has three ordered phases. Core first intakes only the
 named adapter routes and drains only named session ingress. It then applies
@@ -62,12 +63,24 @@ TerminalAdapterPressure, TerminalIngress}` is the write/close/pressure and
 ingress seam. It does not overload the transport enum names.
 
 `contract::terminal_wake::{WakingTerminalAdapter, TerminalWakeKind,
-TerminalWakeSink, TerminalWakeSource}` is the wake-driven seam.
+TerminalWakeSink, TerminalWakeSource, TerminalWakeInterrupt}` is the
+wake-driven seam.
 `WakingTerminalAdapter` is a supertrait of `TerminalAdapter`. Wake kinds are
 `Writable` and `Closed`. Sinks hold a weak handle so a host-retained clone
 cannot pin Core memory after hard-stop. Ingress session handles share one
 registry-owned coalesce state per live `SessionId`. The public surface
 exposes no `RawFd`.
+
+`TerminalWakeInterrupt` is transport-neutral. It names no route or session.
+Repeated interrupts coalesce until an interruptible wait consumes the flag.
+Real wakes win over a concurrent interrupt. A full channel can drop the
+interrupt node because queued work already prevents the waiter from blocking.
+An interrupt does not clear the overflow flag.
+
+The host must use one waiter. `CoreDaemon::wait_pump` drains at most
+`WAKE_QUEUE_CAPACITY` channel nodes in one call. After a stop, one real
+collision batch can win. Every later pump wait returns `Stopped` without a
+channel read. Core shutdown owns the final bounded drain.
 
 `try_read()` returns `TerminalIngress::{Empty, Frame, Lost, Closed}`. After
 `close()`, `try_read` stays `Closed` and buffered ingress is dropped. `Lost`

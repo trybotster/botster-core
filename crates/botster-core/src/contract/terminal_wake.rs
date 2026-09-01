@@ -5,8 +5,8 @@
 //! one migration window. Waking binds allocate route wake state only after
 //! every rejection check passes.
 //!
-//! Public enums in this module are exhaustive at `0.1.0`. Adding a variant is a
-//! breaking change.
+//! [`TerminalWakeKind`] is exhaustive at `0.1.0`. [`TerminalWakeWait`] is
+//! non-exhaustive from its first release.
 //!
 //! [`TerminalWakeSink`] holds a [`std::sync::Weak`] to Core-owned
 //! [`RouteWakeState`]. A host-retained adapter or sink clone must not pin the
@@ -164,6 +164,52 @@ impl TerminalWakeSink {
 enum WakeNode {
     Adapter(Arc<RouteWakeState>),
     Ingress(Arc<SessionWakeState>),
+    Interrupt,
+}
+
+/// Thread-safe, coalesced interrupt for one [`TerminalWakeSource`].
+///
+/// The interrupt carries no route or session identity. A full wake channel
+/// already guarantees that a waiter cannot block, so that send can be dropped.
+#[derive(Clone)]
+pub struct TerminalWakeInterrupt {
+    tx: SyncSender<WakeNode>,
+    pending: Arc<AtomicBool>,
+    occupancy: Arc<AtomicUsize>,
+}
+
+impl std::fmt::Debug for TerminalWakeInterrupt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalWakeInterrupt")
+            .field("pending", &self.pending.load(Ordering::Acquire))
+            .finish()
+    }
+}
+
+impl TerminalWakeInterrupt {
+    /// Interrupt one blocked interruptible wait.
+    ///
+    /// Repeated calls coalesce until an interruptible wait consumes the flag.
+    pub fn interrupt(&self) {
+        if self
+            .pending
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        record_channel_enqueue(&self.occupancy);
+        match self.tx.try_send(WakeNode::Interrupt) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                record_channel_dequeue(&self.occupancy);
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                record_channel_dequeue(&self.occupancy);
+                self.pending.store(false, Ordering::Release);
+            }
+        }
+    }
 }
 
 /// Per-session ingress coalescing owned by the live-session registry.
@@ -219,6 +265,7 @@ struct WakeInner {
     rx: Mutex<mpsc::Receiver<WakeNode>>,
     overflow: Arc<AtomicBool>,
     occupancy: Arc<AtomicUsize>,
+    interrupt_pending: Arc<AtomicBool>,
     registry: Mutex<HashMap<(SessionId, SubscriptionId), Arc<RouteWakeState>>>,
     session_registry: Mutex<HashMap<SessionId, Arc<SessionWakeState>>>,
     visit_count: AtomicUsize,
@@ -246,6 +293,18 @@ pub struct TerminalWakeBatch {
     pub ingress_sessions: Vec<SessionId>,
 }
 
+/// Outcome from an interruptible, bounded wake wait.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TerminalWakeWait {
+    /// The wait drained real adapter or ingress work.
+    Wakes(TerminalWakeBatch),
+    /// A host interrupt ended the wait without real work.
+    Interrupted,
+    /// The timeout elapsed without real work or an interrupt.
+    TimedOut,
+}
+
 /// One bound waking-adapter route named by a wake.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TerminalWakeRoute {
@@ -266,6 +325,7 @@ impl TerminalWakeSource {
                 rx: Mutex::new(rx),
                 overflow: Arc::new(AtomicBool::new(false)),
                 occupancy: Arc::new(AtomicUsize::new(0)),
+                interrupt_pending: Arc::new(AtomicBool::new(false)),
                 registry: Mutex::new(HashMap::new()),
                 session_registry: Mutex::new(HashMap::new()),
                 visit_count: AtomicUsize::new(0),
@@ -287,6 +347,45 @@ impl TerminalWakeSource {
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         let nodes = self.recv_nodes(timeout);
         self.assemble_batch(nodes)
+    }
+
+    /// Block for real wakes and drain at most [`WAKE_QUEUE_CAPACITY`] nodes.
+    ///
+    /// This method ignores and does not consume the interrupt flag. A shutdown
+    /// drain can use it without letting a stale host interrupt cause a spin.
+    #[must_use]
+    pub fn wait_wakes_bounded(&self, timeout: Duration) -> TerminalWakeBatch {
+        let nodes = self.recv_nodes_limited(timeout, WAKE_QUEUE_CAPACITY);
+        self.assemble_batch(nodes)
+    }
+
+    /// Block until real wakes, an interrupt, or `timeout`.
+    ///
+    /// This method drains at most [`WAKE_QUEUE_CAPACITY`] channel nodes per
+    /// call. Real wakes win over a concurrent interrupt. The interrupt stays
+    /// pending for the next call when this call returns real wakes.
+    #[must_use]
+    pub fn wait_wakes_interruptible(&self, timeout: Duration) -> TerminalWakeWait {
+        let nodes = self.recv_nodes_limited(timeout, WAKE_QUEUE_CAPACITY);
+        let batch = self.assemble_batch(nodes);
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            return TerminalWakeWait::Wakes(batch);
+        }
+        if self.inner.interrupt_pending.swap(false, Ordering::AcqRel) {
+            TerminalWakeWait::Interrupted
+        } else {
+            TerminalWakeWait::TimedOut
+        }
+    }
+
+    /// Return a cloneable interrupt handle for this source.
+    #[must_use]
+    pub fn interrupt_handle(&self) -> TerminalWakeInterrupt {
+        TerminalWakeInterrupt {
+            tx: self.inner.tx.clone(),
+            pending: Arc::clone(&self.inner.interrupt_pending),
+            occupancy: Arc::clone(&self.inner.occupancy),
+        }
     }
 
     /// Build a session-owned ingress handle. Call [`Self::forget_session`] after
@@ -483,22 +582,36 @@ impl TerminalWakeSource {
     }
 
     fn recv_nodes(&self, timeout: Duration) -> Vec<WakeNode> {
+        self.recv_nodes_limited(timeout, usize::MAX)
+    }
+
+    fn recv_nodes_limited(&self, timeout: Duration, max_nodes: usize) -> Vec<WakeNode> {
         let rx = self
             .inner
             .rx
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let mut nodes = Vec::new();
-        while let Ok(node) = rx.try_recv() {
+        while nodes.len() < max_nodes {
+            let Ok(node) = rx.try_recv() else {
+                break;
+            };
             record_channel_dequeue(&self.inner.occupancy);
             nodes.push(node);
         }
-        if nodes.is_empty() && !timeout.is_zero() && !self.inner.overflow.load(Ordering::Acquire) {
+        if nodes.is_empty()
+            && max_nodes > 0
+            && !timeout.is_zero()
+            && !self.inner.overflow.load(Ordering::Acquire)
+        {
             match rx.recv_timeout(timeout) {
                 Ok(node) => {
                     record_channel_dequeue(&self.inner.occupancy);
                     nodes.push(node);
-                    while let Ok(node) = rx.try_recv() {
+                    while nodes.len() < max_nodes {
+                        let Ok(node) = rx.try_recv() else {
+                            break;
+                        };
                         record_channel_dequeue(&self.inner.occupancy);
                         nodes.push(node);
                     }
@@ -557,6 +670,7 @@ impl TerminalWakeSource {
                     state.queued.store(false, Ordering::Release);
                     ingress.push(state.session_id.clone());
                 }
+                WakeNode::Interrupt => {}
             }
         }
         for state in overflowed {
@@ -734,6 +848,96 @@ mod tests {
             SessionId(format!("s{n}")),
             SubscriptionId(format!("sub{n}")),
         )
+    }
+
+    fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
+
+    #[test]
+    fn interrupt_handle_is_thread_safe_and_level_triggered() {
+        assert_send_sync_clone::<TerminalWakeInterrupt>();
+        let source = TerminalWakeSource::new();
+        let interrupt = source.interrupt_handle();
+        interrupt.interrupt();
+        interrupt.interrupt();
+        assert_eq!(source.occupancy(), 1);
+        assert_eq!(
+            source.wait_wakes_interruptible(Duration::from_secs(1)),
+            TerminalWakeWait::Interrupted
+        );
+        assert_eq!(source.occupancy(), 0);
+    }
+
+    #[test]
+    fn real_wakes_win_without_consuming_the_interrupt() {
+        let source = TerminalWakeSource::new();
+        let (session, sub) = ids(0);
+        let sink = source.bind_route(
+            session.clone(),
+            sub.clone(),
+            TerminalSubscriptionGeneration(1),
+        );
+        source.interrupt_handle().interrupt();
+        assert!(sink.wake(TerminalWakeKind::Writable));
+
+        let TerminalWakeWait::Wakes(batch) =
+            source.wait_wakes_interruptible(Duration::from_secs(1))
+        else {
+            panic!("real wake must win over interrupt");
+        };
+        assert_eq!(
+            batch.adapter_routes,
+            vec![TerminalWakeRoute {
+                session_id: session,
+                subscription_id: sub,
+            }]
+        );
+        assert_eq!(
+            source.wait_wakes_interruptible(Duration::ZERO),
+            TerminalWakeWait::Interrupted
+        );
+    }
+
+    #[test]
+    fn legacy_wait_does_not_consume_the_interrupt_flag() {
+        let source = TerminalWakeSource::new();
+        source.interrupt_handle().interrupt();
+        assert_eq!(
+            source.wait_wakes(Duration::ZERO),
+            TerminalWakeBatch::default()
+        );
+        assert_eq!(
+            source.wait_wakes_interruptible(Duration::ZERO),
+            TerminalWakeWait::Interrupted
+        );
+    }
+
+    #[test]
+    fn bounded_wait_does_not_consume_the_interrupt_flag() {
+        let source = TerminalWakeSource::new();
+        source.interrupt_handle().interrupt();
+        assert_eq!(
+            source.wait_wakes_bounded(Duration::ZERO),
+            TerminalWakeBatch::default()
+        );
+        assert_eq!(
+            source.wait_wakes_interruptible(Duration::ZERO),
+            TerminalWakeWait::Interrupted
+        );
+    }
+
+    #[test]
+    fn interrupt_ends_a_blocked_wait_without_polling() {
+        let source = TerminalWakeSource::new();
+        let waiter = source.clone();
+        let started = Instant::now();
+        let thread = thread::spawn(move || waiter.wait_wakes_interruptible(Duration::from_secs(5)));
+        thread::sleep(Duration::from_millis(20));
+        source.interrupt_handle().interrupt();
+        assert_eq!(
+            thread.join().expect("waiter"),
+            TerminalWakeWait::Interrupted
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

@@ -54,12 +54,36 @@ retention contract. Natural-exit readback retention does not consume the host's
 pending `CoreDaemon::drain` obligation: final egress remains available exactly
 once.
 
-Wake-driven pumping is a parallel host loop. `CoreDaemon::wait_wakes(timeout)`
-blocks on a transport-neutral source. `CoreDaemon::pump_woken` drains runtime
+Wake-driven pumping runs on the thread that owns `CoreDaemon`.
+`CoreDaemon::wait_wakes(timeout)` blocks on a transport-neutral source.
+`CoreDaemon::pump_woken` drains runtime
 output only for named sessions and intakes/pumps only named waking-adapter
 routes. It does not `try_read` an unnamed adapter. The method commits lifecycle
 observations and retains unmatched output before it returns. Its public outcome
 contains no terminal or lifecycle body, so a content-blind host can ignore it.
+
+A host can call `CoreDaemon::wake_pump_control()` before it starts its pump
+loop. This call returns `WakePumpControl`, which is `Clone + Send + Sync`.
+The control has no daemon access. Another thread can call `interrupt()` when it
+adds host work. The owner thread then receives `WakePumpWait::Interrupted` from
+`wait_pump(timeout)`. The owner thread can process bounded host work against the
+same `&mut CoreDaemon`.
+
+Only one thread can own and mutate `CoreDaemon`. The host must construct the
+daemon on that thread. The host must not add shared mutable daemon access. Only
+one waiter can drain a daemon wake source at a time.
+
+`WakePumpControl::request_stop()` is monotonic and interrupts a blocked wait.
+The first wait that observes the stop can return one final real wake batch. The
+drain reads at most `WAKE_QUEUE_CAPACITY` channel nodes. The next wait returns
+`WakePumpWait::Stopped` without a channel read. Thus, a live producer cannot
+extend the pump loop without a bound.
+
+After `Stopped`, the owner thread finishes its bounded accepted host work. The
+owner thread then calls `CoreDaemon::shutdown(None, ..)`. A pump-hosted daemon
+rejects full shutdown if the pump loop did not observe its stop. A daemon that
+never issued a pump control keeps the existing shutdown behavior. The owner
+thread exits after Core shutdown. Another thread can then join it.
 
 One live-session registry owns ingress coalescing, overflow recovery, and
 retirement. A retained reader handle cannot resurrect a forgotten session.
@@ -72,10 +96,11 @@ journal entry, and completes required final-state retention. A failed commit
 keeps or re-arms that exact wake under a bounded retry rule. Shutdown acceptance
 still retires nothing. Explicit runtime removal also retires the wake.
 
-`CoreDaemon::shutdown` waits on `wait_wakes` plus `pump_woken` and uses the
-two-second bound only as a hang watchdog. The current `drain` poll path remains
+`CoreDaemon::shutdown` uses a capacity-capped wake drain plus `pump_woken`.
+It uses the two-second bound as a hang watchdog. The capped drain does not
+consume the host interrupt flag. The current `drain` poll path remains
 for unbound adapters during the migration window. Core creates no extra OS
-thread for this wait.
+thread for either wake wait.
 
 `CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
 current Ghostty colors and durable GHOSTSNP state. It returns

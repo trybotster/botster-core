@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "botster-core-hub-data-plane-shaped-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+botster-core = { path = "../../../../botster-core" }
+botster-core-daemon = { path = "../../../../botster-core-daemon" }
+botster-core-test-support = { path = "../../..", default-features = false }
