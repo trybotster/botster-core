@@ -358,10 +358,14 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let session_id = SessionId("interrupt-shutdown-session".into());
     let client_id = ClientId("interrupt-shutdown-client".into());
     let subscription_id = SubscriptionId("interrupt-shutdown-sub".into());
+    let ready_path = data_dir.join("shutdown-ready");
+    let release_path = data_dir.join("shutdown-release");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] =
-        "trap 'sleep 0.2; printf final; exit 0' TERM; printf ready; while :; do sleep 1; done"
-            .into();
+    request.request.arguments[1] = format!(
+        "trap '' TERM; : > {}; while [ ! -f {} ]; do sleep 0.01; done; printf final",
+        ready_path.display(),
+        release_path.display()
+    );
     daemon.spawn(request, 1).expect("spawn shutdown fixture");
     daemon
         .expect_terminal_adapter(
@@ -392,18 +396,29 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
             Box::new(adapter.clone()),
         )
         .expect("bind");
-    pump_until_encoded_output(&mut daemon, &adapter, "cmVhZHk=", 3);
+    let ready_deadline = Instant::now() + Duration::from_secs(15);
+    while !ready_path.exists() {
+        assert!(
+            Instant::now() < ready_deadline,
+            "shutdown fixture did not publish readiness"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 
     let control = daemon.wake_pump_control();
     control.request_stop();
-    if let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::ZERO) {
-        daemon
-            .pump_woken(&batch, 3)
-            .expect("pump the shutdown collision batch");
-        assert!(matches!(
-            daemon.wait_pump(Duration::ZERO),
-            WakePumpWait::Stopped
-        ));
+    match daemon.wait_pump(Duration::ZERO) {
+        WakePumpWait::Wakes(batch) => {
+            daemon
+                .pump_woken(&batch, 3)
+                .expect("pump the shutdown collision batch");
+            assert!(matches!(
+                daemon.wait_pump(Duration::ZERO),
+                WakePumpWait::Stopped
+            ));
+        }
+        WakePumpWait::Stopped => {}
+        other => panic!("stop must return a collision batch or Stopped: {other:?}"),
     }
 
     let shutdown_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -411,10 +426,17 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let interrupt_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = std::sync::Arc::clone(&interrupt_count);
     let interrupt_control = control.clone();
+    let release = release_path.clone();
     let interrupter = std::thread::spawn(move || {
+        let release_at = Instant::now() + Duration::from_millis(50);
+        let mut released = false;
         while active.load(std::sync::atomic::Ordering::Acquire) {
             interrupt_control.interrupt();
             count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if !released && Instant::now() >= release_at {
+                fs::write(&release, b"release").expect("release shutdown fixture");
+                released = true;
+            }
             std::thread::yield_now();
         }
     });
@@ -423,13 +445,13 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     }
     let before_shutdown = interrupt_count.load(std::sync::atomic::Ordering::Acquire);
     let started = Instant::now();
-    daemon
-        .shutdown(Some(session_id), 4)
-        .expect("bounded shutdown while interrupted");
+    let shutdown_result = daemon.shutdown(Some(session_id), 4);
     let elapsed = started.elapsed();
     shutdown_active.store(false, std::sync::atomic::Ordering::Release);
-    interrupter.join().expect("interrupter");
+    let interrupter_result = interrupter.join();
 
+    interrupter_result.expect("interrupter");
+    shutdown_result.expect("bounded shutdown while interrupted");
     assert!(
         interrupt_count.load(std::sync::atomic::Ordering::Acquire) > before_shutdown,
         "the control thread must raise an interrupt during shutdown"
@@ -451,9 +473,10 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
                 .ok()
                 .is_some_and(|value| {
                     value.get("type").and_then(|field| field.as_str()) == Some("process_exit")
+                        && value.get("code").and_then(|field| field.as_i64()) == Some(0)
                 })
         }),
-        "shutdown must deliver the process exit: {frames:?}"
+        "shutdown must deliver a successful process exit: {frames:?}"
     );
 }
 
