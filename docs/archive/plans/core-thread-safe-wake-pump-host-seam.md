@@ -7,9 +7,9 @@ Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base revision: `873df1c` ("Use process exit for sibling pump proof")
 Consumer ticket: `ticket_1787894427_525056` (botster-hub cold cut, `tgt_7e208a0c76a44980a83b63af976b1f22`)
 
-Revision 2, after Plan Review `review_1788222362_799486` returned
-`changes_required`. The five findings and their resolutions are recorded in
-"Plan Review resolutions" below.
+Revision 3, after Plan Review `review_1788222362_799486` (five findings) and
+`review_1788223098_185674` (two findings) returned `changes_required`. All
+findings and their resolutions are recorded in "Plan Review resolutions" below.
 
 ## Context loaded
 
@@ -43,6 +43,7 @@ Atomic notes:
 - [[Core terminal subscription ownership is session, subscription, and generation]]
 - [[Core subscription hard-stop is synchronous close and drop on the host tick]]
 - [[Core ClientWorker bind requires a live attach generation]]
+- [[a pre attach declaration must be consumed on every attach return]]
 - [[host ShutdownSession classification must call the exact-session Core query]]
 - [[count before publish or a concurrent counter cannot be exact]]
 - [[a concurrency counter needs a quiesce oracle not a during race sampler]]
@@ -126,6 +127,42 @@ shutdown. Those items belong to `ticket_1787894427_525056`, not to this ticket.
    `project_pipelines_submit_gate` and `project_pipelines_request_step_advance`,
    and reuses checklist `checklist_1788221615_290908` rather than creating a
    duplicate.
+6. `finding_1788223099_667515` (high, product). Correct, and it identified a
+   real data-loss defect, not a wording problem. Revision 2 said `wait_pump`
+   returns immediately once stop is observed. Because `recv_nodes` drains the
+   bounded channel before any stop check could run, a stop that raced arriving
+   wakes could return `Stopped` after those wakes were already removed from the
+   channel. `CoreDaemon::shutdown` cannot recover a batch that no longer exists
+   in the channel, so those terminal bytes would be lost at teardown.
+   **Resolution: drained wakes always win.** `wait_pump` returns `Wakes` whenever
+   the drain yielded anything and keeps stop pending; only an empty drain returns
+   `Stopped`, and once stop is pending the drain never blocks. The rule, its
+   termination argument, and its bound are stated in Scope and in
+   `teardown_bounds`. New acceptance checks 19a and 19b prove it, with 19a
+   racing `request_stop()` against both an adapter writable wake and a session
+   ingress wake and requiring a red result when the rule is reverted.
+7. `finding_1788223099_862048` (high, product). Correct. Revision 2 asserted
+   base behavior that the code does not have. Verified at `873df1c`:
+   `CoreDaemon::attach` (daemon.rs:979) returns from `ensure_running`,
+   `ensure_session_mutable`, or `ensure_control_plane_live` before
+   `engine.attach_client`, so those arms do not consume a pre-attach
+   declaration; and `bind_terminal_adapter` (daemon.rs:1031) and
+   `bind_waking_terminal_adapter` (daemon.rs:1059) run `ensure_running` and
+   `ensure_session` before the `control_plane_failed` arm, so only that arm
+   calls `adapter.close()`. Open same-target ticket `ticket_1788112223_631570`
+   owns both residual gaps and names these exact line numbers.
+   **Resolution: describe the base behavior exactly, cite the owner ticket, and
+   narrow the claim.** The matrix rows now state the verified behavior and
+   attribute the policy decision to `ticket_1788112223_631570`. Acceptance check
+   25 now asserts only the no-Core-state-allocation rule this ticket owns and no
+   longer asserts an explicit close on an early reject.
+   `ticket_1788112223_631570` is **not** registered as a blocking dependency:
+   this seam does not depend on either gap being fixed, and adding the
+   dependency would stall this run on an unrelated policy decision. If a
+   reviewer disagrees, that is a scope call for the human, not a silent choice.
+   [[a pre attach declaration must be consumed on every attach return]] is now
+   loaded and recorded; it states the rule at the `ClientWorker::record_attach`
+   level, which is why the daemon-level guard arms remain a separate gap.
 5. `finding_1788222362_207757` (medium, product). Correct.
    [[botster-architecture]] and [[cli-patterns]] are Must Load entries in
    [[botster-planner-playbook]] and revision 1 omitted them. Both are now loaded
@@ -195,6 +232,20 @@ needs. Core adds no type that owns `CoreDaemon`.
    - `CoreDaemon::wait_pump(&self, timeout) -> WakePumpWait`, with
      `#[non_exhaustive]` variants `Wakes(TerminalWakeBatch)`, `Interrupted`, and
      `Stopped`.
+   - **Drained wakes always win.** `wait_pump` must never discard work it has
+     already removed from the bounded channel. The rule is one order, applied to
+     both the interrupt and the stop signal:
+     1. Perform the drain. Once stop is pending, that drain is non-blocking, so a
+        stopped loop cannot wait on a quiet channel.
+     2. If the drain yields any adapter route or ingress session, return
+        `Wakes(batch)` and leave the stop flag and the interrupt flag pending.
+     3. Otherwise return `Stopped` when stop is pending, then `Interrupted` when
+        the interrupt flag is pending, then the timeout result.
+     Stop is monotonic, so the loop still terminates: after stop, each iteration
+     drains without blocking, and the first empty drain returns `Stopped`. The
+     post-stop phase is therefore bounded by what the channel already holds, and
+     the live tail is handled by `CoreDaemon::shutdown`'s own bounded final drain
+     under its existing two-second watchdog.
    - `CoreDaemon::shutdown` fails closed with a typed error when a control was
      issued and `request_stop()` was never observed. When no control was ever
      issued, `shutdown` behaves exactly as it does today, so single-thread
@@ -265,9 +316,12 @@ single subscription: its `RouteWakeState`, its bound adapter, and its
 the same batch. The seam adds no shared mutable state across routes, so it
 introduces no new sibling coupling. One failed route must not stop the loop.
 
-`teardown_bounds`: `wait_pump(timeout)` is bounded by the caller's timeout and
-returns immediately once `request_stop()` is observed, so a stopped loop cannot
-block on a quiet wake channel. `pump_woken` keeps its existing per-session
+`teardown_bounds`: `wait_pump(timeout)` is bounded by the caller's timeout. Once
+`request_stop()` is observed the drain becomes non-blocking, so a stopped loop
+cannot block on a quiet wake channel, and the first empty drain returns
+`Stopped`. A drain that yields real wakes returns `Wakes` and keeps stop
+pending, so the post-stop phase is bounded by what the channel already holds and
+no drained wake is discarded. `pump_woken` keeps its existing per-session
 bounds. `CoreDaemon::shutdown` keeps its existing two-second per-session hang
 watchdog and its typed `ShutdownFailed` error. The seam adds no unbounded wait.
 If the channel is full when `interrupt()` fires, the publish is dropped on
@@ -285,13 +339,13 @@ including the Core request surfaces the Hub loop drives on the owner thread.
 | Overflow reconcile walk | live registries only | reuses the same retired and queued filters as the fast path | bounded walk, no global scan | Core |
 | `spawn` | `SessionId` plus the registry row | `ensure_running` fails closed after `shutdown`; Hub stops admission at `request_stop` | registry row and engine session are created together or not at all | Core rejection, Hub admission |
 | `attach` | client, session, subscription, generation | `ensure_running`, `ensure_session_mutable`, `ensure_control_plane_live` | unmatched egress is retained, not leaked to a foreign route | Core |
-| `expect_terminal_adapter` | client, session, subscription | pre-attach declaration is consumed or rejected on every attach return | `cancel_expected_terminal_adapter` retires an unconsumed declaration | Core |
-| `bind_terminal_adapter` and `bind_waking_terminal_adapter` | client, session, subscription, generation | a failed control plane closes and drops the adapter before returning `Err`; a stale generation cannot bind | bind rejection allocates no wake state | Core |
+| `expect_terminal_adapter` | client, session, subscription | **Base behavior, verified at `873df1c`:** `attach` returns from `ensure_running`, `ensure_session_mutable`, or `ensure_control_plane_live` *before* `engine.attach_client`, so those three arms do **not** consume the declaration. Only an attach that reaches the engine consumes or rejects it. | `cancel_expected_terminal_adapter` is the caller's only retirement path for a declaration left by an early-rejected attach | Core; the residual gap is owned by `ticket_1788112223_631570` |
+| `bind_terminal_adapter` and `bind_waking_terminal_adapter` | client, session, subscription, generation | **Base behavior, verified at `873df1c`:** `ensure_running` and `ensure_session` run *before* the `control_plane_failed` arm, so only that arm calls `adapter.close()`. The two earlier reject arms drop the boxed adapter without an explicit `close()`. A stale generation cannot bind. | every rejection arm allocates no wake state, which is the property this ticket owns and tests | Core; the close-on-every-arm decision is owned by `ticket_1788112223_631570` |
 | `input`, `mode_gated_input`, `resize` | live subscription id and generation | control-queue-full retries in order; other failures fail closed | capacity-parked input retries only on a matching session ingress wake | Core |
 | `detach` and `detach_terminal_subscription` | session, subscription, generation | a stale generation cannot detach a live replacement owner | one idempotent teardown per route | Core |
 | `shutdown_session` and `remove_session` | `SessionId` | `remove_session` rejects live and stopping sessions | ingress wake retires only after the lifecycle transition commits | Core |
 | Interrupt | no route or session identity | ignored once `stop_requested()` is true; the wait returns `Stopped` | pending flag is consumed by the next wait; it names nothing, so it sweeps nothing | Core |
-| Stop request | the control handle | `shutdown` fails closed when stop was never requested | stop is monotonic and cannot be cleared | Core |
+| Stop request | the control handle | `shutdown` fails closed when stop was never requested; a stop never discards a drained wake, because drained wakes win and stop stays pending | stop is monotonic and cannot be cleared | Core |
 | Hub bounded request queue | Hub request id and attribution | Hub stops admission at `request_stop`; accepted work finishes before shutdown | Hub cancels or drains its own queue | Hub (`ticket_1787894427_525056`) |
 
 The interrupt and the stop request deliberately create no durable ownership.
@@ -475,8 +529,17 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
     makes the next wait return without blocking.
 18. **Interrupt names nothing.** An interrupt with no pending wake yields an
     empty batch and pumps zero routes. No global scan and no polling path.
-19. **Stop ordering.** `request_stop()` makes a blocked wait return `Stopped`,
-    and every later wait returns `Stopped` without blocking.
+19. **Stop ordering.** `request_stop()` makes a blocked wait on a quiet channel
+    return `Stopped`, and every later wait on a quiet channel returns `Stopped`
+    without blocking.
+19a. **Stop never discards a drained wake.** `request_stop()` races both a bound
+    adapter writable wake and a session ingress wake. The test proves the wait
+    returns `Wakes` naming both, that `pump_woken` delivers both through the
+    production path, and only then that the next wait returns `Stopped` and
+    shutdown runs. Reverting the drained-wakes-win rule must make this test red.
+19b. **Post-stop drain terminates.** After stop, a channel holding several
+    queued wakes yields a bounded sequence of `Wakes` results followed by exactly
+    one `Stopped`, with no blocking wait in that sequence.
 20. **Exact shutdown sequence.** The test drives, in order: stop Hub-shaped
     admission, `request_stop()` and the interrupt it raises, the pump loop ends,
     bounded accepted work finishes against the same `&mut CoreDaemon`,
@@ -496,9 +559,15 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
 24. **Late request after shutdown fails closed.** A Core call issued after
     `shutdown` completes returns the `ensure_running` error and creates no
     session, route, or wake state.
-25. **Bind after stop allocates nothing.** A waking bind attempted after
-    `request_stop()` and shutdown closes and drops the adapter, allocates no wake
-    registry entry, and leaves the registry length unchanged.
+25. **Bind after stop allocates no Core state.** A waking bind attempted after
+    `request_stop()` and shutdown allocates no wake registry entry and leaves the
+    registry length unchanged. This check deliberately asserts only the
+    no-allocation rule that this ticket owns. It does **not** assert that the
+    adapter is explicitly closed, because the verified base behavior at `873df1c`
+    is that `ensure_running` and `ensure_session` reject before the arm that
+    calls `adapter.close()`, so an early-rejected adapter is dropped without an
+    explicit close. Changing that is owned by `ticket_1788112223_631570` and is
+    out of scope here.
 26. **Sibling isolation.** A slow or failing route does not stop pumping of a
     sibling route named in the same batch, and does not end the loop. Extends the
     existing `pump_woken_worker_resize_isolates_the_named_sibling` pattern.
