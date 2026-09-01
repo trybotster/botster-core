@@ -1152,7 +1152,11 @@ where
                 return Err(error.into());
             }
         };
-        self.flush_runtime_inputs_for_session(&session_id)?;
+        if let Err(error) = self.flush_runtime_inputs_for_session(&session_id) {
+            if !error.message.contains("control queue full") {
+                return Err(error.into());
+            }
+        }
         Ok(outcome)
     }
 
