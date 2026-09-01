@@ -912,6 +912,20 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
     }));
     assert_eq!(input_result_count(&adapter, "resize"), 1);
     assert_eq!(input_result_count(&adapter, "input"), 1);
+    assert!(adapter
+        .writes()
+        .iter()
+        .any(|bytes| String::from_utf8_lossy(bytes).contains("TUlYRUQtQURNSVNTSU9OLVJBQ0U")));
+    let (screen, _, _) = engine
+        .capture_terminal_state(&session_id)
+        .expect("screen after raced mixed batch");
+    assert_eq!(
+        screen.size,
+        TerminalScreenSize {
+            rows: 31,
+            cols: 101
+        }
+    );
 }
 
 #[test]
