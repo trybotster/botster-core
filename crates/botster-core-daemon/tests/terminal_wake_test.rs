@@ -832,6 +832,153 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
 
 #[cfg(unix)]
 #[test]
+fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
+    let data_dir = temp_data_dir("pump-resize-then-input-wake");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("pump-resize-then-input-wake-session".into());
+    let client_id = ClientId("pump-resize-then-input-wake-client".into());
+    let subscription_id = SubscriptionId("pump-resize-then-input-wake-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty -echo; printf ready; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done"
+            .into();
+    daemon.spawn(request, 1).expect("spawn worker");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach route");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let attach_deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < attach_deadline,
+            "worker attach did not finish"
+        );
+        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+    }
+    loop {
+        let settled = daemon.wait_wakes(Duration::from_millis(50));
+        if settled.adapter_routes.is_empty() && settled.ingress_sessions.is_empty() {
+            break;
+        }
+        daemon.pump_woken(&settled, 2).expect("settle wakes");
+    }
+    assert_eq!(daemon.wake_source().occupancy(), 0);
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter.inject_ingress_frame(compact_input_frame(b"SCRATCH\n"));
+
+    let mixed = daemon.wait_wakes(Duration::from_secs(5));
+    assert_eq!(mixed.adapter_routes.len(), 1);
+    assert_eq!(mixed.adapter_routes[0].session_id, session_id);
+    assert_eq!(mixed.adapter_routes[0].subscription_id, subscription_id);
+    assert!(mixed.ingress_sessions.is_empty());
+    daemon.pump_woken(&mixed, 3).expect("pump mixed wake");
+
+    let resize_results = delivered_admitted_input_results(&adapter, "resize");
+    let input_results = delivered_admitted_input_results(&adapter, "input");
+    assert_eq!(resize_results.len(), 1, "resize must complete once");
+    assert_eq!(input_results.len(), 1, "input must complete once");
+    for result in resize_results.iter().chain(&input_results) {
+        assert_eq!(
+            result["subscription_id"].as_str(),
+            Some(subscription_id.0.as_str()),
+            "each result must identify the live owner"
+        );
+    }
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resized worker")
+        .expect("worker registry record");
+    assert_eq!((record.rows, record.cols), (31, 91));
+    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription_id
+            && row.generation == generation
+    }));
+
+    let retained = daemon.wait_wakes(Duration::ZERO);
+    assert_eq!(retained.ingress_sessions, vec![session_id.clone()]);
+    daemon
+        .pump_woken(&retained, 4)
+        .expect("pump retained resize-completion wake");
+    assert!(!adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .any(|value| value
+            .get("payload_base64")
+            .and_then(serde_json::Value::as_str)
+            == Some("ZWNobzpTQ1JBVENIDQo=")));
+
+    let echo = daemon.wait_wakes(Duration::from_secs(5));
+    assert!(echo.adapter_routes.is_empty());
+    assert_eq!(echo.ingress_sessions, vec![session_id.clone()]);
+    daemon.pump_woken(&echo, 5).expect("pump worker echo wake");
+    let exact_echoes = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value
+                .get("payload_base64")
+                .and_then(serde_json::Value::as_str)
+                == Some("ZWNobzpTQ1JBVENIDQo=")
+        })
+        .count();
+    assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
+    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription_id
+            && row.generation == generation
+    }));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
     let data_dir = temp_data_dir("pump-gated");
     let mut daemon =
