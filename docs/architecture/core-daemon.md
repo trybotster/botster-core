@@ -79,6 +79,10 @@ drain reads at most `WAKE_QUEUE_CAPACITY` channel nodes. The next wait returns
 `WakePumpWait::Stopped` without a channel read. Thus, a live producer cannot
 extend the pump loop without a bound.
 
+A returned collision batch is not a stopped pump. Full daemon shutdown remains
+fail-closed until `wait_pump` returns `Stopped`, so a host cannot remove a batch
+from the wake channel and then skip its required pump step.
+
 After `Stopped`, the owner thread finishes its bounded accepted host work. The
 owner thread then calls `CoreDaemon::shutdown(None, ..)`. A pump-hosted daemon
 rejects full shutdown if the pump loop did not observe its stop. A daemon that

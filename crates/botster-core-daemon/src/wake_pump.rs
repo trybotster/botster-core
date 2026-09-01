@@ -67,6 +67,7 @@ pub enum WakePumpError {
 pub(crate) struct WakePumpState {
     pub(crate) interrupt: TerminalWakeInterrupt,
     pub(crate) stop_requested: Arc<AtomicBool>,
+    pub(crate) stop_collision_consumed: AtomicBool,
     pub(crate) stop_observed: AtomicBool,
 }
 
@@ -75,6 +76,7 @@ impl WakePumpState {
         Self {
             interrupt,
             stop_requested: Arc::new(AtomicBool::new(false)),
+            stop_collision_consumed: AtomicBool::new(false),
             stop_observed: AtomicBool::new(false),
         }
     }
