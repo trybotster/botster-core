@@ -89,6 +89,13 @@ rejects full shutdown if the pump loop did not observe its stop. A daemon that
 never issued a pump control keeps the existing shutdown behavior. The owner
 thread exits after Core shutdown. Another thread can then join it.
 
+The rejection is
+`CoreDaemonError::WakePump(WakePumpError::StopNotObserved)`. `CoreDaemonError`
+remains an exhaustive public enum in this release. Adding `WakePump` is
+therefore source-breaking for a downstream exhaustive match, which must add an
+arm. This ticket does not change the enum to `#[non_exhaustive]`. Hub ticket
+`ticket_1787894427_525056` owns the matching Hub update and the merged Core pin.
+
 One live-session registry owns ingress coalescing, overflow recovery, and
 retirement. A retained reader handle cannot resurrect a forgotten session.
 Overflow sets a flag and leaves `queued` true. The next `wait_wakes` reconciles
