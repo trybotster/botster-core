@@ -915,6 +915,16 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
     assert!(mixed.ingress_sessions.is_empty());
     daemon.pump_woken(&mixed, 3).expect("pump mixed wake");
 
+    assert_eq!(
+        delivered_input_result_count(&adapter, "resize"),
+        1,
+        "resize must emit one total result"
+    );
+    assert_eq!(
+        delivered_input_result_count(&adapter, "input"),
+        1,
+        "input must emit one total result"
+    );
     let resize_results = delivered_admitted_input_results(&adapter, "resize");
     let input_results = delivered_admitted_input_results(&adapter, "input");
     assert_eq!(resize_results.len(), 1, "resize must complete once");
