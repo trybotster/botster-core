@@ -774,8 +774,10 @@ fn held_resize_engine(
     let session_id = SessionId(format!("{label}-session"));
     let client = ClientId(format!("{label}-client"));
     let subscription = SubscriptionId(format!("{label}-sub"));
+    let mut request = spawn_request(&session_id);
+    request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do if [ \"$line\" = REPORT-SIZE ]; then stty size; else printf 'echo:%s\n' \"$line\"; fi; done".to_string();
     engine
-        .spawn_session(spawn_request(&session_id), CoreSessionMetadata::new())
+        .spawn_session(request, CoreSessionMetadata::new())
         .expect("spawn");
     engine
         .attach_client(client.clone(), session_id.clone(), subscription.clone(), 10)
@@ -895,10 +897,9 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
             .expect("drain the raced mixed batch");
         if input_result_count(&adapter, "resize") == 1
             && input_result_count(&adapter, "input") == 1
-            && adapter
-                .writes()
-                .iter()
-                .any(|bytes| String::from_utf8_lossy(bytes).contains("TUlYRUQtQURNSVNTSU9OLVJBQ0U"))
+            && adapter.writes().iter().any(|bytes| {
+                String::from_utf8_lossy(bytes).contains("ZWNobzpNSVhFRC1BRE1JU1NJT04tUkFDRQ0K")
+            })
         {
             break;
         }
@@ -912,19 +913,41 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
     }));
     assert_eq!(input_result_count(&adapter, "resize"), 1);
     assert_eq!(input_result_count(&adapter, "input"), 1);
-    assert!(adapter
-        .writes()
-        .iter()
-        .any(|bytes| String::from_utf8_lossy(bytes).contains("TUlYRUQtQURNSVNTSU9OLVJBQ0U")));
-    let (screen, _, _) = engine
-        .capture_terminal_state(&session_id)
-        .expect("screen after raced mixed batch");
-    assert_eq!(
-        screen.size,
-        TerminalScreenSize {
-            rows: 31,
-            cols: 101
+    assert!(
+        adapter.writes().iter().any(|bytes| {
+            String::from_utf8_lossy(bytes).contains("ZWNobzpNSVhFRC1BRE1JU1NJT04tUkFDRQ0K")
+        }),
+        "raced input must reach the live PTY: {:?}",
+        adapter.writes()
+    );
+    pump_adapter_wake(
+        &mut engine,
+        &adapter,
+        compact_input_frame(b"REPORT-SIZE\n"),
+        22,
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        let batch = engine.wait_wakes(Duration::from_millis(100));
+        engine
+            .pump_woken(&batch, 23)
+            .expect("drain the live worker size report");
+        if adapter
+            .writes()
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgMTAxDQo="))
+        {
+            break;
         }
+    }
+    assert_eq!(input_result_count(&adapter, "input"), 2);
+    assert!(
+        adapter
+            .writes()
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgMTAxDQo=")),
+        "live worker PTY must report the raced 31x101 resize: {:?}",
+        adapter.writes()
     );
 }
 
