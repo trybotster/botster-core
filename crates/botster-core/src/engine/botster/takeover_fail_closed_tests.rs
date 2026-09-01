@@ -775,7 +775,7 @@ fn held_resize_engine(
     let client = ClientId(format!("{label}-client"));
     let subscription = SubscriptionId(format!("{label}-sub"));
     let mut request = spawn_request(&session_id);
-    request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do if [ \"$line\" = REPORT-SIZE ]; then stty size; else printf 'echo:%s\n' \"$line\"; fi; done".to_string();
+    request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do if [ \"$line\" = REPORT-SIZE ]; then stty size; exit 0; else printf 'echo:%s\n' \"$line\"; fi; done".to_string();
     engine
         .spawn_session(request, CoreSessionMetadata::new())
         .expect("spawn");
@@ -927,18 +927,20 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
         22,
     );
     let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
+    let mut process_exited = false;
+    while !process_exited {
+        assert!(
+            Instant::now() < deadline,
+            "live worker did not exit after its size report"
+        );
         let batch = engine.wait_wakes(Duration::from_millis(100));
-        engine
+        let output = engine
             .pump_woken(&batch, 23)
             .expect("drain the live worker size report");
-        if adapter
-            .writes()
+        process_exited = output
+            .session_events
             .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgMTAxDQo="))
-        {
-            break;
-        }
+            .any(|event| matches!(event, SessionIoEvent::ProcessExited { session_id: exited, .. } if exited == &session_id));
     }
     assert_eq!(input_result_count(&adapter, "input"), 2);
     assert!(
