@@ -7,9 +7,10 @@ Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base revision: `873df1c` ("Use process exit for sibling pump proof")
 Consumer ticket: `ticket_1787894427_525056` (botster-hub cold cut, `tgt_7e208a0c76a44980a83b63af976b1f22`)
 
-Revision 3, after Plan Review `review_1788222362_799486` (five findings) and
-`review_1788223098_185674` (two findings) returned `changes_required`. All
-findings and their resolutions are recorded in "Plan Review resolutions" below.
+Revision 4, after Plan Review `review_1788222362_799486` (five findings),
+`review_1788223098_185674` (two findings), and `review_1788223541_423684` (one
+blocker) returned `changes_required`. All findings and their resolutions are
+recorded in "Plan Review resolutions" below.
 
 ## Context loaded
 
@@ -163,6 +164,33 @@ shutdown. Those items belong to `ticket_1787894427_525056`, not to this ticket.
    [[a pre attach declaration must be consumed on every attach return]] is now
    loaded and recorded; it states the rule at the `ClientWorker::record_attach`
    level, which is why the daemon-level guard arms remain a separate gap.
+8. `finding_1788223541_912045` (blocker, product). Correct, and it is a defect
+   that revision 3 introduced while fixing finding 6. Revision 3 argued that the
+   post-stop phase was "bounded by what the channel already holds". That
+   reasoning is wrong: a bounded channel bounds instantaneous occupancy, not
+   total post-stop work. Adapter and session producers stay live until
+   `CoreDaemon::shutdown` runs, so they can refill the channel between
+   `wait_pump` calls and during `recv_nodes`' uncapped `try_recv` loop
+   (`terminal_wake.rs:485`, verified). Under a chatty session every post-stop
+   drain would find new nodes, the loop would stay in `Wakes` forever, and the
+   owner thread would never reach `Stopped`, Core shutdown, thread exit, or
+   `join`. That is an unbounded control-plane hang, which
+   [[botster runtime teardown lenses]] rejects outright.
+   **Resolution: the stop collision wins exactly once.** The first `wait_pump`
+   call that observes a pending stop performs one non-blocking drain capped at
+   `WAKE_QUEUE_CAPACITY` nodes and returns `Wakes` if that drain yielded
+   anything; every later call returns `Stopped` immediately without touching the
+   channel. Later wakes stay queued for `CoreDaemon::shutdown`'s existing
+   bounded final drain. The bound is now exact and producer-independent: at most
+   one extra pump iteration after stop, handling at most `WAKE_QUEUE_CAPACITY`
+   nodes. The node cap is not optional, because `recv_nodes` loops `try_recv`
+   until empty and a sustained producer could keep that single loop running.
+   Acceptance check 19b is replaced by a sustained-producer termination test
+   that keeps a live PTY producer and a writable-reporting adapter running for
+   the whole test and asserts the exact post-stop iteration count. Checks 19a
+   and 19b are now a matched pair: 19a fails if stop discards the collision
+   batch, 19b fails if stop drains until empty, and only the bounded
+   collision-wins-once rule passes both.
 5. `finding_1788222362_207757` (medium, product). Correct.
    [[botster-architecture]] and [[cli-patterns]] are Must Load entries in
    [[botster-planner-playbook]] and revision 1 omitted them. Both are now loaded
@@ -232,20 +260,38 @@ needs. Core adds no type that owns `CoreDaemon`.
    - `CoreDaemon::wait_pump(&self, timeout) -> WakePumpWait`, with
      `#[non_exhaustive]` variants `Wakes(TerminalWakeBatch)`, `Interrupted`, and
      `Stopped`.
-   - **Drained wakes always win.** `wait_pump` must never discard work it has
-     already removed from the bounded channel. The rule is one order, applied to
-     both the interrupt and the stop signal:
-     1. Perform the drain. Once stop is pending, that drain is non-blocking, so a
-        stopped loop cannot wait on a quiet channel.
-     2. If the drain yields any adapter route or ingress session, return
-        `Wakes(batch)` and leave the stop flag and the interrupt flag pending.
-     3. Otherwise return `Stopped` when stop is pending, then `Interrupted` when
-        the interrupt flag is pending, then the timeout result.
-     Stop is monotonic, so the loop still terminates: after stop, each iteration
-     drains without blocking, and the first empty drain returns `Stopped`. The
-     post-stop phase is therefore bounded by what the channel already holds, and
-     the live tail is handled by `CoreDaemon::shutdown`'s own bounded final drain
-     under its existing two-second watchdog.
+   - **The stop collision wins exactly once.** Two properties must hold at the
+     same time, and satisfying only one of them is a defect:
+     - *Lossless:* `wait_pump` must never discard work it has already removed
+       from the bounded channel, because `CoreDaemon::shutdown` cannot recover a
+       batch that no longer exists there.
+     - *Bounded:* the post-stop phase must terminate in a stated finite bound
+       regardless of producer behavior. A bounded channel bounds instantaneous
+       occupancy, not total post-stop work: adapter and session producers stay
+       live until `CoreDaemon::shutdown` runs, so they can refill the channel
+       between calls and during the `try_recv` loop.
+
+     The rule that satisfies both:
+     1. **First** `wait_pump` call that observes a pending stop performs one
+        final non-blocking drain, capped at `WAKE_QUEUE_CAPACITY` nodes. The cap
+        is required, because `recv_nodes` currently loops `try_recv` until empty
+        and a sustained producer could keep that loop running.
+     2. If that capped drain yields any adapter route or ingress session, return
+        `Wakes(batch)`. The collision batch wins once, so nothing already drained
+        is lost.
+     3. **Every later** `wait_pump` call with stop pending returns `Stopped`
+        immediately and does not touch the channel.
+     4. Wakes published after that point stay queued. They are not lost: they are
+        handed to `CoreDaemon::shutdown`, which already owns a bounded final
+        drain under its two-second watchdog.
+
+     The resulting bound is exact and producer-independent: at most one extra
+     pump iteration after stop, handling at most `WAKE_QUEUE_CAPACITY` nodes.
+
+     The interrupt keeps the ordinary order: drain, return `Wakes` if the drain
+     yielded anything and leave the interrupt flag pending, otherwise return
+     `Interrupted`, otherwise the timeout result. `Stopped` outranks
+     `Interrupted`.
    - `CoreDaemon::shutdown` fails closed with a typed error when a control was
      issued and `request_stop()` was never observed. When no control was ever
      issued, `shutdown` behaves exactly as it does today, so single-thread
@@ -316,13 +362,16 @@ single subscription: its `RouteWakeState`, its bound adapter, and its
 the same batch. The seam adds no shared mutable state across routes, so it
 introduces no new sibling coupling. One failed route must not stop the loop.
 
-`teardown_bounds`: `wait_pump(timeout)` is bounded by the caller's timeout. Once
-`request_stop()` is observed the drain becomes non-blocking, so a stopped loop
-cannot block on a quiet wake channel, and the first empty drain returns
-`Stopped`. A drain that yields real wakes returns `Wakes` and keeps stop
-pending, so the post-stop phase is bounded by what the channel already holds and
-no drained wake is discarded. `pump_woken` keeps its existing per-session
-bounds. `CoreDaemon::shutdown` keeps its existing two-second per-session hang
+`teardown_bounds`: `wait_pump(timeout)` is bounded by the caller's timeout. The
+post-stop phase has an exact, producer-independent bound: the first call that
+observes a pending stop performs one non-blocking drain capped at
+`WAKE_QUEUE_CAPACITY` nodes and returns `Wakes` if that drain yielded anything;
+every later call returns `Stopped` immediately without touching the channel. So
+the loop runs at most one extra iteration after stop, no matter how fast live
+producers publish, and no already-drained batch is discarded. Wakes published
+after that point remain queued for `CoreDaemon::shutdown`, which owns the
+bounded final drain under its two-second watchdog. `pump_woken` keeps its
+existing per-session bounds. `CoreDaemon::shutdown` keeps its existing two-second per-session hang
 watchdog and its typed `ShutdownFailed` error. The seam adds no unbounded wait.
 If the channel is full when `interrupt()` fires, the publish is dropped on
 purpose: queued nodes already guarantee that the next wait cannot block, so
@@ -345,7 +394,7 @@ including the Core request surfaces the Hub loop drives on the owner thread.
 | `detach` and `detach_terminal_subscription` | session, subscription, generation | a stale generation cannot detach a live replacement owner | one idempotent teardown per route | Core |
 | `shutdown_session` and `remove_session` | `SessionId` | `remove_session` rejects live and stopping sessions | ingress wake retires only after the lifecycle transition commits | Core |
 | Interrupt | no route or session identity | ignored once `stop_requested()` is true; the wait returns `Stopped` | pending flag is consumed by the next wait; it names nothing, so it sweeps nothing | Core |
-| Stop request | the control handle | `shutdown` fails closed when stop was never requested; a stop never discards a drained wake, because drained wakes win and stop stays pending | stop is monotonic and cannot be cleared | Core |
+| Stop request | the control handle | `shutdown` fails closed when stop was never requested; the first stop-observing wait returns its capped collision batch so nothing drained is discarded, and every later wait returns `Stopped` without touching the channel | stop is monotonic and cannot be cleared; wakes published after the collision batch stay queued for `CoreDaemon::shutdown`'s bounded final drain | Core |
 | Hub bounded request queue | Hub request id and attribution | Hub stops admission at `request_stop`; accepted work finishes before shutdown | Hub cancels or drains its own queue | Hub (`ticket_1787894427_525056`) |
 
 The interrupt and the stop request deliberately create no durable ownership.
@@ -361,10 +410,13 @@ engine facade input apply and targeted egress → bound adapter `try_write`. The
 control-request path is: Hub owner thread submits a bounded request and calls
 `WakePumpControl::interrupt()` → the blocked wait returns `Interrupted` → the
 Hub drain runs the request against the same `&mut CoreDaemon`. The stop path is:
-Hub stops admission → `WakePumpControl::request_stop()` → the blocked wait
-returns `Stopped` → the loop ends → the Hub finishes bounded accepted work →
-`CoreDaemon::shutdown` runs on the owner thread → the thread exits → the Hub
-owner thread joins it. Oracles run against a real worker PTY in
+Hub stops admission → `WakePumpControl::request_stop()` → the first stop-observing
+wait returns its capped collision batch as `Wakes` when the drain yielded
+anything, and the loop pumps it → the next wait returns `Stopped` without
+touching the channel → the loop ends → the Hub finishes bounded accepted work →
+`CoreDaemon::shutdown` runs on the owner thread and drains any wakes published
+after the collision batch under its two-second watchdog → the thread exits → the
+Hub owner thread joins it. Oracles run against a real worker PTY in
 `crates/botster-core-daemon/tests/terminal_wake_test.rs` and drive the seam from
 a genuinely spawned thread, not from a helper call on the test thread.
 
@@ -450,6 +502,15 @@ Unknowns to resolve during Implement:
 3. **Bounded queue pressure from interrupts.** Mitigation: coalescing keeps at
    most one interrupt node in flight, and a full channel makes the publish
    unnecessary because the wait cannot block.
+3a. **Post-stop non-termination under live producers.** The most dangerous
+   failure mode in this seam, and the one revision 3 got wrong. Producers stay
+   live until `CoreDaemon::shutdown` runs, so any rule that drains until the
+   channel is empty can loop forever and hang the owner thread before Core
+   shutdown. Mitigation: the stop collision wins exactly once, with a
+   `WAKE_QUEUE_CAPACITY` node cap on that single drain and an immediate
+   `Stopped` on every later call. Proved by acceptance check 19b under a
+   sustained producer, paired with 19a so neither property can be satisfied
+   alone.
 4. **Occupancy exactness regression.** The repository already requires exact
    accounting ([[count before publish or a concurrent counter cannot be exact]],
    [[a concurrency counter needs a quiesce oracle not a during race sampler]]).
@@ -536,10 +597,19 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
     adapter writable wake and a session ingress wake. The test proves the wait
     returns `Wakes` naming both, that `pump_woken` delivers both through the
     production path, and only then that the next wait returns `Stopped` and
-    shutdown runs. Reverting the drained-wakes-win rule must make this test red.
-19b. **Post-stop drain terminates.** After stop, a channel holding several
-    queued wakes yields a bounded sequence of `Wakes` results followed by exactly
-    one `Stopped`, with no blocking wait in that sequence.
+    shutdown runs. Reverting the collision-wins-once rule must make this test
+    red. Checks 19a and 19b are a matched pair and must be run together: 19a
+    fails if the stop discards the collision batch, and 19b fails if the stop
+    drains until empty. Only the bounded collision-wins-once rule passes both.
+19b. **Post-stop termination under a sustained producer.** A live session
+    produces PTY output continuously and a bound adapter reports writable
+    transitions continuously, so the wake channel is refilled between calls and
+    during the `try_recv` loop. After `request_stop()`, the pump loop must reach
+    `Stopped`, `CoreDaemon::shutdown`, thread exit, and `join` within the stated
+    bound: at most one `Wakes` result after stop, then `Stopped`. The producer
+    keeps running for the whole test, so a rule that drains until empty fails
+    this test by never terminating. The test asserts the exact iteration count,
+    not merely that the loop eventually ends.
 20. **Exact shutdown sequence.** The test drives, in order: stop Hub-shaped
     admission, `request_stop()` and the interrupt it raises, the pump loop ends,
     bounded accepted work finishes against the same `&mut CoreDaemon`,
@@ -616,6 +686,17 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
    safely drop its publish when the channel is full, because queued nodes
    already guarantee a non-blocking wait. This liveness argument is easy to get
    wrong on review.
-3. Update the pinned-revision note after merge, replacing or extending
+3. A note recording the strongest lesson of this plan: a stop signal on a
+   draining bounded channel must win exactly once, not repeatedly. Returning
+   `Stopped` before the drained batch loses terminal bytes that shutdown cannot
+   recover; draining until empty never terminates, because a bounded channel
+   bounds instantaneous occupancy while live producers keep refilling it. The
+   only rule satisfying both is a single capped collision batch followed by an
+   unconditional `Stopped`, with the remainder handed to the component that
+   already owns a bounded final drain. Two plan revisions failed this in
+   opposite directions, so the note should carry the matched-pair test shape
+   (lossless test plus sustained-producer termination test) that makes each
+   wrong rule red.
+4. Update the pinned-revision note after merge, replacing or extending
    [[core waking terminal adapters shipped at revision ec589ee]] with the
    revision that carries this seam.
