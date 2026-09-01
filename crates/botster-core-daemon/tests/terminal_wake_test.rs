@@ -298,12 +298,20 @@ fn stop_collision_returns_one_real_batch_then_stops() {
     assert_eq!(batch.adapter_routes.len(), 1);
     assert_eq!(batch.adapter_routes[0].subscription_id, subscription_id);
     assert_eq!(batch.ingress_sessions, vec![session_id]);
+    assert!(matches!(
+        daemon.shutdown(None, 3),
+        Err(CoreDaemonError::WakePump(WakePumpError::StopNotObserved))
+    ));
     let reads_before = adapter.try_read_count();
     let outcome = daemon
         .pump_woken(&batch, 3)
         .expect("pump the stop collision batch");
     assert_eq!(outcome.pumped_routes, 1);
     assert!(adapter.try_read_count() > reads_before);
+    assert!(matches!(
+        daemon.shutdown(None, 3),
+        Err(CoreDaemonError::WakePump(WakePumpError::StopNotObserved))
+    ));
     assert!(matches!(
         daemon.wait_pump(Duration::from_secs(1)),
         WakePumpWait::Stopped
@@ -339,6 +347,114 @@ fn sustained_wake_producer_cannot_extend_the_post_stop_loop() {
     producer_stop.store(true, std::sync::atomic::Ordering::Release);
     producer.join().expect("producer");
     daemon.shutdown(None, 1).expect("ordered shutdown");
+}
+
+#[cfg(unix)]
+#[test]
+fn interrupt_during_shutdown_preserves_final_output_and_exit() {
+    let data_dir = temp_data_dir("interrupt-shutdown");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("interrupt-shutdown-session".into());
+    let client_id = ClientId("interrupt-shutdown-client".into());
+    let subscription_id = SubscriptionId("interrupt-shutdown-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "trap 'sleep 0.2; printf final; exit 0' TERM; printf ready; while :; do sleep 1; done"
+            .into();
+    daemon.spawn(request, 1).expect("spawn shutdown fixture");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    pump_until_encoded_output(&mut daemon, &adapter, "cmVhZHk=", 3);
+
+    let control = daemon.wake_pump_control();
+    control.request_stop();
+    if let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::ZERO) {
+        daemon
+            .pump_woken(&batch, 3)
+            .expect("pump the shutdown collision batch");
+        assert!(matches!(
+            daemon.wait_pump(Duration::ZERO),
+            WakePumpWait::Stopped
+        ));
+    }
+
+    let shutdown_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let active = std::sync::Arc::clone(&shutdown_active);
+    let interrupt_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = std::sync::Arc::clone(&interrupt_count);
+    let interrupt_control = control.clone();
+    let interrupter = std::thread::spawn(move || {
+        while active.load(std::sync::atomic::Ordering::Acquire) {
+            interrupt_control.interrupt();
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            std::thread::yield_now();
+        }
+    });
+    while interrupt_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+        std::thread::yield_now();
+    }
+    let before_shutdown = interrupt_count.load(std::sync::atomic::Ordering::Acquire);
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id), 4)
+        .expect("bounded shutdown while interrupted");
+    let elapsed = started.elapsed();
+    shutdown_active.store(false, std::sync::atomic::Ordering::Release);
+    interrupter.join().expect("interrupter");
+
+    assert!(
+        interrupt_count.load(std::sync::atomic::Ordering::Acquire) > before_shutdown,
+        "the control thread must raise an interrupt during shutdown"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "shutdown spun: {elapsed:?}"
+    );
+    let frames = adapter.snapshot_delivered_frame_bytes();
+    assert!(
+        frames
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("ZmluYWw=")),
+        "shutdown must deliver the final terminal output: {frames:?}"
+    );
+    assert!(
+        frames.iter().any(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .is_some_and(|value| {
+                    value.get("type").and_then(|field| field.as_str()) == Some("process_exit")
+                })
+        }),
+        "shutdown must deliver the process exit: {frames:?}"
+    );
 }
 
 #[cfg(unix)]

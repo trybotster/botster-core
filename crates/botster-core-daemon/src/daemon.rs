@@ -1126,7 +1126,8 @@ impl CoreDaemon {
     ///
     /// A stop permits at most one final, capacity-capped collision batch. Every
     /// later call returns [`WakePumpWait::Stopped`] without draining the wake
-    /// channel. Only one thread may call this method for a daemon.
+    /// channel. Returning a collision batch does not count as observing the
+    /// stopped state. Only one thread may call this method for a daemon.
     #[must_use]
     pub fn wait_pump(&self, timeout: Duration) -> WakePumpWait {
         let Some(state) = &self.wake_pump else {
@@ -1146,17 +1147,17 @@ impl CoreDaemon {
             .load(std::sync::atomic::Ordering::Acquire)
         {
             if state
-                .stop_observed
+                .stop_collision_consumed
                 .swap(true, std::sync::atomic::Ordering::AcqRel)
             {
-                return WakePumpWait::Stopped;
+                return Self::observe_pump_stopped(state);
             }
             return match waited {
                 TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
                 TerminalWakeWait::Interrupted | TerminalWakeWait::TimedOut => {
-                    self.final_stop_collision_drain()
+                    self.final_stop_collision_drain(state)
                 }
-                _ => self.final_stop_collision_drain(),
+                _ => self.final_stop_collision_drain(state),
             };
         }
 
@@ -1170,25 +1171,34 @@ impl CoreDaemon {
 
     fn wait_pump_after_stop(&self, state: &WakePumpState) -> WakePumpWait {
         if state
-            .stop_observed
+            .stop_collision_consumed
             .swap(true, std::sync::atomic::Ordering::AcqRel)
         {
-            WakePumpWait::Stopped
+            Self::observe_pump_stopped(state)
         } else {
-            self.final_stop_collision_drain()
+            self.final_stop_collision_drain(state)
         }
     }
 
-    fn final_stop_collision_drain(&self) -> WakePumpWait {
+    fn final_stop_collision_drain(&self, state: &WakePumpState) -> WakePumpWait {
         match self
             .engine
             .wake_source()
             .wait_wakes_interruptible(Duration::ZERO)
         {
             TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
-            TerminalWakeWait::Interrupted | TerminalWakeWait::TimedOut => WakePumpWait::Stopped,
-            _ => WakePumpWait::Stopped,
+            TerminalWakeWait::Interrupted | TerminalWakeWait::TimedOut => {
+                Self::observe_pump_stopped(state)
+            }
+            _ => Self::observe_pump_stopped(state),
         }
+    }
+
+    fn observe_pump_stopped(state: &WakePumpState) -> WakePumpWait {
+        state
+            .stop_observed
+            .store(true, std::sync::atomic::Ordering::Release);
+        WakePumpWait::Stopped
     }
 
     /// Targeted pump of woken routes. Does not scan unnamed sessions.
