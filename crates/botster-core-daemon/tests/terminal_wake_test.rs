@@ -666,6 +666,172 @@ fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
 
 #[cfg(unix)]
 #[test]
+fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
+    let data_dir = temp_data_dir("pump-mixed-resize-input");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("pump-mixed-resize-input-session".into());
+    let owner_client = ClientId("pump-mixed-resize-input-owner-client".into());
+    let owner_subscription = SubscriptionId("pump-mixed-resize-input-owner-sub".into());
+    let sibling_client = ClientId("pump-mixed-resize-input-sibling-client".into());
+    let sibling_subscription = SubscriptionId("pump-mixed-resize-input-sibling-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do if [ \"$line\" = REPORT-SIZE ]; then stty size; else printf 'echo:%s\n' \"$line\"; fi; done".into();
+    daemon.spawn(request, 1).expect("spawn worker");
+
+    for (client, subscription) in [
+        (owner_client.clone(), owner_subscription.clone()),
+        (sibling_client.clone(), sibling_subscription.clone()),
+    ] {
+        daemon
+            .expect_terminal_adapter(client.clone(), session_id.clone(), subscription.clone())
+            .expect("declare adapter");
+        daemon
+            .attach(client, session_id.clone(), subscription, 2)
+            .expect("attach route");
+    }
+
+    let subscriptions = daemon.list_terminal_subscriptions();
+    let owner_generation = subscriptions
+        .iter()
+        .find(|row| row.subscription_id == owner_subscription)
+        .expect("owner subscription")
+        .generation;
+    let sibling_generation = subscriptions
+        .iter()
+        .find(|row| row.subscription_id == sibling_subscription)
+        .expect("sibling subscription")
+        .generation;
+    let owner = SharedFakeTerminalAdapter::auto_complete();
+    let sibling = SharedFakeTerminalAdapter::auto_complete();
+    for (client, subscription, generation, adapter) in [
+        (
+            owner_client,
+            owner_subscription.clone(),
+            owner_generation,
+            owner.clone(),
+        ),
+        (
+            sibling_client,
+            sibling_subscription.clone(),
+            sibling_generation,
+            sibling.clone(),
+        ),
+    ] {
+        daemon
+            .bind_waking_terminal_adapter(
+                client,
+                session_id.clone(),
+                subscription,
+                generation,
+                empty_caps(),
+                Box::new(adapter),
+            )
+            .expect("bind waking adapter");
+    }
+
+    let attach_deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < attach_deadline,
+            "same-session routes did not finish attaching"
+        );
+        daemon
+            .drain(&session_id, 2)
+            .expect("drain same-session attach boundaries");
+        let attached = [&owner, &sibling].iter().all(|adapter| {
+            adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+                .any(|value| {
+                    value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                        && value.get("state").and_then(serde_json::Value::as_str)
+                            == Some("attached")
+                })
+        });
+        if attached {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let settled_batch = daemon.wait_wakes(Duration::ZERO);
+    daemon
+        .pump_woken(&settled_batch, 2)
+        .expect("settle attach wakes");
+
+    owner.inject_ingress_frame(compact_resize_frame(31, 91));
+    owner.inject_ingress_frame(compact_input_frame(b"OWNER\n"));
+    let mixed_batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(
+        mixed_batch
+            .adapter_routes
+            .iter()
+            .filter(|route| {
+                route.session_id == session_id && route.subscription_id == owner_subscription
+            })
+            .count(),
+        1,
+        "back-to-back frames must share one coalesced route wake"
+    );
+    daemon
+        .pump_woken(&mixed_batch, 3)
+        .expect("apply mixed wake batch");
+
+    let resize_results = delivered_admitted_input_results(&owner, "resize");
+    let input_results = delivered_admitted_input_results(&owner, "input");
+    assert_eq!(resize_results.len(), 1, "resize must complete once");
+    assert_eq!(input_results.len(), 1, "input must complete once");
+    for result in resize_results.iter().chain(&input_results) {
+        assert_eq!(
+            result["subscription_id"].as_str(),
+            Some(owner_subscription.0.as_str()),
+            "each result must identify the live owner"
+        );
+    }
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resized worker")
+        .expect("worker registry record");
+    assert_eq!((record.rows, record.cols), (31, 91));
+    for (subscription, generation) in [
+        (&owner_subscription, owner_generation),
+        (&sibling_subscription, sibling_generation),
+    ] {
+        assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == *subscription
+                && row.generation == generation
+        }));
+    }
+
+    pump_until_encoded_output(&mut daemon, &owner, "ZWNobzpPV05FUg0K", 4);
+    owner.inject_ingress_frame(compact_input_frame(b"REPORT-SIZE\n"));
+    let size_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&size_batch, 5)
+        .expect("request worker size after mixed batch");
+    pump_until_encoded_output(&mut daemon, &owner, "MzEgOTENCg==", 6);
+    sibling.inject_ingress_frame(compact_input_frame(b"SIBLING\n"));
+    let sibling_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&sibling_batch, 7)
+        .expect("apply sibling input after mixed batch");
+    assert_eq!(
+        delivered_admitted_input_results(&sibling, "input")
+            .iter()
+            .map(|result| result["subscription_id"].as_str())
+            .collect::<Vec<_>>(),
+        vec![Some(sibling_subscription.0.as_str())]
+    );
+    pump_until_encoded_output(&mut daemon, &sibling, "ZWNobzpTSUJMSU5HDQo=", 8);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
     let data_dir = temp_data_dir("pump-gated");
     let mut daemon =

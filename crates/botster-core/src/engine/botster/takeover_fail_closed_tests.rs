@@ -20,7 +20,8 @@ use crate::session::CoreSessionMetadata;
 use crate::{
     QueueSource, RequestId, ResizePayload, SessionIoEvent, SessionRuntimeInput,
     SessionRuntimeOutput, SpawnEnvironment, SpawnWorkingDirectory, TerminalAttachState,
-    TerminalCapabilitySet, TerminalScreenSize, WorkerProcessRuntimeOptions, FRAME_RESIZE,
+    TerminalCapabilitySet, TerminalScreenSize, WorkerProcessRuntimeOptions, FRAME_PTY_INPUT,
+    FRAME_RESIZE,
 };
 use botster_terminal_protocol::TerminalFrame;
 
@@ -842,6 +843,75 @@ fn pump_woken_admits_one_worker_resize_frame_for_one_request() {
     );
     assert_eq!(input_result_count(&adapter, "resize"), 1);
     queue.hold_pops(false);
+}
+
+#[test]
+fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
+    let (mut engine, session_id, subscription, adapter, queue) =
+        held_resize_engine("woken-mixed-admission-race");
+    let generation = engine
+        .terminal_subscription_generation(&session_id, &subscription)
+        .expect("live generation");
+    for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS - 1) {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data: Vec::new(),
+            })
+            .expect("leave one ordinary slot");
+    }
+
+    adapter.inject(compact_resize_frame(31, 101));
+    adapter.inject(compact_input_frame(b"MIXED-ADMISSION-RACE\n"));
+    let mixed_batch = engine.wait_wakes(Duration::from_secs(1));
+    let (probe_reached, release_probe) = queue.pause_after_next_ready_probe();
+    let competing_queue = queue.clone();
+    let competing_admission = thread::spawn(move || {
+        probe_reached
+            .recv_timeout(Duration::from_secs(1))
+            .expect("targeted apply must reach a ready queue probe");
+        competing_queue
+            .admit(
+                ControlFrameClass::Ordinary,
+                crate::encode_frame(FRAME_PTY_INPUT, &[]).expect("encode competing PTY input"),
+            )
+            .expect("a concurrent producer must use the final ordinary slot");
+        release_probe.send(()).expect("release targeted apply");
+    });
+    engine
+        .pump_woken(&mixed_batch, 20)
+        .expect("queue pressure must not fail the public pump");
+    competing_admission
+        .join()
+        .expect("join competing admission");
+
+    queue.hold_pops(false);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        let batch = engine.wait_wakes(Duration::from_millis(100));
+        engine
+            .pump_woken(&batch, 21)
+            .expect("drain the raced mixed batch");
+        if input_result_count(&adapter, "resize") == 1
+            && input_result_count(&adapter, "input") == 1
+            && adapter
+                .writes()
+                .iter()
+                .any(|bytes| String::from_utf8_lossy(bytes).contains("TUlYRUQtQURNSVNTSU9OLVJBQ0U"))
+        {
+            break;
+        }
+    }
+
+    assert_eq!(adapter.pressure(), TerminalAdapterPressure::Ready);
+    assert!(engine.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription
+            && row.generation == generation
+    }));
+    assert_eq!(input_result_count(&adapter, "resize"), 1);
+    assert_eq!(input_result_count(&adapter, "input"), 1);
 }
 
 #[test]
