@@ -12,7 +12,8 @@ use botster_core::{
 };
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
-    ReadModeFlagsRequest, ReadScreenRequest, SessionLifecycleChangeKind, SpawnSessionRequest,
+    CoreDaemonError, ReadModeFlagsRequest, ReadScreenRequest, SessionLifecycleChangeKind,
+    SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -213,6 +214,213 @@ fn delivered_admitted_input_results(
                 && value.get("admitted").and_then(|field| field.as_bool()) == Some(true)
         })
         .collect()
+}
+
+fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
+
+#[test]
+fn wake_pump_control_interrupts_a_daemon_constructed_on_its_owner_thread() {
+    assert_send_sync_clone::<WakePumpControl>();
+    let data_dir = temp_data_dir("owner-thread");
+    let (control_tx, control_rx) = mpsc::sync_channel(1);
+    let (interrupted_tx, interrupted_rx) = mpsc::sync_channel(1);
+    let owner = std::thread::spawn(move || {
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+        control_tx
+            .send(daemon.wake_pump_control())
+            .expect("publish control");
+        assert!(matches!(
+            daemon.wait_pump(Duration::from_secs(5)),
+            WakePumpWait::Interrupted
+        ));
+        interrupted_tx.send(()).expect("publish interrupt result");
+        assert!(matches!(
+            daemon.wait_pump(Duration::from_secs(5)),
+            WakePumpWait::Stopped
+        ));
+        daemon.shutdown(None, 1).expect("ordered shutdown");
+    });
+    let control = control_rx.recv().expect("receive control");
+    control.interrupt();
+    interrupted_rx.recv().expect("interrupt was observed");
+    control.request_stop();
+    owner.join().expect("owner thread");
+}
+
+#[test]
+fn shutdown_without_a_pump_control_keeps_existing_behavior() {
+    let data_dir = temp_data_dir("no-control");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+    daemon.shutdown(None, 1).expect("ordinary shutdown");
+}
+
+#[test]
+fn pump_hosted_shutdown_fails_closed_until_stop_is_observed() {
+    let data_dir = temp_data_dir("stop-required");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+    let control = daemon.wake_pump_control();
+    control.request_stop();
+    assert!(matches!(
+        daemon.shutdown(None, 1),
+        Err(CoreDaemonError::WakePump(WakePumpError::StopNotObserved))
+    ));
+    assert!(matches!(
+        daemon.wait_pump(Duration::ZERO),
+        WakePumpWait::Stopped
+    ));
+    daemon
+        .shutdown(None, 1)
+        .expect("shutdown after observed stop");
+}
+
+#[test]
+fn stop_collision_returns_one_real_batch_then_stops() {
+    let data_dir = temp_data_dir("stop-collision");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, _, subscription_id, _) = bind_probe(
+        &mut daemon,
+        "stop-collision-session",
+        "stop-collision-client",
+        "stop-collision-sub",
+        adapter.clone(),
+    );
+    let _ = daemon.wait_wakes(Duration::ZERO);
+    let ingress = daemon.wake_source().session_handle(session_id.clone());
+    let control = daemon.wake_pump_control();
+    control.request_stop();
+    assert!(adapter.wake(TerminalWakeKind::Writable));
+    ingress.notify();
+
+    let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::ZERO) else {
+        panic!("stop collision must return already queued work");
+    };
+    assert_eq!(batch.adapter_routes.len(), 1);
+    assert_eq!(batch.adapter_routes[0].subscription_id, subscription_id);
+    assert_eq!(batch.ingress_sessions, vec![session_id]);
+    let reads_before = adapter.try_read_count();
+    let outcome = daemon
+        .pump_woken(&batch, 3)
+        .expect("pump the stop collision batch");
+    assert_eq!(outcome.pumped_routes, 1);
+    assert!(adapter.try_read_count() > reads_before);
+    assert!(matches!(
+        daemon.wait_pump(Duration::from_secs(1)),
+        WakePumpWait::Stopped
+    ));
+    daemon.shutdown(None, 1).expect("ordered shutdown");
+}
+
+#[test]
+fn sustained_wake_producer_cannot_extend_the_post_stop_loop() {
+    let data_dir = temp_data_dir("bounded-stop");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(data_dir));
+    let session_id = SessionId("bounded-stop-session".into());
+    let ingress = daemon.wake_source().session_handle(session_id);
+    let control = daemon.wake_pump_control();
+    let producer_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let producer_flag = std::sync::Arc::clone(&producer_stop);
+    let producer = std::thread::spawn(move || {
+        while !producer_flag.load(std::sync::atomic::Ordering::Acquire) {
+            ingress.notify();
+            std::hint::spin_loop();
+        }
+    });
+    control.request_stop();
+    let first = daemon.wait_pump(Duration::ZERO);
+    assert!(matches!(
+        first,
+        WakePumpWait::Wakes(_) | WakePumpWait::Stopped
+    ));
+    assert!(matches!(
+        daemon.wait_pump(Duration::from_secs(1)),
+        WakePumpWait::Stopped
+    ));
+    producer_stop.store(true, std::sync::atomic::Ordering::Release);
+    producer.join().expect("producer");
+    daemon.shutdown(None, 1).expect("ordered shutdown");
+}
+
+#[cfg(unix)]
+#[test]
+fn sustained_worker_and_adapter_producers_still_reach_shutdown_bound() {
+    let data_dir = temp_data_dir("bounded-live-stop");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("bounded-live-stop-session".into());
+    let client_id = ClientId("bounded-live-stop-client".into());
+    let subscription_id = SubscriptionId("bounded-live-stop-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "while :; do printf x; sleep 0.01; done".into();
+    daemon.spawn(request, 1).expect("spawn live producer");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+
+    let control = daemon.wake_pump_control();
+    let producer_control = control.clone();
+    let producer_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let producer_flag = std::sync::Arc::clone(&producer_stop);
+    let producer_adapter = adapter.clone();
+    let producer = std::thread::spawn(move || {
+        while !producer_flag.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = producer_adapter.wake(TerminalWakeKind::Writable);
+            producer_control.interrupt();
+            std::hint::spin_loop();
+        }
+    });
+
+    control.request_stop();
+    let mut post_stop_wakes = 0;
+    if let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::ZERO) {
+        post_stop_wakes += 1;
+        daemon.pump_woken(&batch, 3).expect("collision pump");
+    }
+    let refill_deadline = Instant::now() + Duration::from_secs(1);
+    while daemon.wake_source().occupancy() == 0 {
+        assert!(
+            Instant::now() < refill_deadline,
+            "live producers did not refill the wake channel"
+        );
+        std::thread::yield_now();
+    }
+    assert!(matches!(
+        daemon.wait_pump(Duration::from_secs(1)),
+        WakePumpWait::Stopped
+    ));
+    assert!(post_stop_wakes <= 1);
+
+    let shutdown_started = Instant::now();
+    daemon.shutdown(None, 4).expect("bounded live shutdown");
+    assert!(shutdown_started.elapsed() < Duration::from_secs(3));
+    producer_stop.store(true, std::sync::atomic::Ordering::Release);
+    producer.join().expect("adapter producer");
 }
 
 #[cfg(unix)]
@@ -808,6 +1016,33 @@ fn bind_rejection_allocates_nothing() {
     let _ = err;
     assert_eq!(daemon.wake_source().registry_len(), before);
     let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn late_spawn_and_waking_bind_after_shutdown_allocate_no_core_state() {
+    let data_dir = temp_data_dir("late-after-shutdown");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon.shutdown(None, 1).expect("shutdown");
+    let before_routes = daemon.wake_source().registry_len();
+    let before_sessions = daemon.wake_source().session_registry_len();
+    let session_id = SessionId("late-after-shutdown-session".into());
+    assert!(matches!(
+        daemon.spawn(spawn_request(&session_id), 2),
+        Err(CoreDaemonError::Shutdown)
+    ));
+    assert!(matches!(
+        daemon.bind_waking_terminal_adapter(
+            ClientId("late-client".into()),
+            session_id,
+            SubscriptionId("late-sub".into()),
+            botster_core_daemon::TerminalSubscriptionGeneration(1),
+            empty_caps(),
+            Box::new(SharedFakeTerminalAdapter::auto_complete()),
+        ),
+        Err(CoreDaemonError::Shutdown)
+    ));
+    assert_eq!(daemon.wake_source().registry_len(), before_routes);
+    assert_eq!(daemon.wake_source().session_registry_len(), before_sessions);
 }
 
 #[test]

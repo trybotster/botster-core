@@ -15,7 +15,7 @@ use std::{
 
 use botster_core::contract::terminal_adapter::TerminalAdapter;
 use botster_core::contract::terminal_wake::{
-    TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
+    TerminalWakeBatch, TerminalWakeSource, TerminalWakeWait, WakingTerminalAdapter,
 };
 use botster_core::TerminalScreenSize;
 use botster_core::{
@@ -32,6 +32,8 @@ use botster_core::{
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use thiserror::Error;
+
+use crate::wake_pump::{WakePumpControl, WakePumpError, WakePumpState, WakePumpWait};
 
 use crate::api::{
     reserved_observe_slice_error, sanitize_observe_slice_error_message,
@@ -389,6 +391,9 @@ pub enum CoreDaemonError {
     /// The session control plane has failed and admits no new owner.
     #[error("control plane failed for session {0:?}")]
     ControlPlaneFailed(SessionId),
+    /// Wake pump lifecycle error.
+    #[error(transparent)]
+    WakePump(#[from] WakePumpError),
 }
 
 /// One session's retained error from a control-plane observe tick.
@@ -411,6 +416,16 @@ pub struct ObserveLifecycleResult {
 }
 
 /// Production core daemon supervisor.
+///
+/// `CoreDaemon` is intentionally not transferable between threads. A host that
+/// needs a data-plane thread must construct and keep the daemon on that thread.
+///
+/// ```compile_fail
+/// use botster_core_daemon::{CoreDaemon, CoreDaemonConfig};
+///
+/// let daemon = CoreDaemon::new(CoreDaemonConfig::new("."));
+/// std::thread::spawn(move || drop(daemon));
+/// ```
 pub struct CoreDaemon {
     config: CoreDaemonConfig,
     registry: SessionRegistry,
@@ -441,6 +456,7 @@ pub struct CoreDaemon {
     #[cfg(test)]
     registry_load_all_calls: Cell<u64>,
     running: bool,
+    wake_pump: Option<WakePumpState>,
 }
 
 struct ObservePassState {
@@ -570,6 +586,7 @@ impl CoreDaemon {
             #[cfg(test)]
             registry_load_all_calls: Cell::new(0),
             running: true,
+            wake_pump: None,
         }
     }
 
@@ -1087,6 +1104,91 @@ impl CoreDaemon {
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         self.engine.wait_wakes(timeout)
+    }
+
+    /// Mark this daemon as pump-hosted and return its thread-safe control.
+    ///
+    /// The returned handle has no daemon access. Only the daemon owner thread
+    /// can call [`Self::wait_pump`], other Core methods, and [`Self::shutdown`].
+    #[must_use]
+    pub fn wake_pump_control(&mut self) -> WakePumpControl {
+        if self.wake_pump.is_none() {
+            let interrupt = self.engine.wake_source().interrupt_handle();
+            self.wake_pump = Some(WakePumpState::new(interrupt));
+        }
+        self.wake_pump
+            .as_ref()
+            .expect("wake pump state was initialized")
+            .control()
+    }
+
+    /// Wait for terminal wakes or host control without polling.
+    ///
+    /// A stop permits at most one final, capacity-capped collision batch. Every
+    /// later call returns [`WakePumpWait::Stopped`] without draining the wake
+    /// channel. Only one thread may call this method for a daemon.
+    #[must_use]
+    pub fn wait_pump(&self, timeout: Duration) -> WakePumpWait {
+        let Some(state) = &self.wake_pump else {
+            return WakePumpWait::Wakes(self.wait_wakes(timeout));
+        };
+
+        if state
+            .stop_requested
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return self.wait_pump_after_stop(state);
+        }
+
+        let waited = self.engine.wake_source().wait_wakes_interruptible(timeout);
+        if state
+            .stop_requested
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            if state
+                .stop_observed
+                .swap(true, std::sync::atomic::Ordering::AcqRel)
+            {
+                return WakePumpWait::Stopped;
+            }
+            return match waited {
+                TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
+                TerminalWakeWait::Interrupted | TerminalWakeWait::TimedOut => {
+                    self.final_stop_collision_drain()
+                }
+                _ => self.final_stop_collision_drain(),
+            };
+        }
+
+        match waited {
+            TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
+            TerminalWakeWait::Interrupted => WakePumpWait::Interrupted,
+            TerminalWakeWait::TimedOut => WakePumpWait::Wakes(TerminalWakeBatch::default()),
+            _ => WakePumpWait::Wakes(TerminalWakeBatch::default()),
+        }
+    }
+
+    fn wait_pump_after_stop(&self, state: &WakePumpState) -> WakePumpWait {
+        if state
+            .stop_observed
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            WakePumpWait::Stopped
+        } else {
+            self.final_stop_collision_drain()
+        }
+    }
+
+    fn final_stop_collision_drain(&self) -> WakePumpWait {
+        match self
+            .engine
+            .wake_source()
+            .wait_wakes_interruptible(Duration::ZERO)
+        {
+            TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
+            TerminalWakeWait::Interrupted | TerminalWakeWait::TimedOut => WakePumpWait::Stopped,
+            _ => WakePumpWait::Stopped,
+        }
     }
 
     /// Targeted pump of woken routes. Does not scan unnamed sessions.
@@ -1965,6 +2067,14 @@ impl CoreDaemon {
             return Ok(());
         }
 
+        if self.wake_pump.as_ref().is_some_and(|state| {
+            !state
+                .stop_observed
+                .load(std::sync::atomic::Ordering::Acquire)
+        }) {
+            return Err(WakePumpError::StopNotObserved.into());
+        }
+
         let sessions: Vec<_> = self.engine.list_sessions();
         for session in sessions {
             self.shutdown_session(session.session_id, now_seconds)?;
@@ -2012,7 +2122,7 @@ impl CoreDaemon {
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            let batch = self.wait_wakes(remaining);
+            let batch = self.engine.wake_source().wait_wakes_bounded(remaining);
             match self.pump_woken(&batch, now_seconds) {
                 Ok(_) => {
                     final_output_drained = self.engine_session_exited(&session_id);
@@ -4290,6 +4400,7 @@ mod terminal_backend_failure_tests {
             baseline_page_encodes: 0,
             registry_load_all_calls: Cell::new(0),
             running: true,
+            wake_pump: None,
         }
     }
 

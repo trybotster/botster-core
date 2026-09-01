@@ -74,7 +74,8 @@ let mut daemon = CoreDaemon::new(
 // spawn → attach → drain → input → shutdown via CoreDaemon methods
 // bind_terminal_adapter is the advanced bound-adapter path; see
 // docs/architecture/client-worker-terminal-egress.md
-// bind_waking_terminal_adapter + wait_wakes + pump_woken is the wake-driven path.
+// A single-thread host uses bind_waking_terminal_adapter + wait_wakes + pump_woken.
+// A host-owned data-plane thread uses wake_pump_control + wait_pump + pump_woken.
 ```
 
 Workers own PTYs and control sockets. Intentional daemon restart can call

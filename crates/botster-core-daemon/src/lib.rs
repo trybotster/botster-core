@@ -9,6 +9,7 @@ pub mod api;
 pub mod daemon;
 pub mod guarded_write;
 pub mod registry;
+mod wake_pump;
 
 pub use api::{
     is_observe_slice_error_message_byte, reserved_observe_slice_error,
@@ -33,8 +34,9 @@ pub use api::{
 pub use botster_core::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, SessionWakeHandle,
     TerminalCapabilitySet, TerminalCapabilitySetError, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord, TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute,
-    TerminalWakeSink, TerminalWakeSource, WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
+    TerminalSubscriptionRecord, TerminalWakeBatch, TerminalWakeInterrupt, TerminalWakeKind,
+    TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource, TerminalWakeWait,
+    WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use daemon::{
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,
@@ -46,3 +48,4 @@ pub use guarded_write::{
     SafeWriteIndicator, SnapshotEvidence,
 };
 pub use registry::{RegistryRecord, RegistrySessionState, SessionRegistry, SessionRegistryError};
+pub use wake_pump::{WakePumpControl, WakePumpError, WakePumpWait};
