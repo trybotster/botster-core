@@ -7,6 +7,10 @@ Target id: `tgt_1f7bce66eb304881980f9b4a2a5ae3fe`
 Base revision: `873df1c` ("Use process exit for sibling pump proof")
 Consumer ticket: `ticket_1787894427_525056` (botster-hub cold cut, `tgt_7e208a0c76a44980a83b63af976b1f22`)
 
+Revision 2, after Plan Review `review_1788222362_799486` returned
+`changes_required`. The five findings and their resolutions are recorded in
+"Plan Review resolutions" below.
+
 ## Context loaded
 
 Repository playbook:
@@ -17,6 +21,11 @@ Role playbooks:
 
 - [[planner-playbook]]
 - [[botster-planner-playbook]]
+
+Required Botster planner context:
+
+- [[botster-architecture]]
+- [[cli-patterns]]
 
 Class overlay (runtime-teardown class applies):
 
@@ -30,8 +39,10 @@ Atomic notes:
 - [[session ingress wakes retire on observed exit not shutdown acceptance]]
 - [[core waking terminal adapters shipped at revision ec589ee]]
 - [[hub daemon runtime stays on one owner thread while socket handlers submit requests]]
+- [[Hub keeps CoreDaemon single owned without a concurrent worker]]
 - [[Core terminal subscription ownership is session, subscription, and generation]]
 - [[Core subscription hard-stop is synchronous close and drop on the host tick]]
+- [[Core ClientWorker bind requires a live attach generation]]
 - [[host ShutdownSession classification must call the exact-session Core query]]
 - [[count before publish or a concurrent counter cannot be exact]]
 - [[a concurrency counter needs a quiesce oracle not a during race sampler]]
@@ -44,15 +55,25 @@ Atomic notes:
 
 Repository context read:
 
-- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon`, `wait_wakes`, `pump_woken`, `session_registry_state`, `shutdown`, `shutdown_session`)
+- `crates/botster-core-daemon/src/daemon.rs` (`CoreDaemon`, `wait_wakes`,
+  `pump_woken`, `session_registry_state`, `shutdown`, `shutdown_session`,
+  `ensure_running`, `spawn`, `attach`, the bind pair, `input`, `resize`,
+  `detach`)
 - `crates/botster-core-daemon/src/lib.rs` (public re-export surface)
-- `crates/botster-core/src/contract/terminal_wake.rs` (`TerminalWakeSource`, `WakeInner`, `recv_nodes`, `assemble_batch`)
-- `crates/botster-core/src/engine/managed_session_runtime.rs` (the two production `Rc` uses at lines 95 and 2247)
-- `crates/botster-core-daemon/tests/terminal_wake_test.rs` (production-shaped worker PTY wake proofs)
-- `crates/botster-core-test-support/tests/consumers/` (isolated hub-shaped consumer crates)
-- `docs/architecture/core-daemon.md`, `docs/architecture/terminal-adapter.md`, `docs/README.md`, `docs/plans/README.md`
+- `crates/botster-core/src/contract/terminal_wake.rs` (`TerminalWakeSource`,
+  `WakeInner`, `recv_nodes`, `assemble_batch`)
+- `crates/botster-core/src/engine/managed_session_runtime.rs` (the two
+  production `Rc` uses at lines 95 and 2247)
+- `crates/botster-core-daemon/tests/terminal_wake_test.rs` (production-shaped
+  worker PTY wake proofs)
+- `crates/botster-core-test-support/tests/consumers/` (isolated hub-shaped
+  consumer crates)
+- `docs/architecture/core-daemon.md`, `docs/architecture/terminal-adapter.md`,
+  `docs/README.md`, `docs/plans/README.md`
 - `.github/workflows/ci.yml` (repository gate commands)
-- Consumer read-only: `botster-hub` `src/runtime.rs` (`SharedCoreDaemon = Mutex<CoreDaemon>`), `src/subscription/closed_events.rs` (`session_close_event_decision`)
+- Consumer read-only: `botster-hub` `src/runtime.rs`
+  (`SharedCoreDaemon = Mutex<CoreDaemon>`), `src/subscription/closed_events.rs`
+  (`session_close_event_decision`)
 
 ## Resolved architecture decision
 
@@ -75,10 +96,81 @@ attribution, and cancellation. Hub relocates `CoreDaemon::new` onto its
 data-plane thread; that thread owns the daemon from construction through
 shutdown. Those items belong to `ticket_1787894427_525056`, not to this ticket.
 
+## Plan Review resolutions
+
+`review_1788222362_799486` raised five findings. Each is resolved here.
+
+1. `finding_1788222362_190183` (blocker, product). Correct. Revision 1 proposed a
+   `WakePumpHost` that owned `CoreDaemon` by value and exposed only four methods
+   plus a consuming `into_daemon`. That makes `spawn`, `attach`, the bind pair,
+   `input`, `resize`, `detach`, and lifecycle calls unreachable while the pump
+   host is alive, so the Hub loop could not process its own bounded requests.
+   [[Hub keeps CoreDaemon single owned without a concurrent worker]] rejects the
+   same shape for a second reason: an ownership wrapper must not imply a
+   synchronization boundary that does not exist. **Resolution: Core adds no
+   owning wrapper type.** The data-plane thread holds the `CoreDaemon` value
+   directly and calls every method, pump-side and control-side, through a plain
+   `&mut`. The new seam is the interrupt, the control handle, the interruptible
+   wait, and the stop-ordering rule. See "Owner-thread call path" below.
+2. `finding_1788222362_626273` (high, product). Correct. The late-message matrix
+   now carries every ownership-creating Core request surface, with owner tag,
+   post-stop rejection, and sweep, and it names which side owns each rule.
+3. `finding_1788222362_840081` (high, product). Correct. Acceptance check 20 in
+   revision 1 stated an impossible order. `CoreDaemon::shutdown` runs inside the
+   thread that is later joined, so the join cannot precede it. The check now
+   states the exact ordered sequence and keeps the invariant that actually
+   matters: the pump loop has ended before Core shutdown begins.
+4. `finding_1788222362_562668` (low, process). The gate call carried all five
+   fields and the engine stored them, but the `step.completed` event recorded
+   empty evidence. This resubmission passes the same five fields to both
+   `project_pipelines_submit_gate` and `project_pipelines_request_step_advance`,
+   and reuses checklist `checklist_1788221615_290908` rather than creating a
+   duplicate.
+5. `finding_1788222362_207757` (medium, product). Correct.
+   [[botster-architecture]] and [[cli-patterns]] are Must Load entries in
+   [[botster-planner-playbook]] and revision 1 omitted them. Both are now loaded
+   and recorded. [[botster-architecture]] supplied
+   [[Hub keeps CoreDaemon single owned without a concurrent worker]], which is
+   the convention that independently confirms finding 1.
+
+## Owner-thread call path
+
+The data-plane thread owns one `CoreDaemon` value. Every call, pump-side and
+control-side, uses a plain `&mut` on that value. There is no wrapper, no shared
+mutable access, no `unsafe`, and no second pump path.
+
+```rust
+// Hub-owned, on the Hub data-plane thread. Core owns none of this policy.
+let mut daemon = CoreDaemon::new(config);         // non-Send value never crosses a thread
+let control = daemon.wake_pump_control();         // Clone + Send + Sync, no daemon access
+// `control` is the only value handed to the Hub owner thread.
+
+loop {
+    match daemon.wait_pump(idle_timeout) {        // new: interruptible wait
+        WakePumpWait::Stopped => break,
+        WakePumpWait::Interrupted => {}
+        WakePumpWait::Wakes(batch) => {
+            daemon.pump_woken(&batch, now)?;      // existing, unchanged
+        }
+    }
+    // Hub-owned bounded request drain, same thread, same &mut, Hub policy only.
+    hub_requests.drain_bounded(&mut daemon);      // spawn, attach, bind, input,
+                                                  // resize, detach, lifecycle,
+                                                  // session_registry_state
+}
+hub_requests.finish_accepted_bounded(&mut daemon);
+daemon.shutdown(None, now)?;                      // on this thread, after the loop
+// thread exits; the Hub owner thread joins it.
+```
+
+`CoreDaemon` stays `!Send`, so the compiler alone proves the Hub owner thread
+cannot own or call it. `WakePumpControl` is the only Send value that crosses,
+and it exposes no daemon access, so it cannot become a second control path.
+
 ## Scope
 
-Core adds one narrow, supported pump-side seam plus the neutral interrupt
-primitive it needs.
+Core adds the narrow pump-side seam and the neutral interrupt primitive it
+needs. Core adds no type that owns `CoreDaemon`.
 
 1. `botster-core`, `crates/botster-core/src/contract/terminal_wake.rs`:
    - Add a coalesced, transport-neutral interrupt to `TerminalWakeSource`.
@@ -87,64 +179,72 @@ primitive it needs.
      transitions from false to true, publishes at most one `WakeNode::Interrupt`
      so a blocked `recv_timeout` returns.
    - Add an interruptible wait entry point that reports why the wait ended.
-     `TerminalWakeSource::wait_wakes` keeps its current signature and behavior.
+     `TerminalWakeSource::wait_wakes` keeps its current signature and behavior,
+     and it does not consume the interrupt flag.
    - The interrupt must not name a route or a session, must not fabricate an
      adapter route or ingress session, must not clear the overflow flag, and
      must not reorder or drop queued wakes.
 
-2. `botster-core-daemon`, new module `crates/botster-core-daemon/src/wake_pump.rs`:
-   - `WakePumpHost` owns the `CoreDaemon` by value. It is `!Send` because
-     `CoreDaemon` is `!Send`, so the type system alone proves that only the
-     constructing thread can own or call it.
-   - `WakePumpHost::new(CoreDaemon) -> Self` and `into_daemon(self) -> CoreDaemon`
-     (same thread only).
-   - `WakePumpHost::wait(timeout) -> WakePumpWait` with variants `Wakes(TerminalWakeBatch)`,
-     `Interrupted`, and `Stopped`.
-   - `WakePumpHost::pump_woken(&mut self, &TerminalWakeBatch, now_seconds)` and
-     `WakePumpHost::session_registry_state(&self, &SessionId)` delegate to the
-     daemon without changing their contracts.
-   - `WakePumpHost::control(&self) -> WakePumpControl`, a `Clone + Send + Sync`
-     handle with `interrupt()`, `request_stop()`, and `stop_requested()`.
-     `WakePumpControl` holds no daemon access of any kind.
-   - `WakePumpHost::shutdown(&mut self, now_seconds)` runs `CoreDaemon::shutdown`
-     on the owning thread and fails closed with a typed error when
-     `request_stop()` has not been observed. This makes "stop before Core
-     shutdown" a Core-enforced rule instead of a host convention.
+2. `botster-core-daemon`, `crates/botster-core-daemon/src/daemon.rs` plus a new
+   `crates/botster-core-daemon/src/wake_pump.rs` for the seam types only:
+   - `CoreDaemon::wake_pump_control(&mut self) -> WakePumpControl`. Issuing a
+     control marks this daemon as pump-hosted.
+   - `WakePumpControl`: `Clone + Send + Sync`, with `interrupt()`,
+     `request_stop()`, and `stop_requested()`. It holds the wake interrupt and a
+     shared stop flag. It holds no daemon access of any kind.
+   - `CoreDaemon::wait_pump(&self, timeout) -> WakePumpWait`, with
+     `#[non_exhaustive]` variants `Wakes(TerminalWakeBatch)`, `Interrupted`, and
+     `Stopped`.
+   - `CoreDaemon::shutdown` fails closed with a typed error when a control was
+     issued and `request_stop()` was never observed. When no control was ever
+     issued, `shutdown` behaves exactly as it does today, so single-thread
+     embedders are unaffected.
+   - `pump_woken`, `session_registry_state`, and every control-plane method keep
+     their current signatures and stay reachable through `&mut CoreDaemon`.
    - Re-export the new types from `crates/botster-core-daemon/src/lib.rs`.
 
 3. Documentation: update `docs/architecture/core-daemon.md` and
-   `docs/architecture/terminal-adapter.md` for the seam, the interruptible wait,
-   the single-owner-thread rule, and the stop-before-shutdown order. Update the
-   root `README.md` host-surface pointer if it lists the wake-driven host loop.
+   `docs/architecture/terminal-adapter.md` for the interruptible wait, the
+   single-owner-thread rule, the single-waiter rule, and the stop-then-shutdown
+   order. Update the root `README.md` host-surface pointer if it names the
+   wake-driven host loop.
 
 4. Tests: production-shaped worker PTY proofs in
    `crates/botster-core-daemon/tests/terminal_wake_test.rs`, plus one isolated
-   hub-shaped consumer crate that builds the seam inside a spawned thread and
-   drives the real loop.
+   hub-shaped consumer crate that builds the daemon inside a spawned thread and
+   drives the real loop, including a bounded request drain against the same
+   `&mut CoreDaemon`.
 
 ## Non-scope
 
+- No type that owns `CoreDaemon`, and no ownership wrapper that implies a
+  synchronization boundary that does not exist.
 - No change to `CoreDaemon`'s `!Send` property, and no change to the two
   production `Rc` uses in `managed_session_runtime.rs`.
 - No `unsafe` anywhere, in Core or in Hub.
-- No Core-side thread, executor, request queue, scheduler, cancellation policy,
-  or control-request API. Core creates no operating-system thread for this seam,
-  preserving the contract already stated in `docs/architecture/core-daemon.md`.
+- No Core-side thread, executor, request queue, scheduler, admission policy,
+  cancellation policy, or control-request API. Core creates no operating-system
+  thread for this seam, preserving the contract already stated in
+  `docs/architecture/core-daemon.md`.
 - No change to `pump_woken` targeting, `TerminalWakeBatch` shape, adapter
   contracts, worker protocol version 3, generation fencing, duplex input,
   resize persistence, lifecycle commit, or output delivery.
 - No polling path, no correctness timer, and no global route or session scan.
-- No Hub changes in this run. Hub thread ownership, queue bounds, attribution,
-  cancellation, and transport cold cut stay in `ticket_1787894427_525056`.
+- No Hub changes in this run. Hub thread ownership, `CoreDaemon` construction on
+  that thread, request admission and its stop, queue bounds, attribution,
+  cancellation, and the transport cold cut stay in `ticket_1787894427_525056`.
 - No client (web, TUI) work.
 
 ## Repository ownership boundaries and cross-repository dependencies
 
-- Core owns the seam type, the interrupt primitive, wake semantics, targeted
-  pumping, registry classification, and shutdown ordering enforcement.
+- Core owns the seam types, the interrupt primitive, wake semantics, targeted
+  pumping, registry close classification, per-call fail-closed rules
+  (`ensure_running`, `ensure_session`, generation fencing, bind rejection), and
+  the stop-before-shutdown rule.
 - Hub owns the data-plane thread, `CoreDaemon` construction on that thread, the
-  bounded request queue, request attribution and cancellation, scheduling
-  fairness between control requests and terminal wakes, and route policy.
+  bounded request queue, request admission and the stop of that admission,
+  attribution, cancellation, fairness between control requests and terminal
+  wakes, and route policy.
 - `ticket_1787894427_525056` (botster-hub) already carries a registered
   dependency on this ticket (`dependency_1788220253_452317`). No new dependency
   ticket is required, and this run must not broaden into Hub.
@@ -155,8 +255,8 @@ primitive it needs.
 ## Runtime-teardown class answers
 
 `teardown_class_applies`: **yes**. The seam governs `SessionIo`/`ClientWorker`
-teardown ordering, adapter close progress, late wake admission, and the boundary
-between a live pump loop and `CoreDaemon::shutdown`.
+teardown ordering, adapter close progress, late wake and late request admission,
+and the boundary between a live pump loop and `CoreDaemon::shutdown`.
 
 `teardown_isolation`: the ownership set that dies with one failed route is the
 single subscription: its `RouteWakeState`, its bound adapter, and its
@@ -165,38 +265,52 @@ single subscription: its `RouteWakeState`, its bound adapter, and its
 the same batch. The seam adds no shared mutable state across routes, so it
 introduces no new sibling coupling. One failed route must not stop the loop.
 
-`teardown_bounds`: `wait(timeout)` is bounded by the caller's timeout and returns
-immediately once `request_stop()` is observed, so a stopped loop cannot block on
-a quiet wake channel. `pump_woken` keeps its existing per-session bounds.
-`WakePumpHost::shutdown` delegates to `CoreDaemon::shutdown`, which keeps its
-existing two-second per-session hang watchdog and its typed `ShutdownFailed`
-error. The seam adds no unbounded wait. If the channel is full when
-`interrupt()` fires, the publish is dropped on purpose: queued nodes already
-guarantee that the next wait cannot block, so liveness holds without growing the
-bounded queue.
+`teardown_bounds`: `wait_pump(timeout)` is bounded by the caller's timeout and
+returns immediately once `request_stop()` is observed, so a stopped loop cannot
+block on a quiet wake channel. `pump_woken` keeps its existing per-session
+bounds. `CoreDaemon::shutdown` keeps its existing two-second per-session hang
+watchdog and its typed `ShutdownFailed` error. The seam adds no unbounded wait.
+If the channel is full when `interrupt()` fires, the publish is dropped on
+purpose: queued nodes already guarantee that the next wait cannot block, so
+liveness holds without growing the bounded queue.
 
-`late_message_matrix`:
+`late_message_matrix`: every surface that creates or ends durable ownership,
+including the Core request surfaces the Hub loop drives on the owner thread.
 
-| Surface that creates or ends durable ownership | Owner tag | Rejection after terminal failure | Residual sweep |
-|---|---|---|---|
-| Adapter writable wake | `Arc<RouteWakeState>` (session, subscription) | `assemble_batch` skips a state whose `retired` flag is set and clears `queued` | `retire_route` marks retired before removal |
-| Adapter closed wake | same `RouteWakeState` | same retired filter; close classification uses `session_registry_state` | one idempotent teardown per route |
-| Session ingress wake | `Arc<SessionWakeState>` per live `SessionId` | retired sessions are skipped and `queued` is cleared | `forget_session` retires state and recovery data together, after teardown commits |
-| Overflow reconcile walk | live registries only | reuses the same retired and queued filters as the fast path | bounded walk, no global scan |
-| **New:** interrupt | no route or session identity | ignored once `stop_requested()` is true; the wait returns `Stopped` | pending flag is consumed by the next wait; it names nothing, so it sweeps nothing |
-| **New:** stop request | the seam itself | `WakePumpHost::shutdown` fails closed when stop was never requested | stop is monotonic and cannot be cleared |
+| Surface | Owner tag | Rejection after terminal failure or stop | Residual sweep | Rule owner |
+|---|---|---|---|---|
+| Adapter writable wake | `Arc<RouteWakeState>` (session, subscription) | `assemble_batch` skips a retired state and clears `queued` | `retire_route` marks retired before removal | Core |
+| Adapter closed wake | same `RouteWakeState` | same retired filter; classification through `session_registry_state` | one idempotent teardown per route | Core |
+| Session ingress wake | `Arc<SessionWakeState>` per live `SessionId` | retired sessions are skipped and `queued` is cleared | `forget_session` retires state and recovery data together, after teardown commits | Core |
+| Overflow reconcile walk | live registries only | reuses the same retired and queued filters as the fast path | bounded walk, no global scan | Core |
+| `spawn` | `SessionId` plus the registry row | `ensure_running` fails closed after `shutdown`; Hub stops admission at `request_stop` | registry row and engine session are created together or not at all | Core rejection, Hub admission |
+| `attach` | client, session, subscription, generation | `ensure_running`, `ensure_session_mutable`, `ensure_control_plane_live` | unmatched egress is retained, not leaked to a foreign route | Core |
+| `expect_terminal_adapter` | client, session, subscription | pre-attach declaration is consumed or rejected on every attach return | `cancel_expected_terminal_adapter` retires an unconsumed declaration | Core |
+| `bind_terminal_adapter` and `bind_waking_terminal_adapter` | client, session, subscription, generation | a failed control plane closes and drops the adapter before returning `Err`; a stale generation cannot bind | bind rejection allocates no wake state | Core |
+| `input`, `mode_gated_input`, `resize` | live subscription id and generation | control-queue-full retries in order; other failures fail closed | capacity-parked input retries only on a matching session ingress wake | Core |
+| `detach` and `detach_terminal_subscription` | session, subscription, generation | a stale generation cannot detach a live replacement owner | one idempotent teardown per route | Core |
+| `shutdown_session` and `remove_session` | `SessionId` | `remove_session` rejects live and stopping sessions | ingress wake retires only after the lifecycle transition commits | Core |
+| Interrupt | no route or session identity | ignored once `stop_requested()` is true; the wait returns `Stopped` | pending flag is consumed by the next wait; it names nothing, so it sweeps nothing | Core |
+| Stop request | the control handle | `shutdown` fails closed when stop was never requested | stop is monotonic and cannot be cleared | Core |
+| Hub bounded request queue | Hub request id and attribution | Hub stops admission at `request_stop`; accepted work finishes before shutdown | Hub cancels or drains its own queue | Hub (`ticket_1787894427_525056`) |
 
-The interrupt deliberately creates no durable ownership. That is the property
-that keeps this seam out of the ownership matrix rather than adding a row to it.
+The interrupt and the stop request deliberately create no durable ownership.
+That is what keeps them out of the ownership matrix rather than adding rows that
+need sweeping. Requests raced against stop are handled in two layers: Hub stops
+admission, and Core fails every call closed through `ensure_running` once
+`shutdown` completes.
 
 `production_path_proof`: worker or PTY input, or adapter writable or closed
 transition → `TerminalWakeSink`/`SessionWakeHandle` publish → data-plane thread
-blocked in `WakePumpHost::wait` → `WakePumpWait::Wakes` → `WakePumpHost::pump_woken`
-→ `CoreDaemon::pump_woken` → engine facade input apply and targeted egress →
-bound adapter `try_write`. The stop path is: host `WakePumpControl::request_stop()`
-from another thread → blocked `wait` returns `Stopped` → loop drains accepted
-bounded work → `WakePumpHost::shutdown` on the owning thread → thread exits →
-host `join`. Oracles run against a real worker PTY in
+blocked in `CoreDaemon::wait_pump` → `WakePumpWait::Wakes` → `pump_woken` →
+engine facade input apply and targeted egress → bound adapter `try_write`. The
+control-request path is: Hub owner thread submits a bounded request and calls
+`WakePumpControl::interrupt()` → the blocked wait returns `Interrupted` → the
+Hub drain runs the request against the same `&mut CoreDaemon`. The stop path is:
+Hub stops admission → `WakePumpControl::request_stop()` → the blocked wait
+returns `Stopped` → the loop ends → the Hub finishes bounded accepted work →
+`CoreDaemon::shutdown` runs on the owner thread → the thread exits → the Hub
+owner thread joins it. Oracles run against a real worker PTY in
 `crates/botster-core-daemon/tests/terminal_wake_test.rs` and drive the seam from
 a genuinely spawned thread, not from a helper call on the test thread.
 
@@ -210,34 +324,38 @@ the host thread ends can only set flags that no live loop reads.
 `sibling_fail_closed_policy`: on successful stop and shutdown, no sibling
 behavior changes, because the whole daemon is stopping. Within a live loop, one
 failing session's `pump_woken` error must not stop the loop or the sibling
-sessions named in the same batch. On ultimate shutdown failure, `CoreDaemon`
-already returns `ShutdownFailed` after its bounded watchdog; the seam surfaces
-that error to the host without swallowing it and without leaving the host
-blocked. Late wakes fail closed through the existing retired filters.
+sessions named in the same batch, and one failing Hub request must not stop the
+pump loop. On ultimate shutdown failure, `CoreDaemon` already returns
+`ShutdownFailed` after its bounded watchdog; the seam surfaces that error to the
+host without swallowing it and without leaving the host blocked. Late wakes fail
+closed through the existing retired filters.
 
 ## Assumptions and unknowns
 
 Assumptions (stated, not silently taken):
 
-1. Hub relocates `CoreDaemon::new` onto its data-plane thread. Confirmed in the
-   answer to `question_1788221610_604436`.
+1. Hub relocates `CoreDaemon::new` onto its data-plane thread and drives every
+   Core call from that thread. Confirmed by the answer to
+   `question_1788221610_604436`.
 2. `TerminalWakeBatch` keeps its current shape. The wait reason travels in the
    new `WakePumpWait` enum instead, so no public struct becomes breaking. This
    respects [[botster core public enums are breaking until non exhaustive is decided]];
    `WakePumpWait` ships `#[non_exhaustive]` from the start.
-3. `CoreDaemon::wait_wakes`, `pump_woken`, `session_registry_state`, and
-   `shutdown` stay public and unchanged. The seam is additive, so an embedder
-   that drives the daemon on one thread today keeps working.
+3. Every existing public `CoreDaemon` method keeps its signature. The seam is
+   additive, so an embedder that drives the daemon on one thread today keeps
+   working, and a host that never calls `wake_pump_control` sees no behavior
+   change at all, including in `shutdown`.
 4. Only one waiter drains the wake channel at a time. `recv_nodes` takes the
-   receiver mutex, so a second waiter blocks rather than steals; the seam makes
-   the single-owner rule explicit in documentation, and the `!Send` host type
-   makes a second daemon-side waiter unconstructible.
+   receiver mutex, so a second waiter blocks rather than steals; the plan
+   documents the single-waiter rule, and `CoreDaemon: !Send` makes a second
+   daemon-side waiter unconstructible.
 
 Unknowns to resolve during Implement:
 
-1. Whether `WAKE_QUEUE_CAPACITY` accounting tests (`public_occupancy_is_exact_after_quiesce`,
-   `live_allocation_bound`) need an explicit statement that a coalesced interrupt
-   occupies at most one slot. Resolve by running those tests, not by assuming.
+1. Whether `WAKE_QUEUE_CAPACITY` accounting tests
+   (`public_occupancy_is_exact_after_quiesce`, `live_allocation_bound`) need an
+   explicit statement that a coalesced interrupt occupies at most one slot.
+   Resolve by running those tests, not by assuming.
 2. Whether `CoreDaemon::shutdown`'s internal `wait_wakes` loop should also
    consume the interrupt flag. Current plan: it must not, so a host interrupt
    cannot spin the shutdown watchdog loop. Prove with a test that interrupts
@@ -251,8 +369,10 @@ Unknowns to resolve during Implement:
   `WakeNode::Interrupt`, `TerminalWakeInterrupt`, interruptible wait.
 - `crates/botster-core/src/lib.rs` — re-export `TerminalWakeInterrupt` and the
   wait outcome type.
-- `crates/botster-core-daemon/src/wake_pump.rs` — new module: `WakePumpHost`,
-  `WakePumpControl`, `WakePumpWait`, `WakePumpError`.
+- `crates/botster-core-daemon/src/wake_pump.rs` — new module: `WakePumpControl`,
+  `WakePumpWait`, `WakePumpError`.
+- `crates/botster-core-daemon/src/daemon.rs` — `wake_pump_control`, `wait_pump`,
+  and the stop-before-shutdown rule inside `shutdown`.
 - `crates/botster-core-daemon/src/lib.rs` — module declaration and re-exports.
 - `crates/botster-core-daemon/tests/terminal_wake_test.rs` — seam proofs.
 - `crates/botster-core-test-support/tests/consumers/hub-data-plane-shaped/` — new
@@ -281,24 +401,28 @@ Unknowns to resolve during Implement:
    [[a concurrency counter needs a quiesce oracle not a during race sampler]]).
    Mitigation: count before publish, refund every failed send, and re-run the
    existing quiesce oracles.
-5. **Scaffold-only seam.** A seam with no production consumer in this repository
+5. **Stop rule breaks existing embedders.** A daemon that never issues a control
+   must keep today's `shutdown` behavior exactly. Mitigation: the fail-closed
+   rule is conditional on a control having been issued, and a test covers the
+   no-control path.
+6. **Scaffold-only seam.** A seam with no production consumer in this repository
    risks being dead code ([[dead code allowances identify scaffold only entry points]],
    [[exhaustive match arms do not prove production reachability]]). Mitigation:
-   the hub-shaped consumer crate drives the real loop on a spawned thread, and
-   the plan records that the production host wiring lands in
-   `ticket_1787894427_525056`. This ticket is intentionally a contract plus
-   downstream-shaped proof, not a Hub wiring ticket.
-6. **Uninitialized Ghostty submodule blocks every gate.** Verified in this
+   the hub-shaped consumer crate drives the real loop on a spawned thread,
+   including a bounded request drain, and the plan records that the production
+   host wiring lands in `ticket_1787894427_525056`. This ticket is intentionally
+   a contract plus downstream-shaped proof, not a Hub wiring ticket.
+7. **Uninitialized Ghostty submodule blocks every gate.** Verified in this
    worktree: `crates/botster-terminal-ghostty/vendor/ghostty` is empty, and
    `cargo check` fails in the `botster-terminal-ghostty` build script.
    Mitigation: Implement runs
    `git submodule update --init crates/botster-terminal-ghostty/vendor/ghostty`
    and confirms Zig 0.16.0 through `mise` before any gate.
-7. **Two waiters on one wake source.** A host that keeps a cloned
+8. **Two waiters on one wake source.** A host that keeps a cloned
    `TerminalWakeSource` and waits on another thread would contend for the
-   receiver mutex. Mitigation: document the single-waiter rule on the seam and
-   on `TerminalWakeSource::wait_wakes`; add a test that proves the seam's own
-   wait plus `CoreDaemon::shutdown` never overlap on one thread.
+   receiver mutex. Mitigation: document the single-waiter rule on `wait_pump`
+   and on `TerminalWakeSource::wait_wakes`; add a test proving the pump loop and
+   `CoreDaemon::shutdown` never overlap on one thread.
 
 ## Acceptance checks and tests
 
@@ -323,8 +447,9 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
 ### Contract proofs (compile time)
 
 10. `WakePumpControl` is `Send + Sync + Clone`, proved by a static assertion.
-11. `WakePumpHost` is not `Send`, proved by a `compile_fail` doctest, matching
-    the existing `compile_fail` precedent in `crates/botster-core/src/lib.rs`.
+11. `CoreDaemon` is still not `Send`, proved by a `compile_fail` doctest,
+    matching the existing `compile_fail` precedent in
+    `crates/botster-core/src/lib.rs`.
 12. `WakePumpControl` exposes no daemon accessor. Proved by the consumer crate,
     which holds a control handle on the spawning thread and cannot reach the
     daemon from there.
@@ -338,66 +463,86 @@ Run from a colon-free worktree. This worktree path contains no `:`, so
     `WakePumpControl::interrupt()`; a wait blocked on a long timeout returns
     `Interrupted` well before that timeout elapses. The test asserts elapsed time
     below the timeout, not merely a returned value.
-15. **Interrupt loses no wake.** An interrupt raised concurrently with real
+15. **Interrupt reaches the control-request path.** After an interrupt returns
+    the wait, the owner-thread loop runs a Core control call against the same
+    `&mut CoreDaemon` and that call succeeds while terminal routes stay bound.
+    This proves the seam does not make control calls unreachable.
+16. **Interrupt loses no wake.** An interrupt raised concurrently with real
     wakes returns `Wakes` with the exact expected routes, or returns
     `Interrupted` and the very next wait returns those exact routes. No route is
     dropped and no unnamed route appears.
-16. **Level-triggered interrupt.** An interrupt raised before the wait starts
+17. **Level-triggered interrupt.** An interrupt raised before the wait starts
     makes the next wait return without blocking.
-17. **Interrupt names nothing.** An interrupt with no pending wake yields an
+18. **Interrupt names nothing.** An interrupt with no pending wake yields an
     empty batch and pumps zero routes. No global scan and no polling path.
-18. **Stop ordering.** `request_stop()` makes a blocked wait return `Stopped`;
-    every later wait returns `Stopped` without blocking;
-    `WakePumpHost::shutdown` succeeds after stop; the thread joins.
-19. **Shutdown fails closed without stop.** `WakePumpHost::shutdown` before any
-    `request_stop()` returns the typed error and does not run
-    `CoreDaemon::shutdown`.
-20. **Stop and join precede Core shutdown.** The test proves the pump loop has
-    ended before `CoreDaemon::shutdown` begins, so no second waiter can steal the
-    wakes that `shutdown_session` needs for its bounded final drain.
-21. **Interrupt during shutdown does not spin.** An interrupt raised while
+19. **Stop ordering.** `request_stop()` makes a blocked wait return `Stopped`,
+    and every later wait returns `Stopped` without blocking.
+20. **Exact shutdown sequence.** The test drives, in order: stop Hub-shaped
+    admission, `request_stop()` and the interrupt it raises, the pump loop ends,
+    bounded accepted work finishes against the same `&mut CoreDaemon`,
+    `CoreDaemon::shutdown` runs on that owner thread and returns `Ok`, the thread
+    exits, and only then the spawning thread's `join` returns. The invariant
+    asserted is that the pump loop has ended before Core shutdown begins, so no
+    second waiter can steal the wakes that `shutdown_session` needs for its
+    bounded final drain.
+21. **Shutdown fails closed without stop.** `CoreDaemon::shutdown` after
+    `wake_pump_control()` but before any `request_stop()` returns the typed error
+    and does not tear down sessions.
+22. **No control means no behavior change.** A daemon that never calls
+    `wake_pump_control()` shuts down exactly as it does today.
+23. **Interrupt during shutdown does not spin.** An interrupt raised while
     `CoreDaemon::shutdown` runs its bounded drain does not shorten, spin, or
     abort the watchdog loop, and shutdown still completes.
-22. **Sibling isolation.** A slow or failing route does not stop pumping of a
+24. **Late request after shutdown fails closed.** A Core call issued after
+    `shutdown` completes returns the `ensure_running` error and creates no
+    session, route, or wake state.
+25. **Bind after stop allocates nothing.** A waking bind attempted after
+    `request_stop()` and shutdown closes and drops the adapter, allocates no wake
+    registry entry, and leaves the registry length unchanged.
+26. **Sibling isolation.** A slow or failing route does not stop pumping of a
     sibling route named in the same batch, and does not end the loop. Extends the
     existing `pump_woken_worker_resize_isolates_the_named_sibling` pattern.
-23. **Late wakes fail closed.** A wake published after `retire_route` or
+27. **Late wakes fail closed.** A wake published after `retire_route` or
     `forget_session` pumps nothing, resurrects no session, and re-registers no
     recovery entry, when delivered through the seam.
-24. **Close classification through the seam.** `session_registry_state` called
-    from the owning thread returns exact `Found`, `Absent`, and `Err`
-    classification, matching the shape Hub's `session_close_event_decision`
-    consumes.
-25. **Preserved behavior.** The existing `terminal_wake_test.rs` suite stays
+28. **Close classification on the owner thread.** `session_registry_state`
+    returns exact `Found`, `Absent`, and `Err` classification, matching the shape
+    Hub's `session_close_event_decision` consumes.
+29. **Preserved behavior.** The existing `terminal_wake_test.rs` suite stays
     green: targeted duplex input, mode-gated input, worker resize persistence
     and acknowledgment, generation fencing, occupancy exactness, overflow
     recovery, and worker protocol version 3.
 
 ### Downstream-shaped proof (charter requirement)
 
-26. A new isolated consumer crate `hub-data-plane-shaped` builds the seam inside
-    `std::thread::spawn`, runs `wait` / `pump_woken` / `session_registry_state`,
-    receives an interrupt and a stop from the spawning thread, calls
-    `WakePumpHost::shutdown` on the owning thread, and joins. It must compile
-    with no `unsafe`, no `Arc<Mutex<CoreDaemon>>`, and no `CoreDaemon` value on
-    the spawning thread. The driver test asserts those absences in the consumer
+30. A new isolated consumer crate `hub-data-plane-shaped` constructs
+    `CoreDaemon` inside `std::thread::spawn`, takes one `WakePumpControl` out to
+    the spawning thread, and runs the real loop: `wait_pump`, `pump_woken`, a
+    bounded Hub-shaped request drain that calls `spawn`, `attach`, a waking
+    bind, `input`, `resize`, `detach`, and `session_registry_state` against the
+    same `&mut CoreDaemon`, then `CoreDaemon::shutdown` on that thread, then
+    exit and join. It must compile with no `unsafe`, no `Arc<Mutex<CoreDaemon>>`,
+    no ownership wrapper around `CoreDaemon`, and no `CoreDaemon` value on the
+    spawning thread. The driver test asserts those absences in the consumer
     source, matching the existing `lifecycle_journal_consumer_test.rs` pattern.
 
 ### Publication
 
-27. After merge, publish the exact merged Core revision for the Hub pin, record
+31. After merge, publish the exact merged Core revision for the Hub pin, record
     it in the run, and update the vault note that currently pins revision
     `ec589ee`.
 
 ## Vault gaps worth capturing
 
-1. A new note recording that the Core wake pump host seam is `!Send` on purpose,
-   that `!Send` is the enforcement mechanism for single-thread daemon ownership,
-   and that hosts get thread-safe control through a handle that carries no
-   daemon access. This supersedes the scope of
-   [[hub daemon runtime stays on one owner thread while socket handlers submit requests]]
-   for the terminal data plane: the Core owner thread becomes the data-plane
-   thread, and the Hub owner loop submits bounded requests to it.
+1. A new note recording that Core exposes the wake pump seam as an interrupt, a
+   control handle, and an interruptible wait rather than as a type that owns
+   `CoreDaemon`, because an owning wrapper would make the host's other Core
+   calls unreachable and would imply a synchronization boundary that does not
+   exist. This joins [[Hub keeps CoreDaemon single owned without a concurrent worker]]
+   to the data-plane thread case, and it extends
+   [[hub daemon runtime stays on one owner thread while socket handlers submit requests]]:
+   the Core owner thread becomes the data-plane thread, and the Hub owner loop
+   submits bounded requests to it.
 2. A note recording that a coalesced interrupt on a bounded wake channel can
    safely drop its publish when the channel is full, because queued nodes
    already guarantee a non-blocking wait. This liveness argument is easy to get
