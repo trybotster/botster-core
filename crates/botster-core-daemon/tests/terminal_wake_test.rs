@@ -5,6 +5,7 @@ use std::process::Command;
 use std::sync::{mpsc, Once};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use botster_core::terminal_adapter::TerminalAdapterPressure;
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
     SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
@@ -978,6 +979,239 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
         })
         .count();
     assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
+    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription_id
+            && row.generation == generation
+    }));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
+    let data_dir = temp_data_dir("one-slot-resize-input-wakes");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("one-slot-resize-input-wakes-session".into());
+    let client_id = ClientId("one-slot-resize-input-wakes-client".into());
+    let subscription_id = SubscriptionId("one-slot-resize-input-wakes-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty -echo; printf ready; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done"
+            .into();
+    daemon.spawn(request, 1).expect("spawn worker");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach route");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::new();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let attach_deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < attach_deadline,
+            "one-slot worker attach did not finish"
+        );
+        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        adapter.complete_write();
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+    }
+
+    let settle_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < settle_deadline,
+            "one-slot attach wakes did not settle"
+        );
+        adapter.complete_write();
+        let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_millis(50)) else {
+            panic!("uncontrolled wake pump must return wakes");
+        };
+        if batch.adapter_routes.is_empty()
+            && batch.ingress_sessions.is_empty()
+            && adapter.snapshot_pressure() == TerminalAdapterPressure::Ready
+            && daemon.wake_source().occupancy() == 0
+        {
+            break;
+        }
+        daemon.pump_woken(&batch, 2).expect("settle attach wakes");
+    }
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter.inject_ingress_frame(compact_input_frame(b"SCRATCH\n"));
+
+    let WakePumpWait::Wakes(mixed) = daemon.wait_pump(Duration::from_secs(5)) else {
+        panic!("uncontrolled wake pump must return the mixed wake");
+    };
+    assert_eq!(mixed.adapter_routes.len(), 1);
+    assert_eq!(mixed.adapter_routes[0].session_id, session_id);
+    assert_eq!(mixed.adapter_routes[0].subscription_id, subscription_id);
+    assert!(mixed.ingress_sessions.is_empty());
+    daemon.pump_woken(&mixed, 3).expect("pump mixed wake");
+
+    assert_eq!(
+        adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Full,
+        "the first input result must occupy the only output slot"
+    );
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 0);
+    assert_eq!(delivered_input_result_count(&adapter, "input"), 0);
+    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription_id
+            && row.generation == generation
+    }));
+
+    let completion_deadline = Instant::now() + Duration::from_secs(5);
+    let mut retained_resize_wake_observed = false;
+    while delivered_input_result_count(&adapter, "resize")
+        + delivered_input_result_count(&adapter, "input")
+        < 2
+    {
+        assert!(
+            Instant::now() < completion_deadline,
+            "one-slot input results did not complete"
+        );
+        adapter.complete_write();
+        let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_secs(5)) else {
+            panic!("uncontrolled wake pump must return a completion wake");
+        };
+        assert_eq!(batch.adapter_routes.len(), 1);
+        assert_eq!(batch.adapter_routes[0].session_id, session_id);
+        assert_eq!(batch.adapter_routes[0].subscription_id, subscription_id);
+        assert!(
+            batch
+                .ingress_sessions
+                .iter()
+                .all(|session| session == &session_id),
+            "completion can coalesce only with the named session"
+        );
+        daemon
+            .pump_woken(&batch, 4)
+            .expect("pump one-slot completion wake");
+        if !batch.ingress_sessions.is_empty() {
+            retained_resize_wake_observed = true;
+            assert!(!adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+                .any(|value| value
+                    .get("payload_base64")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("ZWNobzpTQ1JBVENIDQo=")));
+        }
+        assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == subscription_id
+                && row.generation == generation
+        }));
+        assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    }
+
+    assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
+    assert_eq!(delivered_input_result_count(&adapter, "input"), 1);
+    let resize_results = delivered_admitted_input_results(&adapter, "resize");
+    let input_results = delivered_admitted_input_results(&adapter, "input");
+    assert_eq!(resize_results.len(), 1, "resize must complete once");
+    assert_eq!(input_results.len(), 1, "input must complete once");
+    for result in resize_results.iter().chain(&input_results) {
+        assert_eq!(
+            result["subscription_id"].as_str(),
+            Some(subscription_id.0.as_str()),
+            "each result must identify the live owner"
+        );
+    }
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resized worker")
+        .expect("worker registry record");
+    assert_eq!((record.rows, record.cols), (31, 91));
+
+    if !retained_resize_wake_observed {
+        let WakePumpWait::Wakes(retained) = daemon.wait_pump(Duration::ZERO) else {
+            panic!("uncontrolled wake pump must return the retained wake");
+        };
+        assert!(retained.adapter_routes.is_empty());
+        assert_eq!(retained.ingress_sessions, vec![session_id.clone()]);
+        daemon
+            .pump_woken(&retained, 5)
+            .expect("pump retained resize-completion wake");
+        retained_resize_wake_observed = true;
+        assert!(!adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| value
+                .get("payload_base64")
+                .and_then(serde_json::Value::as_str)
+                == Some("ZWNobzpTQ1JBVENIDQo=")));
+    }
+    assert!(retained_resize_wake_observed);
+
+    let WakePumpWait::Wakes(echo) = daemon.wait_pump(Duration::from_secs(5)) else {
+        panic!("uncontrolled wake pump must return the echo wake");
+    };
+    assert!(echo.adapter_routes.is_empty());
+    assert_eq!(echo.ingress_sessions, vec![session_id.clone()]);
+    daemon.pump_woken(&echo, 6).expect("pump worker echo wake");
+    adapter.complete_write();
+
+    let delivered = adapter.snapshot_delivered_frame_bytes();
+    let exact_echoes = delivered
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value
+                .get("payload_base64")
+                .and_then(serde_json::Value::as_str)
+                == Some("ZWNobzpTQ1JBVENIDQo=")
+        })
+        .count();
+    assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
+    assert!(!delivered
+        .iter()
+        .any(|bytes| { String::from_utf8_lossy(bytes).contains("core_adapter_closed") }));
+    assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
         row.session_id == session_id
             && row.subscription_id == subscription_id
