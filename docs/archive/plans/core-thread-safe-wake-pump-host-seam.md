@@ -294,8 +294,9 @@ needs. Core adds no type that owns `CoreDaemon`.
      `Interrupted`.
    - `CoreDaemon::shutdown` fails closed with a typed error when a control was
      issued and `request_stop()` was never observed. When no control was ever
-     issued, `shutdown` behaves exactly as it does today, so single-thread
-     embedders are unaffected.
+     issued, `shutdown` keeps its existing runtime behavior for single-thread
+     embedders. The exhaustive-error source compatibility caveat is recorded
+     under Assumptions and unknowns.
    - `pump_woken`, `session_registry_state`, and every control-plane method keep
      their current signatures and stay reachable through `&mut CoreDaemon`.
    - Re-export the new types from `crates/botster-core-daemon/src/lib.rs`.
@@ -447,10 +448,13 @@ Assumptions (stated, not silently taken):
    new `WakePumpWait` enum instead, so no public struct becomes breaking. This
    respects [[botster core public enums are breaking until non exhaustive is decided]];
    `WakePumpWait` ships `#[non_exhaustive]` from the start.
-3. Every existing public `CoreDaemon` method keeps its signature. The seam is
-   additive, so an embedder that drives the daemon on one thread today keeps
-   working, and a host that never calls `wake_pump_control` sees no behavior
-   change at all, including in `shutdown`.
+3. Every existing public `CoreDaemon` method keeps its signature, and the seam
+   is additive at runtime. A host that never calls `wake_pump_control` sees no
+   behavior change, including in `shutdown`. Source compatibility is not fully
+   additive: `CoreDaemonError` remains exhaustive and gains the `WakePump`
+   variant. A downstream exhaustive match must add an arm. This ticket does not
+   add `#[non_exhaustive]`; that broader compatibility decision remains
+   separate. Hub ticket `ticket_1787894427_525056` owns the Hub match update.
 4. Only one waiter drains the wake channel at a time. `recv_nodes` takes the
    receiver mutex, so a second waiter blocks rather than steals; the plan
    documents the single-waiter rule, and `CoreDaemon: !Send` makes a second
