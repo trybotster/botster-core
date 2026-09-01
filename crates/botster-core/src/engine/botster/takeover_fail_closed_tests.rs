@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
+
 use super::{ClientId, SessionId, SubscriptionId, WorkerBackedBotsterEngine};
 use crate::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
@@ -751,6 +753,21 @@ fn input_result_count(adapter: &InjectAdapter, kind: &str) -> usize {
         .count()
 }
 
+fn terminal_output_bytes(frames: &[serde_json::Value]) -> Vec<u8> {
+    frames
+        .iter()
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("terminal_output")
+        })
+        .filter_map(|value| value.get("payload_base64").and_then(|field| field.as_str()))
+        .flat_map(|payload| {
+            base64::engine::general_purpose::STANDARD
+                .decode(payload)
+                .expect("terminal output base64")
+        })
+        .collect()
+}
+
 fn settle_wakes(engine: &mut WorkerBackedBotsterEngine, tick: u64) {
     for _ in 0..4 {
         let batch = engine.wait_wakes(Duration::from_millis(50));
@@ -775,7 +792,7 @@ fn held_resize_engine(
     let client = ClientId(format!("{label}-client"));
     let subscription = SubscriptionId(format!("{label}-sub"));
     let mut request = spawn_request(&session_id);
-    request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do if [ \"$line\" = REPORT-SIZE ]; then stty size; exit 0; else printf 'echo:%s\n' \"$line\"; fi; done".to_string();
+    request.arguments[1] = "stty -echo; printf ready; while IFS= read -r line; do printf 'echo:%s\n' \"$line\"; if [ \"$line\" = MIXED-ADMISSION-RACE ]; then stty size; exit 0; fi; done".to_string();
     engine
         .spawn_session(request, CoreSessionMetadata::new())
         .expect("spawn");
@@ -854,6 +871,11 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
     let generation = engine
         .terminal_subscription_generation(&session_id, &subscription)
         .expect("live generation");
+    assert!(engine.list_terminal_subscriptions().iter().any(|row| {
+        row.session_id == session_id
+            && row.subscription_id == subscription
+            && row.generation == generation
+    }));
     for _ in 0..(WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS - 1) {
         engine
             .session_runtime_mut()
@@ -890,67 +912,80 @@ fn pump_woken_preserves_mixed_resize_and_input_across_a_queue_admission_race() {
 
     queue.hold_pops(false);
     let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        let batch = engine.wait_wakes(Duration::from_millis(100));
-        engine
-            .pump_woken(&batch, 21)
-            .expect("drain the raced mixed batch");
-        if input_result_count(&adapter, "resize") == 1
-            && input_result_count(&adapter, "input") == 1
-            && adapter.writes().iter().any(|bytes| {
-                String::from_utf8_lossy(bytes).contains("ZWNobzpNSVhFRC1BRE1JU1NJT04tUkFDRQ0K")
-            })
-        {
-            break;
-        }
-    }
-
-    assert_eq!(adapter.pressure(), TerminalAdapterPressure::Ready);
-    assert!(engine.list_terminal_subscriptions().iter().any(|row| {
-        row.session_id == session_id
-            && row.subscription_id == subscription
-            && row.generation == generation
-    }));
-    assert_eq!(input_result_count(&adapter, "resize"), 1);
-    assert_eq!(input_result_count(&adapter, "input"), 1);
-    assert!(
-        adapter.writes().iter().any(|bytes| {
-            String::from_utf8_lossy(bytes).contains("ZWNobzpNSVhFRC1BRE1JU1NJT04tUkFDRQ0K")
-        }),
-        "raced input must reach the live PTY: {:?}",
-        adapter.writes()
-    );
-    pump_adapter_wake(
-        &mut engine,
-        &adapter,
-        compact_input_frame(b"REPORT-SIZE\n"),
-        22,
-    );
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let mut process_exited = false;
-    while !process_exited {
+    let mut exit_code = None;
+    while exit_code.is_none() {
         assert!(
             Instant::now() < deadline,
-            "live worker did not exit after its size report"
+            "live worker did not exit after the raced mixed batch"
         );
         let batch = engine.wait_wakes(Duration::from_millis(100));
         let output = engine
-            .pump_woken(&batch, 23)
-            .expect("drain the live worker size report");
-        process_exited = output
-            .session_events
-            .iter()
-            .any(|event| matches!(event, SessionIoEvent::ProcessExited { session_id: exited, .. } if exited == &session_id));
+            .pump_woken(&batch, 21)
+            .expect("drain the raced mixed batch");
+        exit_code = output.session_events.iter().find_map(|event| match event {
+            SessionIoEvent::ProcessExited {
+                session_id: exited,
+                payload,
+            } if exited == &session_id => payload.exit_code,
+            _ => None,
+        });
     }
-    assert_eq!(input_result_count(&adapter, "input"), 2);
+
+    assert_eq!(exit_code, Some(0));
+    assert_eq!(input_result_count(&adapter, "resize"), 1);
+    assert_eq!(input_result_count(&adapter, "input"), 1);
+    let frames: Vec<serde_json::Value> = adapter
+        .writes()
+        .iter()
+        .map(|bytes| serde_json::from_slice(bytes).expect("adapter frame JSON"))
+        .collect();
+    let process_exit_index = frames
+        .iter()
+        .position(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("process_exit")
+                && value.get("code").and_then(|field| field.as_i64()) == Some(0)
+        })
+        .expect("adapter code-zero process exit");
+    let before_exit = &frames[..process_exit_index];
+    assert!(before_exit
+        .iter()
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
+        })
+        .all(|value| {
+            value
+                .get("subscription_id")
+                .and_then(|field| field.as_str())
+                == Some(subscription.0.as_str())
+        }));
+    assert!(before_exit
+        .iter()
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("terminal_output")
+        })
+        .all(|value| {
+            value
+                .get("subscription_id")
+                .and_then(|field| field.as_str())
+                == Some(subscription.0.as_str())
+        }));
+    let terminal_output = terminal_output_bytes(before_exit);
     assert!(
-        adapter
-            .writes()
-            .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgMTAxDQo=")),
-        "live worker PTY must report the raced 31x101 resize: {:?}",
-        adapter.writes()
+        terminal_output
+            .windows(b"echo:MIXED-ADMISSION-RACE\r\n".len())
+            .any(|window| window == b"echo:MIXED-ADMISSION-RACE\r\n"),
+        "raced input must reach the live PTY: {terminal_output:?}"
     );
+    assert!(
+        terminal_output
+            .windows(b"31 101\r\n".len())
+            .any(|window| window == b"31 101\r\n"),
+        "live worker PTY must report the raced 31x101 resize: {terminal_output:?}"
+    );
+    assert!(frames
+        .iter()
+        .all(|value| !value.to_string().contains("core_adapter_closed")));
+    assert_eq!(adapter.pressure(), TerminalAdapterPressure::Closed);
 }
 
 #[test]
