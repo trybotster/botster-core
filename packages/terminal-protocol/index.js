@@ -1,7 +1,7 @@
 export const PROTOCOL = "botster-terminal-v1";
 export const PROTOCOL_VERSION = 1;
 export const CONFORMANCE_FIXTURE_REVISION = 2;
-export const PACKAGE_VERSION = "0.2.0";
+export const PACKAGE_VERSION = "0.3.0";
 export const FEATURE_TERMINAL_STREAMING = "terminal_streaming";
 export const FEATURE_RESIZE = "resize";
 export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY =
@@ -10,6 +10,9 @@ export const FEATURE_TRANSPORT_DUPLEX_BINARY = "transport=duplex_binary";
 export const TERMINAL_INPUT_SCHEME_VERSION = 1;
 export const MAX_INPUT_DATA_BYTES = 65535;
 export const MAX_MODE_GATED_DATA_BYTES = 65519;
+export const MAX_PASTE_CHUNK_DATA_BYTES = 65527;
+export const MAX_PASTE_BYTES = 1048576;
+export const MAX_PASTE_CHUNKS = 17;
 
 export const metadata = {
   package_version: PACKAGE_VERSION,
@@ -63,4 +66,48 @@ export function encodeResize(rows, cols) {
   view.setUint16(0, rows, false);
   view.setUint16(2, cols, false);
   return encodeTerminalInputFrame(3, body);
+}
+
+export function encodePaste(operation_id, mode_generation, mode_revision, data) {
+  if (data.length === 0) {
+    throw new Error("EmptyPaste");
+  }
+  if (data.length > MAX_PASTE_BYTES) {
+    throw new Error(
+      `PayloadTooLarge kind=paste max=${MAX_PASTE_BYTES} actual=${data.length}`,
+    );
+  }
+  const begin = new Uint8Array(24);
+  const beginView = new DataView(begin.buffer);
+  beginView.setUint32(0, operation_id, false);
+  beginView.setBigUint64(4, BigInt(mode_generation), false);
+  beginView.setBigUint64(12, BigInt(mode_revision), false);
+  beginView.setUint32(20, data.length, false);
+  const frames = [encodeTerminalInputFrame(4, begin)];
+  for (
+    let offset = 0, index = 0;
+    offset < data.length;
+    offset += MAX_PASTE_CHUNK_DATA_BYTES, index += 1
+  ) {
+    const chunkData = data.subarray(
+      offset,
+      Math.min(offset + MAX_PASTE_CHUNK_DATA_BYTES, data.length),
+    );
+    const chunk = new Uint8Array(8 + chunkData.length);
+    const chunkView = new DataView(chunk.buffer);
+    chunkView.setUint32(0, operation_id, false);
+    chunkView.setUint32(4, index, false);
+    chunk.set(chunkData, 8);
+    frames.push(encodeTerminalInputFrame(5, chunk));
+  }
+  const commit = new Uint8Array(4);
+  new DataView(commit.buffer).setUint32(0, operation_id, false);
+  frames.push(encodeTerminalInputFrame(6, commit));
+  return frames;
+}
+
+export function encodePasteAbort(operation_id) {
+  const body = new Uint8Array(4);
+  new DataView(body.buffer).setUint32(0, operation_id, false);
+  return encodeTerminalInputFrame(7, body);
 }

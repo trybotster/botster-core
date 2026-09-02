@@ -58,6 +58,18 @@ fn terminal_input_frame_source_has_no_semantic_accessors() {
 }
 
 #[test]
+fn terminal_input_header_accepts_all_published_kinds_only() {
+    for kind in 1..=7 {
+        let frame = botster_terminal_protocol::TerminalInputFrame::from_bytes(&[1, kind, 0, 0]);
+        assert!(frame.is_ok(), "kind {kind} must be forwardable");
+    }
+    assert!(matches!(
+        botster_terminal_protocol::TerminalInputFrame::from_bytes(&[1, 8, 0, 0]),
+        Err(botster_terminal_protocol::TerminalInputFrameError::UnknownKind { found: 8 })
+    ));
+}
+
+#[test]
 fn terminal_frame_source_has_no_semantic_accessors() {
     let frame = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/frame.rs"))
         .expect("frame source");

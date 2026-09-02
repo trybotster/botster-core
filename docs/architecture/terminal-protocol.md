@@ -12,9 +12,9 @@ duplex input. Hub-safe crates stay content-blind: they carry opaque
 
 | Coordinate | Consumers | Public surface |
 | --- | --- | --- |
-| `botster-terminal-protocol` 0.1.0 | Hub adapters and any content-blind forwarder | Compatibility descriptors, forwardable requests, opaque `TerminalFrame` |
-| `botster-terminal-protocol-client` 0.2.0 | TUI Rust and the TypeScript generator | Semantic Snapshot, phase, AttachState, TerminalOutput, ProcessExit, and `input_result` types, plus semantic input encode/decode |
-| `@trybotster/terminal-protocol` 0.2.0 | Web and other Node consumers | Generated TypeScript, metadata, encode helpers, and the ready-then-history event-order fixture |
+| `botster-terminal-protocol` 0.2.0 | Hub adapters and any content-blind forwarder | Compatibility descriptors, forwardable requests, opaque `TerminalFrame` |
+| `botster-terminal-protocol-client` 0.3.0 | TUI Rust and the TypeScript generator | Semantic events, input results, and shared input and paste encode helpers |
+| `@trybotster/terminal-protocol` 0.3.0 | Web and other Node consumers | Generated TypeScript, metadata, encode helpers, and the ready-then-history event-order fixture |
 
 `botster-terminal-protocol-client` depends on `botster-terminal-protocol`.
 Hub must depend only on `botster-terminal-protocol`. Hub must not depend on
@@ -44,6 +44,32 @@ or `botster-hub-client`.
 | Event tags | `snapshot`, `terminal_output`, `process_exit`, `attach_state`, `input_result` |
 | Snapshot phases | `ready`, `history`, `finish` |
 | AttachState values | `attaching`, `attached`, `snapshot_history_incomplete`, `attach_failed` |
+
+## Bounded paste input
+
+The compact input header accepts seven kind bytes. Kinds 1 through 3 are
+`input`, `mode_gated_input`, and `resize`. Kinds 4 through 7 are
+`paste_begin`, `paste_chunk`, `paste_commit`, and `paste_abort`.
+
+The Hub-safe crate validates only the scheme, kind, and body length. It does
+not expose operation ids, mode tokens, chunk indexes, or paste content.
+
+One paste contains 1 through 1,048,576 content bytes. Each non-final chunk
+contains 65,527 data bytes. The maximum operation contains 17 chunks. A Begin
+body contains a `u32` operation id, two `u64` mode values, and a `u32` total
+length. Chunk bodies contain a `u32` operation id, a `u32` index, and data.
+Commit and Abort bodies contain only the operation id. All integers use big
+endian byte order.
+
+The Rust `encode_paste` helper and the TypeScript `encodePaste` helper produce
+Begin, ordered Chunk frames, and Commit. `encode_paste_abort` and
+`encodePasteAbort` produce Abort. Clients must use these helpers. Clients must
+not define a separate chunk policy.
+
+`TerminalInputKind` includes `paste`. Paste results can include an optional
+`operation_id`. Paste rejections include `duplicate_operation`,
+`operation_in_flight`, `operation_out_of_bounds`, `operation_incomplete`, and
+`aborted`. Existing mode, timeout, write, and session rejections also apply.
 
 `snapshot_delivery=ready_then_history` is a compatibility feature. It is not an
 Attach field. The default client requirement does not include it.

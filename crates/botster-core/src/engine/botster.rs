@@ -555,6 +555,18 @@ impl DefaultBotsterEngine {
         self.runtime.wait_wakes(timeout)
     }
 
+    /// Clamp a host wait to the earliest paste assembly deadline.
+    #[must_use]
+    pub fn clamp_paste_wait(&self, timeout: std::time::Duration) -> std::time::Duration {
+        self.runtime.clamp_paste_wait(timeout)
+    }
+
+    /// Return exact routes with expired paste assemblies.
+    #[must_use]
+    pub fn expired_paste_wake_batch(&self, now: std::time::Instant) -> TerminalWakeBatch {
+        self.runtime.expired_paste_wake_batch(now)
+    }
+
     /// Targeted pump of woken routes.
     pub fn pump_woken(
         &mut self,
@@ -1219,6 +1231,18 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn wait_wakes(&self, timeout: std::time::Duration) -> TerminalWakeBatch {
         self.runtime.wait_wakes(timeout)
+    }
+
+    /// Clamp a host wait to the earliest paste assembly deadline.
+    #[must_use]
+    pub fn clamp_paste_wait(&self, timeout: std::time::Duration) -> std::time::Duration {
+        self.runtime.clamp_paste_wait(timeout)
+    }
+
+    /// Return exact routes with expired paste assemblies.
+    #[must_use]
+    pub fn expired_paste_wake_batch(&self, now: std::time::Instant) -> TerminalWakeBatch {
+        self.runtime.expired_paste_wake_batch(now)
     }
 
     /// Targeted pump of woken routes.

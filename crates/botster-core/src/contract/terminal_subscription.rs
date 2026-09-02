@@ -109,6 +109,28 @@ pub enum DetachTerminalSubscriptionResult {
 
 pub use botster_terminal_protocol_client::TerminalInputCommand;
 
+/// One Core-owned terminal input operation ready for Stage B.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalInputOperation {
+    /// One existing single-frame terminal command.
+    Command(TerminalInputCommand),
+    /// One fully assembled bounded paste.
+    Paste(PasteOperation),
+}
+
+/// One complete paste after Stage A validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasteOperation {
+    /// Client-chosen operation id.
+    pub operation_id: u32,
+    /// Worker ownership epoch expected at atomic admission.
+    pub mode_generation: u64,
+    /// Complete-ModeFlags counter expected at atomic admission.
+    pub mode_revision: u64,
+    /// Complete content bytes before optional bracket wrapping.
+    pub data: Vec<u8>,
+}
+
 /// One dequeued ingress command ready to apply on the production tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalInputDelivery {
@@ -120,6 +142,6 @@ pub struct TerminalInputDelivery {
     pub subscription_id: SubscriptionId,
     /// Live generation at dequeue time.
     pub generation: TerminalSubscriptionGeneration,
-    /// Decoded command.
-    pub command: TerminalInputCommand,
+    /// Decoded and validated operation.
+    pub command: TerminalInputOperation,
 }

@@ -1555,6 +1555,28 @@ fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8
     bytes
 }
 
+fn compact_small_paste_frames(
+    operation_id: u32,
+    mode_generation: u64,
+    mode_revision: u64,
+    data: &[u8],
+) -> Vec<Vec<u8>> {
+    let mut begin = vec![1, 4, 0, 24];
+    begin.extend_from_slice(&operation_id.to_be_bytes());
+    begin.extend_from_slice(&mode_generation.to_be_bytes());
+    begin.extend_from_slice(&mode_revision.to_be_bytes());
+    begin.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    let body_len = u16::try_from(8 + data.len()).expect("small chunk");
+    let mut chunk = vec![1, 5];
+    chunk.extend_from_slice(&body_len.to_be_bytes());
+    chunk.extend_from_slice(&operation_id.to_be_bytes());
+    chunk.extend_from_slice(&0_u32.to_be_bytes());
+    chunk.extend_from_slice(data);
+    let mut commit = vec![1, 6, 0, 4];
+    commit.extend_from_slice(&operation_id.to_be_bytes());
+    vec![begin, chunk, commit]
+}
+
 fn input_result_fields(bytes: &[u8]) -> Option<(String, String, bool)> {
     let value = serde_json::from_slice::<Value>(bytes).ok()?;
     if value.get("type")?.as_str()? != "input_result" {
@@ -1656,6 +1678,31 @@ fn local_mode_gated_input_result_carries_the_live_subscription_id() {
         engine.adapter_is_bound(&session, &subscription),
         "SessionNotWritable keeps the owner live"
     );
+}
+
+#[test]
+fn local_paste_rejects_without_pty_bytes_and_carries_operation_identity() {
+    let mut engine = DefaultBotsterEngine::new();
+    let session = session("local-paste-result-id");
+    let client = client("local-paste-result-client");
+    let subscription = sub("local-paste-result-sub");
+    let adapter = bind_local_pair(&mut engine, &session, &client, &subscription, "sleep 30");
+    for frame in compact_small_paste_frames(77, 1, 1, b"paste") {
+        adapter.inject_ingress_frame(frame);
+    }
+    apply_and_pump(&mut engine, &session);
+    let result = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .find(|value| value["type"] == "input_result" && value["kind"] == "paste")
+        .expect("paste result");
+    assert_eq!(result["subscription_id"], subscription.0);
+    assert_eq!(result["operation_id"], 77);
+    assert_eq!(result["admitted"], false);
+    assert_eq!(result["bytes_written"], 0);
+    assert_eq!(result["rejection"], "session_not_writable");
+    assert!(engine.adapter_is_bound(&session, &subscription));
 }
 
 #[test]
@@ -1950,6 +1997,8 @@ fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
         &holder_sub,
         "held-request".to_string(),
         Instant::now() + Duration::from_secs(5),
+        botster_terminal_protocol_client::TerminalInputKind::ModeGatedInput,
+        None,
     );
     sibling.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"queued\n"));
     let teardowns = worker.intake_terminal_input();
@@ -2019,7 +2068,9 @@ fn take_grants_one_mode_gated_per_session_in_one_batch() {
         .filter(|delivery| {
             matches!(
                 delivery.command,
-                botster_terminal_protocol_client::TerminalInputCommand::ModeGatedInput { .. }
+                botster_core::TerminalInputOperation::Command(
+                    botster_terminal_protocol_client::TerminalInputCommand::ModeGatedInput { .. }
+                )
             )
         })
         .collect();

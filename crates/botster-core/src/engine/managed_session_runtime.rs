@@ -17,7 +17,8 @@ use crate::contract::actor::{
 use crate::contract::terminal_adapter::TerminalAdapter;
 use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalInputDelivery, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    TerminalInputDelivery, TerminalInputOperation, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
@@ -341,11 +342,7 @@ where
             .poll_mode_gated_pty_input(session_id)
         {
             Ok(GatedPoll::Ready(result)) => {
-                if let Some(teardown) = self.complete_gated_result(
-                    session_id,
-                    TerminalInputKind::ModeGatedInput,
-                    result,
-                ) {
+                if let Some(teardown) = self.complete_gated_result(session_id, result) {
                     teardowns.push(teardown);
                 }
             }
@@ -414,11 +411,7 @@ where
                 .poll_mode_gated_pty_input(session_id)
             {
                 Ok(GatedPoll::Ready(result)) => {
-                    if let Some(teardown) = self.complete_gated_result(
-                        session_id,
-                        TerminalInputKind::ModeGatedInput,
-                        result,
-                    ) {
+                    if let Some(teardown) = self.complete_gated_result(session_id, result) {
                         teardowns.push(teardown);
                     }
                 }
@@ -504,16 +497,29 @@ where
     ) -> Result<Option<MultiplexerEngineOutcome>, crate::engine::client_worker::ClientWorkerTeardown>
     {
         let kind = match &delivery.command {
-            TerminalInputCommand::Input { .. } => TerminalInputKind::Input,
-            TerminalInputCommand::ModeGatedInput { .. } => TerminalInputKind::ModeGatedInput,
-            TerminalInputCommand::Resize { .. } => TerminalInputKind::Resize,
+            TerminalInputOperation::Command(TerminalInputCommand::Input { .. }) => {
+                TerminalInputKind::Input
+            }
+            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
+                TerminalInputKind::ModeGatedInput
+            }
+            TerminalInputOperation::Command(TerminalInputCommand::Resize { .. }) => {
+                TerminalInputKind::Resize
+            }
+            TerminalInputOperation::Command(
+                TerminalInputCommand::PasteBegin { .. }
+                | TerminalInputCommand::PasteChunk { .. }
+                | TerminalInputCommand::PasteCommit { .. }
+                | TerminalInputCommand::PasteAbort { .. },
+            ) => unreachable!("paste frames do not enter the Stage B queue"),
+            TerminalInputOperation::Paste(_) => TerminalInputKind::Paste,
         };
         let session_id = delivery.session_id.clone();
         let subscription_id = delivery.subscription_id.clone();
         let client_id = delivery.client_id.clone();
         let mut targeted_outcome = None;
         let result = match delivery.command {
-            TerminalInputCommand::Input { data } => {
+            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => {
                 let ingress = TransportIngress::TerminalInput {
                     session_id: session_id.clone(),
                     data: data.clone(),
@@ -545,7 +551,7 @@ where
                     }
                 }
             }
-            TerminalInputCommand::Resize { rows, cols } => {
+            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
                 let ingress = TransportIngress::Resize {
                     session_id: session_id.clone(),
                     rows,
@@ -582,11 +588,11 @@ where
                     }
                 }
             }
-            TerminalInputCommand::ModeGatedInput {
+            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput {
                 mode_generation,
                 mode_revision,
                 data,
-            } => {
+            }) => {
                 match self
                     .engine
                     .session_runtime_mut()
@@ -607,6 +613,8 @@ where
                             &subscription_id,
                             request_id,
                             deadline,
+                            TerminalInputKind::ModeGatedInput,
+                            None,
                         );
                         return Ok(None);
                     }
@@ -634,7 +642,78 @@ where
                     }
                 }
             }
+            TerminalInputOperation::Paste(paste) => {
+                let token = ModeFreshnessToken {
+                    mode_generation: paste.mode_generation,
+                    mode_revision: paste.mode_revision,
+                };
+                let flags = self
+                    .engine
+                    .session_runtime()
+                    .latest_mode_for(&session_id, token);
+                if let Some(flags) = flags {
+                    let mut data = paste.data;
+                    if flags.bracketed_paste {
+                        let mut wrapped = Vec::with_capacity(data.len() + 12);
+                        wrapped.extend_from_slice(b"\x1b[200~");
+                        wrapped.append(&mut data);
+                        wrapped.extend_from_slice(b"\x1b[201~");
+                        data = wrapped;
+                    }
+                    match self
+                        .engine
+                        .session_runtime_mut()
+                        .submit_mode_gated_pty_input(&session_id, token, data)
+                    {
+                        Ok(request_id) => {
+                            let deadline = Instant::now()
+                                + DEFAULT_MODE_GATED_INPUT_TIMEOUT
+                                + Duration::from_secs(1);
+                            self.client_worker.set_awaiting_gated(
+                                &session_id,
+                                &subscription_id,
+                                request_id,
+                                deadline,
+                                TerminalInputKind::Paste,
+                                Some(paste.operation_id),
+                            );
+                            return Ok(None);
+                        }
+                        Err(error) if error.message.contains("already in flight") => {
+                            with_operation(
+                                input_result_rejected(
+                                    TerminalInputKind::Paste,
+                                    TerminalInputRejection::SessionNotWritable,
+                                ),
+                                paste.operation_id,
+                            )
+                        }
+                        Err(_) => {
+                            return owner_apply_teardown_outcome(
+                                &mut self.client_worker,
+                                &session_id,
+                                &subscription_id,
+                            );
+                        }
+                    }
+                } else {
+                    with_operation(
+                        input_result_rejected(kind, TerminalInputRejection::StaleMode),
+                        paste.operation_id,
+                    )
+                }
+            }
+            TerminalInputOperation::Command(
+                TerminalInputCommand::PasteBegin { .. }
+                | TerminalInputCommand::PasteChunk { .. }
+                | TerminalInputCommand::PasteCommit { .. }
+                | TerminalInputCommand::PasteAbort { .. },
+            ) => unreachable!("paste frames do not enter the Stage B queue"),
         };
+        if let Some(operation_id) = result.operation_id {
+            self.client_worker
+                .finish_paste_operation(&session_id, &subscription_id, operation_id);
+        }
         let result = with_subscription(result, &subscription_id);
         if self
             .client_worker
@@ -653,17 +732,39 @@ where
     fn complete_gated_result(
         &mut self,
         session_id: &SessionId,
-        kind: TerminalInputKind,
         result: ModeGatedPtyInputResult,
     ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let (subscription_id, _) = self.take_matching_gated(session_id, &result.request_id)?;
-        let mapped = with_subscription(map_gated_result(kind, result), &subscription_id);
+        let (subscription_id, wait) = self.take_matching_gated(session_id, &result.request_id)?;
+        let partial_write = !result.admitted && result.bytes_written > 0;
+        let mut mapped = map_gated_result(wait.kind, result);
+        mapped.operation_id = wait.operation_id;
+        if let Some(operation_id) = wait.operation_id {
+            self.client_worker
+                .finish_paste_operation(session_id, &subscription_id, operation_id);
+        }
+        let mapped = with_subscription(mapped, &subscription_id);
         if self
             .client_worker
             .enqueue_input_result(session_id, &subscription_id, &mapped)
             .is_err()
         {
             return self.client_worker.detach_live(session_id, &subscription_id);
+        }
+        if partial_write {
+            let batch = TerminalWakeBatch {
+                adapter_routes: vec![crate::TerminalWakeRoute {
+                    session_id: session_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                }],
+                ingress_sessions: Vec::new(),
+            };
+            let mut pumped = self.client_worker.pump_woken(&batch);
+            return pumped.pop().or_else(|| {
+                self.client_worker.hard_stop_owner(&OwnerKey {
+                    session_id: session_id.clone(),
+                    subscription_id,
+                })
+            });
         }
         let key = OwnerKey {
             session_id: session_id.clone(),
@@ -679,14 +780,18 @@ where
         &mut self,
         session_id: &SessionId,
     ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let (subscription_id, _) = self.take_any_gated(session_id)?;
+        let (subscription_id, wait) = self.take_any_gated(session_id)?;
         let mapped = with_subscription(
-            input_result_rejected(
-                TerminalInputKind::ModeGatedInput,
-                TerminalInputRejection::Timeout,
+            with_optional_operation(
+                input_result_rejected(wait.kind, TerminalInputRejection::Timeout),
+                wait.operation_id,
             ),
             &subscription_id,
         );
+        if let Some(operation_id) = wait.operation_id {
+            self.client_worker
+                .finish_paste_operation(session_id, &subscription_id, operation_id);
+        }
         if self
             .client_worker
             .enqueue_input_result(session_id, &subscription_id, &mapped)
@@ -816,18 +921,20 @@ where
         let subscription_id = delivery.subscription_id.clone();
         let client_id = delivery.client_id;
         let applied_resize = match &delivery.command {
-            TerminalInputCommand::Resize { rows, cols } => Some((*rows, *cols, last_output_at)),
+            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
+                Some((*rows, *cols, last_output_at))
+            }
             _ => None,
         };
         let (ingress, result) = match delivery.command {
-            TerminalInputCommand::Input { data } => (
+            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => (
                 TransportIngress::TerminalInput {
                     session_id: session_id.clone(),
                     data: data.clone(),
                 },
                 input_result_ok(TerminalInputKind::Input, data.len()),
             ),
-            TerminalInputCommand::Resize { rows, cols } => (
+            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => (
                 TransportIngress::Resize {
                     session_id: session_id.clone(),
                     rows,
@@ -835,7 +942,7 @@ where
                 },
                 input_result_ok(TerminalInputKind::Resize, 0),
             ),
-            TerminalInputCommand::ModeGatedInput { .. } => {
+            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
                 let result = with_subscription(
                     input_result_rejected(
                         TerminalInputKind::ModeGatedInput,
@@ -855,6 +962,40 @@ where
                 }
                 return Ok(MultiplexerEngineOutcome::empty());
             }
+            TerminalInputOperation::Paste(paste) => {
+                let result = with_subscription(
+                    with_operation(
+                        input_result_rejected(
+                            TerminalInputKind::Paste,
+                            TerminalInputRejection::SessionNotWritable,
+                        ),
+                        paste.operation_id,
+                    ),
+                    &subscription_id,
+                );
+                self.client_worker.finish_paste_operation(
+                    &session_id,
+                    &subscription_id,
+                    paste.operation_id,
+                );
+                if self
+                    .client_worker
+                    .enqueue_input_result(&session_id, &subscription_id, &result)
+                    .is_err()
+                {
+                    return self
+                        .client_worker
+                        .detach_live(&session_id, &subscription_id)
+                        .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
+                }
+                return Ok(MultiplexerEngineOutcome::empty());
+            }
+            TerminalInputOperation::Command(
+                TerminalInputCommand::PasteBegin { .. }
+                | TerminalInputCommand::PasteChunk { .. }
+                | TerminalInputCommand::PasteCommit { .. }
+                | TerminalInputCommand::PasteAbort { .. },
+            ) => unreachable!("paste frames do not enter the Stage B queue"),
         };
         let outcome = match self.apply_targeted_client_ingress(client_id, ingress, last_output_at) {
             Ok(outcome) => outcome,
@@ -868,6 +1009,10 @@ where
         if let Some(size) = applied_resize {
             self.applied_terminal_resizes
                 .insert(session_id.clone(), size);
+        }
+        if let Some(operation_id) = result.operation_id {
+            self.client_worker
+                .finish_paste_operation(&session_id, &subscription_id, operation_id);
         }
         let result = with_subscription(result, &subscription_id);
         if self
@@ -892,7 +1037,7 @@ where
         let subscription_id = delivery.subscription_id.clone();
         let client_id = delivery.client_id.clone();
         let result = match delivery.command {
-            TerminalInputCommand::Input { data } => {
+            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => {
                 match self.handle_client_ingress(
                     client_id,
                     TransportIngress::TerminalInput {
@@ -911,7 +1056,7 @@ where
                     }
                 }
             }
-            TerminalInputCommand::Resize { rows, cols } => {
+            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
                 match self.handle_client_ingress(
                     client_id,
                     TransportIngress::Resize {
@@ -931,11 +1076,30 @@ where
                     }
                 }
             }
-            TerminalInputCommand::ModeGatedInput { .. } => input_result_rejected(
-                TerminalInputKind::ModeGatedInput,
-                TerminalInputRejection::SessionNotWritable,
+            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
+                input_result_rejected(
+                    TerminalInputKind::ModeGatedInput,
+                    TerminalInputRejection::SessionNotWritable,
+                )
+            }
+            TerminalInputOperation::Paste(paste) => with_operation(
+                input_result_rejected(
+                    TerminalInputKind::Paste,
+                    TerminalInputRejection::SessionNotWritable,
+                ),
+                paste.operation_id,
             ),
+            TerminalInputOperation::Command(
+                TerminalInputCommand::PasteBegin { .. }
+                | TerminalInputCommand::PasteChunk { .. }
+                | TerminalInputCommand::PasteCommit { .. }
+                | TerminalInputCommand::PasteAbort { .. },
+            ) => unreachable!("paste frames do not enter the Stage B queue"),
         };
+        if let Some(operation_id) = result.operation_id {
+            self.client_worker
+                .finish_paste_operation(&session_id, &subscription_id, operation_id);
+        }
         let result = with_subscription(result, &subscription_id);
         if self
             .client_worker
@@ -1764,7 +1928,34 @@ where
     /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
-        self.wake_source.wait_wakes(timeout)
+        let batch = self.wake_source.wait_wakes(self.clamp_paste_wait(timeout));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            self.expired_paste_wake_batch(Instant::now())
+        } else {
+            batch
+        }
+    }
+
+    /// Clamp a host wait so one paste assembly cannot sleep past its deadline.
+    #[must_use]
+    pub fn clamp_paste_wait(&self, timeout: Duration) -> Duration {
+        self.client_worker
+            .next_paste_deadline()
+            .map(|deadline| {
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(timeout)
+            })
+            .unwrap_or(timeout)
+    }
+
+    /// Build the exact targeted wake batch for expired paste assemblies.
+    #[must_use]
+    pub fn expired_paste_wake_batch(&self, now: Instant) -> TerminalWakeBatch {
+        TerminalWakeBatch {
+            adapter_routes: self.client_worker.expired_paste_routes(now),
+            ingress_sessions: Vec::new(),
+        }
     }
 
     /// Classify one session's activity at the provided clock value.
@@ -2143,10 +2334,24 @@ fn with_subscription(
     result
 }
 
+fn with_operation(mut result: TerminalInputResult, operation_id: u32) -> TerminalInputResult {
+    result.operation_id = Some(operation_id);
+    result
+}
+
+fn with_optional_operation(
+    mut result: TerminalInputResult,
+    operation_id: Option<u32>,
+) -> TerminalInputResult {
+    result.operation_id = operation_id;
+    result
+}
+
 fn input_result_ok(kind: TerminalInputKind, bytes_written: usize) -> TerminalInputResult {
     TerminalInputResult {
         subscription_id: String::new(),
         kind,
+        operation_id: None,
         admitted: true,
         bytes_written,
         mode_generation: 0,
@@ -2163,6 +2368,7 @@ fn input_result_rejected(
     TerminalInputResult {
         subscription_id: String::new(),
         kind,
+        operation_id: None,
         admitted: false,
         bytes_written: 0,
         mode_generation: 0,
@@ -2210,6 +2416,7 @@ fn map_gated_result(
     TerminalInputResult {
         subscription_id: String::new(),
         kind,
+        operation_id: None,
         admitted: result.admitted,
         bytes_written: result.bytes_written,
         mode_generation: result.mode_freshness.mode_generation,

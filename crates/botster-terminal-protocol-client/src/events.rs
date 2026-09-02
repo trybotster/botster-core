@@ -89,6 +89,8 @@ wire_enum! {
         ModeGatedInput,
         /// Resize.
         Resize,
+        /// Bounded atomic paste.
+        Paste,
     }
 }
 
@@ -108,6 +110,16 @@ wire_enum! {
         Timeout,
         /// The session cannot accept input.
         SessionNotWritable,
+        /// The operation id was already accepted or is older than an accepted id.
+        DuplicateOperation,
+        /// Another paste operation already owns this subscription.
+        OperationInFlight,
+        /// The operation violates a byte, chunk, or queue bound.
+        OperationOutOfBounds,
+        /// The chunk sequence or committed content is incomplete.
+        OperationIncomplete,
+        /// The client aborted the operation before worker submission.
+        Aborted,
     }
 }
 
@@ -192,6 +204,9 @@ pub struct TerminalInputResult {
     pub subscription_id: String,
     /// Command kind.
     pub kind: TerminalInputKind,
+    /// Paste operation id. Omitted for non-paste commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<u32>,
     /// Whether the command was admitted.
     pub admitted: bool,
     /// Bytes written to the PTY.

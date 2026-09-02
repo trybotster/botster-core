@@ -1141,7 +1141,10 @@ impl CoreDaemon {
             return self.wait_pump_after_stop(state);
         }
 
-        let waited = self.engine.wake_source().wait_wakes_interruptible(timeout);
+        let waited = self
+            .engine
+            .wake_source()
+            .wait_wakes_interruptible(self.engine.clamp_paste_wait(timeout));
         if state
             .stop_requested
             .load(std::sync::atomic::Ordering::Acquire)
@@ -1164,7 +1167,9 @@ impl CoreDaemon {
         match waited {
             TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
             TerminalWakeWait::Interrupted => WakePumpWait::Interrupted,
-            TerminalWakeWait::TimedOut => WakePumpWait::Wakes(TerminalWakeBatch::default()),
+            TerminalWakeWait::TimedOut => {
+                WakePumpWait::Wakes(self.engine.expired_paste_wake_batch(Instant::now()))
+            }
             _ => WakePumpWait::Wakes(TerminalWakeBatch::default()),
         }
     }
@@ -3674,6 +3679,20 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.wait_wakes(timeout),
             Self::Worker(engine) => engine.wait_wakes(timeout),
+        }
+    }
+
+    fn clamp_paste_wait(&self, timeout: Duration) -> Duration {
+        match self {
+            Self::Local(engine) => engine.clamp_paste_wait(timeout),
+            Self::Worker(engine) => engine.clamp_paste_wait(timeout),
+        }
+    }
+
+    fn expired_paste_wake_batch(&self, now: Instant) -> TerminalWakeBatch {
+        match self {
+            Self::Local(engine) => engine.expired_paste_wake_batch(now),
+            Self::Worker(engine) => engine.expired_paste_wake_batch(now),
         }
     }
 

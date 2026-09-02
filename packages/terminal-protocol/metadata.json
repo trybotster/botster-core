@@ -1,5 +1,5 @@
 {
-  "package_version": "0.2.0",
+  "package_version": "0.3.0",
   "protocol": "botster-terminal-v1",
   "protocol_version": 1,
   "conformance_fixture_revision": 2,

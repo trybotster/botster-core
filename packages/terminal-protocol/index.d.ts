@@ -10,6 +10,9 @@ export {
   TERMINAL_INPUT_SCHEME_VERSION,
   MAX_INPUT_DATA_BYTES,
   MAX_MODE_GATED_DATA_BYTES,
+  MAX_PASTE_CHUNK_DATA_BYTES,
+  MAX_PASTE_BYTES,
+  MAX_PASTE_CHUNKS,
   TerminalCompatibility,
   TerminalCompatibilityRequirement,
   Attach,
@@ -32,6 +35,8 @@ export {
   encodeTerminalInput,
   encodeModeGatedInput,
   encodeResize,
+  encodePaste,
+  encodePasteAbort,
 } from "./terminal-protocol.ts";
 
 export const metadata: {

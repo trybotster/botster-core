@@ -3,7 +3,8 @@
 use botster_terminal_protocol::{
     CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
     FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, MAX_INPUT_DATA_BYTES,
-    MAX_MODE_GATED_DATA_BYTES, PROTOCOL, PROTOCOL_VERSION, TERMINAL_INPUT_SCHEME_VERSION,
+    MAX_MODE_GATED_DATA_BYTES, MAX_PASTE_BYTES, MAX_PASTE_CHUNKS, MAX_PASTE_CHUNK_DATA_BYTES,
+    PROTOCOL, PROTOCOL_VERSION, TERMINAL_INPUT_SCHEME_VERSION,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -75,6 +76,18 @@ pub fn terminal_protocol_typescript() -> String {
     line(
         &mut output,
         &format!("export const MAX_MODE_GATED_DATA_BYTES = {MAX_MODE_GATED_DATA_BYTES};"),
+    );
+    line(
+        &mut output,
+        &format!("export const MAX_PASTE_CHUNK_DATA_BYTES = {MAX_PASTE_CHUNK_DATA_BYTES};"),
+    );
+    line(
+        &mut output,
+        &format!("export const MAX_PASTE_BYTES = {MAX_PASTE_BYTES};"),
+    );
+    line(
+        &mut output,
+        &format!("export const MAX_PASTE_CHUNKS = {MAX_PASTE_CHUNKS};"),
     );
     line(&mut output, "");
     emit_interface(
@@ -233,6 +246,7 @@ pub fn terminal_protocol_typescript() -> String {
             ("type", "\"input_result\""),
             ("subscription_id", "string"),
             ("kind", "TerminalInputKind"),
+            ("operation_id?", "number"),
             ("admitted", "boolean"),
             ("bytes_written", "number"),
             ("mode_generation", "number"),
@@ -302,6 +316,80 @@ fn emit_encode_helpers(output: &mut String) {
     line(output, "  view.setUint16(0, rows, false);");
     line(output, "  view.setUint16(2, cols, false);");
     line(output, "  return encodeTerminalInputFrame(3, body);");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
+        "export function encodePaste(operation_id: number, mode_generation: bigint | number, mode_revision: bigint | number, data: Uint8Array): Uint8Array[] {",
+    );
+    line(output, "  if (data.length === 0) {");
+    line(output, "    throw new Error(\"EmptyPaste\");");
+    line(output, "  }");
+    line(output, "  if (data.length > MAX_PASTE_BYTES) {");
+    line(
+        output,
+        "    throw new Error(`PayloadTooLarge kind=paste max=${MAX_PASTE_BYTES} actual=${data.length}`);",
+    );
+    line(output, "  }");
+    line(output, "  const begin = new Uint8Array(24);");
+    line(output, "  const beginView = new DataView(begin.buffer);");
+    line(output, "  beginView.setUint32(0, operation_id, false);");
+    line(
+        output,
+        "  beginView.setBigUint64(4, BigInt(mode_generation), false);",
+    );
+    line(
+        output,
+        "  beginView.setBigUint64(12, BigInt(mode_revision), false);",
+    );
+    line(output, "  beginView.setUint32(20, data.length, false);");
+    line(
+        output,
+        "  const frames = [encodeTerminalInputFrame(4, begin)];",
+    );
+    line(
+        output,
+        "  for (let offset = 0, index = 0; offset < data.length; offset += MAX_PASTE_CHUNK_DATA_BYTES, index += 1) {",
+    );
+    line(
+        output,
+        "    const chunkData = data.subarray(offset, Math.min(offset + MAX_PASTE_CHUNK_DATA_BYTES, data.length));",
+    );
+    line(
+        output,
+        "    const chunk = new Uint8Array(8 + chunkData.length);",
+    );
+    line(output, "    const chunkView = new DataView(chunk.buffer);");
+    line(output, "    chunkView.setUint32(0, operation_id, false);");
+    line(output, "    chunkView.setUint32(4, index, false);");
+    line(output, "    chunk.set(chunkData, 8);");
+    line(
+        output,
+        "    frames.push(encodeTerminalInputFrame(5, chunk));",
+    );
+    line(output, "  }");
+    line(output, "  const commit = new Uint8Array(4);");
+    line(
+        output,
+        "  new DataView(commit.buffer).setUint32(0, operation_id, false);",
+    );
+    line(
+        output,
+        "  frames.push(encodeTerminalInputFrame(6, commit));",
+    );
+    line(output, "  return frames;");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
+        "export function encodePasteAbort(operation_id: number): Uint8Array {",
+    );
+    line(output, "  const body = new Uint8Array(4);");
+    line(
+        output,
+        "  new DataView(body.buffer).setUint32(0, operation_id, false);",
+    );
+    line(output, "  return encodeTerminalInputFrame(7, body);");
     line(output, "}");
     line(output, "");
     line(

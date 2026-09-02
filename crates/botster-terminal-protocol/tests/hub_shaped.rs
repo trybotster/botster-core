@@ -80,6 +80,13 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     let input_frame = TerminalInputFrame::from_bytes(&input_bytes).expect("opaque input");
     assert_eq!(input_frame.to_bytes(), input_bytes);
     assert_eq!(input_frame.as_bytes(), input_bytes.as_slice());
+
+    let paste_begin_bytes = vec![
+        1, 4, 0, 24, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 3,
+    ];
+    let paste_begin =
+        TerminalInputFrame::from_bytes(&paste_begin_bytes).expect("opaque paste begin");
+    assert_eq!(paste_begin.to_bytes(), paste_begin_bytes);
 }
 
 #[test]

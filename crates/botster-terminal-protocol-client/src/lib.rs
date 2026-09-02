@@ -14,8 +14,10 @@ pub use botster_terminal_protocol::{
     DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE,
     FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING,
     FEATURE_TRANSPORT_DUPLEX_BINARY, MAX_INPUT_DATA_BYTES, MAX_MODE_GATED_DATA_BYTES,
-    MAX_TERMINAL_INPUT_BODY_BYTES, MAX_TERMINAL_INPUT_FRAME_BYTES, MODE_GATED_PREFIX_BYTES,
-    PROTOCOL, PROTOCOL_VERSION, RESIZE_BODY_BYTES, TERMINAL_INPUT_SCHEME_VERSION,
+    MAX_PASTE_BYTES, MAX_PASTE_CHUNKS, MAX_PASTE_CHUNK_DATA_BYTES, MAX_TERMINAL_INPUT_BODY_BYTES,
+    MAX_TERMINAL_INPUT_FRAME_BYTES, MODE_GATED_PREFIX_BYTES, PASTE_ABORT_BODY_BYTES,
+    PASTE_BEGIN_BODY_BYTES, PASTE_CHUNK_PREFIX_BYTES, PASTE_COMMIT_BODY_BYTES, PROTOCOL,
+    PROTOCOL_VERSION, RESIZE_BODY_BYTES, TERMINAL_INPUT_SCHEME_VERSION,
 };
 pub use events::{
     AttachState, AttachStateKind, EnvelopeError, PayloadEncoding, ProcessExit, Snapshot,
@@ -23,7 +25,7 @@ pub use events::{
     TerminalModeFlags, TerminalOutput,
 };
 pub use input::{
-    decode_terminal_input, encode_terminal_input, TerminalInputCommand, TerminalInputDecodeError,
-    TerminalInputEncodeError,
+    decode_terminal_input, encode_paste, encode_paste_abort, encode_terminal_input,
+    TerminalInputCommand, TerminalInputDecodeError, TerminalInputEncodeError,
 };
 pub use typescript::terminal_protocol_typescript;

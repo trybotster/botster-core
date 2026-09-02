@@ -79,6 +79,10 @@ fn emitted_constants_come_from_rust_protocol_constants() {
     assert!(ts.contains("export function encodeTerminalInput"));
     assert!(ts.contains("export function encodeModeGatedInput"));
     assert!(ts.contains("export function encodeResize"));
+    assert!(ts.contains("export function encodePaste"));
+    assert!(ts.contains("export function encodePasteAbort"));
+    assert!(ts.contains("export const MAX_PASTE_BYTES = 1048576;"));
+    assert!(ts.contains("export const MAX_PASTE_CHUNKS = 17;"));
 }
 
 #[test]
@@ -247,6 +251,7 @@ fn serde_wire_shapes_match_generated_typescript() {
         "TerminalInputResult",
         &event_json(
             &TerminalInputResult {
+                operation_id: Some(7),
                 subscription_id: "sub".into(),
                 kind: TerminalInputKind::ModeGatedInput,
                 admitted: false,
@@ -267,7 +272,7 @@ fn serde_wire_shapes_match_generated_typescript() {
             .to_frame()
             .expect("input_result frame"),
         ),
-        &["rejection"],
+        &["operation_id", "rejection"],
         &phase_values,
         &state_values,
     );
