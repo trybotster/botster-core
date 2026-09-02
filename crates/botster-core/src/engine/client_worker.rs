@@ -904,26 +904,28 @@ impl ClientWorker {
                 mode_revision,
                 total_len,
             } => {
-                let rejection = self.live.get(key).and_then(|owner| {
+                let rejection = {
+                    let owner = self.live.get_mut(key).ok_or(())?;
                     if owner
                         .last_paste_operation_id
                         .is_some_and(|last| operation_id <= last)
                     {
-                        Some(TerminalInputRejection::DuplicateOperation)
-                    } else if owner.paste_in_flight.is_some() {
+                        return Ok(());
+                    }
+                    owner.last_paste_operation_id = Some(operation_id);
+                    if owner.paste_in_flight.is_some() {
                         Some(TerminalInputRejection::OperationInFlight)
                     } else if total_len == 0 || total_len as usize > MAX_PASTE_BYTES {
                         Some(TerminalInputRejection::OperationOutOfBounds)
                     } else {
                         None
                     }
-                });
+                };
                 if let Some(rejection) = rejection {
                     return self.enqueue_paste_rejection(key, operation_id, rejection);
                 }
                 let owner = self.live.get_mut(key).ok_or(())?;
                 let total_len = total_len as usize;
-                owner.last_paste_operation_id = Some(operation_id);
                 owner.paste_in_flight = Some(operation_id);
                 owner.paste = Some(PasteAssembly {
                     operation_id,
@@ -1797,6 +1799,22 @@ mod tests {
         let result = paste_result(owner, 1);
         assert_eq!(result.operation_id, Some(3));
         assert_eq!(result.rejection, Some(TerminalInputRejection::Aborted));
+
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 4,
+                    mode_generation: 4,
+                    mode_revision: 5,
+                    total_len: 1,
+                },
+            )
+            .expect("rejected operation replay is ignored");
+        let owner = worker.live.get(&key).expect("owner");
+        assert_eq!(owner.queue.len(), 2);
+        assert!(owner.paste.is_none());
+        assert!(owner.paste_in_flight.is_none());
     }
 
     #[test]
@@ -1829,14 +1847,11 @@ mod tests {
                     total_len: 2,
                 },
             )
-            .expect("duplicate result");
+            .expect("duplicate begin is ignored");
         let owner = worker.live.get(&key).expect("owner");
         assert!(owner.paste.is_some());
         assert_eq!(owner.paste_in_flight, Some(7));
-        assert_eq!(
-            paste_result(owner, 0).rejection,
-            Some(TerminalInputRejection::DuplicateOperation)
-        );
+        assert!(owner.queue.is_empty());
 
         worker
             .live
@@ -1857,8 +1872,29 @@ mod tests {
         assert!(owner.paste.is_none());
         assert!(owner.paste_in_flight.is_none());
         assert_eq!(
-            paste_result(owner, 1).rejection,
+            paste_result(owner, 0).rejection,
             Some(TerminalInputRejection::Timeout)
+        );
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 7,
+                    mode_generation: 1,
+                    mode_revision: 1,
+                    total_len: 2,
+                },
+            )
+            .expect("completed operation replay is ignored");
+        assert_eq!(
+            worker
+                .live
+                .get(&key)
+                .expect("owner remains live")
+                .queue
+                .len(),
+            1,
+            "one operation id must produce one result"
         );
 
         let owner = worker.live.get_mut(&key).expect("owner");
@@ -1894,7 +1930,7 @@ mod tests {
         let owner = worker.live.get(&key).expect("owner remains live");
         assert_eq!(owner.input_queue.len(), INPUT_QUEUE_CAPACITY);
         assert_eq!(
-            paste_result(owner, 2).rejection,
+            paste_result(owner, 1).rejection,
             Some(TerminalInputRejection::OperationOutOfBounds)
         );
     }

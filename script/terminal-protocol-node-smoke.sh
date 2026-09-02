@@ -199,6 +199,20 @@ for (const invalid of [new Uint8Array(0), new Uint8Array(1048577)]) {
   }
   assertEqual(rejected, true, `paste length ${invalid.length} rejection`);
 }
+for (const operationId of [-1, 1.5, 4294967296, 9007199254740992]) {
+  for (const [label, encode] of [
+    ["paste", () => encodePaste(operationId, 1, 2, new Uint8Array([1]))],
+    ["paste abort", () => encodePasteAbort(operationId)],
+  ]) {
+    let rejected = false;
+    try {
+      encode();
+    } catch {
+      rejected = true;
+    }
+    assertEqual(rejected, true, `${label} operation id ${operationId} rejection`);
+  }
+}
 
 const imported = await import("@trybotster/terminal-protocol/metadata", {
   with: { type: "json" },

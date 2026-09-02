@@ -174,7 +174,14 @@ export function encodeResize(rows: number, cols: number): Uint8Array {
   return encodeTerminalInputFrame(3, body);
 }
 
+function assertOperationId(operation_id: number): void {
+  if (!Number.isInteger(operation_id) || operation_id < 0 || operation_id > 0xffffffff) {
+    throw new Error(`InvalidOperationId actual=${operation_id}`);
+  }
+}
+
 export function encodePaste(operation_id: number, mode_generation: bigint | number, mode_revision: bigint | number, data: Uint8Array): Uint8Array[] {
+  assertOperationId(operation_id);
   if (data.length === 0) {
     throw new Error("EmptyPaste");
   }
@@ -204,6 +211,7 @@ export function encodePaste(operation_id: number, mode_generation: bigint | numb
 }
 
 export function encodePasteAbort(operation_id: number): Uint8Array {
+  assertOperationId(operation_id);
   const body = new Uint8Array(4);
   new DataView(body.buffer).setUint32(0, operation_id, false);
   return encodeTerminalInputFrame(7, body);

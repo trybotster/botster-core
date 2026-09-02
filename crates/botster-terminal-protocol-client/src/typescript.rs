@@ -320,8 +320,24 @@ fn emit_encode_helpers(output: &mut String) {
     line(output, "");
     line(
         output,
+        "function assertOperationId(operation_id: number): void {",
+    );
+    line(
+        output,
+        "  if (!Number.isInteger(operation_id) || operation_id < 0 || operation_id > 0xffffffff) {",
+    );
+    line(
+        output,
+        "    throw new Error(`InvalidOperationId actual=${operation_id}`);",
+    );
+    line(output, "  }");
+    line(output, "}");
+    line(output, "");
+    line(
+        output,
         "export function encodePaste(operation_id: number, mode_generation: bigint | number, mode_revision: bigint | number, data: Uint8Array): Uint8Array[] {",
     );
+    line(output, "  assertOperationId(operation_id);");
     line(output, "  if (data.length === 0) {");
     line(output, "    throw new Error(\"EmptyPaste\");");
     line(output, "  }");
@@ -384,6 +400,7 @@ fn emit_encode_helpers(output: &mut String) {
         output,
         "export function encodePasteAbort(operation_id: number): Uint8Array {",
     );
+    line(output, "  assertOperationId(operation_id);");
     line(output, "  const body = new Uint8Array(4);");
     line(
         output,
