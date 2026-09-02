@@ -67,9 +67,12 @@ Begin, ordered Chunk frames, and Commit. `encode_paste_abort` and
 not define a separate chunk policy.
 
 `TerminalInputKind` includes `paste`. Paste results can include an optional
-`operation_id`. Paste rejections include `duplicate_operation`,
-`operation_in_flight`, `operation_out_of_bounds`, `operation_incomplete`, and
-`aborted`. Existing mode, timeout, write, and session rejections also apply.
+`operation_id`. The first Begin for an operation id consumes that id, including
+a rejected Begin. Core silently drops a Begin whose id is not newer than the
+greatest consumed id. The silent drop prevents a second result for one id.
+Paste rejections include `operation_in_flight`, `operation_out_of_bounds`,
+`operation_incomplete`, and `aborted`. Existing mode, timeout, write, and
+session rejections also apply.
 
 `snapshot_delivery=ready_then_history` is a compatibility feature. It is not an
 Attach field. The default client requirement does not include it.
