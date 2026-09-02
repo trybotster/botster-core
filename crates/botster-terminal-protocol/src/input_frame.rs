@@ -18,11 +18,30 @@ pub const MAX_MODE_GATED_DATA_BYTES: usize =
     MAX_TERMINAL_INPUT_BODY_BYTES as usize - MODE_GATED_PREFIX_BYTES;
 /// Exact resize body: `rows: u16` plus `cols: u16`.
 pub const RESIZE_BODY_BYTES: usize = 4;
+/// Exact paste-begin body: operation id, freshness token, and total length.
+pub const PASTE_BEGIN_BODY_BYTES: usize = 24;
+/// Paste-chunk prefix: operation id and zero-based chunk index.
+pub const PASTE_CHUNK_PREFIX_BYTES: usize = 8;
+/// Paste-chunk data ceiling after the operation id and chunk index.
+pub const MAX_PASTE_CHUNK_DATA_BYTES: usize =
+    MAX_TERMINAL_INPUT_BODY_BYTES as usize - PASTE_CHUNK_PREFIX_BYTES;
+/// Exact paste-commit body: operation id.
+pub const PASTE_COMMIT_BODY_BYTES: usize = 4;
+/// Exact paste-abort body: operation id.
+pub const PASTE_ABORT_BODY_BYTES: usize = 4;
+/// Maximum complete paste content held by one subscription owner.
+pub const MAX_PASTE_BYTES: usize = 1_048_576;
+/// Maximum chunk count for one complete paste.
+pub const MAX_PASTE_CHUNKS: usize = MAX_PASTE_BYTES.div_ceil(MAX_PASTE_CHUNK_DATA_BYTES);
 
 const HEADER_BYTES: usize = 4;
 const KIND_INPUT: u8 = 1;
 const KIND_MODE_GATED_INPUT: u8 = 2;
 const KIND_RESIZE: u8 = 3;
+const KIND_PASTE_BEGIN: u8 = 4;
+const KIND_PASTE_CHUNK: u8 = 5;
+const KIND_PASTE_COMMIT: u8 = 6;
+const KIND_PASTE_ABORT: u8 = 7;
 
 /// Opaque terminal input frame.
 ///
@@ -44,7 +63,16 @@ impl TerminalInputFrame {
             return Err(TerminalInputFrameError::WrongSchemeVersion { found: scheme });
         }
         let kind = bytes[1];
-        if !matches!(kind, KIND_INPUT | KIND_MODE_GATED_INPUT | KIND_RESIZE) {
+        if !matches!(
+            kind,
+            KIND_INPUT
+                | KIND_MODE_GATED_INPUT
+                | KIND_RESIZE
+                | KIND_PASTE_BEGIN
+                | KIND_PASTE_CHUNK
+                | KIND_PASTE_COMMIT
+                | KIND_PASTE_ABORT
+        ) {
             return Err(TerminalInputFrameError::UnknownKind { found: kind });
         }
         let declared = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;

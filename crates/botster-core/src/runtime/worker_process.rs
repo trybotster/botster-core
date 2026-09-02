@@ -36,7 +36,7 @@ use crate::runtime::control_queue::{
     WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_TIMEOUT,
 };
 use crate::{
-    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame,
+    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame, ModeFlags,
     ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
     ModeGatedPtyInputResult, NotificationPayload, ProcessExitedPayload, ProcessIdentity,
     PromptMarkPayload, QueueSource, SessionId, SessionMetadata, SessionRuntime,
@@ -569,6 +569,23 @@ impl WorkerProcessRuntime {
             }
             thread::sleep(GATED_POLL);
         }
+    }
+
+    /// Return flags for the latest token decoded in this daemon incarnation.
+    #[must_use]
+    pub fn latest_mode_for(
+        &self,
+        session_id: &SessionId,
+        token: ModeFreshnessToken,
+    ) -> Option<ModeFlags> {
+        self.sessions
+            .get(session_id)?
+            .latest_mode
+            .lock()
+            .ok()?
+            .as_ref()
+            .filter(|(latest, _)| *latest == token)
+            .map(|(_, flags)| flags.clone())
     }
 
     /// Capture a worker-owned snapshot after all pre-boundary PTY bytes.
@@ -1252,6 +1269,7 @@ impl WorkerProcessRuntime {
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
         let stall = Arc::new(EgressStall::new());
+        let latest_mode = Arc::new(Mutex::new(None));
         spawn_stdout_reader(
             control.try_clone().map_err(|error| {
                 SessionRuntimeError::new(
@@ -1265,6 +1283,7 @@ impl WorkerProcessRuntime {
             Arc::clone(&last_health),
             Arc::clone(&completion),
             Arc::clone(&stall),
+            Arc::clone(&latest_mode),
             self.wake_source
                 .as_ref()
                 .map(|source| source.session_handle(session_id.clone())),
@@ -1292,6 +1311,7 @@ impl WorkerProcessRuntime {
             completion,
             gated_in_flight: Arc::new(Mutex::new(None)),
             mode_flags_slot: Arc::new(Mutex::new(None)),
+            latest_mode,
             outstanding_mode_probe: Arc::new(Mutex::new(None)),
             pending_output: std::collections::VecDeque::new(),
             applied_resizes: std::collections::VecDeque::new(),
@@ -1550,6 +1570,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
         let stall = Arc::new(EgressStall::new());
+        let latest_mode = Arc::new(Mutex::new(None));
         spawn_stdout_reader(
             reader,
             sender,
@@ -1558,6 +1579,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             Arc::clone(&last_health),
             Arc::clone(&completion),
             Arc::clone(&stall),
+            Arc::clone(&latest_mode),
             self.wake_source
                 .as_ref()
                 .map(|source| source.session_handle(request.session_id.clone())),
@@ -1582,6 +1604,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             completion,
             gated_in_flight: Arc::new(Mutex::new(None)),
             mode_flags_slot: Arc::new(Mutex::new(None)),
+            latest_mode,
             outstanding_mode_probe: Arc::new(Mutex::new(None)),
             pending_output: std::collections::VecDeque::new(),
             applied_resizes: std::collections::VecDeque::new(),
@@ -1869,6 +1892,7 @@ struct WorkerProcessSession {
     completion: Arc<Mutex<WorkerCompletion>>,
     gated_in_flight: Arc<Mutex<Option<GatedInFlight>>>,
     mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
+    latest_mode: Arc<Mutex<Option<(ModeFreshnessToken, ModeFlags)>>>,
     outstanding_mode_probe: Arc<Mutex<Option<String>>>,
     pending_output: std::collections::VecDeque<WorkerOutputEvent>,
     applied_resizes: std::collections::VecDeque<crate::ResizePayload>,
@@ -2482,6 +2506,7 @@ fn spawn_stdout_reader(
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
     stall: Arc<EgressStall>,
+    latest_mode: Arc<Mutex<Option<(ModeFreshnessToken, ModeFlags)>>>,
     wake_handle: Option<SessionWakeHandle>,
 ) {
     thread::spawn(move || {
@@ -2571,6 +2596,12 @@ fn spawn_stdout_reader(
                 FRAME_MODE_FLAGS => {
                     match serde_json::from_slice::<ModeFlagsPayload>(&frame.payload) {
                         Ok(payload) => {
+                            if payload.error_kind.is_none() {
+                                if let Ok(mut latest) = latest_mode.lock() {
+                                    *latest =
+                                        Some((payload.mode_freshness, payload.mode_flags.clone()));
+                                }
+                            }
                             send_worker_event(
                                 &sender,
                                 &overflow,
@@ -2587,13 +2618,18 @@ fn spawn_stdout_reader(
                 }
                 FRAME_MODE_GATED_PTY_INPUT_RESULT => {
                     match serde_json::from_slice::<ModeGatedPtyInputResult>(&frame.payload) {
-                        Ok(result) => send_worker_event(
-                            &sender,
-                            &overflow,
-                            &stall,
-                            &wake_handle,
-                            WorkerChannelEvent::ModeGatedResult(result),
-                        ),
+                        Ok(result) => {
+                            if let Ok(mut latest) = latest_mode.lock() {
+                                *latest = Some((result.mode_freshness, result.mode_flags.clone()));
+                            }
+                            send_worker_event(
+                                &sender,
+                                &overflow,
+                                &stall,
+                                &wake_handle,
+                                WorkerChannelEvent::ModeGatedResult(result),
+                            )
+                        }
                         Err(error) => send_worker_event(
                             &sender,
                             &overflow,
@@ -3059,6 +3095,65 @@ mod tests {
         assert!(error
             .message
             .starts_with("connect worker control socket failed: "));
+    }
+
+    #[test]
+    fn adoption_starts_without_a_live_mode_record() {
+        let path = Path::new("/tmp").join(format!(
+            "botster-mode-adoption-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).expect("bind worker socket");
+        let (close_sender, close_receiver) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept parent");
+            crate::read_hello(&mut stream).expect("read parent hello");
+            let metadata = crate::SessionMetadata {
+                session_uuid: "mode-adoption".to_string(),
+                pid: std::process::id(),
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            };
+            let bytes = crate::encode_welcome(crate::PROTOCOL_VERSION, &metadata)
+                .expect("encode worker welcome");
+            stream.write_all(&bytes).expect("write worker welcome");
+            close_receiver.recv().expect("receive close signal");
+        });
+
+        let session_id = SessionId("mode-adoption".to_string());
+        let mut runtime = WorkerProcessRuntime::new("/missing/worker");
+        runtime
+            .adopt_session(
+                session_id.clone(),
+                ProcessIdentity {
+                    pid: Some(std::process::id()),
+                    runtime_id: Some("mode-adoption".to_string()),
+                },
+                &path,
+                false,
+            )
+            .expect("adopt current worker protocol");
+
+        assert_eq!(
+            runtime.latest_mode_for(&session_id, crate::ModeFreshnessToken::default()),
+            None,
+            "adoption must not trust mode flags from the welcome metadata"
+        );
+
+        runtime.release_for_restart();
+        close_sender.send(()).expect("close worker server");
+        server.join().expect("worker server");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

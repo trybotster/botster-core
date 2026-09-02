@@ -16,6 +16,11 @@ with `CoreDaemon::wait_wakes`. A host-owned data-plane thread uses
 routes with `CoreDaemon::pump_woken`. The poll-path bind remains for one
 migration window. Hub Unix and WebRTC adapters are later Hub tickets.
 
+Core can also return a wake batch when a paste assembly deadline expires.
+Core clamps `wait_wakes` and `wait_pump` to the earliest deadline. The batch
+names only expired subscription routes. Hosts pump this batch like any adapter
+wake. No timer thread or content-aware host code is required.
+
 One wake-driven tick has three ordered phases. Core first intakes only the
 named adapter routes and drains only named session ingress. It then applies
 accepted input only for those exact routes, plus generation-matching owners

@@ -41,6 +41,8 @@ import {
   encodeTerminalInput,
   encodeModeGatedInput,
   encodeResize,
+  encodePaste,
+  encodePasteAbort,
   type Attach,
   type Snapshot,
   type SnapshotPhase,
@@ -111,6 +113,8 @@ void PACKAGE_VERSION;
 void encodeTerminalInput(new Uint8Array([1]));
 void encodeModeGatedInput(1, 1, new Uint8Array([2]));
 void encodeResize(24, 80);
+void encodePaste(1, 1, 1, new Uint8Array([3]));
+void encodePasteAbort(1);
 EOF
 
 npx tsc --strict --module nodenext --moduleResolution nodenext --noEmit consumer.ts
@@ -127,6 +131,8 @@ import {
   encodeTerminalInput,
   encodeModeGatedInput,
   encodeResize,
+  encodePaste,
+  encodePasteAbort,
   metadata,
 } from "@trybotster/terminal-protocol";
 
@@ -136,7 +142,7 @@ function assertEqual(actual, expected, label) {
   }
 }
 
-assertEqual(PACKAGE_VERSION, "0.2.0", "PACKAGE_VERSION");
+assertEqual(PACKAGE_VERSION, "0.3.0", "PACKAGE_VERSION");
 assertEqual(PROTOCOL, "botster-terminal-v1", "PROTOCOL");
 assertEqual(PROTOCOL_VERSION, 1, "PROTOCOL_VERSION");
 assertEqual(FEATURE_TERMINAL_STREAMING, "terminal_streaming", "FEATURE_TERMINAL_STREAMING");
@@ -151,7 +157,7 @@ assertEqual(
   "transport=duplex_binary",
   "FEATURE_TRANSPORT_DUPLEX_BINARY",
 );
-assertEqual(metadata.package_version, "0.2.0", "metadata.package_version");
+assertEqual(metadata.package_version, "0.3.0", "metadata.package_version");
 assertEqual(metadata.protocol, "botster-terminal-v1", "metadata.protocol");
 assertEqual(metadata.protocol_version, 1, "metadata.protocol_version");
 assertEqual(metadata.conformance_fixture_revision, 2, "metadata.conformance_fixture_revision");
@@ -178,11 +184,26 @@ const resize = encodeResize(24, 80);
 if (resize.length !== 8) {
   throw new Error("encodeResize length mismatch");
 }
+const paste = encodePaste(7, 1, 2, new Uint8Array(70000));
+assertEqual(paste.length, 4, "70k paste frame count");
+assertEqual(paste.map((frame) => frame[1]).join(","), "4,5,5,6", "70k paste kinds");
+const maxPaste = encodePaste(8, 1, 2, new Uint8Array(1048576));
+assertEqual(maxPaste.length, 19, "maximum paste frame count");
+assertEqual(encodePasteAbort(8)[1], 7, "paste abort kind");
+for (const invalid of [new Uint8Array(0), new Uint8Array(1048577)]) {
+  let rejected = false;
+  try {
+    encodePaste(9, 1, 2, invalid);
+  } catch {
+    rejected = true;
+  }
+  assertEqual(rejected, true, `paste length ${invalid.length} rejection`);
+}
 
 const imported = await import("@trybotster/terminal-protocol/metadata", {
   with: { type: "json" },
 });
-assertEqual(imported.default.package_version, "0.2.0", "imported metadata version");
+assertEqual(imported.default.package_version, "0.3.0", "imported metadata version");
 
 const fixture = await import(
   "@trybotster/terminal-protocol/ready-then-history-event-order",

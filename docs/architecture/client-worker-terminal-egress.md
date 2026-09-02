@@ -72,6 +72,38 @@ pump ticks. Terminal frames never retry. Recovery is detach plus a fresh attach.
 A lost READY / PAGE / FINISH / other snapshot frame fails that subscription.
 There is no terminal-frame replay helper.
 
+## Paste transactions
+
+ClientWorker Stage A assembles one paste per live subscription owner. An
+accepted operation id must be greater than every earlier accepted id for that
+owner generation. The assembly holds at most 1,048,576 bytes and 17 fixed-size
+chunks. A second Begin cannot replace an assembling, queued, or worker-owned
+paste.
+
+Chunk indexes must be exact and ordered. Every non-final chunk must contain
+65,527 bytes. Commit validates the complete length and needs one free input
+queue slot. ClientWorker delivers no PTY bytes before this validation ends.
+Abort removes an assembling or queued paste. Abort does not cancel a paste
+that the worker already owns.
+
+An assembly expires after five seconds. Core clamps the host wake wait to the
+earliest assembly deadline. The returned wake batch names only expired owner
+routes. The normal three-phase targeted pump emits the timeout result without
+an adapter, PTY, or control event.
+
+Stage B sends a committed paste through the existing per-session mode-gated
+lane. Core finds the current flags for the exact client mode token. Core adds
+`ESC[200~` before the content and `ESC[201~` after the content only when
+bracketed paste is active. The worker checks the token again under the PTY I/O
+barrier and writes the complete ordered buffer.
+
+Each accepted operation emits one authoritative `input_result` with the live
+subscription id and operation id. Admission, bounds, duplicate, incomplete,
+abort, timeout, stale-mode, and local-runtime failures report zero written
+bytes. A nonzero partial operating-system write reports `partial_write`, pumps
+that result once, and hard-stops only that owner. Healthy sibling owners stay
+live.
+
 ## Delivery and ProcessExited
 
 `Ok(())` occupies the adapter's one-slot write. A frame is delivered only after

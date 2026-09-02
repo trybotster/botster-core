@@ -186,6 +186,34 @@ fn compact_mode_gated_frame(mode_generation: u64, mode_revision: u64, data: &[u8
     bytes
 }
 
+fn compact_paste_frames(
+    operation_id: u32,
+    mode_generation: u64,
+    mode_revision: u64,
+    data: &[u8],
+) -> Vec<Vec<u8>> {
+    const CHUNK_BYTES: usize = 65_527;
+    let mut begin = vec![1, 4, 0, 24];
+    begin.extend_from_slice(&operation_id.to_be_bytes());
+    begin.extend_from_slice(&mode_generation.to_be_bytes());
+    begin.extend_from_slice(&mode_revision.to_be_bytes());
+    begin.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    let mut frames = vec![begin];
+    for (index, data) in data.chunks(CHUNK_BYTES).enumerate() {
+        let body_len = u16::try_from(8 + data.len()).expect("paste chunk body fits");
+        let mut chunk = vec![1, 5];
+        chunk.extend_from_slice(&body_len.to_be_bytes());
+        chunk.extend_from_slice(&operation_id.to_be_bytes());
+        chunk.extend_from_slice(&(index as u32).to_be_bytes());
+        chunk.extend_from_slice(data);
+        frames.push(chunk);
+    }
+    let mut commit = vec![1, 6, 0, 4];
+    commit.extend_from_slice(&operation_id.to_be_bytes());
+    frames.push(commit);
+    frames
+}
+
 fn delivered_input_result_count(adapter: &SharedFakeTerminalAdapter, kind: &str) -> usize {
     adapter
         .snapshot_delivered_frame_bytes()
@@ -213,6 +241,21 @@ fn delivered_admitted_input_results(
             value.get("type").and_then(|field| field.as_str()) == Some("input_result")
                 && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
                 && value.get("admitted").and_then(|field| field.as_bool()) == Some(true)
+        })
+        .collect()
+}
+
+fn delivered_input_results(
+    adapter: &SharedFakeTerminalAdapter,
+    kind: &str,
+) -> Vec<serde_json::Value> {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
+                && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
         })
         .collect()
 }
@@ -1314,6 +1357,404 @@ fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
             .collect::<Vec<_>>(),
         vec![Some(10), Some(10)]
     );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn paste_above_one_frame_delivers_one_atomic_worker_write_and_result() {
+    let data_dir = temp_data_dir("paste-above-frame");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("paste-above-frame-session".into());
+    let client_id = ClientId("paste-above-frame-client".into());
+    let subscription_id = SubscriptionId("paste-above-frame-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty raw -echo; printf '\\033[?2004hready'; dd bs=1 count=70012 2>/dev/null | wc -c; sleep 30"
+            .into();
+    daemon.spawn(request, 1).expect("spawn paste byte counter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let started = Instant::now();
+    let mut probe = 0;
+    let token = loop {
+        probe += 1;
+        daemon
+            .drain(&session_id, 2 + probe)
+            .expect("drain attach and mode output");
+        if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("paste-modes-{probe}")),
+            session_id: session_id.clone(),
+            now_seconds: 20 + probe,
+        }) {
+            if result.mode_flags.mode_flags.bracketed_paste {
+                break result.mode_flags.mode_freshness;
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "bracketed-paste mode did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let content = vec![b'A'; 70_000];
+    for frame in compact_paste_frames(41, token.mode_generation, token.mode_revision, &content) {
+        adapter.inject_ingress_frame(frame);
+    }
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&batch, 30)
+        .expect("assemble and submit paste");
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "paste result and PTY count did not arrive: {:?}",
+            adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+                .collect::<Vec<_>>()
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon.pump_woken(&batch, 31).expect("pump paste result");
+        let delivered = adapter.snapshot_delivered_frame_bytes();
+        let counted = delivered
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("NzAwMTIK"));
+        if delivered_input_results(&adapter, "paste").len() == 1 && counted {
+            break;
+        }
+    }
+    let results = delivered_input_results(&adapter, "paste");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["subscription_id"], subscription_id.0);
+    assert_eq!(results[0]["operation_id"], 41);
+    assert_eq!(results[0]["admitted"], true);
+    assert_eq!(results[0]["bytes_written"], 70_012);
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| { row.session_id == session_id && row.subscription_id == subscription_id }));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
+    let data_dir = temp_data_dir("paste-timeout");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("paste-timeout-session".into());
+    let client_id = ClientId("paste-timeout-client".into());
+    let subscription_id = SubscriptionId("paste-timeout-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "sleep 30".into();
+    daemon.spawn(request, 1).expect("spawn idle child");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let begin = compact_paste_frames(51, 1, 1, b"unfinished")
+        .into_iter()
+        .next()
+        .expect("begin");
+    adapter.inject_ingress_frame(begin);
+    let intake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&intake, 3).expect("accept begin");
+    let _control = daemon.wake_pump_control();
+    let started = Instant::now();
+    let WakePumpWait::Wakes(expired) = daemon.wait_pump(Duration::from_secs(30)) else {
+        panic!("paste deadline must return a wake batch");
+    };
+    assert!(started.elapsed() <= Duration::from_secs(6));
+    assert_eq!(expired.ingress_sessions, Vec::<SessionId>::new());
+    assert_eq!(expired.adapter_routes.len(), 1);
+    assert_eq!(expired.adapter_routes[0].session_id, session_id);
+    assert_eq!(expired.adapter_routes[0].subscription_id, subscription_id);
+    daemon.pump_woken(&expired, 4).expect("deliver timeout");
+    let results = delivered_input_results(&adapter, "paste");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["operation_id"], 51);
+    assert_eq!(results[0]["bytes_written"], 0);
+    assert_eq!(results[0]["rejection"], "timeout");
+
+    let mut commit = vec![1, 6, 0, 4];
+    commit.extend_from_slice(&51_u32.to_be_bytes());
+    adapter.inject_ingress_frame(commit);
+    let late = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&late, 5).expect("drop late commit");
+    assert_eq!(delivered_input_results(&adapter, "paste").len(), 1);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn partial_paste_write_delivers_result_then_hard_stops_only_that_owner() {
+    let data_dir = temp_data_dir("paste-partial");
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_mode_gated_input_timeout(Duration::from_millis(800))
+            .with_test_write_max_chunk(Some(1))
+            .with_test_write_block_until_unix_ms(Some(now_ms + 30_000)),
+    );
+    let session_id = SessionId("paste-partial-session".into());
+    let owner_client = ClientId("paste-partial-client".into());
+    let owner_subscription = SubscriptionId("paste-partial-owner".into());
+    let sibling_client = ClientId("paste-partial-sibling-client".into());
+    let sibling_subscription = SubscriptionId("paste-partial-sibling".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf ready; sleep 30".into();
+    daemon.spawn(request, 1).expect("spawn");
+    for (client, subscription) in [
+        (owner_client.clone(), owner_subscription.clone()),
+        (sibling_client.clone(), sibling_subscription.clone()),
+    ] {
+        daemon
+            .attach(client, session_id.clone(), subscription, 2)
+            .expect("attach owner");
+    }
+    let started = Instant::now();
+    let mut probe = 0;
+    let token = loop {
+        probe += 1;
+        daemon.drain(&session_id, 2 + probe).expect("drain ready");
+        if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("paste-partial-modes-{probe}")),
+            session_id: session_id.clone(),
+            now_seconds: 20 + probe,
+        }) {
+            break result.mode_flags.mode_freshness;
+        }
+        assert!(started.elapsed() < Duration::from_secs(8));
+    };
+    let records = daemon.list_terminal_subscriptions();
+    let owner_generation = records
+        .iter()
+        .find(|row| row.subscription_id == owner_subscription)
+        .expect("owner")
+        .generation;
+    let sibling_generation = records
+        .iter()
+        .find(|row| row.subscription_id == sibling_subscription)
+        .expect("sibling")
+        .generation;
+    let owner_adapter = SharedFakeTerminalAdapter::auto_complete();
+    let sibling_adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            owner_client,
+            session_id.clone(),
+            owner_subscription.clone(),
+            owner_generation,
+            empty_caps(),
+            Box::new(owner_adapter.clone()),
+        )
+        .expect("bind owner");
+    daemon
+        .bind_waking_terminal_adapter(
+            sibling_client,
+            session_id.clone(),
+            sibling_subscription.clone(),
+            sibling_generation,
+            empty_caps(),
+            Box::new(sibling_adapter.clone()),
+        )
+        .expect("bind sibling");
+
+    for frame in compact_paste_frames(
+        61,
+        token.mode_generation,
+        token.mode_revision,
+        b"partial-paste",
+    ) {
+        owner_adapter.inject_ingress_frame(frame);
+    }
+    let input = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&input, 30).expect("submit partial paste");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while delivered_input_results(&owner_adapter, "paste").is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "partial paste result did not arrive"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, 31)
+            .expect("complete partial paste");
+    }
+    let results = delivered_input_results(&owner_adapter, "paste");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["operation_id"], 61);
+    assert_eq!(results[0]["rejection"], "partial_write");
+    let written = results[0]["bytes_written"].as_u64().expect("written count");
+    assert!(written > 0 && written < 13);
+    assert!(!daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| row.subscription_id == owner_subscription));
+
+    sibling_adapter.inject_ingress_frame(compact_resize_frame(25, 81));
+    let sibling_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&sibling_wake, 32)
+        .expect("sibling resize progresses");
+    assert_eq!(delivered_input_result_count(&sibling_adapter, "resize"), 1);
+    assert!(daemon
+        .list_terminal_subscriptions()
+        .iter()
+        .any(|row| row.subscription_id == sibling_subscription));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
+    let data_dir = temp_data_dir("paste-stale");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("paste-stale-session".into());
+    let client_id = ClientId("paste-stale-client".into());
+    let subscription_id = SubscriptionId("paste-stale-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "stty raw -echo; printf ready; dd bs=1 count=1 2>/dev/null | wc -c; sleep 30".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let started = Instant::now();
+    let mut probe = 0;
+    let token = loop {
+        probe += 1;
+        daemon.drain(&session_id, 2 + probe).expect("drain ready");
+        if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("paste-stale-modes-{probe}")),
+            session_id: session_id.clone(),
+            now_seconds: 20 + probe,
+        }) {
+            break result.mode_flags.mode_freshness;
+        }
+        assert!(started.elapsed() < Duration::from_secs(8));
+    };
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+
+    for frame in compact_paste_frames(
+        71,
+        token.mode_generation,
+        token.mode_revision.saturating_add(1),
+        b"X",
+    ) {
+        adapter.inject_ingress_frame(frame);
+    }
+    let stale_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&stale_wake, 30)
+        .expect("reject stale paste");
+    let stale = delivered_input_results(&adapter, "paste");
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0]["operation_id"], 71);
+    assert_eq!(stale[0]["bytes_written"], 0);
+    assert_eq!(stale[0]["rejection"], "stale_mode");
+    assert!(!adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .any(|value| value["type"] == "terminal_output"));
+
+    for frame in compact_paste_frames(72, token.mode_generation, token.mode_revision, b"Y") {
+        adapter.inject_ingress_frame(frame);
+    }
+    let recovery_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&recovery_wake, 31)
+        .expect("submit recovered paste");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while delivered_input_results(&adapter, "paste").len() < 2 {
+        assert!(Instant::now() < deadline);
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, 32)
+            .expect("complete recovered paste");
+    }
+    let results = delivered_input_results(&adapter, "paste");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[1]["operation_id"], 72);
+    assert_eq!(results[1]["admitted"], true);
+    assert_eq!(results[1]["bytes_written"], 1);
     let _ = fs::remove_dir_all(data_dir);
 }
 

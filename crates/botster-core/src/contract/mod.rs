@@ -113,9 +113,9 @@ pub use terminal_screen::{
     TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
-    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, PasteOperation,
+    TerminalCapabilitySet, TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
+    TerminalInputOperation, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use terminal_wake::{
     SessionWakeHandle, TerminalWakeBatch, TerminalWakeKind, TerminalWakeRoute, TerminalWakeSink,

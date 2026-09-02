@@ -18,7 +18,7 @@ plugin runtime must agree on.
 | `botster-core-dev` | Dev-only real-embedder smoke harnesses over `DefaultBotsterEngine` / `DefaultEngineCommand` |
 | `botster-terminal-ghostty` | Sibling Ghostty shadow-terminal adapter (feature-gated `libghostty-vt`); stays outside the core crate |
 | `botster-terminal-protocol` | Types-only terminal protocol plane for Hub adapters: compatibility descriptors, forwardable requests, and opaque `TerminalFrame`. Hub may depend only on this crate. |
-| `botster-terminal-protocol-client` | Semantic Snapshot, phase, AttachState, TerminalOutput, and ProcessExit types for TUI. Hub must not depend on this crate. |
+| `botster-terminal-protocol-client` | Semantic terminal events plus shared input and bounded paste encode helpers for TUI and TypeScript. Hub must not depend on this crate. |
 
 Hubs and product hosts still own auth, persistence policy, config locations,
 cloud federation, marketplace and install/update policy, WebRTC/signaling/API

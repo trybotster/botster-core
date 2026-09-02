@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use botster_terminal_protocol_client::{
-    decode_terminal_input, encode_terminal_input, AttachState, AttachStateKind, ProcessExit,
-    Snapshot, SnapshotPhase, TerminalEvent, TerminalInputCommand, TerminalInputKind,
+    decode_terminal_input, encode_paste, encode_terminal_input, AttachState, AttachStateKind,
+    ProcessExit, Snapshot, SnapshotPhase, TerminalEvent, TerminalInputCommand, TerminalInputKind,
     TerminalInputRejection, TerminalInputResult, TerminalModeFlags, TerminalOutput,
 };
 
@@ -29,6 +29,7 @@ fn tui_shaped_consumer_constructs_and_serializes_semantic_events() {
         TerminalEvent::ProcessExit(exit),
         TerminalEvent::AttachState(attach),
         TerminalEvent::InputResult(TerminalInputResult {
+            operation_id: None,
             subscription_id: "sub".into(),
             kind: TerminalInputKind::Input,
             admitted: true,
@@ -71,11 +72,14 @@ fn tui_shaped_consumer_constructs_and_serializes_semantic_events() {
     }
     assert_eq!(
         TerminalInputRejection::ALL.len(),
-        4,
+        9,
         "published rejection inventory must stay live-owner only"
     );
     assert!(!format!("{:?}", TerminalInputRejection::ALL).contains("Malformed"));
     assert!(!format!("{:?}", TerminalInputRejection::ALL).contains("QueueOverflow"));
+    let paste = encode_paste(1, 2, 3, b"shared client helper").expect("paste helper");
+    assert_eq!(paste.first().expect("begin").as_bytes()[1], 4);
+    assert_eq!(paste.last().expect("commit").as_bytes()[1], 6);
 }
 
 #[test]
