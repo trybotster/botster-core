@@ -81,7 +81,6 @@ export type TerminalInputRejection =
   | "partial_write"
   | "timeout"
   | "session_not_writable"
-  | "duplicate_operation"
   | "operation_in_flight"
   | "operation_out_of_bounds"
   | "operation_incomplete"

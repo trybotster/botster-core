@@ -110,8 +110,6 @@ wire_enum! {
         Timeout,
         /// The session cannot accept input.
         SessionNotWritable,
-        /// The operation id was already accepted or is older than an accepted id.
-        DuplicateOperation,
         /// Another paste operation already owns this subscription.
         OperationInFlight,
         /// The operation violates a byte, chunk, or queue bound.

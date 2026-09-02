@@ -72,7 +72,7 @@ fn tui_shaped_consumer_constructs_and_serializes_semantic_events() {
     }
     assert_eq!(
         TerminalInputRejection::ALL.len(),
-        9,
+        8,
         "published rejection inventory must stay live-owner only"
     );
     assert!(!format!("{:?}", TerminalInputRejection::ALL).contains("Malformed"));
