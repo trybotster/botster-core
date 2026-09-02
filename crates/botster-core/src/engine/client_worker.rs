@@ -953,12 +953,24 @@ impl ClientWorker {
                 if assembly.operation_id != operation_id {
                     return Ok(());
                 }
+                if index as usize != assembly.next_index
+                    || assembly.next_index >= assembly.expected_chunks
+                    || data.len() > assembly.total_len.saturating_sub(assembly.data.len())
+                {
+                    owner.paste = None;
+                    owner.paste_in_flight = None;
+                    return self.enqueue_paste_rejection(
+                        key,
+                        operation_id,
+                        TerminalInputRejection::OperationIncomplete,
+                    );
+                }
                 let expected_len = if assembly.next_index + 1 < assembly.expected_chunks {
                     MAX_PASTE_CHUNK_DATA_BYTES
                 } else {
                     assembly.total_len - MAX_PASTE_CHUNK_DATA_BYTES * (assembly.expected_chunks - 1)
                 };
-                if index as usize != assembly.next_index || data.len() != expected_len {
+                if data.len() != expected_len {
                     owner.paste = None;
                     owner.paste_in_flight = None;
                     return self.enqueue_paste_rejection(
@@ -2002,6 +2014,125 @@ mod tests {
         let owner = worker.live.get(&key).expect("replacement owner");
         assert_eq!(owner.paste_in_flight, Some(9));
         assert!(owner.queue.is_empty());
+    }
+
+    #[test]
+    fn paste_rejects_a_chunk_past_the_declared_chunk_count() {
+        let mut worker = ClientWorker::new();
+        let (client, session, subscription) = ids();
+        worker.record_attach(client, session.clone(), subscription.clone());
+        let key = OwnerKey {
+            session_id: session,
+            subscription_id: subscription,
+        };
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 10,
+                    mode_generation: 1,
+                    mode_revision: 1,
+                    total_len: 5,
+                },
+            )
+            .expect("begin");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 10,
+                    index: 0,
+                    data: vec![1; 5],
+                },
+            )
+            .expect("declared chunk");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 10,
+                    index: 1,
+                    data: vec![2; 5],
+                },
+            )
+            .expect("extra chunk rejection");
+
+        let owner = worker.live.get(&key).expect("owner remains");
+        assert!(owner.paste.is_none());
+        assert!(owner.paste_in_flight.is_none());
+        assert!(owner.input_queue.is_empty());
+        let result = paste_result(owner, 0);
+        assert_eq!(result.operation_id, Some(10));
+        assert_eq!(result.bytes_written, 0);
+        assert_eq!(
+            result.rejection,
+            Some(TerminalInputRejection::OperationIncomplete)
+        );
+    }
+
+    #[test]
+    fn paste_rejects_a_repeated_final_chunk() {
+        let mut worker = ClientWorker::new();
+        let (client, session, subscription) = ids();
+        worker.record_attach(client, session.clone(), subscription.clone());
+        let key = OwnerKey {
+            session_id: session,
+            subscription_id: subscription,
+        };
+        let total_len = MAX_PASTE_CHUNK_DATA_BYTES + 1;
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 11,
+                    mode_generation: 1,
+                    mode_revision: 1,
+                    total_len: total_len as u32,
+                },
+            )
+            .expect("begin");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 11,
+                    index: 0,
+                    data: vec![1; MAX_PASTE_CHUNK_DATA_BYTES],
+                },
+            )
+            .expect("first chunk");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 11,
+                    index: 1,
+                    data: vec![2],
+                },
+            )
+            .expect("final chunk");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 11,
+                    index: 1,
+                    data: vec![2],
+                },
+            )
+            .expect("repeated final chunk rejection");
+
+        let owner = worker.live.get(&key).expect("owner remains");
+        assert!(owner.paste.is_none());
+        assert!(owner.paste_in_flight.is_none());
+        assert!(owner.input_queue.is_empty());
+        let result = paste_result(owner, 0);
+        assert_eq!(result.operation_id, Some(11));
+        assert_eq!(result.bytes_written, 0);
+        assert_eq!(
+            result.rejection,
+            Some(TerminalInputRejection::OperationIncomplete)
+        );
     }
 
     #[test]
