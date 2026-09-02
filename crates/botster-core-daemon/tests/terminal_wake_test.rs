@@ -1506,7 +1506,8 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
         .into_iter()
         .next()
         .expect("begin");
-    adapter.inject_ingress_frame(begin);
+    adapter.inject_ingress_frame(begin.clone());
+    adapter.inject_ingress_frame(begin.clone());
     let intake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&intake, 3).expect("accept begin");
     let _control = daemon.wake_pump_control();
@@ -1526,11 +1527,22 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
     assert_eq!(results[0]["bytes_written"], 0);
     assert_eq!(results[0]["rejection"], "timeout");
 
+    adapter.inject_ingress_frame(begin);
+    let replay = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&replay, 5)
+        .expect("drop completed begin replay");
+    assert_eq!(
+        delivered_input_results(&adapter, "paste").len(),
+        1,
+        "active and completed Begin replays must not add a second result"
+    );
+
     let mut commit = vec![1, 6, 0, 4];
     commit.extend_from_slice(&51_u32.to_be_bytes());
     adapter.inject_ingress_frame(commit);
     let late = daemon.wait_wakes(Duration::from_secs(1));
-    daemon.pump_woken(&late, 5).expect("drop late commit");
+    daemon.pump_woken(&late, 6).expect("drop late commit");
     assert_eq!(delivered_input_results(&adapter, "paste").len(), 1);
     let _ = fs::remove_dir_all(data_dir);
 }

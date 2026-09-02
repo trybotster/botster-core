@@ -81,6 +81,8 @@ fn emitted_constants_come_from_rust_protocol_constants() {
     assert!(ts.contains("export function encodeResize"));
     assert!(ts.contains("export function encodePaste"));
     assert!(ts.contains("export function encodePasteAbort"));
+    assert!(ts.contains("function assertOperationId(operation_id: number): void"));
+    assert!(ts.contains("!Number.isInteger(operation_id)"));
     assert!(ts.contains("export const MAX_PASTE_BYTES = 1048576;"));
     assert!(ts.contains("export const MAX_PASTE_CHUNKS = 17;"));
 }
