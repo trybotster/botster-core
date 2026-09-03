@@ -4,6 +4,11 @@ Ticket: `ticket_1787894967_973951`
 Run: `run_1788280094_679374`
 Plan visit: 2 (renewed after Plan Review `review_1788327888_688420`)
 
+Implementation resync: the ticket consolidation revision dated 2026-09-02
+absorbs `ticket_1788112223_631570`. Review
+`review_1788451613_146020` returned the first implementation because the
+absorbed rejection work was not present. The current ticket is authoritative.
+
 ## Target repository
 
 - Target repository: `botster-core` (`trybotster/botster-core`)
@@ -23,6 +28,12 @@ Role playbooks:
 
 - [[planner-playbook]]
 - [[botster-planner-playbook]]
+
+Implementation return playbooks:
+
+- [[implementer-playbook]]
+- [[botster-implementer-playbook]]
+- [[botster-runtime-reviewer-playbook]]
 
 Required Botster context (added this visit):
 
@@ -51,6 +62,7 @@ Targeted atomic notes:
 - [[Core terminal subscription ownership is session, subscription, and generation]]
 - [[Core ClientWorker bind requires a live attach generation]]
 - [[Core subscription hard-stop is synchronous close and drop on the host tick]]
+- [[a pre attach declaration must be consumed on every attach return]]
 - [[core holds declared attach frames until the bound adapter drains]]
 - [[capacity parked terminal inputs retry only on matching session ingress wakes]]
 - [[core one slot adapters preserve resize input and echo wake obligations]]
@@ -97,8 +109,9 @@ Targeted atomic notes:
   baseline for this plan is `bb1a330` on Core `48a4370`, not the earlier
   `db2c43c` on `e5a927c`.
 - Plan Review `review_1788327888_688420` and its five findings
-- Sibling tickets `ticket_1788313897_932611` (Hub paste pin) and
-  `ticket_1788112223_631570` (Core residual bind rejection gaps)
+- Sibling ticket `ticket_1788313897_932611` (Hub paste pin)
+- Absorbed ticket `ticket_1788112223_631570` (Core residual bind rejection
+  gaps), folded into this ticket by its consolidation revision
 - Human answer `question_1788280396_580838` (coordinated two-ticket cold cut)
 
 ## What the refreshed base changed
@@ -222,25 +235,28 @@ In scope:
     `docs/architecture/terminal-protocol.md`,
     `docs/architecture/core-daemon.md`, and the rustdoc on every changed public
     item.
-12. Publish the exact merged Core revision for the final Hub integration.
+12. Consume or cancel a matching pre-attach declaration on every `attach`
+    return, including absent-session and terminal-session rejection.
+13. Explicitly close and drop a waking adapter on every bind rejection,
+    including stopped-daemon and unknown-session rejection before delegation to
+    `ClientWorker`.
+14. Publish the exact merged Core revision for the final Hub integration.
 
 Out of scope:
 
 1. Any change inside `botster-hub`, including its Core pin. Hub owns those.
-2. The two residual bind rejection gaps owned by `ticket_1788112223_631570`.
-   See "Sibling scope" below.
-3. Any change to the paste transaction contract itself: frame kinds, bounds,
+2. Any change to the paste transaction contract itself: frame kinds, bounds,
    assembly, commit, abort, rejection taxonomy, and result shape stay as
    `48a4370` shipped them.
-4. Any change to the wake contract shapes: `TerminalWakeKind`,
+3. Any change to the wake contract shapes: `TerminalWakeKind`,
    `TerminalWakeSource`, `TerminalWakeSink`, `SessionWakeHandle`,
    `TerminalWakeBatch`, `TerminalWakeRoute`, `wait_wakes`, `wait_pump`,
    `wake_pump_control`, and `pump_woken`.
-5. Any new configurability, feature flag, or migration window. This is a cold
+4. Any new configurability, feature flag, or migration window. This is a cold
    cut.
-6. Lifecycle paging, baselines, journals, registry persistence, and attach phase
+5. Lifecycle paging, baselines, journals, registry persistence, and attach phase
    machinery beyond the removal of adapter pumping.
-7. `botster-tui`, `botster-web`, and `botster-workspaces`. Verified: no
+6. `botster-tui`, `botster-web`, and `botster-workspaces`. Verified: no
    `bind_terminal_adapter` call exists in the `botster-tui` checkout.
 
 ## Repository ownership boundaries and cross-repository dependencies
@@ -260,14 +276,12 @@ Dependencies:
 | `ticket_1788280452_111197` | botster-hub `tgt_7e208a0c76a44980a83b63af976b1f22` | closed, merged at `db2c43c` | moved Hub bound-adapter test progress onto the wake driver |
 | `ticket_1788313897_932611` | botster-hub `tgt_7e208a0c76a44980a83b63af976b1f22` | closed | Hub ingress validates every terminal input frame header against its pinned protocol crate, so Hub rejected paste frame kinds 4..7 until it pinned the merged Core revision. Registered as `dependency_1788328056_742915`; Hub `bb1a330` now pins Core `48a4370`, so the downstream proof can run. |
 
-Sibling scope (same repository, not a dependency):
-`ticket_1788112223_631570` owns two residual gaps at `CoreDaemon`, including the
-bind rejection arms that drop an adapter without an explicit `close()`. This
-plan does not fix that gap and does not claim it is fixed. This deletion does
-remove `CoreDaemon::bind_terminal_adapter`, which is one of the two functions
-that ticket names, so its planner must re-scope onto
-`bind_waking_terminal_adapter` alone. The Implementer must not silently absorb
-that fix.
+Absorbed same-repository scope:
+the ticket consolidation revision folds `ticket_1788112223_631570` into this
+run. This plan now requires `CoreDaemon::attach` to cancel a matching
+declaration on every rejection. It also requires
+`CoreDaemon::bind_waking_terminal_adapter` to close and drop the presented
+adapter on every rejection. No separate Core ticket owns these gaps now.
 
 Downstream proof duty stays with Core: build and run the full locked Hub suite
 against the Core deletion candidate before Core merges.
@@ -299,8 +313,8 @@ scan. Removing `pump()` must not remove either bound.
 | Ownership-creating message | Owner tag | Rejection after terminal failure | Residual sweep |
 |---|---|---|---|
 | `attach` | client id, session id, subscription id, new generation | control-plane failure and unknown session return typed errors | pending drain drop plus expected-adapter cancel |
-| `expect_terminal_adapter` (pre-attach declaration) | client id, session id, subscription id | a declaration for a different client is not consumed | every attach return consumes or rejects the declaration, except the residual case owned by `ticket_1788112223_631570` |
-| `bind_waking_terminal_adapter` | live generation plus client id | `ControlPlaneFailed` and the whole `ClientWorker` ladder (`BindBeforeAttach`, `UnknownSubscription`, `StaleGeneration`, `AlreadyBound`) call `adapter.close()` then drop, and allocate no wake state. **The two earlier `CoreDaemon` guards, `ensure_running()?` and `ensure_session()?`, return before any explicit close, so the boxed adapter is dropped without `close()`.** That drop-only policy is current unchanged behavior owned by `ticket_1788112223_631570`; this deletion neither fixes nor worsens it. | a rejected bind retires any route it allocated |
+| `expect_terminal_adapter` (pre-attach declaration) | client id, session id, subscription id | a declaration for a different client is not consumed | every successful or rejected attach consumes or cancels the matching declaration |
+| `bind_waking_terminal_adapter` | live generation plus client id | every `CoreDaemon` and `ClientWorker` rejection calls `adapter.close()` and drops the adapter; rejected binds allocate no wake state | a rejected bind retires any route it allocated |
 | `TerminalInput`, `Resize`, `ModeGatedInput` | subscription id stamped on every `TerminalInputResult` | control-queue-full retries in order; other failures fail closed and hard-stop the owner | capacity-parked entries retain only on a matching session ingress wake and a live generation |
 | `PasteBegin`, `PasteChunk`, `PasteCommit`, `PasteAbort` | operation id plus mode generation and revision on the live owner | admission, mode, duplicate, stale-generation, over-count, and incomplete failures deliver zero PTY bytes and emit exactly one result | deadline expiry retires the assembly and enqueues one `Timeout` rejection, driven by `pump_woken`, `intake_woken`, and the clamped wait |
 | adapter `Writable` wake (capacity **or** readable work) | `TerminalWakeRoute` with session, subscription, generation | a stale generation route pumps nothing | wake route retires on teardown |
@@ -402,6 +416,7 @@ Core tests:
 Core test support:
 
 - `crates/botster-core-test-support/src/conformance/mod.rs`
+- `crates/botster-core-test-support/src/terminal_adapter/fake.rs`
 - `crates/botster-core-test-support/tests/terminal_adapter_conformance_test.rs`
 - `crates/botster-core-test-support/tests/consumers/hub-adapter-shaped/src/lib.rs`
 
@@ -438,9 +453,9 @@ Documentation:
    waking.
 7. Ordering proof gap. [[removing a delivery gate requires replacement ordering proof]] applies: removing drain-time pumping needs same-batch ordering proof
    for snapshot, attached, live output, and input echo.
-8. Cross-ticket collision. `ticket_1788112223_631570` edits the same
-   `CoreDaemon` bind functions. Mitigation: the ownership table above, and no
-   silent absorption of that fix.
+8. Rejected ownership can survive a failed attach or bind. Mitigation: cancel
+   every matching pre-attach declaration on attach error, close and drop every
+   rejected adapter, and use red-on-revert production-facade tests.
 9. Stale downstream proof. Hub cannot compile against a Core revision carrying
    paste frames until `ticket_1788313897_932611` lands. Mitigation: that ticket
    is now a registered dependency, not a caveat.
@@ -532,22 +547,27 @@ Guards and consumers:
       not convert it to a workspace member to make a filter reach it.
 26. Compile-fail proof that a `TerminalAdapter` that is not a
     `WakingTerminalAdapter` cannot bind.
+27. Red-on-revert proof that absent-session and terminal-session attach errors
+    cancel their matching pre-attach declarations. Reuse each session id and
+    prove the next undeclared attach drains normally.
+28. Red-on-revert proof that stopped-daemon and unknown-session waking-bind
+    errors call `close()` and drop the presented adapter.
 
 Downstream proof, required before Core merge:
 
-27. `botster-hub` at its `main` (`bb1a330` or later), with
+29. `botster-hub` at its `main` (`bb1a330` or later), with
     every Core-family revision (`botster-core`, `botster-core-daemon`,
     `botster-terminal-protocol`, `botster-core-test-support`,
     `botster-terminal-ghostty`) overridden to the same Core deletion candidate,
     compiles. Do not mix Core pins.
-28. The full locked Hub suite passes at default concurrency against that
+30. The full locked Hub suite passes at default concurrency against that
     candidate, including `tests/hub_daemon_lifecycle/webrtc_terminal_adapter.rs`
     and `tests/hub_daemon_lifecycle/unix_terminal_adapter.rs`. Use a colon-free
     worktree and do not set `CARGO_TARGET_DIR`, per
     [[Hub official gates must not set CARGO TARGET DIR]].
-29. The Hub baseline is re-measured against the refreshed Core base. The earlier
+31. The Hub baseline is re-measured against the refreshed Core base. The earlier
     1363-test pass against Core `e5a927c` is not accepted as evidence.
-30. Publish the exact merged Core revision hash in the Verify evidence for the
+32. Publish the exact merged Core revision hash in the Verify evidence for the
     final Hub integration.
 
 ## Vault gaps worth capturing

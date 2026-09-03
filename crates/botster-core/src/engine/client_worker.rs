@@ -1,8 +1,8 @@
 //! Synchronous ClientWorker: subscription queues, adapter pump, and teardown.
 //!
 //! This is the production bound-adapter egress owner. It is not
-//! [`crate::contract::client_stream::ClientStreamHarness`]. Hosts pump it from
-//! the existing drain tick. There is no ClientWorker OS thread.
+//! [`crate::contract::client_stream::ClientStreamHarness`]. Hosts advance it
+//! through `wait_wakes` and `pump_woken`. There is no ClientWorker OS thread.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
