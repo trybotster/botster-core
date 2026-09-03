@@ -187,6 +187,105 @@ fn pump_commit_visible_without_second_call() {
 
 #[cfg(unix)]
 #[test]
+fn absent_session_attach_cancels_pre_attach_declaration() {
+    let data_dir = short_temp_data_dir("absent-attach-cancels-declaration");
+    let session_id = SessionId("absent-attach-session".to_string());
+    let client_id = ClientId("absent-attach-client".to_string());
+    let subscription_id = SubscriptionId("absent-attach-sub".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+
+    assert!(matches!(
+        daemon.attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            10,
+        ),
+        Err(CoreDaemonError::UnknownSession(id)) if id == session_id
+    ));
+
+    daemon
+        .spawn(spawn_request(&session_id), 20)
+        .expect("spawn reused session id");
+    let attached = daemon
+        .attach(client_id, session_id.clone(), subscription_id, 21)
+        .expect("fresh unbound attach");
+    assert!(
+        !attached.client_egress.is_empty(),
+        "the rejected declaration must not hold a later unbound bootstrap"
+    );
+    daemon
+        .shutdown(Some(session_id.clone()), 30)
+        .expect("shutdown reused session");
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("remove reused session"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn terminal_session_attach_cancels_pre_attach_declaration() {
+    let data_dir = short_temp_data_dir("terminal-attach-cancels-declaration");
+    let session_id = SessionId("terminal-attach-session".to_string());
+    let client_id = ClientId("terminal-attach-client".to_string());
+    let subscription_id = SubscriptionId("terminal-attach-sub".to_string());
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    daemon
+        .spawn(immediate_exit_spawn_request(&session_id), 10)
+        .expect("spawn terminal session");
+    pump_until_registry_exited(&mut daemon, &session_id, 20);
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+
+    assert!(matches!(
+        daemon.attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            30,
+        ),
+        Err(CoreDaemonError::SessionNotReadable(id)) if id == session_id
+    ));
+
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("remove terminal session"));
+    daemon
+        .spawn(spawn_request(&session_id), 40)
+        .expect("spawn reused session id");
+    let attached = daemon
+        .attach(client_id, session_id.clone(), subscription_id, 41)
+        .expect("fresh unbound attach");
+    assert!(
+        !attached.client_egress.is_empty(),
+        "the rejected declaration must not hold a later unbound bootstrap"
+    );
+    daemon
+        .shutdown(Some(session_id.clone()), 50)
+        .expect("shutdown reused session");
+    assert!(daemon
+        .remove_session(&session_id)
+        .expect("remove reused session"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_ignore_payload_hub_shape() {
     let data_dir = temp_data_dir("pump-ignore-payload");
     let session_id = SessionId("pump-ignore-payload".to_string());

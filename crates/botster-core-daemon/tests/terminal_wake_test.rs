@@ -2177,6 +2177,66 @@ fn bind_rejection_allocates_nothing() {
 }
 
 #[test]
+fn waking_bind_after_shutdown_closes_and_drops_adapter() {
+    let data_dir = temp_data_dir("bind-after-shutdown-close-drop");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    daemon.shutdown(None, 1).expect("shutdown");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let presented = adapter.clone();
+    assert_eq!(adapter.shared_owner_count(), 2);
+
+    assert!(matches!(
+        daemon.bind_waking_terminal_adapter(
+            ClientId("late-client".into()),
+            SessionId("late-session".into()),
+            SubscriptionId("late-sub".into()),
+            botster_core_daemon::TerminalSubscriptionGeneration(1),
+            empty_caps(),
+            Box::new(presented),
+        ),
+        Err(CoreDaemonError::Shutdown)
+    ));
+
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert_eq!(
+        adapter.shared_owner_count(),
+        1,
+        "Core must drop the rejected adapter after close"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn waking_bind_for_unknown_session_closes_and_drops_adapter() {
+    let data_dir = temp_data_dir("bind-unknown-close-drop");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("unknown-session".into());
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let presented = adapter.clone();
+    assert_eq!(adapter.shared_owner_count(), 2);
+
+    assert!(matches!(
+        daemon.bind_waking_terminal_adapter(
+            ClientId("unknown-client".into()),
+            session_id.clone(),
+            SubscriptionId("unknown-sub".into()),
+            botster_core_daemon::TerminalSubscriptionGeneration(1),
+            empty_caps(),
+            Box::new(presented),
+        ),
+        Err(CoreDaemonError::UnknownSession(id)) if id == session_id
+    ));
+
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert_eq!(
+        adapter.shared_owner_count(),
+        1,
+        "Core must drop the rejected adapter after close"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn late_spawn_and_waking_bind_after_shutdown_allocate_no_core_state() {
     let data_dir = temp_data_dir("late-after-shutdown");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));

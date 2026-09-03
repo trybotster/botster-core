@@ -985,13 +985,15 @@ impl CoreDaemon {
     /// Attach a client through the existing subscription path.
     ///
     /// A local attach returns the complete route-owned bootstrap. A capable
-    /// worker attach returns `Attaching`. Later [`Self::drain`] calls return
-    /// route-owned incremental Snapshot frames, `Attached`, and then live
-    /// output. No other client receives these route-owned frames.
+    /// worker attach returns `Attaching`. For a bound route, later targeted
+    /// [`Self::wait_wakes`] and [`Self::pump_woken`] calls advance incremental
+    /// Snapshot frames, `Attached`, and live output. For an unbound route,
+    /// [`Self::drain`] returns those frames. No other client receives them.
     ///
     /// When [`Self::expect_terminal_adapter`] was called for this identity,
     /// `AttachedSession.client_egress` is empty for that route. The host must
-    /// bind an adapter and drain to receive the held frames.
+    /// bind an adapter and use the targeted wake pump to receive the held
+    /// frames.
     pub fn attach(
         &mut self,
         client_id: ClientId,
@@ -999,15 +1001,33 @@ impl CoreDaemon {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<AttachedSession, CoreDaemonError> {
-        self.ensure_running()?;
-        self.ensure_session_mutable(&session_id)?;
-        self.ensure_control_plane_live(&session_id)?;
-        let output = self.engine.attach_client(
+        let declaration = (
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
-            now_seconds,
-        )?;
+        );
+        let output: Result<_, CoreDaemonError> = (|| {
+            self.ensure_running()?;
+            self.ensure_session_mutable(&session_id)?;
+            self.ensure_control_plane_live(&session_id)?;
+            Ok(self.engine.attach_client(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                now_seconds,
+            )?)
+        })();
+        let output = match output {
+            Ok(output) => output,
+            Err(error) => {
+                self.engine.cancel_expected_terminal_adapter(
+                    &declaration.0,
+                    declaration.1,
+                    declaration.2,
+                );
+                return Err(error);
+            }
+        };
         self.drop_pending_client_session_egress(&client_id, &session_id);
         let initial_output = drain_result_from_engine_output(output);
         let mut client_egress = Vec::new();
@@ -1050,8 +1070,16 @@ impl CoreDaemon {
         capabilities: TerminalCapabilitySet,
         mut adapter: Box<dyn WakingTerminalAdapter + Send>,
     ) -> Result<(), CoreDaemonError> {
-        self.ensure_running()?;
-        self.ensure_session(&session_id)?;
+        if let Err(error) = self.ensure_running() {
+            adapter.close();
+            drop(adapter);
+            return Err(error);
+        }
+        if let Err(error) = self.ensure_session(&session_id) {
+            adapter.close();
+            drop(adapter);
+            return Err(error);
+        }
         if self.engine.control_plane_failed(&session_id) {
             adapter.close();
             drop(adapter);

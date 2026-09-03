@@ -145,6 +145,12 @@ impl SharedFakeTerminalAdapter {
         self.lock().inner_write_count()
     }
 
+    /// Number of shared handles that keep this adapter state alive.
+    #[must_use]
+    pub fn shared_owner_count(&self) -> usize {
+        Arc::strong_count(&self.inner)
+    }
+
     /// Emit a wake through the sink installed at waking bind.
     #[must_use]
     pub fn wake(&self, kind: botster_core::TerminalWakeKind) -> bool {
