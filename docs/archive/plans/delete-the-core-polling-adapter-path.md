@@ -90,9 +90,12 @@ Targeted atomic notes:
 - Core test support: `crates/botster-core-test-support/src/conformance/`,
   `crates/botster-core-test-support/tests/consumers/`
 - Core CI: `.github/workflows/ci.yml`
-- Downstream `botster-hub` at `origin/main` `db2c43c`
-  (`Move bound adapter test progress onto wake driver`), still pinned to Core
-  `e5a927c`
+- Downstream `botster-hub` at `origin/main` `bb1a330`, which now pins Core
+  `48a4370` uniformly across `botster-core`, `botster-core-daemon`,
+  `botster-terminal-protocol`, `botster-core-test-support`, and
+  `botster-terminal-ghostty`. Both Hub dependencies have closed, so the Hub
+  baseline for this plan is `bb1a330` on Core `48a4370`, not the earlier
+  `db2c43c` on `e5a927c`.
 - Plan Review `review_1788327888_688420` and its five findings
 - Sibling tickets `ticket_1788313897_932611` (Hub paste pin) and
   `ticket_1788112223_631570` (Core residual bind rejection gaps)
@@ -250,7 +253,7 @@ Dependencies:
 | `ticket_1787894427_525056` | botster-hub | closed | Hub cold-cut wake-driven duplex terminal transports |
 | `ticket_1787603671_590198` | botster-hub | closed | superseded Hub Unix duplex work |
 | `ticket_1788280452_111197` | botster-hub `tgt_7e208a0c76a44980a83b63af976b1f22` | closed, merged at `db2c43c` | moved Hub bound-adapter test progress onto the wake driver |
-| `ticket_1788313897_932611` | botster-hub `tgt_7e208a0c76a44980a83b63af976b1f22` | open, registered this visit as `dependency_1788328056_742915` | Hub ingress validates every terminal input frame header against its pinned protocol crate, so Hub rejects paste frame kinds 4..7 until it pins the merged Core revision. Hub cannot reach a green locked suite against Core `48a4370` before this lands. |
+| `ticket_1788313897_932611` | botster-hub `tgt_7e208a0c76a44980a83b63af976b1f22` | closed | Hub ingress validates every terminal input frame header against its pinned protocol crate, so Hub rejected paste frame kinds 4..7 until it pinned the merged Core revision. Registered as `dependency_1788328056_742915`; Hub `bb1a330` now pins Core `48a4370`, so the downstream proof can run. |
 
 Sibling scope (same repository, not a dependency):
 `ticket_1788112223_631570` owns two residual gaps at `CoreDaemon`, including the
@@ -335,8 +338,9 @@ Assumptions:
 1. Hub prerequisite `ticket_1788280452_111197` merged at `db2c43c` and satisfies
    its own acceptance. Any residual Hub reliance on Core drain for bound-adapter
    progress will surface in the required full locked Hub suite run.
-2. Hub dependency `ticket_1788313897_932611` merges before Core's downstream
-   proof, so Hub can pin a Core revision that contains the paste frames.
+2. Hub dependency `ticket_1788313897_932611` has closed. Hub `bb1a330` pins Core
+   `48a4370` for every Core-family crate, so the downstream proof can start from
+   that Hub revision.
 3. `CoreDaemon::drain` and `drain_subscription` stay public for unbound routes,
    because Hub serves socket clients through
    `DaemonRequest::drain_subscription`.
@@ -498,7 +502,7 @@ Guards and consumers:
 
 Downstream proof, required before Core merge:
 
-27. `botster-hub` at its `main` **after** `ticket_1788313897_932611` merges, with
+27. `botster-hub` at its `main` (`bb1a330` or later), with
     every Core-family revision (`botster-core`, `botster-core-daemon`,
     `botster-terminal-protocol`, `botster-core-test-support`,
     `botster-terminal-ghostty`) overridden to the same Core deletion candidate,
