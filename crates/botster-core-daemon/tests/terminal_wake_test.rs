@@ -2366,7 +2366,7 @@ fn readback_does_not_advance_bound_adapter() {
         .find(|row| row.subscription_id == subscription_id)
         .expect("row")
         .generation;
-    let adapter = SharedFakeTerminalAdapter::new();
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
         .bind_waking_terminal_adapter(
             client_id.clone(),
