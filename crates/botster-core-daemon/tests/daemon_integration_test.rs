@@ -2658,7 +2658,7 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
         .generation;
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
@@ -2674,28 +2674,12 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
     let mut sent_live_input = false;
     let mut saw_live = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let drained = daemon.drain(&session_id, 20).expect("drain bound worker");
-        assert!(
-            drained.client_egress.iter().all(|(_, frame)| {
-                !matches!(
-                    frame,
-                    TransportEgress::Snapshot {
-                        subscription_id: route,
-                        ..
-                    }
-                    | TransportEgress::TerminalOutput {
-                        subscription_id: route,
-                        ..
-                    }
-                    | TransportEgress::AttachState {
-                        subscription_id: route,
-                        ..
-                    } if route == &subscription_id
-                )
-            }),
-            "bound route must not appear on drain: {:?}",
-            drained.client_egress
-        );
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            let _ = daemon
+                .pump_woken(&batch, 20)
+                .expect("pump bound worker wake");
+        }
         for bytes in adapter.snapshot_delivered_frame_bytes() {
             let value: serde_json::Value =
                 serde_json::from_slice(&bytes).expect("opaque frame is JSON");
@@ -2797,7 +2781,7 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
             .generation;
         let adapter = SharedFakeTerminalAdapter::new();
         daemon
-            .bind_terminal_adapter(
+            .bind_waking_terminal_adapter(
                 client_id.clone(),
                 session_id.clone(),
                 subscription_id.clone(),
@@ -2823,7 +2807,12 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
 
         let mut saw_live = false;
         for tick in 0..80 {
-            let _ = daemon.drain(&session_id, 13 + round + tick);
+            let batch = daemon.wait_wakes(Duration::from_millis(250));
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                let _ = daemon
+                    .pump_woken(&batch, 13 + round + tick)
+                    .unwrap_or_else(|error| panic!("round {round} pump: {error:?}"));
+            }
             complete_one_slot_if_full(&adapter);
             if adapter_has_live(&adapter, LIVE_B64) {
                 saw_live = true;
@@ -2924,7 +2913,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         .generation;
     let adapter = SharedFakeTerminalAdapter::new();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id.clone(),
             session_id.clone(),
             subscription_id.clone(),
@@ -2934,30 +2923,48 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         )
         .expect("bind during incremental attach");
 
-    let paced = daemon
-        .drain(&session_id, 13)
-        .expect("pace unfinished attach");
+    let first_wake_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < first_wake_deadline,
+            "incremental attach did not wake"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            continue;
+        }
+        let _ = daemon
+            .pump_woken(&batch, 13)
+            .expect("pace unfinished attach through a wake");
+        break;
+    }
     assert!(
-        !paced.client_egress.iter().any(|(_, frame)| matches!(
-            frame,
-            TransportEgress::AttachState {
-                state: TerminalAttachState::Attached,
-                ..
-            }
-        )),
-        "bind must happen before incremental attach finishes: {:?}",
-        paced
-            .client_egress
+        !adapter
+            .snapshot_delivered_frame_bytes()
             .iter()
-            .map(|(_, frame)| format!("{frame:?}"))
-            .collect::<Vec<_>>()
+            .any(|bytes| {
+                serde_json::from_slice::<serde_json::Value>(bytes)
+                    .ok()
+                    .is_some_and(|value| {
+                        value.get("type").and_then(serde_json::Value::as_str)
+                            == Some("attach_state")
+                            && value.get("state").and_then(serde_json::Value::as_str)
+                                == Some("attached")
+                    })
+            }),
+        "bind must happen before incremental attach finishes"
     );
 
     fs::write(&release_path, b"go").expect("release live exit");
 
     let mut saw_live = false;
     for tick in 0..400 {
-        let _ = daemon.drain(&session_id, 14 + tick);
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            let _ = daemon
+                .pump_woken(&batch, 14 + tick)
+                .expect("pump incremental attach wake");
+        }
         complete_one_slot_if_full(&adapter);
         if adapter_has_live(&adapter, LIVE_B64) {
             saw_live = true;
@@ -10833,12 +10840,12 @@ fn adapter_input_result_subscription(bytes: &[u8]) -> Option<String> {
 
 fn wait_until_bound_attached(
     daemon: &mut CoreDaemon,
-    session_id: &SessionId,
+    _session_id: &SessionId,
     adapter: &SharedFakeTerminalAdapter,
 ) {
     let started = Instant::now();
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(session_id, 20).expect("drain attach");
+        pump_next_available_wake(daemon, 20);
         let attached = adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -10858,6 +10865,17 @@ fn wait_until_bound_attached(
         "bound adapter never reached attached: {:?}",
         adapter.snapshot_delivered_frame_bytes()
     );
+}
+
+fn pump_next_available_wake(daemon: &mut CoreDaemon, now_seconds: u64) -> bool {
+    let batch = daemon.wait_wakes(Duration::from_millis(250));
+    if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+        return false;
+    }
+    let _ = daemon
+        .pump_woken(&batch, now_seconds)
+        .expect("pump targeted wake");
+    true
 }
 
 fn bind_echo_worker(
@@ -10887,7 +10905,7 @@ fn bind_echo_worker(
         .generation;
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id,
             session_id.clone(),
             subscription_id,
@@ -10923,7 +10941,7 @@ fn attach_bound_adapter(
         .generation;
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id,
             session_id.clone(),
             subscription_id,
@@ -10938,7 +10956,7 @@ fn attach_bound_adapter(
 
 #[cfg(unix)]
 #[test]
-fn drain_applies_injected_duplex_input_through_real_worker_pty() {
+fn pump_woken_applies_injected_duplex_input_through_real_worker_pty() {
     let data_dir = temp_data_dir("duplex-byte-oracle");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -10961,7 +10979,7 @@ fn drain_applies_injected_duplex_input_through_real_worker_pty() {
     let mut saw_echo = false;
     let mut saw_result_id = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&session_id, 21).expect("drain duplex");
+        pump_next_available_wake(&mut daemon, 21);
         for bytes in adapter.snapshot_delivered_frame_bytes() {
             if adapter_frame_type(&bytes) == "terminal_output"
                 && adapter_payload_text(&bytes).contains("echo:ORACLE")
@@ -10989,7 +11007,7 @@ fn drain_applies_injected_duplex_input_through_real_worker_pty() {
 
 #[cfg(unix)]
 #[test]
-fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
+fn pump_woken_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
     let data_dir = temp_data_dir("duplex-overflow");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11029,13 +11047,13 @@ fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
         probe.mode_flags.mode_freshness.mode_revision,
         b"hold\n",
     ));
-    let _ = daemon.drain(&flooded, 26).expect("submit gated hold");
+    assert!(pump_next_available_wake(&mut daemon, 26));
     for _ in 0..5 {
         for _ in 0..64 {
             flood_adapter.inject_ingress_frame(compact_input_frame(b"flood\n"));
         }
-        let _ = daemon.drain(&flooded, 30).expect("drain flood");
-        let _ = daemon.drain(&sibling, 31).expect("drain sibling");
+        pump_next_available_wake(&mut daemon, 30);
+        pump_next_available_wake(&mut daemon, 31);
     }
     assert_eq!(
         flood_adapter.snapshot_pressure(),
@@ -11061,7 +11079,7 @@ fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
     let started = Instant::now();
     let mut saw_sibling = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&sibling, 32).expect("drain sibling echo");
+        pump_next_available_wake(&mut daemon, 32);
         if sibling_adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -11078,7 +11096,7 @@ fn drain_queue_overflow_tears_down_one_owner_and_keeps_a_sibling_session() {
 
 #[cfg(unix)]
 #[test]
-fn drain_reconnects_and_rejects_stale_generation_ingress() {
+fn pump_woken_reconnects_and_rejects_stale_generation_ingress() {
     let data_dir = temp_data_dir("duplex-reconnect");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11121,7 +11139,7 @@ fn drain_reconnects_and_rejects_stale_generation_ingress() {
         .generation;
     let fresh = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id,
             session_id.clone(),
             subscription_id.clone(),
@@ -11135,7 +11153,7 @@ fn drain_reconnects_and_rejects_stale_generation_ingress() {
     let started = Instant::now();
     let mut saw_fresh = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&session_id, 14).expect("drain reconnect");
+        pump_next_available_wake(&mut daemon, 14);
         let stale_bytes = stale
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -11157,7 +11175,7 @@ fn drain_reconnects_and_rejects_stale_generation_ingress() {
 
 #[cfg(unix)]
 #[test]
-fn drain_teardown_session_clears_ingress_and_inventory() {
+fn pump_woken_teardown_session_clears_ingress_and_inventory() {
     let data_dir = temp_data_dir("duplex-teardown");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11189,7 +11207,7 @@ fn drain_teardown_session_clears_ingress_and_inventory() {
 
 #[cfg(unix)]
 #[test]
-fn drain_writer_failure_sweeps_idle_same_session_owner() {
+fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
     let data_dir = temp_data_dir("duplex-writer-sweep");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11225,7 +11243,7 @@ fn drain_writer_failure_sweeps_idle_same_session_owner() {
         .generation;
     let active = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             ClientId("duplex-writer-active-client".to_string()),
             failed.clone(),
             active_sub.clone(),
@@ -11247,9 +11265,16 @@ fn drain_writer_failure_sweeps_idle_same_session_owner() {
         .args(["-9", &worker_pid.to_string()])
         .status()
         .expect("kill worker");
+    wait_for_condition("failed worker exits", || process_has_exited(worker_pid));
     let started = Instant::now();
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&failed, 30);
+        let _ = daemon.input(
+            ClientId("duplex-writer-idle-client".to_string()),
+            failed.clone(),
+            vec![b'X'; 4_096],
+            29,
+        );
+        pump_next_available_wake(&mut daemon, 30);
         let gone = daemon
             .list_terminal_subscriptions()
             .iter()
@@ -11270,7 +11295,7 @@ fn drain_writer_failure_sweeps_idle_same_session_owner() {
     let started = Instant::now();
     let mut saw_other = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&other, 31).expect("drain other session");
+        pump_next_available_wake(&mut daemon, 31);
         if other_adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -11287,7 +11312,7 @@ fn drain_writer_failure_sweeps_idle_same_session_owner() {
 
 #[cfg(unix)]
 #[test]
-fn drain_ingress_loss_and_malformed_input_remove_the_route() {
+fn pump_woken_ingress_loss_and_malformed_input_remove_the_route() {
     for (label, inject) in [
         (
             "lost",
@@ -11330,7 +11355,7 @@ fn drain_ingress_loss_and_malformed_input_remove_the_route() {
             20,
         );
         inject(&adapter);
-        let _ = daemon.drain(&failed, 30).expect("drain hard-stop");
+        assert!(pump_next_available_wake(&mut daemon, 30));
         assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
         assert!(daemon
             .list_terminal_subscriptions()
@@ -11350,7 +11375,7 @@ fn drain_ingress_loss_and_malformed_input_remove_the_route() {
         let started = Instant::now();
         let mut saw_sibling = false;
         while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-            let _ = daemon.drain(&sibling, 32).expect("drain sibling");
+            pump_next_available_wake(&mut daemon, 32);
             if sibling_adapter
                 .snapshot_delivered_frame_bytes()
                 .iter()
@@ -11368,7 +11393,7 @@ fn drain_ingress_loss_and_malformed_input_remove_the_route() {
 
 #[cfg(unix)]
 #[test]
-fn drain_detach_cancels_held_gated_and_leaves_sibling() {
+fn pump_woken_detach_cancels_held_gated_and_leaves_sibling() {
     let data_dir = temp_data_dir("duplex-detach-gated");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11409,7 +11434,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
         probe.mode_flags.mode_freshness.mode_revision,
         b"hold\n",
     ));
-    let _ = daemon.drain(&held, 26).expect("submit gated hold");
+    assert!(pump_next_available_wake(&mut daemon, 26));
     daemon
         .detach(held_client, held.clone(), held_sub.clone(), 27)
         .expect("detach held owner");
@@ -11444,9 +11469,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     const CANCEL_RELEASE_BOUND: Duration = Duration::from_secs(2);
     let started_release = Instant::now();
     let replacement_probe = loop {
-        let _ = daemon
-            .drain(&held, 29)
-            .expect("drain cancelled hold reply so the lane releases");
+        pump_next_available_wake(&mut daemon, 29);
         match daemon.read_mode_flags(ReadModeFlagsRequest {
             request_id: RequestId("duplex-detach-gated-next-probe".to_string()),
             session_id: held.clone(),
@@ -11475,7 +11498,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     let started_next = Instant::now();
     let mut saw_replacement = false;
     while started_next.elapsed() < CANCEL_RELEASE_BOUND {
-        let _ = daemon.drain(&held, 32).expect("drain replacement gated");
+        pump_next_available_wake(&mut daemon, 32);
         if replacement
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -11506,7 +11529,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
     let started = Instant::now();
     let mut saw_sibling = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&sibling, 29).expect("drain sibling");
+        pump_next_available_wake(&mut daemon, 29);
         if sibling_adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -11523,7 +11546,7 @@ fn drain_detach_cancels_held_gated_and_leaves_sibling() {
 
 #[cfg(unix)]
 #[test]
-fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
+fn pump_woken_other_session_leaves_queued_gated_on_a_held_sibling() {
     let data_dir = temp_data_dir("duplex-hold-cross-session");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11571,13 +11594,15 @@ fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
         probe.mode_flags.mode_freshness.mode_revision,
         b"hold\n",
     ));
-    let _ = daemon.drain(&held, 32).expect("submit held gated");
+    assert!(pump_next_available_wake(&mut daemon, 32));
     sibling.inject_ingress_frame(compact_mode_gated_frame(
         probe.mode_flags.mode_freshness.mode_generation,
         probe.mode_flags.mode_freshness.mode_revision,
         b"queued\n",
     ));
-    let _ = daemon.drain(&drained, 33).expect("drain the other session");
+    let _ = daemon
+        .drain(&drained, 33)
+        .expect("read back the other session");
     assert!(
         sibling
             .snapshot_delivered_frame_bytes()
@@ -11586,7 +11611,7 @@ fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
         "draining another session must not reject a queued ModeGatedInput on a held session: {:?}",
         sibling.snapshot_delivered_frame_bytes()
     );
-    let _ = daemon.drain(&held, 34).expect("drain held session");
+    pump_next_available_wake(&mut daemon, 34);
     assert!(
         sibling
             .snapshot_delivered_frame_bytes()
@@ -11600,7 +11625,7 @@ fn drain_other_session_leaves_queued_gated_on_a_held_sibling() {
 
 #[cfg(unix)]
 #[test]
-fn drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued() {
+fn pump_woken_one_batch_grants_one_gated_and_leaves_the_sibling_queued() {
     let data_dir = temp_data_dir("duplex-hold-same-tick");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -11642,9 +11667,7 @@ fn drain_one_tick_grants_one_gated_and_leaves_the_sibling_queued() {
         probe.mode_flags.mode_freshness.mode_revision,
         b"second\n",
     ));
-    let _ = daemon
-        .drain(&session_id, 22)
-        .expect("one drain tick for both gated heads");
+    assert!(pump_next_available_wake(&mut daemon, 22));
     let first_results: Vec<_> = first
         .snapshot_delivered_frame_bytes()
         .iter()
@@ -11800,7 +11823,7 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
         .generation;
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client_id,
             session_id.clone(),
             subscription_id.clone(),
@@ -11885,7 +11908,8 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     let started = Instant::now();
     let mut unsubscribe_count = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let drained = daemon.drain(&session_id, 30).expect("drain overflow");
+        pump_next_available_wake(&mut daemon, 30);
+        let drained = daemon.drain(&session_id, 30).expect("read overflow result");
         unsubscribe_count +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         let holder_live = daemon
@@ -11922,7 +11946,7 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     let sibling_started = Instant::now();
     let mut sibling_progress = false;
     while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&session_id, 31).expect("drain sibling");
+        pump_next_available_wake(&mut daemon, 31);
         if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
             sibling_progress = true;
             break;
@@ -11981,7 +12005,7 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     let closed = SharedFakeTerminalAdapter::new();
     closed.close_transport();
     daemon
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             holder.clone(),
             session_id.clone(),
             holder_sub.clone(),
@@ -11993,7 +12017,10 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     let started = Instant::now();
     let mut unsubscribe_count = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let drained = daemon.drain(&session_id, 40).expect("drain closed bind");
+        pump_next_available_wake(&mut daemon, 40);
+        let drained = daemon
+            .drain(&session_id, 40)
+            .expect("read closed-bind result");
         unsubscribe_count +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         if !daemon
@@ -12036,7 +12063,7 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     let sibling_started = Instant::now();
     let mut sibling_progress = false;
     while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.drain(&session_id, 41).expect("sibling drain");
+        pump_next_available_wake(&mut daemon, 41);
         if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
             sibling_progress = true;
             break;

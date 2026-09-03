@@ -13,7 +13,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use botster_core::contract::terminal_adapter::TerminalAdapter;
 use botster_core::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, TerminalWakeWait, WakingTerminalAdapter,
 };
@@ -957,7 +956,7 @@ impl CoreDaemon {
     ///
     /// After a matching [`Self::attach`], `AttachedSession.client_egress` holds
     /// no terminal frame for that route. Those frames stay inside Core until
-    /// [`Self::bind_terminal_adapter`] and the next drain tick.
+    /// [`Self::bind_waking_terminal_adapter`] and the next targeted pump.
     pub fn expect_terminal_adapter(
         &mut self,
         client_id: ClientId,
@@ -1039,37 +1038,6 @@ impl CoreDaemon {
             subscription_id,
             client_egress,
         })
-    }
-
-    /// Bind a content-blind adapter to a live attach generation.
-    ///
-    /// After bind, this route's terminal frames leave only through the adapter.
-    /// `drain` / `drain_subscription` do not also return those terminal frames.
-    pub fn bind_terminal_adapter(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        mut adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), CoreDaemonError> {
-        self.ensure_running()?;
-        self.ensure_session(&session_id)?;
-        if self.engine.control_plane_failed(&session_id) {
-            adapter.close();
-            drop(adapter);
-            return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id }.into());
-        }
-        self.engine.bind_terminal_adapter(
-            client_id,
-            session_id,
-            subscription_id,
-            generation,
-            capabilities,
-            adapter,
-        )?;
-        Ok(())
     }
 
     /// Bind a waking adapter. Allocates wake state only after rejection checks pass.
@@ -1493,8 +1461,6 @@ impl CoreDaemon {
     ) -> Result<DrainResult, CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session(session_id)?;
-        self.engine
-            .apply_terminal_input(session_id, last_output_at)?;
         let mut result = self.take_pending_drain(session_id);
         match self.engine.drain_runtime_once(session_id, last_output_at) {
             Ok(outcome) => {
@@ -2604,9 +2570,7 @@ impl CoreDaemon {
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<(), CoreDaemonError> {
-        let output = self
-            .engine
-            .drain_runtime_once_without_pump(session_id, last_output_at)?;
+        let output = self.engine.drain_runtime_once(session_id, last_output_at)?;
         let pending = drain_result_from_engine_output(output);
         let mut rearm = Vec::new();
         for observation in &pending.observations {
@@ -3617,35 +3581,6 @@ impl DaemonEngine {
         }
     }
 
-    fn bind_terminal_adapter(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), BindTerminalAdapterError> {
-        match self {
-            Self::Local(engine) => engine.bind_terminal_adapter(
-                client_id,
-                session_id,
-                subscription_id,
-                generation,
-                capabilities,
-                adapter,
-            ),
-            Self::Worker(engine) => engine.bind_terminal_adapter(
-                client_id,
-                session_id,
-                subscription_id,
-                generation,
-                capabilities,
-                adapter,
-            ),
-        }
-    }
-
     fn bind_waking_terminal_adapter(
         &mut self,
         client_id: ClientId,
@@ -3711,21 +3646,6 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.wake_source(),
             Self::Worker(engine) => engine.wake_source(),
-        }
-    }
-
-    fn drain_runtime_once_without_pump(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => {
-                engine.drain_runtime_once_without_pump(session_id, last_output_at)
-            }
-            Self::Worker(engine) => {
-                engine.drain_runtime_once_without_pump(session_id, last_output_at)
-            }
         }
     }
 
@@ -3797,17 +3717,6 @@ impl DaemonEngine {
             Self::Worker(engine) => {
                 engine.detach_client(client_id, session_id, subscription_id, now_seconds)
             }
-        }
-    }
-
-    fn apply_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => engine.apply_terminal_input(session_id, last_output_at),
-            Self::Worker(engine) => engine.apply_terminal_input(session_id, last_output_at),
         }
     }
 

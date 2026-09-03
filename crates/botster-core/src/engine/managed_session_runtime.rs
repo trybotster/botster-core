@@ -14,7 +14,6 @@ use crate::contract::actor::{
     QueueSource, ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionIoRequest,
     SnapshotReady,
 };
-use crate::contract::terminal_adapter::TerminalAdapter;
 use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalInputDelivery, TerminalInputOperation, TerminalSubscriptionGeneration,
@@ -94,13 +93,6 @@ pub enum ManagedSessionRuntimeError {
 
 type TerminalBackendFactory<T> =
     Rc<dyn Fn(TerminalScreenSize) -> Result<T, Box<dyn Error + Send + Sync>>>;
-
-#[cfg(feature = "local-runtime")]
-#[derive(Clone, Copy)]
-enum DeliveryApply {
-    Global,
-    Targeted,
-}
 
 /// Scheduling-neutral coordinator for one or more managed live sessions.
 ///
@@ -288,88 +280,6 @@ where
             .control_plane_state(session_id)
     }
 
-    /// Sweep the writer and intake frames without applying or pumping output.
-    ///
-    /// Incremental attach owns the only `pump_session_output` on that tick.
-    /// A second pump here can dequeue two snapshot pages and emit both.
-    pub fn prepare_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), ManagedSessionRuntimeError> {
-        if let Some(error) = self
-            .engine
-            .session_runtime()
-            .consume_control_writer_failure(session_id)
-        {
-            self.engine
-                .session_runtime_mut()
-                .mark_control_plane_failed(session_id, error);
-            let teardowns = self.client_worker.teardown_session(session_id);
-            self.retain_input_teardowns(session_id, teardowns);
-            return Ok(());
-        }
-        let teardowns = self.client_worker.intake_terminal_input();
-        self.retain_input_teardowns(session_id, teardowns);
-        Ok(())
-    }
-
-    /// Apply adapter ingress at the top of the production tick.
-    ///
-    /// Returns `Ok` when the tick machinery completed. Per-command failures
-    /// stay owner-scoped and do not abort the shared drain.
-    pub fn apply_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), ManagedSessionRuntimeError> {
-        if let Some(error) = self
-            .engine
-            .session_runtime()
-            .consume_control_writer_failure(session_id)
-        {
-            self.engine
-                .session_runtime_mut()
-                .mark_control_plane_failed(session_id, error);
-            let teardowns = self.client_worker.teardown_session(session_id);
-            self.retain_input_teardowns(session_id, teardowns);
-            return Ok(());
-        }
-
-        let mut teardowns = Vec::new();
-        match self
-            .engine
-            .session_runtime_mut()
-            .poll_mode_gated_pty_input(session_id)
-        {
-            Ok(GatedPoll::Ready(result)) => {
-                if let Some(teardown) = self.complete_gated_result(session_id, result) {
-                    teardowns.push(teardown);
-                }
-            }
-            Ok(GatedPoll::TimedOut) => {
-                if let Some(teardown) = self.complete_gated_timeout(session_id) {
-                    teardowns.push(teardown);
-                }
-            }
-            Ok(GatedPoll::Idle | GatedPoll::Pending) => {}
-            Err(_) => {}
-        }
-
-        teardowns.extend(self.client_worker.intake_terminal_input());
-
-        let mut holding = self.engine.session_runtime().sessions_holding_gated();
-        holding.extend(self.client_worker.sessions_awaiting_gated());
-        let deliveries = self.client_worker.take_terminal_input(&holding);
-        for delivery in deliveries {
-            match self.apply_one_delivery(delivery, last_output_at, DeliveryApply::Global) {
-                Ok(_) => {}
-                Err(teardown) => teardowns.push(teardown),
-            }
-        }
-        self.retain_input_teardowns(session_id, teardowns);
-        Ok(())
-    }
-
     pub(crate) fn apply_woken_terminal_input(
         &mut self,
         batch: &TerminalWakeBatch,
@@ -401,7 +311,9 @@ where
         }
 
         let awaiting = self.client_worker.sessions_awaiting_gated();
-        for session_id in named_sessions.intersection(&awaiting) {
+        let mut gated_sessions = self.engine.session_runtime().sessions_holding_gated();
+        gated_sessions.extend(awaiting);
+        for session_id in named_sessions.intersection(&gated_sessions) {
             if failed_sessions.contains(session_id) {
                 continue;
             }
@@ -458,11 +370,7 @@ where
                             self.client_worker.clear_capacity_parked(&key);
                             break;
                         };
-                        match self.apply_one_delivery(
-                            delivery,
-                            last_output_at,
-                            DeliveryApply::Targeted,
-                        ) {
+                        match self.apply_one_delivery(delivery, last_output_at) {
                             Ok(Some(step)) => append_outcome(outcome, step),
                             Ok(None) => {}
                             Err(teardown) => {
@@ -493,7 +401,6 @@ where
         &mut self,
         delivery: TerminalInputDelivery,
         last_output_at: u64,
-        apply: DeliveryApply,
     ) -> Result<Option<MultiplexerEngineOutcome>, crate::engine::client_worker::ClientWorkerTeardown>
     {
         let kind = match &delivery.command {
@@ -524,19 +431,11 @@ where
                     session_id: session_id.clone(),
                     data: data.clone(),
                 };
-                let applied = match apply {
-                    DeliveryApply::Global => {
-                        self.handle_client_ingress(client_id, ingress, last_output_at)
-                    }
-                    DeliveryApply::Targeted => {
-                        self.apply_targeted_client_ingress(client_id, ingress, last_output_at)
-                    }
-                };
+                let applied =
+                    self.apply_targeted_client_ingress(client_id, ingress, last_output_at);
                 match applied {
                     Ok(outcome) => {
-                        if matches!(apply, DeliveryApply::Targeted) {
-                            targeted_outcome = Some(outcome);
-                        }
+                        targeted_outcome = Some(outcome);
                         input_result_ok(kind, data.len())
                     }
                     Err(_) => {
@@ -557,23 +456,15 @@ where
                     rows,
                     cols,
                 };
-                let applied = match apply {
-                    DeliveryApply::Global => {
-                        self.handle_client_ingress(client_id, ingress, last_output_at)
-                    }
-                    DeliveryApply::Targeted => {
-                        self.apply_targeted_client_ingress(client_id, ingress, last_output_at)
-                    }
-                };
+                let applied =
+                    self.apply_targeted_client_ingress(client_id, ingress, last_output_at);
                 match applied {
                     Ok(outcome) => {
-                        if matches!(apply, DeliveryApply::Targeted) {
-                            self.pending_terminal_resizes
-                                .entry(session_id.clone())
-                                .or_default()
-                                .push_back((rows, cols, last_output_at));
-                            targeted_outcome = Some(outcome);
-                        }
+                        self.pending_terminal_resizes
+                            .entry(session_id.clone())
+                            .or_default()
+                            .push_back((rows, cols, last_output_at));
+                        targeted_outcome = Some(outcome);
                         input_result_ok(kind, 0)
                     }
                     Err(_) => {
@@ -851,14 +742,6 @@ where
         }
         None
     }
-
-    fn retain_input_teardowns(
-        &mut self,
-        _session_id: &SessionId,
-        teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
-    ) {
-        self.pending_input_teardowns.extend(teardowns);
-    }
 }
 
 #[cfg(feature = "local-runtime")]
@@ -866,25 +749,6 @@ impl<T> ManagedSessionRuntime<LocalProcessRuntime, T>
 where
     T: TerminalScreenRuntime + 'static,
 {
-    /// Apply adapter ingress for the in-process local runtime.
-    pub fn apply_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), ManagedSessionRuntimeError> {
-        let _ = session_id;
-        let mut teardowns = self.client_worker.intake_terminal_input();
-        let deliveries = self.client_worker.take_terminal_input(&HashSet::new());
-        for delivery in deliveries {
-            match self.apply_one_local_delivery(delivery, last_output_at) {
-                Ok(()) => {}
-                Err(teardown) => teardowns.push(teardown),
-            }
-        }
-        self.pending_input_teardowns.extend(teardowns);
-        Ok(())
-    }
-
     pub(crate) fn apply_woken_terminal_input(
         &mut self,
         batch: &TerminalWakeBatch,
@@ -1026,89 +890,6 @@ where
                 .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
         }
         Ok(outcome)
-    }
-
-    fn apply_one_local_delivery(
-        &mut self,
-        delivery: crate::contract::terminal_subscription::TerminalInputDelivery,
-        last_output_at: u64,
-    ) -> Result<(), crate::engine::client_worker::ClientWorkerTeardown> {
-        let session_id = delivery.session_id.clone();
-        let subscription_id = delivery.subscription_id.clone();
-        let client_id = delivery.client_id.clone();
-        let result = match delivery.command {
-            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => {
-                match self.handle_client_ingress(
-                    client_id,
-                    TransportIngress::TerminalInput {
-                        session_id: session_id.clone(),
-                        data: data.clone(),
-                    },
-                    last_output_at,
-                ) {
-                    Ok(_) => input_result_ok(TerminalInputKind::Input, data.len()),
-                    Err(_) => {
-                        return owner_apply_teardown(
-                            &mut self.client_worker,
-                            &session_id,
-                            &subscription_id,
-                        );
-                    }
-                }
-            }
-            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
-                match self.handle_client_ingress(
-                    client_id,
-                    TransportIngress::Resize {
-                        session_id: session_id.clone(),
-                        rows,
-                        cols,
-                    },
-                    last_output_at,
-                ) {
-                    Ok(_) => input_result_ok(TerminalInputKind::Resize, 0),
-                    Err(_) => {
-                        return owner_apply_teardown(
-                            &mut self.client_worker,
-                            &session_id,
-                            &subscription_id,
-                        );
-                    }
-                }
-            }
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
-                input_result_rejected(
-                    TerminalInputKind::ModeGatedInput,
-                    TerminalInputRejection::SessionNotWritable,
-                )
-            }
-            TerminalInputOperation::Paste(paste) => with_operation(
-                input_result_rejected(
-                    TerminalInputKind::Paste,
-                    TerminalInputRejection::SessionNotWritable,
-                ),
-                paste.operation_id,
-            ),
-            TerminalInputOperation::Command(
-                TerminalInputCommand::PasteBegin { .. }
-                | TerminalInputCommand::PasteChunk { .. }
-                | TerminalInputCommand::PasteCommit { .. }
-                | TerminalInputCommand::PasteAbort { .. },
-            ) => unreachable!("paste frames do not enter the Stage B queue"),
-        };
-        if let Some(operation_id) = result.operation_id {
-            self.client_worker
-                .finish_paste_operation(&session_id, &subscription_id, operation_id);
-        }
-        let result = with_subscription(result, &subscription_id);
-        if self
-            .client_worker
-            .enqueue_input_result(&session_id, &subscription_id, &result)
-            .is_err()
-        {
-            return owner_apply_teardown(&mut self.client_worker, &session_id, &subscription_id);
-        }
-        Ok(())
     }
 }
 
@@ -1425,26 +1206,6 @@ where
             .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
     }
 
-    /// Bind a content-blind adapter to a live attach generation.
-    pub fn bind_terminal_adapter(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), BindTerminalAdapterError> {
-        self.client_worker.bind_terminal_adapter(
-            &client_id,
-            session_id,
-            subscription_id,
-            generation,
-            capabilities,
-            adapter,
-        )
-    }
-
     /// Bind a waking adapter. Allocates wake state only after rejection checks pass.
     pub fn bind_waking_terminal_adapter(
         &mut self,
@@ -1598,15 +1359,6 @@ where
         request: SessionIoRequest,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.handle_session_request_with(request, now_seconds, true)
-    }
-
-    pub(crate) fn handle_session_request_with(
-        &mut self,
-        request: SessionIoRequest,
-        now_seconds: u64,
-        pump_bound: bool,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         reject_unsupported_session_request(&request)?;
         if let SessionIoRequest::GetModeFlags { session_id, .. } = &request {
             let worker = self
@@ -1632,9 +1384,7 @@ where
         }
         let mut outcome = self.engine.handle_session_request(request, now_seconds)?;
         self.flush_runtime_inputs()?;
-        if pump_bound {
-            self.apply_client_worker(&mut outcome)?;
-        }
+        self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
 
@@ -1696,24 +1446,6 @@ where
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.drain_runtime_once_with(session_id, last_output_at, true)
-    }
-
-    /// Drain runtime output without pumping bound adapters (readback path).
-    pub fn drain_runtime_once_without_pump(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        self.drain_runtime_once_with(session_id, last_output_at, false)
-    }
-
-    fn drain_runtime_once_with(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-        pump: bool,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut outcome = match self.drain_runtime_output_for_session(session_id, last_output_at) {
             Ok(outcome) => outcome,
             Err(ManagedSessionRuntimeError::Runtime(error))
@@ -1725,9 +1457,7 @@ where
             Err(error) => return Err(error),
         };
         self.route_pending_runtime_events(&mut outcome)?;
-        if pump {
-            self.apply_client_worker(&mut outcome)?;
-        }
+        self.apply_client_worker(&mut outcome)?;
 
         Ok(outcome)
     }
@@ -1856,22 +1586,13 @@ where
         Ok(outcome)
     }
 
-    /// Pump bound adapters without draining new runtime output.
-    pub fn pump_bound_adapters(
-        &mut self,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let mut outcome = MultiplexerEngineOutcome::empty();
-        self.apply_client_worker(&mut outcome)?;
-        Ok(outcome)
-    }
-
     /// Targeted pump of woken routes. Never falls back to a global adapter scan.
     pub fn pump_woken(
         &mut self,
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let (outcome, sessions) = self.pump_woken_phase_one(batch, now_seconds)?;
+        let (outcome, sessions) = self.pump_woken_phase_one(batch, now_seconds, &HashSet::new())?;
         self.pump_woken_phase_three(batch, outcome, &sessions)
     }
 
@@ -1879,6 +1600,7 @@ where
         &mut self,
         batch: &TerminalWakeBatch,
         now_seconds: u64,
+        deferred_sessions: &HashSet<SessionId>,
     ) -> Result<(MultiplexerEngineOutcome, HashSet<SessionId>), ManagedSessionRuntimeError> {
         let mut outcome = MultiplexerEngineOutcome::empty();
         let mut sessions = HashSet::new();
@@ -1890,7 +1612,7 @@ where
         }
         let intake = self.client_worker.intake_woken(batch);
         self.pending_input_teardowns.extend(intake);
-        for session_id in &sessions {
+        for session_id in sessions.difference(deferred_sessions) {
             match self.drain_runtime_output_for_session(session_id, now_seconds) {
                 Ok(step) => append_outcome(&mut outcome, step),
                 Err(ManagedSessionRuntimeError::Runtime(error))
@@ -1899,7 +1621,7 @@ where
                 Err(error) => return Err(error),
             }
         }
-        for session_id in &sessions {
+        for session_id in sessions.difference(deferred_sessions) {
             self.route_pending_runtime_events_for(session_id, &mut outcome)?;
         }
         Ok((outcome, sessions))
@@ -2001,13 +1723,12 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let output = self.handle_session_request_with(
+        let output = self.handle_session_request(
             SessionIoRequest::GetScreen {
                 request_id,
                 session_id: session_id.clone(),
             },
             now_seconds,
-            false,
         )?;
         self.ensure_terminal_backend_ok(&session_id, "screen_state")?;
         Ok(output)
@@ -2020,13 +1741,12 @@ where
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let output = self.handle_session_request_with(
+        let output = self.handle_session_request(
             SessionIoRequest::GetSnapshot {
                 request_id,
                 session_id: session_id.clone(),
             },
             now_seconds,
-            false,
         )?;
         self.ensure_terminal_backend_ok(&session_id, "capture_snapshot")?;
         Ok(output)
@@ -2155,7 +1875,6 @@ where
             self.client_worker
                 .ingest_bound_terminal_frames(&mut outcome.client_egress),
         );
-        teardowns.extend(self.client_worker.pump());
         teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
         self.unsubscribe_owner_teardowns(outcome, &mut teardowns)
     }

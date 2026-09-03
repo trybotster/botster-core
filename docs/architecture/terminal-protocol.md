@@ -4,8 +4,8 @@ Core owns a types-only terminal protocol plane. The plane is independent of
 the Hub host-control protocol.
 
 The production entry points are the two crate public APIs, the committed
-generated package, CI, and `CoreDaemon::drain` → `apply_terminal_input` for
-duplex input. Hub-safe crates stay content-blind: they carry opaque
+generated package, CI, and `CoreDaemon::wait_wakes` → `pump_woken` for duplex
+input. Hub-safe crates stay content-blind: they carry opaque
 `TerminalInputFrame` bytes and do not decode payloads.
 
 ## Two-crate opacity rule

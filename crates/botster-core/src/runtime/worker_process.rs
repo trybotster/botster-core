@@ -1125,9 +1125,16 @@ impl WorkerProcessRuntime {
                 }
                 WorkerChannelEvent::Snapshot(result) => {
                     if session.outstanding_snapshot_request.as_ref() == Some(&result.request_id) {
+                        let may_have_more = !result.barrier_released;
                         session
                             .snapshot_boundary
                             .push_back((result, session.pending_output.len()));
+                        // The stdout reader can coalesce several snapshot wakes
+                        // before this poll consumes the first frame. Rearm one
+                        // session wake so the client-paced boundary can advance.
+                        if may_have_more {
+                            notify_session_wake(&session.wake_handle);
+                        }
                         // Return one snapshot transport frame per parent poll.
                         // This preserves client-paced, bounded history delivery.
                         break;
@@ -2880,6 +2887,7 @@ fn run_control_writer(
             error: ControlWriterError::WriteError(error.to_string()),
             consumed: false,
         });
+        notify_session_wake(&wake_handle);
         return;
     }
     loop {
@@ -2904,6 +2912,7 @@ fn run_control_writer(
                     error,
                     consumed: false,
                 });
+                notify_session_wake(&wake_handle);
                 return;
             }
         }

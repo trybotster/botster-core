@@ -63,8 +63,16 @@ fn isolated_hub_shaped_consumer_runs_harness_against_its_own_adapter() {
         "consumer must run the published harness"
     );
     assert!(
-        source.contains("bind_terminal_adapter"),
-        "consumer must bind through the public Core API"
+        source.contains("impl WakingTerminalAdapter for"),
+        "consumer must implement WakingTerminalAdapter"
+    );
+    assert!(
+        source.contains("bind_waking_terminal_adapter"),
+        "consumer must use the waking Core bind"
+    );
+    assert!(
+        source.contains("wait_wakes") && source.contains("pump_woken"),
+        "consumer must drive Core through targeted wakes"
     );
     for forbidden in [
         "FakeTerminalAdapter",
@@ -89,4 +97,54 @@ fn isolated_hub_shaped_consumer_runs_harness_against_its_own_adapter() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn polling_adapter_path_cannot_return_to_core_source() {
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("test-support crate must be under the workspace root")
+        .to_path_buf();
+    let source_roots = [
+        workspace.join("crates/botster-core/src"),
+        workspace.join("crates/botster-core-daemon/src"),
+    ];
+    let forbidden = [
+        "fn bind_terminal_adapter",
+        "pub fn pump(&mut self)",
+        "ClientWorker::pump(",
+        "intake_terminal_input(",
+        "pump_bound_adapters(",
+        "drain_runtime_once_without_pump(",
+    ];
+
+    for root in source_roots {
+        for path in rust_sources(&root) {
+            let source = fs::read_to_string(&path).expect("read Core source");
+            for pattern in forbidden {
+                assert!(
+                    !source.contains(pattern),
+                    "deleted polling adapter path `{pattern}` returned in {}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+fn rust_sources(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory).expect("read Core source directory") {
+            let path = entry.expect("read Core source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                sources.push(path);
+            }
+        }
+    }
+    sources
 }

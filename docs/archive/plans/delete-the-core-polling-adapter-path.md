@@ -188,6 +188,9 @@ In scope:
    `next_paste_deadline`, and `expired_paste_routes`. Deleting the two global
    expiry drivers must not weaken timeout, atomicity, one-result, or ordering
    behavior.
+   Preserve session wake notification when the worker control writer fails and
+   when a client-paced snapshot has more frames. These transitions can no
+   longer rely on a later polling drain.
 4. Remove the global adapter intake from both `apply_terminal_input`
    implementations. `CoreDaemon::drain` and `drain_subscription` keep unbound
    route egress, lifecycle observations, and backpressure, and stop driving
@@ -215,8 +218,10 @@ In scope:
 11. Update the documentation surfaces that describe the removed path:
     `README.md`, `docs/architecture/terminal-adapter.md`,
     `docs/architecture/client-worker-terminal-egress.md`,
-    `docs/architecture/engine-command-surface.md`, and the rustdoc on every
-    changed public item.
+    `docs/architecture/engine-command-surface.md`,
+    `docs/architecture/terminal-protocol.md`,
+    `docs/architecture/core-daemon.md`, and the rustdoc on every changed public
+    item.
 12. Publish the exact merged Core revision for the final Hub integration.
 
 Out of scope:
@@ -374,8 +379,11 @@ Core library:
 - `crates/botster-core/src/engine/managed_session_runtime.rs`
 - `crates/botster-core/src/engine/botster.rs`
 - `crates/botster-core/src/engine/botster/takeover_fail_closed_tests.rs`
+- `crates/botster-core/src/runtime/worker_process.rs`
 - `crates/botster-core/src/contract/terminal_subscription.rs` (rustdoc that
   names the removed bind)
+- `crates/botster-core/src/contract/terminal_wake.rs` (rustdoc that names the
+  removed migration window)
 
 Core daemon:
 
@@ -403,6 +411,8 @@ Documentation:
 - `docs/architecture/terminal-adapter.md`
 - `docs/architecture/client-worker-terminal-egress.md`
 - `docs/architecture/engine-command-surface.md`
+- `docs/architecture/terminal-protocol.md`
+- `docs/architecture/core-daemon.md`
 - This plan under `docs/archive/plans/`
 
 ## Risks
@@ -454,7 +464,8 @@ Core gates, per [[botster-core uses CI-owned Cargo commands because it has no te
 Core behavior proofs:
 
 10. Real-worker proof that PTY bytes reach a bound waking adapter through only
-    `wait_wakes` / `wait_pump` and `pump_woken`.
+    `wait_wakes` / `wait_pump` and `pump_woken`, including client-paced
+    snapshot continuation and control-writer failure teardown.
 11. Extended negative proof: `drain`, `drain_subscription`,
     `observe_lifecycle_slice`, `observe_session_lifecycle`, and both snapshot
     readbacks advance no bound adapter.
