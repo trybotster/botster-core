@@ -5,16 +5,14 @@ transport-neutral conformance harness.
 
 ClientWorker now pushes bound-subscription frames through this trait. See
 [`client-worker-terminal-egress.md`](client-worker-terminal-egress.md). The
-production entry points are `CoreDaemon::bind_terminal_adapter` /
-`DefaultBotsterEngine::bind_terminal_adapter` plus the existing host drain
-tick. Bind requires a live generation and an immutable
-`TerminalCapabilitySet`. Waking adapters bind through
-`CoreDaemon::bind_waking_terminal_adapter`, which allocates route wake
-state only after the existing rejection ladder. A single-thread host can wait
+production entry points are `CoreDaemon::bind_waking_terminal_adapter` and
+`DefaultBotsterEngine::bind_waking_terminal_adapter`. Bind requires a live
+generation and an immutable `TerminalCapabilitySet`. The bind allocates route
+wake state only after the rejection ladder. A single-thread host can wait
 with `CoreDaemon::wait_wakes`. A host-owned data-plane thread uses
 `CoreDaemon::wait_pump` and `WakePumpControl`. Both paths advance only named
-routes with `CoreDaemon::pump_woken`. The poll-path bind remains for one
-migration window. Hub Unix and WebRTC adapters are later Hub tickets.
+routes with `CoreDaemon::pump_woken`. Drain and lifecycle observation do not
+advance bound adapters.
 
 Core can also return a wake batch when a paste assembly deadline expires.
 Core clamps `wait_wakes` and `wait_pump` to the earliest deadline. The batch
@@ -91,8 +89,8 @@ channel read. Core shutdown owns the final bounded drain.
 `close()`, `try_read` stays `Closed` and buffered ingress is dropped. `Lost`
 is fail-closed: Core hard-stops that owner and does not decode later frames.
 A conforming adapter holds at least `MIN_ADAPTER_INGRESS_BUFFER_FRAMES` (64)
-complete frames. The production consumer is `CoreDaemon::drain`, which calls
-`apply_terminal_input` before `drain_runtime_once`.
+complete frames. `CoreDaemon::pump_woken` consumes ingress only for routes
+named by adapter wakes.
 
 The start-here path remains spawn → attach → drain → input → shutdown through
 `botster_core::prelude`. This trait is an advanced host/adapter module. It is

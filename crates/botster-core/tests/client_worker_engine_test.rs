@@ -15,7 +15,8 @@ use botster_core::{
     DefaultBotsterEngine, DetachTerminalSubscriptionResult, LocalProcessRuntimeOptions,
     QueueSource, RequestId, ResizePayload, SessionId, SessionLifecycleState, SessionSpawnRequest,
     SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
-    TerminalSubscriptionGeneration, TransportEgress, WorkerSnapshotPhase,
+    TerminalSubscriptionGeneration, TerminalWakeBatch, TerminalWakeRoute, TerminalWakeSink,
+    TransportEgress, WakingTerminalAdapter, WorkerSnapshotPhase,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY};
@@ -36,6 +37,40 @@ fn client(name: &str) -> ClientId {
 
 fn sub(name: &str) -> SubscriptionId {
     SubscriptionId(name.to_string())
+}
+
+fn pump_routes(
+    worker: &mut ClientWorker,
+    session_id: &SessionId,
+    subscription_ids: &[&SubscriptionId],
+) -> Vec<botster_core::ClientWorkerTeardown> {
+    worker.pump_woken(&TerminalWakeBatch {
+        adapter_routes: subscription_ids
+            .iter()
+            .map(|subscription_id| TerminalWakeRoute {
+                session_id: session_id.clone(),
+                subscription_id: (*subscription_id).clone(),
+            })
+            .collect(),
+        ingress_sessions: Vec::new(),
+    })
+}
+
+fn intake_routes(
+    worker: &mut ClientWorker,
+    session_id: &SessionId,
+    subscription_ids: &[&SubscriptionId],
+) -> Vec<botster_core::ClientWorkerTeardown> {
+    worker.intake_woken(&TerminalWakeBatch {
+        adapter_routes: subscription_ids
+            .iter()
+            .map(|subscription_id| TerminalWakeRoute {
+                session_id: session_id.clone(),
+                subscription_id: (*subscription_id).clone(),
+            })
+            .collect(),
+        ingress_sessions: Vec::new(),
+    })
 }
 
 fn shell_request(session_id: SessionId, script: &str) -> SessionSpawnRequest {
@@ -118,6 +153,12 @@ impl TerminalAdapter for DropProbeAdapter {
     }
 }
 
+impl WakingTerminalAdapter for DropProbeAdapter {
+    fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+        self.inner.set_wake_sink(sink);
+    }
+}
+
 #[test]
 fn bind_before_attach_is_a_typed_error() {
     let mut engine = DefaultBotsterEngine::new();
@@ -129,7 +170,7 @@ fn bind_before_attach_is_a_typed_error() {
         )
         .expect("spawn");
     let error = engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client("c"),
             session,
             sub("s"),
@@ -170,7 +211,7 @@ fn attach_then_bind_assigns_generation_and_strips_bound_drain_frames() {
 
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client.clone(),
             session.clone(),
             subscription.clone(),
@@ -189,7 +230,9 @@ fn attach_then_bind_assigns_generation_and_strips_bound_drain_frames() {
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        let drained = engine.drain_runtime_once(&session, 2).expect("drain");
+        let drained = engine
+            .drain_runtime_once(&session, 2)
+            .expect("readback drain");
         assert!(
             drained.client_egress.iter().all(|(_, frame)| {
                 !matches!(
@@ -206,6 +249,8 @@ fn attach_then_bind_assigns_generation_and_strips_bound_drain_frames() {
             }),
             "bound terminal frames must not appear on drain"
         );
+        let batch = engine.wait_wakes(Duration::from_secs(5));
+        engine.pump_woken(&batch, 2).expect("targeted pump");
         if adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -249,7 +294,7 @@ fn process_exit_is_delivered_before_close_and_session_stays() {
     };
     let threads_before = process_thread_count();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client,
             session.clone(),
             subscription.clone(),
@@ -262,7 +307,9 @@ fn process_exit_is_delivered_before_close_and_session_stays() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut saw_process_exit = false;
     while Instant::now() < deadline {
-        let drained = engine.drain_runtime_once(&session, 2).expect("drain");
+        let drained = engine
+            .drain_runtime_once(&session, 2)
+            .expect("readback drain");
         assert!(
             drained
                 .client_egress
@@ -270,6 +317,8 @@ fn process_exit_is_delivered_before_close_and_session_stays() {
                 .all(|(_, frame)| !matches!(frame, TransportEgress::ProcessExit { .. })),
             "bound ProcessExit must not appear on drain"
         );
+        let batch = engine.wait_wakes(Duration::from_secs(5));
+        engine.pump_woken(&batch, 2).expect("targeted pump");
         adapter.complete_write();
         let delivered = adapter.snapshot_delivered_frame_bytes();
         if delivered
@@ -507,7 +556,7 @@ fn write_budget_fails_only_the_stalled_subscription() {
     let live_adapter = SharedFakeTerminalAdapter::auto_complete();
     let stalled_adapter = SharedFakeTerminalAdapter::new();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &live,
             session.clone(),
             live_sub.clone(),
@@ -517,7 +566,7 @@ fn write_budget_fails_only_the_stalled_subscription() {
         )
         .expect("bind live");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &stalled,
             session.clone(),
             stalled_sub.clone(),
@@ -551,7 +600,7 @@ fn write_budget_fails_only_the_stalled_subscription() {
 
     let mut torn = false;
     for _ in 0..QueueSource::ClientWorker.default_capacity() {
-        let teardowns = worker.pump();
+        let teardowns = pump_routes(&mut worker, &session, &[&stalled_sub, &live_sub]);
         if teardowns
             .iter()
             .any(|teardown| teardown.subscription_id == stalled_sub)
@@ -583,7 +632,7 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
         .live_generation(&session, &subscription)
         .expect("generation");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -600,7 +649,7 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
         .live_generation(&session, &sibling_sub)
         .expect("sibling gen");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &sibling_client,
             session.clone(),
             sibling_sub.clone(),
@@ -648,7 +697,7 @@ fn lost_snapshot_fails_the_subscription_without_replay() {
         "failed-route frames must not escape to drain: {frames:?}"
     );
     assert!(worker.has_subscription(&session, &sibling_sub));
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&sibling_sub]);
 }
 
 #[test]
@@ -682,8 +731,13 @@ fn close_is_observed_without_a_closer_thread() {
             self.1.try_read()
         }
     }
+    impl WakingTerminalAdapter for CountDrop {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.1.set_wake_sink(sink);
+        }
+    }
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -758,8 +812,13 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
             self.1.try_read()
         }
     }
+    impl WakingTerminalAdapter for DropFlag {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.1.set_wake_sink(sink);
+        }
+    }
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &stalled,
             session.clone(),
             stalled_sub.clone(),
@@ -769,7 +828,7 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
         )
         .expect("bind stalled");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &live,
             session.clone(),
             live_sub.clone(),
@@ -798,7 +857,7 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
         ),
     ];
     let _ = worker.ingest_bound_terminal_frames(&mut frames);
-    let first = worker.pump();
+    let first = pump_routes(&mut worker, &session, &[&stalled_sub, &live_sub]);
     assert!(
         first.is_empty(),
         "accepted in-flight write must not fail on the first tick"
@@ -810,7 +869,7 @@ fn accepted_in_flight_write_counts_toward_the_write_budget() {
 
     let mut torn = false;
     for _ in 0..QueueSource::ClientWorker.default_capacity() {
-        let teardowns = worker.pump();
+        let teardowns = pump_routes(&mut worker, &session, &[&stalled_sub]);
         if teardowns
             .iter()
             .any(|teardown| teardown.subscription_id == stalled_sub)
@@ -873,8 +932,13 @@ fn replacement_attach_hard_stops_the_old_owner() {
             self.1.try_read()
         }
     }
+    impl WakingTerminalAdapter for DropFlag {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.1.set_wake_sink(sink);
+        }
+    }
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             owner.clone(),
             session.clone(),
             old_sub.clone(),
@@ -895,7 +959,7 @@ fn replacement_attach_hard_stops_the_old_owner() {
         .expect("new gen");
     let new_adapter = SharedFakeTerminalAdapter::auto_complete();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             owner,
             session.clone(),
             new_sub.clone(),
@@ -906,7 +970,8 @@ fn replacement_attach_hard_stops_the_old_owner() {
         .expect("bind new");
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        engine.drain_runtime_once(&session, 3).expect("drain");
+        let batch = engine.wait_wakes(Duration::from_secs(5));
+        engine.pump_woken(&batch, 3).expect("targeted pump");
         if new_adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -1019,8 +1084,13 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
             self.1.try_read()
         }
     }
+    impl WakingTerminalAdapter for DropFlag {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.1.set_wake_sink(sink);
+        }
+    }
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             first,
             session.clone(),
             subscription.clone(),
@@ -1046,7 +1116,7 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
     assert_eq!(row.client_id, second);
     let second_adapter = SharedFakeTerminalAdapter::auto_complete();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             second,
             session.clone(),
             subscription,
@@ -1057,7 +1127,8 @@ fn second_client_same_subscription_hard_stops_the_first_owner() {
         .expect("bind second");
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        engine.drain_runtime_once(&session, 3).expect("drain");
+        let batch = engine.wait_wakes(Duration::from_secs(5));
+        engine.pump_woken(&batch, 3).expect("targeted pump");
         if second_adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -1101,7 +1172,7 @@ fn unbound_snapshot_phase_does_not_survive_teardown() {
         .expect("new gen");
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &owner,
             session.clone(),
             subscription.clone(),
@@ -1113,13 +1184,13 @@ fn unbound_snapshot_phase_does_not_survive_teardown() {
     let mut reuse = vec![(
         owner,
         TransportEgress::Snapshot {
-            session_id: session,
-            subscription_id: subscription,
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
             data: b"reused".to_vec(),
         },
     )];
     let _ = worker.ingest_bound_terminal_frames(&mut reuse);
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&subscription]);
     let phases: Vec<String> = adapter
         .snapshot_delivered_frame_bytes()
         .iter()
@@ -1147,7 +1218,7 @@ fn empty_capability_set_binds_and_round_trips_inventory() {
         .live_generation(&session, &subscription)
         .expect("generation");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1177,7 +1248,7 @@ fn second_bind_is_already_bound_even_when_the_set_differs() {
         .live_generation(&session, &subscription)
         .expect("generation");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1189,7 +1260,7 @@ fn second_bind_is_already_bound_even_when_the_set_differs() {
     let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let error = worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1228,7 +1299,7 @@ fn empty_set_encodes_live_output_and_skips_snapshots() {
         .expect("generation");
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1250,8 +1321,8 @@ fn empty_set_encodes_live_output_and_skips_snapshots() {
         (
             client,
             TransportEgress::TerminalOutput {
-                session_id: session,
-                subscription_id: subscription,
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
                 data: b"live-empty".to_vec(),
             },
         ),
@@ -1265,7 +1336,7 @@ fn empty_set_encodes_live_output_and_skips_snapshots() {
         frames.is_empty(),
         "skipped snapshots must not return on drain: {frames:?}"
     );
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&subscription]);
     let delivered = adapter.snapshot_delivered_frame_bytes();
     assert!(
         delivered
@@ -1292,7 +1363,7 @@ fn ready_then_history_set_encodes_incremental_snapshot() {
         .expect("generation");
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1314,14 +1385,14 @@ fn ready_then_history_set_encodes_incremental_snapshot() {
         (
             client,
             TransportEgress::TerminalOutput {
-                session_id: session,
-                subscription_id: subscription,
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
                 data: b"live-rth".to_vec(),
             },
         ),
     ];
     let _ = worker.ingest_bound_terminal_frames(&mut frames);
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&subscription]);
     let delivered = adapter.snapshot_delivered_frame_bytes();
     assert!(
         delivered.iter().any(|bytes| json_type(bytes) == "snapshot"),
@@ -1368,7 +1439,7 @@ fn one_slot_adapter_delivers_live_bytes_then_process_exit_before_close() {
         .expect("generation");
     let adapter = SharedFakeTerminalAdapter::new();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -1406,7 +1477,7 @@ fn one_slot_adapter_delivers_live_bytes_then_process_exit_before_close() {
         "bound frames must leave drain: {frames:?}"
     );
 
-    let first = worker.pump();
+    let first = pump_routes(&mut worker, &session, &[&subscription]);
     assert!(
         first.is_empty(),
         "must not close while the one-slot write is in flight: {first:?}"
@@ -1432,7 +1503,7 @@ fn one_slot_adapter_delivers_live_bytes_then_process_exit_before_close() {
         adapter.snapshot_delivered_frame_bytes()
     );
 
-    let second = worker.pump();
+    let second = pump_routes(&mut worker, &session, &[&subscription]);
     assert!(
         second.is_empty(),
         "must not close while process_exit is in flight: {second:?}"
@@ -1458,7 +1529,7 @@ fn one_slot_adapter_delivers_live_bytes_then_process_exit_before_close() {
         "LIVE bytes must precede process_exit: {types:?}"
     );
 
-    let third = worker.pump();
+    let third = pump_routes(&mut worker, &session, &[&subscription]);
     assert_eq!(
         third.len(),
         1,
@@ -1510,7 +1581,7 @@ fn unbound_process_exit_rejects_late_bind_and_closes_the_presented_adapter() {
 
     let presented = SharedFakeTerminalAdapter::new();
     let error = worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session,
             subscription,
@@ -1610,7 +1681,7 @@ fn bind_local_pair(
         .expect("generation");
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client.clone(),
             session.clone(),
             subscription.clone(),
@@ -1622,11 +1693,13 @@ fn bind_local_pair(
     adapter
 }
 
-fn apply_and_pump(engine: &mut DefaultBotsterEngine, session: &SessionId) {
-    engine
-        .apply_terminal_input(session, 2)
-        .expect("apply terminal input");
-    let _ = engine.drain_runtime_once(session, 2).expect("pump");
+fn apply_and_pump(engine: &mut DefaultBotsterEngine, _session: &SessionId) {
+    let batch = engine.wait_wakes(Duration::from_secs(5));
+    assert!(
+        !batch.adapter_routes.is_empty(),
+        "adapter input must wake its route"
+    );
+    let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
 }
 
 #[test]
@@ -1927,9 +2000,14 @@ fn owner_removal_matrix_closes_adapter_and_route() {
     engine
         .shutdown_session(torn.clone(), "matrix", 6)
         .expect("teardown_session");
-    let _ = engine
-        .drain_runtime_once(&torn, 6)
-        .expect("shutdown drain delivers ProcessExit then closes the owner");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while engine.adapter_is_bound(&torn, &torn_sub) && Instant::now() < deadline {
+        let batch = engine.wait_wakes(Duration::from_secs(5));
+        engine
+            .pump_woken(&batch, 6)
+            .expect("shutdown wake delivers ProcessExit then closes the owner");
+        torn_adapter.complete_write();
+    }
     engine.forget_terminal_session(&live);
     engine.forget_terminal_session(&gen);
 
@@ -1973,7 +2051,7 @@ fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
     let holder = SharedFakeTerminalAdapter::auto_complete();
     let sibling = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &holder_client,
             held.clone(),
             holder_sub.clone(),
@@ -1983,7 +2061,7 @@ fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
         )
         .expect("bind holder");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &sibling_client,
             held.clone(),
             sibling_sub.clone(),
@@ -2001,7 +2079,7 @@ fn take_keeps_sibling_mode_gated_queued_when_hold_set_omits_that_session() {
         None,
     );
     sibling.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"queued\n"));
-    let teardowns = worker.intake_terminal_input();
+    let teardowns = intake_routes(&mut worker, &held, &[&sibling_sub]);
     assert!(teardowns.is_empty(), "intake must keep the sibling live");
     assert_eq!(worker.input_queue_len(&held, &sibling_sub), Some(1));
     let mut holding = std::collections::HashSet::new();
@@ -2039,7 +2117,7 @@ fn take_grants_one_mode_gated_per_session_in_one_batch() {
     let first = SharedFakeTerminalAdapter::auto_complete();
     let second = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &first_client,
             shared.clone(),
             first_sub.clone(),
@@ -2049,7 +2127,7 @@ fn take_grants_one_mode_gated_per_session_in_one_batch() {
         )
         .expect("bind first");
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &second_client,
             shared.clone(),
             second_sub.clone(),
@@ -2060,7 +2138,7 @@ fn take_grants_one_mode_gated_per_session_in_one_batch() {
         .expect("bind second");
     first.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"first\n"));
     second.inject_ingress_frame(compact_mode_gated_frame(1, 1, b"second\n"));
-    let teardowns = worker.intake_terminal_input();
+    let teardowns = intake_routes(&mut worker, &shared, &[&first_sub, &second_sub]);
     assert!(teardowns.is_empty(), "intake must keep both owners live");
     let deliveries = worker.take_terminal_input(&std::collections::HashSet::new());
     let gated: Vec<_> = deliveries
@@ -2104,7 +2182,7 @@ fn intake_refuses_the_command_that_would_exceed_capacity() {
         .expect("generation");
     let adapter = SharedFakeTerminalAdapter::new();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -2120,7 +2198,7 @@ fn intake_refuses_the_command_that_would_exceed_capacity() {
         for _ in 0..intake {
             adapter.inject_ingress_frame(compact_input_frame(b"x"));
         }
-        let teardowns = worker.intake_terminal_input();
+        let teardowns = intake_routes(&mut worker, &session, &[&subscription]);
         assert!(teardowns.is_empty(), "capacity fill must stay live");
     }
     assert_eq!(
@@ -2128,7 +2206,7 @@ fn intake_refuses_the_command_that_would_exceed_capacity() {
         Some(capacity)
     );
     adapter.inject_ingress_frame(compact_input_frame(b"overflow"));
-    let teardowns = worker.intake_terminal_input();
+    let teardowns = intake_routes(&mut worker, &session, &[&subscription]);
     assert_eq!(teardowns.len(), 1);
     assert_eq!(teardowns[0].subscription_id, subscription);
     assert!(!worker.has_subscription(&session, &subscription));
@@ -2185,8 +2263,8 @@ fn matching_attach_consumes_a_declaration_so_later_attach_does_not_hold() {
     let mut frames = vec![(
         client,
         TransportEgress::TerminalOutput {
-            session_id: session,
-            subscription_id: subscription,
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
             data: b"LIVE".to_vec(),
         },
     )];
@@ -2318,7 +2396,7 @@ fn process_exit_before_bind_is_delivered_then_hard_stops() {
 
     let adapter = SharedFakeTerminalAdapter::new();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -2330,13 +2408,13 @@ fn process_exit_before_bind_is_delivered_then_hard_stops() {
     let mut empty = Vec::new();
     let flush = worker.ingest_bound_terminal_frames(&mut empty);
     assert!(flush.is_empty());
-    let first = worker.pump();
+    let first = pump_routes(&mut worker, &session, &[&subscription]);
     assert!(first.is_empty(), "accepted LIVE stays in-flight");
     adapter.complete_write();
-    let second = worker.pump();
+    let second = pump_routes(&mut worker, &session, &[&subscription]);
     assert!(second.is_empty(), "accepted process_exit stays in-flight");
     adapter.complete_write();
-    let third = worker.pump();
+    let third = pump_routes(&mut worker, &session, &[&subscription]);
     assert_eq!(third.len(), 1, "hard-stop after completed process_exit");
     assert!(!worker.has_subscription(&session, &subscription));
     let types: Vec<String> = adapter
@@ -2406,7 +2484,7 @@ fn bind_without_ready_then_history_drops_held_snapshots() {
     assert!(frames.is_empty());
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -2417,7 +2495,7 @@ fn bind_without_ready_then_history_drops_held_snapshots() {
         .expect("bind");
     let mut empty = Vec::new();
     let _ = worker.ingest_bound_terminal_frames(&mut empty);
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&subscription]);
     let types: Vec<String> = adapter
         .snapshot_delivered_frame_bytes()
         .iter()
@@ -2482,7 +2560,7 @@ fn declared_attach_then_bind_flushes_held_frames_in_order() {
 
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     worker
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             &client,
             session.clone(),
             subscription.clone(),
@@ -2494,14 +2572,14 @@ fn declared_attach_then_bind_flushes_held_frames_in_order() {
     let mut live = vec![(
         client,
         TransportEgress::TerminalOutput {
-            session_id: session,
-            subscription_id: subscription,
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
             data: b"LIVE".to_vec(),
         },
     )];
     let _ = worker.ingest_bound_terminal_frames(&mut live);
     assert!(live.is_empty());
-    let _ = worker.pump();
+    let _ = pump_routes(&mut worker, &session, &[&subscription]);
     let types: Vec<String> = adapter
         .snapshot_delivered_frame_bytes()
         .iter()

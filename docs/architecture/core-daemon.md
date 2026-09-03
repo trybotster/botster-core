@@ -109,9 +109,9 @@ still retires nothing. Explicit runtime removal also retires the wake.
 
 `CoreDaemon::shutdown` uses a capacity-capped wake drain plus `pump_woken`.
 It uses the two-second bound as a hang watchdog. The capped drain does not
-consume the host interrupt flag. The current `drain` poll path remains
-for unbound adapters during the migration window. Core creates no extra OS
-thread for either wake wait.
+consume the host interrupt flag. `drain` remains for unbound subscription
+egress and control-plane readback. It never advances a bound adapter. Core
+creates no extra OS thread for either wake wait.
 
 `CoreDaemon::capture_color_and_snapshot` is the Hub-facing ordering boundary for
 current Ghostty colors and durable GHOSTSNP state. It returns

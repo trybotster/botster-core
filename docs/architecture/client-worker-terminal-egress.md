@@ -38,18 +38,17 @@ down the host session.
    is held and does not hard-stop before bind. Unbound owners without a
    declaration keep today's `TransportEgress` drain path, including the
    unbound `ProcessExit` hard-stop.
-4. `bind_terminal_adapter` must present that live generation and a required
+4. `bind_waking_terminal_adapter` must present that live generation and a required
    `TerminalCapabilitySet`. Omission does not compile. An empty set is valid.
    Pre-attach bind is a typed error. There is no reservation generation. A
    second bind of the live generation returns `AlreadyBound` and does not
    replace the adapter or the set. Bind only installs the adapter. It does
-   not flush. `bind_waking_terminal_adapter` uses the same rejection ladder
-   and allocates `RouteWakeState` only after every check passes. Rejected
-   waking binds allocate nothing. The sink is installed before the adapter
+   not flush. The bind allocates `RouteWakeState` only after every check passes.
+   Rejected binds allocate nothing. The sink is installed before the adapter
    is stored. Hard-stop marks the state retired and removes the registry
    entry before `close()`.
-5. The next host drain tick flushes the hold through `encode_terminal_frame`
-   into `owner.queue`, then `pump` writes through
+5. The next targeted wake pump flushes the hold through `encode_terminal_frame`
+   into `owner.queue`, then `pump_woken` writes through
    `TerminalAdapter::try_write`. Held frames precede live frames from the same
    tick. Encode failure or defensive queue overflow hard-stops through
    `ingest_bound_terminal_frames` and the production `UnsubscribeSession`
@@ -119,16 +118,16 @@ On session `ProcessExited`, each live subscription:
 
 Close stays non-blocking. A one-slot adapter cannot accept a second frame
 until the first write completes, so live bytes complete before `process_exit`
-occupies the slot. After process exit, `ReadScreen` still pumps bound
-adapters so a one-slot adapter can complete the accepted write and accept
+occupies the slot. Readback does not pump bound adapters. Adapter writable
+wakes let a one-slot adapter complete the accepted write and accept
 `process_exit`. Shutdown teardown still closes. If the 512 write budget
 expires or the adapter returns `Closed` first, Core fails that subscription
 without claiming `process_exit` was delivered.
 
 Worker-backed incremental attach polls snapshot frames and does not replace
-`drain_output`. While attach is unfinished and a bound adapter is present,
-each host drain also pulls live PTY bytes and `ProcessExited`. Unbound
-attach keeps one snapshot frame per host tick and still suppresses duplicate
+`drain_output`. While attach is unfinished, named session ingress wakes pull
+live PTY bytes and `ProcessExited`. Unbound attach keeps one snapshot frame per
+host tick and still suppresses duplicate
 `TerminalOutput`. If the worker stops at `ProcessExited` before snapshot
 `FINISH`, Core ends the incremental attach so later ticks use the normal
 drain path.
@@ -152,6 +151,6 @@ Core does not store host grants.
 
 ## Production path
 
-`CoreDaemon::bind_terminal_adapter` plus the existing host tick
-(`CoreDaemon::drain` / `drain_runtime_once`) pumps ClientWorker. Unix and
-WebRTC adapters are later Hub tickets.
+`CoreDaemon::bind_waking_terminal_adapter` installs the route wake sink.
+`wait_wakes` or `wait_pump` plus `pump_woken` provide the only production
+adapter progress path.

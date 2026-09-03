@@ -1,9 +1,8 @@
 //! Transport-neutral waking terminal adapter contract and host wait source.
 //!
-//! This is an advanced host/adapter seam beside [`super::terminal_adapter`].
-//! The poll-path [`super::terminal_adapter::TerminalAdapter`] bind remains for
-//! one migration window. Waking binds allocate route wake state only after
-//! every rejection check passes.
+//! This is the advanced host/adapter seam beside [`super::terminal_adapter`].
+//! Waking binds allocate route wake state only after every rejection check
+//! passes. Targeted wake pumps are the only bound-adapter progress path.
 //!
 //! [`TerminalWakeKind`] is exhaustive at `0.1.0`. [`TerminalWakeWait`] is
 //! non-exhaustive from its first release.

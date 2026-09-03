@@ -12,7 +12,6 @@ use crate::actor::{
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
-use crate::contract::terminal_adapter::TerminalAdapter;
 use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
@@ -509,26 +508,6 @@ impl DefaultBotsterEngine {
             .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
     }
 
-    /// Bind a content-blind adapter to a live attach generation.
-    pub fn bind_terminal_adapter(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), BindTerminalAdapterError> {
-        self.runtime.bind_terminal_adapter(
-            client_id,
-            session_id,
-            subscription_id,
-            generation,
-            capabilities,
-            adapter,
-        )
-    }
-
     /// Bind a waking adapter through the production engine path.
     pub fn bind_waking_terminal_adapter(
         &mut self,
@@ -573,7 +552,9 @@ impl DefaultBotsterEngine {
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
-        let (mut outcome, sessions) = self.runtime.pump_woken_phase_one(batch, now_seconds)?;
+        let (mut outcome, sessions) =
+            self.runtime
+                .pump_woken_phase_one(batch, now_seconds, &HashSet::new())?;
         self.runtime
             .apply_woken_terminal_input(batch, now_seconds, &mut outcome)?;
         self.runtime
@@ -592,16 +573,6 @@ impl DefaultBotsterEngine {
     #[must_use]
     pub fn wake_source(&self) -> &TerminalWakeSource {
         self.runtime.wake_source()
-    }
-
-    /// Drain runtime output without pumping bound adapters.
-    pub fn drain_runtime_once_without_pump(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
-        self.runtime
-            .drain_runtime_once_without_pump(session_id, last_output_at)
     }
 
     /// Control-plane subscription inventory.
@@ -707,16 +678,6 @@ impl DefaultBotsterEngine {
         )
     }
 
-    /// Apply adapter ingress at the top of the production tick.
-    pub fn apply_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), DefaultBotsterEngineError> {
-        self.runtime
-            .apply_terminal_input(session_id, last_output_at)
-    }
-
     /// Drain currently available local runtime output through subscription fanout.
     pub fn drain_runtime_once(
         &mut self,
@@ -820,13 +781,12 @@ impl DefaultBotsterEngine {
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, DefaultBotsterEngineError> {
-        self.runtime.handle_session_request_with(
+        self.runtime.handle_session_request(
             crate::SessionIoRequest::GetModeFlags {
                 request_id,
                 session_id,
             },
             now_seconds,
-            false,
         )
     }
 
@@ -1171,34 +1131,6 @@ impl WorkerBackedBotsterEngine {
             .cancel_expected_terminal_adapter(client_id, session_id, subscription_id);
     }
 
-    /// Bind a content-blind adapter to a live attach generation.
-    pub fn bind_terminal_adapter(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        mut adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), BindTerminalAdapterError> {
-        if matches!(
-            self.runtime.control_plane_state(&session_id),
-            crate::runtime::ControlPlaneState::Failed(_)
-        ) {
-            adapter.close();
-            drop(adapter);
-            return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id });
-        }
-        self.runtime.bind_terminal_adapter(
-            client_id,
-            session_id,
-            subscription_id,
-            generation,
-            capabilities,
-            adapter,
-        )
-    }
-
     /// Bind a waking adapter through the worker-backed production path.
     pub fn bind_waking_terminal_adapter(
         &mut self,
@@ -1251,10 +1183,16 @@ impl WorkerBackedBotsterEngine {
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let (mut outcome, sessions) = self.runtime.pump_woken_phase_one(batch, now_seconds)?;
+        let deferred_sessions: HashSet<_> = self.incremental_attaches.keys().cloned().collect();
+        let (mut outcome, sessions) =
+            self.runtime
+                .pump_woken_phase_one(batch, now_seconds, &deferred_sessions)?;
+        for session_id in sessions.intersection(&deferred_sessions) {
+            let step = self.drain_runtime_once(session_id, now_seconds)?;
+            append_engine_output(&mut outcome, step);
+        }
         self.runtime
             .reconcile_terminal_resize_acknowledgments(&sessions)?;
-        let deferred_sessions = self.incremental_attaches.keys().cloned().collect();
         self.runtime.apply_woken_terminal_input(
             batch,
             now_seconds,
@@ -1286,15 +1224,6 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn wake_source(&self) -> &TerminalWakeSource {
         self.runtime.wake_source()
-    }
-
-    /// Drain runtime output without pumping bound adapters.
-    pub fn drain_runtime_once_without_pump(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.drain_runtime_once_with(session_id, last_output_at, false)
     }
 
     /// Control-plane subscription inventory.
@@ -1484,41 +1413,14 @@ impl WorkerBackedBotsterEngine {
         self.runtime.control_plane_state(session_id)
     }
 
-    /// Apply adapter ingress at the top of the production tick.
-    pub fn apply_terminal_input(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), WorkerBackedBotsterEngineError> {
-        if self.incremental_attaches.contains_key(session_id) {
-            return self.runtime.prepare_terminal_input(session_id);
-        }
-        self.runtime
-            .apply_terminal_input(session_id, last_output_at)
-    }
-
     /// Drain currently available worker process output through subscription fanout.
     pub fn drain_runtime_once(
         &mut self,
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.drain_runtime_once_with(session_id, last_output_at, true)
-    }
-
-    fn drain_runtime_once_with(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-        pump_bound: bool,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         let Some(mut attach) = self.incremental_attaches.remove(session_id) else {
-            return if pump_bound {
-                self.runtime.drain_runtime_once(session_id, last_output_at)
-            } else {
-                self.runtime
-                    .drain_runtime_once_without_pump(session_id, last_output_at)
-            };
+            return self.runtime.drain_runtime_once(session_id, last_output_at);
         };
         let poll = match self
             .runtime
@@ -1534,12 +1436,7 @@ impl WorkerBackedBotsterEngine {
                     .cancel_snapshot_boundary(session_id, &attach.request_id);
                 if not_found {
                     self.promote_pending_fail_closed(attach, session_id);
-                    let mut output = self
-                        .runtime
-                        .drain_runtime_once(session_id, last_output_at)?;
-                    let pumped = self.runtime.pump_bound_adapters()?;
-                    append_engine_output(&mut output, pumped);
-                    return Ok(output);
+                    return self.runtime.drain_runtime_once(session_id, last_output_at);
                 }
                 return Err(error.into());
             }
@@ -1657,15 +1554,11 @@ impl WorkerBackedBotsterEngine {
                         .cancel_snapshot_boundary(session_id, &attach.request_id);
                     self.promote_pending_fail_closed(attach, session_id);
                     self.reconcile_incremental_attach_after_teardown(session_id)?;
-                    let pumped = self.runtime.pump_bound_adapters()?;
-                    append_engine_output(&mut output, pumped);
                     return Ok(output);
                 }
             }
             self.incremental_attaches.insert(session_id.clone(), attach);
             self.reconcile_incremental_attach_after_teardown(session_id)?;
-            let pumped = self.runtime.pump_bound_adapters()?;
-            append_engine_output(&mut output, pumped);
             return Ok(output);
         }
 
@@ -1710,13 +1603,9 @@ impl WorkerBackedBotsterEngine {
         // Barrier release can leave producer bytes in the capacity-one worker
         // egress. Drain them as live output after Attached so the child can
         // consume the later FRAME_PTY_INPUT instead of only echoing it.
-        let leftover = if pump_bound {
-            self.runtime
-                .drain_runtime_once(session_id, last_output_at)?
-        } else {
-            self.runtime
-                .drain_runtime_once_without_pump(session_id, last_output_at)?
-        };
+        let leftover = self
+            .runtime
+            .drain_runtime_once(session_id, last_output_at)?;
         append_engine_output(&mut output, leftover);
 
         let mut deferred_input = Vec::new();
@@ -1744,13 +1633,9 @@ impl WorkerBackedBotsterEngine {
         attach.queued_resize = None;
         self.promote_pending_fail_closed(attach, session_id);
 
-        let mut live = if pump_bound {
-            self.runtime
-                .drain_runtime_once(session_id, last_output_at)?
-        } else {
-            self.runtime
-                .drain_runtime_once_without_pump(session_id, last_output_at)?
-        };
+        let mut live = self
+            .runtime
+            .drain_runtime_once(session_id, last_output_at)?;
         if let Some(current) = self.incremental_attaches.get(session_id) {
             if !self
                 .runtime
@@ -1761,10 +1646,6 @@ impl WorkerBackedBotsterEngine {
         }
         append_engine_output(&mut output, live);
         self.reconcile_incremental_attach_after_teardown(session_id)?;
-        if pump_bound {
-            let pumped = self.runtime.pump_bound_adapters()?;
-            append_engine_output(&mut output, pumped);
-        }
         Ok(output)
     }
 

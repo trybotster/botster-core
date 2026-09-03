@@ -1472,7 +1472,7 @@ fn owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot() {
         .generation;
     let adapter = InjectAdapter::new();
     engine
-        .bind_terminal_adapter(
+        .bind_waking_terminal_adapter(
             client.clone(),
             session_id.clone(),
             subscription.clone(),
@@ -1509,9 +1509,10 @@ fn owner_teardown_enqueues_one_cancel_and_leaves_the_shutdown_slot() {
         mode_revision,
         b"hold\n",
     ));
+    let batch = engine.wait_wakes(Duration::from_secs(5));
     engine
-        .apply_terminal_input(&session_id, 21)
-        .expect("submit gated hold");
+        .pump_woken(&batch, 21)
+        .expect("submit gated hold through targeted pump");
     let (ordinary, cancel, terminal) = queue.class_counts();
     assert_eq!(
         cancel, 0,

@@ -72,9 +72,8 @@ let mut daemon = CoreDaemon::new(
     CoreDaemonConfig::new(data_dir).with_worker_path(session_worker_path),
 );
 // spawn → attach → drain → input → shutdown via CoreDaemon methods
-// bind_terminal_adapter is the advanced bound-adapter path; see
-// docs/architecture/client-worker-terminal-egress.md
-// A single-thread host uses bind_waking_terminal_adapter + wait_wakes + pump_woken.
+// The advanced bound-adapter path uses bind_waking_terminal_adapter.
+// A single-thread host uses wait_wakes + pump_woken for targeted progress.
 // A host-owned data-plane thread uses wake_pump_control + wait_pump + pump_woken.
 ```
 

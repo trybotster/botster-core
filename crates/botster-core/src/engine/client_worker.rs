@@ -94,7 +94,6 @@ struct SubscriptionOwner {
     client_id: ClientId,
     generation: TerminalSubscriptionGeneration,
     adapter: Option<Box<dyn TerminalAdapter + Send>>,
-    waking: bool,
     capabilities: Option<TerminalCapabilitySet>,
     queue: VecDeque<QueuedFrame>,
     held: VecDeque<(TransportEgress, Option<SnapshotPhase>)>,
@@ -198,7 +197,6 @@ impl ClientWorker {
                 client_id,
                 generation,
                 adapter: None,
-                waking: false,
                 capabilities: None,
                 queue: VecDeque::new(),
                 held: VecDeque::new(),
@@ -294,83 +292,48 @@ impl ClientWorker {
         &self.wake_source
     }
 
-    /// Bind a content-blind adapter to a live attach generation.
-    ///
-    /// `capabilities` is required. Omission does not compile. An empty set is
-    /// valid. Core does not inspect token contents at bind. On rejection the
-    /// presented adapter is closed and dropped on this stack.
-    ///
-    /// ```compile_fail
-    /// use botster_core::ClientWorker;
-    /// use botster_core::{ClientId, SessionId, SubscriptionId, TerminalSubscriptionGeneration};
-    /// fn omit(worker: &mut ClientWorker) {
-    ///     let adapter: Box<dyn botster_core::contract::terminal_adapter::TerminalAdapter + Send> =
-    ///         unimplemented!();
-    ///     let _ = worker.bind_terminal_adapter(
-    ///         &ClientId("c".into()),
-    ///         SessionId("s".into()),
-    ///         SubscriptionId("sub".into()),
-    ///         TerminalSubscriptionGeneration(1),
-    ///         adapter,
-    ///     );
-    /// }
-    /// ```
-    pub fn bind_terminal_adapter(
-        &mut self,
-        client_id: &ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        generation: TerminalSubscriptionGeneration,
-        capabilities: TerminalCapabilitySet,
-        mut adapter: Box<dyn TerminalAdapter + Send>,
-    ) -> Result<(), BindTerminalAdapterError> {
-        let key = OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-        };
-        let Some(owner) = self.live.get_mut(&key) else {
-            adapter.close();
-            drop(adapter);
-            return Err(if self.last_generation.contains_key(&key) {
-                BindTerminalAdapterError::UnknownSubscription {
-                    session_id,
-                    subscription_id,
-                }
-            } else {
-                BindTerminalAdapterError::BindBeforeAttach {
-                    session_id,
-                    subscription_id,
-                }
-            });
-        };
-        if &owner.client_id != client_id || owner.generation != generation {
-            let live = Some(owner.generation);
-            adapter.close();
-            drop(adapter);
-            return Err(BindTerminalAdapterError::StaleGeneration {
-                live,
-                requested: generation,
-            });
-        }
-        if owner.adapter.is_some() {
-            adapter.close();
-            drop(adapter);
-            return Err(BindTerminalAdapterError::AlreadyBound {
-                session_id,
-                subscription_id,
-                generation,
-            });
-        }
-        owner.adapter = Some(adapter);
-        owner.waking = false;
-        owner.capabilities = Some(capabilities);
-        Ok(())
-    }
-
     /// Bind a waking adapter after the live-generation rejection ladder.
     ///
     /// Allocation and registry insert happen only after every rejection returns.
     /// Rejected binds close and drop the adapter and allocate nothing.
+    ///
+    /// A plain [`TerminalAdapter`] cannot use the waking bind.
+    ///
+    /// ```compile_fail
+    /// use botster_core::contract::terminal_adapter::{
+    ///     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    /// };
+    /// use botster_core::{ClientId, ClientWorker, SessionId, SubscriptionId, TerminalCapabilitySet};
+    /// use botster_terminal_protocol::TerminalFrame;
+    ///
+    /// struct PollingAdapter;
+    /// impl TerminalAdapter for PollingAdapter {
+    ///     fn try_write(&mut self, _: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    ///         Ok(())
+    ///     }
+    ///     fn close(&mut self) {}
+    ///     fn pressure(&self) -> TerminalAdapterPressure { TerminalAdapterPressure::Ready }
+    ///     fn try_read(&mut self) -> TerminalIngress { TerminalIngress::Empty }
+    /// }
+    ///
+    /// let mut worker = ClientWorker::new();
+    /// let client_id = ClientId("client".into());
+    /// let session_id = SessionId("session".into());
+    /// let subscription_id = SubscriptionId("subscription".into());
+    /// let (generation, _) = worker.record_attach(
+    ///     client_id.clone(),
+    ///     session_id.clone(),
+    ///     subscription_id.clone(),
+    /// );
+    /// worker.bind_waking_terminal_adapter(
+    ///     &client_id,
+    ///     session_id,
+    ///     subscription_id,
+    ///     generation,
+    ///     TerminalCapabilitySet::empty(),
+    ///     Box::new(PollingAdapter),
+    /// );
+    /// ```
     pub fn bind_waking_terminal_adapter(
         &mut self,
         client_id: &ClientId,
@@ -435,7 +398,6 @@ impl ClientWorker {
             });
         };
         owner.adapter = Some(Box::new(WakingAdapterHolder { inner: adapter }));
-        owner.waking = true;
         owner.capabilities = Some(capabilities);
         Ok(())
     }
@@ -692,29 +654,6 @@ impl ClientWorker {
         }
     }
 
-    /// Pump bound adapters once per host tick.
-    ///
-    /// A WouldBlock/Full on the head frame counts once. Completing an in-flight
-    /// write is observed as pressure returning to Ready.
-    ///
-    /// After `process_exit` is delivered (the write completed and pressure is
-    /// Ready), Core hard-stops on that host tick. Close stays non-blocking.
-    pub fn pump(&mut self) -> Vec<ClientWorkerTeardown> {
-        let keys: Vec<_> = self.live.keys().cloned().collect();
-        let mut teardowns = self.expire_pastes_keys(&keys, Instant::now());
-        for key in keys {
-            if let Some(teardown) = pump_one(
-                &mut self.live,
-                &mut self.next_snapshot_phase,
-                &self.wake_source,
-                &key,
-            ) {
-                teardowns.push(teardown);
-            }
-        }
-        teardowns
-    }
-
     /// Pump only routes named by a wake batch. Never scans unbound or unnamed routes.
     pub fn pump_woken(&mut self, batch: &TerminalWakeBatch) -> Vec<ClientWorkerTeardown> {
         let route_keys = self.adapter_route_keys(batch);
@@ -741,9 +680,7 @@ impl ClientWorker {
             let keys: Vec<_> = self
                 .live
                 .iter()
-                .filter(|(key, owner)| {
-                    &key.session_id == session_id && owner.waking && owner.adapter.is_some()
-                })
+                .filter(|(key, owner)| &key.session_id == session_id && owner.adapter.is_some())
                 .map(|(key, _)| key.clone())
                 .collect();
             for key in keys {
@@ -761,12 +698,6 @@ impl ClientWorker {
             }
         }
         teardowns
-    }
-
-    /// Stage A: intake complete frames from bound adapters.
-    pub fn intake_terminal_input(&mut self) -> Vec<ClientWorkerTeardown> {
-        let keys = self.rotated_live_keys();
-        self.intake_terminal_input_keys(keys)
     }
 
     /// Intake only routes named by a wake batch. Never `try_read`s an unnamed adapter.
@@ -1676,8 +1607,6 @@ mod tests {
     use crate::actor::TerminalAttachState;
     use crate::contract::terminal_adapter::TerminalIngress;
 
-    struct ReadyAdapter;
-
     struct ReadyWakingAdapter;
 
     impl TerminalAdapter for ReadyWakingAdapter {
@@ -1698,22 +1627,6 @@ mod tests {
 
     impl WakingTerminalAdapter for ReadyWakingAdapter {
         fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
-    }
-
-    impl TerminalAdapter for ReadyAdapter {
-        fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
-            Ok(())
-        }
-
-        fn close(&mut self) {}
-
-        fn pressure(&self) -> TerminalAdapterPressure {
-            TerminalAdapterPressure::Ready
-        }
-
-        fn try_read(&mut self) -> TerminalIngress {
-            TerminalIngress::Empty
-        }
     }
 
     fn ids() -> (ClientId, SessionId, SubscriptionId) {
@@ -2263,13 +2176,13 @@ mod tests {
             "held attach state must not leak: {frames:?}"
         );
         worker
-            .bind_terminal_adapter(
+            .bind_waking_terminal_adapter(
                 &client,
                 session.clone(),
                 subscription.clone(),
                 generation,
                 TerminalCapabilitySet::empty(),
-                Box::new(ReadyAdapter),
+                Box::new(ReadyWakingAdapter),
             )
             .expect("bind");
         worker.fail_next_encode = true;

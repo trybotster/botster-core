@@ -28,7 +28,7 @@ Related: [`core-daemon.md`](core-daemon.md), [`durable-session-worker-protocol.m
 | Capture snapshot | `RequestId`, `SessionId`, caller clock | `SessionIoEvent::SnapshotReady` in `BotsterEngineOutput` | `BotsterEngine::capture_snapshot`, `DefaultBotsterEngine::capture_snapshot` | Host owns storage, retention, delivery |
 | Replay snapshot | `PreparedSnapshotRequest`, caller clock | `SessionIoEvent::PreparedSnapshotReady` in `BotsterEngineOutput` when adapter supports it | `BotsterEngine::replay_snapshot`, `DefaultBotsterEngine::replay_snapshot` | Host owns recovery intent and persistence |
 | Shutdown | `SessionId`, reason, caller clock | `BotsterEngineOutput` with lifecycle observations | `BotsterEngine::shutdown_session`, `DefaultBotsterEngine::shutdown_session` | Host owns reason text and shutdown policy |
-| Bind terminal adapter | live attach generation, immutable `TerminalCapabilitySet`, and `Box<dyn TerminalAdapter + Send>` | typed bind error or bound inventory row | `DefaultBotsterEngine::bind_terminal_adapter`, `CoreDaemon::bind_terminal_adapter` | Advanced host/adapter seam; not a prelude command. Empty sets are valid. Bind does not add a missing-set error. |
+| Bind waking terminal adapter | live attach generation, immutable `TerminalCapabilitySet`, and `Box<dyn WakingTerminalAdapter + Send>` | typed bind error or bound inventory row | `DefaultBotsterEngine::bind_waking_terminal_adapter`, `CoreDaemon::bind_waking_terminal_adapter` | Advanced host/adapter seam; not a prelude command. Empty sets are valid. |
 | List terminal subscriptions | none | `Vec<TerminalSubscriptionRecord>` | `DefaultBotsterEngine::list_terminal_subscriptions`, `CoreDaemon::list_terminal_subscriptions` | Control-plane identity plus bound capability tokens. No attach phase or snapshot state. |
 | Detach subscription generation | `subscription_id` plus `generation` | `DetachTerminalSubscriptionResult` | `DefaultBotsterEngine::detach_terminal_subscription`, `CoreDaemon::detach_terminal_subscription` | Existing `detach` still removes the live generation |
 | Notifications | `NotificationItem`, `NotificationTarget`, caller clock | `NotificationId` and `Vec<NotificationItem>` | `BotsterEngine::post_notification`, `BotsterEngine::drain_notifications` | Host/plugin owns presentation and delivery policy |
@@ -69,10 +69,11 @@ Hosts may wrap these calls in actors, async tasks, queues, retry loops, transpor
 Embedders own the loop:
 
 1. Supply host clocks (`now_seconds`) on attach, drain, input, inspect, and shutdown.
-2. Call `drain_runtime_once` / `drain_runtime_all_once` (or `CoreDaemon::drain`) regularly while sessions are live so output and lifecycle observations are delivered.
-3. Route returned client egress to transports; do not re-dispatch already-routed session requests as new engine work.
-4. Honor backpressure summaries and report slow-client lag through the public report helpers when the host observes delivery lag.
-5. Drain notification/envelope APIs separately when using those coordination planes (daemon-owned queues are process memory, not registry-durable).
+2. Call `drain_runtime_once` / `drain_runtime_all_once` (or `CoreDaemon::drain`) for unbound output and lifecycle observations.
+3. Call `wait_wakes` or `wait_pump`, then `pump_woken`, for bound adapter progress.
+4. Route returned client egress to transports; do not re-dispatch already-routed session requests as new engine work.
+5. Honor backpressure summaries and report slow-client lag through the public report helpers when the host observes delivery lag.
+6. Drain notification/envelope APIs separately when using those coordination planes (daemon-owned queues are process memory, not registry-durable).
 
 ## Explicit Exclusions
 

@@ -6,6 +6,7 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
     MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
+use botster_core::{TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter};
 use botster_core_test_support::terminal_adapter::TerminalAdapterHarnessDriver;
 use botster_terminal_protocol::TerminalFrame;
 
@@ -19,6 +20,7 @@ pub struct HubShapedTerminalAdapter {
     ingress: VecDeque<Vec<u8>>,
     ingress_partial: Option<Vec<u8>>,
     lost_pending: bool,
+    wake_sink: Option<TerminalWakeSink>,
 }
 
 impl TerminalAdapter for HubShapedTerminalAdapter {
@@ -42,6 +44,9 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
         self.ingress.clear();
         self.ingress_partial = None;
         self.lost_pending = false;
+        if let Some(sink) = &self.wake_sink {
+            let _ = sink.wake(TerminalWakeKind::Closed);
+        }
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -71,6 +76,12 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
     }
 }
 
+impl WakingTerminalAdapter for HubShapedTerminalAdapter {
+    fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+        self.wake_sink = Some(sink);
+    }
+}
+
 impl TerminalAdapterHarnessDriver for HubShapedTerminalAdapter {
     type Adapter = Self;
 
@@ -92,6 +103,9 @@ impl TerminalAdapterHarnessDriver for HubShapedTerminalAdapter {
         }
         if let Some(bytes) = self.active.take() {
             self.delivered.push(bytes);
+            if let Some(sink) = &self.wake_sink {
+                let _ = sink.wake(TerminalWakeKind::Writable);
+            }
         }
     }
 
@@ -116,6 +130,9 @@ impl TerminalAdapterHarnessDriver for HubShapedTerminalAdapter {
             return;
         }
         self.ingress.push_back(bytes);
+        if let Some(sink) = &self.wake_sink {
+            let _ = sink.wake(TerminalWakeKind::Writable);
+        }
     }
 
     fn inject_ingress_partial(&mut self, bytes: Vec<u8>) {
@@ -183,6 +200,15 @@ mod tests {
         }
     }
 
+    impl WakingTerminalAdapter for SharedHubAdapter {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.inner
+                .lock()
+                .expect("hub adapter lock")
+                .set_wake_sink(sink);
+        }
+    }
+
     #[test]
     fn hub_shaped_consumer_adapter_passes_published_harness() {
         let mut driver = HubShapedTerminalAdapter::default();
@@ -222,7 +248,7 @@ mod tests {
             .expect("generation after attach");
         let adapter = SharedHubAdapter::default();
         engine
-            .bind_terminal_adapter(
+            .bind_waking_terminal_adapter(
                 client,
                 session.clone(),
                 subscription.clone(),
@@ -243,7 +269,8 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            let _ = engine.drain_runtime_once(&session, 2).expect("drain");
+            let batch = engine.wait_wakes(Duration::from_secs(5));
+            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
             let delivered = adapter
                 .inner
                 .lock()
@@ -310,7 +337,7 @@ mod tests {
         ])
         .expect("Hub constructs an opaque set from protocol tokens");
         engine
-            .bind_terminal_adapter(
+            .bind_waking_terminal_adapter(
                 client,
                 session.clone(),
                 subscription.clone(),
@@ -329,7 +356,8 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            let _ = engine.drain_runtime_once(&session, 2).expect("drain");
+            let batch = engine.wait_wakes(Duration::from_secs(5));
+            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
             let delivered = adapter
                 .inner
                 .lock()
@@ -373,6 +401,15 @@ mod tests {
 
         fn try_read(&mut self) -> TerminalIngress {
             self.inner.lock().expect("hub adapter lock").try_read()
+        }
+    }
+
+    impl WakingTerminalAdapter for SharedOneSlotHubAdapter {
+        fn set_wake_sink(&mut self, sink: TerminalWakeSink) {
+            self.inner
+                .lock()
+                .expect("hub adapter lock")
+                .set_wake_sink(sink);
         }
     }
 
@@ -456,7 +493,7 @@ mod tests {
             .expect("generation after attach");
         let adapter = SharedOneSlotHubAdapter::default();
         engine
-            .bind_terminal_adapter(
+            .bind_waking_terminal_adapter(
                 client,
                 session.clone(),
                 subscription,
@@ -470,7 +507,8 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(8);
         let mut saw_live_after_dump = false;
         while Instant::now() < deadline {
-            let _ = engine.drain_runtime_once(&session, 2).expect("drain");
+            let batch = engine.wait_wakes(Duration::from_secs(5));
+            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
             if adapter.pressure() == TerminalAdapterPressure::Full {
                 adapter.complete_write();
             }

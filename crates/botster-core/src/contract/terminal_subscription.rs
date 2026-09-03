@@ -37,7 +37,7 @@ pub struct TerminalSubscriptionRecord {
     pub capabilities: Option<TerminalCapabilitySet>,
 }
 
-/// Typed rejection from `bind_terminal_adapter`.
+/// Typed rejection from `bind_waking_terminal_adapter`.
 ///
 /// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

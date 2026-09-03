@@ -13,8 +13,8 @@ use botster_core::{
 };
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
-    CoreDaemonError, ReadModeFlagsRequest, ReadScreenRequest, SessionLifecycleChangeKind,
-    SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
+    CoreDaemonError, ObserveLifecycleBudget, ReadModeFlagsRequest, ReadScreenRequest,
+    SessionLifecycleChangeKind, SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -26,6 +26,17 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .expect("clock")
         .as_nanos();
     std::env::temp_dir().join(format!("botster-core-wake-{label}-{nanos}"))
+}
+
+fn pump_next(daemon: &mut CoreDaemon, now_seconds: u64) {
+    let batch = daemon.wait_wakes(Duration::from_secs(5));
+    assert!(
+        !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty(),
+        "targeted progress requires a wake"
+    );
+    daemon
+        .pump_woken(&batch, now_seconds)
+        .expect("targeted wake pump");
 }
 
 #[cfg(unix)]
@@ -90,9 +101,9 @@ fn bind_size_reporting_worker(
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     daemon
         .bind_waking_terminal_adapter(
-            client_id,
+            client_id.clone(),
             session_id.clone(),
-            subscription_id,
+            subscription_id.clone(),
             generation,
             empty_caps(),
             Box::new(adapter.clone()),
@@ -102,7 +113,7 @@ fn bind_size_reporting_worker(
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         assert!(Instant::now() < deadline, "worker attach did not finish");
-        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        pump_next(daemon, 2);
         if adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -780,9 +791,7 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
             Instant::now() < attach_deadline,
             "same-session routes did not finish attaching"
         );
-        daemon
-            .drain(&session_id, 2)
-            .expect("drain same-session attach boundaries");
+        pump_next(&mut daemon, 2);
         let attached = [&owner, &sibling].iter().all(|adapter| {
             adapter
                 .snapshot_delivered_frame_bytes()
@@ -927,7 +936,7 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
             Instant::now() < attach_deadline,
             "worker attach did not finish"
         );
-        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        pump_next(&mut daemon, 2);
         if adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -1084,7 +1093,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             Instant::now() < attach_deadline,
             "one-slot worker attach did not finish"
         );
-        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        pump_next(&mut daemon, 2);
         adapter.complete_write();
         if adapter
             .snapshot_delivered_frame_bytes()
@@ -1825,7 +1834,7 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
             Instant::now() < attach_deadline,
             "worker attach did not finish"
         );
-        daemon.drain(&session_id, 2).expect("drain attach boundary");
+        pump_next(&mut daemon, 2);
         if adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -2300,34 +2309,47 @@ fn readback_does_not_advance_bound_adapter() {
     let adapter = SharedFakeTerminalAdapter::new();
     daemon
         .bind_waking_terminal_adapter(
-            client_id,
+            client_id.clone(),
             session_id.clone(),
-            subscription_id,
+            subscription_id.clone(),
             generation,
             empty_caps(),
             Box::new(adapter.clone()),
         )
         .expect("bind");
     let before = adapter.snapshot_delivered_frame_bytes().len();
+    let _ = daemon.drain(&session_id, 3);
+    let _ = daemon.drain_subscription(&client_id, &session_id, &subscription_id, 4);
+    let _ = daemon.observe_lifecycle(5);
+    let _ = daemon.observe_lifecycle_slice(
+        6,
+        None,
+        ObserveLifecycleBudget {
+            max_sessions: 1,
+            max_encoded_result_bytes: 16 * 1024,
+            max_elapsed: Duration::from_secs(1),
+        },
+    );
+    let _ = daemon.observe_session_lifecycle(&session_id, 7);
     let _ = daemon.read_screen(ReadScreenRequest {
         request_id: RequestId("screen".into()),
         session_id: session_id.clone(),
-        now_seconds: 3,
+        now_seconds: 8,
     });
     let _ = daemon.read_mode_flags(ReadModeFlagsRequest {
         request_id: RequestId("modes".into()),
         session_id: session_id.clone(),
-        now_seconds: 4,
+        now_seconds: 9,
     });
     let _ = daemon.capture_snapshot(CaptureSnapshotRequest {
         request_id: RequestId("snap".into()),
         session_id: session_id.clone(),
-        now_seconds: 5,
+        now_seconds: 10,
     });
     let _ = daemon.capture_color_and_snapshot(CaptureColorAndSnapshotRequest {
         request_id: RequestId("color".into()),
         session_id: session_id.clone(),
-        now_seconds: 6,
+        now_seconds: 11,
     });
     assert_eq!(adapter.snapshot_delivered_frame_bytes().len(), before);
     let _ = fs::remove_dir_all(data_dir);
