@@ -497,6 +497,28 @@ Guards and consumers:
     text is pasted back.
 25. The isolated `hub-adapter-shaped` consumer passes using the waking bind and
     the published harness, and still constructs no published Core driver.
+    A workspace test does not run this nested non-member crate, so run it one of
+    these two ways, per [[botster-core-playbook]]:
+
+    - The wrapper that starts it, from the repository working directory:
+
+      ```bash
+      BOTSTER_ENV=test cargo test -p botster-core-test-support         --test terminal_adapter_conformance_test         isolated_hub_shaped_consumer_runs_harness_against_its_own_adapter
+      ```
+
+      The wrapper shells out with `cargo test --quiet --offline`,
+      `current_dir` set to the consumer directory, and `CARGO_TARGET_DIR` set to
+      that consumer's own `target/`, which keeps its build isolated.
+
+    - Or the direct command, which must reproduce the wrapper's isolation:
+
+      ```bash
+      cd crates/botster-core-test-support/tests/consumers/hub-adapter-shaped
+      CARGO_TARGET_DIR="$PWD/target" cargo test --quiet --offline
+      ```
+
+      Do not run the direct form with the workspace `CARGO_TARGET_DIR`, and do
+      not convert it to a workspace member to make a filter reach it.
 26. Compile-fail proof that a `TerminalAdapter` that is not a
     `WakingTerminalAdapter` cannot bind.
 
