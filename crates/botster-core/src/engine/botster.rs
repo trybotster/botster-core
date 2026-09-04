@@ -1445,6 +1445,14 @@ impl WorkerBackedBotsterEngine {
         self.incremental_attaches.contains_key(session_id)
     }
 
+    /// Return whether the worker stored `ProcessExited` and finished stdout.
+    #[must_use]
+    pub fn process_exit_recorded_and_reader_finished(&self, session_id: &SessionId) -> bool {
+        self.runtime
+            .session_runtime()
+            .process_exit_recorded_and_reader_finished(session_id)
+    }
+
     /// Take the latest resize that the worker applied inside an attach barrier.
     pub fn take_applied_attach_resize(
         &mut self,

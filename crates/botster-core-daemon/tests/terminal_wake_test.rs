@@ -2376,6 +2376,27 @@ fn drain_follow_up_wakes(daemon: &mut CoreDaemon) {
             empty_streak = 0;
         }
     }
+    panic!("runtime wake channel did not go quiet before the target drain");
+}
+
+fn pump_available_wakes_until_quiet(daemon: &mut CoreDaemon, now_seconds: u64) {
+    let quiet_deadline = Instant::now() + Duration::from_secs(5);
+    let mut empty_streak = 0;
+    while Instant::now() < quiet_deadline {
+        let batch = daemon.wait_wakes(Duration::from_millis(200));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            empty_streak += 1;
+            if empty_streak >= 3 {
+                return;
+            }
+        } else {
+            empty_streak = 0;
+            daemon
+                .pump_woken(&batch, now_seconds)
+                .expect("pump leftover attach wakes");
+        }
+    }
+    panic!("worker attach did not go quiet before child release");
 }
 
 fn consume_runtime_ingress_wakes(daemon: &mut CoreDaemon, session_id: &SessionId) {
@@ -2385,6 +2406,57 @@ fn consume_runtime_ingress_wakes(daemon: &mut CoreDaemon, session_id: &SessionId
         "setup must consume a runtime session ingress wake before the target drain, got {batch:?}"
     );
     drain_follow_up_wakes(daemon);
+}
+
+fn wait_until_incremental_attach_idle(daemon: &mut CoreDaemon, session_id: &SessionId) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while daemon.incremental_attach_active(session_id) {
+        assert!(
+            Instant::now() < deadline,
+            "incremental attach did not finish before child release"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(200));
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            continue;
+        }
+        daemon
+            .pump_woken(&batch, 2)
+            .expect("pump remaining incremental attach");
+    }
+}
+
+fn wait_until_worker_exit_reader_idle(daemon: &CoreDaemon, session_id: &SessionId) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if daemon.worker_process_exit_recorded_and_reader_finished(session_id) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "worker did not record process_exit and finish stdout before observe"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn consume_pending_wakes_after_worker_idle(daemon: &mut CoreDaemon, session_id: &SessionId) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = false;
+    while Instant::now() < deadline {
+        let batch = daemon.wait_wakes(Duration::from_millis(0));
+        if batch.ingress_sessions.iter().any(|id| id == session_id) {
+            seen = true;
+        }
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            if seen {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    panic!(
+        "setup must consume worker process_exit readiness wakes before observe; seen_session={seen}"
+    );
 }
 
 fn finish_short_lived_runtime_setup(
@@ -2629,12 +2701,10 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
     let client_id = ClientId("observe-exit-wake-worker-client".into());
     let subscription_id = SubscriptionId("observe-exit-wake-worker-sub".into());
     let go = data_dir.join("go");
-    let done = data_dir.join("child-done");
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; : > '{}'; exit 0",
-        go.display(),
-        done.display()
+        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; exit 0",
+        go.display()
     );
     daemon.spawn(request, 1).expect("spawn");
     daemon
@@ -2683,9 +2753,11 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    drain_follow_up_wakes(&mut daemon);
+    wait_until_incremental_attach_idle(&mut daemon, &session_id);
+    pump_available_wakes_until_quiet(&mut daemon, 3);
     fs::write(&go, b"go").expect("release child");
-    finish_short_lived_runtime_setup(&mut daemon, &session_id, &done);
+    wait_until_worker_exit_reader_idle(&daemon, &session_id);
+    consume_pending_wakes_after_worker_idle(&mut daemon, &session_id);
     assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
     let _ = fs::remove_dir_all(data_dir);
 }
