@@ -621,6 +621,29 @@ impl DefaultBotsterEngine {
         self.runtime.adapter_is_bound(session_id, subscription_id)
     }
 
+    /// Take session ids whose bound Ready queues grew since the last take.
+    #[must_use]
+    pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
+        self.runtime.take_bound_queue_wake_sessions()
+    }
+
+    /// Whether any live owner still holds undelivered frames for this session.
+    #[must_use]
+    pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
+        self.runtime.session_has_undelivered_frames(session_id)
+    }
+
+    /// Whether the bound owner still holds frames that the next pump must flush.
+    #[must_use]
+    pub fn bound_owner_has_held_frames(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.runtime
+            .bound_owner_has_held_frames(session_id, subscription_id)
+    }
+
     /// Detach a client from a session stream.
     pub fn detach_client(
         &mut self,
@@ -1301,6 +1324,29 @@ impl WorkerBackedBotsterEngine {
         subscription_id: &SubscriptionId,
     ) -> bool {
         self.runtime.adapter_is_bound(session_id, subscription_id)
+    }
+
+    /// Take session ids whose bound Ready queues grew since the last take.
+    #[must_use]
+    pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
+        self.runtime.take_bound_queue_wake_sessions()
+    }
+
+    /// Whether any live owner still holds undelivered frames for this session.
+    #[must_use]
+    pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
+        self.runtime.session_has_undelivered_frames(session_id)
+    }
+
+    /// Whether the bound owner still holds frames that the next pump must flush.
+    #[must_use]
+    pub fn bound_owner_has_held_frames(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.runtime
+            .bound_owner_has_held_frames(session_id, subscription_id)
     }
 
     /// Detach a client from a session stream.

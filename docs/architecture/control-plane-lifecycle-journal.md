@@ -40,6 +40,13 @@ the production progress tick.
 - The walk does not call `drain_runtime_all_once`. Incidental terminal
   egress stays on the pending-drain path. The slice returns no terminal
   bytes, phases, snapshots, attach state, or `ProcessExited` frames.
+- Observe never `try_write`s a bound adapter. When it queues frames onto
+  a bound Ready owner, it emits one coalesced session ingress wake. The
+  host delivers those frames through `wait_wakes` and `pump_woken`.
+- Observe still commits registry state and journal rows immediately. A
+  session with no live owner that still holds undelivered frames keeps
+  its session wake until a later commit after delivery, hard-stop, or
+  owner removal.
 
 `observe_lifecycle(now_seconds)` is the unbounded compatibility
 wrapper: new pass, unbounded item/byte/elapsed budgets, typed
@@ -68,6 +75,9 @@ the host exact-session query. It returns
 - The result has no terminal bytes, phases, snapshots, attach
   state, or `ProcessExited` frames. Incidental terminal egress
   stays on the pending-drain path.
+- The query does not `try_write` a bound adapter. When it queues
+  frames onto a bound Ready owner, it emits one coalesced session
+  ingress wake.
 
 Hosts classify one session through this query. They must not
 classify shutdown with `CoreDaemon::drain`, `lifecycle_baseline`,

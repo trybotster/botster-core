@@ -16,6 +16,7 @@ fn isolated_hub_data_plane_consumer_uses_one_owner_thread() {
         "wait_pump",
         "pump_woken",
         "session_registry_state",
+        "observe_lifecycle_slice",
         ".spawn(",
         ".attach(",
         "bind_waking_terminal_adapter",
@@ -26,7 +27,12 @@ fn isolated_hub_data_plane_consumer_uses_one_owner_thread() {
     ] {
         assert!(source.contains(required), "consumer must use {required}");
     }
-    for forbidden in ["unsafe", "Arc<Mutex<CoreDaemon>>", "WakePumpHost"] {
+    for forbidden in [
+        "unsafe",
+        "Arc<Mutex<CoreDaemon>>",
+        "WakePumpHost",
+        "list_terminal_subscriptions",
+    ] {
         assert!(
             !source.contains(forbidden),
             "consumer must not contain {forbidden}"

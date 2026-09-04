@@ -13,8 +13,9 @@ use botster_core::{
 };
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
-    CoreDaemonError, ObserveLifecycleBudget, ReadModeFlagsRequest, ReadScreenRequest,
-    SessionLifecycleChangeKind, SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
+    CoreDaemonError, LifecycleBaselineBudget, ObserveLifecycleBudget, ReadModeFlagsRequest,
+    ReadScreenRequest, RegistrySessionState, SessionLifecycleChangeKind, SessionLifecycleLookup,
+    SessionRegistryStateLookup, SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -2337,14 +2338,54 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
-#[test]
-fn readback_does_not_advance_bound_adapter() {
-    let data_dir = temp_data_dir("readback");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-    let session_id = SessionId("readback-session".into());
-    let client_id = ClientId("readback-client".into());
-    let subscription_id = SubscriptionId("readback-sub".into());
-    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+fn short_lived_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+    let mut request = spawn_request(session_id);
+    request.request.arguments[1] = "printf ready; exit 0".into();
+    request
+}
+
+fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "observe did not commit Exited without a pump"
+        );
+        let _ = daemon.wait_wakes(Duration::ZERO);
+        daemon
+            .observe_session_lifecycle(session_id, now)
+            .expect("observe until exit");
+        if matches!(
+            daemon
+                .session_registry_state(session_id)
+                .expect("registry after observe"),
+            SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+        ) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn adapter_has_process_exit(adapter: &SharedFakeTerminalAdapter) -> bool {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .any(|value| value.get("type").and_then(serde_json::Value::as_str) == Some("process_exit"))
+}
+
+fn bind_short_lived_session(
+    daemon: &mut CoreDaemon,
+    label: &str,
+    adapter: SharedFakeTerminalAdapter,
+) -> (SessionId, ClientId, SubscriptionId) {
+    let session_id = SessionId(format!("{label}-session"));
+    let client_id = ClientId(format!("{label}-client"));
+    let subscription_id = SubscriptionId(format!("{label}-sub"));
+    daemon
+        .spawn(short_lived_spawn_request(&session_id), 1)
+        .expect("spawn");
     daemon
         .expect_terminal_adapter(
             client_id.clone(),
@@ -2361,12 +2402,8 @@ fn readback_does_not_advance_bound_adapter() {
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
-        .into_iter()
-        .find(|row| row.subscription_id == subscription_id)
-        .expect("row")
-        .generation;
-    let adapter = SharedFakeTerminalAdapter::auto_complete();
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
     daemon
         .bind_waking_terminal_adapter(
             client_id.clone(),
@@ -2374,12 +2411,39 @@ fn readback_does_not_advance_bound_adapter() {
             subscription_id.clone(),
             generation,
             empty_caps(),
-            Box::new(adapter.clone()),
+            Box::new(adapter),
         )
         .expect("bind");
-    let before = adapter.snapshot_delivered_frame_bytes().len();
-    let _ = daemon.drain(&session_id, 3);
-    let _ = daemon.drain_subscription(&client_id, &session_id, &subscription_id, 4);
+    (session_id, client_id, subscription_id)
+}
+
+#[test]
+fn readback_does_not_advance_bound_adapter() {
+    let data_dir = temp_data_dir("readback");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, client_id, subscription_id) =
+        bind_short_lived_session(&mut daemon, "readback", adapter.clone());
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    let before = adapter.try_write_count();
+    let _ = daemon.list().expect("list sessions");
+    let _ = daemon.list_terminal_subscriptions();
+    let cursor = daemon.lifecycle_baseline().expect("baseline").cursor;
+    let _ = daemon
+        .lifecycle_changes_page(&cursor, 16, 64 * 1024)
+        .expect("changes page");
+    let _ = daemon.lifecycle_baseline_page(
+        None,
+        None,
+        LifecycleBaselineBudget {
+            max_rows: 8,
+            max_bytes: 16 * 1024,
+            max_elapsed: Duration::from_secs(1),
+        },
+    );
+    let _ = daemon
+        .session_registry_state(&session_id)
+        .expect("registry state");
     let _ = daemon.observe_lifecycle(5);
     let _ = daemon.observe_lifecycle_slice(
         6,
@@ -2411,7 +2475,268 @@ fn readback_does_not_advance_bound_adapter() {
         session_id: session_id.clone(),
         now_seconds: 11,
     });
-    assert_eq!(adapter.snapshot_delivered_frame_bytes().len(), before);
+    let _ = client_id;
+    let _ = subscription_id;
+    assert_eq!(adapter.try_write_count(), before);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+fn assert_observe_then_targeted_process_exit(
+    daemon: &mut CoreDaemon,
+    adapter: &SharedFakeTerminalAdapter,
+    session_id: &SessionId,
+) {
+    let after_spawn = daemon.lifecycle_baseline().expect("spawn baseline").cursor;
+    observe_until_exited_without_pump(daemon, session_id, 20);
+    assert!(matches!(
+        daemon
+            .observe_session_lifecycle(session_id, 21)
+            .expect("exact observe"),
+        SessionLifecycleLookup::Found(_)
+    ));
+    let _ = daemon.observe_lifecycle_slice(
+        22,
+        None,
+        ObserveLifecycleBudget {
+            max_sessions: 1,
+            max_encoded_result_bytes: 16 * 1024,
+            max_elapsed: Duration::from_secs(1),
+        },
+    );
+    assert!(matches!(
+        daemon
+            .session_registry_state(session_id)
+            .expect("exited registry"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+    ));
+    let exited = daemon
+        .lifecycle_changes_page(&after_spawn, 32, 64 * 1024)
+        .expect("journal")
+        .changes
+        .iter()
+        .filter(|change| {
+            matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == *session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            )
+        })
+        .count();
+    assert_eq!(exited, 1);
+    let writes_before = adapter.try_write_count();
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == session_id),
+        "observe must emit a session ingress wake, got {batch:?}"
+    );
+    daemon.pump_woken(&batch, 23).expect("targeted pump");
+    assert!(adapter_has_process_exit(adapter));
+    assert!(adapter.try_write_count() > writes_before);
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let exited_after = daemon
+        .lifecycle_changes_page(&after_spawn, 32, 64 * 1024)
+        .expect("journal after pump")
+        .changes
+        .iter()
+        .filter(|change| {
+            matches!(
+                &change.kind,
+                SessionLifecycleChangeKind::Upsert { record }
+                    if record.session.session_id == *session_id
+                        && record.session.registry_state == RegistrySessionState::Exited
+            )
+        })
+        .count();
+    assert_eq!(exited_after, 1);
+}
+
+#[test]
+fn observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
+    let data_dir = temp_data_dir("observe-exit-wake");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, _, _) =
+        bind_short_lived_session(&mut daemon, "observe-exit-wake", adapter.clone());
+    assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
+    let data_dir = temp_data_dir("observe-exit-wake-worker");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, _, _) =
+        bind_short_lived_session(&mut daemon, "observe-exit-wake-worker", adapter.clone());
+    assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn declared_unbound_exit_keeps_session_wake_until_bind_and_pump() {
+    let data_dir = temp_data_dir("declared-unbound-exit");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("declared-unbound-session".into());
+    let client_id = ClientId("declared-unbound-client".into());
+    let subscription_id = SubscriptionId("declared-unbound-sub".into());
+    let after_spawn = {
+        daemon
+            .spawn(short_lived_spawn_request(&session_id), 1)
+            .expect("spawn");
+        daemon.lifecycle_baseline().expect("baseline").cursor
+    };
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    assert_eq!(
+        daemon
+            .lifecycle_changes_page(&after_spawn, 32, 64 * 1024)
+            .expect("journal")
+            .changes
+            .iter()
+            .filter(|change| {
+                matches!(
+                    &change.kind,
+                    SessionLifecycleChangeKind::Upsert { record }
+                        if record.session.session_id == session_id
+                            && record.session.registry_state == RegistrySessionState::Exited
+                )
+            })
+            .count(),
+        1
+    );
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == &session_id),
+        "bind with held frames must notify the live session wake, got {batch:?}"
+    );
+    daemon.pump_woken(&batch, 4).expect("pump after bind");
+    assert!(adapter_has_process_exit(&adapter));
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn observe_then_force_closed_adapter_still_retires_session_wake() {
+    let data_dir = temp_data_dir("observe-hard-stop");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, _, _) =
+        bind_short_lived_session(&mut daemon, "observe-hard-stop", adapter.clone());
+    let after_spawn = daemon.lifecycle_baseline().expect("baseline").cursor;
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    adapter.close_transport();
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    daemon.pump_woken(&batch, 4).expect("pump closed adapter");
+    assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    assert_eq!(
+        daemon
+            .lifecycle_changes_page(&after_spawn, 32, 64 * 1024)
+            .expect("journal")
+            .changes
+            .iter()
+            .filter(|change| {
+                matches!(
+                    &change.kind,
+                    SessionLifecycleChangeKind::Upsert { record }
+                        if record.session.session_id == session_id
+                            && record.session.registry_state == RegistrySessionState::Exited
+                )
+            })
+            .count(),
+        1
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn abandoned_declaration_observe_retires_session_wake() {
+    let data_dir = temp_data_dir("abandoned-declaration");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("abandoned-session".into());
+    let client_id = ClientId("abandoned-client".into());
+    let subscription_id = SubscriptionId("abandoned-sub".into());
+    daemon
+        .spawn(short_lived_spawn_request(&session_id), 1)
+        .expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    daemon
+        .detach(client_id, session_id.clone(), subscription_id, 4)
+        .expect("unsubscribe before bind");
+    daemon
+        .observe_session_lifecycle(&session_id, 5)
+        .expect("observe after unsubscribe");
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn observe_does_not_try_write_a_blocked_bound_adapter() {
+    let data_dir = temp_data_dir("observe-block-writes");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    adapter.block_writes();
+    let (session_id, _, _) =
+        bind_short_lived_session(&mut daemon, "observe-block-writes", adapter.clone());
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    let before = adapter.try_write_count();
+    daemon
+        .observe_session_lifecycle(&session_id, 4)
+        .expect("observe blocked adapter");
+    assert_eq!(adapter.try_write_count(), before);
+    assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     let _ = fs::remove_dir_all(data_dir);
 }
 

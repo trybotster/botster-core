@@ -1342,6 +1342,30 @@ where
             .adapter_is_bound(session_id, subscription_id)
     }
 
+    /// Take session ids whose bound Ready queues grew since the last take.
+    #[must_use]
+    pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
+        self.client_worker.take_bound_queue_wake_sessions()
+    }
+
+    /// Whether any live owner still holds undelivered frames for this session.
+    #[must_use]
+    pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
+        self.client_worker
+            .session_has_undelivered_frames(session_id)
+    }
+
+    /// Whether the bound owner still holds frames that the next pump must flush.
+    #[must_use]
+    pub fn bound_owner_has_held_frames(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.client_worker
+            .bound_owner_has_held_frames(session_id, subscription_id)
+    }
+
     pub(crate) fn capture_parent_snapshot(
         &mut self,
         session_id: &SessionId,
@@ -1644,6 +1668,7 @@ where
         self.pending_input_teardowns = foreign_teardowns;
         teardowns.splice(0..0, owned_teardowns);
         self.unsubscribe_owner_teardowns(&mut outcome, &mut teardowns)?;
+        let _ = self.client_worker.take_bound_queue_wake_sessions();
         Ok(outcome)
     }
 
