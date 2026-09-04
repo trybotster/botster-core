@@ -1125,6 +1125,11 @@ impl WorkerProcessRuntime {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_has_session(&self, session_id: &SessionId) -> bool {
+        self.sessions.contains_key(session_id)
+    }
+
     /// Parent wait bound reused by pending ingress resize deadlines.
     #[must_use]
     pub fn mode_gated_input_timeout(&self) -> Duration {

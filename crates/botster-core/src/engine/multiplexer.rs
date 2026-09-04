@@ -935,6 +935,15 @@ where
         self.apply_activity(session_id, SessionActivityEvent::Lifecycle { state })
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_set_lifecycle(
+        &mut self,
+        session_id: SessionId,
+        state: SessionLifecycleState,
+    ) -> Result<(), MultiplexerEngineError> {
+        self.apply_lifecycle(session_id, state)
+    }
+
     fn ensure_session(
         &self,
         session_id: &SessionId,
