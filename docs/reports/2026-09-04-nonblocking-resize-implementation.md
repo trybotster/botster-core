@@ -156,10 +156,24 @@ Green after removing the ablation:
 
 `reconcile_terminal_resize_acknowledgments` inspects `ManagedSessionRuntime::session` lifecycle. It does not read the host registry. If the engine session is `Stopping` or `Exited`, pending entries are cleared and `fail_expired_pending_resize` is skipped so undelivered `ProcessExited` can still reach the bound route.
 
-New test: `expired_pending_resize_does_not_drop_undelivered_process_exit`.
+Daemon test `expired_pending_resize_on_exited_session_still_delivers_process_exit` proves delivery after exit. Exit drain removes the worker map entry, so that test hits `take_resize_applied` `SessionNotFound`, not the Stopping/Exited guard.
 
-- Exit status: 0
-- `1 passed` in 1.29s
+The guard is proven by unit test `expired_pending_resize_skips_control_failure_when_engine_is_exited_and_worker_remains`. It keeps the worker entry, forces engine `Exited`, inserts an expired pending resize, and calls the production reconcile path.
+
+Red, only the production guard ablated (`fail_expired_pending_resize` unconditional):
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core --lib expired_pending_resize_skips_control_failure -- --nocapture
+```
+
+- Exit status: 101
+- Duration: 3.85s after compile
+- Panic: `managed_session_runtime.rs:3256`
+- Assertion: control plane must not be `Failed(ResizeAckTimeout)`
+- Worker map entry was still present (the SessionNotFound assertion did not fire)
+- Raw log: `/Users/jasonconigliari/Library/Application Support/rtk/tee/1788566219_cargo_test.log`
+
+Green after restoring the guard: `1 passed` in 5.31s, exit 0. Delivery test: `1 passed` in 2.17s, exit 0.
 
 ### 3. Teardown versus held acknowledgement
 
@@ -185,6 +199,8 @@ The teardown test therefore releases first, then shuts down. That proves pending
 Passing suite log: `/Users/jasonconigliari/.grok/sessions/%2FUsers%2Fjasonconigliari%2Fbotster-sessions%2Ftrybotster-botster-core-foundation-nonblocking-resize/01a06ea1-6567-7b11-892c-9cb1bf388272/terminal/call-bf2c5f0e-94d7-4d8b-9018-1be6def7b981-315.log`. RTK tee files in this window captured failing runs; passing counts above are from those command exits.
 
 Workspace and doctest gates were not repeated. The follow-up did not change production behavior outside expiry skip and tests.
+
+Guard-test correction after Fable `cd05fea`: fmt check and Clippy `-D warnings` exit 0. Focused unit and delivery tests as above. No Hub edits.
 
 ## Review freeze
 

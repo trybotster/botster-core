@@ -2581,7 +2581,12 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
 
 #[cfg(unix)]
 #[test]
-fn expired_pending_resize_does_not_drop_undelivered_process_exit() {
+fn expired_pending_resize_on_exited_session_still_delivers_process_exit() {
+    // Exit drain removes the worker map entry before reconcile. This test
+    // covers ProcessExited delivery through the SessionNotFound pending-clear
+    // branch, not the Stopping/Exited guard that runs after take_resize_applied
+    // returns Ok. That guard is proven in
+    // managed_session_runtime::tests::expired_pending_resize_guard.
     let data_dir = temp_data_dir("expired-resize-exit-delivery");
     let acknowledgment_timeout = Duration::from_millis(300);
     let session_id = SessionId("expired-resize-exit-session".into());

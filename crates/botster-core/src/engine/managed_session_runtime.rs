@@ -1027,6 +1027,63 @@ where
             .unwrap_or(0)
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_set_lifecycle(
+        &mut self,
+        session_id: SessionId,
+        state: SessionLifecycleState,
+    ) -> Result<(), MultiplexerEngineError> {
+        self.engine.test_set_lifecycle(session_id, state)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_insert_expired_pending_resize(&mut self, session_id: SessionId) {
+        self.pending_terminal_resizes
+            .entry(session_id)
+            .or_default()
+            .push_back(PendingTerminalResize {
+                rows: 31,
+                cols: 101,
+                applied_at: 0,
+                deadline: Instant::now()
+                    .checked_sub(Duration::from_secs(1))
+                    .unwrap_or_else(Instant::now),
+            });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_pending_input_teardown_count(&self) -> usize {
+        self.pending_input_teardowns.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_bind_owner(
+        &mut self,
+        client_id: ClientId,
+        session_id: SessionId,
+        subscription_id: SubscriptionId,
+        adapter: Box<dyn WakingTerminalAdapter + Send>,
+    ) -> Result<(), BindTerminalAdapterError> {
+        let (_, teardowns) = self.client_worker.record_attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        );
+        self.pending_input_teardowns.extend(teardowns);
+        let generation = self
+            .client_worker
+            .live_generation(&session_id, &subscription_id)
+            .expect("record_attach installs a live generation");
+        self.bind_waking_terminal_adapter(
+            client_id,
+            session_id,
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            adapter,
+        )
+    }
+
     fn acknowledge_terminal_resize(&mut self, session_id: &SessionId, size: &ResizePayload) {
         let Some(pending) = self.pending_terminal_resizes.get_mut(session_id) else {
             return;
@@ -3076,5 +3133,140 @@ mod tests {
             runtime.session_runtime().delivered,
             vec![shutdown, retained_other]
         );
+    }
+
+    #[cfg(all(unix, feature = "local-runtime"))]
+    mod expired_pending_resize_guard {
+        use super::*;
+        use crate::contract::terminal_adapter::{
+            TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+        };
+        use crate::contract::terminal_wake::TerminalWakeSink;
+        use crate::runtime::ControlWriterError;
+        use crate::{SpawnEnvironment, SpawnWorkingDirectory};
+        use botster_terminal_protocol::TerminalFrame;
+        use std::process::Command;
+        use std::sync::Once;
+
+        fn worker_path() -> std::path::PathBuf {
+            static BUILD_WORKER: Once = Once::new();
+            BUILD_WORKER.call_once(|| {
+                let status = Command::new("cargo")
+                    .args([
+                        "build",
+                        "-p",
+                        "botster-core-daemon",
+                        "--bin",
+                        "botster-session-worker",
+                    ])
+                    .status()
+                    .expect("worker binary build command should run");
+                assert!(status.success(), "worker binary should build");
+            });
+            let mut path = std::env::current_exe().expect("test executable path");
+            while !matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("debug" | "release")
+            ) {
+                assert!(path.pop(), "test executable must be under target");
+            }
+            path.join("botster-session-worker")
+        }
+
+        struct QuietAdapter;
+
+        impl TerminalAdapter for QuietAdapter {
+            fn try_write(
+                &mut self,
+                _frame: &TerminalFrame,
+            ) -> Result<(), TerminalAdapterWriteError> {
+                Ok(())
+            }
+
+            fn close(&mut self) {}
+
+            fn pressure(&self) -> TerminalAdapterPressure {
+                TerminalAdapterPressure::Ready
+            }
+
+            fn try_read(&mut self) -> TerminalIngress {
+                TerminalIngress::Empty
+            }
+        }
+
+        impl crate::contract::terminal_wake::WakingTerminalAdapter for QuietAdapter {
+            fn set_wake_sink(&mut self, _sink: TerminalWakeSink) {}
+        }
+
+        #[test]
+        fn expired_pending_resize_skips_control_failure_when_engine_is_exited_and_worker_remains() {
+            let session_id = SessionId("guard-exited-pending-resize".into());
+            let mut runtime = ManagedSessionRuntime::with_worker_process(worker_path());
+            runtime
+                .spawn_session(
+                    SessionSpawnRequest {
+                        request_id: RequestId("guard-exited-pending-resize-spawn".into()),
+                        session_id: session_id.clone(),
+                        executable: "sh".to_string(),
+                        arguments: vec!["-c".to_string(), "printf ready; sleep 30".to_string()],
+                        working_directory: SpawnWorkingDirectory {
+                            path: ".".to_string(),
+                        },
+                        environment: SpawnEnvironment::default(),
+                        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                    },
+                    CoreSessionMetadata::new(),
+                )
+                .expect("spawn worker session");
+            runtime
+                .test_bind_owner(
+                    ClientId("guard-exited-pending-resize-client".into()),
+                    session_id.clone(),
+                    SubscriptionId("guard-exited-pending-resize-sub".into()),
+                    Box::new(QuietAdapter),
+                )
+                .expect("bind owner");
+            assert!(
+                runtime.session_runtime().test_has_session(&session_id),
+                "worker map entry must remain so take_resize_applied returns Ok"
+            );
+            runtime.test_insert_expired_pending_resize(session_id.clone());
+            runtime
+                .test_set_lifecycle(
+                    session_id.clone(),
+                    SessionLifecycleState::Exited { code: Some(0) },
+                )
+                .expect("force engine Exited while the worker entry remains");
+            assert!(matches!(
+                runtime
+                    .session(&session_id)
+                    .map(|session| &session.lifecycle),
+                Some(SessionLifecycleState::Exited { .. })
+            ));
+            assert_eq!(runtime.pending_terminal_resize_len(&session_id), 1);
+            assert_eq!(runtime.test_pending_input_teardown_count(), 0);
+
+            let mut named = HashSet::new();
+            named.insert(session_id.clone());
+            runtime
+                .reconcile_terminal_resize_acknowledgments(&named)
+                .expect("reconcile expired pending against an exited engine session");
+
+            assert!(
+                runtime.session_runtime().test_has_session(&session_id),
+                "guard test must not go through SessionNotFound"
+            );
+            assert_eq!(runtime.pending_terminal_resize_len(&session_id), 0);
+            assert!(!matches!(
+                runtime.control_plane_state(&session_id),
+                ControlPlaneState::Failed(ControlWriterError::ResizeAckTimeout)
+            ));
+            assert_eq!(runtime.test_pending_input_teardown_count(), 0);
+            assert!(runtime.adapter_is_bound(
+                &session_id,
+                &SubscriptionId("guard-exited-pending-resize-sub".into())
+            ));
+            let _ = runtime.shutdown_session(session_id, "test cleanup", 1);
+        }
     }
 }
