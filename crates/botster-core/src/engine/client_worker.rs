@@ -405,8 +405,10 @@ impl ClientWorker {
 
     /// Take session ids whose bound Ready queues grew since the last take.
     ///
-    /// Non-pump drains notify these sessions. Pump paths discard the set so
-    /// pump-time ingest cannot enqueue a second ingress wake.
+    /// The set records new queue growth only. A later non-pump drain does
+    /// not re-arm a session whose frames already sit in `held`, `queue`, or
+    /// in flight. Non-pump drains notify these sessions. Pump paths discard
+    /// the set so pump-time ingest cannot enqueue a second ingress wake.
     #[must_use]
     pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
         std::mem::take(&mut self.bound_queue_wake_sessions)

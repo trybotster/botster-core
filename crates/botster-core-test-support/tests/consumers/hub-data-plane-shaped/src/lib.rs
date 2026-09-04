@@ -201,12 +201,12 @@ mod tests {
             .expect("bind waking adapter");
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let _ = daemon.wait_pump(Duration::ZERO);
         loop {
             assert!(
                 std::time::Instant::now() < deadline,
                 "observe slice did not commit Exited"
             );
-            let _ = daemon.wait_pump(Duration::ZERO);
             daemon
                 .observe_lifecycle_slice(
                     3,
