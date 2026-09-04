@@ -2681,10 +2681,10 @@ fn spawn_stdout_reader(
                 _ => {}
             }
         }
-        notify_session_wake(&wake_handle);
         if let Ok(mut state) = completion.lock() {
             state.reader_finished = true;
         }
+        notify_session_wake(&wake_handle);
     });
 }
 
