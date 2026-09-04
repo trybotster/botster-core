@@ -820,6 +820,13 @@ impl ClientWorker {
             .is_some_and(|owner| !owner.input_queue.is_empty())
     }
 
+    /// Peek the owner's next Stage B command without removing it.
+    pub(crate) fn terminal_input_head(&self, key: &OwnerKey) -> Option<&TerminalInputOperation> {
+        self.live
+            .get(key)
+            .and_then(|owner| owner.input_queue.front())
+    }
+
     /// Hard-stop one exact owner selected by the targeted apply path.
     pub(crate) fn hard_stop_owner(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
         self.hard_stop_key(key)

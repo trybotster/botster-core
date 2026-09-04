@@ -21,7 +21,7 @@ use botster_core::{
     BindTerminalAdapterError, BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession,
     DefaultBotsterEngine, DefaultBotsterEngineError, DetachTerminalSubscriptionResult, EnvelopeId,
     EnvelopeTarget, ModeFlags, ModeFlagsReady, ModeFreshnessToken, ModeGatedPtyInputResult,
-    NotificationId, NotificationInbox, QueueSource, RequestId, ResizePayload,
+    NotificationId, NotificationInbox, QueueSource, RequestId, ResizeAckHold, ResizePayload,
     RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
     SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
     SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalCapabilitySet,
@@ -116,6 +116,8 @@ pub struct CoreDaemonConfig {
     pub test_fail_snapshot_history_after_ready: bool,
     /// Test-only: omit worker resize acknowledgments after successful application.
     pub test_omit_resize_applied: bool,
+    /// Test-only: hold parent-side resize acknowledgements for one worker session.
+    pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -158,6 +160,7 @@ impl CoreDaemonConfig {
             test_worker_egress_capacity: None,
             test_fail_snapshot_history_after_ready: false,
             test_omit_resize_applied: false,
+            test_resize_ack_hold: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             test_fail_runtime_drain_for: None,
@@ -393,6 +396,9 @@ pub enum CoreDaemonError {
     /// Wake pump lifecycle error.
     #[error(transparent)]
     WakePump(#[from] WakePumpError),
+    /// Explicit resize is rejected while ingress resizes remain pending.
+    #[error("explicit resize busy: pending ingress resize for session {0:?}")]
+    ExplicitResizeBusy(SessionId),
 }
 
 /// One session's retained error from a control-plane observe tick.
@@ -534,6 +540,7 @@ impl CoreDaemon {
                 options.test_fail_snapshot_history_after_ready =
                     config.test_fail_snapshot_history_after_ready;
                 options.test_omit_resize_applied = config.test_omit_resize_applied;
+                options.test_resize_ack_hold = config.test_resize_ack_hold.clone();
                 options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
                 options.test_exit_code = config.test_exit_code;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
@@ -1117,6 +1124,23 @@ impl CoreDaemon {
         self.engine.wait_wakes(timeout)
     }
 
+    /// Number of accepted-but-unacknowledged ingress resizes for one session.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pending_terminal_resize_len(&self, session_id: &SessionId) -> usize {
+        self.engine.pending_terminal_resize_len(session_id)
+    }
+
+    /// Durable control-plane state for one worker session.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn control_plane_state(
+        &self,
+        session_id: &SessionId,
+    ) -> botster_core::runtime::ControlPlaneState {
+        self.engine.control_plane_state(session_id)
+    }
+
     /// Mark this daemon as pump-hosted and return its thread-safe control.
     ///
     /// The returned handle has no daemon access. Only the daemon owner thread
@@ -1176,12 +1200,18 @@ impl CoreDaemon {
         }
 
         match waited {
-            TerminalWakeWait::Wakes(batch) => WakePumpWait::Wakes(batch),
-            TerminalWakeWait::Interrupted => WakePumpWait::Interrupted,
-            TerminalWakeWait::TimedOut => {
-                WakePumpWait::Wakes(self.engine.expired_paste_wake_batch(Instant::now()))
+            TerminalWakeWait::Wakes(batch) => {
+                WakePumpWait::Wakes(self.engine.merge_deadline_wakes(batch))
             }
-            _ => WakePumpWait::Wakes(TerminalWakeBatch::default()),
+            TerminalWakeWait::Interrupted => WakePumpWait::Interrupted,
+            TerminalWakeWait::TimedOut => WakePumpWait::Wakes(
+                self.engine
+                    .merge_deadline_wakes(TerminalWakeBatch::default()),
+            ),
+            _ => WakePumpWait::Wakes(
+                self.engine
+                    .merge_deadline_wakes(TerminalWakeBatch::default()),
+            ),
         }
     }
 
@@ -1271,14 +1301,6 @@ impl CoreDaemon {
         }
 
         for (session_id, result) in pumped_results {
-            if let Err(error) = self.engine.complete_pending_terminal_resize(&session_id) {
-                self.record_terminal_obligations(&result.observations);
-                self.record_terminal_commit_failure(&session_id, None);
-                self.retain_pending_drain_result(&session_id, result);
-                first_error.get_or_insert_with(|| error.into());
-                continue;
-            }
-
             if self
                 .config
                 .test_fail_runtime_drain_for
@@ -1432,6 +1454,9 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session_mutable(&session_id)?;
+        if self.engine.has_pending_terminal_resizes(&session_id) {
+            return Err(CoreDaemonError::ExplicitResizeBusy(session_id));
+        }
         let resize_is_queued = self.engine.incremental_attach_active(&session_id);
         self.engine
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
@@ -3697,10 +3722,34 @@ impl DaemonEngine {
         }
     }
 
-    fn expired_paste_wake_batch(&self, now: Instant) -> TerminalWakeBatch {
+    fn merge_deadline_wakes(&self, batch: TerminalWakeBatch) -> TerminalWakeBatch {
         match self {
-            Self::Local(engine) => engine.expired_paste_wake_batch(now),
-            Self::Worker(engine) => engine.expired_paste_wake_batch(now),
+            Self::Local(engine) => engine.merge_deadline_wakes(batch),
+            Self::Worker(engine) => engine.merge_deadline_wakes(batch),
+        }
+    }
+
+    fn has_pending_terminal_resizes(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(engine) => engine.has_pending_terminal_resizes(session_id),
+            Self::Worker(engine) => engine.has_pending_terminal_resizes(session_id),
+        }
+    }
+
+    fn pending_terminal_resize_len(&self, session_id: &SessionId) -> usize {
+        match self {
+            Self::Local(engine) => engine.pending_terminal_resize_len(session_id),
+            Self::Worker(engine) => engine.pending_terminal_resize_len(session_id),
+        }
+    }
+
+    fn control_plane_state(
+        &self,
+        session_id: &SessionId,
+    ) -> botster_core::runtime::ControlPlaneState {
+        match self {
+            Self::Local(_) => botster_core::runtime::ControlPlaneState::Live,
+            Self::Worker(engine) => engine.control_plane_state(session_id),
         }
     }
 
@@ -3892,16 +3941,6 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.take_applied_terminal_resize(session_id),
             Self::Worker(engine) => engine.take_applied_terminal_resize(session_id),
-        }
-    }
-
-    fn complete_pending_terminal_resize(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), DefaultBotsterEngineError> {
-        match self {
-            Self::Local(_) => Ok(()),
-            Self::Worker(engine) => engine.complete_pending_terminal_resize(session_id),
         }
     }
 

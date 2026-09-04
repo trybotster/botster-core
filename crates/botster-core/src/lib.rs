@@ -140,7 +140,7 @@ pub use runtime::{
 pub use runtime::{
     ControlPlaneState, ControlWriterError, ControlWriterOutcome, GatedPoll, GatedRequestId,
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
-    WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    ResizeAckHold, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
     DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_PTY_READER_CHUNK_CAPACITY,
     DEFAULT_WORKER_EGRESS_CAPACITY,
 };

@@ -534,16 +534,22 @@ impl DefaultBotsterEngine {
         self.runtime.wait_wakes(timeout)
     }
 
-    /// Clamp a host wait to the earliest paste assembly deadline.
+    /// Clamp a host wait to the earliest paste or pending-resize deadline.
     #[must_use]
     pub fn clamp_paste_wait(&self, timeout: std::time::Duration) -> std::time::Duration {
         self.runtime.clamp_paste_wait(timeout)
     }
 
-    /// Return exact routes with expired paste assemblies.
+    /// Return exact routes with expired paste assemblies and pending resizes.
     #[must_use]
     pub fn expired_paste_wake_batch(&self, now: std::time::Instant) -> TerminalWakeBatch {
         self.runtime.expired_paste_wake_batch(now)
+    }
+
+    /// Merge expired paste and pending-resize sessions into a returned wake batch.
+    #[must_use]
+    pub fn merge_deadline_wakes(&self, batch: TerminalWakeBatch) -> TerminalWakeBatch {
+        self.runtime.merge_deadline_wakes(batch)
     }
 
     /// Targeted pump of woken routes.
@@ -567,6 +573,18 @@ impl DefaultBotsterEngine {
         session_id: &SessionId,
     ) -> Option<(u16, u16, u64)> {
         self.runtime.take_applied_terminal_resize(session_id)
+    }
+
+    /// Whether this session has accepted ingress resizes awaiting acknowledgement.
+    #[must_use]
+    pub fn has_pending_terminal_resizes(&self, session_id: &SessionId) -> bool {
+        self.runtime.has_pending_terminal_resizes(session_id)
+    }
+
+    /// Number of accepted-but-unacknowledged ingress resizes for one session.
+    #[must_use]
+    pub fn pending_terminal_resize_len(&self, session_id: &SessionId) -> usize {
+        self.runtime.pending_terminal_resize_len(session_id)
     }
 
     /// Shared wake source for tests and host wait loops.
@@ -1188,16 +1206,22 @@ impl WorkerBackedBotsterEngine {
         self.runtime.wait_wakes(timeout)
     }
 
-    /// Clamp a host wait to the earliest paste assembly deadline.
+    /// Clamp a host wait to the earliest paste or pending-resize deadline.
     #[must_use]
     pub fn clamp_paste_wait(&self, timeout: std::time::Duration) -> std::time::Duration {
         self.runtime.clamp_paste_wait(timeout)
     }
 
-    /// Return exact routes with expired paste assemblies.
+    /// Return exact routes with expired paste assemblies and pending resizes.
     #[must_use]
     pub fn expired_paste_wake_batch(&self, now: std::time::Instant) -> TerminalWakeBatch {
         self.runtime.expired_paste_wake_batch(now)
+    }
+
+    /// Merge expired paste and pending-resize sessions into a returned wake batch.
+    #[must_use]
+    pub fn merge_deadline_wakes(&self, batch: TerminalWakeBatch) -> TerminalWakeBatch {
+        self.runtime.merge_deadline_wakes(batch)
     }
 
     /// Targeted pump of woken routes.
@@ -1234,13 +1258,16 @@ impl WorkerBackedBotsterEngine {
         self.runtime.take_applied_terminal_resize(session_id)
     }
 
-    /// Wait for the worker to confirm the oldest targeted resize for one session.
-    #[doc(hidden)]
-    pub fn complete_pending_terminal_resize(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), WorkerBackedBotsterEngineError> {
-        self.runtime.complete_pending_terminal_resize(session_id)
+    /// Whether this session has accepted ingress resizes awaiting acknowledgement.
+    #[must_use]
+    pub fn has_pending_terminal_resizes(&self, session_id: &SessionId) -> bool {
+        self.runtime.has_pending_terminal_resizes(session_id)
+    }
+
+    /// Number of accepted-but-unacknowledged ingress resizes for one session.
+    #[must_use]
+    pub fn pending_terminal_resize_len(&self, session_id: &SessionId) -> usize {
+        self.runtime.pending_terminal_resize_len(session_id)
     }
 
     /// Shared wake source for tests and host wait loops.

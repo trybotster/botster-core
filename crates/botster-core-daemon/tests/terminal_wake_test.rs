@@ -5,6 +5,8 @@ use std::process::Command;
 use std::sync::{mpsc, Once};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use botster_core::engine::managed_session_runtime::PENDING_INGRESS_RESIZE_CAP;
+use botster_core::runtime::{ControlPlaneState, ControlWriterError};
 use botster_core::terminal_adapter::TerminalAdapterPressure;
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
@@ -14,8 +16,9 @@ use botster_core::{
 use botster_core_daemon::{
     CaptureColorAndSnapshotRequest, CaptureSnapshotRequest, CoreDaemon, CoreDaemonConfig,
     CoreDaemonError, LifecycleBaselineBudget, ObserveLifecycleBudget, ReadModeFlagsRequest,
-    ReadScreenRequest, RegistrySessionState, SessionLifecycleChangeKind, SessionLifecycleLookup,
-    SessionRegistryStateLookup, SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
+    ReadScreenRequest, RegistrySessionState, ResizeAckHold, SessionLifecycleChangeKind,
+    SessionLifecycleLookup, SessionRegistryStateLookup, SpawnSessionRequest, WakePumpControl,
+    WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -131,6 +134,58 @@ fn bind_size_reporting_worker(
 }
 
 #[cfg(unix)]
+fn wait_session_ingress_wake(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    tick: u64,
+) -> TerminalWakeBatch {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "missing resize-completion session wake"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(20));
+        if batch.ingress_sessions.contains(session_id) {
+            return batch;
+        }
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            continue;
+        }
+        daemon
+            .pump_woken(&batch, tick)
+            .expect("pump leftover wake while waiting for resize completion");
+    }
+}
+
+fn pump_until_registry_size(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    rows: u16,
+    cols: u16,
+    tick: u64,
+) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let record = daemon
+            .registry()
+            .load(session_id)
+            .expect("registry load")
+            .expect("registry record");
+        if record.rows == rows && record.cols == cols {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "registry geometry did not follow acknowledgement"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, tick)
+            .expect("pump resize completion");
+    }
+}
+
 fn pump_until_encoded_output(
     daemon: &mut CoreDaemon,
     adapter: &SharedFakeTerminalAdapter,
@@ -843,6 +898,10 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
             "each result must identify the live owner"
         );
     }
+    let completion = wait_session_ingress_wake(&mut daemon, &session_id, 3);
+    daemon
+        .pump_woken(&completion, 3)
+        .expect("pump mixed-batch resize completion");
     let record = daemon
         .registry()
         .load(&session_id)
@@ -995,18 +1054,28 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
         .load(&session_id)
         .expect("load resized worker")
         .expect("worker registry record");
-    assert_eq!((record.rows, record.cols), (31, 91));
+    assert_eq!(
+        (record.rows, record.cols),
+        (24, 80),
+        "registry geometry follows the completion wake, not accept"
+    );
     assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
         row.session_id == session_id
             && row.subscription_id == subscription_id
             && row.generation == generation
     }));
 
-    let retained = daemon.wait_wakes(Duration::ZERO);
+    let retained = wait_session_ingress_wake(&mut daemon, &session_id, 3);
     assert_eq!(retained.ingress_sessions, vec![session_id.clone()]);
     daemon
         .pump_woken(&retained, 4)
         .expect("pump retained resize-completion wake");
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resized worker after completion")
+        .expect("worker registry record after completion");
+    assert_eq!((record.rows, record.cols), (31, 91));
     assert!(!adapter
         .snapshot_delivered_frame_bytes()
         .iter()
@@ -1213,16 +1282,24 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             "each result must identify the live owner"
         );
     }
-    let record = daemon
-        .registry()
-        .load(&session_id)
-        .expect("load resized worker")
-        .expect("worker registry record");
-    assert_eq!((record.rows, record.cols), (31, 91));
 
     if !retained_resize_wake_observed {
-        let WakePumpWait::Wakes(retained) = daemon.wait_pump(Duration::ZERO) else {
-            panic!("uncontrolled wake pump must return the retained wake");
+        let retained_deadline = Instant::now() + Duration::from_secs(1);
+        let retained = loop {
+            assert!(
+                Instant::now() < retained_deadline,
+                "missing one-slot resize-completion session wake"
+            );
+            let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_millis(20)) else {
+                panic!("uncontrolled wake pump must return the retained wake");
+            };
+            if batch.ingress_sessions.contains(&session_id) {
+                break batch;
+            }
+            assert!(
+                batch.adapter_routes.is_empty(),
+                "unexpected adapter wake while waiting for one-slot completion: {batch:?}"
+            );
         };
         assert!(retained.adapter_routes.is_empty());
         assert_eq!(retained.ingress_sessions, vec![session_id.clone()]);
@@ -1240,6 +1317,12 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
                 == Some("ZWNobzpTQ1JBVENIDQo=")));
     }
     assert!(retained_resize_wake_observed);
+    let record = daemon
+        .registry()
+        .load(&session_id)
+        .expect("load resized worker")
+        .expect("worker registry record");
+    assert_eq!((record.rows, record.cols), (31, 91));
 
     let WakePumpWait::Wakes(echo) = daemon.wait_pump(Duration::from_secs(5)) else {
         panic!("uncontrolled wake pump must return the echo wake");
@@ -1857,6 +1940,7 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
         .pump_woken(&resize_batch, 3)
         .expect("resize apply tick");
     assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
+    pump_until_registry_size(&mut daemon, &session_id, 31, 91, 3);
     let record = daemon
         .registry()
         .load(&session_id)
@@ -1936,6 +2020,7 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
         .expect("resize named worker");
     assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
     assert_eq!(delivered_input_result_count(&adapter_b, "resize"), 0);
+    pump_until_registry_size(&mut daemon, &session_a, 31, 101, 3);
 
     let record_a = daemon
         .registry()
@@ -1985,11 +2070,106 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+struct ReleaseResizeAckHoldOnDrop(ResizeAckHold);
+
+impl Drop for ReleaseResizeAckHoldOnDrop {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn delayed_sibling_arrival_progresses_while_resize_acknowledgement_is_held() {
+    let data_dir = temp_data_dir("delayed-sibling-resize");
+    let acknowledgment_timeout = Duration::from_secs(2);
+    let liveness_bound = Duration::from_millis(400);
+    let session_a = SessionId("a-held-resize-session".into());
+    let hold = ResizeAckHold::for_session(session_a.clone());
+    let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
+    let mut config = CoreDaemonConfig::new(&data_dir)
+        .with_worker_path(worker_path())
+        .with_mode_gated_input_timeout(acknowledgment_timeout);
+    config.test_resize_ack_hold = Some(hold.clone());
+    let mut daemon = CoreDaemon::new(config);
+    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-held-resize");
+    assert_eq!(bound_a, session_a);
+    let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "z-live-sibling");
+    hold.arm();
+    let record_b = daemon
+        .registry()
+        .load(&session_b)
+        .expect("load B")
+        .expect("record B");
+    assert_eq!((record_b.rows, record_b.cols), (24, 80));
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert!(
+        resize_batch
+            .adapter_routes
+            .iter()
+            .any(|route| route.session_id == session_a),
+        "A's resize must produce an adapter wake before the held acknowledgement"
+    );
+    let pump_started = Instant::now();
+    let resize_pump = daemon.pump_woken(&resize_batch, 3);
+    assert!(
+        pump_started.elapsed() < liveness_bound,
+        "session A resize pump did not return while its acknowledgement remained held"
+    );
+    resize_pump.expect("held resize acknowledgement must not block the pump");
+    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
+    let record_a = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load A")
+        .expect("record A");
+    assert_eq!(
+        (record_a.rows, record_a.cols),
+        (24, 80),
+        "registry must keep last confirmed geometry until acknowledgement"
+    );
+
+    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
+    let input_b = daemon.wait_wakes(liveness_bound);
+    daemon
+        .pump_woken(&input_b, 4)
+        .expect("B input must apply while A's acknowledgement is held");
+    assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
+    pump_until_encoded_output(&mut daemon, &adapter_b, "MjQgODANCg==", 5);
+    assert!(
+        pump_started.elapsed() < acknowledgment_timeout,
+        "B echo must arrive before A's resize deadline"
+    );
+
+    hold.release();
+    let completion = wait_session_ingress_wake(&mut daemon, &session_a, 6);
+    daemon
+        .pump_woken(&completion, 6)
+        .expect("pump A's completion wake");
+    let record_a = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load A after ack")
+        .expect("record A after ack");
+    assert_eq!((record_a.rows, record_a.cols), (31, 101));
+
+    adapter_a.inject_ingress_frame(compact_input_frame(b"report-a\n"));
+    let later_a = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&later_a, 7)
+        .expect("later A input after completion");
+    pump_until_encoded_output(&mut daemon, &adapter_a, "MzEgMTAxDQo=", 8);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
     let data_dir = temp_data_dir("pump-resize-stalled-sibling");
-    let acknowledgment_timeout = Duration::from_secs(1);
+    let acknowledgment_timeout = Duration::from_millis(400);
     let mut config = CoreDaemonConfig::new(&data_dir)
         .with_worker_path(worker_path())
         .with_mode_gated_input_timeout(acknowledgment_timeout);
@@ -1997,56 +2177,302 @@ fn stalled_resize_acknowledgment_does_not_block_a_later_named_sibling() {
     let mut daemon = CoreDaemon::new(config);
     let (session_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-stalled-resize");
     let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "z-live-input");
+    assert_ne!(session_a, session_b);
 
     adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
-    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
-    let batch = daemon.wait_wakes(Duration::from_secs(1));
-    assert_eq!(batch.adapter_routes.len(), 2);
-
-    let observer_started = Instant::now();
-    let observed_adapter = adapter_b.clone();
-    let (observed_tx, observed_rx) = mpsc::sync_channel(1);
-    let observer = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            assert!(Instant::now() < deadline, "sibling input was not delivered");
-            if delivered_input_result_count(&observed_adapter, "input") == 1 {
-                observed_tx
-                    .send(observer_started.elapsed())
-                    .expect("send sibling delivery time");
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    });
-    let error = daemon
-        .pump_woken(&batch, 3)
-        .expect_err("missing resize acknowledgment must fail");
-    let sibling_delivery_elapsed = observed_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("receive sibling delivery time");
-    observer.join().expect("sibling delivery observer");
-    assert!(
-        error
-            .to_string()
-            .contains("resize acknowledgment timed out"),
-        "unexpected error: {error}"
-    );
-    assert!(
-        sibling_delivery_elapsed < acknowledgment_timeout,
-        "sibling input arrived after the resize acknowledgment wait: {sibling_delivery_elapsed:?}"
-    );
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&resize_batch, 3)
+        .expect("omitted acknowledgement must not block the accept pump");
     assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
-    assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
 
-    let sibling_wake = daemon.wait_wakes(Duration::from_secs(1));
-    assert!(sibling_wake.ingress_sessions.contains(&session_b));
+    let deadline = Instant::now() + acknowledgment_timeout + Duration::from_millis(400);
+    let mut b_inputs = 0_u32;
+    while Instant::now() < deadline
+        || !matches!(
+            daemon.control_plane_state(&session_a),
+            ControlPlaneState::Failed(ControlWriterError::ResizeAckTimeout)
+        )
+    {
+        b_inputs += 1;
+        adapter_b.inject_ingress_frame(compact_input_frame(format!("b{b_inputs}\n").as_bytes()));
+        let batch = daemon.wait_wakes(Duration::from_millis(50));
+        assert!(
+            !batch.ingress_sessions.is_empty() || !batch.adapter_routes.is_empty(),
+            "sibling traffic or A's deadline must keep producing wakes"
+        );
+        daemon
+            .pump_woken(&batch, 4)
+            .expect("sibling traffic must not return a pump error at A's deadline");
+        if matches!(
+            daemon.control_plane_state(&session_a),
+            ControlPlaneState::Failed(ControlWriterError::ResizeAckTimeout)
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "A's resize deadline did not fail the session under sibling traffic"
+        );
+    }
+    assert!(
+        delivered_input_result_count(&adapter_b, "input") >= 1,
+        "B must remain live across A's deadline"
+    );
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
     let stalled_record = daemon
         .registry()
         .load(&session_a)
         .expect("load stalled record")
         .expect("stalled record");
     assert_eq!((stalled_record.rows, stalled_record.cols), (24, 80));
+
+    adapter_b.inject_ingress_frame(compact_input_frame(b"after-a-failed\n"));
+    let after = daemon.wait_wakes(Duration::from_secs(1));
+    assert!(
+        !after.ingress_sessions.contains(&session_a),
+        "deadline wakes must stop after pending state is removed, got {after:?}"
+    );
+    daemon
+        .pump_woken(&after, 5)
+        .expect("B remains live after A's control-plane failure");
+    assert!(delivered_input_result_count(&adapter_b, "input") >= 2);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
+    let data_dir = temp_data_dir("pending-resize-cap");
+    let session_a = SessionId("a-cap-resize-session".into());
+    let hold = ResizeAckHold::for_session(session_a.clone());
+    let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
+    let mut config = CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path());
+    config.test_resize_ack_hold = Some(hold.clone());
+    let mut daemon = CoreDaemon::new(config);
+    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-cap-resize");
+    assert_eq!(bound_a, session_a);
+    hold.arm();
+
+    let first_batch = 16;
+    assert!(first_batch < PENDING_INGRESS_RESIZE_CAP);
+    for _ in 0..first_batch {
+        adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    }
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&wake, 3)
+        .expect("accept first resize batch");
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), first_batch);
+
+    for _ in 0..(PENDING_INGRESS_RESIZE_CAP - first_batch) {
+        adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    }
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&wake, 4).expect("fill pending cap");
+    assert_eq!(
+        daemon.pending_terminal_resize_len(&session_a),
+        PENDING_INGRESS_RESIZE_CAP
+    );
+    assert_eq!(
+        delivered_input_result_count(&adapter_a, "resize"),
+        PENDING_INGRESS_RESIZE_CAP
+    );
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(32, 102));
+    adapter_a.inject_ingress_frame(compact_input_frame(b"behind-resize\n"));
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&wake, 5)
+        .expect("park the overflowing resize");
+    assert_eq!(
+        daemon.pending_terminal_resize_len(&session_a),
+        PENDING_INGRESS_RESIZE_CAP
+    );
+    assert_eq!(
+        delivered_input_result_count(&adapter_a, "resize"),
+        PENDING_INGRESS_RESIZE_CAP
+    );
+    assert_eq!(delivered_input_result_count(&adapter_a, "input"), 0);
+
+    hold.release();
+    let resume_deadline = Instant::now() + Duration::from_secs(5);
+    while daemon.pending_terminal_resize_len(&session_a) > 0
+        || delivered_input_result_count(&adapter_a, "resize") < PENDING_INGRESS_RESIZE_CAP + 1
+        || delivered_input_result_count(&adapter_a, "input") < 1
+    {
+        assert!(
+            Instant::now() < resume_deadline,
+            "parked owner did not resume from acknowledgement wakes"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(200));
+        daemon
+            .pump_woken(&batch, 6)
+            .expect("resume parked resize from acknowledgement");
+        assert!(
+            daemon.pending_terminal_resize_len(&session_a) <= PENDING_INGRESS_RESIZE_CAP,
+            "pending collection must stay at the ordinary-lane cap"
+        );
+    }
+    assert_eq!(
+        delivered_input_result_count(&adapter_a, "resize"),
+        PENDING_INGRESS_RESIZE_CAP + 1
+    );
+    assert_eq!(delivered_input_result_count(&adapter_a, "input"), 1);
+    pump_until_registry_size(&mut daemon, &session_a, 32, 102, 7);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn repeated_equal_resizes_complete_in_acknowledgement_order() {
+    let data_dir = temp_data_dir("repeated-equal-resize");
+    let session_a = SessionId("a-repeat-resize-session".into());
+    let hold = ResizeAckHold::for_session(session_a.clone());
+    let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
+    let mut config = CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path());
+    config.test_resize_ack_hold = Some(hold.clone());
+    let mut daemon = CoreDaemon::new(config);
+    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-repeat-resize");
+    assert_eq!(bound_a, session_a);
+    hold.arm();
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(24, 80));
+    adapter_a.inject_ingress_frame(compact_resize_frame(24, 80));
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 91));
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&wake, 3)
+        .expect("accept repeated resizes");
+    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 3);
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 3);
+    let record = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load")
+        .expect("record");
+    assert_eq!((record.rows, record.cols), (24, 80));
+
+    hold.release();
+    pump_until_registry_size(&mut daemon, &session_a, 31, 91, 4);
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_resize_is_busy_while_ingress_resize_is_pending() {
+    let data_dir = temp_data_dir("explicit-resize-busy");
+    let session_a = SessionId("a-busy-resize-session".into());
+    let hold = ResizeAckHold::for_session(session_a.clone());
+    let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
+    let mut config = CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path());
+    config.test_resize_ack_hold = Some(hold.clone());
+    let mut daemon = CoreDaemon::new(config);
+    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-busy-resize");
+    assert_eq!(bound_a, session_a);
+    let (session_b, _adapter_b) = bind_size_reporting_worker(&mut daemon, "z-busy-sibling");
+    hold.arm();
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&wake, 3).expect("accept ingress resize");
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
+
+    let busy = daemon
+        .resize(
+            ClientId("a-busy-resize-client".into()),
+            session_a.clone(),
+            40,
+            120,
+            4,
+        )
+        .expect_err("explicit resize must be busy while ingress is pending");
+    assert!(
+        matches!(busy, CoreDaemonError::ExplicitResizeBusy(ref id) if id == &session_a),
+        "expected ExplicitResizeBusy, got {busy}"
+    );
+    let record_a = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load A")
+        .expect("record A");
+    assert_eq!((record_a.rows, record_a.cols), (24, 80));
+
+    daemon
+        .resize(
+            ClientId("z-busy-sibling-client".into()),
+            session_b.clone(),
+            30,
+            90,
+            5,
+        )
+        .expect("sibling explicit resize is unaffected");
+    let record_b = daemon
+        .registry()
+        .load(&session_b)
+        .expect("load B")
+        .expect("record B");
+    assert_eq!((record_b.rows, record_b.cols), (30, 90));
+
+    hold.release();
+    pump_until_registry_size(&mut daemon, &session_a, 31, 101, 6);
+    daemon
+        .resize(
+            ClientId("a-busy-resize-client".into()),
+            session_a.clone(),
+            40,
+            120,
+            7,
+        )
+        .expect("explicit resize succeeds after ingress completion");
+    let record_a = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load A after explicit")
+        .expect("record A after explicit");
+    assert_eq!((record_a.rows, record_a.cols), (40, 120));
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
+    let data_dir = temp_data_dir("teardown-pending-resize");
+    let session_a = SessionId("a-teardown-resize-session".into());
+    let hold = ResizeAckHold::for_session(session_a.clone());
+    let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
+    let mut config = CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path());
+    config.test_resize_ack_hold = Some(hold.clone());
+    let mut daemon = CoreDaemon::new(config);
+    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-teardown-resize");
+    assert_eq!(bound_a, session_a);
+    hold.arm();
+
+    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    let wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon.pump_woken(&wake, 3).expect("accept pending resize");
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
+
+    hold.release();
+    daemon
+        .shutdown(Some(session_a.clone()), 4)
+        .expect("shutdown while resize is pending");
+    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
+    let late = daemon.wait_wakes(Duration::from_millis(200));
+    let _ = daemon.pump_woken(&late, 5);
+    if let Some(record) = daemon
+        .registry()
+        .load(&session_a)
+        .expect("load after teardown")
+    {
+        assert_eq!((record.rows, record.cols), (24, 80));
+    }
 
     let _ = fs::remove_dir_all(data_dir);
 }

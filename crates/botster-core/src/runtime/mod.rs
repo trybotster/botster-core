@@ -67,8 +67,8 @@ pub use local_process::{
 };
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
-    GatedPoll, GatedRequestId, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
-    DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_WORKER_EGRESS_CAPACITY,
+    GatedPoll, GatedRequestId, ResizeAckHold, WorkerHealth, WorkerProcessRuntime,
+    WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_WORKER_EGRESS_CAPACITY,
 };
 
 /// Host-implemented session runtime boundary.

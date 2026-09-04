@@ -32,7 +32,7 @@ pub use api::{
     OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 pub use botster_core::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, SessionWakeHandle,
+    BindTerminalAdapterError, DetachTerminalSubscriptionResult, ResizeAckHold, SessionWakeHandle,
     TerminalCapabilitySet, TerminalCapabilitySetError, TerminalSubscriptionGeneration,
     TerminalSubscriptionRecord, TerminalWakeBatch, TerminalWakeInterrupt, TerminalWakeKind,
     TerminalWakeRoute, TerminalWakeSink, TerminalWakeSource, TerminalWakeWait,

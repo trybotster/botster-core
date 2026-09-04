@@ -36,8 +36,9 @@ use crate::engine::terminal_screen::{
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{
-    ControlAdmission, ControlPlaneState, GatedPoll, LocalProcessRuntime, WorkerProcessRuntime,
-    WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+    ControlAdmission, ControlPlaneState, ControlWriterError, GatedPoll, LocalProcessRuntime,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT,
+    WORKER_CONTROL_QUEUE_FRAMES, WORKER_CONTROL_RESERVED_SLOTS,
 };
 use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
@@ -94,6 +95,23 @@ pub enum ManagedSessionRuntimeError {
 type TerminalBackendFactory<T> =
     Rc<dyn Fn(TerminalScreenSize) -> Result<T, Box<dyn Error + Send + Sync>>>;
 
+/// Per-session cap for accepted-but-unacknowledged ingress resizes.
+///
+/// This is the ordinary worker control-lane capacity. The writer frees a queue
+/// slot before the worker acknowledges, so the queue itself cannot bound this
+/// collection.
+#[cfg(feature = "local-runtime")]
+pub const PENDING_INGRESS_RESIZE_CAP: usize =
+    WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
+
+#[derive(Debug, Clone)]
+struct PendingTerminalResize {
+    rows: u16,
+    cols: u16,
+    applied_at: u64,
+    deadline: Instant,
+}
+
 /// Scheduling-neutral coordinator for one or more managed live sessions.
 ///
 /// Hosts still choose the executor, thread, or event loop that calls these
@@ -112,7 +130,7 @@ where
     client_worker: ClientWorker,
     wake_source: TerminalWakeSource,
     pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
-    pending_terminal_resizes: HashMap<SessionId, VecDeque<(u16, u16, u64)>>,
+    pending_terminal_resizes: HashMap<SessionId, VecDeque<PendingTerminalResize>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
 }
 
@@ -158,29 +176,11 @@ impl<T> ManagedSessionRuntime<WorkerProcessRuntime, T>
 where
     T: TerminalScreenRuntime + 'static,
 {
-    /// Wait for the worker to confirm the oldest targeted resize for one session.
-    pub(crate) fn complete_pending_terminal_resize(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), ManagedSessionRuntimeError> {
-        while let Some((rows, cols, _)) = self
-            .pending_terminal_resizes
-            .get(session_id)
-            .and_then(|pending| pending.front().copied())
-        {
-            let size = ResizePayload { rows, cols };
-            self.engine
-                .session_runtime_mut()
-                .wait_for_resize_applied(session_id, &size)?;
-            self.acknowledge_terminal_resize(session_id, &size);
-        }
-        Ok(())
-    }
-
     pub(crate) fn reconcile_terminal_resize_acknowledgments(
         &mut self,
         session_ids: &HashSet<SessionId>,
     ) -> Result<(), ManagedSessionRuntimeError> {
+        let now = Instant::now();
         for session_id in session_ids {
             let sizes = match self
                 .engine
@@ -188,19 +188,39 @@ where
                 .take_resize_applied(session_id)
             {
                 Ok(sizes) => sizes,
-                Err(error)
-                    if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                        && self.session_exited(session_id) =>
-                {
-                    continue;
+                Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
+                    if self.session(session_id).is_none() || self.session_exited(session_id) {
+                        self.pending_terminal_resizes.remove(session_id);
+                        continue;
+                    }
+                    return Err(error.into());
                 }
                 Err(error) => return Err(error.into()),
             };
             for size in sizes {
                 self.acknowledge_terminal_resize(session_id, &size);
             }
+            if self.pending_resize_expired(session_id, now) {
+                self.fail_expired_pending_resize(session_id);
+            }
         }
         Ok(())
+    }
+
+    fn pending_resize_expired(&self, session_id: &SessionId, now: Instant) -> bool {
+        self.pending_terminal_resizes
+            .get(session_id)
+            .and_then(|pending| pending.front())
+            .is_some_and(|entry| entry.deadline <= now)
+    }
+
+    fn fail_expired_pending_resize(&mut self, session_id: &SessionId) {
+        self.pending_terminal_resizes.remove(session_id);
+        self.engine
+            .session_runtime_mut()
+            .mark_control_plane_failed(session_id, ControlWriterError::ResizeAckTimeout);
+        self.pending_input_teardowns
+            .extend(self.client_worker.teardown_session(session_id));
     }
 
     /// Synchronize the parent terminal with one atomic worker snapshot boundary.
@@ -364,6 +384,19 @@ where
                     .probe_ordinary(&key.session_id)
                 {
                     ControlAdmission::Ready => {
+                        if self.pending_terminal_resize_len(&key.session_id)
+                            >= PENDING_INGRESS_RESIZE_CAP
+                            && matches!(
+                                self.client_worker.terminal_input_head(&key),
+                                Some(TerminalInputOperation::Command(
+                                    TerminalInputCommand::Resize { .. }
+                                ))
+                            )
+                        {
+                            self.client_worker.park_for_capacity(&key);
+                            full_sessions.insert(key.session_id.clone());
+                            break;
+                        }
                         let Some(delivery) =
                             self.client_worker.take_one_terminal_input(&key, &mut held)
                         else {
@@ -463,7 +496,13 @@ where
                         self.pending_terminal_resizes
                             .entry(session_id.clone())
                             .or_default()
-                            .push_back((rows, cols, last_output_at));
+                            .push_back(PendingTerminalResize {
+                                rows,
+                                cols,
+                                applied_at: last_output_at,
+                                deadline: Instant::now()
+                                    + self.engine.session_runtime().mode_gated_input_timeout(),
+                            });
                         targeted_outcome = Some(outcome);
                         input_result_ok(kind, 0)
                     }
@@ -969,22 +1008,42 @@ where
         self.applied_terminal_resizes.remove(session_id)
     }
 
+    /// Whether this session has accepted ingress resizes awaiting acknowledgement.
+    #[must_use]
+    pub fn has_pending_terminal_resizes(&self, session_id: &SessionId) -> bool {
+        self.pending_terminal_resize_len(session_id) > 0
+    }
+
+    /// Number of accepted-but-unacknowledged ingress resizes for one session.
+    #[must_use]
+    pub fn pending_terminal_resize_len(&self, session_id: &SessionId) -> usize {
+        self.pending_terminal_resizes
+            .get(session_id)
+            .map(VecDeque::len)
+            .unwrap_or(0)
+    }
+
     fn acknowledge_terminal_resize(&mut self, session_id: &SessionId, size: &ResizePayload) {
         let Some(pending) = self.pending_terminal_resizes.get_mut(session_id) else {
             return;
         };
-        let Some((rows, cols, applied_at)) = pending.front().copied() else {
+        let Some(front) = pending.front() else {
             return;
         };
-        if rows != size.rows || cols != size.cols {
+        // Explicit CoreDaemon::resize sends FRAME_RESIZE without a pending
+        // entry. Its acknowledgement can arrive ahead of an ingress entry and
+        // must be skipped when dimensions do not match the front.
+        if front.rows != size.rows || front.cols != size.cols {
             return;
         }
-        pending.pop_front();
+        let applied = pending.pop_front().expect("front existed");
         if pending.is_empty() {
             self.pending_terminal_resizes.remove(session_id);
         }
-        self.applied_terminal_resizes
-            .insert(session_id.clone(), (rows, cols, applied_at));
+        self.applied_terminal_resizes.insert(
+            session_id.clone(),
+            (applied.rows, applied.cols, applied.applied_at),
+        );
     }
 
     /// Return the host session runtime adapter.
@@ -1676,18 +1735,13 @@ where
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         let batch = self.wake_source.wait_wakes(self.clamp_paste_wait(timeout));
-        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
-            self.expired_paste_wake_batch(Instant::now())
-        } else {
-            batch
-        }
+        self.merge_deadline_wakes(batch)
     }
 
-    /// Clamp a host wait so one paste assembly cannot sleep past its deadline.
+    /// Clamp a host wait so paste or pending-resize deadlines cannot be skipped.
     #[must_use]
     pub fn clamp_paste_wait(&self, timeout: Duration) -> Duration {
-        self.client_worker
-            .next_paste_deadline()
+        self.next_core_deadline()
             .map(|deadline| {
                 deadline
                     .saturating_duration_since(Instant::now())
@@ -1696,13 +1750,66 @@ where
             .unwrap_or(timeout)
     }
 
-    /// Build the exact targeted wake batch for expired paste assemblies.
+    /// Build the exact targeted wake batch for expired paste and resize deadlines.
     #[must_use]
     pub fn expired_paste_wake_batch(&self, now: Instant) -> TerminalWakeBatch {
         TerminalWakeBatch {
             adapter_routes: self.client_worker.expired_paste_routes(now),
-            ingress_sessions: Vec::new(),
+            ingress_sessions: self.expired_pending_resize_sessions(now),
         }
+    }
+
+    /// Merge expired paste routes and pending-resize sessions into a wake batch.
+    #[must_use]
+    pub fn merge_deadline_wakes(&self, mut batch: TerminalWakeBatch) -> TerminalWakeBatch {
+        let expired = self.expired_paste_wake_batch(Instant::now());
+        if expired.adapter_routes.is_empty() && expired.ingress_sessions.is_empty() {
+            return batch;
+        }
+        batch.adapter_routes.extend(expired.adapter_routes);
+        batch.ingress_sessions.extend(expired.ingress_sessions);
+        let mut seen_routes = HashSet::new();
+        batch
+            .adapter_routes
+            .retain(|route| seen_routes.insert(route.clone()));
+        let mut seen_sessions = HashSet::new();
+        batch
+            .ingress_sessions
+            .retain(|session| seen_sessions.insert(session.clone()));
+        batch
+    }
+
+    fn next_core_deadline(&self) -> Option<Instant> {
+        match (
+            self.client_worker.next_paste_deadline(),
+            self.next_pending_resize_deadline(),
+        ) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (Some(deadline), None) | (None, Some(deadline)) => Some(deadline),
+            (None, None) => None,
+        }
+    }
+
+    fn next_pending_resize_deadline(&self) -> Option<Instant> {
+        self.pending_terminal_resizes
+            .iter()
+            .filter(|(session_id, _)| self.session(session_id).is_some())
+            .filter_map(|(_, pending)| pending.front().map(|entry| entry.deadline))
+            .min()
+    }
+
+    fn expired_pending_resize_sessions(&self, now: Instant) -> Vec<SessionId> {
+        let mut sessions: Vec<_> = self
+            .pending_terminal_resizes
+            .iter()
+            .filter(|(session_id, pending)| {
+                self.session(session_id).is_some()
+                    && pending.front().is_some_and(|entry| entry.deadline <= now)
+            })
+            .map(|(session_id, _)| session_id.clone())
+            .collect();
+        sessions.sort_by(|left, right| left.0.cmp(&right.0));
+        sessions
     }
 
     /// Classify one session's activity at the provided clock value.
