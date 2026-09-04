@@ -1,6 +1,8 @@
 #![allow(missing_docs)]
 
+use std::any::Any;
 use std::fs;
+use std::panic::{self, AssertUnwindSafe};
 use std::process::Command;
 use std::sync::{mpsc, Once};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -2078,6 +2080,46 @@ impl Drop for ReleaseResizeAckHoldOnDrop {
     }
 }
 
+#[derive(Debug)]
+enum DelayedArrivalStep {
+    Attached,
+    ResizePumped,
+    SiblingProgressed,
+    Completed,
+    Failed(String),
+}
+
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_string())
+        })
+        .unwrap_or_else(|| "scenario thread panicked".to_string())
+}
+
+fn recv_delayed_arrival_step(
+    rx: &mpsc::Receiver<DelayedArrivalStep>,
+    bound: Duration,
+    timeout_message: &str,
+    hold: &ResizeAckHold,
+) -> DelayedArrivalStep {
+    match rx.recv_timeout(bound) {
+        Ok(DelayedArrivalStep::Failed(message)) => {
+            hold.release();
+            panic!("{message}");
+        }
+        Ok(step) => step,
+        Err(_) => {
+            hold.release();
+            panic!("{timeout_message}");
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn delayed_sibling_arrival_progresses_while_resize_acknowledgement_is_held() {
@@ -2087,81 +2129,134 @@ fn delayed_sibling_arrival_progresses_while_resize_acknowledgement_is_held() {
     let session_a = SessionId("a-held-resize-session".into());
     let hold = ResizeAckHold::for_session(session_a.clone());
     let _release = ReleaseResizeAckHoldOnDrop(hold.clone());
-    let mut config = CoreDaemonConfig::new(&data_dir)
-        .with_worker_path(worker_path())
-        .with_mode_gated_input_timeout(acknowledgment_timeout);
-    config.test_resize_ack_hold = Some(hold.clone());
-    let mut daemon = CoreDaemon::new(config);
-    let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-held-resize");
-    assert_eq!(bound_a, session_a);
-    let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "z-live-sibling");
-    hold.arm();
-    let record_b = daemon
-        .registry()
-        .load(&session_b)
-        .expect("load B")
-        .expect("record B");
-    assert_eq!((record_b.rows, record_b.cols), (24, 80));
+    let worker = worker_path();
+    let (tx, rx) = mpsc::sync_channel(8);
+    let scenario_hold = hold.clone();
+    let scenario_dir = data_dir.clone();
+    let scenario_session_a = session_a.clone();
+    let scenario = std::thread::spawn(move || {
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut config = CoreDaemonConfig::new(&scenario_dir)
+                .with_worker_path(worker)
+                .with_mode_gated_input_timeout(acknowledgment_timeout);
+            config.test_resize_ack_hold = Some(scenario_hold.clone());
+            let mut daemon = CoreDaemon::new(config);
+            let (bound_a, adapter_a) = bind_size_reporting_worker(&mut daemon, "a-held-resize");
+            assert_eq!(bound_a, scenario_session_a);
+            let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "z-live-sibling");
+            scenario_hold.arm();
+            let record_b = daemon
+                .registry()
+                .load(&session_b)
+                .expect("load B")
+                .expect("record B");
+            assert_eq!((record_b.rows, record_b.cols), (24, 80));
+            tx.send(DelayedArrivalStep::Attached)
+                .expect("send attached");
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
-    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
-    assert!(
-        resize_batch
-            .adapter_routes
-            .iter()
-            .any(|route| route.session_id == session_a),
-        "A's resize must produce an adapter wake before the held acknowledgement"
-    );
-    let pump_started = Instant::now();
-    let resize_pump = daemon.pump_woken(&resize_batch, 3);
-    assert!(
-        pump_started.elapsed() < liveness_bound,
-        "session A resize pump did not return while its acknowledgement remained held"
-    );
-    resize_pump.expect("held resize acknowledgement must not block the pump");
-    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
-    let record_a = daemon
-        .registry()
-        .load(&session_a)
-        .expect("load A")
-        .expect("record A");
-    assert_eq!(
-        (record_a.rows, record_a.cols),
-        (24, 80),
-        "registry must keep last confirmed geometry until acknowledgement"
-    );
+            adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+            let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+            assert!(
+                resize_batch
+                    .adapter_routes
+                    .iter()
+                    .any(|route| route.session_id == scenario_session_a),
+                "A's resize must produce an adapter wake before the held acknowledgement"
+            );
+            let resize_pump = daemon.pump_woken(&resize_batch, 3);
+            tx.send(DelayedArrivalStep::ResizePumped)
+                .expect("send resize pumped");
+            resize_pump.expect("held resize acknowledgement must not block the pump");
+            assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
+            let record_a = daemon
+                .registry()
+                .load(&scenario_session_a)
+                .expect("load A")
+                .expect("record A");
+            assert_eq!(
+                (record_a.rows, record_a.cols),
+                (24, 80),
+                "registry must keep last confirmed geometry until acknowledgement"
+            );
 
-    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
-    let input_b = daemon.wait_wakes(liveness_bound);
-    daemon
-        .pump_woken(&input_b, 4)
-        .expect("B input must apply while A's acknowledgement is held");
-    assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
-    pump_until_encoded_output(&mut daemon, &adapter_b, "MjQgODANCg==", 5);
-    assert!(
-        pump_started.elapsed() < acknowledgment_timeout,
-        "B echo must arrive before A's resize deadline"
-    );
+            adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
+            let input_b = daemon.wait_wakes(liveness_bound);
+            daemon
+                .pump_woken(&input_b, 4)
+                .expect("B input must apply while A's acknowledgement is held");
+            assert_eq!(delivered_input_result_count(&adapter_b, "input"), 1);
+            pump_until_encoded_output(&mut daemon, &adapter_b, "MjQgODANCg==", 5);
+            tx.send(DelayedArrivalStep::SiblingProgressed)
+                .expect("send sibling progress");
 
-    hold.release();
-    let completion = wait_session_ingress_wake(&mut daemon, &session_a, 6);
-    daemon
-        .pump_woken(&completion, 6)
-        .expect("pump A's completion wake");
-    let record_a = daemon
-        .registry()
-        .load(&session_a)
-        .expect("load A after ack")
-        .expect("record A after ack");
-    assert_eq!((record_a.rows, record_a.cols), (31, 101));
+            scenario_hold.release();
+            let completion = wait_session_ingress_wake(&mut daemon, &scenario_session_a, 6);
+            daemon
+                .pump_woken(&completion, 6)
+                .expect("pump A's completion wake");
+            let record_a = daemon
+                .registry()
+                .load(&scenario_session_a)
+                .expect("load A after ack")
+                .expect("record A after ack");
+            assert_eq!((record_a.rows, record_a.cols), (31, 101));
 
-    adapter_a.inject_ingress_frame(compact_input_frame(b"report-a\n"));
-    let later_a = daemon.wait_wakes(Duration::from_secs(1));
-    daemon
-        .pump_woken(&later_a, 7)
-        .expect("later A input after completion");
-    pump_until_encoded_output(&mut daemon, &adapter_a, "MzEgMTAxDQo=", 8);
+            adapter_a.inject_ingress_frame(compact_input_frame(b"report-a\n"));
+            let later_a = daemon.wait_wakes(Duration::from_secs(1));
+            daemon
+                .pump_woken(&later_a, 7)
+                .expect("later A input after completion");
+            pump_until_encoded_output(&mut daemon, &adapter_a, "MzEgMTAxDQo=", 8);
+        }));
+        match outcome {
+            Ok(()) => {
+                let _ = tx.send(DelayedArrivalStep::Completed);
+            }
+            Err(payload) => {
+                let _ = tx.send(DelayedArrivalStep::Failed(panic_payload_message(payload)));
+            }
+        }
+    });
 
+    match recv_delayed_arrival_step(
+        &rx,
+        Duration::from_secs(20),
+        "worker attach did not finish",
+        &hold,
+    ) {
+        DelayedArrivalStep::Attached => {}
+        other => panic!("expected attach, got {other:?}"),
+    }
+    match recv_delayed_arrival_step(
+        &rx,
+        liveness_bound,
+        "session A resize pump did not return while its acknowledgement remained held",
+        &hold,
+    ) {
+        DelayedArrivalStep::ResizePumped => {}
+        other => panic!("expected resize pump return, got {other:?}"),
+    }
+    match recv_delayed_arrival_step(
+        &rx,
+        acknowledgment_timeout,
+        "B echo must arrive before A's resize deadline",
+        &hold,
+    ) {
+        DelayedArrivalStep::SiblingProgressed => {}
+        other => panic!("expected sibling progress, got {other:?}"),
+    }
+    match recv_delayed_arrival_step(
+        &rx,
+        Duration::from_secs(8),
+        "delayed-arrival scenario did not finish",
+        &hold,
+    ) {
+        DelayedArrivalStep::Completed => {}
+        other => panic!("expected completion, got {other:?}"),
+    }
+    scenario
+        .join()
+        .expect("scenario thread finished after Completed");
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -2459,10 +2554,17 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
     daemon.pump_woken(&wake, 3).expect("accept pending resize");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
 
+    // ResizeAckHold blocks the parent reader after it reads FRAME_RESIZE_APPLIED
+    // and before it queues the acknowledgement. Shutdown then cannot drain worker
+    // stdout, and the daemon watchdog returns ShutdownFailed:
+    // "worker session shutdown did not complete before the daemon deadline".
+    // Releasing after teardown therefore deadlocks this gate. Release first.
+    // This proves pending cleanup and a harmless later pump. It does not prove
+    // that an acknowledgement arrived after teardown.
     hold.release();
     daemon
         .shutdown(Some(session_a.clone()), 4)
-        .expect("shutdown while resize is pending");
+        .expect("shutdown after releasing the acknowledgement hold");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
     let late = daemon.wait_wakes(Duration::from_millis(200));
     let _ = daemon.pump_woken(&late, 5);
@@ -2473,6 +2575,134 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
     {
         assert_eq!((record.rows, record.cols), (24, 80));
     }
+
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn expired_pending_resize_does_not_drop_undelivered_process_exit() {
+    let data_dir = temp_data_dir("expired-resize-exit-delivery");
+    let acknowledgment_timeout = Duration::from_millis(300);
+    let session_id = SessionId("expired-resize-exit-session".into());
+    let client_id = ClientId("expired-resize-exit-client".into());
+    let subscription_id = SubscriptionId("expired-resize-exit-sub".into());
+    let go = data_dir.join("go");
+    let mut config = CoreDaemonConfig::new(&data_dir)
+        .with_worker_path(worker_path())
+        .with_mode_gated_input_timeout(acknowledgment_timeout);
+    config.test_omit_resize_applied = true;
+    let mut daemon = CoreDaemon::new(config);
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "stty -echo; printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; exit 0",
+        go.display()
+    );
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let attach_deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < attach_deadline,
+            "worker attach did not finish"
+        );
+        pump_next(&mut daemon, 2);
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    pump_available_wakes_until_quiet(&mut daemon, 3);
+
+    adapter.inject_ingress_frame(compact_resize_frame(31, 101));
+    let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&resize_batch, 4)
+        .expect("accept omitted-ack resize");
+    assert_eq!(daemon.pending_terminal_resize_len(&session_id), 1);
+    let resize_deadline = Instant::now() + acknowledgment_timeout;
+    assert!(
+        matches!(
+            daemon.engine_session_lifecycle(&session_id),
+            Some(
+                botster_core::SessionLifecycleState::Running
+                    | botster_core::SessionLifecycleState::Starting
+            )
+        ),
+        "expiry skip must key off engine lifecycle, not a registry projection"
+    );
+
+    fs::write(&go, b"go").expect("release child");
+    observe_until_exited_without_pump(&mut daemon, &session_id, 20);
+    assert!(
+        matches!(
+            daemon.engine_session_lifecycle(&session_id),
+            Some(botster_core::SessionLifecycleState::Exited { .. })
+        ),
+        "observe must commit engine Exited before the targeted delivery pump"
+    );
+    assert!(!adapter_has_process_exit(&adapter));
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+
+    while Instant::now() < resize_deadline + Duration::from_millis(20) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == &session_id),
+        "expired pending resize must still name the exited session for delivery, got {batch:?}"
+    );
+    daemon
+        .pump_woken(&batch, 23)
+        .expect("deliver ProcessExited after resize deadline");
+    assert!(
+        adapter_has_process_exit(&adapter),
+        "resize-timeout failure must not drop an undelivered ProcessExited frame"
+    );
+    assert_eq!(daemon.pending_terminal_resize_len(&session_id), 0);
+    assert!(!matches!(
+        daemon.control_plane_state(&session_id),
+        ControlPlaneState::Failed(ControlWriterError::ResizeAckTimeout)
+    ));
 
     let _ = fs::remove_dir_all(data_dir);
 }
