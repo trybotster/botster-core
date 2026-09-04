@@ -153,6 +153,7 @@ mod tests {
         let session_id = SessionId("hub-observe-session".into());
         let client_id = ClientId("hub-observe-client".into());
         let subscription_id = SubscriptionId("hub-observe-sub".into());
+        let done = data_dir.join("child-done");
         daemon
             .spawn(
                 SpawnSessionRequest {
@@ -160,7 +161,10 @@ mod tests {
                         request_id: RequestId("hub-observe-spawn".into()),
                         session_id: session_id.clone(),
                         executable: "sh".into(),
-                        arguments: vec!["-c".into(), "printf ready; exit 0".into()],
+                        arguments: vec![
+                            "-c".into(),
+                            format!("printf ready; : > '{}'; exit 0", done.display()),
+                        ],
                         working_directory: SpawnWorkingDirectory { path: ".".into() },
                         environment: SpawnEnvironment::default(),
                         initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
@@ -200,8 +204,38 @@ mod tests {
             )
             .expect("bind waking adapter");
 
+        let done_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if done.exists() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < done_deadline,
+                "child did not write done file"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        match daemon.wait_pump(Duration::from_secs(5)) {
+            WakePumpWait::Wakes(batch)
+                if batch.ingress_sessions.iter().any(|id| id == &session_id) => {}
+            other => panic!(
+                "setup must consume a runtime session ingress wake before observe, got {other:?}"
+            ),
+        }
+        loop {
+            match daemon.wait_pump(Duration::from_millis(200)) {
+                WakePumpWait::Wakes(batch)
+                    if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() =>
+                {
+                    break;
+                }
+                WakePumpWait::Interrupted => {}
+                WakePumpWait::Stopped => panic!("pump stopped during runtime wake consume"),
+                _ => {}
+            }
+        }
+
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        let _ = daemon.wait_pump(Duration::ZERO);
         loop {
             assert!(
                 std::time::Instant::now() < deadline,
