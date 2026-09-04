@@ -2338,15 +2338,66 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
-fn short_lived_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+fn short_lived_spawn_request(
+    session_id: &SessionId,
+    done: &std::path::Path,
+) -> SpawnSessionRequest {
     let mut request = spawn_request(session_id);
-    request.request.arguments[1] = "printf ready; exit 0".into();
+    request.request.arguments[1] = format!("printf ready; : > '{}'; exit 0", done.display());
     request
+}
+
+fn wait_for_done_file(done: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if done.exists() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "child did not write done file {}",
+            done.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn drain_follow_up_wakes(daemon: &mut CoreDaemon) {
+    let quiet_deadline = Instant::now() + Duration::from_secs(5);
+    let mut empty_streak = 0;
+    while Instant::now() < quiet_deadline {
+        let extra = daemon.wait_wakes(Duration::from_millis(200));
+        if extra.adapter_routes.is_empty() && extra.ingress_sessions.is_empty() {
+            empty_streak += 1;
+            if empty_streak >= 3 {
+                return;
+            }
+        } else {
+            empty_streak = 0;
+        }
+    }
+}
+
+fn consume_runtime_ingress_wakes(daemon: &mut CoreDaemon, session_id: &SessionId) {
+    let batch = daemon.wait_wakes(Duration::from_secs(5));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == session_id),
+        "setup must consume a runtime session ingress wake before the target drain, got {batch:?}"
+    );
+    drain_follow_up_wakes(daemon);
+}
+
+fn finish_short_lived_runtime_setup(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    done: &std::path::Path,
+) {
+    wait_for_done_file(done);
+    consume_runtime_ingress_wakes(daemon, session_id);
 }
 
 fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    let _ = daemon.wait_wakes(Duration::ZERO);
     loop {
         assert!(
             Instant::now() < deadline,
@@ -2383,8 +2434,10 @@ fn bind_short_lived_session(
     let session_id = SessionId(format!("{label}-session"));
     let client_id = ClientId(format!("{label}-client"));
     let subscription_id = SubscriptionId(format!("{label}-sub"));
+    let done = std::env::temp_dir().join(format!("botster-core-wake-done-{}", session_id.0));
+    let _ = fs::remove_file(&done);
     daemon
-        .spawn(short_lived_spawn_request(&session_id), 1)
+        .spawn(short_lived_spawn_request(&session_id, &done), 1)
         .expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -2414,6 +2467,8 @@ fn bind_short_lived_session(
             Box::new(adapter),
         )
         .expect("bind");
+    finish_short_lived_runtime_setup(daemon, &session_id, &done);
+    let _ = fs::remove_file(&done);
     (session_id, client_id, subscription_id)
 }
 
@@ -2570,9 +2625,67 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
     let data_dir = temp_data_dir("observe-exit-wake-worker");
     let mut daemon =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("observe-exit-wake-worker-session".into());
+    let client_id = ClientId("observe-exit-wake-worker-client".into());
+    let subscription_id = SubscriptionId("observe-exit-wake-worker-sub".into());
+    let go = data_dir.join("go");
+    let done = data_dir.join("child-done");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; : > '{}'; exit 0",
+        go.display(),
+        done.display()
+    );
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
     let adapter = SharedFakeTerminalAdapter::auto_complete();
-    let (session_id, _, _) =
-        bind_short_lived_session(&mut daemon, "observe-exit-wake-worker", adapter.clone());
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(Instant::now() < deadline, "worker attach did not finish");
+        pump_next(&mut daemon, 2);
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drain_follow_up_wakes(&mut daemon);
+    fs::write(&go, b"go").expect("release child");
+    finish_short_lived_runtime_setup(&mut daemon, &session_id, &done);
     assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -2584,9 +2697,10 @@ fn declared_unbound_exit_keeps_session_wake_until_bind_and_pump() {
     let session_id = SessionId("declared-unbound-session".into());
     let client_id = ClientId("declared-unbound-client".into());
     let subscription_id = SubscriptionId("declared-unbound-sub".into());
+    let done = data_dir.join("child-done");
     let after_spawn = {
         daemon
-            .spawn(short_lived_spawn_request(&session_id), 1)
+            .spawn(short_lived_spawn_request(&session_id, &done), 1)
             .expect("spawn");
         daemon.lifecycle_baseline().expect("baseline").cursor
     };
@@ -2605,6 +2719,7 @@ fn declared_unbound_exit_keeps_session_wake_until_bind_and_pump() {
             2,
         )
         .expect("attach");
+    finish_short_lived_runtime_setup(&mut daemon, &session_id, &done);
     observe_until_exited_without_pump(&mut daemon, &session_id, 3);
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
     assert_eq!(
@@ -2692,8 +2807,9 @@ fn abandoned_declaration_observe_retires_session_wake() {
     let session_id = SessionId("abandoned-session".into());
     let client_id = ClientId("abandoned-client".into());
     let subscription_id = SubscriptionId("abandoned-sub".into());
+    let done = data_dir.join("child-done");
     daemon
-        .spawn(short_lived_spawn_request(&session_id), 1)
+        .spawn(short_lived_spawn_request(&session_id, &done), 1)
         .expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -2710,6 +2826,7 @@ fn abandoned_declaration_observe_retires_session_wake() {
             2,
         )
         .expect("attach");
+    finish_short_lived_runtime_setup(&mut daemon, &session_id, &done);
     observe_until_exited_without_pump(&mut daemon, &session_id, 3);
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
     daemon
@@ -2748,8 +2865,10 @@ fn bind_named_short_lived(
 ) -> SessionId {
     let client_id = ClientId(format!("{}-client", session_id.0));
     let subscription_id = SubscriptionId(format!("{}-sub", session_id.0));
+    let done = std::env::temp_dir().join(format!("botster-core-wake-done-{}", session_id.0));
+    let _ = fs::remove_file(&done);
     daemon
-        .spawn(short_lived_spawn_request(&session_id), 1)
+        .spawn(short_lived_spawn_request(&session_id, &done), 1)
         .expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -2774,6 +2893,8 @@ fn bind_named_short_lived(
             Box::new(adapter),
         )
         .expect("bind");
+    finish_short_lived_runtime_setup(daemon, &session_id, &done);
+    let _ = fs::remove_file(&done);
     session_id
 }
 
@@ -2812,11 +2933,6 @@ fn unlock_sessions_directory(sessions_dir: &std::path::Path, original_mode: u32)
 }
 
 #[cfg(unix)]
-fn wait_for_short_lived_runtime_output() {
-    std::thread::sleep(Duration::from_millis(200));
-}
-
-#[cfg(unix)]
 #[test]
 fn drain_resize_persist_failure_still_emits_bound_queue_wake() {
     let data_dir = temp_data_dir("drain-resize-persist");
@@ -2832,7 +2948,6 @@ fn drain_resize_persist_failure_still_emits_bound_queue_wake() {
     );
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
-    wait_for_short_lived_runtime_output();
     let original_mode = lock_sessions_directory(&sessions_dir);
     let failure = daemon
         .drain(&session_id, 3)
@@ -2866,7 +2981,6 @@ fn observe_resize_persist_failure_still_emits_bound_queue_wake() {
     );
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
-    wait_for_short_lived_runtime_output();
     let original_mode = lock_sessions_directory(&sessions_dir);
     let failure = daemon
         .observe_session_lifecycle(&session_id, 3)
