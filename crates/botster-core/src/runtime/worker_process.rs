@@ -1211,6 +1211,21 @@ impl WorkerProcessRuntime {
         Ok(completion.reader_finished)
     }
 
+    /// Return whether the worker stored `ProcessExited` and finished stdout.
+    ///
+    /// This query does not drain runtime output. After both flags are true the
+    /// worker has published its last stdout readiness notify.
+    #[must_use]
+    pub fn process_exit_recorded_and_reader_finished(&self, session_id: &SessionId) -> bool {
+        self.sessions.get(session_id).is_some_and(|session| {
+            session
+                .completion
+                .lock()
+                .map(|completion| completion.process_exited.is_some() && completion.reader_finished)
+                .unwrap_or(false)
+        })
+    }
+
     /// Release worker processes without sending shutdown frames when the daemon is intentionally restarting.
     pub fn release_for_restart(&mut self) {
         self.release_on_drop = true;
@@ -2912,7 +2927,10 @@ fn run_control_writer(
                     error,
                     consumed: false,
                 });
-                notify_session_wake(&wake_handle);
+                // Terminal-class shutdown is teardown, not session ingress.
+                if class != ControlFrameClass::Terminal {
+                    notify_session_wake(&wake_handle);
+                }
                 return;
             }
         }
