@@ -101,11 +101,15 @@ retirement. A retained reader handle cannot resurrect a forgotten session.
 Overflow sets a flag and leaves `queued` true. The next `wait_wakes` reconciles
 without a correctness timer. Session shutdown keeps the ingress wake while the
 lifecycle is `Stopping`. Converting or routing `ProcessExited` is not an
-authoritative observation. `CoreDaemon` retires the session ingress wake only
-after it persists the terminal lifecycle transition, appends the lifecycle
-journal entry, and completes required final-state retention. A failed commit
-keeps or re-arms that exact wake under a bounded retry rule. Shutdown acceptance
-still retires nothing. Explicit runtime removal also retires the wake.
+authoritative observation. A registry `Stale` or `Exited` row does not retire
+the session ingress wake while the engine session is still `Starting`,
+`Running`, or `Stopping`. `CoreDaemon` retires the session ingress wake only
+when the engine session is absent, `Exited`, or `Failed`, no bound owner holds
+undelivered frames, the daemon has persisted the terminal lifecycle transition,
+it has appended the lifecycle journal entry, and it has completed required
+final-state retention. A failed commit keeps or re-arms that exact wake under a
+bounded retry rule. Shutdown acceptance still retires nothing. Explicit runtime
+removal also retires the wake.
 
 `CoreDaemon::shutdown` uses a capacity-capped wake drain plus `pump_woken`.
 It uses the two-second bound as a hang watchdog. The capped drain does not

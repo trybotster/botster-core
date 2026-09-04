@@ -44,8 +44,10 @@ the production progress tick.
   a bound Ready owner, it emits one coalesced session ingress wake. The
   host delivers those frames through `wait_wakes` and `pump_woken`.
 - Observe still commits registry state and journal rows immediately. A
-  session with a live owner holding undelivered frames keeps its session
-  wake until a later commit after delivery, hard-stop, or owner removal.
+  registry `Stale` or `Exited` row does not retire the session ingress
+  wake while the engine session is still live. A session with a live
+  owner holding undelivered frames keeps its session wake until a later
+  commit after delivery, hard-stop, or owner removal.
 
 `observe_lifecycle(now_seconds)` is the unbounded compatibility
 wrapper: new pass, unbounded item/byte/elapsed budgets, typed

@@ -2229,12 +2229,6 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
         let obligation = self.terminal_commit_obligations.get(session_id).cloned();
-        let obligation_is_terminal = obligation.as_ref().is_some_and(|state| {
-            matches!(
-                state,
-                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
-            )
-        });
         if let Some(state) = obligation {
             let can_advance = match self.obligation_can_advance(session_id, &state) {
                 Ok(can_advance) => can_advance,
@@ -2287,25 +2281,7 @@ impl CoreDaemon {
             }
         }
         for touched_session in touched {
-            let terminal_observation = observations.iter().any(|observation| {
-                matches!(
-                    observation,
-                    BotsterEngineObservation::SessionLifecycle {
-                        session_id,
-                        state: SessionLifecycleState::Exited { .. }
-                            | SessionLifecycleState::Failed { .. },
-                    } if session_id == &touched_session
-                )
-            });
-            let already_terminal = self.registry.load(&touched_session)?.is_some_and(|record| {
-                matches!(
-                    record.state,
-                    RegistrySessionState::Exited | RegistrySessionState::Stale
-                )
-            });
-            if (terminal_observation
-                || (touched_session == *session_id && obligation_is_terminal)
-                || already_terminal)
+            if self.engine_session_is_terminal(&touched_session)
                 && !self.engine.session_has_undelivered_frames(&touched_session)
             {
                 self.engine.wake_source().forget_session(&touched_session);
@@ -2562,6 +2538,20 @@ impl CoreDaemon {
                 .map(|session| &session.lifecycle),
             Some(SessionLifecycleState::Exited { .. })
         )
+    }
+
+    fn engine_session_is_terminal(&self, session_id: &SessionId) -> bool {
+        match self
+            .engine
+            .session(session_id)
+            .map(|session| &session.lifecycle)
+        {
+            None => true,
+            Some(SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }) => {
+                true
+            }
+            Some(_) => false,
+        }
     }
 
     fn take_pending_drain(&mut self, session_id: &SessionId) -> DrainResult {

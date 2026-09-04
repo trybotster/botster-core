@@ -3455,6 +3455,171 @@ fn public_overflow_wait_does_not_depend_on_timeout() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn stale_registry_then_shutdown_completes_through_wait_wakes() {
+    let data_dir = temp_data_dir("stale-shutdown-wake");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("stale-shutdown-wake-session".into());
+    let client_id = ClientId("stale-shutdown-wake-client".into());
+    let subscription_id = SubscriptionId("stale-shutdown-wake-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf ready; exec sleep 30".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(Instant::now() < deadline, "worker attach did not finish");
+        pump_next(&mut daemon, 2);
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    pump_available_wakes_until_quiet(&mut daemon, 3);
+    daemon
+        .mark_stale(&session_id, 10)
+        .expect("mark registry stale");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("stale registry"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Stale)
+    ));
+    daemon
+        .observe_session_lifecycle(&session_id, 11)
+        .expect("observe after stale");
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 12)
+        .expect("shutdown through wait_wakes");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "stale registry shutdown must complete from wakes, not the watchdog timeout"
+    );
+    assert_eq!(daemon.wake_source().session_registry_len(), 0);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_wake() {
+    let data_dir = temp_data_dir("stale-live-worker-exit");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("stale-live-worker-exit-session".into());
+    let client_id = ClientId("stale-live-worker-exit-client".into());
+    let subscription_id = SubscriptionId("stale-live-worker-exit-sub".into());
+    let go = data_dir.join("go");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; exit 0",
+        go.display()
+    );
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(Instant::now() < deadline, "worker attach did not finish");
+        pump_next(&mut daemon, 2);
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+            .any(|value| {
+                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
+                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    pump_available_wakes_until_quiet(&mut daemon, 3);
+    daemon
+        .mark_stale(&session_id, 10)
+        .expect("mark registry stale");
+    daemon
+        .observe_session_lifecycle(&session_id, 11)
+        .expect("observe after stale");
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("stale registry"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Stale)
+    ));
+    assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    fs::write(&go, b"go").expect("release child");
+    consume_runtime_ingress_wakes(&mut daemon, &session_id);
+    assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn shutdown_completion_arrives_through_wait_wakes() {
     let data_dir = temp_data_dir("shutdown-wake");
