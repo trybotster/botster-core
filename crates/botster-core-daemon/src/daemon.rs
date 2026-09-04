@@ -3,7 +3,7 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap, VecDeque},
+    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     io,
     ops::Bound::{Excluded, Included, Unbounded},
@@ -863,6 +863,11 @@ impl CoreDaemon {
     /// setup-only yield resumes with `last_visited = None`. Byte
     /// admission uses a reserved 256-`x` error before each visit because
     /// `observe_session` cannot be rolled back.
+    ///
+    /// Observe does not `try_write` a bound adapter. After it queues frames
+    /// onto a bound Ready owner, it emits one coalesced session ingress wake.
+    /// Hosts deliver those frames through [`Self::wait_wakes`] and
+    /// [`Self::pump_woken`].
     pub fn observe_lifecycle_slice(
         &mut self,
         now_seconds: u64,
@@ -895,6 +900,10 @@ impl CoreDaemon {
     /// after the observe attempt. Drain failure, registry I/O, malformed
     /// JSON, and shutdown return `Err`. Absence is not
     /// [`CoreDaemonError::UnknownSession`].
+    ///
+    /// This query does not `try_write` a bound adapter. When it queues frames
+    /// onto a bound Ready owner, it emits one coalesced session ingress wake
+    /// for [`Self::wait_wakes`] and [`Self::pump_woken`].
     pub fn observe_session_lifecycle(
         &mut self,
         session_id: &SessionId,
@@ -1087,12 +1096,18 @@ impl CoreDaemon {
         }
         self.engine.bind_waking_terminal_adapter(
             client_id,
-            session_id,
-            subscription_id,
+            session_id.clone(),
+            subscription_id.clone(),
             generation,
             capabilities,
             adapter,
         )?;
+        if self
+            .engine
+            .bound_owner_has_held_frames(&session_id, &subscription_id)
+        {
+            self.engine.wake_source().notify_session(&session_id);
+        }
         Ok(())
     }
 
@@ -1319,6 +1334,7 @@ impl CoreDaemon {
                     continue;
                 }
             }
+            self.discard_bound_queue_wakes();
             if let Err(error) =
                 self.commit_terminal_lifecycle(&session_id, &result.observations, now_seconds)
             {
@@ -1482,6 +1498,10 @@ impl CoreDaemon {
     }
 
     /// Drain one session's runtime output through subscription fanout.
+    ///
+    /// This method does not `try_write` a bound adapter. After it queues frames
+    /// onto a bound Ready owner, it emits one coalesced session ingress wake
+    /// for [`Self::wait_wakes`] and [`Self::pump_woken`].
     pub fn drain(
         &mut self,
         session_id: &SessionId,
@@ -1507,6 +1527,7 @@ impl CoreDaemon {
                 return Err(error);
             }
         }
+        self.notify_bound_queue_wakes();
         if let Err(error) =
             self.commit_terminal_lifecycle(session_id, &result.observations, last_output_at)
         {
@@ -1554,7 +1575,9 @@ impl CoreDaemon {
     /// runtime output is drained. This method drains before reading so callers
     /// do not need an explicit pre-read drain. Any client egress or
     /// observations produced by that internal drain are retained for the next
-    /// explicit [`Self::drain`] call.
+    /// explicit [`Self::drain`] call. The internal drain does not `try_write`
+    /// a bound adapter. If it queues frames onto a bound Ready owner, it emits
+    /// one coalesced session ingress wake.
     pub fn read_screen(
         &mut self,
         request: ReadScreenRequest,
@@ -2289,7 +2312,17 @@ impl CoreDaemon {
                     } if session_id == &touched_session
                 )
             });
-            if terminal_observation || (touched_session == *session_id && obligation_is_terminal) {
+            let already_terminal = self.registry.load(&touched_session)?.is_some_and(|record| {
+                matches!(
+                    record.state,
+                    RegistrySessionState::Exited | RegistrySessionState::Stale
+                )
+            });
+            if (terminal_observation
+                || (touched_session == *session_id && obligation_is_terminal)
+                || already_terminal)
+                && !self.engine.session_has_undelivered_frames(&touched_session)
+            {
                 self.engine.wake_source().forget_session(&touched_session);
             }
             self.terminal_commit_obligations.remove(&touched_session);
@@ -2613,8 +2646,19 @@ impl CoreDaemon {
         for session_id in rearm {
             self.engine.wake_source().notify_session(&session_id);
         }
+        self.notify_bound_queue_wakes();
         self.retain_pending_drain_result(session_id, pending);
         Ok(())
+    }
+
+    fn notify_bound_queue_wakes(&mut self) {
+        for session_id in self.engine.take_bound_queue_wake_sessions() {
+            self.engine.wake_source().notify_session(&session_id);
+        }
+    }
+
+    fn discard_bound_queue_wakes(&mut self) {
+        let _ = self.engine.take_bound_queue_wake_sessions();
     }
 
     fn retain_pending_drain_result(&mut self, session_id: &SessionId, pending: DrainResult) {
@@ -3204,6 +3248,7 @@ impl CoreDaemon {
                 return Err(error);
             }
         }
+        self.notify_bound_queue_wakes();
         if let Err(error) =
             self.commit_terminal_lifecycle(session_id, &result.observations, now_seconds)
         {
@@ -3681,6 +3726,31 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.list_terminal_subscriptions(),
             Self::Worker(engine) => engine.list_terminal_subscriptions(),
+        }
+    }
+
+    fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
+        match self {
+            Self::Local(engine) => engine.take_bound_queue_wake_sessions(),
+            Self::Worker(engine) => engine.take_bound_queue_wake_sessions(),
+        }
+    }
+
+    fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(engine) => engine.session_has_undelivered_frames(session_id),
+            Self::Worker(engine) => engine.session_has_undelivered_frames(session_id),
+        }
+    }
+
+    fn bound_owner_has_held_frames(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        match self {
+            Self::Local(engine) => engine.bound_owner_has_held_frames(session_id, subscription_id),
+            Self::Worker(engine) => engine.bound_owner_has_held_frames(session_id, subscription_id),
         }
     }
 

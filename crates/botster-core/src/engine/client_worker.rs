@@ -80,6 +80,7 @@ pub struct ClientWorker {
     capacity_parked: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     input_cursor: usize,
     wake_source: TerminalWakeSource,
+    bound_queue_wake_sessions: HashSet<SessionId>,
     #[cfg(test)]
     fail_next_encode: bool,
 }
@@ -402,6 +403,45 @@ impl ClientWorker {
         Ok(())
     }
 
+    /// Take session ids whose bound Ready queues grew since the last take.
+    ///
+    /// Non-pump drains notify these sessions. Pump paths discard the set so
+    /// pump-time ingest cannot enqueue a second ingress wake.
+    #[must_use]
+    pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
+        std::mem::take(&mut self.bound_queue_wake_sessions)
+    }
+
+    /// Whether any live owner for `session_id` still holds undelivered frames.
+    #[must_use]
+    pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
+        self.live.iter().any(|(key, owner)| {
+            &key.session_id == session_id
+                && (!owner.held.is_empty() || !owner.queue.is_empty() || owner.in_flight)
+        })
+    }
+
+    /// Whether the live owner still holds frames that the next pump must flush.
+    #[must_use]
+    pub fn bound_owner_has_held_frames(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .is_some_and(|owner| owner.adapter.is_some() && !owner.held.is_empty())
+    }
+
+    fn owner_ready_for_bound_queue_wake(owner: &SubscriptionOwner) -> bool {
+        owner.adapter.as_ref().is_some_and(|adapter| {
+            !owner.in_flight && adapter.pressure() == TerminalAdapterPressure::Ready
+        })
+    }
+
     /// Return control-plane inventory rows without terminal state.
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
@@ -484,6 +524,7 @@ impl ClientWorker {
         let mut teardowns = self.flush_held_after_bind();
         let mut failed_routes = HashSet::new();
         let mut unbound_process_exits = Vec::new();
+        let mut bound_queue_wakes = Vec::new();
         for (client_id, frame) in egress.drain(..) {
             let Some((session_id, subscription_id)) = terminal_route(&frame) else {
                 retained.push((client_id, frame));
@@ -567,9 +608,13 @@ impl ClientWorker {
                         }
                     } else {
                         let is_process_exit = queued.kind == QueuedKind::ProcessExit;
+                        let ready = Self::owner_ready_for_bound_queue_wake(owner);
                         owner.queue.push_back(queued);
                         if is_process_exit {
                             owner.process_exit_enqueued = true;
+                        }
+                        if ready {
+                            bound_queue_wakes.push(key.session_id.clone());
                         }
                     }
                 }
@@ -591,6 +636,7 @@ impl ClientWorker {
                 teardowns.push(teardown);
             }
         }
+        self.bound_queue_wake_sessions.extend(bound_queue_wakes);
         *egress = retained;
         teardowns
     }
@@ -638,14 +684,22 @@ impl ClientWorker {
             }
             match encode_terminal_frame(key, &frame, phase, &capabilities) {
                 Ok(Some(queued)) => {
-                    let owner = self.live.get_mut(key)?;
-                    if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
-                        return self.hard_stop_key(key);
+                    let ready;
+                    {
+                        let owner = self.live.get_mut(key)?;
+                        if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
+                            return self.hard_stop_key(key);
+                        }
+                        let is_process_exit = queued.kind == QueuedKind::ProcessExit;
+                        ready = Self::owner_ready_for_bound_queue_wake(owner);
+                        owner.queue.push_back(queued);
+                        if is_process_exit {
+                            owner.process_exit_enqueued = true;
+                        }
                     }
-                    let is_process_exit = queued.kind == QueuedKind::ProcessExit;
-                    owner.queue.push_back(queued);
-                    if is_process_exit {
-                        owner.process_exit_enqueued = true;
+                    if ready {
+                        self.bound_queue_wake_sessions
+                            .insert(key.session_id.clone());
                     }
                 }
                 Ok(None) => {}
