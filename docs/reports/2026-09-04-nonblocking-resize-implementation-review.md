@@ -71,3 +71,46 @@ In `reconcile_terminal_resize_acknowledgments`, when `take_resize_applied` retur
 - `ResizeAckHold` and `PENDING_INGRESS_RESIZE_CAP` are public. `pending_terminal_resize_len` and `control_plane_state` on `CoreDaemon` are `#[doc(hidden)]`, consistent with the hidden method this change removed.
 - Hub needs no source change. The driver already calls `wait_pump`, which merges deadlines.
 - Remaining blocking paths listed in Grok's report match my plan review.
+
+## Follow-up review: commit a2d6c97
+
+Reviewed SHA: `a2d6c97c8c38125c05b9507c3bccefa5bfb5db65`, parent `53ed10f2387d532c8269669522e8c8f7f357af3c`. Frozen: implementation worktree HEAD matches and status is clean. Scope: only the follow-up diff and its evidence.
+
+### Verdict
+
+**Changes required, one item.** Items 1 and 3 are approved. Item 2's production guard is correct and harmless, but its regression test is not load-bearing: it passes with the guard removed. The plan and the vault require a red run with the fix reverted.
+
+### Verification I ran (isolated detached checkout at `a2d6c97`)
+
+| Check | Result |
+| --- | --- |
+| `terminal_wake_test`, single-threaded | 55 passed, 35.19s |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pass |
+| `cargo fmt --all -- --check` | pass |
+| New regression with the lifecycle guard ablated (`fail_expired_pending_resize` unconditional) | **still passes**, 1.36s |
+| Same test with a probe print in both reconcile branches | only the `SessionNotFound` branch fires, with the engine session still present |
+
+Red evidence for item 1 verified: tee log `1788565376_cargo_test.log` fails at `terminal_wake_test.rs:2118` with the liveness message in 0.84s, and the attach step was received first. The bound is now the 400 ms `recv_timeout`, not the old 2 s pump timeout. Deadlock evidence for item 3 verified: tee log `1788565334_cargo_test.log` fails at `:2559` with `ShutdownFailed` after 2.42s.
+
+### Item 1: liveness bound (approved)
+
+The daemon is constructed and dropped inside a scenario thread. The test thread waits on `recv_timeout` per step with bounds of 20 s for attach, 400 ms for the pump return, the 2 s acknowledgement timeout for sibling progress, and 8 s for completion. A missed bound releases the hold and panics with the step's message before any join, so a pump that never returns produces a bounded failure instead of a hang. The scenario thread reports its own panics through the channel, so setup failures arrive as their own messages, not as the liveness message. Cleanup on a real hang is best effort: the scenario thread keeps the daemon until it unwinds. That is acceptable and matches the plan's intent.
+
+### Item 2: lifecycle guard (guard approved, regression not load-bearing)
+
+Guard: `managed_session_runtime.rs:203-208` removes pending entries and skips `fail_expired_pending_resize` when the engine lifecycle is `Stopping` or `Exited`. It reads engine state, not the registry. Correct.
+
+Regression `expired_pending_resize_does_not_drop_undelivered_process_exit` (`terminal_wake_test.rs:2582` onward): the worker omits the acknowledgement, the child exits, a non-pump observe commits `Exited`, the deadline passes, and the expired-session wake delivers `ProcessExited`. This is a valid delivery proof, but the exit drain removes the worker map entry when it commits the exit (`worker_process.rs:1771-1772`). Reconcile therefore hits `take_resize_applied` returning `SessionNotFound` and takes the branch at `:191-197`, which already existed at `53ed10f`. The guard branch never executes. My ablation confirms the test passes without the guard.
+
+Required correction, either form:
+
+- A unit test in `managed_session_runtime` using the existing fake session runtime pattern, where the worker entry stays present, the engine lifecycle is `Exited` (or `Stopping`), and one pending entry has an expired deadline. Assert after reconcile: pending is empty, the control plane is not `Failed(ResizeAckTimeout)`, and no owner teardown was queued. Run it once with the guard ablated and record the red result.
+- Or, if the guard branch is provably unreachable because exit commit always removes the worker entry, say so in the report with the code path, keep the guard as defensive, and rename the new test to state what it proves: delivery of `ProcessExited` after an expired resize on an exited session through the not-found branch. Then no red claim is made for the guard.
+
+The first form is preferred. It is small and deterministic.
+
+### Item 3: post-teardown acknowledgement coverage (approved as partial)
+
+The deadlock is a fixture limitation, not a production defect. `ResizeAckHold` blocks the parent reader thread before it queues the acknowledgement. Production has no such block: the reader always queues and continues. Shutdown then waits for worker stdout to drain and hits the existing two-second daemon deadline, which is unchanged behavior for any worker whose stdout stalls.
+
+A true post-teardown acknowledgement cannot reach Core. Shutdown removes the worker map entry, which drops the channel receiver. The reader arm's `sender.send` then fails and the reader loop breaks (`worker_process.rs`, `FRAME_RESIZE_APPLIED` arm). The current test proves pending cleanup and a harmless later pump. The report labels the coverage partial, which is accurate.
