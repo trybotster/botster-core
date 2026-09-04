@@ -165,3 +165,23 @@ Edits to apply:
 2. In Exclusions, add one sentence to the explicit-path item: a different-dimension explicit resize issued after an ingress accept can leave the registry at the older ingress size when the ingress acknowledgement persists later. This is a recorded limitation of the excluded path.
 
 No other change is required. Grok may start after the coordinator applies these edits.
+
+## Explicit-path guard review
+
+Coordinator proposal: keep `CoreDaemon::resize`, but reject it with a busy error before any worker or registry mutation while the session has pending ingress resizes.
+
+**Sufficient.** Analysis of the remaining orders:
+
+- Explicit after ingress accept, pending non-empty. The guard rejects it. This was the only order that could regress the registry.
+- Explicit first, then ingress accept before the explicit acknowledgement. Explicit persists its size at once and sends `FRAME_RESIZE` with no pending entry. The ingress accept pushes one pending entry. The worker applies both in order and acknowledges both. The explicit acknowledgement does not match the pending front and is ignored, or matches early when the dimensions are equal. The ingress acknowledgement completes the entry and persists the ingress size. The worker also holds the ingress size, because it applied last. The registry is correct.
+- Explicit while an ingress resize is still queued or parked in an owner but not yet accepted. Pending is empty, so the guard allows it. The ingress resize is accepted later and becomes the last applied size. Same result as the previous case.
+- Explicit during incremental attach. Unchanged. The `resize_is_queued` branch already skips persistence.
+- Local engine. `LocalProcessRuntime` has no pending resize collection, so the guard is a no-op there.
+
+Requirements for the guard:
+
+- Check `pending_terminal_resizes` for that session through a small facade accessor. Check it before `engine.resize` and before `persist_session_size`.
+- Return a distinct error variant so a caller can retry after the completion wake. Do not reuse a generic engine error.
+- Tests: same-session busy then retry after the acknowledgement; sibling explicit resize unaffected while the first session is pending.
+
+I withdraw the "delete `CoreDaemon::resize`" option. The seven-call-site count covered only `daemon.resize(` in the daemon integration tests. The coordinator's wider count stands.
