@@ -150,3 +150,18 @@ Explicit `CoreDaemon::resize` is excluded, but if a host mixes it with ingress r
 - Different dimensions, explicit call after the ingress accept. The explicit path persists its size at once (`daemon.rs:1440`). The ingress acknowledgement then arrives and the completion pump persists the older ingress size over it. The registry regresses to the ingress size while the worker holds the explicit size. Today the blocking wait hides this interleaving, because the explicit request closure runs after the pump returns.
 
 Because Hub does not call the explicit path, the clean cut is to delete `CoreDaemon::resize` and route the seven daemon tests through ingress resize. If the coordinator keeps the method, the plan must record the different-dimension hazard as a known limitation of the excluded path.
+
+## Revised plan verdict
+
+Reviewed the revised plan at `botster-hub/docs/plans/2026-09-04-nonblocking-resize.md` (status "revised after Fable review").
+
+**Approved, with two edits the coordinator can apply without another review round.**
+
+Findings 1 to 5 are resolved. The plan now names the existing completion chain, lists the exact deletions, defines expiry as session-local control failure through the writer-failure teardown with retained geometry and cleared entries, merges expired sessions into nonempty batches, excludes the explicit path, names both vault gotchas, lists the changed tests, and records the current Hub main.
+
+Edits to apply:
+
+1. Replace "The pending-entry bound and retry wake require final review before implementation" with the cap rule from the addendum: per-session pending-resize cap of 30 (the ordinary lane constant), enforced in the per-owner apply loop by peeking the head command before `take_one_terminal_input`, parking the owner with `park_for_capacity` and `full_sessions` as the `ControlAdmission::Full` branch does. Retry rides the acknowledgement's session ingress wake through `parked_route_keys`. Add one test: fill the cap with the gate held, prove the owner parks and later input stays queued behind the resize, release the gate, prove the parked owner resumes on the acknowledgement wake alone.
+2. In Exclusions, add one sentence to the explicit-path item: a different-dimension explicit resize issued after an ingress accept can leave the registry at the older ingress size when the ingress acknowledgement persists later. This is a recorded limitation of the excluded path.
+
+No other change is required. Grok may start after the coordinator applies these edits.
