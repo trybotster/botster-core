@@ -1304,24 +1304,7 @@ impl CoreDaemon {
             }
 
             let applied_terminal_resize = self.engine.take_applied_terminal_resize(&session_id);
-            let applied_attach_resize = self
-                .engine
-                .take_applied_attach_resize(&session_id)
-                .or_else(|| {
-                    if self
-                        .config
-                        .test_applied_attach_resize
-                        .as_ref()
-                        .is_some_and(|(candidate, _, _, _)| candidate == &session_id)
-                    {
-                        self.config
-                            .test_applied_attach_resize
-                            .take()
-                            .map(|(_, rows, cols, resize_at)| (rows, cols, resize_at))
-                    } else {
-                        None
-                    }
-                });
+            let applied_attach_resize = self.take_applied_attach_resize_to_persist(&session_id);
             if let Some((rows, cols, resize_at)) = applied_terminal_resize.or(applied_attach_resize)
             {
                 if let Err(error) =
@@ -1521,13 +1504,15 @@ impl CoreDaemon {
                 return Err(error.into());
             }
         }
-        if let Some((rows, cols, resize_at)) = self.engine.take_applied_attach_resize(session_id) {
+        self.notify_bound_queue_wakes();
+        if let Some((rows, cols, resize_at)) =
+            self.take_applied_attach_resize_to_persist(session_id)
+        {
             if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
                 self.retain_pending_drain_result(session_id, result);
                 return Err(error);
             }
         }
-        self.notify_bound_queue_wakes();
         if let Err(error) =
             self.commit_terminal_lifecycle(session_id, &result.observations, last_output_at)
         {
@@ -2651,6 +2636,29 @@ impl CoreDaemon {
         Ok(())
     }
 
+    fn take_applied_attach_resize_to_persist(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(u16, u16, u64)> {
+        self.engine
+            .take_applied_attach_resize(session_id)
+            .or_else(|| {
+                if self
+                    .config
+                    .test_applied_attach_resize
+                    .as_ref()
+                    .is_some_and(|(candidate, _, _, _)| candidate == session_id)
+                {
+                    self.config
+                        .test_applied_attach_resize
+                        .take()
+                        .map(|(_, rows, cols, resize_at)| (rows, cols, resize_at))
+                } else {
+                    None
+                }
+            })
+    }
+
     fn notify_bound_queue_wakes(&mut self) {
         for session_id in self.engine.take_bound_queue_wake_sessions() {
             self.engine.wake_source().notify_session(&session_id);
@@ -3242,13 +3250,15 @@ impl CoreDaemon {
             }
         };
         let result = drain_result_from_engine_output(output);
-        if let Some((rows, cols, resize_at)) = self.engine.take_applied_attach_resize(session_id) {
+        self.notify_bound_queue_wakes();
+        if let Some((rows, cols, resize_at)) =
+            self.take_applied_attach_resize_to_persist(session_id)
+        {
             if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
                 self.retain_pending_drain_result(session_id, result);
                 return Err(error);
             }
         }
-        self.notify_bound_queue_wakes();
         if let Err(error) =
             self.commit_terminal_lifecycle(session_id, &result.observations, now_seconds)
         {
