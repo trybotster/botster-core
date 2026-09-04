@@ -2,7 +2,7 @@
 
 Ticket: `ticket_1788523929_630135`
 Run: `run_1788523950_844880`
-Plan visit: 1
+Plan visit: 2 (revised after Plan Review `review_1788525170_869520`)
 
 ## Target repository
 
@@ -26,6 +26,12 @@ Role playbooks:
 
 - [[planner-playbook]]
 - [[botster-planner-playbook]]
+
+Runtime task-surface guidance (added in visit 2; the Core charter requires the
+runtime overlay for lifecycle, PTY, and transport work):
+
+- [[cli-patterns]]
+- [[botster-runtime-reviewer-playbook]]
 
 Class overlay (runtime-teardown class applies; see the lens answers below):
 
@@ -71,12 +77,19 @@ Pipelines package or plugin path.
 - Core CI: `.github/workflows/ci.yml`.
 - Core docs: `docs/architecture/client-worker-terminal-egress.md`,
   `docs/architecture/control-plane-lifecycle-journal.md`.
-- Hub consumer seam, read only, at `origin/main` `bb1a330` (pins Core
-  `48a4370`): `src/daemon/owner_loop.rs` calls `observe_lifecycle_slice`
-  each owner turn, `src/daemon/control/sessions.rs` calls
+- Hub consumer seam, read only, after `git fetch origin --prune` on
+  2026-09-04. Current Hub `origin/main` is `ae6a0b1` and still pins Core
+  `48a4370`. The active parent ticket branch for
+  `ticket_1787600679_990088` is `6ff08fd` (`Record removal of the global
+  adapter pump.`) and pins Core `72d1c75`. On that branch
+  `src/daemon/owner_loop.rs` calls `observe_lifecycle_slice` each owner
+  turn, `src/daemon/control/sessions.rs` calls
   `observe_session_lifecycle`, and `src/data_plane/driver.rs` is the only
   `pump_woken` caller. Hub source guards already forbid
   `list_terminal_subscriptions` inside the pump.
+- Registered dependency: `dependency_1788523941_772682` makes the parent Hub
+  ticket depend on this Core ticket. The parent cannot start a run until
+  this ticket closes, and it will then pin the merged Core revision.
 
 ## Root cause at 72d1c75
 
@@ -250,6 +263,14 @@ Assumptions:
 
 Unknowns for Implement:
 
+0. Whether a production adapter emits a writable wake at bind time when its
+   transport already has capacity. `waking_bind_then_writable_wake_pumps_one_route`
+   drives that wake from the fake. If the adapter contract does not
+   guarantee it, the declared-unbound race check would show `held`
+   `process_exit` stranded after bind. The fallback inside this ticket is to
+   `notify_session` after a bind onto an owner whose `held` is non-empty,
+   because bind is not a pump path. Implement records which case applies.
+
 1. Whether `CoreDaemon::drain` needs the wake for Hub today. Hub serves
    `drain_subscription` for unbound socket routes only. The plan includes
    `drain` for consistency because it shares the immediate-commit shape.
@@ -325,14 +346,62 @@ layer changes.
   next commit for the session: `process_exit` delivery, hard stop after the
   512 write budget or `Closed` pressure, `remove_session`, or shutdown.
   `notify_session` is non-blocking and coalesced.
-- `late_message_matrix`: ownership-creating surfaces are unchanged.
-  Attach: generation-tagged; rejected after terminal state by the existing
-  attach rejection; swept by `unsubscribe` teardown. Bind: requires the
-  live generation; rejected and closed on stopped daemon or unknown
-  session; swept by hard stop. Observe or readback after exit: creates no
-  ownership; it now emits one coalesced wake and defers retirement. A late
-  ingress wake for a retired session is dropped in `assemble_batch`, which
-  is unchanged.
+- `late_message_matrix`: every surface that creates durable Core ownership,
+  with its identity tag, its rejection after a terminal state or daemon stop,
+  and its sweep when it races the exit or the retirement introduced here.
+  Line numbers are at `72d1c75`.
+
+  | Surface | Ownership created | Identity tag | Rejection after terminal or stop | Rollback or sweep, and race order |
+  |---|---|---|---|---|
+  | `spawn` (`daemon.rs:599`; runtime `local_process.rs:240`, `worker_process.rs:1592`) | registry row, engine session, session wake state | `SessionId` | `ensure_running` rejects after stop; a failed worker `start_writer` forgets the wake it allocated (`worker_process.rs:353`) | `remove_session` forgets the wake unconditionally (`daemon.rs:2046`, `managed_session_runtime.rs:954`). The deferred retirement in this plan is re-evaluated on every later commit for the session, so a session that exits with a bound route and then hard-stops still retires on that commit. Order: exit-first or observe-first both end at the same commit rule. |
+  | `adopt_session` (`daemon.rs:1973`; runtime `worker_process.rs:1296`) | engine session and session wake state for a registry row from a previous daemon | `SessionId` plus recovery identity | `ensure_running`; missing worker path; incompatible protocol; oversized metadata rejects without touching the live worker | Same sweep as `spawn`. Adoption creates the wake state before any bound route exists, so the retirement deferral never applies to adoption itself. |
+  | `expect_terminal_adapter` (`daemon.rs:960`; `client_worker.rs:224`) | pre-attach declaration in `expected_adapters` | `(ClientId, SessionId, SubscriptionId)` | `ensure_running` rejects after stop. A later `attach` that fails for absent, terminal, or control-plane-failed session cancels the declaration on the error arm (`daemon.rs:1023`). | `cancel_expected_terminal_adapter` (`daemon.rs:973`) retires an unconsumed declaration. A matching attach consumes it; a different client cannot consume it. No wake state is created by a declaration, so this change does not touch it. |
+  | `attach` (`daemon.rs:997`) | live `ClientWorker` owner with a new generation; declared owners hold frames in `held` until bind | `(SessionId, SubscriptionId, TerminalSubscriptionGeneration)` plus `ClientId` | `ensure_running`, `ensure_session_mutable`, and `ensure_control_plane_live` reject; each rejection cancels the declaration | `unsubscribe` teardown and hard stop remove the owner. Race with exit: an unbound declared owner that receives `process_exit` into `held` keeps it there; observe may then commit `Exited` and retire the session wake, because the later bind installs a route wake sink whose writable wake flushes `held` through `flush_held_after_bind`. An unbound undeclared owner hard-stops on `process_exit` at ingest, which is unchanged. |
+  | `bind_waking_terminal_adapter` (`daemon.rs:1064`; `client_worker.rs:337`) | adapter on the live owner plus a route wake sink | live generation for the exact `(session, subscription)` and `ClientId` | Stopped daemon, unknown session, and failed control plane close and drop the adapter before delegation. `ClientWorker` rejects `BindBeforeAttach`, `UnknownSubscription`, `StaleGeneration`, and `AlreadyBound` and closes the adapter. | Hard stop calls `retire_and_hard_stop`, which retires the route sink and removes the owner. The deferred session-wake retirement in this plan counts only live bound owners, so a rejected or already hard-stopped bind never holds the session wake open. |
+  | Non-pump drains (`observe_session`, `drain_runtime_for_readback`, `drain`) | none; these create no durable ownership | n/a | `ensure_running` rejects after stop | New in this plan: they emit one coalesced session ingress wake when they queue frames onto a bound Ready owner, and they leave the session wake live until that owner's frames are delivered or the owner is gone. A late ingress node for a retired session is still dropped in `assemble_batch`. |
+
+  Acceptance checks that cover the matrix rows (existing tests stay green;
+  new tests are marked):
+
+  - Failed setup wake rollback:
+    `failed_worker_start_does_not_leave_wake_registry_residue`
+    (`crates/botster-core/tests/local_session_worker_process_test.rs`).
+  - Stopped-daemon rejection: `late_spawn_and_waking_bind_after_shutdown_allocate_no_core_state`,
+    `waking_bind_after_shutdown_closes_and_drops_adapter`,
+    `waking_bind_for_unknown_session_closes_and_drops_adapter`, and
+    `bind_rejection_allocates_nothing` (`terminal_wake_test.rs`).
+  - Stale generation bind rejection: `bind_rejection_allocates_nothing` and
+    `terminal_subscription_generation_is_exact_membership`
+    (`daemon_integration_test.rs:6981`).
+  - Late declaration cleanup: `absent_session_attach_cancels_pre_attach_declaration`
+    (`daemon_integration_test.rs:190`),
+    `terminal_session_attach_cancels_pre_attach_declaration`
+    (`daemon_integration_test.rs:236`),
+    `declaration_is_not_consumed_by_a_different_client`, and
+    `matching_attach_consumes_a_declaration_so_later_attach_does_not_hold`
+    (`client_worker_engine_test.rs`).
+  - Adoption: `daemon_restart_adopts_live_worker_and_reattaches`
+    (`daemon_integration_test.rs:5123`),
+    `oversized_persisted_metadata_fails_adoption_without_touching_the_live_worker`,
+    and `adoption_rejects_a_worker_from_the_previous_protocol`.
+  - Sibling survival: `pump_failure_does_not_block_a_later_sibling`
+    (`daemon_integration_test.rs:1148`) and
+    `observe_retains_one_session_error_and_still_exits_a_later_sibling`
+    (`daemon_integration_test.rs:5700`).
+  - New, declared-unbound race: declare, attach, let the process exit, call
+    `observe_session_lifecycle` before bind. Assert `Exited` is committed,
+    `held` still contains `process_exit` (through the later delivery), then
+    bind an `auto_complete()` adapter, take the adapter writable wake with
+    `wait_wakes`, `pump_woken`, and assert `process_exit` delivered, adapter
+    closed, and `session_registry_len() == 0`.
+  - New, bound race in both queue orders: exit observed by `pump_woken`
+    first (existing `bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds`
+    shape) and exit observed by `observe_session_lifecycle` first (the
+    positive control in Scope item 5). Both end with one `Exited` upsert and
+    `session_registry_len() == 0`.
+  - New, hard-stop race: observe consumes the exit, then the adapter reports
+    `Closed` before the pump. Assert the route hard-stops, the session wake
+    retires on that pump's commit, and the journal holds one `Exited` upsert.
 - `production_path_proof`: Hub owner loop `observe_lifecycle_slice` →
   `CoreDaemon::observe_session` → `drain_runtime_once` → ingest queues
   `process_exit` → `notify_session` → Hub data-plane `wait_pump` →
@@ -390,6 +459,22 @@ Product proofs that Review and Verify require:
 7. `hub-data-plane-shaped` consumer test green with
    `list_terminal_subscriptions` in its forbidden source list.
 8. Implement evidence names the merged Core revision for the Hub pin.
+
+## Plan Review findings addressed in visit 2
+
+- `finding_1788525170_313374` (high, product): the late-message matrix now
+  lists spawn, adoption, declaration and cancellation, attach, bind, and the
+  non-pump drains, each with identity, rejection, and sweep, plus the
+  acceptance checks that cover them.
+- `finding_1788525170_452980` (low, process): [[cli-patterns]] and
+  [[botster-runtime-reviewer-playbook]] are loaded and recorded.
+- `finding_1788525170_788278` (low, process): the Hub context paragraph now
+  separates current `origin/main` from the active parent branch and records
+  the registered dependency.
+- `finding_1788525170_769671` (low, process): this visit resubmits the gate
+  with `plan_uri`, `artifact_id`, `checklist_id`, `target_id`, and
+  `target_repository`, and reuses the one Plan vault checklist
+  `checklist_1788524372_726191` created in visit 1.
 
 ## Vault gaps worth capturing
 
