@@ -41,6 +41,8 @@ pub enum ControlWriterError {
     WriteError(String),
     /// The peer closed the write half.
     PeerClosed,
+    /// A pending ingress resize exceeded its acknowledgement deadline.
+    ResizeAckTimeout,
 }
 
 /// Writer thread exit observed by the production tick.

@@ -107,6 +107,86 @@ const UNIX_SOCKET_PATH_MAX_BYTES: usize = 103;
 ))]
 const UNIX_SOCKET_PATH_MAX_BYTES: usize = 107;
 
+/// Test-only parent-side gate that holds `FRAME_RESIZE_APPLIED` for one session.
+#[derive(Clone)]
+pub struct ResizeAckHold {
+    session_id: crate::SessionId,
+    inner: Arc<ResizeAckHoldInner>,
+}
+
+struct ResizeAckHoldInner {
+    held: Mutex<bool>,
+    cvar: Condvar,
+}
+
+impl PartialEq for ResizeAckHold {
+    fn eq(&self, other: &Self) -> bool {
+        self.session_id == other.session_id && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for ResizeAckHold {}
+
+impl std::fmt::Debug for ResizeAckHold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResizeAckHold")
+            .field("session_id", &self.session_id)
+            .finish()
+    }
+}
+
+impl ResizeAckHold {
+    /// Create a released gate for `session_id`. Call [`Self::arm`] after attach.
+    #[must_use]
+    pub fn for_session(session_id: crate::SessionId) -> Self {
+        Self {
+            session_id,
+            inner: Arc::new(ResizeAckHoldInner {
+                held: Mutex::new(false),
+                cvar: Condvar::new(),
+            }),
+        }
+    }
+
+    /// Session whose reader thread waits on this gate.
+    #[must_use]
+    pub fn session_id(&self) -> &crate::SessionId {
+        &self.session_id
+    }
+
+    /// Hold the next matching acknowledgement until [`Self::release`].
+    pub fn arm(&self) {
+        let Ok(mut held) = self.inner.held.lock() else {
+            return;
+        };
+        *held = true;
+    }
+
+    /// Allow the matching reader thread to emit the held acknowledgement.
+    pub fn release(&self) {
+        let Ok(mut held) = self.inner.held.lock() else {
+            return;
+        };
+        *held = false;
+        self.inner.cvar.notify_all();
+    }
+
+    fn wait_if_session(&self, session_id: &crate::SessionId) {
+        if &self.session_id != session_id {
+            return;
+        }
+        let Ok(mut held) = self.inner.held.lock() else {
+            return;
+        };
+        while *held {
+            held = match self.inner.cvar.wait(held) {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+        }
+    }
+}
+
 /// Options for the local worker process runtime adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerProcessRuntimeOptions {
@@ -140,6 +220,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_fail_snapshot_history_after_ready: bool,
     /// Test-only: omit resize acknowledgments after successful worker application.
     pub test_omit_resize_applied: bool,
+    /// Test-only: hold `FRAME_RESIZE_APPLIED` in the parent reader for one session.
+    pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -170,6 +252,7 @@ impl WorkerProcessRuntimeOptions {
             test_hold_after_enqueue_ms: None,
             test_fail_snapshot_history_after_ready: false,
             test_omit_resize_applied: false,
+            test_resize_ack_hold: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
@@ -1042,6 +1125,12 @@ impl WorkerProcessRuntime {
         }
     }
 
+    /// Parent wait bound reused by pending ingress resize deadlines.
+    #[must_use]
+    pub fn mode_gated_input_timeout(&self) -> Duration {
+        self.options.mode_gated_input_timeout
+    }
+
     /// Correlated mode-gated PTY input against the worker atomic admit barrier.
     ///
     /// Interleaved PTY/metadata frames continue normal demux into pending
@@ -1165,31 +1254,6 @@ impl WorkerProcessRuntime {
         Ok(())
     }
 
-    /// Wait until the worker confirms one PTY resize operation.
-    pub(crate) fn wait_for_resize_applied(
-        &mut self,
-        session_id: &SessionId,
-        expected: &crate::ResizePayload,
-    ) -> Result<(), SessionRuntimeError> {
-        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
-        loop {
-            self.pump_session_output(session_id)?;
-            let session = self.session_mut(session_id)?;
-            while let Some(size) = session.applied_resizes.pop_front() {
-                if &size == expected {
-                    return Ok(());
-                }
-            }
-            if Instant::now() >= deadline {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker resize acknowledgment timed out",
-                ));
-            }
-            thread::sleep(GATED_POLL);
-        }
-    }
-
     pub(crate) fn take_resize_applied(
         &mut self,
         session_id: &SessionId,
@@ -1294,6 +1358,8 @@ impl WorkerProcessRuntime {
             self.wake_source
                 .as_ref()
                 .map(|source| source.session_handle(session_id.clone())),
+            session_id.clone(),
+            self.options.test_resize_ack_hold.clone(),
         );
         let mut session = WorkerProcessSession {
             child: None,
@@ -1590,6 +1656,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             self.wake_source
                 .as_ref()
                 .map(|source| source.session_handle(request.session_id.clone())),
+            request.session_id.clone(),
+            self.options.test_resize_ack_hold.clone(),
         );
 
         let mut session = WorkerProcessSession {
@@ -2515,6 +2583,8 @@ fn spawn_stdout_reader(
     stall: Arc<EgressStall>,
     latest_mode: Arc<Mutex<Option<(ModeFreshnessToken, ModeFlags)>>>,
     wake_handle: Option<SessionWakeHandle>,
+    session_id: crate::SessionId,
+    resize_ack_hold: Option<ResizeAckHold>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
@@ -2651,6 +2721,9 @@ fn spawn_stdout_reader(
                 }
                 FRAME_RESIZE_APPLIED => {
                     if let Ok(size) = serde_json::from_slice(&frame.payload) {
+                        if let Some(hold) = &resize_ack_hold {
+                            hold.wait_if_session(&session_id);
+                        }
                         if sender
                             .send(WorkerChannelEvent::ResizeApplied(size))
                             .is_err()
