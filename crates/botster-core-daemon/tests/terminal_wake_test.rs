@@ -2740,6 +2740,156 @@ fn observe_does_not_try_write_a_blocked_bound_adapter() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+fn bind_named_short_lived(
+    daemon: &mut CoreDaemon,
+    session_id: SessionId,
+    adapter: SharedFakeTerminalAdapter,
+) -> SessionId {
+    let client_id = ClientId(format!("{}-client", session_id.0));
+    let subscription_id = SubscriptionId(format!("{}-sub", session_id.0));
+    daemon
+        .spawn(short_lived_spawn_request(&session_id), 1)
+        .expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare");
+    daemon
+        .attach(client_id, session_id.clone(), subscription_id.clone(), 2)
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    daemon
+        .bind_waking_terminal_adapter(
+            ClientId(format!("{}-client", session_id.0)),
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter),
+        )
+        .expect("bind");
+    session_id
+}
+
+#[cfg(unix)]
+fn lock_sessions_directory(sessions_dir: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    let original_mode = fs::metadata(sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions()
+        .mode();
+    let mut read_only = fs::metadata(sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    read_only.set_mode(0o500);
+    fs::set_permissions(sessions_dir, read_only).expect("make sessions directory read-only");
+    let probe = fs::write(sessions_dir.join("write-probe"), b"probe");
+    if probe.is_ok() {
+        let mut restored = fs::metadata(sessions_dir)
+            .expect("sessions directory metadata")
+            .permissions();
+        restored.set_mode(original_mode);
+        fs::set_permissions(sessions_dir, restored).expect("restore sessions permissions");
+        panic!("read-only sessions directory accepted a probe write");
+    }
+    original_mode
+}
+
+#[cfg(unix)]
+fn unlock_sessions_directory(sessions_dir: &std::path::Path, original_mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut restored = fs::metadata(sessions_dir)
+        .expect("sessions directory metadata")
+        .permissions();
+    restored.set_mode(original_mode);
+    fs::set_permissions(sessions_dir, restored).expect("restore sessions permissions");
+}
+
+#[cfg(unix)]
+fn drain_pending_wakes(daemon: &mut CoreDaemon) {
+    std::thread::sleep(Duration::from_millis(200));
+    loop {
+        let batch = daemon.wait_wakes(Duration::ZERO);
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            return;
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn drain_resize_persist_failure_still_emits_bound_queue_wake() {
+    let data_dir = temp_data_dir("drain-resize-persist");
+    let sessions_dir = data_dir.join("sessions");
+    let session_id = SessionId("drain-resize-persist-session".into());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_applied_attach_resize(Some((
+            session_id.clone(),
+            40,
+            120,
+            12,
+        ))),
+    );
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
+    drain_pending_wakes(&mut daemon);
+    let original_mode = lock_sessions_directory(&sessions_dir);
+    let failure = daemon
+        .drain(&session_id, 3)
+        .expect_err("resize persistence must fail");
+    unlock_sessions_directory(&sessions_dir, original_mode);
+    assert!(
+        failure.to_string().contains("Permission denied"),
+        "expected permission failure, got {failure}"
+    );
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == &session_id),
+        "failed persist must not swallow the bound-queue wake, got {batch:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn observe_resize_persist_failure_still_emits_bound_queue_wake() {
+    let data_dir = temp_data_dir("observe-resize-persist");
+    let sessions_dir = data_dir.join("sessions");
+    let session_id = SessionId("observe-resize-persist-session".into());
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir).with_test_applied_attach_resize(Some((
+            session_id.clone(),
+            40,
+            120,
+            12,
+        ))),
+    );
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
+    drain_pending_wakes(&mut daemon);
+    let original_mode = lock_sessions_directory(&sessions_dir);
+    let failure = daemon
+        .observe_session_lifecycle(&session_id, 3)
+        .expect_err("resize persistence must fail");
+    unlock_sessions_directory(&sessions_dir, original_mode);
+    assert!(
+        failure.to_string().contains("Permission denied"),
+        "expected permission failure, got {failure}"
+    );
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(
+        batch.ingress_sessions.iter().any(|id| id == &session_id),
+        "failed persist must not swallow the bound-queue wake, got {batch:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn retained_sink_clone_does_not_pin_allocation() {
     let source = botster_core::TerminalWakeSource::new();
