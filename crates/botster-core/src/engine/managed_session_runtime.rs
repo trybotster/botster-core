@@ -201,7 +201,11 @@ where
                 self.acknowledge_terminal_resize(session_id, &size);
             }
             if self.pending_resize_expired(session_id, now) {
-                self.fail_expired_pending_resize(session_id);
+                if self.session_is_stopping_or_exited(session_id) {
+                    self.pending_terminal_resizes.remove(session_id);
+                } else {
+                    self.fail_expired_pending_resize(session_id);
+                }
             }
         }
         Ok(())
@@ -2136,6 +2140,13 @@ where
         matches!(
             self.session(session_id).map(|session| &session.lifecycle),
             Some(SessionLifecycleState::Exited { .. })
+        )
+    }
+
+    fn session_is_stopping_or_exited(&self, session_id: &SessionId) -> bool {
+        matches!(
+            self.session(session_id).map(|session| &session.lifecycle),
+            Some(SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping)
         )
     }
 

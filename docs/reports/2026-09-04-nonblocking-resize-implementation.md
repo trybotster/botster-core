@@ -4,7 +4,7 @@ Date: 2026-09-04. Implementer: Grok. Branch: `foundation/nonblocking-resize`.
 Worktree: `/Users/jasonconigliari/botster-sessions/trybotster-botster-core-foundation-nonblocking-resize`.
 Base: `93acae3f98adbc21dc981d113c4eb2f31ead4ad0`.
 Plan: `botster-hub/docs/plans/2026-09-04-nonblocking-resize.md`.
-Review: Fable report commit `b5a7201`. The approved plan controls this cut.
+Review: Fable plan-review commit `b5a7201`. Implementation review commit `de660b0`. The approved plan controls this cut. Fable approved `53ed10f` with follow-ups applied in a later freeze on this branch.
 
 This repository has no `cli/test.sh`. Gates use the documented Cargo commands with `BOTSTER_ENV=test`. The local shell wraps `cargo` through RTK. Raw diagnostics live in RTK tee logs. This run did not invent a wrapper. This run did not edit Hub ticket `ticket_1787600679_990088` or its Core pin.
 
@@ -126,6 +126,66 @@ Worker-backed tests call `cargo build -p botster-core-daemon --bin botster-sessi
 
 This change does not fix every shared-pump block. It removes the resize-acknowledgement wait from `pump_woken`.
 
+## Follow-up after Fable `de660b0`
+
+Coordinator required three items on the same branch. No Hub pins.
+
+### 1. Independent delayed-arrival bound
+
+The `!Send` daemon is constructed and dropped inside a scenario thread. The test thread waits on `recv_timeout` per step. A missed pump bound releases the hold and panics with the liveness message before any `join`. Attach timeout remains `worker attach did not finish`.
+
+Red, blocking pump restored only for this run (pending-resize wait loop in `CoreDaemon::pump_woken`, then reverted):
+
+```bash
+BOTSTER_ENV=test cargo test -p botster-core-daemon --test terminal_wake_test delayed_sibling_arrival_progresses_while_resize_acknowledgement_is_held -- --exact --nocapture
+```
+
+- Exit status: 101
+- Duration: 0.84s
+- Panic: `terminal_wake_test.rs:2118`
+- Message: `session A resize pump did not return while its acknowledgement remained held`
+- Attach setup completed (`DelayedArrivalStep::Attached` was received first)
+- Raw log: `/Users/jasonconigliari/Library/Application Support/rtk/tee/1788565376_cargo_test.log`
+
+Green after removing the ablation:
+
+- Exit status: 0
+- `1 passed` in 0.49s
+
+### 2. Expiry skips control failure when the engine session is Stopping or Exited
+
+`reconcile_terminal_resize_acknowledgments` inspects `ManagedSessionRuntime::session` lifecycle. It does not read the host registry. If the engine session is `Stopping` or `Exited`, pending entries are cleared and `fail_expired_pending_resize` is skipped so undelivered `ProcessExited` can still reach the bound route.
+
+New test: `expired_pending_resize_does_not_drop_undelivered_process_exit`.
+
+- Exit status: 0
+- `1 passed` in 1.29s
+
+### 3. Teardown versus held acknowledgement
+
+Releasing `ResizeAckHold` after `shutdown` does not work. The parent reader holds `FRAME_RESIZE_APPLIED` before it queues the acknowledgement, so worker stdout is not drained and shutdown hits:
+
+```text
+worker session shutdown did not complete before the daemon deadline
+```
+
+Raw log of that attempt: `/Users/jasonconigliari/Library/Application Support/rtk/tee/1788565334_cargo_test.log` (exit 101, 2.42s).
+
+The teardown test therefore releases first, then shuts down. That proves pending cleanup and a harmless later pump. It does not prove post-teardown acknowledgement arrival. Coverage of late acknowledgement after teardown remains partial because of this gate.
+
+### Follow-up gates
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `cargo fmt --all -- --check` | 0 | pass |
+| `BOTSTER_ENV=test cargo clippy --workspace --all-targets -- -D warnings` | 0 | pass |
+| `BOTSTER_ENV=test cargo test -p botster-core-daemon --test terminal_wake_test -- --test-threads=1` | 0 | 55 passed, 41.64s |
+| `BOTSTER_ENV=test cargo test -p botster-core --no-default-features --lib` | 0 | 41 passed |
+
+Passing suite log: `/Users/jasonconigliari/.grok/sessions/%2FUsers%2Fjasonconigliari%2Fbotster-sessions%2Ftrybotster-botster-core-foundation-nonblocking-resize/01a06ea1-6567-7b11-892c-9cb1bf388272/terminal/call-bf2c5f0e-94d7-4d8b-9018-1be6def7b981-315.log`. RTK tee files in this window captured failing runs; passing counts above are from those command exits.
+
+Workspace and doctest gates were not repeated. The follow-up did not change production behavior outside expiry skip and tests.
+
 ## Review freeze
 
-Implementation and this report are committed on `foundation/nonblocking-resize` only. Do not merge. Do not publish. Fable reviews this exact commit.
+Implementation and this report are committed on `foundation/nonblocking-resize` only. Do not merge. Do not publish. Fable reviews the follow-up commit on this branch.

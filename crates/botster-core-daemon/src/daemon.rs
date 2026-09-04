@@ -1141,6 +1141,18 @@ impl CoreDaemon {
         self.engine.control_plane_state(session_id)
     }
 
+    /// Engine lifecycle for one session. Not a host registry projection.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn engine_session_lifecycle(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<SessionLifecycleState> {
+        self.engine
+            .session(session_id)
+            .map(|session| session.lifecycle.clone())
+    }
+
     /// Mark this daemon as pump-hosted and return its thread-safe control.
     ///
     /// The returned handle has no daemon access. Only the daemon owner thread
