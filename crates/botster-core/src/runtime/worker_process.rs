@@ -1211,21 +1211,6 @@ impl WorkerProcessRuntime {
         Ok(completion.reader_finished)
     }
 
-    /// Return whether the worker stored `ProcessExited` and finished stdout.
-    ///
-    /// This query does not drain runtime output. After both flags are true the
-    /// worker has published its last stdout readiness notify.
-    #[must_use]
-    pub fn process_exit_recorded_and_reader_finished(&self, session_id: &SessionId) -> bool {
-        self.sessions.get(session_id).is_some_and(|session| {
-            session
-                .completion
-                .lock()
-                .map(|completion| completion.process_exited.is_some() && completion.reader_finished)
-                .unwrap_or(false)
-        })
-    }
-
     /// Release worker processes without sending shutdown frames when the daemon is intentionally restarting.
     pub fn release_for_restart(&mut self) {
         self.release_on_drop = true;
@@ -2696,10 +2681,10 @@ fn spawn_stdout_reader(
                 _ => {}
             }
         }
+        notify_session_wake(&wake_handle);
         if let Ok(mut state) = completion.lock() {
             state.reader_finished = true;
         }
-        notify_session_wake(&wake_handle);
     });
 }
 
@@ -3015,14 +3000,57 @@ fn lock_error<T>(_error: std::sync::PoisonError<T>) -> SessionRuntimeError {
 #[cfg(all(test, unix))]
 mod tests {
     use std::io::Write;
-    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use crate::contract::terminal_wake::TerminalWakeSource;
+    use crate::runtime::control_queue::{ControlFrameClass, ControlQueue, ControlWriterSlot};
 
     use super::{
-        remove_socket_if_unchanged, socket_identity, worker_socket_path, ProcessIdentity,
-        SessionId, SessionRuntimeErrorKind, WorkerProcessRuntime, UNIX_SOCKET_PATH_MAX_BYTES,
+        remove_socket_if_unchanged, run_control_writer, socket_identity, worker_socket_path,
+        ProcessIdentity, SessionId, SessionRuntimeErrorKind, WorkerProcessRuntime, WorkerWriteHalf,
+        FRAME_PTY_INPUT, FRAME_SHUTDOWN, UNIX_SOCKET_PATH_MAX_BYTES,
     };
+
+    fn closed_peer_write_half() -> WorkerWriteHalf {
+        let (writer, peer) = UnixStream::pair().expect("socket pair");
+        drop(peer);
+        WorkerWriteHalf::Socket(writer)
+    }
+
+    fn wake_after_control_write_failure(class: ControlFrameClass, frame_type: u8) -> bool {
+        let source = TerminalWakeSource::new();
+        let session = SessionId("control-writer-wake".to_string());
+        let handle = source.session_handle(session.clone());
+        let queue = ControlQueue::new();
+        let frame = crate::encode_frame(frame_type, b"x").expect("control frame");
+        queue.admit(class, frame).expect("admit");
+        run_control_writer(
+            queue,
+            closed_peer_write_half(),
+            ControlWriterSlot::running(),
+            Some(handle),
+        );
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        batch.ingress_sessions.iter().any(|id| id == &session)
+    }
+
+    #[test]
+    fn ordinary_control_write_failure_notifies_session() {
+        assert!(wake_after_control_write_failure(
+            ControlFrameClass::Ordinary,
+            FRAME_PTY_INPUT
+        ));
+    }
+
+    #[test]
+    fn terminal_shutdown_write_failure_does_not_notify_session() {
+        assert!(!wake_after_control_write_failure(
+            ControlFrameClass::Terminal,
+            FRAME_SHUTDOWN
+        ));
+    }
 
     #[test]
     fn cleanup_identity_includes_socket_lifetime_metadata() {

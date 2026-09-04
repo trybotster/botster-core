@@ -1341,21 +1341,6 @@ impl CoreDaemon {
         self.engine.wake_source()
     }
 
-    /// Return whether worker-backed incremental attach still owns this session.
-    #[must_use]
-    pub fn incremental_attach_active(&self, session_id: &SessionId) -> bool {
-        self.engine.incremental_attach_active(session_id)
-    }
-
-    /// Return whether the worker stored `ProcessExited` and finished stdout.
-    ///
-    /// This query does not drain runtime output.
-    #[must_use]
-    pub fn worker_process_exit_recorded_and_reader_finished(&self, session_id: &SessionId) -> bool {
-        self.engine
-            .process_exit_recorded_and_reader_finished(session_id)
-    }
-
     /// Control-plane subscription inventory. No terminal state is included.
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
@@ -3903,13 +3888,6 @@ impl DaemonEngine {
         match self {
             Self::Local(_) => false,
             Self::Worker(engine) => engine.incremental_attach_active(session_id),
-        }
-    }
-
-    fn process_exit_recorded_and_reader_finished(&self, session_id: &SessionId) -> bool {
-        match self {
-            Self::Local(_) => false,
-            Self::Worker(engine) => engine.process_exit_recorded_and_reader_finished(session_id),
         }
     }
 
