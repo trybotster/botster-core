@@ -120,3 +120,33 @@ Existing tests that change meaning (Grok must explain each in the report):
 5. Update the revision record per Finding 5.
 
 After these edits I will approve without another full pass, unless the coordinator changes the expiry rule to something not listed here.
+
+## Addendum: coordinator follow-up questions
+
+### Pending-entry bound
+
+The coordinator is correct. The control queue does not bound accepted-but-unacknowledged entries. `run_control_writer` pops each frame and frees ordinary capacity when it pops, before the worker reads or acknowledges the frame (`worker_process.rs:2893-2900`, `control_queue.rs:217-242`). The queue lane holds 30 ordinary frames (`WORKER_CONTROL_QUEUE_FRAMES` 32 minus `WORKER_CONTROL_RESERVED_SLOTS` 2). After the writer drains them, the kernel socket buffer absorbs more frames until the write blocks for `WORKER_CONTROL_WRITE_TIMEOUT` (2 s) and the writer fails the session. That bound is finite, but it is a byte bound in the kernel, not an explicit entry bound, and it is not coupled to acknowledgements.
+
+The worker cannot read a `FRAME_RESIZE` without acknowledging it, because the acknowledgement is emitted inside the same loop arm before the next read. Unbounded growth therefore needs frames buffered between the writer and the worker loop. That is exactly the socket buffer case above.
+
+Proposed explicit cap, using existing park/retry:
+
+- Add a per-session pending-resize cap. Use the same constant as the ordinary lane, 30, so it needs no new tunable.
+- Enforce it in `apply_woken_terminal_input` inside the per-owner loop (`managed_session_runtime.rs:358-392`). Before `take_one_terminal_input`, peek the owner's head command. If the head is `Resize` and the session's pending length has reached the cap, call `park_for_capacity(&key)`, insert the session into `full_sessions`, and break. This is the same branch as `ControlAdmission::Full`. Peeking needs a small `ClientWorker` accessor, because `take_one_terminal_input` pops the command.
+- Retry is acknowledgement-coupled by construction. `parked_route_keys` retries only owners whose session is in `ingress_sessions` (`client_worker.rs:782-803`). The reader thread's `FRAME_RESIZE_APPLIED` arm emits exactly that session ingress wake. So the parked owner retries when an acknowledgement arrives and reconcile has popped an entry.
+- Ordering is preserved. The parked owner's queue is untouched, and later input behind the resize waits in the same queue.
+
+### Expiry must join ordinary wakes
+
+The coordinator is correct. `ManagedSessionRuntime::wait_wakes` returns the expired batch only when the wake batch is empty (`managed_session_runtime.rs:1676-1684`). `CoreDaemon::wait_pump` returns it only on `TimedOut` (`daemon.rs:1178-1183`). After a deadline passes, `clamp_paste_wait` returns zero, but `wait_wakes(0)` still returns any queued wake for B, so continuous B traffic starves expiry. This starvation already exists for paste expiry today.
+
+Proposed correction: in both `wait_wakes` and `wait_pump`, compute the expired batch whenever `now >= next deadline` and merge it into the returned batch. Merge means: append expired adapter routes and expired sessions to the batch, then dedupe. The pump stays targeted, because the merged batch names only sessions with expired deadlines plus the sessions that woke. The daemon already splits the batch per session (`daemon.rs:1233-1254`), so no other pump change is needed. The interruptible variant used by Hub must merge the same way.
+
+### Same-dimension acknowledgement ambiguity with the explicit path
+
+Explicit `CoreDaemon::resize` is excluded, but if a host mixes it with ingress resizes for the same session, two cases exist:
+
+- Same dimensions. The explicit acknowledgement matches the pending ingress front. The worker applied that size, so completion and persisted geometry are correct. The ingress entry completes one acknowledgement early. This is harmless.
+- Different dimensions, explicit call after the ingress accept. The explicit path persists its size at once (`daemon.rs:1440`). The ingress acknowledgement then arrives and the completion pump persists the older ingress size over it. The registry regresses to the ingress size while the worker holds the explicit size. Today the blocking wait hides this interleaving, because the explicit request closure runs after the pump returns.
+
+Because Hub does not call the explicit path, the clean cut is to delete `CoreDaemon::resize` and route the seven daemon tests through ingress resize. If the coordinator keeps the method, the plan must record the different-dimension hazard as a known limitation of the excluded path.
