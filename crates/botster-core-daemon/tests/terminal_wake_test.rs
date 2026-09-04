@@ -2346,12 +2346,12 @@ fn short_lived_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
 
 fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
     let deadline = Instant::now() + Duration::from_secs(5);
+    let _ = daemon.wait_wakes(Duration::ZERO);
     loop {
         assert!(
             Instant::now() < deadline,
             "observe did not commit Exited without a pump"
         );
-        let _ = daemon.wait_wakes(Duration::ZERO);
         daemon
             .observe_session_lifecycle(session_id, now)
             .expect("observe until exit");
@@ -2812,14 +2812,8 @@ fn unlock_sessions_directory(sessions_dir: &std::path::Path, original_mode: u32)
 }
 
 #[cfg(unix)]
-fn drain_pending_wakes(daemon: &mut CoreDaemon) {
+fn wait_for_short_lived_runtime_output() {
     std::thread::sleep(Duration::from_millis(200));
-    loop {
-        let batch = daemon.wait_wakes(Duration::ZERO);
-        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
-            return;
-        }
-    }
 }
 
 #[cfg(unix)]
@@ -2838,7 +2832,7 @@ fn drain_resize_persist_failure_still_emits_bound_queue_wake() {
     );
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
-    drain_pending_wakes(&mut daemon);
+    wait_for_short_lived_runtime_output();
     let original_mode = lock_sessions_directory(&sessions_dir);
     let failure = daemon
         .drain(&session_id, 3)
@@ -2872,7 +2866,7 @@ fn observe_resize_persist_failure_still_emits_bound_queue_wake() {
     );
     let adapter = SharedFakeTerminalAdapter::auto_complete();
     let session_id = bind_named_short_lived(&mut daemon, session_id, adapter);
-    drain_pending_wakes(&mut daemon);
+    wait_for_short_lived_runtime_output();
     let original_mode = lock_sessions_directory(&sessions_dir);
     let failure = daemon
         .observe_session_lifecycle(&session_id, 3)

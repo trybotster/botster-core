@@ -119,11 +119,14 @@ On session `ProcessExited`, each live subscription:
 Close stays non-blocking. A one-slot adapter cannot accept a second frame
 until the first write completes, so live bytes complete before `process_exit`
 occupies the slot. Readback, observe, and other non-pump drains do not
-`try_write` bound adapters. After those drains queue frames onto a bound
-Ready owner, Core emits one coalesced session ingress wake. The host
-delivers the frames through `wait_wakes` and `pump_woken`. Core defers
-session-wake retirement while any live owner still holds undelivered
-frames, including an unbound declared owner. A successful bind onto an
+`try_write` bound adapters. After those drains queue one or more new
+frames onto a bound Ready owner, Core emits one coalesced session
+ingress wake. That wake is an edge, not a standing query. A later
+non-pump drain does not re-arm the wake for frames that already sit in
+`held`, `queue`, or in flight. `wait_wakes` consumes the batch. A host
+must `pump_woken` the batch it received. Core defers session-wake
+retirement while any live owner still holds undelivered frames,
+including an unbound declared owner. A successful bind onto an
 owner with held frames also emits `notify_session` while that wake is
 live. Adapter writable wakes let a one-slot adapter complete the accepted
 write and accept `process_exit`. Shutdown teardown still closes. If the
