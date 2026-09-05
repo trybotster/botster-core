@@ -1,0 +1,427 @@
+{
+  "initial_candidate": "cfc51fb7a7528e6c0c848a81375c514ff7a468e7",
+  "final_source_head": "d10e57aafb0578857b033fbba0cdc857cf41a2b7",
+  "cleanup_correction": "3f29a8de1e8764ac6d134fa8a6cfb029319cb299",
+  "branch": "foundation/registry-identity",
+  "ghostty": "eb72ec61304ea256be1d86ed8fa961c84e43ecbd",
+  "environment": {
+    "BOTSTER_ENV": "test",
+    "RUSTUP_TOOLCHAIN": "1.97.0",
+    "CARGO_BUILD_JOBS": "2",
+    "PATH_prefix": "/Users/jasonconigliari/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin",
+    "CARGO_TARGET_DIR": "unset",
+    "rustc": "1.97.0 (2d8144b78 2026-07-07)",
+    "cargo": "1.97.0 (c980f4866 2026-06-30)",
+    "zig": "0.16.0"
+  },
+  "source_sha256": {
+    "crates/botster-core-daemon/src/registry.rs": "c32c58c087afb4e393052def047fdfcebda4eead048d3d5302fcff7daa1382f1",
+    "crates/botster-core-daemon/src/daemon.rs": "41a296f5106acaa6d0b789b5d83e2002061d86ba057755340508af6ffc1a4714",
+    "crates/botster-core-daemon/tests/daemon_integration_test.rs": "9fd4ffa6c4727f3071ee052c7413c75e41b23cbc869d0a7ef6eb21202c8d8da1",
+    "crates/botster-core-daemon/Cargo.toml": "4500b795e870f7ff851253cd3cfb18d8f470a8cf6e4f21ce0b0359cf22bf22db",
+    "Cargo.lock": "38738ee03c5c9b9d32562f0e3060d225d25334bb8156fffe6437f94cc78030e8"
+  },
+  "worker_sha256": "c6c0ee5820c8214580b7de45bfa6bc8f8bd014b9cd4e7f1ca6d45751b261c518",
+  "commands": [
+    {
+      "log": "01-registry.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--lib",
+        "registry::tests::",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 11
+    },
+    {
+      "log": "02-exact.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--lib",
+        "exact_",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 3
+    },
+    {
+      "log": "03-baseline-collision.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenames",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "04-baseline-foreign.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "lifecycle_baseline_rejects_foreign_registry_identity_as_source_changed",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "05-worker-collision.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "colliding_sanitizer_ids_restart_adopt_and_remove_independently",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "passed": 0
+    },
+    {
+      "log": "05b-worker-cleanup-diagnostic.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "colliding_sanitizer_ids_restart_adopt_and_remove_independently",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "passed": 0
+    },
+    {
+      "log": "05c-worker-collision-corrected.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "colliding_sanitizer_ids_restart_adopt_and_remove_independently",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "06-legacy-adoption.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "adoption_rejects_legacy_registry_without_inventing_terminal_state",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "07-negative-old-encoder.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--lib",
+        "registry::tests::private_filename_uses_full_sha256_and_a_distinct_versioned_namespace",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "passed": 0
+    },
+    {
+      "log": "08-negative-remove-validation.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--lib",
+        "registry::tests::foreign_identity_is_rejected_before_return_overwrite_or_remove",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "passed": 0
+    },
+    {
+      "log": "09-negative-baseline-stem.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenames",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "passed": 0
+    },
+    {
+      "log": "10-daemon-lib-restored.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--lib",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 29
+    },
+    {
+      "log": "11-baseline-restored.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "lifecycle_baseline_",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 9
+    },
+    {
+      "log": "12-registry-integration.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "registry_",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 12
+    },
+    {
+      "log": "13-oversized-metadata.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "oversized_persisted_metadata_fails_adoption_without_touching_the_live_worker",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "14-persistence_failure_rearms_and_later_commit_retires_the_wake.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "persistence_failure_rearms_and_later_commit_retires_the_wake",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "14-pump_persist_resize_error_retains_once.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "pump_persist_resize_error_retains_once",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "14-shutdown_daemon_error_after_engine_output_retains_once.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "shutdown_daemon_error_after_engine_output_retains_once",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "15-fmt.log",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0
+    },
+    {
+      "log": "16-daemon-clippy.log",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "botster-core-daemon",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 101
+    },
+    {
+      "log": "17-daemon-clippy-corrected.log",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "botster-core-daemon",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0
+    },
+    {
+      "log": "18-worker-adapter.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "botster-core-daemon",
+        "--test",
+        "daemon_integration_test",
+        "worker_bound_adapter_receives_ready_finish_without_drain_snapshots",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "passed": 1
+    },
+    {
+      "log": "19-fmt-final.log",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0
+    }
+  ],
+  "evidence_directory": "/private/tmp/botster-registry-validation",
+  "evidence_sha256": {
+    "01-registry.log": "ce8ba541fc14b878993d56d35a7326047e633f4d7b047071fc82803fab2d2e9e",
+    "02-exact.log": "9f9c1abb2ab6290bfe47a776699b9f46e4e734a744bb6d0f527cac762bba1c1a",
+    "03-baseline-collision.log": "6351825d043c7b6b369840d24b385e66d17e856f707622a686e35ee0849c5d43",
+    "04-baseline-foreign.log": "adca9ada2ae544cff67bc369c0a712813688af1aba0843895a7a8b8a3d908244",
+    "05-worker-collision.log": "664946959519e516c52e994f43fbd1610bdf8b3a793c88e9a7863fba06ed24d4",
+    "05b-worker-cleanup-diagnostic.log": "336e038baca25b0a73d76a6ef6172769dad59dea4dfe3b19fc68ee643f20ef22",
+    "05c-worker-collision-corrected.log": "60145a9bcaa44db87821b68118913088c9a6d4ae6d8cdc5b98def89e30b98e3b",
+    "06-legacy-adoption.log": "e28f5c3be60febc9366372bdc283ea98f98fcd33824a63e1bdc20948dbdb48ad",
+    "07-negative-old-encoder.diff": "e6f19b87ede1206e48e8cf58e14f46ab7da6f4dde5da7e7db0779df3efba649a",
+    "07-negative-old-encoder.log": "d6e60ed138959870ff5ac6c80ed2f35270d2244cb93edd72b310e3adc5dd919e",
+    "08-negative-remove-validation.diff": "f89677baace4f95bab22b2394810bec5513942dd8deb7b6befb9707fb9297b33",
+    "08-negative-remove-validation.log": "c1f5bb299a891f6a38cc94e7aa67ed50f55b5983b10a9148c87454e460520615",
+    "09-negative-baseline-stem.diff": "cb4f85aac13e9b4b1d7579a95784498fcbf3a68b27655b0fad8f9e1a86944604",
+    "09-negative-baseline-stem.log": "d91d2b412735c1a9ccc71ecf4b268a56d4979e6d2324599b7ac0add2f0544579",
+    "10-daemon-lib-restored.log": "0907d57d9842a5ae6afd2ece6c89a4c5060512bb509729328184d685ef4b44d2",
+    "11-baseline-restored.log": "c1279787db708701e4d9f5f5f04a786f18939012a85dcdec4b756c0ee5aeb136",
+    "12-registry-integration.log": "2be757885291565066450e6592bcb9a2c3259facca79d15206952670e75f80a6",
+    "13-oversized-metadata.log": "22f9e45917b45811a9f7e385b7347c2de01f59cc7280ddc7c81442cd0f8b19b0",
+    "14-persistence_failure_rearms_and_later_commit_retires_the_wake.log": "c799447c5858b3fed3256620039a9b12f78d5cbf6d6e2fcd44882c89423b89fe",
+    "14-pump_persist_resize_error_retains_once.log": "535baa0128b58875d5684ca4b277c879be7eb3434f93b87e89152d2d642ca7fd",
+    "14-shutdown_daemon_error_after_engine_output_retains_once.log": "4b03b50c0c3086f669ee6fe6efef64ac62b9ba0ba6eb11b59ee966132d95f86f",
+    "15-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "16-daemon-clippy.log": "0ac6bfbfb6a8810221ecbe0302b468fedba842ed978c120adcdd4512e5a9afd2",
+    "17-daemon-clippy-corrected.log": "6cae9f25609a980465ee9d25b182e4166bc2db6bd2ef90230bc57fd113faeaba",
+    "18-worker-adapter.log": "6f026060212b9acfe93a6deabd3b45d2e37cf076ee5a3e6d5ab9c20c064acd50",
+    "19-fmt-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cleanup-after-focused.json": "c7927d333a2d32a6e00e750c17eb8f0e47655d329734634638268d42ed403f02",
+    "cleanup-correction.diff": "8c3875a416ef27c5339967b3a335de519f85d94d466a1517884b4af0edaeb7a8",
+    "final-state.json": "5d6053028fed935e84e9e1747bb12aaf7974340b4d4cafc3b81f7e6afb5a8430",
+    "negative-controls.json": "60d4cb8dbb1e8a06f1b66cf940b8ed7860c270772ae7a07bba775faec29cdad0",
+    "processes-after-focused.txt": "7b9aa70c250ed2898e8bf70f8efc78c33488e63739e1996390c09b6d87ff2d64",
+    "processes-before.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "processes-build-start.txt": "6f644cc5d81b490e8c3fcfb718bb0f734017304896408c3b78047441dc5ea1b7",
+    "processes-final.txt": "a4cd71953d23db933911d70eee3a35b62b6538e3247467d348f6909fe24c0c03",
+    "processes-worker-failure.txt": "57989897a0e9336ad7be6764b7cb179e681c699625a281a1cea45f0e1b183aef"
+  }
+}

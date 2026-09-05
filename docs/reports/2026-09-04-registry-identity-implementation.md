@@ -1,7 +1,7 @@
 # Registry identity implementation
 
 Date: 2026-09-04. Implementer: Codex. Coordinator: root Codex. Reviewer: Fable.
-Status: source candidate prepared. Builds, tests, and negative controls remain pending under the coordinator's source-only hold.
+Status: source review completed. Focused verification ran in the released window. See `2026-09-04-registry-identity-validation.md` for results and remaining gates.
 
 ## Worktree and authority
 
@@ -109,8 +109,9 @@ Four daemon integration tests cover:
 - Legacy adoption returns an explicit error without inventing terminal state.
 
 The worker scenario removes the first session, then requires a PTY echo from the surviving sibling before removing it.
-It attempts cleanup after an assertion failure and checks worker, child, and socket absence within five seconds after daemon drop.
-This is test source, not executed cleanup evidence.
+It attempts cleanup after an assertion failure. The initial source checked worker, child, and socket absence within five seconds after daemon drop.
+Execution found unreaped terminated workers in this restart simulation. The separate correction checks termination and socket absence.
+The validation report records the exact failure, correction, and limits of the cleanup evidence.
 
 Existing fixtures now locate already-verified records for fault injection instead of reproducing filenames.
 Malformed fixtures first save a supported record, then corrupt its bytes at the discovered fixture path.
@@ -125,10 +126,10 @@ This consumer change is required before a Hub Core pin update.
 The coordinator owns the separate consumer worktree `/private/tmp/botster-registry-consumer.tuGcwH/hub`, branch `foundation/registry-identity-consumer`, base `11facec`.
 I did not edit any Hub worktree.
 
-The existing architecture document `docs/architecture/terminal-adapter.md` still contains an old literal registry path and blocking-resize description.
-I left that document unchanged because the coordinator reserved terminal-adapter documentation work for a separate commit.
+The coordinator later authorized a separate architecture correction in commit `b17ae2c`.
+That document now describes acknowledged resize completion and registry ownership. The registry source commit did not include that document.
 
-## Verification state and next window
+## Source-stage verification plan (historical)
 
 No build, test, Cargo metadata, or negative-control command ran for this candidate.
 I formatted only the edited Rust files with the installed Rust 1.97 `rustfmt` binary.
