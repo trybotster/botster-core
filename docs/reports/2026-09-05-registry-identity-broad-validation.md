@@ -17,7 +17,8 @@ Exact Hub consumer acceptance is separate and is not established here.
 - Formatting correction and final source: `57265996877349a69d3bef9a02e2222dac0bd868`.
 - Production daemon sources unchanged since the approved `cfc51fb` candidate: `registry.rs` sha256 `c32c58c0…`, `daemon.rs` sha256 `41a296f5…`.
 - Ghostty `eb72ec61304ea256be1d86ed8fa961c84e43ecbd`. Rust 1.97.0. Node 22.21.1. Zig 0.16.0 from mise, resolved by the ghostty build script through `HOME`.
-- Every command: non-login zsh, `BOTSTER_ENV=test`, `RUSTUP_TOOLCHAIN=1.97.0`, `CARGO_BUILD_JOBS=2`, `CARGO_TARGET_DIR` unset, worktree `target` reused.
+- Every command: non-login zsh, `BOTSTER_ENV=test`, `RUSTUP_TOOLCHAIN=1.97.0`, `CARGO_BUILD_JOBS=2`, worktree `target` reused.
+- `CARGO_TARGET_DIR` was unset for arms 00 through 07. Arms 08 and 09 ran inside the two consumer fixture directories with `CARGO_TARGET_DIR` set explicitly to the worktree `target`, the same shared-target override the fixture runner tests apply.
 - One arm at a time, only inside root-assigned windows, never concurrent with Web or Hub Cargo or Node work. A pre-run guard checked HEAD, a clean tree, and no owned build process before each arm.
 
 ## Commands and results
@@ -44,7 +45,7 @@ Counts from different arms overlap and must not be added.
 | 08 | 5726599 | `hub-lifecycle-shaped` fixture, `cargo test --quiet --offline --locked` | 9 passed |
 | 09 | 5726599 | `hub-data-plane-shaped` fixture, `cargo test --quiet --offline --locked` | 2 passed |
 
-Arms 02 through 06 ran on identical Rust tokens to `5726599`; the last two commits changed only lock files and whitespace. Root did not require a full workspace rerun for them.
+The successful 02-rerun on `af79829` and arms 03 through 06 on `c1ab0ff` ran on Rust tokens identical to `5726599`; the two later commits changed only lock files and whitespace. The initial failed arm 02 on `3da05cb` is excluded from that statement. Root did not require a full workspace rerun for them.
 
 ## Existing Clippy lint
 
@@ -57,10 +58,10 @@ That hand-formatted edit left a five-line chain that rustfmt collapses to one li
 `session_registry_state_does_not_reconcile_parked_exit` (commit `8fce204`, 2026-08-18, present in base main, unchanged by this branch) failed once under full-workspace parallel load at its positive assertion: after one `observe_session_lifecycle` pass the record was still `Running`.
 
 Cause, from source. The fixture waits only for OS-level termination of the PTY child.
-The local runtime queues `ProcessExited` only after its reader thread observes EOF on the PTY master: in `local_process.rs`, `drain_output` gates `queue_exit_output` on `reader_finalization_complete`, which requires `reader_finished`, set by the reader loop when `read()` returns `Ok(0)`.
+The local runtime queues `ProcessExited` only after its reader thread finishes: in `local_process.rs`, `drain_output` gates `queue_exit_output` on `reader_finalization_complete`, which requires `reader_finished`. The reader loop sets that flag when `read()` returns `Ok(0)` (EOF) and also on its read-error exit paths; a pending reader error or authority failure then blocks finalization until it is promoted and reported.
 One observe pass between kernel exit and reader EOF harvests the exit code but publishes no exit event.
 The second argument of `observe_session_lifecycle` is `now_seconds`, a timestamp, not a budget; the caller receives no pending outcome.
-Every sibling immediate-exit test loops until publication; this one did not.
+The file's existing helpers drive progress until publication: `pump_until_registry_exited` pumps wake batches for up to 15 s until the registry reports Exited, and `observe_until_exited` makes up to 100 observe passes. This test made a single observe pass after the OS-level wait instead of using either helper.
 
 Root approved a test-only correction, commit `af79829`: the positive half observes with the existing `wait_for_condition` helper and its unchanged 180 s timeout until the runtime reconciles the parked exit.
 The three negative non-mutating assertions still run first. The final Exited, journal-wake, and lifecycle-page assertions are unchanged.
