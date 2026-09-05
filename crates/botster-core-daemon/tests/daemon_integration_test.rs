@@ -8781,6 +8781,19 @@ fn worker_backed_mode_gated_input_admits_matching_token_and_rejects_stale() {
     match stale {
         ModeGatedInputOutcome::Gated(result) => {
             assert!(!result.admitted, "stale token must reject");
+            assert_eq!(result.bytes_written, 0, "stale token must write zero bytes");
+            assert_eq!(
+                result.error_kind, None,
+                "stale token is a token mismatch, not an error kind"
+            );
+            assert_eq!(
+                result.mode_freshness, after_modes.mode_flags.mode_freshness,
+                "stale rejection must carry the worker's current token"
+            );
+            assert_eq!(
+                result.mode_flags, after_modes.mode_flags.mode_flags,
+                "stale rejection must carry the worker's current flags"
+            );
         }
         ModeGatedInputOutcome::PlainWritten => panic!("expected gated outcome"),
     }

@@ -329,6 +329,67 @@ fn delivered_input_results(
         .collect()
 }
 
+/// Decode standard base64 with `=` padding. Test-only: panics on bad input.
+fn decode_base64(text: &str) -> Vec<u8> {
+    fn sextet(byte: u8) -> u32 {
+        match byte {
+            b'A'..=b'Z' => u32::from(byte - b'A'),
+            b'a'..=b'z' => u32::from(byte - b'a') + 26,
+            b'0'..=b'9' => u32::from(byte - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            other => panic!("invalid base64 byte {other:#x}"),
+        }
+    }
+    let raw = text.trim_end_matches('=').as_bytes();
+    let mut out = Vec::with_capacity(raw.len() * 3 / 4);
+    for chunk in raw.chunks(4) {
+        let mut accumulator = 0_u32;
+        for (index, byte) in chunk.iter().enumerate() {
+            accumulator |= sextet(*byte) << (18 - 6 * index);
+        }
+        let produced = match chunk.len() {
+            4 => 3,
+            3 => 2,
+            2 => 1,
+            _ => panic!("invalid base64 length"),
+        };
+        for index in 0..produced {
+            out.push(((accumulator >> (16 - 8 * index)) & 0xff) as u8);
+        }
+    }
+    out
+}
+
+/// All delivered `terminal_output` bytes, decoded and joined in delivery order.
+/// Frame boundaries are not the contract, so callers match the joined bytes.
+fn delivered_terminal_output_bytes(adapter: &SharedFakeTerminalAdapter) -> Vec<u8> {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .filter(|value| {
+            value.get("type").and_then(|field| field.as_str()) == Some("terminal_output")
+        })
+        .filter_map(|value| {
+            value
+                .get("payload_base64")
+                .and_then(serde_json::Value::as_str)
+                .map(decode_base64)
+        })
+        .flatten()
+        .collect()
+}
+
+/// True when the joined terminal output contains one complete line whose
+/// trimmed text equals `expected`. `wc -c` pads the count on some platforms.
+fn terminal_output_has_count_line(adapter: &SharedFakeTerminalAdapter, expected: &str) -> bool {
+    let joined = delivered_terminal_output_bytes(adapter);
+    String::from_utf8_lossy(&joined)
+        .split('\n')
+        .any(|line| line.trim() == expected)
+}
+
 fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
 
 #[test]
@@ -1888,12 +1949,8 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
         "a worker-side mode change must advance the freshness token"
     );
 
-    for frame in compact_paste_frames(
-        71,
-        old_token.mode_generation,
-        old_token.mode_revision,
-        b"X",
-    ) {
+    for frame in compact_paste_frames(71, old_token.mode_generation, old_token.mode_revision, b"X")
+    {
         adapter.inject_ingress_frame(frame);
     }
     let stale_wake = daemon.wait_wakes(Duration::from_secs(1));
@@ -1933,8 +1990,7 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
             .as_u64()
             .expect("returned revision"),
     };
-    for frame in compact_paste_frames(72, returned.mode_generation, returned.mode_revision, b"Y")
-    {
+    for frame in compact_paste_frames(72, returned.mode_generation, returned.mode_revision, b"Y") {
         adapter.inject_ingress_frame(frame);
     }
     let recovery_wake = daemon.wait_wakes(Duration::from_secs(1));
@@ -1956,11 +2012,8 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
         daemon
             .pump_woken(&batch, 32)
             .expect("complete recovered paste");
-        // `13\n` in base64: the child counted the 12 framing bytes plus `Y`.
-        let counted = adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("MTMK"));
+        // The child counted the 12 framing bytes plus `Y` and printed `13`.
+        let counted = terminal_output_has_count_line(&adapter, "13");
         if delivered_input_results(&adapter, "paste").len() == 2 && counted {
             break;
         }
@@ -2075,7 +2128,10 @@ fn paste_before_worker_mode_authority_is_session_not_writable_not_stale() {
         .expect("submit paste with authority");
     let deadline = Instant::now() + Duration::from_secs(5);
     while delivered_input_results(&adapter, "paste").len() < 2 {
-        assert!(Instant::now() < deadline, "admitted paste result did not arrive");
+        assert!(
+            Instant::now() < deadline,
+            "admitted paste result did not arrive"
+        );
         let batch = daemon.wait_wakes(Duration::from_millis(100));
         daemon
             .pump_woken(&batch, 41)
