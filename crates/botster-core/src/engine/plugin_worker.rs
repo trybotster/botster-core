@@ -2754,11 +2754,7 @@ mod tests {
         let started = Instant::now();
         let mut completions = Vec::new();
         while started.elapsed() < Duration::from_millis(250) {
-            completions.extend(
-                engine
-                    .drain_completions(8, usize::MAX)
-                    .completions,
-            );
+            completions.extend(engine.drain_completions(8, usize::MAX).completions);
             if !completions.is_empty() {
                 break;
             }
