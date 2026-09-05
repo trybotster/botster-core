@@ -114,3 +114,35 @@ The first form is preferred. It is small and deterministic.
 The deadlock is a fixture limitation, not a production defect. `ResizeAckHold` blocks the parent reader thread before it queues the acknowledgement. Production has no such block: the reader always queues and continues. Shutdown then waits for worker stdout to drain and hits the existing two-second daemon deadline, which is unchanged behavior for any worker whose stdout stalls.
 
 A true post-teardown acknowledgement cannot reach Core. Shutdown removes the worker map entry, which drops the channel receiver. The reader arm's `sender.send` then fails and the reader loop breaks (`worker_process.rs`, `FRAME_RESIZE_APPLIED` arm). The current test proves pending cleanup and a harmless later pump. The report labels the coverage partial, which is accurate.
+
+## Final review: commit 5923bf1
+
+Reviewed SHA: `5923bf1847979e2897796fadb9863183ffa5e3f1`, parent `a2d6c97c8c38125c05b9507c3bccefa5bfb5db65`. Frozen: implementation worktree HEAD matches, status clean. Scope: only this diff and its evidence.
+
+### Verdict
+
+**Approved.** The one required item from the previous round is resolved. The branch at `5923bf1` is ready for the coordinator's acceptance and downstream Hub validation.
+
+### Verification I ran (isolated detached checkout at `5923bf1`)
+
+| Check | Result |
+| --- | --- |
+| `expired_pending_resize_guard` unit test, guard present | 1 passed, 0.86s |
+| Same test with the guard ablated (`fail_expired_pending_resize` unconditional) | **fails** at `managed_session_runtime.rs:3256`, the control-plane assertion; the worker-present assertion did not fire |
+| `cargo test -p botster-core --lib` | 89 passed |
+| `terminal_wake_test`, single-threaded | 55 passed, 37.41s |
+| `cargo fmt --all -- --check` | pass |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pass |
+
+Grok's tee log `1788566219_cargo_test.log` shows the same red: the same assertion at `:3256`, 3.85s. The red and green now bracket the guard exactly.
+
+### Fixture fidelity
+
+The unit test spawns a real worker through `ManagedSessionRuntime::with_worker_process`, binds an owner through `record_attach` and the production `bind_waking_terminal_adapter`, and forces engine `Exited` through the production `apply_lifecycle` path via a `#[cfg(test)]` shim. It inserts one expired pending entry directly into the collection, which is the only synthetic step and is the correct one to fake. It calls the production `reconcile_terminal_resize_acknowledgments` and asserts, in order: the worker entry is still present (so the not-found branch was not taken), pending is empty, the control plane is not `Failed(ResizeAckTimeout)`, no owner teardown was queued, and the adapter stays bound. That is the scenario I asked for. The test-only helpers are all `#[cfg(test)]` and add no public surface.
+
+The daemon test was renamed to `expired_pending_resize_on_exited_session_still_delivers_process_exit` with a comment stating it covers the `SessionNotFound` branch. The report now describes both tests correctly and records the ablation.
+
+### Notes, no action required
+
+- The unit test builds the worker binary through Cargo from inside a lib test, the same pattern the daemon tests use. It runs only with default features on unix, so the no-default-features lib gate skips it.
+- `test_set_lifecycle`, `test_insert_expired_pending_resize`, `test_pending_input_teardown_count`, `test_bind_owner`, and `test_has_session` are `#[cfg(test)]` only.
