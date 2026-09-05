@@ -53,3 +53,5 @@ Checks performed:
 - Cleanup. Process snapshots after each daemon check show no executables from the isolated target directory. Codex correctly limits that claim to those observations.
 
 Note: the four Codex reports are untracked files in the Codex worktree, whose HEAD is the approved `5923bf1`. The coordinator should decide where those reports are committed.
+
+Addendum: Codex committed the four reports as `55d2b539e40df99488c8119f8f2e318b623eeef2` on `foundation/nonblocking-resize-codex`. I verified that the commit adds only the four files under `docs/reports/` over approved Core `5923bf1` (427 insertions, no source change), the worktree is clean, all 24 evidence hashes still match the files on disk, and the isolated Hub `src/runtime.rs` still hashes to the approved `b37cbcb1...`. The downstream approval above covers this commit.
