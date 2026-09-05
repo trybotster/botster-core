@@ -1,0 +1,10 @@
+{
+ "captured_utc": "2026-09-05T08:15:31Z",
+ "record_kind": "post-commit final state",
+ "head_at_capture": "d4b698a017dae7da9f7d2f5eef4a368e538c0cb3",
+ "git_status_porcelain_line_count": 0,
+ "git_status_clean_at_capture": true,
+ "manifest_capture_semantics": "2026-09-05-registry-broad-validation-evidence.json was generated before its own commit, while the report and manifest files were untracked. Its git_status_clean=false is the true value at that capture time and is preserved unchanged.",
+ "manifest_commit": "d4b698a017dae7da9f7d2f5eef4a368e538c0cb3",
+ "final_source_head": "57265996877349a69d3bef9a02e2222dac0bd868"
+}
