@@ -73,3 +73,5 @@ Two optional tightenings, not required for approval:
 2. "starting another envelope after close" could be read as constraining other routes on the same connection. Say "another envelope for the abandoned frame" to keep sibling routes clearly unaffected.
 
 The change is a working-tree edit, not a commit. Root should commit it so the reviewed text is frozen by SHA.
+
+Frozen: commit `2cfc7eb61f784b472d8d518df98df66c1f3bf01b` on `foundation/adapter-close-contract`, comments-only (18 insertions, 5 deletions), `git diff --check` clean, worktree clean. Both optional tightenings are applied: "another envelope from the closed adapter" scopes the prohibition to the closed adapter, and "must finish a partial envelope or end the affected stream. It must not leave an incomplete envelope on a live stream" states the two honest futures. Approval retained for this exact commit.
