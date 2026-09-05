@@ -2112,10 +2112,22 @@ fn paste_before_worker_mode_authority_is_session_not_writable_not_stale() {
     for frame in compact_paste_frames(81, 1, 1, b"X") {
         adapter.inject_ingress_frame(frame);
     }
-    let unavailable_wake = daemon.wait_wakes(Duration::from_secs(1));
-    daemon
-        .pump_woken(&unavailable_wake, 30)
-        .expect("reject paste without authority");
+    // Pump until the result lands. The attach snapshot frames may still occupy
+    // the adapter's one write slot, so the tick count is not the contract.
+    // Only wait_wakes and pump_woken run here: neither probes worker modes.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut tick = 30;
+    while delivered_input_results(&adapter, "paste").is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "paste result without authority did not arrive"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, tick)
+            .expect("reject paste without authority");
+        tick += 1;
+    }
     let unavailable = delivered_input_results(&adapter, "paste");
     assert_eq!(unavailable.len(), 1);
     assert_eq!(unavailable[0]["operation_id"], 81);
