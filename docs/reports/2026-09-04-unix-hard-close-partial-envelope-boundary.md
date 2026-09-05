@@ -52,3 +52,24 @@ The coordinator adopted the narrow writer-owned partial-envelope rule with expli
 The Hub writer was directed accordingly. The Core contract clarification is a separate reviewed documentation change.
 
 Reviewer note: the qualification is correct and strengthens my first-byte gate. The honest statement is: the writer decides by the result of the attempt it already issued. A successful attempt that moved bytes commits the envelope to completion. An attempt that returned `Pending` with zero progress is abandoned if the handle is closed, and is not retried.
+
+## Core documentation patch review
+
+Reviewed the uncommitted working-tree change on `foundation/adapter-close-contract` at `/private/tmp/botster-close-contract.x815BM/core`, base `93acae3`. Only `crates/botster-core/src/contract/terminal_adapter.rs` comments change (16 insertions, 5 deletions). `git diff --check` is clean. No code, pins, builds, or tests.
+
+**Verdict: approved as wording.** It matches the adopted boundary. No sentence grants a retry or a second buffer.
+
+Checked against the ruling:
+
+- "abandons the adapter slot and any unsent transport copy": copied-but-unsent is abandoned. Correct.
+- "may finish an envelope with positive write progress ... must use the writer's existing buffer, without replaying the frame": one completion from the existing buffer, no replay, no duplicate copy. Correct. This is the sentence that forbids `late_egress`.
+- "A nonblocking write already in progress may complete concurrently with close. If that attempt accepts bytes, the transport may finish that envelope. If it makes no progress, the transport must not retry it after close.": the concurrency qualification, decided by the attempt's outcome. Correct.
+- "the slot remains occupied until the complete envelope is written. Partial write progress must not report the slot Ready.": forbids the early `complete_active`. Correct.
+- Close doc: unsent frames must not start or retry; close returns without waiting, including for completion of a partial envelope. Correct and consistent with the trait-level non-blocking rule, which is unchanged.
+
+Two optional tightenings, not required for approval:
+
+1. "may finish that envelope" leaves a third reading open: stop mid-envelope and keep the stream. Add: "If the transport does not finish it, the transport must end the connection; it must not leave a partial envelope on a live stream." This states the only two honest futures.
+2. "starting another envelope after close" could be read as constraining other routes on the same connection. Say "another envelope for the abandoned frame" to keep sibling routes clearly unaffected.
+
+The change is a working-tree edit, not a commit. Root should commit it so the reviewed text is frozen by SHA.
