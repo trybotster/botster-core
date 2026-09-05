@@ -2757,8 +2757,7 @@ mod tests {
             completions.extend(
                 engine
                     .drain_completions(8, usize::MAX)
-                    .completions
-                    .into_iter(),
+                    .completions,
             );
             if !completions.is_empty() {
                 break;
