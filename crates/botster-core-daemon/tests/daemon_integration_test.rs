@@ -572,9 +572,6 @@ fn local_final_state_failure_rearms_and_later_commit_retires_the_wake() {
 fn obligation_registry_read_failure_rearms_the_exact_session() {
     let data_dir = temp_data_dir("obligation-registry-read-retry");
     let session_id = SessionId("obligation-registry-read-retry".to_string());
-    let record_path = data_dir
-        .join("sessions")
-        .join(format!("{}.json", session_id.0));
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_test_fail_retain_final_terminal_state_for(Some(session_id.clone())),
@@ -582,6 +579,7 @@ fn obligation_registry_read_failure_rearms_the_exact_session() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("spawn obligation read process");
+    let record_path = registry_fixture_path(&data_dir, &session_id);
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -1507,10 +1505,11 @@ fn daemon_spawns_lists_attaches_drains_inputs_resizes_and_shuts_down() {
     assert_eq!(listed[0].session_id, session_id);
     assert_eq!(listed[0].registry_state, RegistrySessionState::Running);
     assert!(
-        data_dir
-            .join("sessions")
-            .join("daemon-api-session.json")
-            .exists(),
+        daemon
+            .registry()
+            .load(&session_id)
+            .expect("load spawned record")
+            .is_some(),
         "spawn should persist a non-PII registry record"
     );
 
@@ -4793,9 +4792,8 @@ fn natural_exit_read_screen_and_capture_snapshot_freeze_repeatable_truth() {
         .expect("second drain after retained snapshot should succeed");
     assert_no_duplicate_exit_output(&second_snapshot_drain, "echo:snapshot-exit");
 
-    let registry_json =
-        fs::read_to_string(data_dir.join("sessions").join("dnex-snapshot-session.json"))
-            .expect("registry JSON should remain readable");
+    let registry_json = fs::read_to_string(registry_fixture_path(&data_dir, &snapshot_session))
+        .expect("registry JSON should remain readable");
     assert!(!registry_json.contains("echo:snapshot-exit"));
     drop(daemon);
     let mut restarted =
@@ -6439,6 +6437,79 @@ fn assemble_baseline_pages(
 }
 
 #[test]
+fn lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenames() {
+    let data_dir = temp_data_dir("baseline-registry-identities");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let ids = [
+        SessionId("audit:a".to_string()),
+        SessionId("audit_a".to_string()),
+    ];
+    seed_registry_records(&daemon, &[&ids[0], &ids[1]], 1);
+    let mut snapshot = None;
+    let mut after = None;
+    let mut rows = Vec::new();
+    let mut complete = false;
+    for _ in 0..16 {
+        let page = daemon
+            .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
+            .expect("one-item baseline page");
+        assert!(page.resync_required.is_none());
+        assert!(
+            page.sessions.len() <= 1,
+            "one-item budget must remain bounded"
+        );
+        if let Some(ref expected) = snapshot {
+            assert_eq!(&page.snapshot_sequence, expected);
+        }
+        snapshot = Some(page.snapshot_sequence);
+        rows.extend(page.sessions);
+        if page.complete {
+            complete = true;
+            break;
+        }
+        after = page.next;
+    }
+    assert!(
+        complete,
+        "two identities must complete within bounded pages"
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| &row.session.session_id)
+            .collect::<Vec<_>>(),
+        ids.iter().collect::<Vec<_>>()
+    );
+    drop(daemon);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn lifecycle_baseline_rejects_foreign_registry_identity_as_source_changed() {
+    let data_dir = temp_data_dir("baseline-foreign-identity");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let ids = [
+        SessionId("audit:a".to_string()),
+        SessionId("audit_a".to_string()),
+    ];
+    seed_registry_records(&daemon, &[&ids[0], &ids[1]], 1);
+    let path = registry_fixture_path(&data_dir, &ids[0]);
+    let foreign =
+        fs::read(registry_fixture_path(&data_dir, &ids[1])).expect("foreign fixture bytes");
+    fs::write(&path, &foreign).expect("place foreign identity at first path");
+    let page = daemon
+        .lifecycle_baseline_page(None, None, baseline_item_budget(8))
+        .expect("baseline reports resync");
+    assert!(matches!(
+        page.resync_required,
+        Some(SessionLifecycleResyncReason::SourceChanged)
+    ));
+    assert!(page.sessions.is_empty());
+    assert_eq!(fs::read(path).expect("foreign bytes remain"), foreign);
+    drop(daemon);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn lifecycle_baseline_page_setup_only_elapsed_keeps_freeze_identity() {
     let data_dir = temp_data_dir("lifecycle-baseline-setup-only");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
@@ -6560,11 +6631,10 @@ fn lifecycle_baseline_page_skips_malformed_records_without_blocking_good_rows() 
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let good = SessionId("a-good-baseline".to_string());
     seed_registry_records(&daemon, &[&good], 1);
-    fs::write(
-        data_dir.join("sessions").join("b-bad-baseline.json"),
-        b"not json",
-    )
-    .expect("malformed registry fixture");
+    let bad = SessionId("b-bad-baseline".to_string());
+    seed_registry_records(&daemon, &[&bad], 1);
+    fs::write(registry_fixture_path(&data_dir, &bad), b"not json")
+        .expect("malformed registry fixture");
     let (_, rows) = assemble_baseline_pages(&mut daemon, None, baseline_item_budget(8));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].session.session_id, good);
@@ -7362,6 +7432,178 @@ fn worker_backed_restart_invalidates_cursor_and_adopts_same_session_id() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn colliding_sanitizer_ids_restart_adopt_and_remove_independently() {
+    let data_dir = short_temp_data_dir("registry-id");
+    let ids = [
+        SessionId("audit:a".to_string()),
+        SessionId("audit_a".to_string()),
+    ];
+    let mut original =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    for (index, id) in ids.iter().enumerate() {
+        let mut request = spawn_request(id);
+        request.metadata = CoreSessionMetadata::from_entries(BTreeMap::from([(
+            "host.example/identity".to_string(),
+            format!("record-{index}"),
+        )]));
+        original
+            .spawn(request, 10 + index as u64)
+            .expect("spawn distinct worker");
+    }
+    let before: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            original
+                .registry()
+                .load(id)
+                .expect("load exact record")
+                .expect("record exists")
+        })
+        .collect();
+    assert_eq!(before[0].session_id, ids[0]);
+    assert_eq!(before[1].session_id, ids[1]);
+    assert_ne!(before[0].metadata, before[1].metadata);
+    let evidence: Vec<_> = ids
+        .iter()
+        .map(|id| worker_process_evidence(&original, id))
+        .collect();
+    assert_ne!(evidence[0].0, evidence[1].0);
+    assert_ne!(evidence[0].2, evidence[1].2);
+    let (_, rows) = assemble_baseline_pages(&mut original, None, baseline_item_budget(1));
+    assert_eq!(
+        rows.iter()
+            .map(|row| &row.session.session_id)
+            .collect::<Vec<_>>(),
+        ids.iter().collect::<Vec<_>>()
+    );
+
+    original.release_for_restart();
+    drop(original);
+    let mut restarted =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let mut adopted = [false; 2];
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let reports = restarted
+            .adoption_scan()
+            .expect("scan both restart identities");
+        assert_eq!(
+            reports
+                .iter()
+                .map(|report| &report.record.session_id)
+                .collect::<Vec<_>>(),
+            ids.iter().collect::<Vec<_>>()
+        );
+        for (index, id) in ids.iter().enumerate() {
+            restarted
+                .adopt_session(id, 20 + index as u64)
+                .expect("adopt exact worker identity");
+            adopted[index] = true;
+            let after = restarted
+                .registry()
+                .load(id)
+                .expect("load adopted record")
+                .expect("adopted record exists");
+            assert_eq!(after.session_id, *id);
+            assert_eq!(after.metadata, before[index].metadata);
+            assert_eq!(after.recovery_identity, before[index].recovery_identity);
+            assert_eq!(worker_process_evidence(&restarted, id), evidence[index]);
+        }
+        restarted
+            .shutdown(Some(ids[0].clone()), 30)
+            .expect("shutdown only punctuation id");
+        assert!(restarted
+            .remove_session(&ids[0])
+            .expect("remove punctuation record"));
+        assert!(restarted
+            .registry()
+            .load(&ids[0])
+            .expect("first removed")
+            .is_none());
+        let sibling = restarted
+            .registry()
+            .load(&ids[1])
+            .expect("load surviving sibling")
+            .expect("sibling persists");
+        assert_eq!(sibling.session_id, ids[1]);
+        assert_eq!(sibling.state, RegistrySessionState::Running);
+        assert_eq!(sibling.recovery_identity, before[1].recovery_identity);
+        let client = ClientId("registry-sibling-client".to_string());
+        restarted
+            .attach(
+                client.clone(),
+                ids[1].clone(),
+                SubscriptionId("registry-sibling-sub".to_string()),
+                31,
+            )
+            .expect("attach surviving worker");
+        let _ = drain_until_attached(&mut restarted, &ids[1], &client);
+        restarted
+            .input(
+                client,
+                ids[1].clone(),
+                b"registry-sibling-live\n".to_vec(),
+                32,
+            )
+            .expect("input to surviving sibling");
+        let output = drain_until(&mut restarted, &ids[1], "echo:registry-sibling-live");
+        assert!(terminal_output(&output.client_egress).contains("echo:registry-sibling-live"));
+        restarted
+            .shutdown(Some(ids[1].clone()), 33)
+            .expect("shutdown sibling");
+        assert!(restarted
+            .remove_session(&ids[1])
+            .expect("remove sibling record"));
+        assert!(restarted.list().expect("empty registry").is_empty());
+    }));
+    // A failed assertion must not leave a released worker without a daemon owner.
+    for (index, id) in ids.iter().enumerate() {
+        if restarted.registry().load(id).ok().flatten().is_some() {
+            if !adopted[index] {
+                let _ = restarted.adopt_session(id, 40);
+            }
+            let _ = restarted.shutdown(Some(id.clone()), 41);
+        }
+    }
+    drop(restarted);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while evidence.iter().any(|(worker, child, socket)| {
+        process_exists(*worker) || process_exists(*child) || socket.exists()
+    }) {
+        assert!(
+            Instant::now() < deadline,
+            "registry identity workers must stop within the cleanup bound"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = fs::remove_dir_all(&data_dir);
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+#[test]
+fn adoption_rejects_legacy_registry_without_inventing_terminal_state() {
+    let data_dir = temp_data_dir("legacy-registry-rejection");
+    let registry = botster_core_daemon::SessionRegistry::new(&data_dir);
+    fs::create_dir_all(registry.root()).expect("legacy registry directory");
+    let id = SessionId("legacy-session".to_string());
+    let bytes = serde_json::to_vec(&adoptable_record(&id, 10)).expect("legacy record bytes");
+    let path = registry.root().join("legacy-session.json");
+    fs::write(&path, &bytes).expect("legacy fixture");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    assert!(matches!(
+        daemon.adoption_scan(),
+        Err(CoreDaemonError::Registry(
+            botster_core_daemon::SessionRegistryError::UnsupportedFormat
+        ))
+    ));
+    assert_eq!(fs::read(path).expect("legacy bytes remain"), bytes);
+    drop(daemon);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn metadata_free_registry_and_lifecycle_json_default_to_empty_metadata() {
     let registry_record = botster_core_daemon::RegistryRecord::running(
@@ -7410,7 +7652,7 @@ fn oversized_persisted_metadata_fails_adoption_without_touching_the_live_worker(
         daemon.release_for_restart();
     }
 
-    let record_path = data_dir.join("sessions").join("oversized-adoption.json");
+    let record_path = registry_fixture_path(&data_dir, &session_id);
     let valid_record = fs::read(&record_path).expect("read valid registry record for cleanup");
     let mut record: botster_core_daemon::RegistryRecord =
         serde_json::from_slice(&valid_record).expect("decode persisted registry record");
@@ -7418,11 +7660,9 @@ fn oversized_persisted_metadata_fails_adoption_without_touching_the_live_worker(
         "host.example/oversized".to_string(),
         "x".repeat(MAX_CORE_SESSION_METADATA_LEN + 1),
     )]));
-    fs::write(
-        &record_path,
-        serde_json::to_vec_pretty(&record).expect("encode oversized registry record"),
-    )
-    .expect("write oversized registry record");
+    botster_core_daemon::SessionRegistry::new(&data_dir)
+        .save(&record)
+        .expect("write oversized registry record through its private storage format");
     let oversized_record = fs::read(&record_path).expect("read oversized registry bytes");
 
     let mut restarted =
@@ -7795,9 +8035,7 @@ fn adoption_scan_is_read_only_until_explicit_mark_stale() {
         .registry()
         .save(&record)
         .expect("read-only fixture should save");
-    let record_path = data_dir
-        .join("sessions")
-        .join("daemon-adoption-read-only-session.json");
+    let record_path = registry_fixture_path(&data_dir, &session_id);
     let before = fs::read(&record_path).expect("record bytes should load before scan");
 
     let reports = daemon
@@ -7841,11 +8079,10 @@ fn registry_load_all_skips_malformed_records_without_blocking_good_records() {
         .registry()
         .save(&record)
         .expect("good registry record should save");
-    fs::write(
-        data_dir.join("sessions").join("daemon-bad-record.json"),
-        b"not json",
-    )
-    .expect("malformed registry fixture should be written");
+    let bad = SessionId("daemon-bad-record".to_string());
+    seed_registry_records(&daemon, &[&bad], 1);
+    fs::write(registry_fixture_path(&data_dir, &bad), b"not json")
+        .expect("malformed registry fixture should be written");
 
     let listed = daemon.list().expect("bad record should not block listing");
     assert_eq!(listed.len(), 1);
@@ -10747,6 +10984,32 @@ fn wait_for_exact_session_exited(
         "observe_session_lifecycle did not reconcile parked ProcessExited for {}: {last:?}",
         session_id.0
     );
+}
+
+// Locate an existing test fixture by its verified record, without copying the filename encoding.
+fn registry_fixture_path(data_dir: &std::path::Path, session_id: &SessionId) -> PathBuf {
+    let registry = botster_core_daemon::SessionRegistry::new(data_dir);
+    let expected = registry
+        .load(session_id)
+        .expect("load fixture identity")
+        .expect("fixture exists");
+    let matches: Vec<_> = fs::read_dir(registry.root())
+        .expect("list registry fixtures")
+        .map(|entry| entry.expect("registry fixture entry").path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("json"))
+        .filter(|path| {
+            fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<RegistryRecord>(&bytes).ok())
+                .is_some_and(|record| record == expected)
+        })
+        .collect();
+    assert_eq!(
+        matches.len(),
+        1,
+        "one file must contain the verified fixture"
+    );
+    matches.into_iter().next().expect("one fixture path")
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {

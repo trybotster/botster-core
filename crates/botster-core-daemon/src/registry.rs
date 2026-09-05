@@ -8,7 +8,24 @@ use std::path::{Path, PathBuf};
 
 use botster_core::{CoreSessionMetadata, ProcessIdentity, ResizePayload, SessionId};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+const RECORD_FORMAT: &str = "botster.session-registry.v1";
+const RECORD_FILENAME_PREFIX: &str = "v1.";
+
+#[derive(Serialize)]
+struct StoredRecord<'a> {
+    format: &'static str,
+    #[serde(flatten)]
+    record: &'a RegistryRecord,
+}
+
+#[derive(Deserialize)]
+struct StoredRecordFormat {
+    #[serde(default)]
+    format: serde_json::Value,
+}
 
 /// Durable session lifecycle state recorded by the daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +140,12 @@ pub enum SessionRegistryError {
     /// Record filename was not valid UTF-8.
     #[error("registry record filename is not valid UTF-8")]
     InvalidRecordPath,
+    /// The record identity does not match the identity that selected its file.
+    #[error("registry record identity does not match its filename")]
+    IdentityMismatch,
+    /// The file uses an unsupported registry format.
+    #[error("registry record format is unsupported")]
+    UnsupportedFormat,
 }
 
 /// Filesystem-backed registry with one JSON record per session.
@@ -150,45 +173,49 @@ impl SessionRegistry {
         &self.root
     }
 
-    /// Save one record atomically enough for local daemon metadata.
+    /// Save one record after verifying any existing record's format and identity.
     pub fn save(&self, record: &RegistryRecord) -> Result<(), SessionRegistryError> {
+        self.load(&record.session_id)?;
         fs::create_dir_all(&self.root)?;
         let path = self.record_path(&record.session_id);
         let temp_path = path.with_extension("json.tmp");
-        let data = serde_json::to_vec_pretty(record)?;
+        if let Some(existing) = read_record(&temp_path)? {
+            verify_identity(&existing, &record.session_id)?;
+        }
+        let data = serde_json::to_vec_pretty(&StoredRecord {
+            format: RECORD_FORMAT,
+            record,
+        })?;
         fs::write(&temp_path, data)?;
         fs::rename(temp_path, path)?;
         Ok(())
     }
 
-    /// Load one record if it exists.
+    /// Load one record after verifying its format and exact session identity.
+    ///
+    /// Legacy files cause an error. This method does not scan or migrate files.
     pub fn load(
         &self,
         session_id: &SessionId,
     ) -> Result<Option<RegistryRecord>, SessionRegistryError> {
-        let path = self.record_path(session_id);
-        if !path.exists() {
+        let Some(record) = read_record(&self.record_path(session_id))? else {
+            self.reject_legacy_record(session_id)?;
             return Ok(None);
-        }
-        let data = fs::read(path)?;
-        Ok(Some(serde_json::from_slice(&data)?))
+        };
+        verify_identity(&record, session_id)?;
+        Ok(Some(record))
     }
 
     /// Load one record, skipping malformed JSON like [`Self::load_all`].
     ///
-    /// Missing and malformed files return `Ok(None)`. Only I/O fails.
+    /// Missing and malformed files return `Ok(None)`. Identity, format, and I/O errors remain errors.
     pub fn load_skip_malformed(
         &self,
         session_id: &SessionId,
     ) -> Result<Option<RegistryRecord>, SessionRegistryError> {
-        let path = self.record_path(session_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-        let data = fs::read(path)?;
-        match serde_json::from_slice(&data) {
-            Ok(record) => Ok(Some(record)),
-            Err(_) => Ok(None),
+        match self.load(session_id) {
+            Err(SessionRegistryError::Json(_)) => Ok(None),
+            result => result,
         }
     }
 
@@ -200,7 +227,9 @@ impl SessionRegistry {
         self.load_all_calls.get()
     }
 
-    /// Load every registry record.
+    /// Load supported records whose stored identities match their filenames.
+    ///
+    /// Skip malformed JSON and temporary files. Reject foreign or unsupported records without changing files.
     pub fn load_all(&self) -> Result<Vec<RegistryRecord>, SessionRegistryError> {
         #[cfg(test)]
         self.load_all_calls
@@ -211,13 +240,7 @@ impl SessionRegistry {
 
         let mut records = Vec::new();
         for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-                continue;
-            }
-            let data = fs::read(path)?;
-            if let Ok(record) = serde_json::from_slice(&data) {
+            if let Some(record) = self.load_entry(&entry?)? {
                 records.push(record);
             }
         }
@@ -225,13 +248,59 @@ impl SessionRegistry {
         Ok(records)
     }
 
-    /// Remove one record.
+    // The paged daemon scan uses this reader without learning the filename encoding.
+    pub(crate) fn load_entry(
+        &self,
+        entry: &fs::DirEntry,
+    ) -> Result<Option<RegistryRecord>, SessionRegistryError> {
+        let path = entry.path();
+        if path.file_name().is_some_and(|name| name == ".json") {
+            return Err(SessionRegistryError::UnsupportedFormat);
+        }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            return Ok(None);
+        }
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or(SessionRegistryError::InvalidRecordPath)?;
+        if !is_current_record_filename(filename) {
+            return Err(SessionRegistryError::UnsupportedFormat);
+        }
+        match read_record(&path) {
+            Ok(Some(record)) => {
+                if filename != record_filename(&record.session_id) {
+                    return Err(SessionRegistryError::IdentityMismatch);
+                }
+                Ok(Some(record))
+            }
+            Ok(None) | Err(SessionRegistryError::Json(_)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Remove one record after verifying its format and exact session identity.
     pub fn remove(&self, session_id: &SessionId) -> Result<(), SessionRegistryError> {
-        let path = self.record_path(session_id);
-        if path.exists() {
-            fs::remove_file(path)?;
+        if self.load(session_id)?.is_some() {
+            fs::remove_file(self.record_path(session_id))?;
         }
         Ok(())
+    }
+
+    fn reject_legacy_record(&self, session_id: &SessionId) -> Result<(), SessionRegistryError> {
+        match fs::symlink_metadata(self.root.join(legacy_record_filename(session_id))) {
+            Ok(_) => Err(SessionRegistryError::UnsupportedFormat),
+            // An overlong legacy filename cannot exist. The new filename has a fixed length.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::InvalidFilename
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn record_path(&self, session_id: &SessionId) -> PathBuf {
@@ -240,6 +309,49 @@ impl SessionRegistry {
 }
 
 fn record_filename(session_id: &SessionId) -> String {
+    // The digest selects a candidate. Stored identity still decides whether the record matches.
+    let digest = Sha256::digest(session_id.0.as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{RECORD_FILENAME_PREFIX}{hex}.json")
+}
+
+fn is_current_record_filename(filename: &str) -> bool {
+    filename
+        .strip_prefix(RECORD_FILENAME_PREFIX)
+        .and_then(|stem| stem.strip_suffix(".json"))
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
+fn read_record(path: &Path) -> Result<Option<RegistryRecord>, SessionRegistryError> {
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let stored: StoredRecordFormat = serde_json::from_slice(&data)?;
+    if stored.format.as_str() != Some(RECORD_FORMAT) {
+        return Err(SessionRegistryError::UnsupportedFormat);
+    }
+    Ok(Some(serde_json::from_slice(&data)?))
+}
+
+fn verify_identity(
+    record: &RegistryRecord,
+    session_id: &SessionId,
+) -> Result<(), SessionRegistryError> {
+    if record.session_id != *session_id {
+        return Err(SessionRegistryError::IdentityMismatch);
+    }
+    Ok(())
+}
+
+// This filename is used only to reject an exact legacy file. Never read or write a record through it.
+fn legacy_record_filename(session_id: &SessionId) -> String {
     let safe: String = session_id
         .0
         .chars()
@@ -267,4 +379,400 @@ pub fn command_label(executable: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or("command")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Fixture {
+        registry: SessionRegistry,
+        data_dir: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let data_dir = std::env::temp_dir().join(format!(
+                "botster-registry-identity-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("system clock after epoch")
+                    .as_nanos()
+            ));
+            let registry = SessionRegistry::new(&data_dir);
+            fs::create_dir_all(registry.root()).expect("create registry fixture");
+            Self { registry, data_dir }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.data_dir);
+        }
+    }
+
+    fn record(id: &str) -> RegistryRecord {
+        RegistryRecord::running(
+            SessionId(id.to_string()),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "sh".to_string(),
+            1,
+        )
+    }
+
+    #[test]
+    fn colliding_sanitizer_ids_keep_distinct_records() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let mut first = record("audit:a");
+        let second = record("audit_a");
+        registry.save(&first).expect("save punctuation id");
+        registry.save(&second).expect("save underscore id");
+        assert_ne!(
+            registry.record_path(&first.session_id),
+            registry.record_path(&second.session_id)
+        );
+        assert_eq!(
+            registry.load(&first.session_id).expect("load first"),
+            Some(first.clone())
+        );
+        assert_eq!(
+            registry.load(&second.session_id).expect("load second"),
+            Some(second.clone())
+        );
+        assert_eq!(
+            registry.load_all().expect("list both"),
+            vec![first.clone(), second.clone()]
+        );
+        first.rows = 40;
+        registry.save(&first).expect("update only first");
+        assert_eq!(
+            registry.load(&first.session_id).expect("load update"),
+            Some(first.clone())
+        );
+        assert_eq!(
+            registry.load(&second.session_id).expect("load sibling"),
+            Some(second.clone())
+        );
+        registry.remove(&first.session_id).expect("remove first");
+        assert!(registry
+            .load(&first.session_id)
+            .expect("first is absent")
+            .is_none());
+        assert_eq!(
+            registry.load(&second.session_id).expect("preserve sibling"),
+            Some(second)
+        );
+    }
+
+    #[test]
+    fn private_filename_uses_full_sha256_and_a_distinct_versioned_namespace() {
+        assert_eq!(
+            record_filename(&SessionId("abc".to_string())),
+            "v1.ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.json"
+        );
+        let fixture = Fixture::new();
+        let expected = record("abc");
+        fixture
+            .registry
+            .save(&expected)
+            .expect("save formatted record");
+        let bytes =
+            fs::read(fixture.registry.record_path(&expected.session_id)).expect("stored bytes");
+        let value: serde_json::Value = serde_json::from_slice(&bytes).expect("stored JSON");
+        assert_eq!(value["format"], "botster.session-registry.v1");
+        assert_eq!(value["session_id"], "abc");
+        assert_eq!(
+            serde_json::from_slice::<RegistryRecord>(&bytes).expect("public record"),
+            expected
+        );
+        assert!(serde_json::to_value(&expected)
+            .expect("public JSON")
+            .get("format")
+            .is_none());
+    }
+
+    #[test]
+    fn unicode_punctuation_and_long_ids_round_trip_without_restrictions() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        for id in [
+            "".to_string(),
+            "../a/b\\c:!? .".to_string(),
+            "会話:é🦀".to_string(),
+            "x".repeat(1_000),
+            "é".repeat(1_000),
+        ] {
+            let expected = record(&id);
+            registry.save(&expected).expect("save arbitrary id");
+            assert_eq!(record_filename(&expected.session_id).len(), 3 + 64 + 5);
+            assert_eq!(
+                registry
+                    .load(&expected.session_id)
+                    .expect("load arbitrary id"),
+                Some(expected.clone())
+            );
+            assert_eq!(
+                registry
+                    .load_skip_malformed(&expected.session_id)
+                    .expect("exact tolerant read"),
+                Some(expected.clone())
+            );
+            registry
+                .remove(&expected.session_id)
+                .expect("remove arbitrary id");
+            assert!(registry
+                .load(&expected.session_id)
+                .expect("removed id")
+                .is_none());
+        }
+        assert!(registry.load_all().expect("empty registry").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn overlong_legacy_probe_does_not_reject_a_valid_new_identity() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let expected = record(&"x".repeat(1_000));
+        let legacy = registry
+            .root()
+            .join(legacy_record_filename(&expected.session_id));
+        assert_eq!(
+            fs::symlink_metadata(legacy)
+                .expect_err("legacy filename exceeds the filesystem limit")
+                .kind(),
+            io::ErrorKind::InvalidFilename
+        );
+        assert!(registry
+            .load(&expected.session_id)
+            .expect("missing digest file")
+            .is_none());
+        registry
+            .save(&expected)
+            .expect("save with bounded filename");
+        assert_eq!(
+            registry
+                .load(&expected.session_id)
+                .expect("load exact identity"),
+            Some(expected.clone())
+        );
+        registry
+            .remove(&expected.session_id)
+            .expect("remove exact identity");
+        assert_eq!(registry.test_load_all_calls(), 0);
+    }
+
+    #[test]
+    fn foreign_identity_is_rejected_before_return_overwrite_or_remove() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let requested = record("audit:a");
+        let foreign = record("private/foreign-session");
+        registry.save(&foreign).expect("save foreign source");
+        let bytes = fs::read(registry.record_path(&foreign.session_id)).expect("foreign bytes");
+        let path = registry.record_path(&requested.session_id);
+        fs::write(&path, &bytes).expect("place foreign record at requested path");
+        assert!(matches!(
+            registry.load(&requested.session_id),
+            Err(SessionRegistryError::IdentityMismatch)
+        ));
+        assert!(matches!(
+            registry.load_skip_malformed(&requested.session_id),
+            Err(SessionRegistryError::IdentityMismatch)
+        ));
+        assert!(matches!(
+            registry.save(&requested),
+            Err(SessionRegistryError::IdentityMismatch)
+        ));
+        assert_eq!(fs::read(&path).expect("bytes after refused save"), bytes);
+        assert!(matches!(
+            registry.remove(&requested.session_id),
+            Err(SessionRegistryError::IdentityMismatch)
+        ));
+        assert_eq!(fs::read(&path).expect("bytes after refused removal"), bytes);
+        assert!(matches!(
+            registry.load_all(),
+            Err(SessionRegistryError::IdentityMismatch)
+        ));
+        assert_eq!(fs::read(&path).expect("bytes after refused scan"), bytes);
+        assert_eq!(
+            SessionRegistryError::IdentityMismatch.to_string(),
+            "registry record identity does not match its filename"
+        );
+    }
+
+    #[test]
+    fn unsupported_formats_are_rejected_before_record_shape_and_preserve_bytes() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let requested = record("unsupported");
+        let path = registry.record_path(&requested.session_id);
+        for bytes in [
+            serde_json::to_vec(&requested).expect("unversioned public record"),
+            br#"{"format":"botster.session-registry.v2"}"#.to_vec(),
+            br#"{"format":1}"#.to_vec(),
+        ] {
+            fs::write(&path, &bytes).expect("unsupported fixture");
+            assert!(matches!(
+                registry.load(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.load_skip_malformed(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.save(&requested),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert_eq!(fs::read(&path).expect("bytes after refused save"), bytes);
+            assert!(matches!(
+                registry.remove(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.load_all(),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert_eq!(fs::read(&path).expect("unsupported bytes remain"), bytes);
+        }
+    }
+
+    #[test]
+    fn legacy_paths_are_rejected_without_migration_or_scans() {
+        for id in [String::new(), "audit:a".to_string(), "a".repeat(64)] {
+            let fixture = Fixture::new();
+            let registry = &fixture.registry;
+            let requested = record(&id);
+            let bytes = serde_json::to_vec(&requested).expect("legacy JSON");
+            let path = registry
+                .root()
+                .join(legacy_record_filename(&requested.session_id));
+            fs::write(&path, &bytes).expect("legacy fixture");
+            assert!(matches!(
+                registry.load(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.load_skip_malformed(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.save(&requested),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert!(matches!(
+                registry.remove(&requested.session_id),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert_eq!(registry.test_load_all_calls(), 0);
+            assert!(!registry.record_path(&requested.session_id).exists());
+            assert!(matches!(
+                registry.load_all(),
+                Err(SessionRegistryError::UnsupportedFormat)
+            ));
+            assert_eq!(fs::read(path).expect("legacy bytes remain"), bytes);
+        }
+    }
+
+    #[test]
+    fn malformed_current_files_are_skipped_only_by_tolerant_reads() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let good = record("good");
+        let bad = record("bad");
+        registry.save(&good).expect("save good record");
+        let path = registry.record_path(&bad.session_id);
+        let bytes = b"not JSON";
+        fs::write(&path, bytes).expect("malformed fixture");
+        assert!(matches!(
+            registry.load(&bad.session_id),
+            Err(SessionRegistryError::Json(_))
+        ));
+        assert!(registry
+            .load_skip_malformed(&bad.session_id)
+            .expect("skip malformed")
+            .is_none());
+        assert!(matches!(
+            registry.save(&bad),
+            Err(SessionRegistryError::Json(_))
+        ));
+        assert!(matches!(
+            registry.remove(&bad.session_id),
+            Err(SessionRegistryError::Json(_))
+        ));
+        assert_eq!(
+            registry.load_all().expect("skip malformed during scan"),
+            vec![good]
+        );
+        assert_eq!(
+            fs::read(path).expect("malformed bytes remain").as_slice(),
+            bytes
+        );
+    }
+
+    #[test]
+    fn scans_ignore_temporary_files_and_saves_preserve_foreign_temporary_data() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        let expected = record("temp");
+        registry.save(&expected).expect("save record");
+        let path = registry
+            .record_path(&expected.session_id)
+            .with_extension("json.tmp");
+        let bytes = serde_json::to_vec(&record("foreign-temp")).expect("temporary bytes");
+        fs::write(&path, &bytes).expect("temporary fixture");
+        assert_eq!(
+            registry.load_all().expect("ignore temporary file"),
+            vec![expected.clone()]
+        );
+        assert!(registry.save(&expected).is_err());
+        assert_eq!(fs::read(path).expect("temporary bytes remain"), bytes);
+        assert_eq!(
+            registry
+                .load(&expected.session_id)
+                .expect("committed record remains"),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn exact_operations_do_not_scan_unrelated_files() {
+        let fixture = Fixture::new();
+        let registry = &fixture.registry;
+        fs::write(registry.root().join("unsupported.json"), b"{}")
+            .expect("unrelated unsupported file");
+        let expected = record("exact");
+        registry
+            .save(&expected)
+            .expect("exact save ignores unrelated files");
+        assert_eq!(
+            registry.load(&expected.session_id).expect("exact load"),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            registry
+                .load_skip_malformed(&expected.session_id)
+                .expect("exact tolerant load"),
+            Some(expected.clone())
+        );
+        registry.remove(&expected.session_id).expect("exact remove");
+        registry
+            .remove(&expected.session_id)
+            .expect("missing remove");
+        assert!(registry
+            .load(&expected.session_id)
+            .expect("missing load")
+            .is_none());
+        assert_eq!(registry.test_load_all_calls(), 0);
+        assert!(matches!(
+            registry.load_all(),
+            Err(SessionRegistryError::UnsupportedFormat)
+        ));
+        assert_eq!(registry.test_load_all_calls(), 1);
+    }
 }
