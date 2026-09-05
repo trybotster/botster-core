@@ -7569,7 +7569,7 @@ fn colliding_sanitizer_ids_restart_adopt_and_remove_independently() {
     drop(restarted);
     let deadline = Instant::now() + Duration::from_secs(5);
     while evidence.iter().any(|(worker, child, socket)| {
-        process_exists(*worker) || process_exists(*child) || socket.exists()
+        !process_has_exited(*worker) || !process_has_exited(*child) || socket.exists()
     }) {
         assert!(
             Instant::now() < deadline,
