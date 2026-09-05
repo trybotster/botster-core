@@ -1,6 +1,6 @@
 # Registry identity: smallest safe transition
 
-Date: 2026-09-04. Author: Fable. Read-only preparation for the next audit repair. No implementation, no tests started. Source: Core `crates/botster-core-daemon/src/registry.rs` at `93acae3` (unchanged through `5923bf1`).
+Date: 2026-09-04, amended after coordinator constraints. Author: Fable. Read-only preparation. No implementation, no tests started. Source: Core `crates/botster-core-daemon/src/registry.rs` at `93acae3` (unchanged through `5923bf1`).
 
 ## Defect
 
@@ -8,40 +8,51 @@ Date: 2026-09-04. Author: Fable. Read-only preparation for the next audit repair
 
 ## Format
 
-- Filename: `hex(SHA-256(session_id bytes)).json`, 64 hex characters plus extension. Fixed length, injective, path-safe, and independent of the id's characters. Keep the `.json.tmp` rename in `save`.
-- Digest helper: add one `pub fn session_identity_digest(&SessionId) -> [u8; 32]` in `botster-core`, which already depends on `sha2`. Hex-encode in the daemon with `format!("{byte:02x}")`, so `botster-core-daemon` gains no dependency. Do not reuse the worker socket derivation; it truncates to 16 bytes and must not change.
-- Make `SessionRegistry::record_path(&SessionId)` public. Tests and any host code must obtain paths from it, never build `<id>.json`.
+- Filename: `hex(SHA-256(session_id bytes)).json`. SHA-256 is collision-resistant, not injective, so the filename selects a candidate and the stored id decides. Every operation verifies.
+- Encoding stays inside `registry.rs`. Add `sha2` to `botster-core-daemon` directly. No public digest helper in Core, and `record_path` stays private. Hosts never learn filenames.
+- Record gains `format: u8` with value 2, serialized always. A file without `format`, or with a different value, is unsupported. This is the format discriminator. Stem length is not, because a 64-hex legacy id sanitizes to a 64-hex stem.
+- Keep the `.json.tmp` rename in `save`.
 
 ## Verification rule
 
-Every read parses the file, then compares `record.session_id` with the identity that selected the file.
+Every operation parses the file it touches and compares `record.session_id` with the identity that selected the file.
 
-- `load`: mismatch returns a new `SessionRegistryError::IdentityMismatch { expected, found }`. Fail closed, never `Ok(None)`.
-- `load_skip_malformed`: mismatch returns `Ok(None)`, same as malformed. The file stays on disk.
-- `load_all`: a record whose stored id does not hash to its own filename is skipped and counted. Expose the count through a `RegistryScanReport { records, skipped_foreign, skipped_malformed, legacy }` return, or a second method, so hosts can see it.
-- `remove`: load and verify first. Unlink only when the stored id matches. Mismatch returns `IdentityMismatch` and leaves the file. Missing file stays `Ok(())`.
-- `save`: no change beyond the new path. A record can only land at its own hash.
+- `save`: if the target exists, parse it first. A different stored id, or an unsupported format, refuses the write with `IdentityMismatch`. Only a matching id or an absent file is overwritten. Malformed content at the target is also refused, not overwritten, so corruption is visible.
+- `load`: mismatch or unsupported format returns `SessionRegistryError::IdentityMismatch`. Fail closed, never `Ok(None)`.
+- `load_skip_malformed`: mismatch or unsupported format returns `Ok(None)`. The file stays.
+- `load_all`: skips records whose stored id does not hash to their filename, and skips unsupported formats. Returns records plus counts of skipped foreign, skipped malformed, and unsupported legacy files. Nothing is deleted.
+- `remove`: load and verify first. Unlink only on a matching id and supported format. Mismatch or unsupported returns `IdentityMismatch` and leaves the file. Missing file stays `Ok(())`.
+- Error payload: `IdentityMismatch` carries the requested id only, which the caller already holds. It never carries the stored foreign id or the path, so public error mapping stays safe. Hosts classify it as a constant string.
 
-## Old records
+## Legacy records
 
-Cold cut with explicit rejection, no silent fallback. A file whose stem is not 64 hex characters is legacy. `load` never falls back to the legacy path, because that fallback would reintroduce the collision. `load_all` skips legacy files and lists them in the scan report. Nothing deletes them. Provide one explicit `migrate_legacy_record(&SessionId)`: read the legacy path for that id, require `record.session_id == id`, save at the hashed path, then remove the legacy file. A stored id that differs is rejected with `IdentityMismatch` and the legacy file stays. The daemon may call this during `adoption_scan` only for ids the host names explicitly. Do not migrate on a directory walk.
+Cold cut: no migration machinery by default. Legacy files stay on disk unread. Explicit rejection happens in two places:
 
-## Callers that break and must move
+- Exact lookup: `load` and `load_skip_malformed` first check the hashed path. If absent, they check the legacy sanitized path for the same id without a scan. A present legacy file returns `SessionRegistryError::UnsupportedLegacyRecord` from `load` and `Ok(None)` from `load_skip_malformed`. The daemon surfaces the rejection once per id in its adoption scan as a terminal, not adoptable, state. The legacy check is one `exists` call, so exact reads still do not scan the collection.
+- Scan: `load_all` reports the legacy count. Callers see that unsupported records exist.
 
-- Hub `src/update.rs:868-889` `durable_worker_identity` reads `sessions/<session_id>.json` by raw id. After the cut it returns `None` and the update path stops waiting for worker exit. Hub must not learn the filename. Add a Core API on `CoreDaemon` that returns the recovery identity for one session, and switch Hub to it. This is a required Hub follow-up, not optional.
-- Core tests that build raw filenames: `daemon_integration_test.rs:4797, :6564, :7413, :7845`, plus the `sessions_dir` walks at `:657, :760, :885` and `terminal_wake_test.rs:2958, :2991`. Switch them to `record_path`.
+If the user later wants old sessions back, a separate explicit per-id migration can be added. It is not part of this cut.
+
+## Hub caller
+
+Hub `src/update.rs:868-889` `durable_worker_identity` reads `sessions/<session_id>.json` by raw id, and the caller at `:699` skips waiting for worker exit when it gets `None`. Hub already depends on `botster-core-daemon`, and `SessionRegistry` with `load` is public (`botster-core-daemon/src/lib.rs:50`). Replace the direct file read with `SessionRegistry::new(data_directory).load(&SessionId(session_id))` and read `recovery_identity` from the verified record. No `CoreDaemon` is constructed, no filename is learned, and identity is verified. Land this before Hub's Core pin moves, or the update path silently degrades.
+
+## Core tests to move
+
+Tests that build raw `<id>.json` paths or walk `sessions/`: `daemon_integration_test.rs:4797, :6564, :7413, :7845, :657, :760, :885` and `terminal_wake_test.rs:2958, :2991`. They can keep walking the directory when they need file counts. When they need one record's path, they must go through registry behavior, for example by writing a foreign record with `save` under a different id, rather than computing a filename.
 
 ## Test set
 
-1. `audit:a` and `audit_a` save to distinct files; both load; `load_all` returns two. This is the audit reproduction and the red test for the filename change.
-2. Foreign identity: write a record with id X at the path for Y. `load(Y)` is `IdentityMismatch`; `load_skip_malformed(Y)` is `None`; `load_all` skips it and counts one foreign; `remove(Y)` errors and the file remains. Negative control: revert the check in `remove` and show the foreign file is deleted.
-3. Legacy file at `<sanitized>.json`: `load` is `None`, `load_all` lists it as legacy and leaves it, `migrate_legacy_record` moves it when the stored id matches and rejects it when it does not.
-4. Unicode, punctuation, path separators, and a 1,000-character id round-trip through save, load, and remove with a fixed-length filename.
-5. Leftover `.json.tmp` is not loaded by `load_all` (existing extension check).
-6. Exact-session reads still do not scan: keep the `test_load_all_calls` assertions.
-7. Daemon: spawn with a punctuation id, restart, adopt, remove. Lifecycle journal and worker socket path unchanged.
-8. Hub: `durable_worker_identity` through the new Core API, with one test that a colliding sibling id cannot supply another session's worker identity.
+1. `audit:a` and `audit_a` save to distinct files, both load, `load_all` returns two. Red test for the filename change.
+2. Foreign identity at Y's path: `save(Y)` refuses and the file is unchanged; `load(Y)` is `IdentityMismatch`; `load_skip_malformed(Y)` is `None`; `load_all` skips and counts one; `remove(Y)` errors and the file remains. Negative control: revert the check in `remove` and show the foreign file is deleted.
+3. Legacy sanitized file present and no hashed file: `load` is `UnsupportedLegacyRecord`, `load_skip_malformed` is `None`, `load_all` counts one legacy, no deletion, and `test_load_all_calls` stays zero for the exact lookups.
+4. A legacy record whose id is 64 hex characters is still rejected by the `format` field, not by stem length.
+5. Unicode, punctuation, path separators, and a 1,000-character id round-trip through save, load, and remove with a fixed-length filename.
+6. Leftover `.json.tmp` is not loaded by `load_all`.
+7. `IdentityMismatch` display contains the requested id only and no path.
+8. Daemon: spawn with a punctuation id, restart, adopt, remove. Worker socket path unchanged. Adoption scan reports a legacy file as terminal.
+9. Hub: `durable_worker_identity` through `SessionRegistry::load`, with one test that a colliding sibling id cannot supply another session's worker identity.
 
 ## Ordering
 
-Land the Core registry change with tests 1 to 7 first. Land the Hub API switch and test 8 before updating Hub's Core pin, or the update path silently degrades.
+Core registry change with tests 1 to 8 first. Hub switch and test 9 before the Hub pin update.
