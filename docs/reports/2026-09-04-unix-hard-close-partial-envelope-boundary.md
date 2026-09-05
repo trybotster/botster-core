@@ -39,3 +39,16 @@ Required addition: a first-byte gate. Before the writer issues the first socket 
 ## Scope
 
 Hub only: `mux_write.rs` (remove early completion, add the first-byte gate) and `adapter.rs` (remove `late_egress` and its replay in `snapshot_writes`). Core behavior does not change. If root wants the contract text to say this in words, one sentence suffices in `terminal_adapter.rs` under close: "A transport may complete a frame whose first byte it wrote before close, to preserve stream framing; it must not start or repeat a write of an abandoned frame after close." That is a documentation clarification of the existing non-blocking rule, not a weakening, and it is root's decision.
+
+## Root ruling (retained verbatim in substance)
+
+The coordinator adopted the narrow writer-owned partial-envelope rule with explicit documentation, not as an implicit exception to the existing literal wording:
+
+- A copied but unsent frame is abandoned.
+- Positive progress finishes the existing framing once.
+- Concurrency qualification: a nonblocking write attempt that was already started when close occurred cannot retract its bytes if it succeeds. A `Pending` or zero-progress attempt must not be retried after close. A bare `is_closed` check alone does not prove atomic first-byte ordering; the gate must be stated in terms of the write attempt's outcome, not only a pre-check.
+- No replay, no early `Ready`, no new wire or topology.
+
+The Hub writer was directed accordingly. The Core contract clarification is a separate reviewed documentation change.
+
+Reviewer note: the qualification is correct and strengthens my first-byte gate. The honest statement is: the writer decides by the result of the attempt it already issued. A successful attempt that moved bytes commits the envelope to completion. An attempt that returned `Pending` with zero progress is abandoned if the handle is closed, and is not retried.
