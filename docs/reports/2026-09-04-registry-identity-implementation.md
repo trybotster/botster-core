@@ -129,33 +129,27 @@ I did not edit any Hub worktree.
 The coordinator later authorized a separate architecture correction in commit `b17ae2c`.
 That document now describes acknowledged resize completion and registry ownership. The registry source commit did not include that document.
 
-## Source-stage verification plan (historical)
+## Verification results and remaining gates
 
-No build, test, Cargo metadata, or negative-control command ran for this candidate.
-I formatted only the edited Rust files with the installed Rust 1.97 `rustfmt` binary.
-`git diff --check` passed after source edits.
-These checks do not establish compilation or test success.
+The coordinator released the validation window after the source-only hold.
+I prepared Ghostty at the declared revision and used Rust 1.97.0 with at most two Cargo jobs.
+The focused registry tests and affected daemon tests passed after the test correction in `3f29a8d`.
+All three negative controls failed at their intended assertions. I restored each source file before the next command.
+Workspace formatting passed. Strict daemon Clippy passed after the separate authorized test lint correction in `d10e57a`.
+The validation report preserves the original cleanup and Clippy failures.
 
-Before a test window, prepare the new worktree's declared Ghostty submodule and exact toolchain.
-The new worktree's mise configuration is not trusted yet. Source commands use a non-login shell to avoid implicit tool setup.
-No submodule initialization or dependency fetch ran during the source-only hold.
+Commit `3f29a8d` changes only the new worker test's termination check to the existing `process_has_exited` helper.
+Commit `d10e57a` changes only the existing worker adapter test's nested condition to an equivalent match guard.
+Neither commit changes registry production source.
+The worker test verifies termination and socket removal. A later snapshot verifies PID absence after test-process exit.
+These results do not establish that the runtime reaped the workers within the test process.
 
-Proposed focused commands after explicit release:
+The exact commands, counts, revisions, source hashes, and evidence hashes are in `2026-09-04-registry-validation-evidence.json`.
+The result explanations and cleanup limits are in `2026-09-04-registry-identity-validation.md`.
+The corrected Clippy log and final process-state logs are included in that evidence manifest.
 
-```sh
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --lib registry::tests:: -- --nocapture
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --lib exact_ -- --nocapture
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --test daemon_integration_test lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenames -- --exact --nocapture
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --test daemon_integration_test lifecycle_baseline_rejects_foreign_registry_identity_as_source_changed -- --exact --nocapture
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --test daemon_integration_test colliding_sanitizer_ids_restart_adopt_and_remove_independently -- --exact --nocapture
-BOTSTER_ENV=test RUSTUP_TOOLCHAIN=1.97.0 CARGO_BUILD_JOBS=2 cargo test -p botster-core-daemon --test daemon_integration_test adoption_rejects_legacy_registry_without_inventing_terminal_state -- --exact --nocapture
-```
-
-Then run the affected baseline, malformed-record, permission, and metadata-adoption checks.
-Negative controls should restore the old filename encoder, bypass removal validation, and restore filename-derived baseline identity in separate runs.
-Each negative control must fail at its intended behavioral assertion. Restore source before the next command.
-The coordinator controls the later required workspace, contract-only, documentation, formatting, Clippy, and exact Hub consumer gates.
-No passing verification claim applies until those commands run and their results are recorded.
+Full workspace tests, workspace Clippy, contract-only tests, doc tests, doc generation, Node smoke, and exact Hub consumer validation remain pending.
+The coordinator owns those gates. I released the validation window after the focused and affected checks completed.
 
 ## Temporary-file recovery follow-up
 
@@ -166,4 +160,5 @@ The primary `load` remains the first save precondition and still propagates malf
 Identity, unsupported-format, and I/O errors from a temporary file still stop the save.
 The focused recovery test covers both first-save and replacement-save recovery.
 The temporary-file preservation test now distinguishes valid foreign identity from unsupported version and absent format.
-No build or test ran. No diagnostic framework was added. The branch was not rebased or merged with main.
+The recovery and preservation tests passed during the released validation window.
+No diagnostic framework was added. The branch was not rebased or merged with main.
