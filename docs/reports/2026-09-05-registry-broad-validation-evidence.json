@@ -1,0 +1,302 @@
+{
+ "branch": "foundation/registry-identity",
+ "final_source_head": "57265996877349a69d3bef9a02e2222dac0bd868",
+ "revisions": {
+  "frozen_input": "3b0b51374a6e54659e2f4649bab37cca532b94a5",
+  "clippy_correction": "3da05cbc8653ad87984ae3da604a38b721660fbe",
+  "parked_exit_correction": "af798291b08f161de981827458e7926a27cc1a80",
+  "consumer_lock_provenance": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+  "fmt_correction": "57265996877349a69d3bef9a02e2222dac0bd868"
+ },
+ "ghostty": "eb72ec61304ea256be1d86ed8fa961c84e43ecbd",
+ "environment": {
+  "BOTSTER_ENV": "test",
+  "RUSTUP_TOOLCHAIN": "1.97.0",
+  "CARGO_BUILD_JOBS": "2",
+  "CARGO_TARGET_DIR": "unset",
+  "PATH": "/Users/jasonconigliari/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin:/Users/jasonconigliari/.local/share/mise/installs/node/22.21.1/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  "shell": "non-login zsh",
+  "zig": "0.16.0 (mise, resolved by build.rs via HOME)"
+ },
+ "source_sha256": {
+  "crates/botster-core-daemon/src/registry.rs": "c32c58c087afb4e393052def047fdfcebda4eead048d3d5302fcff7daa1382f1",
+  "crates/botster-core-daemon/src/daemon.rs": "41a296f5106acaa6d0b789b5d83e2002061d86ba057755340508af6ffc1a4714",
+  "crates/botster-core-daemon/tests/daemon_integration_test.rs": "580324e887dc6878461f918bd523f6cdf149d84e4b41356df861abf09eefde0f",
+  "crates/botster-core-daemon/Cargo.toml": "4500b795e870f7ff851253cd3cfb18d8f470a8cf6e4f21ce0b0359cf22bf22db",
+  "crates/botster-core/src/engine/plugin_worker.rs": "74c7429dc93ac403f5a9bbde341aacb0b92ade3575a4469c2ceb234a17d251c3",
+  "Cargo.lock": "38738ee03c5c9b9d32562f0e3060d225d25334bb8156fffe6437f94cc78030e8",
+  "crates/botster-core-test-support/tests/consumers/hub-lifecycle-shaped/Cargo.lock": "7710823ca0079244000ea46c7a64a7905fce4bfd8eae6a6875090547cffc076d",
+  "crates/botster-core-test-support/tests/consumers/hub-data-plane-shaped/Cargo.lock": "ffb13bf3f9d1ee9ec70b37565fafc3d65e5ef1ee2a54cba5d5542d1e1c868c0e"
+ },
+ "worker_sha256": "06c0a0766f447548ac3c24de8076d579ad9ebc45cccd727e91327f6446df82a2",
+ "corrections": {
+  "clippy-correction.diff": "ccb401a39e5f4bb143c9f837776d2a300754ebd073ec28a0c00387654db3d92c",
+  "parked-exit-correction.diff": "a15d3ad53188c7f63fb07c166f89a5ba58957a38583acf841fe1a02b4241b1f3",
+  "consumer-lock-provenance.diff": "46cebcad965ece5f9cef545fa6074dba369c77950dd3034bf0b5ea5b68461ac4",
+  "fmt-correction.diff": "ab92e87197fb2172a03ced4648da896699fdd6abbd27aa9049f535cdbd705203",
+  "consumer-lock-drift-after-arm02-rerun.diff": "46cebcad965ece5f9cef545fa6074dba369c77950dd3034bf0b5ea5b68461ac4"
+ },
+ "runs": [
+  {
+   "step": "01",
+   "command": "cargo clippy --workspace --all-targets -- -D warnings",
+   "started_utc": "2026-09-05T07:27:14Z",
+   "exit": 101,
+   "source_head": "3b0b51374a6e54659e2f4649bab37cca532b94a5",
+   "log": "01-clippy-workspace.log",
+   "log_sha256": "2bd71a2dfcdd1461530c537cb36a70f97abf55d17b8d46337c229fb495f89c59",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "5312",
+    "command_pid": "5327"
+   }
+  },
+  {
+   "step": "01",
+   "command": "cargo clippy --workspace --all-targets -- -D warnings",
+   "started_utc": "2026-09-05T07:31:22Z",
+   "exit": 0,
+   "source_head": "3da05cbc8653ad87984ae3da604a38b721660fbe",
+   "log": "01-clippy-workspace-rerun.log",
+   "log_sha256": null,
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "26090",
+    "command_pid": "26095"
+   },
+   "log_body_overwritten": true,
+   "log_sha256_before_overwrite": "3dda38921c15c018881c24de1b69ce8e12882ecba3b93cb7599470f34387e533",
+   "note": "log body overwritten by the later c1ab0ff Clippy run; see log_overwrites"
+  },
+  {
+   "step": "02",
+   "command": "cargo test --workspace",
+   "started_utc": "2026-09-05T07:32:12Z",
+   "exit": 101,
+   "source_head": "3da05cbc8653ad87984ae3da604a38b721660fbe",
+   "log": "02-test-workspace.log",
+   "log_sha256": "1ad7f7fecf1213d4f82ca17b2c9d9c384036aed07274b35d66583555e15ca97d",
+   "passed": 804,
+   "failed": 1,
+   "pids": {
+    "runner_pid": "7929",
+    "command_pid": "7934"
+   }
+  },
+  {
+   "step": "00",
+   "command": "cargo test -p botster-core-daemon --test daemon_integration_test session_registry_state_does_not_reconcile_parked_exit -- --exact --nocapture",
+   "started_utc": "2026-09-05T07:47:15Z",
+   "exit": 0,
+   "source_head": "af798291b08f161de981827458e7926a27cc1a80",
+   "log": "00-parked-exit-exact.log",
+   "log_sha256": "8517350407de2391f1607e298acd723a5825d9676d1d7b6f06f21c7ec0733e51",
+   "passed": 1,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "15827",
+    "command_pid": "15832"
+   }
+  },
+  {
+   "step": "02",
+   "command": "cargo test --workspace",
+   "started_utc": "2026-09-05T07:47:57Z",
+   "exit": 0,
+   "source_head": "af798291b08f161de981827458e7926a27cc1a80",
+   "log": "02-test-workspace-rerun.log",
+   "log_sha256": "7d19b7c8ca16b066df90f6d0ff9a491d282e08a8bdeb96ade6fc29a22c70b8e2",
+   "passed": 984,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "16165",
+    "command_pid": "16170"
+   }
+  },
+  {
+   "step": "03",
+   "command": "cargo test -p botster-core --no-default-features --lib",
+   "started_utc": "2026-09-05T08:00:42Z",
+   "exit": 0,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "03-test-core-contract-only.log",
+   "log_sha256": "c6e8aeb7a8fb4b25f6eef6206d92e5814fb5f339a5f22e6e219a9382e77f16a7",
+   "passed": 41,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "23829",
+    "command_pid": "23834"
+   }
+  },
+  {
+   "step": "04",
+   "command": "cargo test --doc --workspace",
+   "started_utc": "2026-09-05T08:01:37Z",
+   "exit": 0,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "04-test-doc.log",
+   "log_sha256": "d6d1f6edf74780733be36e552d2ec949a21735074e69d163b5cd1d9f887ea8ca",
+   "passed": 9,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "24320",
+    "command_pid": "24325"
+   }
+  },
+  {
+   "step": "05",
+   "command": "cargo doc --workspace --no-deps",
+   "started_utc": "2026-09-05T08:02:10Z",
+   "exit": 0,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "05-doc-build.log",
+   "log_sha256": "943fa2130124494b8ec1090f239295c3883188e1b13c4e63eeb384697ca70f1e",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "24895",
+    "command_pid": "24900"
+   }
+  },
+  {
+   "step": "06",
+   "command": "script/terminal-protocol-node-smoke.sh",
+   "started_utc": "2026-09-05T08:03:59Z",
+   "exit": 0,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "06-node-smoke.log",
+   "log_sha256": "e596efb2a0ce46df3fd06e65393802e6cc00e914a3df815dfb79c266dcef215b",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "25770",
+    "command_pid": "25775"
+   }
+  },
+  {
+   "step": "01",
+   "command": "cargo clippy --workspace --all-targets -- -D warnings",
+   "started_utc": "2026-09-05T08:04:40Z",
+   "exit": 0,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "01-clippy-workspace-rerun.log",
+   "log_sha256": "b05dbcf504f6c9ff770ecfc295415c6e5dd55b57e47e905518397ac77f19e305",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "26090",
+    "command_pid": "26095"
+   }
+  },
+  {
+   "step": "07",
+   "command": "cargo fmt --all -- --check",
+   "started_utc": "2026-09-05T08:05:40Z",
+   "exit": 1,
+   "source_head": "c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "log": "07-fmt-check.log",
+   "log_sha256": "f47b4f17a41fb157da05b0cd72fbbdd31ac4f97c38c9a7de63a163e8f4ccc11d",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "26521",
+    "command_pid": "26526"
+   }
+  },
+  {
+   "step": "07",
+   "command": "cargo fmt --all -- --check",
+   "started_utc": "2026-09-05T08:08:56Z",
+   "exit": 0,
+   "source_head": "57265996877349a69d3bef9a02e2222dac0bd868",
+   "log": "07-fmt-check-rerun2.log",
+   "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "27935",
+    "command_pid": "27940"
+   }
+  },
+  {
+   "step": "01",
+   "command": "cargo clippy --workspace --all-targets -- -D warnings",
+   "started_utc": "2026-09-05T08:09:41Z",
+   "exit": 0,
+   "source_head": "57265996877349a69d3bef9a02e2222dac0bd868",
+   "log": "01-clippy-workspace-rerun2.log",
+   "log_sha256": "83304665219c45ebe6197ed3fd0d21b037a2035c0bbec397e16c033a0fcf602b",
+   "passed": null,
+   "failed": null,
+   "pids": {
+    "runner_pid": "28166",
+    "command_pid": "28171"
+   }
+  },
+  {
+   "step": "08",
+   "command": "cargo test --quiet --offline --locked",
+   "started_utc": "2026-09-05T08:10:17Z",
+   "exit": 0,
+   "source_head": "57265996877349a69d3bef9a02e2222dac0bd868",
+   "log": "08-fixture-lifecycle-locked.log",
+   "log_sha256": "d6ac5a3c19c6a7d789d87eb9d2bf2676e7cf126cc093ab7583170a2cb28c061e",
+   "passed": 9,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "28419",
+    "command_pid": "28424"
+   }
+  },
+  {
+   "step": "09",
+   "command": "cargo test --quiet --offline --locked",
+   "started_utc": "2026-09-05T08:10:42Z",
+   "exit": 0,
+   "source_head": "57265996877349a69d3bef9a02e2222dac0bd868",
+   "log": "09-fixture-data-plane-locked.log",
+   "log_sha256": "09814e0a6648a5358789dcbfd9ea259d0e9eb1586b65748af0df6af187e1d85e",
+   "passed": 2,
+   "failed": 0,
+   "pids": {
+    "runner_pid": "28609",
+    "command_pid": "28614"
+   }
+  }
+ ],
+ "evidence_directory": "/private/tmp/botster-registry-broad-validation",
+ "preserved_failures": [
+  "01-clippy-workspace.log",
+  "02-test-workspace.log",
+  "07-fmt-check.log"
+ ],
+ "process_snapshots": [
+  "processes-after-arm02-rerun.txt",
+  "processes-after-arm02.txt",
+  "processes-after.txt",
+  "processes-before.txt",
+  "processes-final.txt"
+ ],
+ "git_status_clean": false,
+ "arm02_rerun_tree_state_correction": "The arm 02 rerun on af79829 left two consumer fixture Cargo.lock files modified (status-after-arm02-rerun-actual.txt). The boundary report wrongly said the tree was clean. The modification was committed as c1ab0ff.",
+ "pre_existing_warnings_observed": {
+  "03_contract_only": "21 rustc unused/dead-code warnings in botster-core lib under --no-default-features; not gated in CI; no botster-core library source changed in this branch",
+  "05_cargo_doc": "4 rustdoc private-item link warnings in botster-core; not gated in CI"
+ },
+ "log_overwrites": [
+  {
+   "log": "01-clippy-workspace-rerun.log",
+   "overwritten_run": {
+    "step": "01",
+    "source_head": "3da05cbc8653ad87984ae3da604a38b721660fbe",
+    "exit": 0,
+    "summary": "workspace Clippy -D warnings passed, Finished in 10.80s, no lint output",
+    "sha256_before_overwrite": "3dda38921c15c018881c24de1b69ce8e12882ecba3b93cb7599470f34387e533"
+   },
+   "current_content": "final workspace Clippy pass on c1ab0ffccb974aedce46278765eda19cd87119ca",
+   "cause": "runner reused the single -rerun suffix; fixed to numbered suffixes after this run"
+  }
+ ]
+}
