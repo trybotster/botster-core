@@ -382,7 +382,7 @@ fn delivered_terminal_output_bytes(adapter: &SharedFakeTerminalAdapter) -> Vec<u
 }
 
 /// True when the joined terminal output contains one complete line whose
-/// trimmed text equals `expected`. `wc -c` pads the count on some platforms.
+/// trimmed text equals `expected`.
 fn terminal_output_has_count_line(adapter: &SharedFakeTerminalAdapter, expected: &str) -> bool {
     let joined = delivered_terminal_output_bytes(adapter);
     String::from_utf8_lossy(&joined)
@@ -1862,10 +1862,12 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
     let subscription_id = SubscriptionId("paste-stale-sub".into());
     let mut request = spawn_request(&session_id);
     // Phase 1: plain mode, print ready, wait for one trigger byte.
-    // Phase 2: enable bracketed paste, then count exactly 13 pasted bytes.
+    // Phase 2: enable bracketed paste, then report the exact next 13 received
+    // bytes as one hex line. A leaked stale byte shifts and fails that line.
     request.request.arguments[1] = "stty raw -echo; printf ready; \
          dd bs=1 count=1 2>/dev/null >/dev/null; printf '\\033[?2004h'; \
-         dd bs=1 count=13 2>/dev/null | wc -c; sleep 30"
+         dd bs=1 count=13 2>/dev/null | od -An -tx1 | tr -d ' \\n'; printf '\\n'; \
+         sleep 30"
         .into();
     daemon.spawn(request, 1).expect("spawn");
     daemon
@@ -1915,6 +1917,34 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
             Box::new(adapter.clone()),
         )
         .expect("bind");
+
+    // Wait for the child's ready marker. `printf ready` runs after `stty raw`,
+    // so a visible marker proves raw mode is active before the trigger byte.
+    // The marker can land in the opaque attach snapshot instead of a later
+    // terminal_output frame, so the screen text is the oracle.
+    let started = Instant::now();
+    loop {
+        probe += 1;
+        let screen = daemon
+            .read_screen(ReadScreenRequest {
+                request_id: RequestId(format!("paste-stale-screen-{probe}")),
+                session_id: session_id.clone(),
+                now_seconds: 20 + probe,
+            })
+            .expect("read screen while waiting for ready");
+        if screen.screen.text.contains("ready") {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "child ready marker did not appear: {:?}",
+            screen.screen.text
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, 20 + probe)
+            .expect("pump while waiting for ready");
+    }
 
     // Trigger the worker-side mode change with one plain input byte.
     adapter.inject_ingress_frame(compact_input_frame(b"k"));
@@ -2001,20 +2031,17 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
     loop {
         assert!(
             Instant::now() < deadline,
-            "recovered paste result and PTY count did not arrive: {:?}",
-            adapter
-                .snapshot_delivered_frame_bytes()
-                .iter()
-                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-                .collect::<Vec<_>>()
+            "recovered paste result and receiver hex line did not arrive: {:?}",
+            String::from_utf8_lossy(&delivered_terminal_output_bytes(&adapter))
         );
         let batch = daemon.wait_wakes(Duration::from_millis(100));
         daemon
             .pump_woken(&batch, 32)
             .expect("complete recovered paste");
-        // The child counted the 12 framing bytes plus `Y` and printed `13`.
-        let counted = terminal_output_has_count_line(&adapter, "13");
-        if delivered_input_results(&adapter, "paste").len() == 2 && counted {
+        // The child received exactly ESC[200~ Y ESC[201~ and nothing earlier.
+        // A leaked stale `X` (0x58) would shift this line and fail the match.
+        let received = terminal_output_has_count_line(&adapter, "1b5b3230307e591b5b3230317e");
+        if delivered_input_results(&adapter, "paste").len() == 2 && received {
             break;
         }
     }
