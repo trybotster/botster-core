@@ -1862,10 +1862,11 @@ fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
     let subscription_id = SubscriptionId("paste-stale-sub".into());
     let mut request = spawn_request(&session_id);
     // Phase 1: plain mode, print ready, wait for one trigger byte.
-    // Phase 2: enable bracketed paste, then report the exact next 13 received
-    // bytes as one hex line. A leaked stale byte shifts and fails that line.
+    // Phase 2: enable bracketed paste and end that line, then report the exact
+    // next 13 received bytes as one complete hex line. A leaked stale byte
+    // shifts and fails that line.
     request.request.arguments[1] = "stty raw -echo; printf ready; \
-         dd bs=1 count=1 2>/dev/null >/dev/null; printf '\\033[?2004h'; \
+         dd bs=1 count=1 2>/dev/null >/dev/null; printf '\\033[?2004h\\n'; \
          dd bs=1 count=13 2>/dev/null | od -An -tx1 | tr -d ' \\n'; printf '\\n'; \
          sleep 30"
         .into();
