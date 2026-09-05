@@ -7212,9 +7212,24 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         "registry-state query must not append lifecycle changes: {:?}",
         page.changes
     );
-    let observed = daemon
-        .observe_session_lifecycle(&session_id, 20)
-        .expect("positive observe control");
+    // OS-level termination does not prove PTY reader finalization. The local
+    // runtime publishes ProcessExited only after its reader observes EOF, so
+    // one observe pass may run before that and leave the record Running.
+    // Observe until the runtime reconciles the parked exit.
+    let mut observed = None;
+    wait_for_condition("observe reconciles the parked exit", || {
+        let lookup = daemon
+            .observe_session_lifecycle(&session_id, 20)
+            .expect("positive observe control");
+        let exited = matches!(
+            &lookup,
+            SessionLifecycleLookup::Found(record)
+                if record.session.registry_state == RegistrySessionState::Exited
+        );
+        observed = Some(lookup);
+        exited
+    });
+    let observed = observed.expect("at least one observe pass");
     match &observed {
         SessionLifecycleLookup::Found(record) => {
             assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
