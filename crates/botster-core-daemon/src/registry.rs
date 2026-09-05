@@ -179,8 +179,11 @@ impl SessionRegistry {
         fs::create_dir_all(&self.root)?;
         let path = self.record_path(&record.session_id);
         let temp_path = path.with_extension("json.tmp");
-        if let Some(existing) = read_record(&temp_path)? {
-            verify_identity(&existing, &record.session_id)?;
+        match read_record(&temp_path) {
+            Ok(Some(existing)) => verify_identity(&existing, &record.session_id)?,
+            // A crash can leave incomplete temporary JSON. The primary record stays strictly checked.
+            Ok(None) | Err(SessionRegistryError::Json(_)) => {}
+            Err(error) => return Err(error),
         }
         let data = serde_json::to_vec_pretty(&StoredRecord {
             format: RECORD_FORMAT,
@@ -716,28 +719,98 @@ mod tests {
     }
 
     #[test]
+    fn save_recovers_from_malformed_temporary_json() {
+        for primary_exists in [false, true] {
+            let fixture = Fixture::new();
+            let registry = &fixture.registry;
+            let mut expected = record("crash-recovery");
+            if primary_exists {
+                registry
+                    .save(&expected)
+                    .expect("save initial primary record");
+            }
+            let path = registry.record_path(&expected.session_id);
+            let temp_path = path.with_extension("json.tmp");
+            fs::write(
+                &temp_path,
+                br#"{"format":"botster.session-registry.v1","session_id":"#,
+            )
+            .expect("write incomplete temporary JSON");
+            assert!(matches!(
+                read_record(&temp_path),
+                Err(SessionRegistryError::Json(_))
+            ));
+            expected.rows = 40;
+            registry
+                .save(&expected)
+                .expect("replace incomplete temporary JSON");
+            assert_eq!(
+                registry
+                    .load(&expected.session_id)
+                    .expect("load recovered primary"),
+                Some(expected)
+            );
+            assert!(
+                !temp_path.exists(),
+                "rename must consume the recovered temporary file"
+            );
+        }
+    }
+
+    #[test]
     fn scans_ignore_temporary_files_and_saves_preserve_foreign_temporary_data() {
         let fixture = Fixture::new();
         let registry = &fixture.registry;
         let expected = record("temp");
+        let foreign = record("foreign-temp");
         registry.save(&expected).expect("save record");
         let path = registry
             .record_path(&expected.session_id)
             .with_extension("json.tmp");
-        let bytes = serde_json::to_vec(&record("foreign-temp")).expect("temporary bytes");
-        fs::write(&path, &bytes).expect("temporary fixture");
-        assert_eq!(
-            registry.load_all().expect("ignore temporary file"),
-            vec![expected.clone()]
-        );
-        assert!(registry.save(&expected).is_err());
-        assert_eq!(fs::read(path).expect("temporary bytes remain"), bytes);
-        assert_eq!(
-            registry
-                .load(&expected.session_id)
-                .expect("committed record remains"),
-            Some(expected)
-        );
+        let cases = [
+            (
+                serde_json::to_vec(&StoredRecord {
+                    format: RECORD_FORMAT,
+                    record: &foreign,
+                })
+                .expect("valid foreign temporary record"),
+                true,
+            ),
+            (
+                serde_json::to_vec(&StoredRecord {
+                    format: "botster.session-registry.v2",
+                    record: &expected,
+                })
+                .expect("unsupported temporary format"),
+                false,
+            ),
+            (
+                serde_json::to_vec(&foreign).expect("unversioned temporary record"),
+                false,
+            ),
+        ];
+        for (bytes, foreign_identity) in cases {
+            fs::write(&path, &bytes).expect("temporary fixture");
+            assert_eq!(
+                registry.load_all().expect("ignore temporary file"),
+                vec![expected.clone()]
+            );
+            let error = registry
+                .save(&expected)
+                .expect_err("refuse foreign or unsupported temporary record");
+            match error {
+                SessionRegistryError::IdentityMismatch if foreign_identity => {}
+                SessionRegistryError::UnsupportedFormat if !foreign_identity => {}
+                other => panic!("unexpected temporary record error: {other:?}"),
+            }
+            assert_eq!(fs::read(&path).expect("temporary bytes remain"), bytes);
+            assert_eq!(
+                registry
+                    .load(&expected.session_id)
+                    .expect("committed record remains"),
+                Some(expected.clone())
+            );
+        }
     }
 
     #[test]
