@@ -30,8 +30,20 @@ pub const MIN_ADAPTER_INGRESS_BUFFER_FRAMES: usize = 64;
 /// `Ok(())` means the frame occupies the single active-write slot until the
 /// transport finishes that write. It does not mean a client received the frame.
 ///
-/// Close, whether local [`Self::close`] or transport-side death, abandons any
-/// in-flight frame. Terminal frames do not retry.
+/// Close, whether local [`Self::close`] or transport-side death, abandons the
+/// adapter slot and any unsent transport copy. Terminal frames do not retry.
+///
+/// A transport may finish an envelope with positive write progress to preserve
+/// stream framing. It must use the writer's existing buffer, without replaying
+/// the frame or starting another envelope from the closed adapter. A nonblocking
+/// write already in progress may complete concurrently with close. If that
+/// attempt accepts bytes, the transport may finish that envelope. If it makes
+/// no progress, the transport must not retry it after close. The transport must
+/// finish a partial envelope or end the affected stream. It must not leave an
+/// incomplete envelope on a live stream.
+///
+/// During normal operation, the slot remains occupied until the complete
+/// envelope is written. Partial write progress must not report the slot Ready.
 ///
 /// [`Self::close`] and [`Drop`] must return without waiting for transport I/O.
 /// They set [`TerminalAdapterPressure::Closed`] and abandon the in-flight slot.
@@ -56,9 +68,10 @@ pub trait TerminalAdapter {
     /// [`TerminalAdapterWriteError::Closed`] and [`Self::pressure`] is
     /// [`TerminalAdapterPressure::Closed`]. [`Self::try_read`] returns
     /// [`TerminalIngress::Closed`] permanently and buffered ingress is dropped.
-    /// An in-flight frame is abandoned and must not be delivered later. Must
-    /// return without waiting for transport I/O or for a lock held by the
-    /// transport writer.
+    /// Unsent frames are abandoned and must not start or retry after close.
+    /// An already-started transport envelope follows the framing rule above.
+    /// Return without waiting for transport I/O or for a lock held by the
+    /// transport writer, including completion of a partial envelope.
     fn close(&mut self);
 
     /// Current transport pressure.
