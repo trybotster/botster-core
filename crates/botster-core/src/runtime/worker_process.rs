@@ -654,6 +654,24 @@ impl WorkerProcessRuntime {
         }
     }
 
+    /// Return the current worker-authoritative token and flags as one pair.
+    ///
+    /// The pair is the latest one decoded from a worker mode-flags reply or a
+    /// mode-gated result in this daemon incarnation. `None` means no worker
+    /// authority has been observed yet for the session.
+    #[must_use]
+    pub fn current_mode_for(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<(ModeFreshnessToken, ModeFlags)> {
+        self.sessions
+            .get(session_id)?
+            .latest_mode
+            .lock()
+            .ok()?
+            .clone()
+    }
+
     /// Return flags for the latest token decoded in this daemon incarnation.
     #[must_use]
     pub fn latest_mode_for(
@@ -661,14 +679,9 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
         token: ModeFreshnessToken,
     ) -> Option<ModeFlags> {
-        self.sessions
-            .get(session_id)?
-            .latest_mode
-            .lock()
-            .ok()?
-            .as_ref()
+        self.current_mode_for(session_id)
             .filter(|(latest, _)| *latest == token)
-            .map(|(_, flags)| flags.clone())
+            .map(|(_, flags)| flags)
     }
 
     /// Capture a worker-owned snapshot after all pre-boundary PTY bytes.
@@ -3277,6 +3290,11 @@ mod tests {
             )
             .expect("adopt current worker protocol");
 
+        assert_eq!(
+            runtime.current_mode_for(&session_id),
+            None,
+            "adoption must not trust mode flags from the welcome metadata"
+        );
         assert_eq!(
             runtime.latest_mode_for(&session_id, crate::ModeFreshnessToken::default()),
             None,

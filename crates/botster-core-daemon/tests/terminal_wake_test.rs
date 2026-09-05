@@ -1452,6 +1452,26 @@ fn pump_woken_applies_authoritative_gated_input_and_clears_the_wait() {
             .collect::<Vec<_>>(),
         vec![Some(10), Some(10)]
     );
+    for result in &results {
+        assert_eq!(
+            result["mode_generation"].as_u64(),
+            Some(token.mode_generation),
+            "admitted gated input must carry the worker's current generation: {result}"
+        );
+        assert_eq!(
+            result["mode_revision"].as_u64(),
+            Some(token.mode_revision),
+            "admitted gated input must carry the worker's current revision: {result}"
+        );
+        assert!(
+            result["mode_flags"].is_object(),
+            "admitted gated input must carry the worker's mode flags: {result}"
+        );
+        assert!(
+            result.get("rejection").is_none(),
+            "admitted gated input must not carry a rejection: {result}"
+        );
+    }
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -1766,9 +1786,13 @@ fn partial_paste_write_delivers_result_then_hard_stops_only_that_owner() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// A real worker-side mode change makes an earlier token stale. Core rejects
+/// the stale paste with the worker's current token and flags. A retry with
+/// exactly the returned token is admitted, and the admitted bracketed paste
+/// counts the content plus the 12 framing bytes.
 #[cfg(unix)]
 #[test]
-fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
+fn stale_paste_token_reports_current_mode_and_returned_token_retry_admits() {
     let data_dir = temp_data_dir("paste-stale");
     let mut daemon =
         CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
@@ -1776,8 +1800,12 @@ fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
     let client_id = ClientId("paste-stale-client".into());
     let subscription_id = SubscriptionId("paste-stale-sub".into());
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] =
-        "stty raw -echo; printf ready; dd bs=1 count=1 2>/dev/null | wc -c; sleep 30".into();
+    // Phase 1: plain mode, print ready, wait for one trigger byte.
+    // Phase 2: enable bracketed paste, then count exactly 13 pasted bytes.
+    request.request.arguments[1] = "stty raw -echo; printf ready; \
+         dd bs=1 count=1 2>/dev/null >/dev/null; printf '\\033[?2004h'; \
+         dd bs=1 count=13 2>/dev/null | wc -c; sleep 30"
+        .into();
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .attach(
@@ -1789,7 +1817,7 @@ fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
         .expect("attach");
     let started = Instant::now();
     let mut probe = 0;
-    let token = loop {
+    let old_token = loop {
         probe += 1;
         daemon.drain(&session_id, 2 + probe).expect("drain ready");
         if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
@@ -1797,9 +1825,17 @@ fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
             session_id: session_id.clone(),
             now_seconds: 20 + probe,
         }) {
+            assert!(
+                !result.mode_flags.mode_flags.bracketed_paste,
+                "bracketed paste must be off before the trigger byte"
+            );
             break result.mode_flags.mode_freshness;
         }
-        assert!(started.elapsed() < Duration::from_secs(8));
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "worker mode authority did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     };
     let generation = daemon
         .list_terminal_subscriptions()
@@ -1819,10 +1855,43 @@ fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
         )
         .expect("bind");
 
+    // Trigger the worker-side mode change with one plain input byte.
+    adapter.inject_ingress_frame(compact_input_frame(b"k"));
+    let trigger_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&trigger_wake, 10)
+        .expect("apply trigger input");
+
+    // Refresh Core's stored authority through a worker probe. The worker
+    // emits no spontaneous mode frame, so the probe is the only refresh path.
+    let started = Instant::now();
+    let current_token = loop {
+        probe += 1;
+        let result = daemon
+            .read_mode_flags(ReadModeFlagsRequest {
+                request_id: RequestId(format!("paste-stale-modes-{probe}")),
+                session_id: session_id.clone(),
+                now_seconds: 20 + probe,
+            })
+            .expect("probe after trigger");
+        if result.mode_flags.mode_flags.bracketed_paste {
+            break result.mode_flags.mode_freshness;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "bracketed-paste mode did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_ne!(
+        current_token, old_token,
+        "a worker-side mode change must advance the freshness token"
+    );
+
     for frame in compact_paste_frames(
         71,
-        token.mode_generation,
-        token.mode_revision.saturating_add(1),
+        old_token.mode_generation,
+        old_token.mode_revision,
         b"X",
     ) {
         adapter.inject_ingress_frame(frame);
@@ -1832,36 +1901,198 @@ fn stale_paste_token_writes_zero_bytes_and_owner_recovers() {
         .pump_woken(&stale_wake, 30)
         .expect("reject stale paste");
     let stale = delivered_input_results(&adapter, "paste");
-    assert_eq!(stale.len(), 1);
+    assert_eq!(stale.len(), 1, "stale paste must emit exactly one result");
     assert_eq!(stale[0]["operation_id"], 71);
+    assert_eq!(stale[0]["admitted"], false);
     assert_eq!(stale[0]["bytes_written"], 0);
     assert_eq!(stale[0]["rejection"], "stale_mode");
-    assert!(!adapter
-        .snapshot_delivered_frame_bytes()
-        .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .any(|value| value["type"] == "terminal_output"));
+    assert_eq!(
+        stale[0]["mode_generation"].as_u64(),
+        Some(current_token.mode_generation),
+        "stale rejection must carry the current generation: {}",
+        stale[0]
+    );
+    assert_eq!(
+        stale[0]["mode_revision"].as_u64(),
+        Some(current_token.mode_revision),
+        "stale rejection must carry the current revision: {}",
+        stale[0]
+    );
+    assert_eq!(
+        stale[0]["mode_flags"]["bracketed_paste"], true,
+        "stale rejection must carry the current flags: {}",
+        stale[0]
+    );
 
-    for frame in compact_paste_frames(72, token.mode_generation, token.mode_revision, b"Y") {
+    // Retry with exactly the token the rejection returned.
+    let returned = botster_core::ModeFreshnessToken {
+        mode_generation: stale[0]["mode_generation"]
+            .as_u64()
+            .expect("returned generation"),
+        mode_revision: stale[0]["mode_revision"]
+            .as_u64()
+            .expect("returned revision"),
+    };
+    for frame in compact_paste_frames(72, returned.mode_generation, returned.mode_revision, b"Y")
+    {
         adapter.inject_ingress_frame(frame);
     }
     let recovery_wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&recovery_wake, 31)
         .expect("submit recovered paste");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while delivered_input_results(&adapter, "paste").len() < 2 {
-        assert!(Instant::now() < deadline);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "recovered paste result and PTY count did not arrive: {:?}",
+            adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+                .collect::<Vec<_>>()
+        );
         let batch = daemon.wait_wakes(Duration::from_millis(100));
         daemon
             .pump_woken(&batch, 32)
             .expect("complete recovered paste");
+        // `13\n` in base64: the child counted the 12 framing bytes plus `Y`.
+        let counted = adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("MTMK"));
+        if delivered_input_results(&adapter, "paste").len() == 2 && counted {
+            break;
+        }
     }
     let results = delivered_input_results(&adapter, "paste");
     assert_eq!(results.len(), 2);
     assert_eq!(results[1]["operation_id"], 72);
     assert_eq!(results[1]["admitted"], true);
+    assert_eq!(
+        results[1]["bytes_written"], 13,
+        "admitted bracketed paste counts content plus 12 framing bytes"
+    );
+    assert_eq!(
+        results[1]["mode_generation"].as_u64(),
+        Some(current_token.mode_generation)
+    );
+    assert_eq!(
+        results[1]["mode_revision"].as_u64(),
+        Some(current_token.mode_revision)
+    );
+    assert_eq!(results[1]["mode_flags"]["bracketed_paste"], true);
+    assert!(results[1].get("rejection").is_none());
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Before any worker mode reply reaches Core, no mode authority exists. A
+/// paste then reports `session_not_writable` with no invented token. After one
+/// probe establishes authority, a paste with that token is admitted.
+#[cfg(unix)]
+#[test]
+fn paste_before_worker_mode_authority_is_session_not_writable_not_stale() {
+    let data_dir = temp_data_dir("paste-no-authority");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("paste-no-authority-session".into());
+    let client_id = ClientId("paste-no-authority-client".into());
+    let subscription_id = SubscriptionId("paste-no-authority-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "stty raw -echo; printf ready; sleep 30".into();
+    daemon.spawn(request, 1).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("subscription")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+
+    // No `read_mode_flags` and no gated input has run: Core holds no pair.
+    for frame in compact_paste_frames(81, 1, 1, b"X") {
+        adapter.inject_ingress_frame(frame);
+    }
+    let unavailable_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&unavailable_wake, 30)
+        .expect("reject paste without authority");
+    let unavailable = delivered_input_results(&adapter, "paste");
+    assert_eq!(unavailable.len(), 1);
+    assert_eq!(unavailable[0]["operation_id"], 81);
+    assert_eq!(unavailable[0]["admitted"], false);
+    assert_eq!(unavailable[0]["bytes_written"], 0);
+    assert_eq!(
+        unavailable[0]["rejection"], "session_not_writable",
+        "missing authority is not a stale token: {}",
+        unavailable[0]
+    );
+    assert_eq!(unavailable[0]["mode_generation"], 0);
+    assert_eq!(unavailable[0]["mode_revision"], 0);
+
+    let started = Instant::now();
+    let mut probe = 0;
+    let token = loop {
+        probe += 1;
+        daemon.drain(&session_id, 2 + probe).expect("drain ready");
+        if let Ok(result) = daemon.read_mode_flags(ReadModeFlagsRequest {
+            request_id: RequestId(format!("paste-no-authority-modes-{probe}")),
+            session_id: session_id.clone(),
+            now_seconds: 20 + probe,
+        }) {
+            break result.mode_flags.mode_freshness;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "worker mode authority did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    for frame in compact_paste_frames(82, token.mode_generation, token.mode_revision, b"Y") {
+        adapter.inject_ingress_frame(frame);
+    }
+    let admit_wake = daemon.wait_wakes(Duration::from_secs(1));
+    daemon
+        .pump_woken(&admit_wake, 40)
+        .expect("submit paste with authority");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while delivered_input_results(&adapter, "paste").len() < 2 {
+        assert!(Instant::now() < deadline, "admitted paste result did not arrive");
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, 41)
+            .expect("complete paste with authority");
+    }
+    let results = delivered_input_results(&adapter, "paste");
+    assert_eq!(results[1]["operation_id"], 82);
+    assert_eq!(results[1]["admitted"], true);
     assert_eq!(results[1]["bytes_written"], 1);
+    assert_eq!(
+        results[1]["mode_generation"].as_u64(),
+        Some(token.mode_generation)
+    );
+    assert_eq!(
+        results[1]["mode_revision"].as_u64(),
+        Some(token.mode_revision)
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 

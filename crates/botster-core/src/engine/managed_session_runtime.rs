@@ -581,60 +581,73 @@ where
                     mode_generation: paste.mode_generation,
                     mode_revision: paste.mode_revision,
                 };
-                let flags = self
-                    .engine
-                    .session_runtime()
-                    .latest_mode_for(&session_id, token);
-                if let Some(flags) = flags {
-                    let mut data = paste.data;
-                    if flags.bracketed_paste {
-                        let mut wrapped = Vec::with_capacity(data.len() + 12);
-                        wrapped.extend_from_slice(b"\x1b[200~");
-                        wrapped.append(&mut data);
-                        wrapped.extend_from_slice(b"\x1b[201~");
-                        data = wrapped;
-                    }
-                    match self
-                        .engine
-                        .session_runtime_mut()
-                        .submit_mode_gated_pty_input(&session_id, token, data)
-                    {
-                        Ok(request_id) => {
-                            let deadline = Instant::now()
-                                + DEFAULT_MODE_GATED_INPUT_TIMEOUT
-                                + Duration::from_secs(1);
-                            self.client_worker.set_awaiting_gated(
-                                &session_id,
-                                &subscription_id,
-                                request_id,
-                                deadline,
-                                TerminalInputKind::Paste,
-                                Some(paste.operation_id),
-                            );
-                            return Ok(None);
-                        }
-                        Err(error) if error.message.contains("already in flight") => {
-                            with_operation(
-                                input_result_rejected(
-                                    TerminalInputKind::Paste,
-                                    TerminalInputRejection::SessionNotWritable,
-                                ),
-                                paste.operation_id,
-                            )
-                        }
-                        Err(_) => {
-                            return owner_apply_teardown_outcome(
-                                &mut self.client_worker,
-                                &session_id,
-                                &subscription_id,
-                            );
-                        }
-                    }
-                } else {
-                    with_operation(
-                        input_result_rejected(kind, TerminalInputRejection::StaleMode),
+                // The worker is the mode authority. Core keeps the latest
+                // (token, flags) pair the worker reported. A missing pair means
+                // no authority yet, which is not a stale token.
+                match self.engine.session_runtime().current_mode_for(&session_id) {
+                    None => with_operation(
+                        input_result_rejected(
+                            TerminalInputKind::Paste,
+                            TerminalInputRejection::SessionNotWritable,
+                        ),
                         paste.operation_id,
-                    )
+                    ),
+                    Some((current_token, current_flags)) if current_token != token => {
+                        with_operation(
+                            input_result_stale_mode(
+                                TerminalInputKind::Paste,
+                                current_token,
+                                current_flags,
+                            ),
+                            paste.operation_id,
+                        )
+                    }
+                    Some((_, flags)) => {
+                        let mut data = paste.data;
+                        if flags.bracketed_paste {
+                            let mut wrapped = Vec::with_capacity(data.len() + 12);
+                            wrapped.extend_from_slice(b"\x1b[200~");
+                            wrapped.append(&mut data);
+                            wrapped.extend_from_slice(b"\x1b[201~");
+                            data = wrapped;
+                        }
+                        match self
+                            .engine
+                            .session_runtime_mut()
+                            .submit_mode_gated_pty_input(&session_id, token, data)
+                        {
+                            Ok(request_id) => {
+                                let deadline = Instant::now()
+                                    + DEFAULT_MODE_GATED_INPUT_TIMEOUT
+                                    + Duration::from_secs(1);
+                                self.client_worker.set_awaiting_gated(
+                                    &session_id,
+                                    &subscription_id,
+                                    request_id,
+                                    deadline,
+                                    TerminalInputKind::Paste,
+                                    Some(paste.operation_id),
+                                );
+                                return Ok(None);
+                            }
+                            Err(error) if error.message.contains("already in flight") => {
+                                with_operation(
+                                    input_result_rejected(
+                                        TerminalInputKind::Paste,
+                                        TerminalInputRejection::SessionNotWritable,
+                                    ),
+                                    paste.operation_id,
+                                )
+                            }
+                            Err(_) => {
+                                return owner_apply_teardown_outcome(
+                                    &mut self.client_worker,
+                                    &session_id,
+                                    &subscription_id,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             TerminalInputOperation::Command(
@@ -2294,6 +2307,27 @@ fn input_result_rejected(
         mode_revision: 0,
         mode_flags: empty_terminal_mode_flags(),
         rejection: Some(rejection),
+    }
+}
+
+/// Stale-mode rejection that carries the worker's current token and flags.
+///
+/// A client retries with exactly this token. Zero bytes were written.
+fn input_result_stale_mode(
+    kind: TerminalInputKind,
+    current: ModeFreshnessToken,
+    flags: ModeFlags,
+) -> TerminalInputResult {
+    TerminalInputResult {
+        subscription_id: String::new(),
+        kind,
+        operation_id: None,
+        admitted: false,
+        bytes_written: 0,
+        mode_generation: current.mode_generation,
+        mode_revision: current.mode_revision,
+        mode_flags: terminal_mode_flags_from(flags),
+        rejection: Some(TerminalInputRejection::StaleMode),
     }
 }
 
