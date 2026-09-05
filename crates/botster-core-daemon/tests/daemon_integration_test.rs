@@ -2796,10 +2796,8 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
                         phases.push("attached".to_string());
                     }
                 }
-                Some("terminal_output") => {
-                    if sent_live_input {
-                        saw_live = true;
-                    }
+                Some("terminal_output") if sent_live_input => {
+                    saw_live = true;
                 }
                 _ => {}
             }
