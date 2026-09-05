@@ -14,36 +14,52 @@ with `CoreDaemon::wait_wakes`. A host-owned data-plane thread uses
 routes with `CoreDaemon::pump_woken`. Drain and lifecycle observation do not
 advance bound adapters.
 
-Core can also return a wake batch when a paste assembly deadline expires.
-Core clamps `wait_wakes` and `wait_pump` to the earliest deadline. The batch
-names only expired subscription routes. Hosts pump this batch like any adapter
-wake. No timer thread or content-aware host code is required.
+Core clamps `wait_wakes` and `wait_pump` to the earliest paste assembly or
+pending resize deadline. Expired paste deadlines name subscription routes;
+expired resize deadlines name session ingress. Core merges these names into
+ordinary wake batches, including batches that already contain sibling traffic.
+Hosts pump these batches through the existing wait/pump contract. No timer
+thread or content-aware host code is required.
 
 One wake-driven tick has three ordered phases. Core first intakes only the
 named adapter routes and drains only named session ingress. It then applies
 accepted input only for those exact routes, plus generation-matching owners
 that Core previously parked for worker control-queue capacity. Finally it runs
-the existing single adapter egress pump. This ordering makes plain input,
-mode-gated completion, resize, and their `input_result` frames complete without
-a second pump or an incidental PTY-output wake. A full ordinary worker control
-queue leaves the command in its bounded owner queue; the writer's transition
-away from full emits one coalesced session wake for retry. A sealed queue is a
-hard stop rather than a parked retry.
+the existing single adapter egress pump. Core can emit a resize `input_result`
+for accepted input in that tick. That result does not confirm worker-applied
+geometry. A full ordinary worker control queue leaves the command in its
+bounded owner queue. The writer's transition away from full emits one coalesced
+session wake for retry. A sealed queue is a hard stop rather than a parked retry.
 
-A successful targeted resize remains pending after parent queue admission. The
-worker sends `FRAME_RESIZE_APPLIED` only after Ghostty and the PTY accept the
-resize. `CoreDaemon::pump_woken` waits for that acknowledgment with the worker
-RPC time bound. The daemon then updates `sessions/<id>.json` and appends one
-lifecycle upsert before it returns. An identical later resize still reaches the
-worker and emits its `input_result`, but it does not rewrite unchanged geometry
-or append a duplicate lifecycle upsert.
+A worker-backed ingress resize remains pending after parent queue admission.
+Core records an absolute deadline at acceptance, using `mode_gated_input_timeout`.
+The worker sends `FRAME_RESIZE_APPLIED` only after Ghostty and the PTY accept the
+resize. The reader queues the acknowledgement and wakes that session.
+`CoreDaemon::pump_woken` reconciles available acknowledgements without waiting
+for missing acknowledgements in the shared pump. A pending resize therefore
+does not impose an acknowledgement wait on later-arriving sibling input.
+
+The daemon persists the latest acknowledged geometry through `SessionRegistry`.
+When that geometry changes, the daemon also appends a lifecycle upsert.
+An identical later resize still reaches the worker and emits its `input_result`.
+It does not rewrite unchanged geometry or append a duplicate lifecycle upsert.
+Registry filenames remain private to `SessionRegistry`.
+
+Core reconciles available acknowledgements before checking resize expiry.
+An expired pending resize fails only the named live session's control plane
+and tears down that session's owners. Core preserves the last confirmed geometry.
+For a session already stopping or exited, Core clears pending resize entries
+without timeout teardown, preserving pending terminal exit delivery.
+
+Core caps pending ingress resizes at 30 per session. When the cap is full,
+the next resize stays in its owner's queue and later input remains behind it.
+An acknowledgement wake lets Core retry that parked owner. An explicit
+`CoreDaemon::resize` returns `ExplicitResizeBusy` while that session has pending
+ingress resizes, before any worker or registry mutation.
 
 The session worker protocol version is 3. This version requires
 `FRAME_RESIZE_APPLIED`. Core rejects workers with another protocol version during
-spawn and adoption. During one targeted pump, Core first pumps all named
-sessions. Core then waits for each resize acknowledgment and persists each
-applied size. Thus, one missing acknowledgment cannot stop a later named session
-from receiving its input.
+spawn and adoption.
 
 The local engine applies a PTY resize synchronously. Its targeted input path
 records the applied size immediately after success. Thus, the local engine does
