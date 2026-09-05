@@ -94,3 +94,8 @@ One pre-run guard blocked on an unrelated five-day-old `npm exec vite` process b
 ## Remaining
 
 Exact Hub consumer acceptance is separate and not established by these gates. The coordinator owns integration.
+
+## Manifest capture semantics and final state
+
+The evidence manifest was generated before its own commit, while the report and manifest files were untracked. Its `git_status_clean` value of `false` is the true value at that capture time and is preserved unchanged.
+`2026-09-05-registry-broad-validation-final-state.json` is a separate, timed post-commit record. It captures the verified HEAD and clean status after the documentation commit `d4b698a`, and it is committed on its own so the capture time and content stay distinct from the manifest.
