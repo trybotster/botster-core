@@ -91,10 +91,22 @@ routes. The normal three-phase targeted pump emits the timeout result without
 an adapter, PTY, or control event.
 
 Stage B sends a committed paste through the existing per-session mode-gated
-lane. Core finds the current flags for the exact client mode token. Core adds
-`ESC[200~` before the content and `ESC[201~` after the content only when
-bracketed paste is active. The worker checks the token again under the PTY I/O
-barrier and writes the complete ordered buffer.
+lane. The worker is the mode authority. Core keeps the latest token and flags
+pair that the worker reported through a mode-flags reply or a mode-gated
+result. Core compares the client token with that pair before submission:
+
+- The pair is missing: no worker authority has been observed yet. Core
+  rejects the paste with `session_not_writable`, zero written bytes, and no
+  token. Core does not invent a token.
+- The token differs from the pair: Core rejects the paste with `stale_mode`,
+  zero written bytes, and the current token and flags from the pair. A client
+  retries with exactly the returned token.
+- The token matches the pair: Core adds `ESC[200~` before the content and
+  `ESC[201~` after the content only when bracketed paste is active. The worker
+  checks the token again under the PTY I/O barrier and writes the complete
+  ordered buffer. An admitted bracketed paste reports the content length plus
+  the 12 framing bytes as `bytes_written`. A worker-side stale rejection
+  reports `stale_mode` with the worker's current token and flags.
 
 Each accepted operation emits one authoritative `input_result` with the live
 subscription id and operation id. Admission, bounds, duplicate, incomplete,
