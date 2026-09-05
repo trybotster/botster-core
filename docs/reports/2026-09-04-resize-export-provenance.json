@@ -1,0 +1,23 @@
+[
+  {
+    "source": "Core",
+    "revision": "5923bf1847979e2897796fadb9863183ffa5e3f1",
+    "tracked_blobs_checked": 338,
+    "mismatches": [],
+    "gitlinks": [
+      {
+        "path": "crates/botster-terminal-ghostty/vendor/ghostty",
+        "commit": "eb72ec61304ea256be1d86ed8fa961c84e43ecbd"
+      }
+    ],
+    "git_ls_tree_r_z_sha256": "359c4776a3705417bfa229f386c0e4638838832a4682668e4337c71dc887b52f"
+  },
+  {
+    "source": "Ghostty",
+    "revision": "eb72ec61304ea256be1d86ed8fa961c84e43ecbd",
+    "tracked_blobs_checked": 5846,
+    "mismatches": [],
+    "gitlinks": [],
+    "git_ls_tree_r_z_sha256": "5d0623605c1a7c935e040bd6557908c6ec0bbfd5aa5050e1c457096885b8cf25"
+  }
+]
