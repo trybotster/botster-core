@@ -2977,14 +2977,10 @@ impl CoreDaemon {
                     *items_used = items_used.saturating_add(1);
                     *ops = ops.saturating_add(1);
                     self.record_baseline_index_scan();
-                    let path = entry.path();
-                    if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-                        continue;
-                    }
-                    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    let Some(record) = self.registry.load_entry(&entry).map_err(|_| ())? else {
                         continue;
                     };
-                    let id = stem.to_string();
+                    let id = record.session_id.0;
                     if let Some(freeze) = self.baseline_freeze.as_mut() {
                         if freeze.excluded.contains(&id) || freeze.membership.contains_key(&id) {
                             continue;
