@@ -41,15 +41,17 @@ Worker socket identity and public session ID rules remain unchanged.
 
 | Operation | Behavior |
 | --- | --- |
-| `save` | Validate the current record before replacement. Validate any existing temporary record before overwriting its bytes. |
+| `save` | Validate the primary record strictly. Replace malformed temporary JSON, but reject foreign or unsupported temporary records. |
 | `load` | Validate the format and exact requested identity before returning a record. |
 | `load_skip_malformed` | Skip malformed current-file JSON. Propagate identity, format, and I/O errors. |
 | `load_all` | Ignore temporary files and malformed current-file JSON. Validate every returned record against its filename. |
 | `remove` | Validate the format and exact requested identity before deleting the file. |
 
 `IdentityMismatch` and `UnsupportedFormat` use constant messages. Neither error includes the foreign identity or file path.
-Foreign, unsupported, and malformed existing records are preserved when a write or removal is refused.
-A scan returns an error for unsupported or foreign records. It does not produce a partial list or invent terminal lifecycle state.
+Foreign, unsupported, and malformed primary records are preserved when a write or removal is refused.
+Malformed temporary JSON can be replaced during crash recovery. Valid foreign and unsupported temporary records remain unchanged.
+Collection rejection is all-or-nothing: any legacy, unsupported, or foreign record makes the scan return an error.
+The scan does not return a partial list, delete files, or invent terminal lifecycle state.
 The public `load_all` return type remains unchanged.
 
 The existing temporary-file rename remains the persistence mechanism.
@@ -85,7 +87,7 @@ No public digest or path API was added.
 
 ## Source tests
 
-Ten focused unit tests are in `registry.rs`:
+Eleven focused unit tests are in `registry.rs`:
 
 - `audit:a` and `audit_a` retain independent records through save, update, load, list, and removal.
 - A known SHA-256 vector verifies the full digest and private namespace. Public record JSON remains unchanged.
@@ -95,7 +97,8 @@ Ten focused unit tests are in `registry.rs`:
 - Missing, wrong, and non-string format tags cause explicit errors and preserve bytes.
 - Legacy files, including a 64-hex-character ID, remain untouched and are not migrated.
 - Malformed current files are skipped only by tolerant reads and scans; save and removal refuse them.
-- Scans ignore temporary files. Save preserves unsupported foreign temporary bytes.
+- Save recovers from incomplete temporary JSON with either an existing primary record or no primary record.
+- Scans ignore temporary files. Save preserves valid foreign, unsupported-version, and unversioned temporary records.
 - Exact operations succeed despite an unrelated unsupported file and leave the collection-scan counter at zero.
 
 Four daemon integration tests cover:
@@ -152,3 +155,14 @@ Negative controls should restore the old filename encoder, bypass removal valida
 Each negative control must fail at its intended behavioral assertion. Restore source before the next command.
 The coordinator controls the later required workspace, contract-only, documentation, formatting, Clippy, and exact Hub consumer gates.
 No passing verification claim applies until those commands run and their results are recorded.
+
+## Temporary-file recovery follow-up
+
+Fable approved the registry source with one required correction before executable verification.
+A crash can leave a malformed `.json.tmp` file. That incomplete file must not permanently prevent saving the same identity.
+The follow-up tolerates only `SessionRegistryError::Json` from the temporary-file read.
+The primary `load` remains the first save precondition and still propagates malformed-primary errors.
+Identity, unsupported-format, and I/O errors from a temporary file still stop the save.
+The focused recovery test covers both first-save and replacement-save recovery.
+The temporary-file preservation test now distinguishes valid foreign identity from unsupported version and absent format.
+No build or test ran. No diagnostic framework was added. The branch was not rebased or merged with main.
