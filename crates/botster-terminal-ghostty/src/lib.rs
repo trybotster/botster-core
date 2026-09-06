@@ -78,6 +78,9 @@ mod sys;
 #[cfg(feature = "libghostty-vt")]
 mod client;
 
+#[cfg(feature = "libghostty-vt")]
+mod input;
+
 /// Snapshot format label reserved for Ghostty-owned opaque snapshot payloads.
 pub const GHOSTTY_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 
@@ -231,6 +234,7 @@ pub(crate) mod native {
         config: GhosttyAdapterConfig,
         last_error: RefCell<Option<GhosttyTerminalError>>,
         effects: Box<EffectsState>,
+        input: crate::input::InputEncoders,
     }
 
     impl fmt::Debug for GhosttyTerminal {
@@ -254,6 +258,10 @@ pub(crate) mod native {
             size: TerminalScreenSize,
             config: GhosttyAdapterConfig,
         ) -> Result<Self, GhosttyTerminalError> {
+            let mut input = crate::input::InputEncoders::new()?;
+            input.set_mouse_geometry(crate::input::GhosttyMouseGeometry::cells(
+                size.rows, size.cols,
+            ));
             let mut terminal = ptr::null_mut();
             let result =
                 unsafe { ghostty_terminal_new(ptr::null(), &mut terminal, size.cols, size.rows) };
@@ -276,6 +284,7 @@ pub(crate) mod native {
                 effects: Box::new(EffectsState {
                     pty_writes: RefCell::new(Vec::new()),
                 }),
+                input,
             };
 
             let max_scrollback = config.max_scrollback();
@@ -644,6 +653,66 @@ pub(crate) mod native {
         /// Drain PTY query responses generated during the last VT write batch.
         pub fn drain_pty_writes(&mut self) -> Vec<u8> {
             self.effects.pty_writes.borrow_mut().drain(..).collect()
+        }
+
+        /// Encode one key event against the current terminal modes and append
+        /// the escape bytes to `out`. Returns the bytes appended; zero when
+        /// the key produces no sequence.
+        pub fn encode_key(
+            &mut self,
+            input: &crate::input::GhosttyKeyInput<'_>,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, GhosttyTerminalError> {
+            let handle = self.handle.as_ptr();
+            self.input.encode_key(handle, input, out)
+        }
+
+        /// Encode one mouse event against the current tracking mode and
+        /// format and append the bytes to `out`. Returns the bytes appended;
+        /// zero when the terminal is not tracking this event.
+        pub fn encode_mouse(
+            &mut self,
+            input: &crate::input::GhosttyMouseInput,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, GhosttyTerminalError> {
+            let handle = self.handle.as_ptr();
+            self.input.encode_mouse(handle, input, out)
+        }
+
+        /// Install renderer geometry for pixel-to-cell mouse mapping.
+        pub fn set_mouse_geometry(&mut self, geometry: crate::input::GhosttyMouseGeometry) {
+            self.input.set_mouse_geometry(geometry);
+        }
+
+        /// Encode a focus report when the terminal has focus reporting enabled.
+        /// Returns the bytes appended; zero when mode 1004 is off.
+        pub fn encode_focus(
+            &self,
+            focused: bool,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, GhosttyTerminalError> {
+            if !self.mode_is_set(GHOSTTY_MODE_FOCUS_EVENT)? {
+                return Ok(0);
+            }
+            crate::input::encode_focus(focused, out)
+        }
+
+        /// Whether paste content is safe without an explicit client override.
+        #[must_use]
+        pub fn paste_is_safe(data: &[u8]) -> bool {
+            crate::input::paste_is_safe(data)
+        }
+
+        /// Encode paste content for the PTY under the current bracketed-paste
+        /// mode. `data` is modified in place by Ghostty. Returns the bytes
+        /// appended, including bracket markers when mode 2004 is on.
+        pub fn encode_paste(
+            &self,
+            data: &mut [u8],
+            out: &mut Vec<u8>,
+        ) -> Result<usize, GhosttyTerminalError> {
+            let bracketed = self.mode_is_set(GHOSTTY_MODE_BRACKETED_PASTE)?;
+            crate::input::encode_paste(data, bracketed, out)
         }
 
         /// Apply a Botster color profile as Ghostty defaults.
@@ -1382,3 +1451,6 @@ pub use native::{
     GhosttySnapshotFrame, GhosttySnapshotFrameKind, GhosttyTerminal, GhosttyTerminalError,
     COLOR_INDEX_BACKGROUND, COLOR_INDEX_CURSOR, COLOR_INDEX_FOREGROUND,
 };
+
+#[cfg(feature = "libghostty-vt")]
+pub use input::{GhosttyKeyInput, GhosttyMouseGeometry, GhosttyMouseInput};

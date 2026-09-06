@@ -1,71 +1,64 @@
 {
   "compatibility": {
-    "protocol": "botster-terminal-v1",
-    "protocol_version": 1,
+    "protocol": "botster-terminal-v2",
+    "protocol_version": 2,
     "features": [
       "terminal_streaming",
       "resize",
-      "snapshot_delivery=ready_then_history"
+      "snapshot_delivery=ready_then_history",
+      "transport=duplex_binary"
     ],
-    "conformance_fixture_revision": 1
+    "conformance_fixture_revision": 3
   },
   "required_features": [
     "terminal_streaming",
     "resize",
-    "snapshot_delivery=ready_then_history"
+    "snapshot_delivery=ready_then_history",
+    "transport=duplex_binary"
   ],
-  "events": [
+  "route": "terminal-protocol-fixture-subscription",
+  "generation": 1,
+  "frames": [
     {
-      "type": "attach_state",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "state": "attaching"
+      "kind": "attach_state",
+      "state": "attached",
+      "terminal_body_hex": "021000000100000002"
     },
     {
-      "type": "snapshot",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "payload_base64": "R0hPU1RTTlA=",
-      "payload_encoding": "base64",
-      "bytes": 8,
-      "phase": "ready"
+      "kind": "modes",
+      "mode_bits": 2,
+      "rows": 24,
+      "cols": 80,
+      "terminal_body_hex": "02060000080000000200000018005000"
     },
     {
-      "type": "snapshot",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "payload_base64": "R0hPU1RTTlA=",
-      "payload_encoding": "base64",
-      "bytes": 8,
-      "phase": "history"
+      "kind": "snapshot_ready",
+      "payload_utf8": "GHOSTSNP",
+      "terminal_body_hex": "020200000800000047484f5354534e50"
     },
     {
-      "type": "snapshot",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "payload_base64": "R0hPU1RTTlA=",
-      "payload_encoding": "base64",
-      "bytes": 8,
-      "phase": "finish"
+      "kind": "output",
+      "payload_utf8": "live",
+      "terminal_body_hex": "02010000040000006c697665"
     },
     {
-      "type": "attach_state",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "state": "attached"
+      "kind": "snapshot_history",
+      "payload_utf8": "GHOSTSNP",
+      "terminal_body_hex": "020300000800000047484f5354534e50"
     },
     {
-      "type": "terminal_output",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription",
-      "payload_base64": "bGl2ZQ==",
-      "payload_encoding": "base64",
-      "bytes": 4
+      "kind": "snapshot_finish",
+      "terminal_body_hex": "0204000000000000"
     },
     {
-      "type": "process_exit",
-      "session_id": "terminal-protocol-fixture-session",
-      "subscription_id": "terminal-protocol-fixture-subscription"
+      "kind": "output",
+      "payload_utf8": "live",
+      "terminal_body_hex": "02010000040000006c697665"
+    },
+    {
+      "kind": "process_exit",
+      "code": 0,
+      "terminal_body_hex": "02050000050000000100000000"
     }
   ]
 }

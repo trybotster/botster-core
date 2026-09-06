@@ -560,8 +560,7 @@ pub struct PreparedSnapshotReady {
 
 /// Terminal mode flags response.
 ///
-/// Production readback exposes the complete authoritative [`ModeFlags`] value
-/// plus a [`crate::ModeFreshnessToken`] for race-free mode-dependent input.
+/// Production readback exposes the complete authoritative [`ModeFlags`] value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModeFlagsReady {
     /// Request correlation id.
@@ -570,9 +569,6 @@ pub struct ModeFlagsReady {
     pub session_id: SessionId,
     /// Current terminal mode flags.
     pub mode_flags: ModeFlags,
-    /// Mode freshness token for mode-dependent input admission.
-    #[serde(default)]
-    pub mode_freshness: crate::ModeFreshnessToken,
 }
 
 /// Plain terminal screen response.

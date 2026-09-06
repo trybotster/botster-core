@@ -399,7 +399,34 @@ pub enum CoreDaemonError {
     /// Explicit resize is rejected while ingress resizes remain pending.
     #[error("explicit resize busy: pending ingress resize for session {0:?}")]
     ExplicitResizeBusy(SessionId),
+    /// `begin` refused a new operation because a pending limit is reached.
+    #[error("pending operation limit reached: {0:?}")]
+    PendingLimit(crate::operation::PendingLimitKind),
+    /// The operation deadline passed before the worker replied.
+    #[error("pending operation deadline expired")]
+    DeadlineExpired,
+    /// The operation was cancelled by the host before it completed.
+    #[error("pending operation cancelled")]
+    Cancelled,
+    /// The worker link failed while the operation was in flight.
+    #[error("worker link failed for session {0:?}")]
+    WorkerLinkFailed(SessionId),
+    /// Unknown or expired snapshot capture.
+    #[error("unknown snapshot capture: {0:?}")]
+    UnknownCapture(crate::operation::CaptureId),
+    /// Snapshot page index is out of range.
+    #[error("snapshot page {page} out of range for capture {capture:?}")]
+    SnapshotPageOutOfRange {
+        /// Capture that was paged.
+        capture: crate::operation::CaptureId,
+        /// Requested page.
+        page: u32,
+    },
 }
+
+pub use crate::operation::{
+    CoreCompletion, CoreOperation, PendingOperationId, RetentionAccounting, RetentionPolicy,
+};
 
 /// One session's retained error from a control-plane observe tick.
 #[derive(Debug)]

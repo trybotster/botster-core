@@ -1,0 +1,280 @@
+//! Core pending operations, completions, and retention policy types.
+//!
+//! Every `CoreDaemon` call that touches a worker, the filesystem, or a slow
+//! path is a pending operation: `begin` returns a [`PendingOperationId`] at
+//! once, `pump_woken` reconciles worker replies and expired deadlines, and
+//! `take_completions` returns one [`CoreCompletion`] per finished operation.
+//! Nothing on the shared pump waits.
+
+use std::sync::Arc;
+
+use botster_core::{CoreSession, ModeFlags, SessionId, TerminalColorProfile};
+use botster_terminal_protocol::{HistoryUnavailableReason, RouteId};
+use serde::{Deserialize, Serialize};
+
+use crate::api::{
+    CaptureSnapshotRequest, ReadModeFlagsRequest, ReadScreenRequest, SpawnSessionRequest,
+};
+use crate::daemon::CoreDaemonError;
+
+/// Maximum pending `Spawn` operations per daemon.
+pub const MAX_PENDING_SPAWNS: usize = 4;
+/// Maximum pending readbacks (`ReadScreen`, `ReadModeFlags`, `CaptureSnapshot`) per session.
+pub const MAX_PENDING_READBACKS_PER_SESSION: usize = 8;
+/// Maximum open snapshot captures per client.
+pub const MAX_OPEN_CAPTURES_PER_CLIENT: usize = 4;
+/// Snapshot page size returned by `read_snapshot_page`.
+pub const SNAPSHOT_PAGE_BYTES: usize = 256 * 1024;
+
+/// Identity of one pending operation, unique for the daemon lifetime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PendingOperationId(pub u64);
+
+/// Identity of one in-memory snapshot capture held for paging.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CaptureId(pub String);
+
+/// Host that owns a pending readback or capture, for per-client limits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CaptureOwner(pub String);
+
+/// One operation the host asks Core to run off the pump.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoreOperation {
+    /// Launch a session. `begin` returns before the worker launch completes.
+    Spawn(SpawnSessionRequest),
+    /// Adopt a live worker from registry metadata.
+    Adopt(SessionId),
+    /// Request an orderly shutdown of one session.
+    ShutdownSession(SessionId),
+    /// Forget one already-terminal session.
+    RemoveSession(SessionId),
+    /// Read the plain text screen.
+    ReadScreen(ReadScreenRequest),
+    /// Read authoritative mode flags.
+    ReadModeFlags(ReadModeFlagsRequest),
+    /// Capture a GHOSTSNP snapshot for paging by `read_snapshot_page`.
+    CaptureSnapshot {
+        /// Capture request.
+        request: CaptureSnapshotRequest,
+        /// Owner counted against [`MAX_OPEN_CAPTURES_PER_CLIENT`].
+        owner: CaptureOwner,
+    },
+    /// Resize one session PTY.
+    Resize {
+        /// Session to resize.
+        session_id: SessionId,
+        /// Rows.
+        rows: u16,
+        /// Columns.
+        cols: u16,
+    },
+    /// Cancel one in-flight input operation on one route.
+    CancelInput {
+        /// Route that submitted the operation.
+        route: RouteId,
+        /// Attach generation of the route.
+        generation: u64,
+        /// Client operation id.
+        operation_id: u64,
+    },
+}
+
+/// Plain text screen readback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenReadback {
+    /// Screen text. Shared with the retained object when the session ended.
+    pub text: Arc<str>,
+    /// Set when history is unavailable; `text` is then empty.
+    pub unavailable: Option<HistoryUnavailableReason>,
+}
+
+/// Mode flags readback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModeFlagsReadback {
+    /// Current or final mode flags.
+    pub mode_flags: ModeFlags,
+    /// Rows at the time of the read.
+    pub rows: u16,
+    /// Columns at the time of the read.
+    pub cols: u16,
+    /// Set when history is unavailable; flags are then default.
+    pub unavailable: Option<HistoryUnavailableReason>,
+}
+
+/// Snapshot capture summary. Bytes are read through `read_snapshot_page`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotCapture {
+    /// Capture handle valid until expiry, release, or owner close.
+    pub capture_id: CaptureId,
+    /// Total GHOSTSNP bytes.
+    pub total_bytes: u64,
+    /// Bytes per page, [`SNAPSHOT_PAGE_BYTES`] for every page but the last.
+    pub page_bytes: u32,
+    /// Page count.
+    pub pages: u32,
+    /// Rows represented by the snapshot.
+    pub rows: u16,
+    /// Columns represented by the snapshot.
+    pub cols: u16,
+    /// Ghostty palette and special colors frozen with the snapshot.
+    pub color_profile: TerminalColorProfile,
+    /// Set when history is unavailable; `pages` is then zero.
+    pub unavailable: Option<HistoryUnavailableReason>,
+}
+
+/// Result of one finished operation.
+#[derive(Debug)]
+pub enum CoreCompletion {
+    /// `Spawn` finished.
+    Spawn {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Spawned session or failure.
+        result: Result<CoreSession, CoreDaemonError>,
+    },
+    /// `Adopt` finished.
+    Adopt {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Adopted session or failure.
+        result: Result<CoreSession, CoreDaemonError>,
+    },
+    /// `ShutdownSession` finished.
+    ShutdownSession {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Success or failure.
+        result: Result<(), CoreDaemonError>,
+    },
+    /// `RemoveSession` finished.
+    RemoveSession {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// `true` when the session was removed, `false` when it was still live.
+        result: Result<bool, CoreDaemonError>,
+    },
+    /// `ReadScreen` finished.
+    ReadScreen {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Screen text or failure.
+        result: Result<ScreenReadback, CoreDaemonError>,
+    },
+    /// `ReadModeFlags` finished.
+    ReadModeFlags {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Mode flags or failure.
+        result: Result<ModeFlagsReadback, CoreDaemonError>,
+    },
+    /// `CaptureSnapshot` finished.
+    CaptureSnapshot {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Capture summary or failure.
+        result: Result<SnapshotCapture, CoreDaemonError>,
+    },
+    /// `Resize` was acknowledged by the worker.
+    Resize {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Success or failure.
+        result: Result<(), CoreDaemonError>,
+    },
+    /// `CancelInput` was delivered. The route receives the `INPUT_RESULT`.
+    CancelInput {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// `true` when the operation was still in flight.
+        result: Result<bool, CoreDaemonError>,
+    },
+}
+
+impl CoreCompletion {
+    /// Operation identity of this completion.
+    #[must_use]
+    pub const fn id(&self) -> PendingOperationId {
+        match self {
+            Self::Spawn { id, .. }
+            | Self::Adopt { id, .. }
+            | Self::ShutdownSession { id, .. }
+            | Self::RemoveSession { id, .. }
+            | Self::ReadScreen { id, .. }
+            | Self::ReadModeFlags { id, .. }
+            | Self::CaptureSnapshot { id, .. }
+            | Self::Resize { id, .. }
+            | Self::CancelInput { id, .. } => *id,
+        }
+    }
+}
+
+/// Which pending limit `begin` hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingLimitKind {
+    /// [`MAX_PENDING_SPAWNS`] reached.
+    Spawns,
+    /// [`MAX_PENDING_READBACKS_PER_SESSION`] reached.
+    ReadbacksPerSession,
+    /// [`MAX_OPEN_CAPTURES_PER_CLIENT`] reached.
+    CapturesPerClient,
+}
+
+/// Retention policy for ended-session terminal history. Hub supplies values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetentionPolicy {
+    /// Largest retained object; larger objects are not stored.
+    pub max_object_bytes: usize,
+    /// Aggregate retained bytes across sessions.
+    pub max_total_bytes: usize,
+    /// Aggregate retained sessions.
+    pub max_sessions: usize,
+}
+
+/// Current retention accounting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RetentionAccounting {
+    /// Retained bytes across sessions.
+    pub total_bytes: usize,
+    /// Retained sessions.
+    pub sessions: usize,
+    /// Evictions since daemon start.
+    pub evictions: u64,
+    /// Objects refused as oversize since daemon start.
+    pub oversize_refusals: u64,
+}
+
+/// Retained final terminal state for one ended session.
+///
+/// Readback returns fields through `Arc` clones only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedTerminal {
+    /// Final plain text screen.
+    pub screen_text: Arc<str>,
+    /// Final GHOSTSNP bytes, when export succeeded.
+    pub snapshot: Option<Arc<[u8]>>,
+    /// Final scheme 2 mode bits.
+    pub mode_bits: u32,
+    /// Final rows.
+    pub rows: u16,
+    /// Final columns.
+    pub cols: u16,
+    /// Final Ghostty palette and special colors.
+    pub color_profile: TerminalColorProfile,
+    /// Exit time in seconds, from the host clock at retention.
+    pub exited_at: u64,
+    /// Accounted bytes: screen text plus snapshot plus a 256-byte allowance.
+    pub bytes: usize,
+}
+
+impl RetainedTerminal {
+    /// Metadata allowance counted for every retained object.
+    pub const METADATA_ALLOWANCE_BYTES: usize = 256;
+
+    /// Accounted size for a screen and optional snapshot.
+    #[must_use]
+    pub fn accounted_bytes(screen_text: &str, snapshot: Option<&[u8]>) -> usize {
+        screen_text.len() + snapshot.map_or(0, <[u8]>::len) + Self::METADATA_ALLOWANCE_BYTES
+    }
+}

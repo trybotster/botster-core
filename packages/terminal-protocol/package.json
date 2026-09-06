@@ -1,7 +1,7 @@
 {
   "name": "@trybotster/terminal-protocol",
-  "version": "0.3.0",
-  "description": "Core-owned types-only Botster terminal protocol for Web consumers",
+  "version": "0.4.0",
+  "description": "Core-owned Botster terminal protocol scheme 2 codecs for Web consumers",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./index.js",

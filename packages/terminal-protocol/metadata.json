@@ -1,8 +1,8 @@
 {
-  "package_version": "0.3.0",
-  "protocol": "botster-terminal-v1",
-  "protocol_version": 1,
-  "conformance_fixture_revision": 2,
+  "package_version": "0.4.0",
+  "protocol": "botster-terminal-v2",
+  "protocol_version": 2,
+  "conformance_fixture_revision": 3,
   "features": [
     "terminal_streaming",
     "resize",
