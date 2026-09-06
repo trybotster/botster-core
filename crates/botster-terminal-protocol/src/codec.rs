@@ -17,6 +17,8 @@ pub const MODES_BODY_BYTES: usize = 8;
 pub const ATTACH_STATE_BODY_BYTES: usize = 1;
 /// Body length of `HISTORY_UNAVAILABLE`: `[u8 reason]`.
 pub const HISTORY_UNAVAILABLE_BODY_BYTES: usize = 1;
+/// `ROUTE_RESYNC` body length: `[u32 LE from_epoch][u32 LE to_epoch]`.
+pub const ROUTE_RESYNC_BODY_BYTES: usize = 8;
 /// Fixed prefix length of `INPUT_RESULT` before `detail`.
 ///
 /// `[u64 operation_id][u8 outcome][u8 has_accepted][u64 accepted_payload_bytes]`
@@ -280,9 +282,35 @@ pub fn encode_snapshot_finish() -> Result<TerminalFrame, TerminalFrameError> {
     TerminalFrame::empty(TerminalKind::SnapshotFinish)
 }
 
-/// Encode an empty `ROUTE_RESYNC` frame.
-pub fn encode_route_resync() -> Result<TerminalFrame, TerminalFrameError> {
-    TerminalFrame::empty(TerminalKind::RouteResync)
+/// Encode a `ROUTE_RESYNC` frame carrying the epoch transition.
+///
+/// The envelope `stream_epoch` of this frame must equal `to_epoch`.
+pub fn encode_route_resync(
+    from_epoch: u32,
+    to_epoch: u32,
+) -> Result<TerminalFrame, TerminalFrameError> {
+    let mut body = [0u8; ROUTE_RESYNC_BODY_BYTES];
+    body[..4].copy_from_slice(&from_epoch.to_le_bytes());
+    body[4..].copy_from_slice(&to_epoch.to_le_bytes());
+    TerminalFrame::new(TerminalKind::RouteResync, 0, &body)
+}
+
+/// Decoded `ROUTE_RESYNC` body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RouteResyncBody {
+    /// Epoch the route leaves. Must equal the client's accepted epoch.
+    pub from_epoch: u32,
+    /// Epoch the route enters. Must equal the frame's envelope epoch.
+    pub to_epoch: u32,
+}
+
+/// Decode a `ROUTE_RESYNC` body.
+pub fn decode_route_resync(frame: &TerminalFrame) -> Result<RouteResyncBody, TerminalBodyError> {
+    let body = expect_body(frame, TerminalKind::RouteResync, ROUTE_RESYNC_BODY_BYTES)?;
+    Ok(RouteResyncBody {
+        from_epoch: u32::from_le_bytes([body[0], body[1], body[2], body[3]]),
+        to_epoch: u32::from_le_bytes([body[4], body[5], body[6], body[7]]),
+    })
 }
 
 /// Encode a `PROCESS_EXIT` frame.

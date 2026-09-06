@@ -9,16 +9,16 @@ mod typescript;
 
 pub use botster_terminal_protocol::{
     decode_attach_state, decode_history_unavailable, decode_input_result, decode_modes,
-    decode_process_exit, encode_attach_state, encode_history_unavailable, encode_input_result,
-    encode_modes, encode_output, encode_process_exit, encode_route_resync, encode_snapshot_finish,
-    encode_snapshot_history, encode_snapshot_ready, ensure_compatible, mode_bits, terminal_mods,
-    Attach, AttachStateCode, Detach, HistoryUnavailableReason, InputOutcome, InputResultBody,
-    ModesBody, ProcessExitBody, Resize, RouteId, RouteIdError, RoutedTerminalFrame, SendInput,
-    TerminalBodyError, TerminalCompatibility, TerminalCompatibilityError,
-    TerminalCompatibilityRequirement, TerminalFrame, TerminalFrameError, TerminalInputFrame,
-    TerminalInputFrameError, TerminalInputKind, TerminalKey, TerminalKeyAction, TerminalKind,
-    TerminalMouseAction, TerminalMouseButton, CONFORMANCE_FIXTURE_REVISION,
-    DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE,
+    decode_process_exit, decode_route_resync, encode_attach_state, encode_history_unavailable,
+    encode_input_result, encode_modes, encode_output, encode_process_exit, encode_route_resync,
+    encode_snapshot_finish, encode_snapshot_history, encode_snapshot_ready, ensure_compatible,
+    mode_bits, terminal_mods, Attach, AttachStateCode, Detach, HistoryUnavailableReason,
+    InputOutcome, InputResultBody, ModesBody, ProcessExitBody, Resize, RouteId, RouteIdError,
+    RouteResyncBody, RoutedTerminalFrame, SendInput, TerminalBodyError, TerminalCompatibility,
+    TerminalCompatibilityError, TerminalCompatibilityRequirement, TerminalFrame,
+    TerminalFrameError, TerminalInputFrame, TerminalInputFrameError, TerminalInputKind,
+    TerminalKey, TerminalKeyAction, TerminalKind, TerminalMouseAction, TerminalMouseButton,
+    CONFORMANCE_FIXTURE_REVISION, DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION, FEATURE_RESIZE,
     FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY, FEATURE_TERMINAL_STREAMING,
     FEATURE_TRANSPORT_DUPLEX_BINARY, FOCUS_BODY_BYTES, INPUT_HEADER_BYTES, KEY_PREFIX_BYTES,
     MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION, MAX_ENCODED_INPUT_BYTES,
@@ -29,14 +29,16 @@ pub use botster_terminal_protocol::{
     MAX_TERMINAL_INPUT_BODY_BYTES, MAX_TERMINAL_INPUT_FRAME_BYTES, MOUSE_BODY_BYTES,
     PASTE_ABORT_BODY_BYTES, PASTE_BEGIN_BODY_BYTES, PASTE_CHUNK_PREFIX_BYTES,
     PASTE_COMMIT_BODY_BYTES, PROTOCOL, PROTOCOL_VERSION, RESIZE_BODY_BYTES,
-    TERMINAL_BODY_HEADER_BYTES, TERMINAL_INPUT_SCHEME_VERSION, TERMINAL_STREAM_SCHEME_VERSION,
+    ROUTE_RESYNC_BODY_BYTES, TERMINAL_BODY_HEADER_BYTES, TERMINAL_INPUT_SCHEME_VERSION,
+    TERMINAL_STREAM_SCHEME_VERSION,
 };
 pub use events::{
     decode_shared_terminal_body, decode_terminal_body, decode_terminal_event, TerminalEvent,
     TerminalEventError, TerminalModeFlags,
 };
 pub use input::{
-    decode_terminal_input, encode_paste, encode_paste_abort, encode_terminal_input,
-    TerminalInputCommand, TerminalInputDecodeError, TerminalInputEncodeError,
+    decode_input_body, decode_terminal_input, encode_paste, encode_paste_abort,
+    encode_terminal_input, TerminalInputCommand, TerminalInputDecodeError,
+    TerminalInputEncodeError,
 };
 pub use typescript::terminal_protocol_typescript;

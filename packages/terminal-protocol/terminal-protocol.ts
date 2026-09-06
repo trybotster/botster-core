@@ -3,8 +3,8 @@
 
 export const PROTOCOL = "botster-terminal-v2";
 export const PROTOCOL_VERSION = 2;
-export const CONFORMANCE_FIXTURE_REVISION = 3;
-export const PACKAGE_VERSION = "0.4.0";
+export const CONFORMANCE_FIXTURE_REVISION = 4;
+export const PACKAGE_VERSION = "0.5.0";
 export const FEATURE_TERMINAL_STREAMING = "terminal_streaming";
 export const FEATURE_RESIZE = "resize";
 export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY = "snapshot_delivery=ready_then_history";
@@ -424,7 +424,7 @@ export type TerminalEvent =
   | { kind: "attach_state"; state: AttachStateCodeName }
   | { kind: "input_result"; result: InputResultBody }
   | { kind: "history_unavailable"; reason: HistoryUnavailableReasonName }
-  | { kind: "route_resync" };
+  | { kind: "route_resync"; from_epoch: number; to_epoch: number };
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -473,8 +473,12 @@ export function decodeTerminalBody(bytes: Uint8Array): TerminalEvent {
       expectLength(body, 1);
       return { kind: "history_unavailable", reason: nameOf(HistoryUnavailableReason, body[0]) };
     case TerminalKind.route_resync:
-      expectLength(body, 0);
-      return { kind: "route_resync" };
+      expectLength(body, 8);
+      return {
+        kind: "route_resync",
+        from_epoch: bodyView.getUint32(0, true),
+        to_epoch: bodyView.getUint32(4, true),
+      };
     default:
       throw new Error(`UnknownKind found=${bytes[1]}`);
   }
@@ -640,4 +644,92 @@ export function encodePaste(operation_id: OperationId, allow_unsafe: boolean, da
 
 export function encodePasteAbort(operation_id: OperationId): Uint8Array {
   return encodeInputFrame(TerminalInputKind.paste_abort, operation_id, new Uint8Array(0));
+}
+
+function encodeTerminalFrame(kind: number, body: Uint8Array): Uint8Array {
+  if (body.length > MAX_TERMINAL_BODY_BYTES) {
+    throw new Error(`BodyTooLarge len=${body.length}`);
+  }
+  const out = new Uint8Array(TERMINAL_BODY_HEADER_BYTES + body.length);
+  const view = new DataView(out.buffer);
+  out[0] = TERMINAL_STREAM_SCHEME_VERSION;
+  out[1] = kind;
+  view.setUint16(2, 0, true);
+  view.setUint32(4, body.length, true);
+  out.set(body, TERMINAL_BODY_HEADER_BYTES);
+  return out;
+}
+
+function encodeOptionalU64(view: DataView, offset: number, value: bigint | null): void {
+  if (value === null) {
+    view.setUint8(offset, 0);
+    view.setBigUint64(offset + 1, 0n, true);
+  } else {
+    view.setUint8(offset, 1);
+    view.setBigUint64(offset + 1, value, true);
+  }
+}
+
+/**
+ * Encode one complete TerminalBody from a decoded event. Fixtures and test
+ * doubles use this so no consumer hand-writes the stream layout. The inverse
+ * of `decodeTerminalBody`.
+ */
+export function encodeTerminalBody(event: TerminalEvent): Uint8Array {
+  switch (event.kind) {
+    case "output":
+      return encodeTerminalFrame(TerminalKind.output, event.payload);
+    case "snapshot_ready":
+      return encodeTerminalFrame(TerminalKind.snapshot_ready, event.payload);
+    case "snapshot_history":
+      return encodeTerminalFrame(TerminalKind.snapshot_history, event.payload);
+    case "snapshot_finish":
+      return encodeTerminalFrame(TerminalKind.snapshot_finish, new Uint8Array(0));
+    case "process_exit": {
+      const body = new Uint8Array(5);
+      if (event.code !== null) {
+        body[0] = 1;
+        new DataView(body.buffer).setInt32(1, event.code, true);
+      }
+      return encodeTerminalFrame(TerminalKind.process_exit, body);
+    }
+    case "modes": {
+      const body = new Uint8Array(8);
+      const view = new DataView(body.buffer);
+      view.setUint32(0, event.mode_bits, true);
+      view.setUint16(4, event.rows, true);
+      view.setUint16(6, event.cols, true);
+      return encodeTerminalFrame(TerminalKind.modes, body);
+    }
+    case "attach_state":
+      return encodeTerminalFrame(TerminalKind.attach_state, Uint8Array.of(AttachStateCode[event.state]));
+    case "input_result": {
+      const detail = utf8Encoder.encode(event.result.detail);
+      if (detail.length > MAX_INPUT_RESULT_DETAIL_BYTES) {
+        throw new Error("InvalidDetail");
+      }
+      const body = new Uint8Array(33 + detail.length);
+      const view = new DataView(body.buffer);
+      view.setBigUint64(0, toOperationId(event.result.operation_id), true);
+      body[8] = InputOutcome[event.result.outcome];
+      encodeOptionalU64(view, 9, event.result.accepted_payload_bytes);
+      encodeOptionalU64(view, 18, event.result.written_pty_bytes);
+      view.setUint32(27, event.result.mode_bits, true);
+      view.setUint16(31, detail.length, true);
+      body.set(detail, 33);
+      return encodeTerminalFrame(TerminalKind.input_result, body);
+    }
+    case "history_unavailable":
+      return encodeTerminalFrame(
+        TerminalKind.history_unavailable,
+        Uint8Array.of(HistoryUnavailableReason[event.reason]),
+      );
+    case "route_resync": {
+      const body = new Uint8Array(8);
+      const view = new DataView(body.buffer);
+      view.setUint32(0, event.from_epoch, true);
+      view.setUint32(4, event.to_epoch, true);
+      return encodeTerminalFrame(TerminalKind.route_resync, body);
+    }
+  }
 }

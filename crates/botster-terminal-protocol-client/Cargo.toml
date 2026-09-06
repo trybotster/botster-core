@@ -1,6 +1,6 @@
 [package]
 name = "botster-terminal-protocol-client"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Botster contributors"]
 description = "Semantic Botster terminal protocol scheme 2 codecs for TUI consumers and TypeScript generation"
@@ -13,7 +13,7 @@ keywords = ["terminal", "protocol", "botster"]
 categories = ["encoding"]
 
 [dependencies]
-botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.3.0" }
+botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.4.0" }
 thiserror = "2.0"
 
 [dev-dependencies]
