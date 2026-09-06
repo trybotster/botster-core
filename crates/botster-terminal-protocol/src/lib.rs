@@ -22,13 +22,13 @@ mod route;
 pub use capabilities::{TerminalCapabilitySet, TerminalCapabilitySetError};
 pub use codec::{
     decode_attach_state, decode_history_unavailable, decode_input_result, decode_modes,
-    decode_process_exit, encode_attach_state, encode_history_unavailable, encode_input_result,
-    encode_modes, encode_output, encode_process_exit, encode_route_resync, encode_snapshot_finish,
-    encode_snapshot_history, encode_snapshot_ready, mode_bits, AttachStateCode,
-    HistoryUnavailableReason, InputOutcome, InputResultBody, ModesBody, ProcessExitBody,
-    TerminalBodyError, ATTACH_STATE_BODY_BYTES, HISTORY_UNAVAILABLE_BODY_BYTES,
-    INPUT_RESULT_PREFIX_BYTES, MAX_INPUT_RESULT_DETAIL_BYTES, MODES_BODY_BYTES,
-    PROCESS_EXIT_BODY_BYTES,
+    decode_process_exit, decode_route_resync, encode_attach_state, encode_history_unavailable,
+    encode_input_result, encode_modes, encode_output, encode_process_exit, encode_route_resync,
+    encode_snapshot_finish, encode_snapshot_history, encode_snapshot_ready, mode_bits,
+    AttachStateCode, HistoryUnavailableReason, InputOutcome, InputResultBody, ModesBody,
+    ProcessExitBody, RouteResyncBody, TerminalBodyError, ATTACH_STATE_BODY_BYTES,
+    HISTORY_UNAVAILABLE_BODY_BYTES, INPUT_RESULT_PREFIX_BYTES, MAX_INPUT_RESULT_DETAIL_BYTES,
+    MODES_BODY_BYTES, PROCESS_EXIT_BODY_BYTES, ROUTE_RESYNC_BODY_BYTES,
 };
 pub use compatibility::{
     ensure_compatible, TerminalCompatibility, TerminalCompatibilityError,
@@ -60,9 +60,9 @@ pub const PROTOCOL: &str = "botster-terminal-v2";
 /// Exact protocol version for this plane.
 pub const PROTOCOL_VERSION: u16 = 2;
 /// Current terminal-plane conformance fixture revision.
-pub const CONFORMANCE_FIXTURE_REVISION: u16 = 3;
+pub const CONFORMANCE_FIXTURE_REVISION: u16 = 4;
 /// Oldest terminal-plane conformance revision the default requirement accepts.
-pub const DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION: u16 = 3;
+pub const DEFAULT_MINIMUM_CONFORMANCE_FIXTURE_REVISION: u16 = 4;
 /// Live terminal streaming feature token.
 pub const FEATURE_TERMINAL_STREAMING: &str = "terminal_streaming";
 /// Resize request feature token.
@@ -117,6 +117,9 @@ pub const PUBLIC_API_ALLOWLIST: &[&str] = &[
     "encode_snapshot_history",
     "encode_snapshot_finish",
     "encode_route_resync",
+    "decode_route_resync",
+    "RouteResyncBody",
+    "ROUTE_RESYNC_BODY_BYTES",
     "encode_process_exit",
     "encode_modes",
     "encode_attach_state",

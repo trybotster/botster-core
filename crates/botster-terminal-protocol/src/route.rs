@@ -98,21 +98,27 @@ pub enum RouteIdError {
 
 /// One terminal frame addressed to one route.
 ///
-/// `generation` is the route stream generation. It starts equal to the Core
-/// attach generation and increases by one on every `ROUTE_RESYNC` for that
-/// route. The resync frame and every later frame carry the new value, so a
-/// frame queued before the overflow is fenced by its lower generation. Hub
-/// copies this value into its container verbatim. A client adopts a higher
-/// generation only from `ATTACH_STATE` or `ROUTE_RESYNC` and discards any
-/// frame whose generation differs from the adopted value. Input operation ids
-/// are per attach and do not restart on resync. Cloning clones two `Arc`s and
-/// copies the generation.
+/// `generation` is the fixed attachment generation Core assigned on attach.
+/// It never changes for the life of the reservation; Hub validates it and
+/// copies it into its routing header verbatim. `stream_epoch` is the route's
+/// snapshot/live continuity epoch inside that attachment. It starts at 0 on
+/// attach and changes only through `ROUTE_RESYNC`, whose body carries the
+/// previous and the new epoch. Core stamps each queued frame with the epoch
+/// current when it was queued, so a frame queued before an overflow keeps its
+/// old epoch. A client keeps one accepted epoch, adopts a new one only from a
+/// `ROUTE_RESYNC` whose `from_epoch` equals the accepted epoch and whose
+/// envelope epoch equals `to_epoch`, and drops every other frame whose epoch
+/// differs from the accepted value. Epochs are never compared numerically.
+/// Input operation ids are per attach and do not restart on resync. Cloning
+/// clones two `Arc`s and copies the identity fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutedTerminalFrame {
     /// Destination route.
     pub route: RouteId,
-    /// Attach generation of the destination route.
+    /// Fixed attachment generation of the destination route.
     pub generation: u64,
+    /// Stream epoch captured when Core queued this frame.
+    pub stream_epoch: u32,
     /// Shared or personalized frame body.
     pub frame: TerminalFrame,
 }
@@ -120,10 +126,16 @@ pub struct RoutedTerminalFrame {
 impl RoutedTerminalFrame {
     /// Address one frame to one route.
     #[must_use]
-    pub const fn new(route: RouteId, generation: u64, frame: TerminalFrame) -> Self {
+    pub const fn new(
+        route: RouteId,
+        generation: u64,
+        stream_epoch: u32,
+        frame: TerminalFrame,
+    ) -> Self {
         Self {
             route,
             generation,
+            stream_epoch,
             frame,
         }
     }

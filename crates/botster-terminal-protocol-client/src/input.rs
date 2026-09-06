@@ -288,9 +288,22 @@ fn check_len(
 pub fn decode_terminal_input(
     frame: &TerminalInputFrame,
 ) -> Result<TerminalInputCommand, TerminalInputDecodeError> {
-    let kind = frame.kind();
-    let operation_id = frame.operation_id();
-    let body = &frame.as_bytes()[INPUT_HEADER_BYTES..];
+    decode_input_body(
+        frame.kind(),
+        frame.operation_id(),
+        &frame.as_bytes()[INPUT_HEADER_BYTES..],
+    )
+}
+
+/// Decode one input body whose kind and operation id arrived separately.
+///
+/// The session worker uses this for parent-forwarded operations, which carry
+/// the kind and id in the worker frame instead of a client header.
+pub fn decode_input_body(
+    kind: TerminalInputKind,
+    operation_id: u64,
+    body: &[u8],
+) -> Result<TerminalInputCommand, TerminalInputDecodeError> {
     match kind {
         TerminalInputKind::RawBytes => Ok(TerminalInputCommand::RawBytes {
             operation_id,

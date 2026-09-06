@@ -4,8 +4,8 @@
 
 export const PROTOCOL = "botster-terminal-v2";
 export const PROTOCOL_VERSION = 2;
-export const CONFORMANCE_FIXTURE_REVISION = 3;
-export const PACKAGE_VERSION = "0.4.0";
+export const CONFORMANCE_FIXTURE_REVISION = 4;
+export const PACKAGE_VERSION = "0.5.0";
 export const FEATURE_TERMINAL_STREAMING = "terminal_streaming";
 export const FEATURE_RESIZE = "resize";
 export const FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY =

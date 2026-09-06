@@ -1,6 +1,6 @@
 [package]
 name = "botster-terminal-protocol"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Botster contributors"]
 description = "Hub-safe Botster terminal protocol scheme 2: binary stream and input frames, route identity, key tables, and compatibility descriptors"

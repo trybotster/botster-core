@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use botster_terminal_protocol::{
     decode_attach_state, decode_history_unavailable, decode_input_result, decode_modes,
-    decode_process_exit, mode_bits, AttachStateCode, HistoryUnavailableReason, InputResultBody,
-    ModesBody, ProcessExitBody, TerminalBodyError, TerminalFrame, TerminalFrameError, TerminalKind,
+    decode_process_exit, decode_route_resync, mode_bits, AttachStateCode, HistoryUnavailableReason,
+    InputResultBody, ModesBody, ProcessExitBody, RouteResyncBody, TerminalBodyError, TerminalFrame,
+    TerminalFrameError, TerminalKind,
 };
 
 /// Decoded scheme 2 stream event.
@@ -33,8 +34,10 @@ pub enum TerminalEvent {
     InputResult(InputResultBody),
     /// Retained history is unavailable for this route.
     HistoryUnavailable(HistoryUnavailableReason),
-    /// Route egress overflowed. Reset decoder state; a fresh `SnapshotReady` follows.
-    RouteResync,
+    /// Route egress overflowed. Accept only when `from_epoch` equals the
+    /// accepted epoch and the envelope epoch equals `to_epoch`; then reset
+    /// decoder state. `MODES` and a fresh `SnapshotReady` follow.
+    RouteResync(RouteResyncBody),
 }
 
 impl TerminalEvent {
@@ -51,7 +54,7 @@ impl TerminalEvent {
             Self::AttachState(_) => TerminalKind::AttachState,
             Self::InputResult(_) => TerminalKind::InputResult,
             Self::HistoryUnavailable(_) => TerminalKind::HistoryUnavailable,
-            Self::RouteResync => TerminalKind::RouteResync,
+            Self::RouteResync(_) => TerminalKind::RouteResync,
         }
     }
 
@@ -84,10 +87,7 @@ pub fn decode_terminal_event(frame: &TerminalFrame) -> Result<TerminalEvent, Ter
         TerminalKind::HistoryUnavailable => {
             TerminalEvent::HistoryUnavailable(decode_history_unavailable(frame)?)
         }
-        TerminalKind::RouteResync => {
-            expect_empty(frame)?;
-            TerminalEvent::RouteResync
-        }
+        TerminalKind::RouteResync => TerminalEvent::RouteResync(decode_route_resync(frame)?),
     })
 }
 
