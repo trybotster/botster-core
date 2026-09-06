@@ -3,6 +3,12 @@
 #[cfg(feature = "local-runtime")]
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[cfg(feature = "local-runtime")]
+use botster_terminal_protocol::{
+    encode_history_unavailable, encode_modes, encode_snapshot_finish, encode_snapshot_history,
+    encode_snapshot_ready, AttachStateCode, HistoryUnavailableReason, InputOutcome, ModesBody,
+};
+
 use crate::actor::{
     MailboxSendFailureReason, PluginAdmissionResult, PluginCleanupResult, PluginCompletionDrain,
     PluginInvocationClass, PluginInvocationRequest, PluginKey, PluginReloadSpec,
@@ -12,6 +18,8 @@ use crate::actor::{
 use crate::contract::notification::{
     NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp,
 };
+#[cfg(feature = "local-runtime")]
+use crate::contract::terminal_screen::TerminalSnapshotFramePhase;
 use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
     TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
@@ -39,20 +47,23 @@ use crate::engine::plugin_worker::{
 };
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 #[cfg(feature = "local-runtime")]
-use crate::engine::terminal_screen::TerminalScreenRuntime;
+use crate::engine::terminal_screen::{NullTerminalScreenRuntime, TerminalScreenRuntime};
 #[cfg(feature = "local-runtime")]
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
-use crate::runtime::{LocalProcessRuntime, WorkerProcessRuntime, WorkerProcessRuntimeOptions};
+use crate::runtime::{
+    LocalProcessRuntime, RetainedWorkerFinalState, WorkerProcessRuntime,
+    WorkerProcessRuntimeOptions, WorkerSpawnPoll,
+};
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
 use crate::session::{CoreSession, CoreSessionMetadata, SessionActivityStatus, SessionId};
 #[cfg(feature = "local-runtime")]
 use crate::terminal_screen::TerminalScreenSize;
 #[cfg(feature = "local-runtime")]
 use crate::terminal_screen::TerminalSnapshotPayload;
-#[cfg(feature = "local-runtime")]
-use crate::SessionMetadata;
 use crate::{ClientId, SubscriptionId};
+#[cfg(feature = "local-runtime")]
+use crate::{ModeFlagsPayload, ScreenPayload, SessionMetadata};
 
 /// Facade-level error for ergonomic Botster engine operations.
 pub type BotsterEngineError = MultiplexerEngineError;
@@ -86,174 +97,68 @@ pub struct DefaultBotsterEngine {
 }
 
 /// Public local PTY-backed engine facade whose live PTY is owned by a worker process.
+///
+/// The worker Ghostty is the only terminal parser for these sessions. This
+/// engine keeps no parent terminal shadow: readbacks are worker probes and
+/// attach captures are worker snapshot boundaries streamed to bound routes.
 #[cfg(feature = "local-runtime")]
 pub struct WorkerBackedBotsterEngine {
-    runtime: ManagedSessionRuntime<WorkerProcessRuntime, Box<dyn TerminalScreenRuntime>>,
-    incremental_attaches: HashMap<SessionId, IncrementalAttach>,
-    applied_attach_resizes: HashMap<SessionId, (u16, u16, u64)>,
+    runtime: ManagedSessionRuntime<WorkerProcessRuntime, NullTerminalScreenRuntime>,
+    /// At most one worker capture per session at a time.
+    captures: HashMap<SessionId, RouteCapture>,
+    /// Routes waiting for the active capture to finish.
+    capture_queue: HashMap<SessionId, VecDeque<CaptureRequest>>,
+    next_host_capture: u64,
+    /// Finished host captures awaiting `take_host_capture`.
+    host_captures: HashMap<u64, Result<HostCaptureResult, String>>,
+}
+
+/// Why one route needs a worker capture.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureKind {
+    /// A new attach: `ATTACH_STATE attached` precedes `MODES` and `SNAPSHOT_READY`.
+    Attach,
+    /// Egress overflow recovery: `ROUTE_RESYNC` already went out under the new epoch.
+    Resync,
+    /// Host readback: bytes are collected for the daemon, no route is written.
+    Host(u64),
+}
+
+/// Result of one host-owned worker capture.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostCaptureResult {
+    /// Complete GHOSTSNP bytes in stream order.
+    pub bytes: Vec<u8>,
+    /// Terminal size represented by the snapshot.
+    pub size: TerminalScreenSize,
+    /// Ghostty colors frozen with the snapshot.
+    pub color_profile: crate::TerminalColorProfile,
 }
 
 #[cfg(feature = "local-runtime")]
-struct IncrementalAttach {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CaptureRequest {
     client_id: ClientId,
     subscription_id: SubscriptionId,
-    request_id: String,
-    ready: bool,
-    pending: VecDeque<(ClientId, SubscriptionId)>,
-    queued_input: Vec<(ClientId, Vec<u8>, u64)>,
-    queued_resize: Option<(ClientId, u16, u16, u64)>,
+    kind: CaptureKind,
 }
 
 #[cfg(feature = "local-runtime")]
-impl IncrementalAttach {
-    fn replace_pending_client(
-        &mut self,
-        client_id: &ClientId,
-        subscription_id: SubscriptionId,
-    ) -> usize {
-        let removed = self
-            .pending
-            .iter()
-            .filter(|(pending_client, _)| pending_client == client_id)
-            .count();
-        self.pending
-            .retain(|(pending_client, _)| pending_client != client_id);
-        self.pending.push_back((client_id.clone(), subscription_id));
-        removed
-    }
-
-    fn drop_pending_client(&mut self, client_id: &ClientId) -> usize {
-        let removed = self
-            .pending
-            .iter()
-            .filter(|(pending_client, _)| pending_client == client_id)
-            .count();
-        self.pending
-            .retain(|(pending_client, _)| pending_client != client_id);
-        removed
-    }
-
-    fn discard_client_queues(&mut self, client_id: &ClientId) {
-        self.queued_input.retain(|(owner, _, _)| owner != client_id);
-        if self
-            .queued_resize
-            .as_ref()
-            .is_some_and(|(owner, ..)| owner == client_id)
-        {
-            self.queued_resize = None;
-        }
-    }
-
-    fn discard_replaced_owner_queues(&mut self, replaced_client: &ClientId, new_client: &ClientId) {
-        self.discard_client_queues(replaced_client);
-        self.discard_client_queues(new_client);
-    }
-}
-
-#[cfg(all(test, feature = "local-runtime"))]
-mod incremental_pending_tests {
-    use super::{ClientId, IncrementalAttach, SubscriptionId};
-    use std::collections::VecDeque;
-
-    #[test]
-    fn replace_pending_client_drops_that_clients_older_tuples() {
-        let mut attach = IncrementalAttach {
-            client_id: ClientId("active".to_string()),
-            subscription_id: SubscriptionId("active-sub".to_string()),
-            request_id: "req".to_string(),
-            ready: false,
-            pending: VecDeque::from([
-                (
-                    ClientId("pending".to_string()),
-                    SubscriptionId("old-sub".to_string()),
-                ),
-                (
-                    ClientId("other".to_string()),
-                    SubscriptionId("other-sub".to_string()),
-                ),
-            ]),
-            queued_input: Vec::new(),
-            queued_resize: None,
-        };
-        let removed = attach.replace_pending_client(
-            &ClientId("pending".to_string()),
-            SubscriptionId("new-sub".to_string()),
-        );
-        assert_eq!(removed, 1);
-        assert_eq!(
-            attach.pending.into_iter().collect::<Vec<_>>(),
-            vec![
-                (
-                    ClientId("other".to_string()),
-                    SubscriptionId("other-sub".to_string()),
-                ),
-                (
-                    ClientId("pending".to_string()),
-                    SubscriptionId("new-sub".to_string()),
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn drop_pending_client_keeps_other_clients() {
-        let mut attach = IncrementalAttach {
-            client_id: ClientId("active".to_string()),
-            subscription_id: SubscriptionId("active-sub".to_string()),
-            request_id: "req".to_string(),
-            ready: false,
-            pending: VecDeque::from([
-                (
-                    ClientId("takeover".to_string()),
-                    SubscriptionId("old-sub".to_string()),
-                ),
-                (
-                    ClientId("sibling".to_string()),
-                    SubscriptionId("sibling-sub".to_string()),
-                ),
-            ]),
-            queued_input: vec![(ClientId("sibling".to_string()), b"keep".to_vec(), 1)],
-            queued_resize: Some((ClientId("sibling".to_string()), 30, 100, 2)),
-        };
-        let removed = attach.drop_pending_client(&ClientId("takeover".to_string()));
-        attach.discard_replaced_owner_queues(
-            &ClientId("active".to_string()),
-            &ClientId("takeover".to_string()),
-        );
-        assert_eq!(removed, 1);
-        assert_eq!(
-            attach.pending.into_iter().collect::<Vec<_>>(),
-            vec![(
-                ClientId("sibling".to_string()),
-                SubscriptionId("sibling-sub".to_string()),
-            )]
-        );
-        assert_eq!(attach.queued_input.len(), 1);
-        assert_eq!(
-            attach.queued_resize,
-            Some((ClientId("sibling".to_string()), 30, 100, 2))
-        );
-    }
-
-    #[test]
-    fn discard_client_queues_drops_only_that_client() {
-        let mut attach = IncrementalAttach {
-            client_id: ClientId("active".to_string()),
-            subscription_id: SubscriptionId("active-sub".to_string()),
-            request_id: "req".to_string(),
-            ready: false,
-            pending: VecDeque::new(),
-            queued_input: vec![
-                (ClientId("failed".to_string()), b"stale".to_vec(), 1),
-                (ClientId("kept".to_string()), b"keep".to_vec(), 2),
-            ],
-            queued_resize: Some((ClientId("failed".to_string()), 30, 100, 3)),
-        };
-        attach.discard_client_queues(&ClientId("failed".to_string()));
-        assert_eq!(attach.queued_input.len(), 1);
-        assert_eq!(attach.queued_input[0].0, ClientId("kept".to_string()));
-        assert_eq!(attach.queued_resize, None);
-    }
+struct RouteCapture {
+    client_id: ClientId,
+    subscription_id: SubscriptionId,
+    kind: CaptureKind,
+    request_id: String,
+    ready: bool,
+    /// `FINISH` or an error ended the pages; the barrier release is pending.
+    awaiting_release: bool,
+    history_incomplete: bool,
+    /// Host capture accumulation.
+    collected: Vec<u8>,
+    collected_size: Option<TerminalScreenSize>,
+    collected_colors: Option<crate::TerminalColorProfile>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -283,6 +188,15 @@ where
 {
     ManagedSessionRuntime::with_terminal_backend_factory(runtime, move |size| {
         factory(size).map(|terminal| Box::new(terminal) as Box<dyn TerminalScreenRuntime>)
+    })
+}
+
+#[cfg(feature = "local-runtime")]
+fn runtime_without_terminal_shadow(
+    runtime: WorkerProcessRuntime,
+) -> ManagedSessionRuntime<WorkerProcessRuntime, NullTerminalScreenRuntime> {
+    ManagedSessionRuntime::with_terminal_backend_factory(runtime, |size| {
+        Ok::<_, std::convert::Infallible>(NullTerminalScreenRuntime::new(size))
     })
 }
 
@@ -455,6 +369,12 @@ impl DefaultBotsterEngine {
     }
 
     /// Attach a client to a session stream.
+    ///
+    /// Unbound consumers receive the harness attach frames through the drain
+    /// path. A bound or pre-bind held route receives the scheme 2 sequence
+    /// directly: `ATTACH_STATE attached`, `MODES`, `SNAPSHOT_READY`, history
+    /// pages, `SNAPSHOT_FINISH`. A backend without a streaming exporter fails
+    /// the bound route with `ATTACH_STATE failed`.
     pub fn attach_client(
         &mut self,
         client_id: ClientId,
@@ -465,25 +385,70 @@ impl DefaultBotsterEngine {
         let mut output = self.runtime.handle_client_ingress(
             client_id.clone(),
             TransportIngress::SubscribeSession {
-                client_id,
+                client_id: client_id.clone(),
                 session_id: session_id.clone(),
-                subscription_id,
+                subscription_id: subscription_id.clone(),
             },
             now_seconds,
         )?;
         let initial_snapshot = self.runtime.drain_runtime_once(&session_id, now_seconds)?;
-        output.client_egress.extend(initial_snapshot.client_egress);
-        output
-            .session_requests
-            .extend(initial_snapshot.session_requests);
-        output
-            .client_control_frames
-            .extend(initial_snapshot.client_control_frames);
-        output
-            .session_events
-            .extend(initial_snapshot.session_events);
-        output.observations.extend(initial_snapshot.observations);
+        append_engine_output(&mut output, initial_snapshot);
+        if self
+            .runtime
+            .client_worker()
+            .route_is_bound(&client_id, &session_id, &subscription_id)
+        {
+            self.push_local_capture(&session_id, &subscription_id)?;
+        }
         Ok(output)
+    }
+
+    fn push_local_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        let frames = match self.runtime.capture_local_snapshot_frames(session_id) {
+            Ok(frames) => frames,
+            Err(error) => {
+                let _ = self
+                    .runtime
+                    .client_worker_mut()
+                    .fail_route(session_id, subscription_id);
+                return Err(error);
+            }
+        };
+        let modes = self
+            .runtime
+            .client_worker()
+            .session_modes(session_id)
+            .unwrap_or_default();
+        let worker = self.runtime.client_worker_mut();
+        let mut sequence = Vec::new();
+        sequence.push(botster_terminal_protocol::encode_attach_state(
+            AttachStateCode::Attached,
+        ));
+        sequence.push(encode_modes(modes));
+        for (phase, bytes) in frames {
+            sequence.push(match phase {
+                TerminalSnapshotFramePhase::Ready => encode_snapshot_ready(&bytes),
+                TerminalSnapshotFramePhase::History | TerminalSnapshotFramePhase::Finish => {
+                    encode_snapshot_history(&bytes)
+                }
+            });
+        }
+        sequence.push(encode_snapshot_finish());
+        for frame in sequence {
+            let Ok(frame) = frame else {
+                let _ = worker.fail_route(session_id, subscription_id);
+                return Ok(());
+            };
+            match worker.push_route_frame(session_id, subscription_id, frame) {
+                Ok(None) => {}
+                Ok(Some(_)) | Err(_) => return Ok(()),
+            }
+        }
+        Ok(())
     }
 
     /// Record that the next attach for this identity will bind an adapter.
@@ -900,15 +865,7 @@ impl WorkerBackedBotsterEngine {
     /// Build an empty worker-backed local PTY engine.
     #[must_use]
     pub fn new(worker_path: impl Into<std::path::PathBuf>) -> Self {
-        let wakes = TerminalWakeSource::new();
-        Self {
-            runtime: runtime_with_plain_terminal_backend(
-                WorkerProcessRuntime::new(worker_path).with_wake_source(wakes.clone()),
-            )
-            .with_shared_wake_source(wakes),
-            incremental_attaches: HashMap::new(),
-            applied_attach_resizes: HashMap::new(),
-        }
+        Self::with_options(WorkerProcessRuntimeOptions::new(worker_path))
     }
 
     /// Build an empty worker-backed local PTY engine with explicit options.
@@ -916,35 +873,14 @@ impl WorkerBackedBotsterEngine {
     pub fn with_options(options: WorkerProcessRuntimeOptions) -> Self {
         let wakes = TerminalWakeSource::new();
         Self {
-            runtime: runtime_with_plain_terminal_backend(
+            runtime: runtime_without_terminal_shadow(
                 WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone()),
             )
             .with_shared_wake_source(wakes),
-            incremental_attaches: HashMap::new(),
-            applied_attach_resizes: HashMap::new(),
-        }
-    }
-
-    /// Build an empty worker-backed local PTY engine with explicit options and
-    /// a host-supplied terminal backend.
-    pub fn with_options_and_terminal_backend_factory<E, T, F>(
-        options: WorkerProcessRuntimeOptions,
-        factory: F,
-    ) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-        T: TerminalScreenRuntime + 'static,
-        F: Fn(TerminalScreenSize) -> Result<T, E> + 'static,
-    {
-        let wakes = TerminalWakeSource::new();
-        Self {
-            runtime: runtime_with_boxed_terminal_backend(
-                WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone()),
-                factory,
-            )
-            .with_shared_wake_source(wakes),
-            incremental_attaches: HashMap::new(),
-            applied_attach_resizes: HashMap::new(),
+            captures: HashMap::new(),
+            capture_queue: HashMap::new(),
+            next_host_capture: 1,
+            host_captures: HashMap::new(),
         }
     }
 
@@ -962,6 +898,8 @@ impl WorkerBackedBotsterEngine {
 
     /// Forget all worker-backed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.captures.remove(session_id);
+        self.capture_queue.remove(session_id);
         self.runtime.forget_terminal_session(session_id)
     }
 
@@ -1002,17 +940,20 @@ impl WorkerBackedBotsterEngine {
 
     /// Release workers without sending shutdown frames for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
-        for (session_id, attach) in std::mem::take(&mut self.incremental_attaches) {
+        for (session_id, capture) in std::mem::take(&mut self.captures) {
             let _ = self
                 .runtime
                 .session_runtime_mut()
-                .cancel_snapshot_boundary(&session_id, &attach.request_id);
+                .cancel_snapshot_boundary(&session_id, &capture.request_id);
         }
-        self.applied_attach_resizes.clear();
+        self.capture_queue.clear();
         self.runtime.release_workers_for_restart();
     }
 
     /// Spawn a local session whose PTY is owned by a worker process.
+    ///
+    /// This waits for the worker handshake on the calling thread. Hosts that
+    /// must not block use [`Self::begin_spawn`] and [`Self::poll_spawn`].
     pub fn spawn_session(
         &mut self,
         request: SessionSpawnRequest,
@@ -1021,7 +962,43 @@ impl WorkerBackedBotsterEngine {
         self.runtime.spawn_session(request, metadata)
     }
 
+    /// Start one worker spawn on the launch thread and return at once.
+    pub fn begin_spawn(
+        &mut self,
+        request: SessionSpawnRequest,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        Ok(self.runtime.session_runtime_mut().begin_spawn(request)?)
+    }
+
+    /// Poll one spawn started by [`Self::begin_spawn`]. Never blocks.
+    ///
+    /// `Ready` installs the session with `metadata` and the initial size.
+    pub fn poll_spawn(
+        &mut self,
+        session_id: &SessionId,
+        metadata: CoreSessionMetadata,
+        size: TerminalScreenSize,
+    ) -> Result<Option<BotsterSpawnOutcome>, WorkerBackedBotsterEngineError> {
+        match self.runtime.session_runtime_mut().poll_spawn(session_id) {
+            WorkerSpawnPoll::Pending => Ok(None),
+            WorkerSpawnPoll::Failed(error) => Err(error.into()),
+            WorkerSpawnPoll::Ready(handle) => Ok(Some(
+                self.runtime
+                    .install_spawned_worker(handle, metadata, size)?,
+            )),
+        }
+    }
+
+    /// Whether a spawn for this session is still on the launch thread.
+    #[must_use]
+    pub fn spawn_pending(&self, session_id: &SessionId) -> bool {
+        self.runtime.session_runtime().has_pending_spawn(session_id)
+    }
+
     /// Attach a client to a session stream.
+    ///
+    /// Records the subscription, sends `ATTACH_STATE attaching` to a bound
+    /// route, and starts (or queues) one worker snapshot capture for it.
     pub fn attach_client(
         &mut self,
         client_id: ClientId,
@@ -1029,123 +1006,28 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let supports_snapshot_boundary = self
-            .runtime
+        let _ = now_seconds;
+        self.runtime
             .worker_supports_snapshot_boundary(&session_id)?;
-        if supports_snapshot_boundary {
-            if let Some((current_client, current_subscription)) = self
-                .incremental_attaches
-                .get(&session_id)
-                .map(|attach| (attach.client_id.clone(), attach.subscription_id.clone()))
-            {
-                if current_client == client_id && current_subscription != subscription_id {
-                    self.detach_client(
-                        client_id.clone(),
-                        session_id.clone(),
-                        current_subscription,
-                        now_seconds,
-                    )?;
-                } else if current_client != client_id && current_subscription == subscription_id {
-                    return self.takeover_current_incremental_attach(
-                        client_id,
-                        session_id,
-                        subscription_id,
-                    );
-                }
-            }
-            if self.incremental_attaches.contains_key(&session_id) {
-                let queued = self
-                    .incremental_attaches
-                    .get(&session_id)
-                    .expect("incremental attach was checked above")
-                    .pending
-                    .len();
-                if queued.saturating_add(1) >= QueueSource::ClientWorker.default_capacity() {
-                    return Err(ManagedSessionRuntimeError::Runtime(
-                        crate::SessionRuntimeError::new(
-                            crate::SessionRuntimeErrorKind::OutputFailed,
-                            "incremental attach queue is full; retry after drain",
-                        ),
-                    ));
-                }
-                self.incremental_attaches
-                    .get_mut(&session_id)
-                    .expect("incremental attach was checked above")
-                    .replace_pending_client(&client_id, subscription_id.clone());
-                let output = self.runtime.begin_snapshot_attach(
-                    client_id.clone(),
-                    session_id.clone(),
-                    subscription_id,
-                )?;
-                self.sync_worker_consumers(&session_id)?;
-                return Ok(output);
-            }
-            let output = self.runtime.begin_snapshot_attach(
-                client_id.clone(),
-                session_id.clone(),
-                subscription_id.clone(),
-            )?;
-            let request_id = match self
-                .runtime
-                .session_runtime_mut()
-                .begin_snapshot_boundary(&session_id)
-            {
-                Ok(request_id) => request_id,
-                Err(error) => {
-                    let _ = self.runtime.detach_live_subscription(
-                        client_id,
-                        session_id.clone(),
-                        subscription_id,
-                        now_seconds,
-                    );
-                    let _ = self.sync_worker_consumers(&session_id);
-                    return Err(error.into());
-                }
-            };
-            self.incremental_attaches.insert(
-                session_id.clone(),
-                IncrementalAttach {
-                    client_id,
-                    subscription_id,
-                    request_id,
-                    ready: false,
-                    pending: VecDeque::new(),
-                    queued_input: Vec::new(),
-                    queued_resize: None,
-                },
-            );
-            self.sync_worker_consumers(&session_id)?;
-            return Ok(output);
-        }
-
-        let (mut output, attach_snapshot) = {
-            let output = self.runtime.drain_runtime_once(&session_id, now_seconds)?;
-            let snapshot = self.runtime.capture_parent_snapshot(&session_id)?;
-            (output, snapshot)
-        };
-        output.client_egress.retain(|(routed_client, frame)| {
-            routed_client != &client_id
-                || !matches!(
-                    frame,
-                    TransportEgress::TerminalOutput {
-                        session_id: routed_session,
-                        ..
-                    } if routed_session == &session_id
-                )
-        });
-        let attach = self.runtime.attach_snapshot(
-            client_id,
+        self.cancel_capture_for_route(&session_id, &subscription_id);
+        let output = self.runtime.begin_snapshot_attach(
+            client_id.clone(),
             session_id.clone(),
-            subscription_id,
-            attach_snapshot.bytes,
+            subscription_id.clone(),
         )?;
-        output.client_egress.extend(attach.client_egress);
-        output.session_requests.extend(attach.session_requests);
-        output
-            .client_control_frames
-            .extend(attach.client_control_frames);
-        output.session_events.extend(attach.session_events);
-        output.observations.extend(attach.observations);
+        let _ = self.runtime.client_worker_mut().push_attach_state(
+            &session_id,
+            &subscription_id,
+            AttachStateCode::Attaching,
+        );
+        self.enqueue_capture(
+            &session_id,
+            CaptureRequest {
+                client_id,
+                subscription_id,
+                kind: CaptureKind::Attach,
+            },
+        );
         self.sync_worker_consumers(&session_id)?;
         Ok(output)
     }
@@ -1230,7 +1112,7 @@ impl WorkerBackedBotsterEngine {
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let deferred_sessions: HashSet<_> = self.incremental_attaches.keys().cloned().collect();
+        let deferred_sessions: HashSet<_> = self.captures.keys().cloned().collect();
         let (mut outcome, sessions) =
             self.runtime
                 .pump_woken_phase_one(batch, now_seconds, &deferred_sessions)?;
@@ -1246,6 +1128,7 @@ impl WorkerBackedBotsterEngine {
             &deferred_sessions,
             &mut outcome,
         )?;
+        self.start_resync_captures()?;
         self.runtime
             .pump_woken_phase_three(batch, outcome, &sessions)
     }
@@ -1296,30 +1179,10 @@ impl WorkerBackedBotsterEngine {
     > {
         if self
             .runtime
-            .list_terminal_subscriptions()
-            .iter()
-            .any(|row| {
-                row.session_id == session_id
-                    && row.subscription_id == subscription_id
-                    && row.generation == generation
-            })
+            .terminal_subscription_generation(&session_id, &subscription_id)
+            == Some(generation)
         {
-            if let Some(mut attach) = self.incremental_attaches.remove(&session_id) {
-                if attach.client_id == client_id && attach.subscription_id == subscription_id {
-                    self.runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
-                    self.promote_pending_fail_closed(attach, &session_id);
-                } else {
-                    attach
-                        .pending
-                        .retain(|(pending_client, pending_subscription)| {
-                            pending_client != &client_id || pending_subscription != &subscription_id
-                        });
-                    attach.discard_client_queues(&client_id);
-                    self.incremental_attaches.insert(session_id.clone(), attach);
-                }
-            }
+            self.cancel_capture_for_route(&session_id, &subscription_id);
         }
         let result = self.runtime.detach_terminal_subscription(
             client_id,
@@ -1328,6 +1191,7 @@ impl WorkerBackedBotsterEngine {
             generation,
             now_seconds,
         );
+        let _ = self.start_next_capture(&session_id);
         let _ = self.sync_worker_consumers(&session_id);
         result
     }
@@ -1384,23 +1248,7 @@ impl WorkerBackedBotsterEngine {
         subscription_id: SubscriptionId,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        if let Some(mut attach) = self.incremental_attaches.remove(&session_id) {
-            if attach.client_id == client_id && attach.subscription_id == subscription_id {
-                self.runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
-                attach.discard_client_queues(&client_id);
-                self.promote_pending_fail_closed(attach, &session_id);
-            } else {
-                attach
-                    .pending
-                    .retain(|(pending_client, pending_subscription)| {
-                        pending_client != &client_id || pending_subscription != &subscription_id
-                    });
-                attach.discard_client_queues(&client_id);
-                self.incremental_attaches.insert(session_id.clone(), attach);
-            }
-        }
+        self.cancel_capture_for_route(&session_id, &subscription_id);
         let output = self.runtime.handle_client_ingress(
             client_id.clone(),
             TransportIngress::UnsubscribeSession {
@@ -1410,11 +1258,15 @@ impl WorkerBackedBotsterEngine {
             },
             now_seconds,
         );
+        let _ = self.start_next_capture(&session_id);
         let _ = self.sync_worker_consumers(&session_id);
         output
     }
 
-    /// Write terminal bytes from a client into the worker-owned PTY.
+    /// Write raw bytes from a host client into the worker-owned PTY.
+    ///
+    /// The worker applies the bytes after any barrier in progress; ordering
+    /// against the capture is preserved by the worker control lane.
     pub fn write_bytes(
         &mut self,
         client_id: ClientId,
@@ -1422,27 +1274,17 @@ impl WorkerBackedBotsterEngine {
         data: impl Into<Vec<u8>>,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let data = data.into();
-        if let Some(attach) = self.incremental_attaches.get_mut(&session_id) {
-            if attach.queued_input.len() >= QueueSource::ClientWorker.default_capacity() {
-                return Err(ManagedSessionRuntimeError::Runtime(
-                    crate::SessionRuntimeError::new(
-                        crate::SessionRuntimeErrorKind::InputFailed,
-                        "incremental attach input queue is full; retry after drain",
-                    ),
-                ));
-            }
-            attach.queued_input.push((client_id, data, now_seconds));
-            return Ok(BotsterEngineOutput::empty());
-        }
         self.runtime.handle_client_ingress(
             client_id,
-            TransportIngress::TerminalInput { session_id, data },
+            TransportIngress::TerminalInput {
+                session_id,
+                data: data.into(),
+            },
             now_seconds,
         )
     }
 
-    /// Resize a session terminal from a client-facing path.
+    /// Resize a session terminal from a host-facing path.
     pub fn resize(
         &mut self,
         client_id: ClientId,
@@ -1451,10 +1293,6 @@ impl WorkerBackedBotsterEngine {
         cols: u16,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        if let Some(attach) = self.incremental_attaches.get_mut(&session_id) {
-            attach.queued_resize = Some((client_id, rows, cols, now_seconds));
-            return Ok(BotsterEngineOutput::empty());
-        }
         self.runtime.handle_client_ingress(
             client_id,
             TransportIngress::Resize {
@@ -1466,18 +1304,10 @@ impl WorkerBackedBotsterEngine {
         )
     }
 
-    /// Return whether this session currently queues resize requests for attach.
+    /// Whether a worker capture is in progress for this session.
     #[must_use]
-    pub fn incremental_attach_active(&self, session_id: &SessionId) -> bool {
-        self.incremental_attaches.contains_key(session_id)
-    }
-
-    /// Take the latest resize that the worker applied inside an attach barrier.
-    pub fn take_applied_attach_resize(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Option<(u16, u16, u64)> {
-        self.applied_attach_resizes.remove(session_id)
+    pub fn capture_active(&self, session_id: &SessionId) -> bool {
+        self.captures.contains_key(session_id)
     }
 
     /// Durable control-plane state for one worker session.
@@ -1486,19 +1316,93 @@ impl WorkerBackedBotsterEngine {
         self.runtime.control_plane_state(session_id)
     }
 
+    /// Latest worker modes for one session in this daemon incarnation.
+    #[must_use]
+    pub fn latest_modes(&self, session_id: &SessionId) -> Option<ModesBody> {
+        self.runtime.session_runtime().latest_modes(session_id)
+    }
+
+    /// Start one correlated mode-flags probe at the worker.
+    pub fn begin_mode_flags_probe(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .begin_mode_flags_probe(session_id)?)
+    }
+
+    /// Take correlated mode-flags replies.
+    pub fn take_mode_flags_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<ModeFlagsPayload>, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .take_mode_flags_replies(session_id)?)
+    }
+
+    /// Start one correlated plain-text screen probe at the worker.
+    pub fn begin_screen_probe(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .begin_screen_probe(session_id)?)
+    }
+
+    /// Take correlated screen replies.
+    pub fn take_screen_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<ScreenPayload>, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .take_screen_replies(session_id)?)
+    }
+
+    /// Take the final worker terminal state retained at exit.
+    pub fn take_final_state(&mut self, session_id: &SessionId) -> Option<RetainedWorkerFinalState> {
+        self.runtime
+            .session_runtime_mut()
+            .take_final_state(session_id)
+    }
+
+    /// Whether the worker egress link for this session has ended.
+    pub fn worker_link_ended(&mut self, session_id: &SessionId) -> bool {
+        self.runtime
+            .session_runtime_mut()
+            .session_reader_finished(session_id)
+            .unwrap_or(true)
+    }
+
     /// Drain currently available worker process output through subscription fanout.
+    ///
+    /// When a worker capture is active for the session, this advances the
+    /// capture: pre-READY output is routed to other routes, snapshot frames
+    /// are streamed to the capturing route, and the barrier is released after
+    /// `FINISH`.
     pub fn drain_runtime_once(
         &mut self,
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let Some(mut attach) = self.incremental_attaches.remove(session_id) else {
-            return self.runtime.drain_runtime_once(session_id, last_output_at);
+        let Some(mut capture) = self.captures.remove(session_id) else {
+            let output = self
+                .runtime
+                .drain_runtime_once(session_id, last_output_at)?;
+            self.start_resync_captures()?;
+            return Ok(output);
         };
         let poll = match self
             .runtime
             .session_runtime_mut()
-            .poll_snapshot_boundary(session_id, &attach.request_id)
+            .poll_snapshot_boundary(session_id, &capture.request_id)
         {
             Ok(poll) => poll,
             Err(error) => {
@@ -1506,9 +1410,10 @@ impl WorkerBackedBotsterEngine {
                 let _ = self
                     .runtime
                     .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &attach.request_id);
+                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.fail_capture_route(session_id, &capture);
                 if not_found {
-                    self.promote_pending_fail_closed(attach, session_id);
+                    let _ = self.start_next_capture(session_id);
                     return self.runtime.drain_runtime_once(session_id, last_output_at);
                 }
                 return Err(error.into());
@@ -1524,13 +1429,13 @@ impl WorkerBackedBotsterEngine {
                 let _ = self
                     .runtime
                     .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &attach.request_id);
+                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.fail_capture_route(session_id, &capture);
                 return Err(error);
             }
         };
-        suppress_attach_terminal_output(&mut output, session_id, &attach);
+        suppress_capture_route_output(&mut output, session_id, &capture, &self.capture_queue);
 
-        let mut history_incomplete = false;
         let mut finished = false;
         for frame in poll.frames {
             let error = frame
@@ -1548,21 +1453,23 @@ impl WorkerBackedBotsterEngine {
                         .then(|| "worker snapshot frame omitted its bytes".to_string())
                 });
             if let Some(error) = error {
-                if !attach.ready {
+                if !capture.ready {
+                    // Capture failed before READY: the route ends explicitly.
                     let _ = self
                         .runtime
                         .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &attach.request_id);
+                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.fail_capture_route(session_id, &capture);
                     let _ = self.runtime.handle_client_ingress(
-                        attach.client_id.clone(),
+                        capture.client_id.clone(),
                         TransportIngress::UnsubscribeSession {
-                            client_id: attach.client_id.clone(),
+                            client_id: capture.client_id.clone(),
                             session_id: session_id.clone(),
-                            subscription_id: attach.subscription_id.clone(),
+                            subscription_id: capture.subscription_id.clone(),
                         },
                         last_output_at,
                     );
-                    self.promote_pending_fail_closed(attach, session_id);
+                    let _ = self.start_next_capture(session_id);
                     return Err(ManagedSessionRuntimeError::Runtime(
                         crate::SessionRuntimeError::new(
                             crate::SessionRuntimeErrorKind::OutputFailed,
@@ -1570,45 +1477,108 @@ impl WorkerBackedBotsterEngine {
                         ),
                     ));
                 }
-                history_incomplete = true;
+                if let CaptureKind::Host(id) = capture.kind {
+                    // A host capture needs the whole object; a partial one is a failure.
+                    let _ = self
+                        .runtime
+                        .session_runtime_mut()
+                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.host_captures.insert(id, Err(error));
+                    let _ = self.start_next_capture(session_id);
+                    return Ok(output);
+                }
+                // History failed after READY: the screen is valid, history is not.
+                capture.history_incomplete = true;
+                self.push_capture_frames(
+                    session_id,
+                    &capture,
+                    vec![
+                        encode_history_unavailable(HistoryUnavailableReason::CaptureFailed),
+                        encode_snapshot_finish(),
+                    ],
+                );
                 finished = true;
                 break;
             }
             let phase = frame.phase.expect("snapshot phase was validated above");
             let snapshot = frame.snapshot.expect("snapshot bytes were validated above");
-            self.runtime
-                .note_snapshot_phase(session_id, &attach.subscription_id, phase);
-            let frame_output = match self.runtime.snapshot_attach_frame(
-                attach.client_id.clone(),
-                session_id.clone(),
-                attach.subscription_id.clone(),
-                snapshot.bytes,
-            ) {
-                Ok(output) => output,
-                Err(error) => {
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &attach.request_id);
-                    return Err(error);
+            if matches!(capture.kind, CaptureKind::Host(_)) {
+                capture.collected.extend_from_slice(&snapshot.bytes);
+                capture.collected_size = Some(snapshot.size);
+                if let Some(colors) = frame.color_profile {
+                    capture.collected_colors = Some(colors);
                 }
-            };
-            append_engine_output(&mut output, frame_output);
+            }
+            if capture.kind == CaptureKind::Attach {
+                // Unbound drain consumers still receive the harness attach frames.
+                let frame_output = self.runtime.snapshot_attach_frame(
+                    capture.client_id.clone(),
+                    session_id.clone(),
+                    capture.subscription_id.clone(),
+                    snapshot.bytes.clone(),
+                )?;
+                append_engine_output(&mut output, frame_output);
+            }
             match phase {
-                crate::WorkerSnapshotPhase::Ready => attach.ready = true,
-                crate::WorkerSnapshotPhase::History => {}
-                crate::WorkerSnapshotPhase::Finish => finished = true,
+                crate::WorkerSnapshotPhase::Ready => {
+                    capture.ready = true;
+                    let modes = self.current_modes(session_id);
+                    let mut frames = Vec::new();
+                    if capture.kind == CaptureKind::Attach {
+                        frames.push(botster_terminal_protocol::encode_attach_state(
+                            AttachStateCode::Attached,
+                        ));
+                    }
+                    frames.push(encode_modes(modes));
+                    frames.push(encode_snapshot_ready(&snapshot.bytes));
+                    self.push_capture_frames(session_id, &capture, frames);
+                }
+                crate::WorkerSnapshotPhase::History => {
+                    self.push_capture_frames(
+                        session_id,
+                        &capture,
+                        vec![encode_snapshot_history(&snapshot.bytes)],
+                    );
+                }
+                crate::WorkerSnapshotPhase::Finish => {
+                    // The GHOSTSNP finish record is the last history page.
+                    self.push_capture_frames(
+                        session_id,
+                        &capture,
+                        vec![
+                            encode_snapshot_history(&snapshot.bytes),
+                            encode_snapshot_finish(),
+                        ],
+                    );
+                    finished = true;
+                }
             }
         }
 
-        if !finished {
-            // Snapshot polling does not call drain_output. Live PTY bytes and
-            // ProcessExited stay in the worker session until that drain. A bound
-            // adapter has no other consumer, so pull those frames now. Unbound
-            // attach keeps one snapshot frame per host tick.
+        if finished && !capture.awaiting_release {
+            capture.awaiting_release = true;
+            if let Err(error) = self
+                .runtime
+                .session_runtime_mut()
+                .complete_snapshot_boundary(session_id, &capture.request_id)
+            {
+                let _ = self
+                    .runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.fail_capture_route(session_id, &capture);
+                let _ = self.start_next_capture(session_id);
+                return Err(error.into());
+            }
+        }
+
+        if !poll.complete {
+            // Bound routes have no other consumer for live bytes queued behind
+            // the boundary. Pull them now; the ClientWorker suppresses output
+            // for routes that still await their READY.
             if self
                 .runtime
-                .adapter_is_bound(session_id, &attach.subscription_id)
+                .adapter_is_bound(session_id, &capture.subscription_id)
             {
                 let live = self
                     .runtime
@@ -1624,250 +1594,272 @@ impl WorkerBackedBotsterEngine {
                     let _ = self
                         .runtime
                         .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &attach.request_id);
-                    self.promote_pending_fail_closed(attach, session_id);
-                    self.reconcile_incremental_attach_after_teardown(session_id)?;
+                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.capture_queue.remove(session_id);
                     return Ok(output);
                 }
             }
-            self.incremental_attaches.insert(session_id.clone(), attach);
-            self.reconcile_incremental_attach_after_teardown(session_id)?;
+            self.captures.insert(session_id.clone(), capture);
+            self.reconcile_capture_after_teardown(session_id)?;
             return Ok(output);
         }
 
-        let applied_resize = attach.queued_resize.take();
-        if let Some((resize_client, rows, cols, resize_at)) = applied_resize.as_ref() {
-            let resize_output = match self.runtime.handle_client_ingress(
-                resize_client.clone(),
-                TransportIngress::Resize {
-                    session_id: session_id.clone(),
-                    rows: *rows,
-                    cols: *cols,
-                },
-                *resize_at,
-            ) {
-                Ok(output) => output,
-                Err(error) => {
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &attach.request_id);
-                    return Err(error);
-                }
+        // Barrier released. Finish the harness attach for unbound consumers.
+        if let CaptureKind::Host(id) = capture.kind {
+            let result = match (capture.collected_size, capture.collected_colors.take()) {
+                (Some(size), Some(color_profile)) => Ok(HostCaptureResult {
+                    bytes: std::mem::take(&mut capture.collected),
+                    size,
+                    color_profile,
+                }),
+                _ => Err("worker capture omitted size or color profile".to_owned()),
             };
-            append_engine_output(&mut output, resize_output);
+            self.host_captures.insert(id, result);
         }
-        self.runtime
-            .session_runtime_mut()
-            .complete_snapshot_boundary(session_id, &attach.request_id)?;
-        if let Some((_, rows, cols, resize_at)) = applied_resize {
-            self.applied_attach_resizes
-                .insert(session_id.clone(), (rows, cols, resize_at));
+        if capture.kind == CaptureKind::Attach {
+            let attached = self.runtime.complete_snapshot_attach(
+                capture.client_id.clone(),
+                session_id.clone(),
+                capture.subscription_id.clone(),
+                capture.history_incomplete,
+            )?;
+            append_engine_output(&mut output, attached);
         }
-        let attached = self.runtime.complete_snapshot_attach(
-            attach.client_id.clone(),
-            session_id.clone(),
-            attach.subscription_id.clone(),
-            history_incomplete,
-        )?;
-        append_engine_output(&mut output, attached);
         self.sync_worker_consumers(session_id)?;
-
-        // Barrier release can leave producer bytes in the capacity-one worker
-        // egress. Drain them as live output after Attached so the child can
-        // consume the later FRAME_PTY_INPUT instead of only echoing it.
         let leftover = self
             .runtime
             .drain_runtime_once(session_id, last_output_at)?;
         append_engine_output(&mut output, leftover);
+        self.start_next_capture(session_id)?;
+        self.start_resync_captures()?;
+        Ok(output)
+    }
 
-        let mut deferred_input = Vec::new();
-        for (input_client, data, input_at) in std::mem::take(&mut attach.queued_input) {
-            if attach
-                .pending
-                .iter()
-                .any(|(pending_client, _)| pending_client == &input_client)
+    fn current_modes(&self, session_id: &SessionId) -> ModesBody {
+        self.runtime
+            .session_runtime()
+            .latest_modes(session_id)
+            .or_else(|| self.runtime.client_worker().session_modes(session_id))
+            .unwrap_or_default()
+    }
+
+    fn push_capture_frames(
+        &mut self,
+        session_id: &SessionId,
+        capture: &RouteCapture,
+        frames: Vec<
+            Result<
+                botster_terminal_protocol::TerminalFrame,
+                botster_terminal_protocol::TerminalFrameError,
+            >,
+        >,
+    ) {
+        if matches!(capture.kind, CaptureKind::Host(_)) {
+            return;
+        }
+        let worker = self.runtime.client_worker_mut();
+        for frame in frames {
+            let Ok(frame) = frame else {
+                let _ = worker.fail_route(session_id, &capture.subscription_id);
+                return;
+            };
+            match worker.push_route_frame(session_id, &capture.subscription_id, frame) {
+                Ok(None) => {}
+                Ok(Some(_)) | Err(_) => return,
+            }
+        }
+    }
+
+    fn fail_capture_route(&mut self, session_id: &SessionId, capture: &RouteCapture) {
+        if let CaptureKind::Host(id) = capture.kind {
+            self.host_captures
+                .insert(id, Err("worker capture failed".to_owned()));
+            return;
+        }
+        let _ = self
+            .runtime
+            .client_worker_mut()
+            .fail_route(session_id, &capture.subscription_id);
+    }
+
+    /// Start one host-owned worker capture. Returns its handle.
+    ///
+    /// The capture shares the per-session capture queue with route captures
+    /// and completes through [`Self::take_host_capture`].
+    pub fn begin_host_capture(&mut self, session_id: &SessionId) -> u64 {
+        let id = self.next_host_capture;
+        self.next_host_capture += 1;
+        self.enqueue_capture(
+            session_id,
+            CaptureRequest {
+                client_id: ClientId(format!("host-capture-{id}")),
+                subscription_id: SubscriptionId(format!("host-capture-{id}")),
+                kind: CaptureKind::Host(id),
+            },
+        );
+        id
+    }
+
+    /// Take one finished host capture, when it has completed.
+    pub fn take_host_capture(&mut self, id: u64) -> Option<Result<HostCaptureResult, String>> {
+        self.host_captures.remove(&id)
+    }
+
+    /// Cancel one host capture, whether queued or active.
+    pub fn cancel_host_capture(&mut self, session_id: &SessionId, id: u64) {
+        self.host_captures.remove(&id);
+        let subscription_id = SubscriptionId(format!("host-capture-{id}"));
+        self.cancel_capture_for_route(session_id, &subscription_id);
+        let _ = self.start_next_capture(session_id);
+    }
+
+    fn enqueue_capture(&mut self, session_id: &SessionId, request: CaptureRequest) {
+        let queue = self.capture_queue.entry(session_id.clone()).or_default();
+        queue.retain(|queued| queued.subscription_id != request.subscription_id);
+        queue.push_back(request);
+        let _ = self.start_next_capture(session_id);
+    }
+
+    /// Start the next queued capture when none is active.
+    fn start_next_capture(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        if self.captures.contains_key(session_id) {
+            return Ok(());
+        }
+        loop {
+            let Some(next) = self
+                .capture_queue
+                .get_mut(session_id)
+                .and_then(VecDeque::pop_front)
+            else {
+                self.capture_queue.remove(session_id);
+                return Ok(());
+            };
+            let is_host = matches!(next.kind, CaptureKind::Host(_));
+            if !is_host
+                && !self.runtime.terminal_subscription_matches(
+                    session_id,
+                    &next.client_id,
+                    &next.subscription_id,
+                )
             {
-                deferred_input.push((input_client, data, input_at));
                 continue;
             }
-            let input_output = self.runtime.handle_client_ingress(
-                input_client,
-                TransportIngress::TerminalInput {
-                    session_id: session_id.clone(),
-                    data,
-                },
-                input_at,
-            )?;
-            append_engine_output(&mut output, input_output);
-        }
-
-        attach.queued_input = deferred_input;
-        attach.queued_resize = None;
-        self.promote_pending_fail_closed(attach, session_id);
-
-        let mut live = self
-            .runtime
-            .drain_runtime_once(session_id, last_output_at)?;
-        if let Some(current) = self.incremental_attaches.get(session_id) {
-            if !self
-                .runtime
-                .adapter_is_bound(session_id, &current.subscription_id)
-            {
-                suppress_attach_terminal_output(&mut live, session_id, current);
-            }
-        }
-        append_engine_output(&mut output, live);
-        self.reconcile_incremental_attach_after_teardown(session_id)?;
-        Ok(output)
-    }
-
-    fn takeover_current_incremental_attach(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let Some(mut attach) = self.incremental_attaches.remove(&session_id) else {
-            return self.attach_client(client_id, session_id, subscription_id, 0);
-        };
-        let replaced_client = attach.client_id.clone();
-        let replaced_subscription = attach.subscription_id.clone();
-        let stale_request_id = attach.request_id.clone();
-        if let Err(error) = self
-            .runtime
-            .session_runtime_mut()
-            .cancel_snapshot_boundary(&session_id, &stale_request_id)
-        {
-            self.incremental_attaches.insert(session_id, attach);
-            return Err(error.into());
-        }
-        let request_id = match self
-            .runtime
-            .session_runtime_mut()
-            .begin_snapshot_boundary(&session_id)
-        {
-            Ok(request_id) => request_id,
-            Err(error) => {
-                self.discard_takeover_pending(&mut attach, &session_id, &client_id)?;
-                return self.fail_closed_cancelled_takeover(
-                    attach,
-                    session_id,
-                    replaced_client,
-                    replaced_subscription,
-                    error,
-                );
-            }
-        };
-        self.discard_takeover_pending(&mut attach, &session_id, &client_id)?;
-        attach.discard_replaced_owner_queues(&replaced_client, &client_id);
-        let output = match self.runtime.begin_snapshot_attach(
-            client_id.clone(),
-            session_id.clone(),
-            subscription_id.clone(),
-        ) {
-            Ok(output) => output,
-            Err(error) => {
-                let _ = self
-                    .runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(&session_id, &request_id);
-                return self.fail_closed_cancelled_takeover(
-                    attach,
-                    session_id,
-                    replaced_client,
-                    replaced_subscription,
-                    error,
-                );
-            }
-        };
-        attach.client_id = client_id;
-        attach.subscription_id = subscription_id;
-        attach.request_id = request_id;
-        attach.ready = false;
-        self.incremental_attaches.insert(session_id.clone(), attach);
-        self.sync_worker_consumers(&session_id)?;
-        Ok(output)
-    }
-
-    fn discard_takeover_pending(
-        &mut self,
-        attach: &mut IncrementalAttach,
-        session_id: &SessionId,
-        client_id: &ClientId,
-    ) -> Result<(), WorkerBackedBotsterEngineError> {
-        let _ = session_id;
-        attach.drop_pending_client(client_id);
-        Ok(())
-    }
-
-    fn fail_closed_cancelled_takeover(
-        &mut self,
-        mut attach: IncrementalAttach,
-        session_id: SessionId,
-        replaced_client: ClientId,
-        replaced_subscription: SubscriptionId,
-        error: impl Into<WorkerBackedBotsterEngineError>,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let current_client = attach.client_id.clone();
-        attach.discard_replaced_owner_queues(&replaced_client, &current_client);
-        let _ = self.runtime.detach_live_subscription(
-            replaced_client,
-            session_id.clone(),
-            replaced_subscription,
-            0,
-        );
-        self.promote_pending_fail_closed(attach, &session_id);
-        let _ = self.sync_worker_consumers(&session_id);
-        Err(error.into())
-    }
-
-    fn promote_pending_fail_closed(
-        &mut self,
-        mut attach: IncrementalAttach,
-        session_id: &SessionId,
-    ) {
-        let outgoing = attach.client_id.clone();
-        attach.discard_client_queues(&outgoing);
-        while let Some((next_client, next_subscription)) = attach.pending.pop_front() {
             match self
                 .runtime
                 .session_runtime_mut()
                 .begin_snapshot_boundary(session_id)
             {
                 Ok(request_id) => {
-                    attach.client_id = next_client;
-                    attach.subscription_id = next_subscription;
-                    attach.request_id = request_id;
-                    attach.ready = false;
-                    self.incremental_attaches.insert(session_id.clone(), attach);
-                    let _ = self.sync_worker_consumers(session_id);
-                    return;
-                }
-                Err(_) => {
-                    attach.discard_client_queues(&next_client);
-                    let _ = self.runtime.detach_live_subscription(
-                        next_client,
+                    if !is_host {
+                        self.runtime
+                            .client_worker_mut()
+                            .begin_route_capture(session_id, &next.subscription_id);
+                    }
+                    self.captures.insert(
                         session_id.clone(),
-                        next_subscription,
+                        RouteCapture {
+                            client_id: next.client_id,
+                            subscription_id: next.subscription_id,
+                            kind: next.kind,
+                            request_id,
+                            ready: false,
+                            awaiting_release: false,
+                            history_incomplete: false,
+                            collected: Vec::new(),
+                            collected_size: None,
+                            collected_colors: None,
+                        },
+                    );
+                    let _ = self.sync_worker_consumers(session_id);
+                    return Ok(());
+                }
+                Err(error) if error.message.contains("already in flight") => {
+                    // A host capture holds the worker barrier. Keep the route
+                    // queued; the next drain retries.
+                    self.capture_queue
+                        .entry(session_id.clone())
+                        .or_default()
+                        .push_front(next);
+                    return Ok(());
+                }
+                Err(error) => {
+                    if let CaptureKind::Host(id) = next.kind {
+                        self.host_captures.insert(id, Err(error.message));
+                        continue;
+                    }
+                    let _ = self
+                        .runtime
+                        .client_worker_mut()
+                        .fail_route(session_id, &next.subscription_id);
+                    let _ = self.runtime.detach_live_subscription(
+                        next.client_id,
+                        session_id.clone(),
+                        next.subscription_id,
                         0,
                     );
                 }
             }
         }
-        let _ = self.sync_worker_consumers(session_id);
+    }
+
+    /// Turn overflow resync requests into captures.
+    fn start_resync_captures(&mut self) -> Result<(), WorkerBackedBotsterEngineError> {
+        let requests = self.runtime.client_worker_mut().take_resync_requests();
+        for request in requests {
+            self.enqueue_capture(
+                &request.session_id,
+                CaptureRequest {
+                    client_id: request.client_id,
+                    subscription_id: request.subscription_id,
+                    kind: CaptureKind::Resync,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn cancel_capture_for_route(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        if let Some(queue) = self.capture_queue.get_mut(session_id) {
+            queue.retain(|queued| &queued.subscription_id != subscription_id);
+        }
+        let active_matches = self
+            .captures
+            .get(session_id)
+            .is_some_and(|capture| &capture.subscription_id == subscription_id);
+        if active_matches {
+            if let Some(capture) = self.captures.remove(session_id) {
+                let _ = self
+                    .runtime
+                    .session_runtime_mut()
+                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+            }
+        }
     }
 
     fn sync_worker_consumers(
         &mut self,
         session_id: &SessionId,
     ) -> Result<(), WorkerBackedBotsterEngineError> {
-        // Stall only after Attached. An in-progress incremental owner still
-        // has an inventory row, but the parent may stop pumping at READY.
+        // Stall only after a route has its capture. A route whose capture is
+        // active or queued has an inventory row, but the parent may stop
+        // pumping at READY.
         let mut excluded = HashSet::new();
-        if let Some(attach) = self.incremental_attaches.get(session_id) {
-            excluded.insert((attach.client_id.clone(), attach.subscription_id.clone()));
-            excluded.extend(attach.pending.iter().cloned());
+        if let Some(capture) = self.captures.get(session_id) {
+            excluded.insert((capture.client_id.clone(), capture.subscription_id.clone()));
+        }
+        if let Some(queue) = self.capture_queue.get(session_id) {
+            excluded.extend(
+                queue
+                    .iter()
+                    .map(|request| (request.client_id.clone(), request.subscription_id.clone())),
+            );
         }
         let owners = self
             .runtime
@@ -1885,116 +1877,28 @@ impl WorkerBackedBotsterEngine {
             .map_err(Into::into)
     }
 
-    fn reconcile_incremental_attach_after_teardown(
+    fn reconcile_capture_after_teardown(
         &mut self,
         session_id: &SessionId,
     ) -> Result<(), WorkerBackedBotsterEngineError> {
-        let Some(attach) = self.incremental_attaches.get(session_id) else {
+        let Some(capture) = self.captures.get(session_id) else {
             return Ok(());
         };
         if self.runtime.terminal_subscription_matches(
             session_id,
-            &attach.client_id,
-            &attach.subscription_id,
+            &capture.client_id,
+            &capture.subscription_id,
         ) {
             return Ok(());
         }
-        let attach = self
-            .incremental_attaches
+        let capture = self
+            .captures
             .remove(session_id)
-            .expect("incremental attach existed above");
+            .expect("capture existed above");
         self.runtime
             .session_runtime_mut()
-            .cancel_snapshot_boundary(session_id, &attach.request_id)?;
-        self.promote_pending_fail_closed(attach, session_id);
-        Ok(())
-    }
-
-    /// Read a session's plain screen state through the worker-backed managed runtime.
-    pub fn read_screen(
-        &mut self,
-        request_id: crate::RequestId,
-        session_id: SessionId,
-        now_seconds: u64,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        self.runtime
-            .read_screen(request_id, session_id, now_seconds)
-    }
-
-    /// Read authoritative terminal mode flags through the worker-backed path.
-    pub fn read_mode_flags(
-        &mut self,
-        request_id: crate::RequestId,
-        session_id: SessionId,
-        now_seconds: u64,
-    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        // Worker-backed production path must use worker Ghostty token authority.
-        // Do not silently substitute parent-shadow freshness on probe failure.
-        let _ = now_seconds;
-        let payload = self
-            .runtime
-            .session_runtime_mut()
-            .read_mode_flags(&session_id)
-            .map_err(WorkerBackedBotsterEngineError::from)?;
-        let mut outcome = BotsterEngineOutput::empty();
-        outcome
-            .session_events
-            .push(crate::SessionIoEvent::ModeFlagsReady(
-                crate::ModeFlagsReady {
-                    request_id,
-                    session_id,
-                    mode_flags: payload.mode_flags,
-                    mode_freshness: payload.mode_freshness,
-                },
-            ));
-        Ok(outcome)
-    }
-
-    /// Correlated mode-gated PTY input against the worker atomic admit barrier.
-    pub fn mode_gated_pty_input(
-        &mut self,
-        session_id: SessionId,
-        expected: crate::ModeFreshnessToken,
-        data: Vec<u8>,
-    ) -> Result<crate::ModeGatedPtyInputResult, WorkerBackedBotsterEngineError> {
-        self.runtime
-            .session_runtime_mut()
-            .mode_gated_pty_input(&session_id, expected, data)
-            .map_err(WorkerBackedBotsterEngineError::from)
-    }
-
-    /// Capture a reusable opaque snapshot payload for one worker-backed session.
-    pub fn capture_snapshot_payload(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<TerminalSnapshotPayload, WorkerBackedBotsterEngineError> {
-        self.runtime.capture_snapshot_payload(session_id)
-    }
-
-    /// Capture screen, snapshot, and authoritative mode read from one terminal shadow.
-    pub fn capture_terminal_state(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<
-        (
-            crate::TerminalScreenState,
-            TerminalSnapshotPayload,
-            Result<crate::ModeFlags, crate::TerminalBackendError>,
-        ),
-        WorkerBackedBotsterEngineError,
-    > {
-        self.runtime.capture_terminal_state(session_id)
-    }
-
-    /// Capture colors and GHOSTSNP under one terminal ownership section.
-    pub fn capture_color_and_snapshot(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<
-        (crate::TerminalColorProfile, TerminalSnapshotPayload),
-        WorkerBackedBotsterEngineError,
-    > {
-        self.runtime.capture_color_and_snapshot(session_id)
+            .cancel_snapshot_boundary(session_id, &capture.request_id)?;
+        self.start_next_capture(session_id)
     }
 
     /// Shut down a worker-owned session.
@@ -2004,14 +1908,49 @@ impl WorkerBackedBotsterEngine {
         reason: impl Into<String>,
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        if let Some(attach) = self.incremental_attaches.remove(&session_id) {
+        if let Some(capture) = self.captures.remove(&session_id) {
             self.runtime
                 .session_runtime_mut()
-                .cancel_snapshot_boundary(&session_id, &attach.request_id)?;
+                .cancel_snapshot_boundary(&session_id, &capture.request_id)?;
         }
-        self.applied_attach_resizes.remove(&session_id);
+        self.capture_queue.remove(&session_id);
         self.runtime
             .shutdown_session(session_id, reason, now_seconds)
+    }
+
+    /// Cancel one in-flight client input operation at the worker.
+    ///
+    /// Returns `true` when the operation was still in flight and a cancel was
+    /// sent. The route receives the worker's `INPUT_RESULT`.
+    pub fn cancel_input_operation(
+        &mut self,
+        route: &botster_terminal_protocol::RouteId,
+        generation: u64,
+        operation_id: u64,
+    ) -> Result<bool, WorkerBackedBotsterEngineError> {
+        let Some((session_id, key)) = self.runtime.client_worker_mut().in_flight_key_for_route(
+            route,
+            generation,
+            operation_id,
+        ) else {
+            return Ok(false);
+        };
+        self.runtime
+            .session_runtime_mut()
+            .cancel_input_operation(&session_id, key)?;
+        Ok(true)
+    }
+
+    /// Fail every in-flight input operation of a session as unknown.
+    ///
+    /// Hosts call this when they observe a worker link failure outside the
+    /// pump, for example during shutdown.
+    pub fn fail_in_flight_input(&mut self, session_id: &SessionId) {
+        let _ = self.runtime.client_worker_mut().fail_in_flight_for_session(
+            session_id,
+            InputOutcome::OutcomeUnknown,
+            "worker link failed",
+        );
     }
 }
 
@@ -2026,11 +1965,14 @@ fn append_engine_output(target: &mut BotsterEngineOutput, source: BotsterEngineO
     target.observations.extend(source.observations);
 }
 
+/// Drop drain-path output for routes whose capture is active or queued: the
+/// capture already contains those bytes for the attaching consumer.
 #[cfg(feature = "local-runtime")]
-fn suppress_attach_terminal_output(
+fn suppress_capture_route_output(
     output: &mut BotsterEngineOutput,
     session_id: &SessionId,
-    attach: &IncrementalAttach,
+    capture: &RouteCapture,
+    queue: &HashMap<SessionId, VecDeque<CaptureRequest>>,
 ) {
     output.client_egress.retain(|(routed_client, frame)| {
         let TransportEgress::TerminalOutput {
@@ -2045,9 +1987,12 @@ fn suppress_attach_terminal_output(
             return true;
         }
         let active =
-            routed_client == &attach.client_id && routed_subscription == &attach.subscription_id;
-        let pending = attach.pending.iter().any(|(client, subscription)| {
-            routed_client == client && routed_subscription == subscription
+            routed_client == &capture.client_id && routed_subscription == &capture.subscription_id;
+        let pending = queue.get(session_id).is_some_and(|queue| {
+            queue.iter().any(|request| {
+                routed_client == &request.client_id
+                    && routed_subscription == &request.subscription_id
+            })
         });
         !active && !pending
     });

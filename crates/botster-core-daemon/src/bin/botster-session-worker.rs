@@ -2,10 +2,12 @@
 //!
 //! Hosted by `botster-core-daemon` so the worker can depend on
 //! `botster-terminal-ghostty` without a Cargo cycle through package
-//! `botster-core`. This process owns worker-local Ghostty mode state and the
-//! atomic mode-gated PTY input admit barrier.
+//! `botster-core`. The worker owns the only server terminal parser for its
+//! session: every PTY output byte is parsed by the worker Ghostty whether or
+//! not a client is attached, and every client input operation is encoded here
+//! against the current terminal modes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::fs::DirBuilder;
 use std::io::{self, Read, Write};
@@ -15,33 +17,46 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use botster_core::contract::terminal_screen::{TerminalKeyEvent, TerminalMouseEvent};
+use botster_core::contract::terminal_wake::TerminalWakeSource;
 use botster_core::engine::TerminalScreenRuntime;
 use botster_core::{
-    read_hello, write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags,
-    ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
-    ModeGatedPtyInputResult, ResizePayload, SessionMetadata, SessionRuntime, SessionRuntimeInput,
+    decode_worker_input_operation, encode_final_state, read_hello, write_welcome, Frame,
+    LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags, ModeFlagsPayload, ResizePayload,
+    ScreenPayload, SessionId, SessionMetadata, SessionRuntime, SessionRuntimeInput,
     SessionRuntimeOutput, SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
     TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerHealth,
-    WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL,
-    FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_GET_SNAPSHOT, FRAME_METADATA_SHAPING,
-    FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
-    FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
-    FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
+    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerFinalState,
+    WorkerHealth, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotPhase, WorkerSnapshotRequest,
+    WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
+    FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION,
+    FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS,
+    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
+    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN,
+    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
+    PROTOCOL_VERSION,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
 };
+use botster_terminal_protocol::{
+    encode_input_result, encode_modes, InputOutcome, InputResultBody, ModesBody,
+    MAX_ENCODED_INPUT_BYTES, MAX_INPUT_OPERATIONS_PER_SESSION, MAX_PASTE_BYTES,
+    MAX_RETAINED_INPUT_BYTES_PER_SESSION,
+};
+use botster_terminal_protocol_client::{
+    decode_input_body, TerminalInputCommand, TerminalInputKind,
+};
 
-const LOOP_SLEEP: Duration = Duration::from_millis(10);
+/// Longest idle wait when no PTY write is pending. Wakes end it early.
+const IDLE_WAIT: Duration = Duration::from_secs(5);
+/// Retry interval while the PTY would block on a pending write.
+const BLOCKED_WRITE_WAIT: Duration = Duration::from_millis(2);
 
 fn main() {
     if let Err(error) = run() {
@@ -83,6 +98,7 @@ fn run() -> Result<(), String> {
         serde_json::from_slice(&spawn_frame.payload).map_err(|error| error.to_string())?;
     let session_id = spawn_request.session_id.clone();
 
+    let wakes = TerminalWakeSource::new();
     let runtime_options = LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(args.shutdown_grace_ms),
         poll_interval: Duration::from_millis(args.poll_interval_ms),
@@ -92,9 +108,9 @@ fn run() -> Result<(), String> {
         test_write_max_chunk: args.test_write_max_chunk,
         test_pending_capacity: args.test_pending_capacity,
         test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
-        test_fail_pty_writes: false,
     };
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options);
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options).with_wake_source(wakes.clone());
     let initial_size = spawn_request
         .initial_pty_size
         .clone()
@@ -114,11 +130,9 @@ fn run() -> Result<(), String> {
             .apply_color_profile(profile)
             .map_err(|error| format!("worker Ghostty color profile failed: {error}"))?;
     }
-    let mut mode_owner = WorkerModeOwner::new(
-        ghostty
-            .mode_flags()
-            .map_err(|error| format!("worker initial mode flags failed: {error}"))?,
-    );
+    let initial_flags = ghostty
+        .read_mode_flags()
+        .map_err(|error| format!("worker initial mode flags failed: {error}"))?;
     let metadata = SessionMetadata {
         session_uuid: session_id.0.clone(),
         pid: handle.process.pid.unwrap_or_else(process::id),
@@ -128,39 +142,52 @@ fn run() -> Result<(), String> {
         title: None,
         cwd: None,
         port: None,
-        mode_flags: mode_owner.mode_flags.clone(),
+        mode_flags: initial_flags.clone(),
         recovery_identity: Some(serde_json::json!({
             "session_uuid": session_id.0,
             "runtime_id": handle.process.runtime_id,
             "worker_pid": process::id(),
             "worker_control_socket": args.control_socket,
-            "mode_generation": mode_owner.token().mode_generation,
             "atomic_snapshot_boundary": true,
             "snapshot_delivery": "ready_then_history",
+            "terminal_stream_scheme": 2,
         })),
     };
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
 
     let (frame_sender, frame_receiver) = mpsc::channel();
     let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
-    let cancel_cell = Arc::new(Mutex::new(None::<String>));
-    let test_hold_used = Arc::new(AtomicBool::new(false));
     control.spawn_readers(
         initial_control,
         frame_sender,
         Arc::clone(&snapshot_barrier),
-        Arc::clone(&cancel_cell),
         metadata.clone(),
+        wakes.clone(),
+        session_id.clone(),
     );
 
     let (egress, protected_receiver, metadata_receiver) =
         WorkerEgress::new(args.egress_capacity.max(1));
     let writer = control.spawn_writer(protected_receiver, metadata_receiver);
-    let mut metadata_producer = TerminalMetadataProducer::new();
-    let mut metadata_shaper = TerminalMetadataLaneShaper::new(
-        (args.egress_capacity / 2).max(1),
-        args.egress_capacity.saturating_mul(4).max(1),
-    );
+    let mut state = WorkerState {
+        session_id: handle.session_id.clone(),
+        ghostty,
+        metadata_producer: TerminalMetadataProducer::new(),
+        metadata_shaper: TerminalMetadataLaneShaper::new(
+            (args.egress_capacity / 2).max(1),
+            args.egress_capacity.saturating_mul(4).max(1),
+        ),
+        egress,
+        last_modes: ModesBody {
+            mode_bits: initial_flags.to_mode_bits(),
+            rows: initial_rows,
+            cols: initial_cols,
+        },
+        pending_writes: VecDeque::new(),
+        pending_ops: 0,
+        pending_bytes: 0,
+        exited: false,
+    };
     let mut reconnect_timeout_seconds = None;
     let mut lifecycle = WorkerLifecycle::default();
 
@@ -168,232 +195,82 @@ fn run() -> Result<(), String> {
         loop {
             match frame_receiver.try_recv() {
                 Ok(frame) => match frame.frame_type {
-                    FRAME_PTY_INPUT => runtime
-                        .send_input(SessionRuntimeInput::PtyInput {
-                            session_id: handle.session_id.clone(),
-                            data: frame.payload,
-                        })
-                        .map_err(|error| error.to_string())?,
-                    FRAME_MODE_GATED_PTY_INPUT => {
-                        // Process one gated admit fully before the next frame.
-                        // Parent also rejects concurrent gated waits per session.
-                        let result = match serde_json::from_slice::<ModeGatedPtyInputRequest>(
-                            &frame.payload,
-                        ) {
-                            Ok(request) => atomic_mode_gated_admit(
-                                &mut runtime,
-                                &handle.session_id,
-                                &mut ghostty,
-                                &mut mode_owner,
-                                &mut metadata_producer,
-                                &mut metadata_shaper,
-                                &egress,
-                                &cancel_cell,
-                                &test_hold_used,
-                                request,
-                            ),
-                            Err(error) => ModeGatedPtyInputResult {
-                                request_id: String::new(),
-                                admitted: false,
-                                bytes_written: 0,
-                                mode_flags: mode_owner.mode_flags.clone(),
-                                mode_freshness: mode_owner.token(),
-                                error_kind: Some(format!("malformed request: {error}")),
-                            },
-                        };
-                        egress.send_protected_json(FRAME_MODE_GATED_PTY_INPUT_RESULT, &result);
+                    FRAME_PTY_INPUT => {
+                        state.queue_keyless_write(frame.payload);
+                    }
+                    FRAME_INPUT_OPERATION => {
+                        // Apply every drained byte before encoding so modes are current.
+                        state.drain_and_apply_pty_output(&mut runtime)?;
+                        state.admit_input_operation(&mut runtime, &frame.payload);
+                    }
+                    FRAME_INPUT_CANCEL => {
+                        if let Ok((key, _)) =
+                            botster_core::split_worker_operation_key(&frame.payload)
+                        {
+                            state.cancel_operation(key);
+                        }
                     }
                     FRAME_GET_MODE_FLAGS => {
-                        let probe_request_id =
-                            serde_json::from_slice::<serde_json::Value>(&frame.payload)
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("request_id")
-                                        .and_then(|id| id.as_str())
-                                        .map(str::to_owned)
-                                })
-                                .unwrap_or_default();
-                        // Probe under the same reader fence so returned modes
-                        // cannot race with later unapplied PTY output.
-                        match runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
-                            apply_barrier_outputs(
-                                barrier,
-                                &mut ghostty,
-                                &mut mode_owner,
-                                &mut metadata_producer,
-                                &mut metadata_shaper,
-                                &egress,
-                            )
-                        }) {
-                            Ok(()) => {
-                                egress.send_protected_json(
-                                    FRAME_MODE_FLAGS,
-                                    &ModeFlagsPayload {
-                                        request_id: probe_request_id,
-                                        mode_flags: mode_owner.mode_flags.clone(),
-                                        mode_freshness: mode_owner.token(),
-                                        error_kind: None,
-                                    },
-                                );
-                            }
-                            Err(error) => {
-                                // Fail closed: correlated explicit probe failure,
-                                // not a successful token after a drain error.
-                                egress.send_protected_json(
-                                    FRAME_MODE_FLAGS,
-                                    &ModeFlagsPayload {
-                                        request_id: probe_request_id,
-                                        mode_flags: mode_owner.mode_flags.clone(),
-                                        mode_freshness: mode_owner.token(),
-                                        error_kind: Some(error.to_string()),
-                                    },
-                                );
-                            }
-                        }
+                        let request_id = probe_request_id(&frame.payload);
+                        state.drain_and_apply_pty_output(&mut runtime)?;
+                        let size = state.ghostty.size();
+                        let payload = match state.ghostty.read_mode_flags() {
+                            Ok(mode_flags) => ModeFlagsPayload {
+                                request_id,
+                                mode_flags,
+                                rows: size.rows,
+                                cols: size.cols,
+                                error_kind: None,
+                            },
+                            Err(error) => ModeFlagsPayload {
+                                request_id,
+                                mode_flags: ModeFlags::default(),
+                                rows: size.rows,
+                                cols: size.cols,
+                                error_kind: Some(error.to_string()),
+                            },
+                        };
+                        state.egress.send_protected_json(FRAME_MODE_FLAGS, &payload);
+                    }
+                    FRAME_GET_SCREEN => {
+                        let request_id = probe_request_id(&frame.payload);
+                        state.drain_and_apply_pty_output(&mut runtime)?;
+                        let payload = match state.ghostty.plain_text() {
+                            Ok(text) => ScreenPayload {
+                                request_id,
+                                text,
+                                error_kind: None,
+                            },
+                            Err(error) => ScreenPayload {
+                                request_id,
+                                text: String::new(),
+                                error_kind: Some(error.to_string()),
+                            },
+                        };
+                        state.egress.send_protected_json(FRAME_SCREEN, &payload);
                     }
                     FRAME_RESIZE => {
                         let size: ResizePayload = serde_json::from_slice(&frame.payload)
                             .map_err(|error| error.to_string())?;
-                        ghostty.resize(TerminalScreenSize::new(size.rows, size.cols));
-                        runtime
-                            .send_input(SessionRuntimeInput::Resize {
-                                session_id: handle.session_id.clone(),
-                                size: size.clone(),
-                            })
-                            .map_err(|error| error.to_string())?;
-                        if !args.test_omit_resize_applied {
-                            egress.send_protected_json(FRAME_RESIZE_APPLIED, &size);
-                        }
+                        state.apply_resize(&mut runtime, size.rows, size.cols, None)?;
+                        state
+                            .egress
+                            .send_protected_json(FRAME_RESIZE_APPLIED, &size);
                     }
                     FRAME_GET_SNAPSHOT => {
-                        let request =
-                            serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload);
-                        match request {
-                            Ok(request) => {
-                                let request_id = request.request_id;
-                                let barrier_control = Arc::clone(&snapshot_barrier);
-                                let result = runtime.with_pty_io_barrier(&handle.session_id, |barrier| {
-                                    let encoded = (|| {
-                                        apply_barrier_outputs(
-                                            barrier,
-                                            &mut ghostty,
-                                            &mut mode_owner,
-                                            &mut metadata_producer,
-                                            &mut metadata_shaper,
-                                            &egress,
-                                        )?;
-                                        let size = ghostty.size();
-                                        ghostty.export_snapshot_frames(|frame| {
-                                            let phase = match frame.kind {
-                                                GhosttySnapshotFrameKind::Ready => WorkerSnapshotPhase::Ready,
-                                                GhosttySnapshotFrameKind::History => {
-                                                    WorkerSnapshotPhase::History
-                                                }
-                                                GhosttySnapshotFrameKind::Finish => {
-                                                    WorkerSnapshotPhase::Finish
-                                                }
-                                            };
-                                            if args.test_fail_snapshot_history_after_ready
-                                                && phase == WorkerSnapshotPhase::History
-                                            {
-                                                return false;
-                                            }
-                                            egress.send_protected_json_cancellable(
-                                                FRAME_SNAPSHOT,
-                                                &WorkerSnapshotResult {
-                                                    request_id: request_id.clone(),
-                                                    snapshot: Some(botster_core::TerminalSnapshotPayload::new(
-                                                        frame.bytes,
-                                                        size,
-                                                        Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
-                                                    )),
-                                                    phase: Some(phase),
-                                                    error_kind: None,
-                                                    barrier_released: false,
-                                                },
-                                                || barrier_control.is_cancelled(&request_id),
-                                            )
-                                        }).map_err(|error| {
-                                            botster_core::SessionRuntimeError::new(
-                                                botster_core::SessionRuntimeErrorKind::OutputFailed,
-                                                error.to_string(),
-                                            )
-                                        })
-                                    })();
-                                    if let Err(error) = encoded {
-                                        let _ = egress.send_protected_json_cancellable(
-                                            FRAME_SNAPSHOT,
-                                            &WorkerSnapshotResult {
-                                                request_id: request_id.clone(),
-                                                snapshot: None,
-                                                phase: None,
-                                                error_kind: Some(error.to_string()),
-                                                barrier_released: false,
-                                            },
-                                            || barrier_control.is_cancelled(&request_id),
-                                        );
-                                    }
-                                    match barrier_control.wait_for_release(&request_id) {
-                                        SnapshotBarrierRelease::Cancel => return Ok(()),
-                                        SnapshotBarrierRelease::Complete(resize) => {
-                                            let release_error = if let Some(size) = resize {
-                                                ghostty.resize(TerminalScreenSize::new(size.rows, size.cols));
-                                                barrier.resize(size).err().map(|error| error.to_string())
-                                            } else {
-                                                None
-                                            };
-                                            let _ = egress.send_protected_json(
-                                                FRAME_SNAPSHOT,
-                                                &WorkerSnapshotResult {
-                                                    request_id: request_id.clone(),
-                                                    snapshot: None,
-                                                    phase: None,
-                                                    error_kind: release_error,
-                                                    barrier_released: true,
-                                                },
-                                            );
-                                        }
-                                    }
-                                    Ok(())
-                                });
-                                if let Err(error) = result {
-                                    let _ = egress.send_protected_json(
-                                        FRAME_SNAPSHOT,
-                                        &WorkerSnapshotResult {
-                                            request_id: request_id.clone(),
-                                            snapshot: None,
-                                            phase: None,
-                                            error_kind: Some(error.to_string()),
-                                            barrier_released: false,
-                                        },
-                                    );
-                                }
-                                snapshot_barrier.clear(&request_id);
-                            }
-                            Err(error) => {
-                                let _ = egress.send_protected_json(
-                                    FRAME_SNAPSHOT,
-                                    &WorkerSnapshotResult {
-                                        request_id: String::new(),
-                                        snapshot: None,
-                                        phase: None,
-                                        error_kind: Some(format!(
-                                            "malformed snapshot request: {error}"
-                                        )),
-                                        barrier_released: false,
-                                    },
-                                );
-                            }
-                        }
+                        state.handle_snapshot_request(
+                            &mut runtime,
+                            &snapshot_barrier,
+                            &frame.payload,
+                        );
                     }
                     FRAME_PING => {
                         let health = WorkerHealth {
-                            session_id: handle.session_id.clone(),
+                            session_id: state.session_id.clone(),
                             worker_pid: process::id(),
                             reconnect_timeout_seconds,
                         };
-                        egress.send_protected_json(FRAME_PONG, &health);
+                        state.egress.send_protected_json(FRAME_PONG, &health);
                     }
                     FRAME_SET_TIMEOUT => {
                         let timeout: TimeoutPayload = serde_json::from_slice(&frame.payload)
@@ -403,7 +280,7 @@ fn run() -> Result<(), String> {
                     FRAME_SHUTDOWN => {
                         runtime
                             .send_input(SessionRuntimeInput::Shutdown {
-                                session_id: handle.session_id.clone(),
+                                session_id: state.session_id.clone(),
                             })
                             .map_err(|error| error.to_string())?;
                         lifecycle.request_shutdown();
@@ -415,7 +292,7 @@ fn run() -> Result<(), String> {
                     if shutdown_on_disconnect {
                         runtime
                             .send_input(SessionRuntimeInput::Shutdown {
-                                session_id: handle.session_id.clone(),
+                                session_id: state.session_id.clone(),
                             })
                             .map_err(|error| error.to_string())?;
                         lifecycle.request_shutdown();
@@ -425,27 +302,25 @@ fn run() -> Result<(), String> {
             }
         }
 
-        let exited = drain_and_apply_pty_output(
-            &mut runtime,
-            &handle.session_id,
-            &mut ghostty,
-            &mut mode_owner,
-            &mut metadata_producer,
-            &mut metadata_shaper,
-            &egress,
-        )?;
-        if exited {
+        state.drain_and_apply_pty_output(&mut runtime)?;
+        if state.exited {
             lifecycle.observe_process_exit();
+            break;
         }
-
-        thread::sleep(LOOP_SLEEP);
+        let write_blocked = state.progress_pending_writes(&runtime);
+        let timeout = if write_blocked {
+            BLOCKED_WRITE_WAIT
+        } else {
+            IDLE_WAIT
+        };
+        let _ = wakes.wait_wakes(timeout);
     }
 
     if let Some(hold_ms) = args.test_hold_before_exit_ms {
         thread::sleep(Duration::from_millis(hold_ms));
     }
 
-    drop(egress);
+    drop(state);
     writer
         .join()
         .map_err(|_| "worker egress writer panicked".to_string())??;
@@ -455,346 +330,731 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-struct WorkerModeOwner {
-    generation: u64,
-    revision: u64,
-    mode_flags: ModeFlags,
+fn probe_request_id(payload: &[u8]) -> String {
+    serde_json::from_slice::<WorkerProbeRequest>(payload)
+        .map(|request| request.request_id)
+        .unwrap_or_default()
 }
 
-impl WorkerModeOwner {
-    fn new(initial: ModeFlags) -> Self {
-        Self {
-            generation: new_mode_generation(),
-            revision: 1,
-            mode_flags: initial,
-        }
+/// One queued PTY write. Keyless writes come from `FRAME_PTY_INPUT` and from
+/// Ghostty `write_pty` query replies; keyed writes are client operations.
+struct PendingWrite {
+    key: Option<u64>,
+    operation_id: u64,
+    accepted_payload_bytes: u64,
+    bytes: Vec<u8>,
+    written: usize,
+}
+
+struct WorkerState {
+    session_id: SessionId,
+    ghostty: GhosttyTerminal,
+    metadata_producer: TerminalMetadataProducer,
+    metadata_shaper: TerminalMetadataLaneShaper,
+    egress: WorkerEgress,
+    last_modes: ModesBody,
+    pending_writes: VecDeque<PendingWrite>,
+    /// Keyed operations admitted and not yet reported.
+    pending_ops: usize,
+    /// Encoded bytes retained across keyed operations.
+    pending_bytes: usize,
+    exited: bool,
+}
+
+impl WorkerState {
+    fn current_mode_bits(&self) -> u32 {
+        self.ghostty
+            .read_mode_flags()
+            .map(|flags| flags.to_mode_bits())
+            .unwrap_or(self.last_modes.mode_bits)
     }
 
-    fn token(&self) -> ModeFreshnessToken {
-        ModeFreshnessToken {
-            mode_generation: self.generation,
-            mode_revision: self.revision,
+    fn queue_keyless_write(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
         }
+        self.pending_writes.push_back(PendingWrite {
+            key: None,
+            operation_id: 0,
+            accepted_payload_bytes: bytes.len() as u64,
+            bytes,
+            written: 0,
+        });
     }
 
-    fn observe(&mut self, mode_flags: ModeFlags) {
-        if mode_flags != self.mode_flags {
-            if self.revision < u64::MAX {
-                self.revision = self.revision.saturating_add(1);
+    fn send_result(&self, key: u64, result: &InputResultBody) {
+        match encode_input_result(result) {
+            Ok(frame) => {
+                let payload = botster_core::encode_worker_operation(key, frame.body());
+                self.egress
+                    .send_protected_frame(FRAME_INPUT_RESULT, payload);
             }
-            self.mode_flags = mode_flags;
-        }
-    }
-}
-
-/// Allocate a process-local mode generation token that is safe to round-trip
-/// through JSON numbers used by browser clients (`Number.MAX_SAFE_INTEGER` =
-/// 2^53 - 1). Wall-clock nanos / pointer mixing previously produced full `u64`
-/// values that browsers silently corrupted, breaking ModeGatedInput admission.
-fn new_mode_generation() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    /// Largest integer that every IEEE-754 binary64 JSON number can represent
-    /// exactly. Browser `Number` and `JSON.parse` share this bound.
-    const JSON_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 1;
-
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    // Keep the token in `(1 ..= JSON_SAFE_INTEGER_MAX)` so Web clients can
-    // ModeGatedInput without a send_input fallback.
-    let next = NEXT.fetch_add(1, Ordering::Relaxed);
-    (next % JSON_SAFE_INTEGER_MAX).max(1)
-}
-
-fn apply_pty_output_chunk(
-    ghostty: &mut GhosttyTerminal,
-    mode_owner: &mut WorkerModeOwner,
-    metadata_producer: &mut TerminalMetadataProducer,
-    metadata_shaper: &mut TerminalMetadataLaneShaper,
-    egress: &WorkerEgress,
-    data: Vec<u8>,
-) {
-    let observations = metadata_producer.observe(&data);
-    ghostty.write_output(&data);
-    // Do not inject Ghostty write_pty replies here: the parent dual-shadow still
-    // owns OSC write_pty injection for worker-backed sessions. Worker Ghostty is
-    // the mode-token authority only.
-    if let Ok(flags) = ghostty.mode_flags() {
-        mode_owner.observe(flags);
-    }
-    egress.send_protected_frame(FRAME_PTY_OUTPUT, data);
-    let mut shaping_reports = MetadataShapingReportAccumulator::default();
-    for observation in observations {
-        for shaping in metadata_shaper.push(observation) {
-            shaping_reports.record(shaping);
-        }
-    }
-    for observation in metadata_shaper.drain() {
-        send_metadata_observation(egress, observation);
-    }
-    for shaping in shaping_reports.into_reports() {
-        egress.send_protected_json(FRAME_METADATA_SHAPING, &shaping);
-    }
-}
-
-fn drain_and_apply_pty_output(
-    runtime: &mut LocalProcessRuntime,
-    session_id: &botster_core::SessionId,
-    ghostty: &mut GhosttyTerminal,
-    mode_owner: &mut WorkerModeOwner,
-    metadata_producer: &mut TerminalMetadataProducer,
-    metadata_shaper: &mut TerminalMetadataLaneShaper,
-    egress: &WorkerEgress,
-) -> Result<bool, String> {
-    let mut process_exited = false;
-    for output in runtime
-        .drain_output(session_id)
-        .map_err(|error| error.to_string())?
-    {
-        match output {
-            SessionRuntimeOutput::PtyOutput { data, .. } => {
-                apply_pty_output_chunk(
-                    ghostty,
-                    mode_owner,
-                    metadata_producer,
-                    metadata_shaper,
-                    egress,
-                    data,
-                );
-            }
-            SessionRuntimeOutput::ProcessExited { payload, .. } => {
-                for observation in metadata_shaper.drain() {
-                    send_metadata_observation(egress, observation);
-                }
-                egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
-                process_exited = true;
-            }
-            SessionRuntimeOutput::Backpressure(_) => {}
-            SessionRuntimeOutput::TitleChanged { .. }
-            | SessionRuntimeOutput::CwdChanged { .. }
-            | SessionRuntimeOutput::PromptMark { .. }
-            | SessionRuntimeOutput::Bell { .. }
-            | SessionRuntimeOutput::Notification { .. }
-            | SessionRuntimeOutput::MetadataShaping(_) => {}
-        }
-    }
-    Ok(process_exited)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn atomic_mode_gated_admit(
-    runtime: &mut LocalProcessRuntime,
-    session_id: &botster_core::SessionId,
-    ghostty: &mut GhosttyTerminal,
-    mode_owner: &mut WorkerModeOwner,
-    metadata_producer: &mut TerminalMetadataProducer,
-    metadata_shaper: &mut TerminalMetadataLaneShaper,
-    egress: &WorkerEgress,
-    cancel_cell: &Arc<Mutex<Option<String>>>,
-    test_hold_used: &AtomicBool,
-    request: ModeGatedPtyInputRequest,
-) -> ModeGatedPtyInputResult {
-    struct ClearCancel<'a>(&'a Arc<Mutex<Option<String>>>);
-    impl Drop for ClearCancel<'_> {
-        fn drop(&mut self) {
-            *self.0.lock().unwrap_or_else(|error| error.into_inner()) = None;
-        }
-    }
-    let _clear = ClearCancel(cancel_cell);
-    let request_id = request.request_id.clone();
-    let expected = request.expected;
-    let data = request.data;
-    let deadline_unix_ms = request.deadline_unix_ms;
-    let test_hold_ms = request.test_hold_ms.unwrap_or(0);
-    let apply_test_hold = test_hold_ms > 0 && !test_hold_used.swap(true, Ordering::SeqCst);
-
-    let outcome = runtime.with_pty_io_barrier(session_id, |barrier| {
-        // Optional deterministic hold while the reader is paused so mode-changing
-        // output can accumulate in the OS PTY buffer after the first drain.
-        // One-shot: later gated requests on this worker must not inherit the hold.
-        if apply_test_hold {
-            // First drain empties the pre-hold queue so the hold window is exact.
-            apply_barrier_outputs(
-                barrier,
-                ghostty,
-                mode_owner,
-                metadata_producer,
-                metadata_shaper,
-                egress,
-            )?;
-            let hold_deadline = Instant::now() + Duration::from_millis(test_hold_ms);
-            while Instant::now() < hold_deadline {
-                let cancelled = cancel_cell
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .as_ref()
-                    == Some(&request_id);
-                if cancelled {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(10));
+            Err(_) => {
+                // A body that cannot encode is a programming error in this
+                // process; the parent reports OutcomeUnknown on link loss.
             }
         }
+    }
 
-        // Drain/apply every pre-barrier byte with the reader paused.
-        apply_barrier_outputs(
-            barrier,
-            ghostty,
-            mode_owner,
-            metadata_producer,
-            metadata_shaper,
-            egress,
-        )?;
+    fn reject(&self, key: u64, operation_id: u64, outcome: InputOutcome, detail: &str) {
+        self.send_result(
+            key,
+            &InputResultBody {
+                operation_id,
+                outcome,
+                accepted_payload_bytes: Some(0),
+                written_pty_bytes: Some(0),
+                mode_bits: self.current_mode_bits(),
+                detail: detail.to_owned(),
+            },
+        );
+    }
 
-        let current = mode_owner.token();
-        if mode_owner.revision == u64::MAX {
-            return Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: 0,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some("revision_overflow".to_string()),
-            });
-        }
-        // Fail closed at or after the parent deadline (inclusive).
-        if unix_now_ms() >= deadline_unix_ms {
-            return Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: 0,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some("deadline_exceeded".to_string()),
-            });
-        }
-        if expected != current {
-            return Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: 0,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: None,
-            });
-        }
-        let cancelled = {
-            let mut cell = cancel_cell
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            let matched = cell.as_ref() == Some(&request_id);
-            *cell = None;
-            matched
+    /// Admit one parent-forwarded operation: decode, bound, encode, queue.
+    fn admit_input_operation(&mut self, runtime: &mut LocalProcessRuntime, payload: &[u8]) {
+        let operation = match decode_worker_input_operation(payload) {
+            Ok(operation) => operation,
+            Err(_) => return,
         };
-        if cancelled {
-            return Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: 0,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some("cancelled".to_string()),
-            });
+        let key = operation.key;
+        let operation_id = operation.operation_id;
+        if self.exited {
+            self.reject(
+                key,
+                operation_id,
+                InputOutcome::SessionEnded,
+                "session ended",
+            );
+            return;
         }
-        // Bound the complete write, including WouldBlock retries.
-        let data_len = data.len();
-        match barrier.write_input(&data, Some(deadline_unix_ms)) {
-            Ok(written) if written == data_len => Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: true,
-                bytes_written: written,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: None,
-            }),
-            Ok(written) => Ok(ModeGatedPtyInputResult {
-                // Should not happen: write_all returns Ok only for complete.
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: written,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some("partial_write".to_string()),
-            }),
-            Err(error) if error.bytes_written == 0 => Ok(ModeGatedPtyInputResult {
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: 0,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some(error.message),
-            }),
-            Err(error) => Ok(ModeGatedPtyInputResult {
-                // Explicit partial delivery: callers must check bytes_written.
-                request_id: request_id.clone(),
-                admitted: false,
-                bytes_written: error.bytes_written,
-                mode_flags: mode_owner.mode_flags.clone(),
-                mode_freshness: current,
-                error_kind: Some(format!("partial_write:{}", error.message)),
-            }),
+        if self.pending_ops >= MAX_INPUT_OPERATIONS_PER_SESSION
+            || self.pending_bytes >= MAX_RETAINED_INPUT_BYTES_PER_SESSION
+        {
+            self.reject(
+                key,
+                operation_id,
+                InputOutcome::RejectedLaneFull,
+                "worker input lane is full",
+            );
+            return;
         }
-    });
-
-    match outcome {
-        Ok(result) => result,
-        Err(error) => ModeGatedPtyInputResult {
-            request_id,
-            admitted: false,
-            bytes_written: 0,
-            mode_flags: mode_owner.mode_flags.clone(),
-            mode_freshness: mode_owner.token(),
-            error_kind: Some(error.to_string()),
-        },
+        let mut encoded = Vec::new();
+        let accepted_payload_bytes;
+        match operation.kind {
+            WorkerInputKind::RawBytes => {
+                accepted_payload_bytes = operation.body.len();
+                encoded.extend_from_slice(operation.body);
+            }
+            WorkerInputKind::Key => {
+                let command =
+                    match decode_input_body(TerminalInputKind::Key, operation_id, operation.body) {
+                        Ok(command) => command,
+                        Err(error) => {
+                            self.reject(
+                                key,
+                                operation_id,
+                                InputOutcome::RejectedProtocol,
+                                &error.to_string(),
+                            );
+                            return;
+                        }
+                    };
+                let TerminalInputCommand::Key {
+                    action,
+                    key: physical,
+                    mods,
+                    consumed_mods,
+                    composing,
+                    unshifted_codepoint,
+                    text,
+                    ..
+                } = command
+                else {
+                    return;
+                };
+                accepted_payload_bytes = text.len();
+                let event = TerminalKeyEvent {
+                    action,
+                    key: physical,
+                    mods,
+                    consumed_mods,
+                    composing,
+                    unshifted_codepoint,
+                    text: &text,
+                };
+                if let Err(error) =
+                    TerminalScreenRuntime::encode_key(&mut self.ghostty, &event, &mut encoded)
+                {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::WriteFailed,
+                        &error.to_string(),
+                    );
+                    return;
+                }
+            }
+            WorkerInputKind::Mouse => {
+                let command =
+                    match decode_input_body(TerminalInputKind::Mouse, operation_id, operation.body)
+                    {
+                        Ok(command) => command,
+                        Err(error) => {
+                            self.reject(
+                                key,
+                                operation_id,
+                                InputOutcome::RejectedProtocol,
+                                &error.to_string(),
+                            );
+                            return;
+                        }
+                    };
+                let TerminalInputCommand::Mouse {
+                    action,
+                    button,
+                    mods,
+                    col,
+                    row,
+                    x_px,
+                    y_px,
+                    ..
+                } = command
+                else {
+                    return;
+                };
+                accepted_payload_bytes = 0;
+                let event = TerminalMouseEvent {
+                    action,
+                    button,
+                    mods,
+                    col,
+                    row,
+                    x_px,
+                    y_px,
+                };
+                if let Err(error) =
+                    TerminalScreenRuntime::encode_mouse(&mut self.ghostty, &event, &mut encoded)
+                {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::WriteFailed,
+                        &error.to_string(),
+                    );
+                    return;
+                }
+            }
+            WorkerInputKind::Focus => {
+                let command =
+                    match decode_input_body(TerminalInputKind::Focus, operation_id, operation.body)
+                    {
+                        Ok(command) => command,
+                        Err(error) => {
+                            self.reject(
+                                key,
+                                operation_id,
+                                InputOutcome::RejectedProtocol,
+                                &error.to_string(),
+                            );
+                            return;
+                        }
+                    };
+                let TerminalInputCommand::Focus { focused, .. } = command else {
+                    return;
+                };
+                accepted_payload_bytes = 0;
+                if let Err(error) =
+                    TerminalScreenRuntime::encode_focus(&mut self.ghostty, focused, &mut encoded)
+                {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::WriteFailed,
+                        &error.to_string(),
+                    );
+                    return;
+                }
+            }
+            WorkerInputKind::Resize => {
+                let command = match decode_input_body(
+                    TerminalInputKind::Resize,
+                    operation_id,
+                    operation.body,
+                ) {
+                    Ok(command) => command,
+                    Err(error) => {
+                        self.reject(
+                            key,
+                            operation_id,
+                            InputOutcome::RejectedProtocol,
+                            &error.to_string(),
+                        );
+                        return;
+                    }
+                };
+                let TerminalInputCommand::Resize {
+                    rows,
+                    cols,
+                    width_px,
+                    height_px,
+                    ..
+                } = command
+                else {
+                    return;
+                };
+                match self.apply_resize(runtime, rows, cols, Some((width_px, height_px))) {
+                    Ok(()) => {
+                        self.egress.send_protected_json(
+                            FRAME_RESIZE_APPLIED,
+                            &ResizePayload { rows, cols },
+                        );
+                        self.send_result(
+                            key,
+                            &InputResultBody {
+                                operation_id,
+                                outcome: InputOutcome::Written,
+                                accepted_payload_bytes: Some(0),
+                                written_pty_bytes: Some(0),
+                                mode_bits: self.current_mode_bits(),
+                                detail: String::new(),
+                            },
+                        );
+                    }
+                    Err(error) => {
+                        self.reject(key, operation_id, InputOutcome::WriteFailed, &error);
+                    }
+                }
+                return;
+            }
+            WorkerInputKind::Paste => {
+                let Some((allow_unsafe, data)) = operation.body.split_first() else {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedProtocol,
+                        "paste body is empty",
+                    );
+                    return;
+                };
+                if data.len() > MAX_PASTE_BYTES {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedTooLarge,
+                        "paste exceeds the paste ceiling",
+                    );
+                    return;
+                }
+                if *allow_unsafe == 0 && !GhosttyTerminal::paste_is_safe(data) {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedUnsafePaste,
+                        "paste contains newlines or a bracketed paste end marker",
+                    );
+                    return;
+                }
+                accepted_payload_bytes = data.len();
+                let mut scratch = data.to_vec();
+                if let Err(error) = self.ghostty.encode_paste(&mut scratch, &mut encoded) {
+                    self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::WriteFailed,
+                        &error.to_string(),
+                    );
+                    return;
+                }
+            }
+        }
+        if encoded.len() > MAX_ENCODED_INPUT_BYTES {
+            self.reject(
+                key,
+                operation_id,
+                InputOutcome::RejectedTooLarge,
+                "encoded input exceeds the ceiling",
+            );
+            return;
+        }
+        if encoded.is_empty() {
+            self.send_result(
+                key,
+                &InputResultBody {
+                    operation_id,
+                    outcome: InputOutcome::Written,
+                    accepted_payload_bytes: Some(accepted_payload_bytes as u64),
+                    written_pty_bytes: Some(0),
+                    mode_bits: self.current_mode_bits(),
+                    detail: String::new(),
+                },
+            );
+            return;
+        }
+        self.pending_ops += 1;
+        self.pending_bytes += encoded.len();
+        self.pending_writes.push_back(PendingWrite {
+            key: Some(key),
+            operation_id,
+            accepted_payload_bytes: accepted_payload_bytes as u64,
+            bytes: encoded,
+            written: 0,
+        });
     }
-}
 
-fn apply_barrier_outputs(
-    barrier: &mut botster_core::PtyIoBarrier<'_>,
-    ghostty: &mut GhosttyTerminal,
-    mode_owner: &mut WorkerModeOwner,
-    metadata_producer: &mut TerminalMetadataProducer,
-    metadata_shaper: &mut TerminalMetadataLaneShaper,
-    egress: &WorkerEgress,
-) -> Result<(), botster_core::SessionRuntimeError> {
-    // Apply retained output first, then fail closed on sticky authority so the
-    // first post-overflow probe/admit cannot succeed after incomplete modes.
-    let outputs = barrier.drain_output()?;
-    for output in outputs {
-        match output {
-            SessionRuntimeOutput::PtyOutput { data, .. } => {
-                apply_pty_output_chunk(
-                    ghostty,
-                    mode_owner,
-                    metadata_producer,
-                    metadata_shaper,
-                    egress,
-                    data,
+    fn apply_resize(
+        &mut self,
+        runtime: &mut LocalProcessRuntime,
+        rows: u16,
+        cols: u16,
+        pixels: Option<(u32, u32)>,
+    ) -> Result<(), String> {
+        if let Some((width_px, height_px)) = pixels {
+            self.ghostty.set_surface_pixels(width_px, height_px);
+        }
+        self.ghostty.resize(TerminalScreenSize::new(rows, cols));
+        runtime
+            .send_input(SessionRuntimeInput::Resize {
+                session_id: self.session_id.clone(),
+                size: ResizePayload { rows, cols },
+            })
+            .map_err(|error| error.to_string())?;
+        self.publish_modes_if_changed();
+        Ok(())
+    }
+
+    /// Abandon the unwritten remainder of one keyed operation.
+    fn cancel_operation(&mut self, key: u64) {
+        let Some(position) = self
+            .pending_writes
+            .iter()
+            .position(|write| write.key == Some(key))
+        else {
+            return;
+        };
+        let Some(write) = self.pending_writes.remove(position) else {
+            return;
+        };
+        self.finish_keyed(&write);
+        self.send_result(
+            key,
+            &InputResultBody {
+                operation_id: write.operation_id,
+                outcome: InputOutcome::Cancelled,
+                accepted_payload_bytes: Some(write.accepted_payload_bytes),
+                written_pty_bytes: Some(write.written as u64),
+                mode_bits: self.current_mode_bits(),
+                detail: String::new(),
+            },
+        );
+    }
+
+    fn finish_keyed(&mut self, write: &PendingWrite) {
+        if write.key.is_some() {
+            self.pending_ops = self.pending_ops.saturating_sub(1);
+            self.pending_bytes = self.pending_bytes.saturating_sub(write.bytes.len());
+        }
+    }
+
+    /// Write queued bytes without waiting. Returns `true` when the PTY would
+    /// block and bytes remain.
+    fn progress_pending_writes(&mut self, runtime: &LocalProcessRuntime) -> bool {
+        while let Some(head) = self.pending_writes.front_mut() {
+            let remaining = &head.bytes[head.written..];
+            match runtime.try_write_input(&self.session_id, remaining) {
+                Ok(written) => {
+                    head.written += written;
+                    if head.written < head.bytes.len() {
+                        return true;
+                    }
+                    let write = self.pending_writes.pop_front().expect("front write exists");
+                    self.finish_keyed(&write);
+                    if let Some(key) = write.key {
+                        self.send_result(
+                            key,
+                            &InputResultBody {
+                                operation_id: write.operation_id,
+                                outcome: InputOutcome::Written,
+                                accepted_payload_bytes: Some(write.accepted_payload_bytes),
+                                written_pty_bytes: Some(write.written as u64),
+                                mode_bits: self.current_mode_bits(),
+                                detail: String::new(),
+                            },
+                        );
+                    }
+                }
+                Err(failure) => {
+                    let mut write = self.pending_writes.pop_front().expect("front write exists");
+                    write.written += failure.bytes_written;
+                    self.finish_keyed(&write);
+                    if let Some(key) = write.key {
+                        let outcome = if write.written > 0 {
+                            InputOutcome::PartialWrite
+                        } else {
+                            InputOutcome::WriteFailed
+                        };
+                        self.send_result(
+                            key,
+                            &InputResultBody {
+                                operation_id: write.operation_id,
+                                outcome,
+                                accepted_payload_bytes: Some(write.accepted_payload_bytes),
+                                written_pty_bytes: Some(write.written as u64),
+                                mode_bits: self.current_mode_bits(),
+                                detail: failure.message.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Report every unfinished keyed operation as ended, before the exit frame.
+    fn fail_pending_on_exit(&mut self) {
+        let writes: Vec<_> = self.pending_writes.drain(..).collect();
+        for write in writes {
+            self.finish_keyed(&write);
+            if let Some(key) = write.key {
+                self.send_result(
+                    key,
+                    &InputResultBody {
+                        operation_id: write.operation_id,
+                        outcome: InputOutcome::SessionEnded,
+                        accepted_payload_bytes: Some(write.accepted_payload_bytes),
+                        written_pty_bytes: Some(write.written as u64),
+                        mode_bits: self.last_modes.mode_bits,
+                        detail: String::new(),
+                    },
                 );
             }
-            SessionRuntimeOutput::ProcessExited { payload, .. } => {
-                for observation in metadata_shaper.drain() {
-                    send_metadata_observation(egress, observation);
-                }
-                egress.send_protected_json(FRAME_PROCESS_EXITED, &payload);
-            }
-            SessionRuntimeOutput::Backpressure(_) => {}
-            SessionRuntimeOutput::TitleChanged { .. }
-            | SessionRuntimeOutput::CwdChanged { .. }
-            | SessionRuntimeOutput::PromptMark { .. }
-            | SessionRuntimeOutput::Bell { .. }
-            | SessionRuntimeOutput::Notification { .. }
-            | SessionRuntimeOutput::MetadataShaping(_) => {}
         }
     }
-    barrier.ensure_mode_authority()?;
-    Ok(())
-}
 
-fn unix_now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
+    fn publish_modes_if_changed(&mut self) {
+        let Ok(flags) = self.ghostty.read_mode_flags() else {
+            return;
+        };
+        let size = self.ghostty.size();
+        let modes = ModesBody {
+            mode_bits: flags.to_mode_bits(),
+            rows: size.rows,
+            cols: size.cols,
+        };
+        if modes != self.last_modes {
+            self.last_modes = modes;
+            if let Ok(frame) = encode_modes(modes) {
+                self.egress
+                    .send_protected_frame(FRAME_MODES_CHANGED, frame.body().to_vec());
+            }
+        }
+    }
+
+    fn apply_pty_output_chunk(&mut self, data: Vec<u8>) {
+        let observations = self.metadata_producer.observe(&data);
+        self.ghostty.write_output(&data);
+        // The worker is the only parser: inject query replies into the PTY here.
+        let replies = self.ghostty.drain_pty_writes();
+        self.queue_keyless_write(replies);
+        self.publish_modes_if_changed();
+        self.egress.send_protected_frame(FRAME_PTY_OUTPUT, data);
+        let mut shaping_reports = MetadataShapingReportAccumulator::default();
+        for observation in observations {
+            for shaping in self.metadata_shaper.push(observation) {
+                shaping_reports.record(shaping);
+            }
+        }
+        for observation in self.metadata_shaper.drain() {
+            send_metadata_observation(&self.egress, observation);
+        }
+        for shaping in shaping_reports.into_reports() {
+            self.egress
+                .send_protected_json(FRAME_METADATA_SHAPING, &shaping);
+        }
+    }
+
+    fn apply_outputs(&mut self, outputs: Vec<SessionRuntimeOutput>) {
+        for output in outputs {
+            match output {
+                SessionRuntimeOutput::PtyOutput { data, .. } => self.apply_pty_output_chunk(data),
+                SessionRuntimeOutput::ProcessExited { payload, .. } => {
+                    for observation in self.metadata_shaper.drain() {
+                        send_metadata_observation(&self.egress, observation);
+                    }
+                    self.fail_pending_on_exit();
+                    self.send_final_state();
+                    self.egress
+                        .send_protected_json(FRAME_PROCESS_EXITED, &payload);
+                    self.exited = true;
+                }
+                SessionRuntimeOutput::Backpressure(_)
+                | SessionRuntimeOutput::TitleChanged { .. }
+                | SessionRuntimeOutput::CwdChanged { .. }
+                | SessionRuntimeOutput::PromptMark { .. }
+                | SessionRuntimeOutput::Bell { .. }
+                | SessionRuntimeOutput::Notification { .. }
+                | SessionRuntimeOutput::MetadataShaping(_) => {}
+            }
+        }
+    }
+
+    fn send_final_state(&mut self) {
+        let screen_text = self.ghostty.plain_text().unwrap_or_default();
+        let (snapshot, error) = match self.ghostty.export_snapshot_bytes() {
+            Ok(bytes) => (Some(bytes), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        let mode_bits = self.current_mode_bits();
+        let size = self.ghostty.size();
+        let color_profile = self.ghostty.read_color_profile().unwrap_or_default();
+        let state = WorkerFinalState {
+            screen_text,
+            has_snapshot: snapshot.is_some(),
+            mode_bits,
+            rows: size.rows,
+            cols: size.cols,
+            color_profile,
+            error,
+        };
+        if let Ok(payload) = encode_final_state(&state, snapshot.as_deref()) {
+            self.egress.send_protected_frame(FRAME_FINAL_STATE, payload);
+        }
+    }
+
+    fn drain_and_apply_pty_output(
+        &mut self,
+        runtime: &mut LocalProcessRuntime,
+    ) -> Result<(), String> {
+        if self.exited {
+            return Ok(());
+        }
+        let outputs = runtime
+            .drain_output(&self.session_id)
+            .map_err(|error| error.to_string())?;
+        self.apply_outputs(outputs);
+        Ok(())
+    }
+
+    fn handle_snapshot_request(
+        &mut self,
+        runtime: &mut LocalProcessRuntime,
+        snapshot_barrier: &Arc<SnapshotBarrierControl>,
+        payload: &[u8],
+    ) {
+        let request = match serde_json::from_slice::<WorkerSnapshotRequest>(payload) {
+            Ok(request) => request,
+            Err(error) => {
+                self.egress.send_protected_json(
+                    FRAME_SNAPSHOT,
+                    &WorkerSnapshotResult {
+                        request_id: String::new(),
+                        snapshot: None,
+                        phase: None,
+                        error_kind: Some(format!("malformed snapshot request: {error}")),
+                        barrier_released: false,
+                        color_profile: None,
+                    },
+                );
+                return;
+            }
+        };
+        let request_id = request.request_id;
+        let barrier_control = Arc::clone(snapshot_barrier);
+        let session_id = self.session_id.clone();
+        let result = runtime.with_pty_io_barrier(&session_id, |barrier| {
+            let encoded = (|| {
+                let outputs = barrier.drain_output()?;
+                self.apply_outputs(outputs);
+                let size = self.ghostty.size();
+                let color_profile = self.ghostty.read_color_profile().unwrap_or_default();
+                let egress = &self.egress;
+                self.ghostty
+                    .export_snapshot_frames(|frame| {
+                        let phase = match frame.kind {
+                            GhosttySnapshotFrameKind::Ready => WorkerSnapshotPhase::Ready,
+                            GhosttySnapshotFrameKind::History => WorkerSnapshotPhase::History,
+                            GhosttySnapshotFrameKind::Finish => WorkerSnapshotPhase::Finish,
+                        };
+                        egress.send_protected_json_cancellable(
+                            FRAME_SNAPSHOT,
+                            &WorkerSnapshotResult {
+                                request_id: request_id.clone(),
+                                snapshot: Some(botster_core::TerminalSnapshotPayload::new(
+                                    frame.bytes,
+                                    size,
+                                    Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
+                                )),
+                                phase: Some(phase),
+                                error_kind: None,
+                                barrier_released: false,
+                                color_profile: (frame.kind == GhosttySnapshotFrameKind::Finish)
+                                    .then(|| color_profile.clone()),
+                            },
+                            || barrier_control.is_cancelled(&request_id),
+                        )
+                    })
+                    .map_err(|error| {
+                        botster_core::SessionRuntimeError::new(
+                            botster_core::SessionRuntimeErrorKind::OutputFailed,
+                            error.to_string(),
+                        )
+                    })
+            })();
+            if let Err(error) = encoded {
+                let _ = self.egress.send_protected_json_cancellable(
+                    FRAME_SNAPSHOT,
+                    &WorkerSnapshotResult {
+                        request_id: request_id.clone(),
+                        snapshot: None,
+                        phase: None,
+                        error_kind: Some(error.to_string()),
+                        barrier_released: false,
+                        color_profile: None,
+                    },
+                    || barrier_control.is_cancelled(&request_id),
+                );
+            }
+            match barrier_control.wait_for_release(&request_id) {
+                SnapshotBarrierRelease::Cancel => return Ok(()),
+                SnapshotBarrierRelease::Complete(resize) => {
+                    let release_error = if let Some(size) = resize {
+                        self.ghostty
+                            .resize(TerminalScreenSize::new(size.rows, size.cols));
+                        barrier.resize(size).err().map(|error| error.to_string())
+                    } else {
+                        None
+                    };
+                    let _ = self.egress.send_protected_json(
+                        FRAME_SNAPSHOT,
+                        &WorkerSnapshotResult {
+                            request_id: request_id.clone(),
+                            snapshot: None,
+                            phase: None,
+                            error_kind: release_error,
+                            barrier_released: true,
+                            color_profile: None,
+                        },
+                    );
+                }
+            }
+            Ok(())
+        });
+        if let Err(error) = result {
+            let _ = self.egress.send_protected_json(
+                FRAME_SNAPSHOT,
+                &WorkerSnapshotResult {
+                    request_id: request_id.clone(),
+                    snapshot: None,
+                    phase: None,
+                    error_kind: Some(error.to_string()),
+                    barrier_released: false,
+                    color_profile: None,
+                },
+            );
+        }
+        snapshot_barrier.clear(&request_id);
+        self.publish_modes_if_changed();
+    }
 }
 
 #[derive(Default)]
@@ -953,20 +1213,11 @@ fn spawn_control_reader(
     mut control: Box<dyn ReadWrite + Send>,
     sender: mpsc::Sender<Frame>,
     snapshot_barrier: Arc<SnapshotBarrierControl>,
-    cancel_cell: Arc<Mutex<Option<String>>>,
+    wakes: TerminalWakeSource,
+    session_id: SessionId,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut control) {
-            if frame.frame_type == FRAME_MODE_GATED_CANCEL {
-                if let Ok(request) =
-                    serde_json::from_slice::<ModeGatedCancelRequest>(&frame.payload)
-                {
-                    *cancel_cell
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner()) = Some(request.request_id);
-                }
-                continue;
-            }
             if frame.frame_type == FRAME_GET_SNAPSHOT {
                 if let Ok(request) = serde_json::from_slice::<WorkerSnapshotRequest>(&frame.payload)
                 {
@@ -991,8 +1242,10 @@ fn spawn_control_reader(
             if sender.send(frame).is_err() {
                 break;
             }
+            wakes.notify_session(&session_id);
         }
         snapshot_barrier.cancel_active();
+        wakes.notify_session(&session_id);
     });
 }
 
@@ -1149,14 +1402,16 @@ impl WorkerControl {
         initial: Box<dyn ReadWrite + Send>,
         sender: mpsc::Sender<Frame>,
         snapshot_barrier: Arc<SnapshotBarrierControl>,
-        cancel_cell: Arc<Mutex<Option<String>>>,
         metadata: SessionMetadata,
+        wakes: TerminalWakeSource,
+        session_id: SessionId,
     ) {
         spawn_control_reader(
             initial,
             sender.clone(),
             Arc::clone(&snapshot_barrier),
-            Arc::clone(&cancel_cell),
+            wakes.clone(),
+            session_id.clone(),
         );
         #[cfg(unix)]
         if let Self::Socket {
@@ -1182,7 +1437,8 @@ impl WorkerControl {
                         Box::new(stream),
                         sender.clone(),
                         Arc::clone(&snapshot_barrier),
-                        Arc::clone(&cancel_cell),
+                        wakes.clone(),
+                        session_id.clone(),
                     );
                 }
             });
@@ -1540,8 +1796,6 @@ struct WorkerArgs {
     test_write_max_chunk: Option<usize>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
-    test_fail_snapshot_history_after_ready: bool,
-    test_omit_resize_applied: bool,
     test_hold_before_exit_ms: Option<u64>,
     test_exit_code: Option<i32>,
     ghostty_max_scrollback_bytes: usize,
@@ -1560,8 +1814,6 @@ impl WorkerArgs {
         let mut test_write_max_chunk = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
-        let mut test_fail_snapshot_history_after_ready = false;
-        let mut test_omit_resize_applied = false;
         let mut test_hold_before_exit_ms = None;
         let mut test_exit_code = None;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
@@ -1618,12 +1870,6 @@ impl WorkerArgs {
                     test_hold_after_enqueue_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
-                "--test-fail-snapshot-history-after-ready" => {
-                    test_fail_snapshot_history_after_ready = true;
-                }
-                "--test-omit-resize-applied" => {
-                    test_omit_resize_applied = true;
-                }
                 "--test-hold-before-exit-ms" => {
                     index += 1;
                     test_hold_before_exit_ms =
@@ -1665,8 +1911,6 @@ impl WorkerArgs {
             test_write_max_chunk,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
-            test_fail_snapshot_history_after_ready,
-            test_omit_resize_applied,
             test_hold_before_exit_ms,
             test_exit_code,
             ghostty_max_scrollback_bytes,
@@ -1978,31 +2222,5 @@ mod tests {
             assert!(!path.exists());
             let _ = std::fs::remove_dir(root);
         }
-    }
-
-    #[test]
-    fn mode_generation_tokens_are_json_safe_integers() {
-        use super::new_mode_generation;
-
-        // Browser JSON numbers only preserve integers up to 2^53 - 1 exactly.
-        const JSON_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 1;
-        let mut seen = std::collections::HashSet::new();
-        for _ in 0..10_000 {
-            let generation = new_mode_generation();
-            assert!(generation >= 1, "generation must be non-zero");
-            assert!(
-                generation <= JSON_SAFE_INTEGER_MAX,
-                "generation {generation} exceeds JSON-safe integer max"
-            );
-            // Round-trip through serde_json number must preserve equality.
-            let encoded = serde_json::to_string(&generation).expect("encode");
-            let decoded: u64 = serde_json::from_str(&encoded).expect("decode");
-            assert_eq!(decoded, generation);
-            // Also prove f64 JSON parse path used by browsers would match.
-            let as_f64 = encoded.parse::<f64>().expect("parse f64");
-            assert_eq!(as_f64 as u64, generation);
-            seen.insert(generation);
-        }
-        assert!(seen.len() > 1, "tokens must advance");
     }
 }

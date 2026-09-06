@@ -200,26 +200,6 @@ impl ClientStreamHarness {
         }
     }
 
-    pub(crate) fn attach_snapshot(
-        &mut self,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        snapshot: Vec<u8>,
-    ) -> ClientStreamOutcome {
-        let mut outcome = self.begin_snapshot_attach(session_id.clone(), subscription_id.clone());
-        outcome.egress.push(self.snapshot_for_route(
-            session_id.clone(),
-            subscription_id.clone(),
-            snapshot,
-        ));
-        outcome.egress.push(TransportEgress::AttachState {
-            session_id,
-            subscription_id,
-            state: TerminalAttachState::Attached,
-        });
-        outcome
-    }
-
     pub(crate) fn begin_snapshot_attach(
         &mut self,
         session_id: SessionId,

@@ -110,13 +110,13 @@ FINISH.
 use botster_terminal_ghostty::GhosttySnapshotDecodeProgress;
 
 assert_eq!(
-    client.install_ghostsnp_ready(ready_bytes)?,
+    client.install_ghostsnp_ready(&ready_bytes)?,
     GhosttySnapshotDecodeProgress::Ready,
 );
 let viewport = client.project_viewport()?; // Paint now.
 
 for frame in history_and_finish_frames {
-    if client.apply_ghostsnp_history(frame)? == GhosttySnapshotDecodeProgress::Finish {
+    if client.apply_ghostsnp_history(&frame)? == GhosttySnapshotDecodeProgress::Finish {
         break;
     }
 }

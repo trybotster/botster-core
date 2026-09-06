@@ -15,28 +15,26 @@ mod wake_pump;
 pub use operation::{
     CaptureId, CaptureOwner, CoreCompletion, CoreOperation, ModeFlagsReadback, PendingLimitKind,
     PendingOperationId, RetainedTerminal, RetentionAccounting, RetentionPolicy, ScreenReadback,
-    SnapshotCapture, MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION,
-    MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
+    SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS, MAX_OPEN_CAPTURES_PER_CLIENT,
+    MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
 };
 
 pub use api::{
     is_observe_slice_error_message_byte, reserved_observe_slice_error,
     sanitize_observe_slice_error_message, AcknowledgeNotificationRequest,
-    AcknowledgeRoutedEnvelopeRequest, AttachedSession, CaptureColorAndSnapshotRequest,
-    CaptureColorAndSnapshotResult, CaptureSnapshotRequest, CaptureSnapshotResult, DaemonHealth,
+    AcknowledgeRoutedEnvelopeRequest, AttachedSession, CaptureSnapshotRequest, DaemonHealth,
     DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult, DrainResult,
     DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
     GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult, ObserveLifecycleBudget,
     ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
-    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
-    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
-    SessionLifecycleBaseline, SessionLifecycleBaselinePage, SessionLifecycleChange,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
-    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SessionRegistryStateLookup, SpawnSessionRequest,
+    ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
+    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
     OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 pub use botster_core::{
@@ -47,8 +45,8 @@ pub use botster_core::{
     WakingTerminalAdapter, WAKE_QUEUE_CAPACITY,
 };
 pub use daemon::{
-    CoreDaemon, CoreDaemonConfig, CoreDaemonError, ModeGatedInputOutcome, ObserveLifecycleResult,
-    ObserveLifecycleSessionError,
+    CoreDaemon, CoreDaemonConfig, CoreDaemonError, ObserveLifecycleResult,
+    ObserveLifecycleSessionError, DEFAULT_RETENTION_POLICY, DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 pub use daemon::{DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY};
 pub use guarded_write::{

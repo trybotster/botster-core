@@ -123,6 +123,37 @@ pub struct SnapshotCapture {
     pub unavailable: Option<HistoryUnavailableReason>,
 }
 
+/// One page of an open snapshot capture, shared with the capture buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotPage {
+    bytes: Arc<[u8]>,
+    start: usize,
+    end: usize,
+}
+
+impl SnapshotPage {
+    /// Build a page view over shared capture bytes.
+    #[must_use]
+    pub fn new(bytes: Arc<[u8]>, start: usize, end: usize) -> Self {
+        Self { bytes, start, end }
+    }
+
+    /// Page bytes.
+    #[must_use]
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes[self.start..self.end]
+    }
+
+    /// Whether this is the last page of the capture.
+    #[must_use]
+    pub fn is_last(&self) -> bool {
+        self.end == self.bytes.len()
+    }
+}
+
+/// Time an open capture stays readable without a page read or release.
+pub const CAPTURE_IDLE_TTL_SECONDS: u64 = 60;
+
 /// Result of one finished operation.
 #[derive(Debug)]
 pub enum CoreCompletion {

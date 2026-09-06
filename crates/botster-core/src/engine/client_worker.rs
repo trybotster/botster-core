@@ -1,42 +1,46 @@
-//! Synchronous ClientWorker: subscription queues, adapter pump, and teardown.
+//! Synchronous ClientWorker: per-route binary egress queues, scheme 2 input
+//! admission, and teardown.
 //!
-//! This is the production bound-adapter egress owner. It is not
-//! [`crate::contract::client_stream::ClientStreamHarness`]. Hosts advance it
-//! through `wait_wakes` and `pump_woken`. There is no ClientWorker OS thread.
+//! This is the production bound-adapter egress owner. Hosts advance it through
+//! `wait_wakes` and `pump_woken`. There is no ClientWorker OS thread.
+//!
+//! Every frame that leaves a bound route is a [`RoutedTerminalFrame`] whose
+//! body is a shared scheme 2 `TerminalBody`. Session-wide frames are encoded
+//! once and shared by `Arc` across every route on the session. Route-personal
+//! frames (attach state, snapshot pages, input results, resync) are encoded per
+//! route.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use botster_terminal_protocol::{
-    TerminalCapabilitySet, TerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-    MAX_PASTE_BYTES, MAX_PASTE_CHUNK_DATA_BYTES,
+    encode_attach_state, encode_input_result, encode_modes, encode_output, encode_process_exit,
+    encode_route_resync, AttachStateCode, InputOutcome, InputResultBody, ModesBody, RouteId,
+    RoutedTerminalFrame, TerminalCapabilitySet, TerminalFrame, TerminalInputFrame,
+    TerminalInputKind, TerminalKind, INPUT_HEADER_BYTES, MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION,
+    MAX_INPUT_OPERATIONS_PER_CLIENT, MAX_INPUT_OPERATIONS_PER_SESSION,
+    MAX_INPUT_RESULT_DETAIL_BYTES, MAX_PASTE_BYTES, MAX_PASTE_CHUNK_DATA_BYTES,
+    MAX_RETAINED_INPUT_BYTES_PER_CLIENT, MAX_RETAINED_INPUT_BYTES_PER_SESSION,
+    MAX_ROUTE_EGRESS_BYTES, MAX_ROUTE_EGRESS_FRAMES,
 };
-use botster_terminal_protocol_client::{
-    decode_terminal_input, AttachState, AttachStateKind, ProcessExit, Snapshot, SnapshotPhase,
-    TerminalEvent, TerminalInputCommand, TerminalInputKind, TerminalInputRejection,
-    TerminalInputResult, TerminalModeFlags, TerminalOutput,
-};
+use botster_terminal_protocol_client::{decode_terminal_input, TerminalInputCommand};
 
-use crate::actor::{QueueSource, TerminalAttachState};
 use crate::client::ClientId;
 use crate::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
 use crate::contract::terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, PasteOperation,
-    TerminalInputDelivery, TerminalInputOperation, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
+    StagedTerminalInput, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
 };
 use crate::session::{SessionId, SubscriptionId};
+use crate::session_protocol::WorkerInputKind;
 use crate::transport::TransportEgress;
-use crate::WorkerSnapshotPhase;
 
 const WRITE_ATTEMPT_BUDGET: usize = 512;
-/// Bounded per-subscription ingress backlog.
-pub const INPUT_QUEUE_CAPACITY: usize = 256;
 /// Stage A intake budget.
 pub const INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK: usize = 64;
 /// Stage B apply budget.
@@ -55,34 +59,116 @@ pub struct ClientWorkerTeardown {
     pub subscription_id: SubscriptionId,
     /// Generation that was removed.
     pub generation: TerminalSubscriptionGeneration,
-    /// Outstanding gated request id, if this owner was parked.
-    pub awaiting_gated: Option<String>,
+    /// Worker operation keys still in flight for this route. The host asks
+    /// the worker to cancel them; their results are dropped.
+    pub in_flight_keys: Vec<u64>,
 }
 
-/// Failure while enqueueing a client-facing `input_result`.
+/// One route that needs a fresh worker capture after egress overflow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteResyncRequest {
+    /// Client that owns the route.
+    pub client_id: ClientId,
+    /// Session of the route.
+    pub session_id: SessionId,
+    /// Subscription identity of the route.
+    pub subscription_id: SubscriptionId,
+    /// Fixed attachment generation of the route.
+    pub generation: TerminalSubscriptionGeneration,
+    /// Stream epoch the route entered with the `ROUTE_RESYNC` frame.
+    pub stream_epoch: u32,
+}
+
+/// Failure while enqueueing a route-personal frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EnqueueInputResultError {
+pub enum EnqueueRouteFrameError {
     /// The owner was already removed.
     OwnerGone,
-    /// The result could not be encoded as a terminal frame.
+    /// The frame could not be encoded.
     EncodeFailed,
-    /// The owner's egress queue is already at capacity.
-    EgressFull,
+}
+
+/// Monotonic generation source shared by attach generations and resync epochs.
+///
+/// Values never wrap. The seed puts one daemon incarnation above earlier ones
+/// on the same clock, but clients never compare generations numerically: they
+/// adopt the value carried by `ATTACH_STATE` or `ROUTE_RESYNC` and drop frames
+/// that do not match it.
+#[derive(Debug)]
+pub struct GenerationAllocator {
+    next: u64,
+}
+
+impl Default for GenerationAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GenerationAllocator {
+    /// Seed from the wall clock so generations rise across restarts.
+    #[must_use]
+    pub fn new() -> Self {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        // 2^20 attach or resync events per second before a restart overlaps.
+        Self {
+            next: (seconds << 20).max(1),
+        }
+    }
+
+    /// Allocate the next generation, or `None` at exhaustion.
+    pub fn allocate(&mut self) -> Option<TerminalSubscriptionGeneration> {
+        if self.next == u64::MAX {
+            return None;
+        }
+        let value = self.next;
+        self.next += 1;
+        Some(TerminalSubscriptionGeneration(value))
+    }
 }
 
 /// Synchronous per-engine ClientWorker.
-#[derive(Default)]
 pub struct ClientWorker {
     live: HashMap<OwnerKey, SubscriptionOwner>,
-    last_generation: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
-    next_snapshot_phase: HashMap<OwnerKey, SnapshotPhase>,
+    known: HashSet<OwnerKey>,
     expected_adapters: HashSet<(ClientId, OwnerKey)>,
     capacity_parked: HashMap<OwnerKey, TerminalSubscriptionGeneration>,
     input_cursor: usize,
     wake_source: TerminalWakeSource,
     bound_queue_wake_sessions: HashSet<SessionId>,
-    #[cfg(test)]
-    fail_next_encode: bool,
+    generations: GenerationAllocator,
+    resync_requests: Vec<RouteResyncRequest>,
+    cancel_requests: Vec<(SessionId, u64)>,
+    session_modes: HashMap<SessionId, ModesBody>,
+    session_lanes: HashMap<SessionId, LaneUsage>,
+    client_lanes: HashMap<ClientId, LaneUsage>,
+    next_operation_key: u64,
+    in_flight: HashMap<u64, InFlightOperation>,
+}
+
+impl Default for ClientWorker {
+    fn default() -> Self {
+        Self {
+            live: HashMap::new(),
+            known: HashSet::new(),
+            expected_adapters: HashSet::new(),
+            capacity_parked: HashMap::new(),
+            input_cursor: 0,
+            wake_source: TerminalWakeSource::new(),
+            bound_queue_wake_sessions: HashSet::new(),
+            generations: GenerationAllocator::new(),
+            resync_requests: Vec::new(),
+            cancel_requests: Vec::new(),
+            session_modes: HashMap::new(),
+            session_lanes: HashMap::new(),
+            client_lanes: HashMap::new(),
+            next_operation_key: 1,
+            in_flight: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,29 +177,56 @@ pub(crate) struct OwnerKey {
     pub(crate) subscription_id: SubscriptionId,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct LaneUsage {
+    operations: usize,
+    bytes: usize,
+}
+
 struct SubscriptionOwner {
     client_id: ClientId,
     generation: TerminalSubscriptionGeneration,
+    route: RouteId,
     adapter: Option<Box<dyn TerminalAdapter + Send>>,
     capabilities: Option<TerminalCapabilitySet>,
     queue: VecDeque<QueuedFrame>,
-    held: VecDeque<(TransportEgress, Option<SnapshotPhase>)>,
+    queued_bytes: usize,
     hold_until_bound: bool,
     unsuccessful_writes: usize,
     in_flight: bool,
-    process_exit_enqueued: bool,
-    process_exit_delivered: bool,
-    input_queue: VecDeque<TerminalInputOperation>,
-    awaiting_gated: Option<GatedWait>,
+    /// A terminal frame (`PROCESS_EXIT` or `ATTACH_STATE failed`) is queued;
+    /// nothing may follow it and the route hard-stops after delivery.
+    terminal_enqueued: bool,
+    terminal_delivered: bool,
+    /// Stream epoch inside the fixed attachment generation. Starts at 0 and
+    /// advances only through `ROUTE_RESYNC`.
+    stream_epoch: u32,
+    /// Live output is suppressed until the route's `SNAPSHOT_READY` lands.
+    awaiting_capture: bool,
+    input_queue: VecDeque<AdmittedInput>,
+    last_operation_id: u64,
     paste: Option<PasteAssembly>,
-    paste_in_flight: Option<u32>,
-    last_paste_operation_id: Option<u32>,
+    /// Lane usage this owner currently holds, released on hard-stop.
+    lane: LaneUsage,
+}
+
+struct AdmittedInput {
+    operation_id: u64,
+    kind: WorkerInputKind,
+    body: Vec<u8>,
+    accepted_payload_bytes: u64,
+}
+
+struct InFlightOperation {
+    key: OwnerKey,
+    client_id: ClientId,
+    operation_id: u64,
+    retained_bytes: usize,
 }
 
 struct PasteAssembly {
-    operation_id: u32,
-    mode_generation: u64,
-    mode_revision: u64,
+    operation_id: u64,
+    allow_unsafe: bool,
     total_len: usize,
     expected_chunks: usize,
     next_index: usize,
@@ -121,28 +234,20 @@ struct PasteAssembly {
     deadline: Instant,
 }
 
-/// Outstanding mode-gated request for one owner.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GatedWait {
-    /// Correlated worker request id.
-    pub request_id: String,
-    /// When the parent wait expires.
-    pub deadline: Instant,
-    /// Client-visible input kind for the worker result.
-    pub kind: TerminalInputKind,
-    /// Paste operation id, when this wait belongs to a paste.
-    pub operation_id: Option<u32>,
-}
-
+/// One queued frame with the small route descriptor captured at enqueue.
 struct QueuedFrame {
     frame: TerminalFrame,
     kind: QueuedKind,
+    /// Epoch current when this frame was queued. Never restamped.
+    stream_epoch: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum QueuedKind {
-    Snapshot,
-    ProcessExit,
+    /// `PROCESS_EXIT` or `ATTACH_STATE failed`: last frame on the route.
+    Terminal,
+    /// `INPUT_RESULT`: preserved across resync in order.
+    InputResult,
     Other,
 }
 
@@ -153,16 +258,31 @@ impl ClientWorker {
         Self::default()
     }
 
-    /// Assign or reuse a generation on attach and publish the inventory row.
+    /// Assign a fresh generation on attach and publish the inventory row.
     ///
     /// A client that attaches a new subscription for the same session hard-stops
-    /// the previous owner for that client and session.
+    /// the previous owner for that client and session. A repeated attach for a
+    /// live identity reuses its generation. The new owner awaits a capture:
+    /// live output is suppressed until its `SNAPSHOT_READY` lands.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AttachTerminalRouteError::InvalidRoute`] when the subscription
+    /// id is not a valid scheme 2 route id, and
+    /// [`AttachTerminalRouteError::GenerationExhausted`] when the shared
+    /// allocator has no value left. Neither creates an owner.
     pub fn record_attach(
         &mut self,
         client_id: ClientId,
         session_id: SessionId,
         subscription_id: SubscriptionId,
-    ) -> (TerminalSubscriptionGeneration, Vec<ClientWorkerTeardown>) {
+    ) -> Result<(TerminalSubscriptionGeneration, Vec<ClientWorkerTeardown>), AttachTerminalRouteError>
+    {
+        let route = RouteId::new(&subscription_id.0).map_err(|_| {
+            AttachTerminalRouteError::InvalidRoute {
+                subscription_id: subscription_id.clone(),
+            }
+        })?;
         let mut replacements =
             self.teardown_replaced_client_session(&client_id, &session_id, &subscription_id);
         let key = OwnerKey {
@@ -175,20 +295,17 @@ impl ClientWorker {
             .and_then(|existing| (existing.client_id == client_id).then_some(existing.generation))
         {
             self.expected_adapters.remove(&(client_id, key));
-            return (generation, replacements);
+            return Ok((generation, replacements));
         }
         if self.live.contains_key(&key) {
             if let Some(stolen) = self.hard_stop_key(&key) {
                 replacements.push(stolen);
             }
         }
-        let generation = TerminalSubscriptionGeneration(
-            self.last_generation
-                .get(&key)
-                .map(|generation| generation.0 + 1)
-                .unwrap_or(1),
-        );
-        self.last_generation.insert(key.clone(), generation);
+        let Some(generation) = self.generations.allocate() else {
+            return Err(AttachTerminalRouteError::GenerationExhausted);
+        };
+        self.known.insert(key.clone());
         let hold_until_bound = self
             .expected_adapters
             .remove(&(client_id.clone(), key.clone()));
@@ -197,23 +314,25 @@ impl ClientWorker {
             SubscriptionOwner {
                 client_id,
                 generation,
+                route,
                 adapter: None,
                 capabilities: None,
                 queue: VecDeque::new(),
-                held: VecDeque::new(),
+                queued_bytes: 0,
                 hold_until_bound,
                 unsuccessful_writes: 0,
                 in_flight: false,
-                process_exit_enqueued: false,
-                process_exit_delivered: false,
+                terminal_enqueued: false,
+                terminal_delivered: false,
+                stream_epoch: 0,
+                awaiting_capture: true,
                 input_queue: VecDeque::new(),
-                awaiting_gated: None,
+                last_operation_id: 0,
                 paste: None,
-                paste_in_flight: None,
-                last_paste_operation_id: None,
+                lane: LaneUsage::default(),
             },
         );
-        (generation, replacements)
+        Ok((generation, replacements))
     }
 
     /// Record that the next attach for this identity will bind an adapter.
@@ -277,9 +396,19 @@ impl ClientWorker {
     fn hard_stop_key(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
         self.wake_source
             .retire_route(&key.session_id, &key.subscription_id);
-        self.next_snapshot_phase.remove(key);
         self.capacity_parked.remove(key);
-        hard_stop(&mut self.live, key)
+        let owner = self.live.remove(key)?;
+        self.release_lane(&key.session_id, &owner.client_id, owner.lane);
+        let in_flight_keys: Vec<u64> = self
+            .in_flight
+            .iter()
+            .filter(|(_, operation)| &operation.key == key)
+            .map(|(operation_key, _)| *operation_key)
+            .collect();
+        for operation_key in &in_flight_keys {
+            self.in_flight.remove(operation_key);
+        }
+        Some(hard_stop(owner, key, in_flight_keys))
     }
 
     /// Replace the wake source. Construction-only; do not call after a waking bind.
@@ -297,44 +426,6 @@ impl ClientWorker {
     ///
     /// Allocation and registry insert happen only after every rejection returns.
     /// Rejected binds close and drop the adapter and allocate nothing.
-    ///
-    /// A plain [`TerminalAdapter`] cannot use the waking bind.
-    ///
-    /// ```compile_fail
-    /// use botster_core::contract::terminal_adapter::{
-    ///     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
-    /// };
-    /// use botster_core::{ClientId, ClientWorker, SessionId, SubscriptionId, TerminalCapabilitySet};
-    /// use botster_terminal_protocol::TerminalFrame;
-    ///
-    /// struct PollingAdapter;
-    /// impl TerminalAdapter for PollingAdapter {
-    ///     fn try_write(&mut self, _: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
-    ///         Ok(())
-    ///     }
-    ///     fn close(&mut self) {}
-    ///     fn pressure(&self) -> TerminalAdapterPressure { TerminalAdapterPressure::Ready }
-    ///     fn try_read(&mut self) -> TerminalIngress { TerminalIngress::Empty }
-    /// }
-    ///
-    /// let mut worker = ClientWorker::new();
-    /// let client_id = ClientId("client".into());
-    /// let session_id = SessionId("session".into());
-    /// let subscription_id = SubscriptionId("subscription".into());
-    /// let (generation, _) = worker.record_attach(
-    ///     client_id.clone(),
-    ///     session_id.clone(),
-    ///     subscription_id.clone(),
-    /// );
-    /// worker.bind_waking_terminal_adapter(
-    ///     &client_id,
-    ///     session_id,
-    ///     subscription_id,
-    ///     generation,
-    ///     TerminalCapabilitySet::empty(),
-    ///     Box::new(PollingAdapter),
-    /// );
-    /// ```
     pub fn bind_waking_terminal_adapter(
         &mut self,
         client_id: &ClientId,
@@ -352,7 +443,7 @@ impl ClientWorker {
             let Some(owner) = self.live.get_mut(&key) else {
                 adapter.close();
                 drop(adapter);
-                return Err(if self.last_generation.contains_key(&key) {
+                return Err(if self.known.contains(&key) {
                     BindTerminalAdapterError::UnknownSubscription {
                         session_id,
                         subscription_id,
@@ -400,15 +491,14 @@ impl ClientWorker {
         };
         owner.adapter = Some(Box::new(WakingAdapterHolder { inner: adapter }));
         owner.capabilities = Some(capabilities);
+        owner.hold_until_bound = false;
+        if !owner.queue.is_empty() {
+            self.bound_queue_wake_sessions.insert(key.session_id);
+        }
         Ok(())
     }
 
     /// Take session ids whose bound Ready queues grew since the last take.
-    ///
-    /// The set records new queue growth only. A later non-pump drain does
-    /// not re-arm a session whose frames already sit in `held`, `queue`, or
-    /// in flight. Non-pump drains notify these sessions. Pump paths discard
-    /// the set so pump-time ingest cannot enqueue a second ingress wake.
     #[must_use]
     pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
         std::mem::take(&mut self.bound_queue_wake_sessions)
@@ -418,8 +508,7 @@ impl ClientWorker {
     #[must_use]
     pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
         self.live.iter().any(|(key, owner)| {
-            &key.session_id == session_id
-                && (!owner.held.is_empty() || !owner.queue.is_empty() || owner.in_flight)
+            &key.session_id == session_id && (!owner.queue.is_empty() || owner.in_flight)
         })
     }
 
@@ -435,7 +524,7 @@ impl ClientWorker {
                 session_id: session_id.clone(),
                 subscription_id: subscription_id.clone(),
             })
-            .is_some_and(|owner| owner.adapter.is_some() && !owner.held.is_empty())
+            .is_some_and(|owner| owner.adapter.is_some() && !owner.queue.is_empty())
     }
 
     fn owner_ready_for_bound_queue_wake(owner: &SubscriptionOwner) -> bool {
@@ -497,36 +586,59 @@ impl ClientWorker {
             .map(|owner| owner.generation)
     }
 
-    /// Remember the worker snapshot phase for the next ingested Snapshot frame.
-    pub fn note_snapshot_phase(
-        &mut self,
+    /// Whether this route is a bound or pre-bind held route.
+    ///
+    /// Such routes receive binary frames directly and are excluded from the
+    /// unbound `TransportEgress` drain path.
+    #[must_use]
+    pub fn route_is_bound(
+        &self,
+        client_id: &ClientId,
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
-        phase: WorkerSnapshotPhase,
-    ) {
-        self.next_snapshot_phase.insert(
-            OwnerKey {
+    ) -> bool {
+        self.live
+            .get(&OwnerKey {
                 session_id: session_id.clone(),
                 subscription_id: subscription_id.clone(),
-            },
-            match phase {
-                WorkerSnapshotPhase::Ready => SnapshotPhase::Ready,
-                WorkerSnapshotPhase::History => SnapshotPhase::History,
-                WorkerSnapshotPhase::Finish => SnapshotPhase::Finish,
-            },
-        );
+            })
+            .is_some_and(|owner| {
+                &owner.client_id == client_id && (owner.adapter.is_some() || owner.hold_until_bound)
+            })
     }
 
-    /// Strip bound-route terminal frames from `egress` into ClientWorker queues.
-    pub fn ingest_bound_terminal_frames(
+    /// Latest worker modes for a session as seen by this worker.
+    #[must_use]
+    pub fn session_modes(&self, session_id: &SessionId) -> Option<ModesBody> {
+        self.session_modes.get(session_id).copied()
+    }
+
+    /// Current stream epoch of one live route.
+    #[must_use]
+    pub fn route_stream_epoch(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<u32> {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .map(|owner| owner.stream_epoch)
+    }
+
+    /// Remove bound-route frames from `egress` so only unbound drain consumers
+    /// receive them. Bound routes already received the binary frame.
+    ///
+    /// An unbound owner that sees `ProcessExit` is hard-stopped: its client
+    /// receives the exit through the drain path and the row must not outlive it.
+    pub fn filter_bound_terminal_frames(
         &mut self,
         egress: &mut Vec<(ClientId, TransportEgress)>,
     ) -> Vec<ClientWorkerTeardown> {
         let mut retained = Vec::with_capacity(egress.len());
-        let mut teardowns = self.flush_held_after_bind();
-        let mut failed_routes = HashSet::new();
         let mut unbound_process_exits = Vec::new();
-        let mut bound_queue_wakes = Vec::new();
         for (client_id, frame) in egress.drain(..) {
             let Some((session_id, subscription_id)) = terminal_route(&frame) else {
                 retained.push((client_id, frame));
@@ -536,178 +648,361 @@ impl ClientWorker {
                 session_id: session_id.clone(),
                 subscription_id: subscription_id.clone(),
             };
-            if failed_routes.contains(&key) {
-                continue;
-            }
-            let Some(owner) = self.live.get_mut(&key) else {
-                self.next_snapshot_phase.remove(&key);
-                if matches!(frame, TransportEgress::ProcessExit { .. }) {
-                    retained.push((client_id, frame));
-                }
+            let Some(owner) = self.live.get(&key) else {
+                retained.push((client_id, frame));
                 continue;
             };
             if owner.client_id != client_id {
                 retained.push((client_id, frame));
                 continue;
             }
-            if owner.adapter.is_none() {
-                if owner.hold_until_bound {
-                    if matches!(
-                        frame,
-                        TransportEgress::AttachState {
-                            state: TerminalAttachState::Detached,
-                            ..
-                        }
-                    ) {
-                        retained.push((client_id, frame));
-                        continue;
-                    }
-                    if owner.held.len() >= QueueSource::ClientWorker.default_capacity() {
-                        failed_routes.insert(key.clone());
-                        if let Some(teardown) = self.hard_stop_key(&key) {
-                            teardowns.push(teardown);
-                        }
-                        continue;
-                    }
-                    let phase = if matches!(frame, TransportEgress::Snapshot { .. }) {
-                        self.next_snapshot_phase.remove(&key)
-                    } else {
-                        None
-                    };
-                    if matches!(frame, TransportEgress::ProcessExit { .. }) {
-                        owner.process_exit_enqueued = true;
-                    }
-                    owner.held.push_back((frame, phase));
-                    continue;
-                }
-                if matches!(frame, TransportEgress::Snapshot { .. }) {
-                    self.next_snapshot_phase.remove(&key);
-                }
-                if matches!(frame, TransportEgress::ProcessExit { .. }) {
-                    unbound_process_exits.push(key);
-                }
-                retained.push((client_id, frame));
+            if owner.adapter.is_some() || owner.hold_until_bound {
                 continue;
             }
-            if owner.process_exit_enqueued {
-                continue;
+            if matches!(frame, TransportEgress::ProcessExit { .. }) {
+                unbound_process_exits.push(key);
             }
-            let capabilities = owner
-                .capabilities
-                .clone()
-                .unwrap_or_else(TerminalCapabilitySet::empty);
-            match encode_terminal_frame(
-                &key,
-                &frame,
-                self.next_snapshot_phase.remove(&key),
-                &capabilities,
-            ) {
-                Ok(Some(queued)) => {
-                    if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
-                        failed_routes.insert(key.clone());
-                        if let Some(teardown) = self.hard_stop_key(&key) {
-                            teardowns.push(teardown);
-                        }
-                    } else {
-                        let is_process_exit = queued.kind == QueuedKind::ProcessExit;
-                        let ready = Self::owner_ready_for_bound_queue_wake(owner);
-                        owner.queue.push_back(queued);
-                        if is_process_exit {
-                            owner.process_exit_enqueued = true;
-                        }
-                        if ready {
-                            bound_queue_wakes.push(key.session_id.clone());
-                        }
-                    }
-                }
-                Ok(None) => {
-                    if !matches!(frame, TransportEgress::Snapshot { .. }) {
-                        retained.push((client_id, frame));
-                    }
-                }
-                Err(()) => {
-                    failed_routes.insert(key.clone());
-                    if let Some(teardown) = self.hard_stop_key(&key) {
-                        teardowns.push(teardown);
-                    }
-                }
-            }
+            retained.push((client_id, frame));
         }
-        for key in unbound_process_exits {
-            if let Some(teardown) = self.hard_stop_key(&key) {
+        *egress = retained;
+        unbound_process_exits
+            .into_iter()
+            .filter_map(|key| self.hard_stop_key(&key))
+            .collect()
+    }
+
+    /// Enqueue one session-wide frame onto every receiving route of `session_id`.
+    ///
+    /// The frame body is shared by `Arc`; no route copies it. Routes that are
+    /// still awaiting their capture skip live output because the capture
+    /// already contains those bytes.
+    pub fn push_session_frame(
+        &mut self,
+        session_id: &SessionId,
+        frame: &TerminalFrame,
+    ) -> Vec<ClientWorkerTeardown> {
+        let keys = self.receiving_keys(session_id, false);
+        let mut teardowns = Vec::new();
+        for key in keys {
+            if let Some(teardown) = self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Other)
+            {
                 teardowns.push(teardown);
             }
         }
-        self.bound_queue_wake_sessions.extend(bound_queue_wakes);
-        *egress = retained;
         teardowns
     }
 
-    fn flush_held_after_bind(&mut self) -> Vec<ClientWorkerTeardown> {
-        let keys: Vec<_> = self
+    /// Encode live PTY output once and share it across the session's routes.
+    pub fn push_session_output(
+        &mut self,
+        session_id: &SessionId,
+        data: &[u8],
+    ) -> Vec<ClientWorkerTeardown> {
+        if !self.session_has_receivers(session_id, false) {
+            return Vec::new();
+        }
+        match encode_output(data) {
+            Ok(frame) => self.push_session_frame(session_id, &frame),
+            Err(_) => self.teardown_session(session_id),
+        }
+    }
+
+    /// Record worker modes for a session and share the `MODES` frame.
+    pub fn push_session_modes(
+        &mut self,
+        session_id: &SessionId,
+        modes: ModesBody,
+    ) -> Vec<ClientWorkerTeardown> {
+        self.session_modes.insert(session_id.clone(), modes);
+        if !self.session_has_receivers(session_id, false) {
+            return Vec::new();
+        }
+        match encode_modes(modes) {
+            Ok(frame) => self.push_session_frame(session_id, &frame),
+            Err(_) => self.teardown_session(session_id),
+        }
+    }
+
+    /// End one route with `ATTACH_STATE failed`. The frame is the last on the
+    /// route; the route hard-stops after it is delivered.
+    pub fn fail_route(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<ClientWorkerTeardown> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let bound = self
+            .live
+            .get(&key)
+            .is_some_and(|owner| owner.adapter.is_some() || owner.hold_until_bound);
+        if !bound {
+            return self.hard_stop_key(&key);
+        }
+        match encode_attach_state(AttachStateCode::Failed) {
+            Ok(frame) => self.enqueue_owner_frame(&key, frame, QueuedKind::Terminal),
+            Err(_) => self.hard_stop_key(&key),
+        }
+    }
+
+    /// Share `PROCESS_EXIT` with every route on the session, including routes
+    /// still awaiting a capture that will never arrive.
+    pub fn push_session_process_exit(
+        &mut self,
+        session_id: &SessionId,
+        code: Option<i32>,
+    ) -> Vec<ClientWorkerTeardown> {
+        let mut teardowns = self.fail_queued_input_for_session(session_id);
+        let keys = self.receiving_keys(session_id, true);
+        if keys.is_empty() {
+            return teardowns;
+        }
+        let frame = match encode_process_exit(code) {
+            Ok(frame) => frame,
+            Err(_) => {
+                teardowns.extend(self.teardown_session(session_id));
+                return teardowns;
+            }
+        };
+        for key in keys {
+            if let Some(teardown) =
+                self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Terminal)
+            {
+                teardowns.push(teardown);
+            }
+        }
+        teardowns
+    }
+
+    /// Enqueue one route-personal frame.
+    ///
+    /// `SNAPSHOT_READY` ends the route's capture wait so later live output
+    /// flows. Returns the teardown when the enqueue hard-stopped the route.
+    pub fn push_route_frame(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        frame: TerminalFrame,
+    ) -> Result<Option<ClientWorkerTeardown>, EnqueueRouteFrameError> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let Some(owner) = self.live.get_mut(&key) else {
+            return Err(EnqueueRouteFrameError::OwnerGone);
+        };
+        if owner.adapter.is_none() && !owner.hold_until_bound {
+            // Unbound owners are served by the drain path.
+            return Ok(None);
+        }
+        if frame.kind() == TerminalKind::SnapshotReady {
+            owner.awaiting_capture = false;
+        }
+        let kind = if frame.kind() == TerminalKind::InputResult {
+            QueuedKind::InputResult
+        } else {
+            QueuedKind::Other
+        };
+        Ok(self.enqueue_owner_frame(&key, frame, kind))
+    }
+
+    /// Enqueue an `ATTACH_STATE` frame for one route.
+    pub fn push_attach_state(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        state: AttachStateCode,
+    ) -> Result<Option<ClientWorkerTeardown>, EnqueueRouteFrameError> {
+        let frame = encode_attach_state(state).map_err(|_| EnqueueRouteFrameError::EncodeFailed)?;
+        self.push_route_frame(session_id, subscription_id, frame)
+    }
+
+    /// Mark a route as awaiting a fresh capture without changing its generation.
+    ///
+    /// Used when the host restarts a capture for a live route (attach takeover).
+    pub fn begin_route_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        if let Some(owner) = self.live.get_mut(&OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        }) {
+            owner.awaiting_capture = true;
+        }
+    }
+
+    /// Take routes whose egress overflowed and now need a fresh capture.
+    #[must_use]
+    pub fn take_resync_requests(&mut self) -> Vec<RouteResyncRequest> {
+        std::mem::take(&mut self.resync_requests)
+    }
+
+    /// Worker key of one in-flight operation addressed by route identity.
+    ///
+    /// The route is the subscription id; `generation` must match the live
+    /// attachment generation.
+    #[must_use]
+    pub fn in_flight_key_for_route(
+        &self,
+        route: &RouteId,
+        generation: u64,
+        operation_id: u64,
+    ) -> Option<(SessionId, u64)> {
+        self.in_flight
+            .iter()
+            .find(|(_, operation)| {
+                operation.key.subscription_id.0 == route.as_str()
+                    && operation.operation_id == operation_id
+                    && self
+                        .live
+                        .get(&operation.key)
+                        .is_some_and(|owner| owner.generation.0 == generation)
+            })
+            .map(|(key, operation)| (operation.key.session_id.clone(), *key))
+    }
+
+    /// Take worker operation keys the host must cancel at the worker.
+    #[must_use]
+    pub fn take_cancel_requests(&mut self) -> Vec<(SessionId, u64)> {
+        std::mem::take(&mut self.cancel_requests)
+    }
+
+    fn session_has_receivers(&self, session_id: &SessionId, include_awaiting: bool) -> bool {
+        self.live.iter().any(|(key, owner)| {
+            &key.session_id == session_id
+                && (owner.adapter.is_some() || owner.hold_until_bound)
+                && (include_awaiting || !owner.awaiting_capture)
+                && !owner.terminal_enqueued
+        })
+    }
+
+    fn receiving_keys(&self, session_id: &SessionId, include_awaiting: bool) -> Vec<OwnerKey> {
+        let mut keys: Vec<_> = self
             .live
             .iter()
-            .filter(|(_, owner)| {
-                owner.adapter.is_some() && (owner.hold_until_bound || !owner.held.is_empty())
+            .filter(|(key, owner)| {
+                &key.session_id == session_id
+                    && (owner.adapter.is_some() || owner.hold_until_bound)
+                    && (include_awaiting || !owner.awaiting_capture)
+                    && !owner.terminal_enqueued
             })
             .map(|(key, _)| key.clone())
             .collect();
-        let mut teardowns = Vec::new();
-        for key in keys {
-            if let Some(teardown) = self.flush_held_owner(&key) {
-                teardowns.push(teardown);
-            }
-        }
-        teardowns
+        keys.sort_by(|left, right| left.subscription_id.0.cmp(&right.subscription_id.0));
+        keys
     }
 
-    fn flush_held_owner(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
-        loop {
-            let (frame, phase, capabilities) = {
-                let owner = self.live.get_mut(key)?;
-                owner.adapter.as_ref()?;
-                let Some(held) = owner.held.pop_front() else {
-                    owner.hold_until_bound = false;
-                    return None;
-                };
-                (
-                    held.0,
-                    held.1,
-                    owner
-                        .capabilities
-                        .clone()
-                        .unwrap_or_else(TerminalCapabilitySet::empty),
-                )
-            };
-            #[cfg(test)]
-            if self.fail_next_encode {
-                self.fail_next_encode = false;
-                return self.hard_stop_key(key);
+    /// Enqueue one frame on one owner with the route egress ceiling.
+    ///
+    /// Overflow recovers only this route: unsent obsolete frames are dropped,
+    /// the route enters a new stream epoch, `ROUTE_RESYNC` is queued under it
+    /// followed by any preserved `INPUT_RESULT` frames, and the host is asked
+    /// for a new capture. Epoch exhaustion ends the route with
+    /// `ATTACH_STATE failed`.
+    fn enqueue_owner_frame(
+        &mut self,
+        key: &OwnerKey,
+        frame: TerminalFrame,
+        kind: QueuedKind,
+    ) -> Option<ClientWorkerTeardown> {
+        let over = {
+            let owner = self.live.get_mut(key)?;
+            if owner.terminal_enqueued {
+                return None;
             }
-            match encode_terminal_frame(key, &frame, phase, &capabilities) {
-                Ok(Some(queued)) => {
-                    let ready;
-                    {
-                        let owner = self.live.get_mut(key)?;
-                        if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
-                            return self.hard_stop_key(key);
-                        }
-                        let is_process_exit = queued.kind == QueuedKind::ProcessExit;
-                        ready = Self::owner_ready_for_bound_queue_wake(owner);
-                        owner.queue.push_back(queued);
-                        if is_process_exit {
-                            owner.process_exit_enqueued = true;
-                        }
-                    }
-                    if ready {
-                        self.bound_queue_wake_sessions
-                            .insert(key.session_id.clone());
-                    }
-                }
-                Ok(None) => {}
-                Err(()) => return self.hard_stop_key(key),
-            }
+            owner.queue.len() >= MAX_ROUTE_EGRESS_FRAMES
+                || owner.queued_bytes.saturating_add(frame.len()) > MAX_ROUTE_EGRESS_BYTES
+        };
+        if over {
+            return self.overflow_route(key, frame, kind);
         }
+        let ready = {
+            let owner = self.live.get_mut(key)?;
+            let ready = Self::owner_ready_for_bound_queue_wake(owner);
+            owner.queued_bytes += frame.len();
+            if kind == QueuedKind::Terminal {
+                owner.terminal_enqueued = true;
+            }
+            let stream_epoch = owner.stream_epoch;
+            owner.queue.push_back(QueuedFrame {
+                frame,
+                kind,
+                stream_epoch,
+            });
+            ready
+        };
+        if ready {
+            self.bound_queue_wake_sessions
+                .insert(key.session_id.clone());
+        }
+        None
+    }
+
+    fn overflow_route(
+        &mut self,
+        key: &OwnerKey,
+        overflowing: TerminalFrame,
+        overflowing_kind: QueuedKind,
+    ) -> Option<ClientWorkerTeardown> {
+        let from_epoch = self.live.get(key)?.stream_epoch;
+        let Some(to_epoch) = from_epoch.checked_add(1) else {
+            // Epoch exhausted: end the route explicitly. `fail_route` needs
+            // queue room, so drop the unsent frames first.
+            let owner = self.live.get_mut(key)?;
+            let keep = usize::from(owner.in_flight);
+            owner.queue.truncate(keep);
+            owner.queued_bytes = owner.queue.iter().map(|queued| queued.frame.len()).sum();
+            return self.fail_route(&key.session_id, &key.subscription_id);
+        };
+        let resync = match encode_route_resync(from_epoch, to_epoch) {
+            Ok(frame) => frame,
+            Err(_) => return self.hard_stop_key(key),
+        };
+        let owner = self.live.get_mut(key)?;
+        // The in-flight head is already copied by the adapter; keep its slot so
+        // completion bookkeeping stays exact. Unsent obsolete frames are
+        // dropped; accepted input results are preserved in order behind the
+        // transition under the new epoch.
+        let keep = usize::from(owner.in_flight);
+        let mut preserved: VecDeque<QueuedFrame> = owner.queue.drain(keep..).collect();
+        preserved.retain(|queued| queued.kind == QueuedKind::InputResult);
+        if overflowing_kind == QueuedKind::InputResult {
+            preserved.push_back(QueuedFrame {
+                frame: overflowing,
+                kind: overflowing_kind,
+                stream_epoch: from_epoch,
+            });
+        }
+        owner.stream_epoch = to_epoch;
+        owner.awaiting_capture = true;
+        owner.queue.push_back(QueuedFrame {
+            frame: resync,
+            kind: QueuedKind::Other,
+            stream_epoch: to_epoch,
+        });
+        for mut queued in preserved {
+            queued.stream_epoch = to_epoch;
+            owner.queue.push_back(queued);
+        }
+        owner.queued_bytes = owner.queue.iter().map(|queued| queued.frame.len()).sum();
+        let ready = Self::owner_ready_for_bound_queue_wake(owner);
+        let request = RouteResyncRequest {
+            client_id: owner.client_id.clone(),
+            session_id: key.session_id.clone(),
+            subscription_id: key.subscription_id.clone(),
+            generation: owner.generation,
+            stream_epoch: to_epoch,
+        };
+        if ready {
+            self.bound_queue_wake_sessions
+                .insert(key.session_id.clone());
+        }
+        self.resync_requests.push(request);
+        None
     }
 
     /// Pump only routes named by a wake batch. Never scans unbound or unnamed routes.
@@ -715,45 +1010,105 @@ impl ClientWorker {
         let route_keys = self.adapter_route_keys(batch);
         let mut teardowns = self.expire_pastes_keys(&route_keys, Instant::now());
         let mut seen = HashSet::new();
+        let mut keys = Vec::new();
         for route in &batch.adapter_routes {
             let key = OwnerKey {
                 session_id: route.session_id.clone(),
                 subscription_id: route.subscription_id.clone(),
             };
-            if !seen.insert(key.clone()) {
-                continue;
-            }
-            if let Some(teardown) = pump_one(
-                &mut self.live,
-                &mut self.next_snapshot_phase,
-                &self.wake_source,
-                &key,
-            ) {
-                teardowns.push(teardown);
+            if seen.insert(key.clone()) {
+                keys.push(key);
             }
         }
         for session_id in &batch.ingress_sessions {
-            let keys: Vec<_> = self
+            let mut session_keys: Vec<_> = self
                 .live
                 .iter()
                 .filter(|(key, owner)| &key.session_id == session_id && owner.adapter.is_some())
                 .map(|(key, _)| key.clone())
                 .collect();
-            for key in keys {
-                if !seen.insert(key.clone()) {
-                    continue;
-                }
-                if let Some(teardown) = pump_one(
-                    &mut self.live,
-                    &mut self.next_snapshot_phase,
-                    &self.wake_source,
-                    &key,
-                ) {
-                    teardowns.push(teardown);
+            session_keys
+                .sort_by(|left, right| left.subscription_id.0.cmp(&right.subscription_id.0));
+            for key in session_keys {
+                if seen.insert(key.clone()) {
+                    keys.push(key);
                 }
             }
         }
+        for key in keys {
+            if let Some(teardown) = self.pump_one(&key) {
+                teardowns.push(teardown);
+            }
+        }
         teardowns
+    }
+
+    fn pump_one(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        loop {
+            let owner = self.live.get_mut(key)?;
+            let adapter = owner.adapter.as_mut()?;
+            if adapter.pressure() == TerminalAdapterPressure::Closed {
+                return self.hard_stop_key(key);
+            }
+            if owner.in_flight {
+                match adapter.pressure() {
+                    TerminalAdapterPressure::Ready => {
+                        Self::complete_head(owner);
+                    }
+                    TerminalAdapterPressure::Closed => return self.hard_stop_key(key),
+                    TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
+                        owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
+                        if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+                            return self.hard_stop_key(key);
+                        }
+                        return None;
+                    }
+                }
+            }
+            if owner.terminal_delivered {
+                return self.hard_stop_key(key);
+            }
+            let Some(head) = owner.queue.front() else {
+                return None;
+            };
+            let routed = RoutedTerminalFrame {
+                route: owner.route.clone(),
+                generation: owner.generation.0,
+                stream_epoch: head.stream_epoch,
+                frame: head.frame.clone(),
+            };
+            let adapter = owner.adapter.as_mut()?;
+            match adapter.try_write(&routed) {
+                Ok(()) => {
+                    owner.in_flight = true;
+                    owner.unsuccessful_writes = 0;
+                    if adapter.pressure() == TerminalAdapterPressure::Ready {
+                        Self::complete_head(owner);
+                        continue;
+                    }
+                    return None;
+                }
+                Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
+                    owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
+                    if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+                        return self.hard_stop_key(key);
+                    }
+                    return None;
+                }
+                Err(TerminalAdapterWriteError::Closed) => return self.hard_stop_key(key),
+            }
+        }
+    }
+
+    fn complete_head(owner: &mut SubscriptionOwner) {
+        if let Some(completed) = owner.queue.pop_front() {
+            owner.queued_bytes = owner.queued_bytes.saturating_sub(completed.frame.len());
+            if completed.kind == QueuedKind::Terminal {
+                owner.terminal_delivered = true;
+            }
+        }
+        owner.in_flight = false;
+        owner.unsuccessful_writes = 0;
     }
 
     /// Intake only routes named by a wake batch. Never `try_read`s an unnamed adapter.
@@ -820,11 +1175,12 @@ impl ClientWorker {
             .is_some_and(|owner| !owner.input_queue.is_empty())
     }
 
-    /// Peek the owner's next Stage B command without removing it.
-    pub(crate) fn terminal_input_head(&self, key: &OwnerKey) -> Option<&TerminalInputOperation> {
+    /// Whether the owner's next Stage B operation is a resize.
+    pub(crate) fn terminal_input_head_is_resize(&self, key: &OwnerKey) -> bool {
         self.live
             .get(key)
             .and_then(|owner| owner.input_queue.front())
+            .is_some_and(|input| input.kind == WorkerInputKind::Resize)
     }
 
     /// Hard-stop one exact owner selected by the targeted apply path.
@@ -865,14 +1221,16 @@ impl ClientWorker {
                 if fail {
                     break;
                 }
-                let decoded = botster_terminal_protocol::TerminalInputFrame::from_bytes(&bytes)
-                    .ok()
-                    .and_then(|frame| decode_terminal_input(&frame).ok());
-                let Some(command) = decoded else {
+                let Ok(frame) = TerminalInputFrame::from_bytes(&bytes) else {
                     fail = true;
                     break;
                 };
-                if self.intake_terminal_command(&key, command).is_err() {
+                let Ok(command) = decode_terminal_input(&frame) else {
+                    fail = true;
+                    break;
+                };
+                let body = frame.as_bytes()[INPUT_HEADER_BYTES..].to_vec();
+                if self.intake_terminal_command(&key, command, body).is_err() {
                     fail = true;
                     break;
                 }
@@ -886,45 +1244,98 @@ impl ClientWorker {
         teardowns
     }
 
+    /// Admit one decoded command. `Err` means the route must hard-stop.
     fn intake_terminal_command(
         &mut self,
         key: &OwnerKey,
         command: TerminalInputCommand,
+        body: Vec<u8>,
     ) -> Result<(), ()> {
-        match command {
-            TerminalInputCommand::PasteBegin {
-                operation_id,
-                mode_generation,
-                mode_revision,
-                total_len,
-            } => {
-                let rejection = {
-                    let owner = self.live.get_mut(key).ok_or(())?;
-                    if owner
-                        .last_paste_operation_id
-                        .is_some_and(|last| operation_id <= last)
+        let operation_id = command_operation_id(&command);
+        let continues_paste = matches!(
+            command,
+            TerminalInputCommand::PasteChunk { .. }
+                | TerminalInputCommand::PasteCommit { .. }
+                | TerminalInputCommand::PasteAbort { .. }
+        );
+        {
+            let owner = self.live.get_mut(key).ok_or(())?;
+            if continues_paste {
+                let matches_active = owner
+                    .paste
+                    .as_ref()
+                    .is_some_and(|paste| paste.operation_id == operation_id);
+                if !matches_active {
+                    // Abort may name a queued or in-flight paste; the others may not.
+                    if !matches!(command, TerminalInputCommand::PasteAbort { .. })
+                        || operation_id > owner.last_operation_id
                     {
-                        return Ok(());
+                        return self.reject(
+                            key,
+                            operation_id,
+                            InputOutcome::RejectedProtocol,
+                            "unknown paste operation",
+                        );
                     }
-                    owner.last_paste_operation_id = Some(operation_id);
-                    if owner.paste_in_flight.is_some() {
-                        Some(TerminalInputRejection::OperationInFlight)
-                    } else if total_len == 0 || total_len as usize > MAX_PASTE_BYTES {
-                        Some(TerminalInputRejection::OperationOutOfBounds)
-                    } else {
-                        None
-                    }
-                };
-                if let Some(rejection) = rejection {
-                    return self.enqueue_paste_rejection(key, operation_id, rejection);
                 }
+            } else {
+                if operation_id == 0 || operation_id <= owner.last_operation_id {
+                    return self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedProtocol,
+                        "operation id is not strictly increasing",
+                    );
+                }
+                owner.last_operation_id = operation_id;
+            }
+        }
+        match command {
+            TerminalInputCommand::RawBytes { data, .. } => {
+                let payload = data.len() as u64;
+                self.admit(key, operation_id, WorkerInputKind::RawBytes, body, payload)
+            }
+            TerminalInputCommand::Key { text, .. } => {
+                let payload = text.len() as u64;
+                self.admit(key, operation_id, WorkerInputKind::Key, body, payload)
+            }
+            TerminalInputCommand::Mouse { .. } => {
+                self.admit(key, operation_id, WorkerInputKind::Mouse, body, 0)
+            }
+            TerminalInputCommand::Focus { .. } => {
+                self.admit(key, operation_id, WorkerInputKind::Focus, body, 0)
+            }
+            TerminalInputCommand::Resize { .. } => {
+                self.admit(key, operation_id, WorkerInputKind::Resize, body, 0)
+            }
+            TerminalInputCommand::PasteBegin {
+                total_len,
+                allow_unsafe,
+                ..
+            } => {
                 let owner = self.live.get_mut(key).ok_or(())?;
+                if owner.paste.is_some() {
+                    // The protocol allows one assembling paste per route.
+                    debug_assert!(MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION >= 1);
+                    return self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedLaneFull,
+                        "a paste is already assembling on this route",
+                    );
+                }
                 let total_len = total_len as usize;
-                owner.paste_in_flight = Some(operation_id);
+                if total_len == 0 || total_len > MAX_PASTE_BYTES {
+                    return self.reject(
+                        key,
+                        operation_id,
+                        InputOutcome::RejectedTooLarge,
+                        "paste length is zero or exceeds the paste ceiling",
+                    );
+                }
                 owner.paste = Some(PasteAssembly {
                     operation_id,
-                    mode_generation,
-                    mode_revision,
+                    allow_unsafe,
                     total_len,
                     expected_chunks: total_len.div_ceil(MAX_PASTE_CHUNK_DATA_BYTES),
                     next_index: 0,
@@ -933,154 +1344,216 @@ impl ClientWorker {
                 });
                 Ok(())
             }
-            TerminalInputCommand::PasteChunk {
-                operation_id,
-                index,
-                data,
-            } => {
-                let Some(owner) = self.live.get_mut(key) else {
-                    return Err(());
-                };
+            TerminalInputCommand::PasteChunk { index, data, .. } => {
+                let owner = self.live.get_mut(key).ok_or(())?;
                 let Some(assembly) = owner.paste.as_mut() else {
                     return Ok(());
                 };
-                if assembly.operation_id != operation_id {
-                    return Ok(());
-                }
-                if index as usize != assembly.next_index
-                    || assembly.next_index >= assembly.expected_chunks
-                    || data.len() > assembly.total_len.saturating_sub(assembly.data.len())
-                {
-                    owner.paste = None;
-                    owner.paste_in_flight = None;
-                    return self.enqueue_paste_rejection(
-                        key,
-                        operation_id,
-                        TerminalInputRejection::OperationIncomplete,
-                    );
-                }
                 let expected_len = if assembly.next_index + 1 < assembly.expected_chunks {
                     MAX_PASTE_CHUNK_DATA_BYTES
                 } else {
                     assembly.total_len - MAX_PASTE_CHUNK_DATA_BYTES * (assembly.expected_chunks - 1)
                 };
-                if data.len() != expected_len {
+                if index as usize != assembly.next_index
+                    || assembly.next_index >= assembly.expected_chunks
+                    || data.len() != expected_len
+                {
                     owner.paste = None;
-                    owner.paste_in_flight = None;
-                    return self.enqueue_paste_rejection(
+                    return self.reject(
                         key,
                         operation_id,
-                        TerminalInputRejection::OperationIncomplete,
+                        InputOutcome::RejectedProtocol,
+                        "paste chunk is out of order or mis-sized",
                     );
                 }
                 assembly.data.extend_from_slice(&data);
                 assembly.next_index += 1;
                 Ok(())
             }
-            TerminalInputCommand::PasteCommit { operation_id } => {
-                let Some(owner) = self.live.get_mut(key) else {
-                    return Err(());
-                };
+            TerminalInputCommand::PasteCommit { .. } => {
+                let owner = self.live.get_mut(key).ok_or(())?;
                 let Some(assembly) = owner.paste.take() else {
                     return Ok(());
                 };
-                if assembly.operation_id != operation_id {
-                    owner.paste = Some(assembly);
-                    return Ok(());
-                }
                 if assembly.next_index != assembly.expected_chunks
                     || assembly.data.len() != assembly.total_len
                 {
-                    owner.paste_in_flight = None;
-                    return self.enqueue_paste_rejection(
+                    return self.reject(
                         key,
                         operation_id,
-                        TerminalInputRejection::OperationIncomplete,
+                        InputOutcome::RejectedProtocol,
+                        "paste committed before every chunk arrived",
                     );
                 }
-                if owner.input_queue.len() >= INPUT_QUEUE_CAPACITY {
-                    owner.paste_in_flight = None;
-                    return self.enqueue_paste_rejection(
-                        key,
-                        operation_id,
-                        TerminalInputRejection::OperationOutOfBounds,
-                    );
-                }
-                owner
-                    .input_queue
-                    .push_back(TerminalInputOperation::Paste(PasteOperation {
-                        operation_id,
-                        mode_generation: assembly.mode_generation,
-                        mode_revision: assembly.mode_revision,
-                        data: assembly.data,
-                    }));
-                Ok(())
+                let mut worker_body = Vec::with_capacity(assembly.data.len() + 1);
+                worker_body.push(u8::from(assembly.allow_unsafe));
+                worker_body.extend_from_slice(&assembly.data);
+                let payload = assembly.data.len() as u64;
+                self.admit(
+                    key,
+                    operation_id,
+                    WorkerInputKind::Paste,
+                    worker_body,
+                    payload,
+                )
             }
-            TerminalInputCommand::PasteAbort { operation_id } => {
-                let Some(owner) = self.live.get_mut(key) else {
-                    return Err(());
-                };
+            TerminalInputCommand::PasteAbort { .. } => {
+                let owner = self.live.get_mut(key).ok_or(())?;
                 if owner
-                    .awaiting_gated
-                    .as_ref()
-                    .is_some_and(|wait| wait.operation_id == Some(operation_id))
-                {
-                    return Ok(());
-                }
-                let assembling = owner
                     .paste
                     .as_ref()
-                    .is_some_and(|paste| paste.operation_id == operation_id);
-                let queued = owner.input_queue.iter().position(|operation| {
-                    matches!(
-                        operation,
-                        TerminalInputOperation::Paste(paste)
-                            if paste.operation_id == operation_id
-                    )
-                });
-                if assembling {
+                    .is_some_and(|paste| paste.operation_id == operation_id)
+                {
                     owner.paste = None;
-                } else if let Some(position) = queued {
-                    owner.input_queue.remove(position);
-                } else {
+                    return self.reject(key, operation_id, InputOutcome::Cancelled, "");
+                }
+                if let Some(position) = owner
+                    .input_queue
+                    .iter()
+                    .position(|input| input.operation_id == operation_id)
+                {
+                    let removed = owner.input_queue.remove(position).ok_or(())?;
+                    let usage = LaneUsage {
+                        operations: 1,
+                        bytes: removed.body.len(),
+                    };
+                    owner.lane.operations = owner.lane.operations.saturating_sub(1);
+                    owner.lane.bytes = owner.lane.bytes.saturating_sub(removed.body.len());
+                    let client_id = owner.client_id.clone();
+                    self.release_lane(&key.session_id, &client_id, usage);
+                    return self.reject(key, operation_id, InputOutcome::Cancelled, "");
+                }
+                let in_flight = self
+                    .in_flight
+                    .iter()
+                    .find(|(_, operation)| {
+                        &operation.key == key && operation.operation_id == operation_id
+                    })
+                    .map(|(operation_key, _)| *operation_key);
+                if let Some(operation_key) = in_flight {
+                    self.cancel_requests
+                        .push((key.session_id.clone(), operation_key));
                     return Ok(());
                 }
-                owner.paste_in_flight = None;
-                self.enqueue_paste_rejection(key, operation_id, TerminalInputRejection::Aborted)
-            }
-            command => {
-                let owner = self.live.get_mut(key).ok_or(())?;
-                if owner.input_queue.len() >= INPUT_QUEUE_CAPACITY {
-                    return Err(());
-                }
-                owner
-                    .input_queue
-                    .push_back(TerminalInputOperation::Command(command));
-                Ok(())
+                self.reject(
+                    key,
+                    operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "abort names no active paste",
+                )
             }
         }
     }
 
-    fn enqueue_paste_rejection(
+    fn admit(
         &mut self,
         key: &OwnerKey,
-        operation_id: u32,
-        rejection: TerminalInputRejection,
+        operation_id: u64,
+        kind: WorkerInputKind,
+        body: Vec<u8>,
+        accepted_payload_bytes: u64,
     ) -> Result<(), ()> {
-        let subscription_id = key.subscription_id.clone();
-        let result = TerminalInputResult {
-            subscription_id: subscription_id.0.clone(),
-            kind: TerminalInputKind::Paste,
-            operation_id: Some(operation_id),
-            admitted: false,
-            bytes_written: 0,
-            mode_generation: 0,
-            mode_revision: 0,
-            mode_flags: empty_mode_flags(),
-            rejection: Some(rejection),
+        let client_id = self.live.get(key).ok_or(())?.client_id.clone();
+        let session_lane = self
+            .session_lanes
+            .get(&key.session_id)
+            .copied()
+            .unwrap_or_default();
+        let client_lane = self
+            .client_lanes
+            .get(&client_id)
+            .copied()
+            .unwrap_or_default();
+        let bytes = body.len();
+        let session_full = session_lane.operations >= MAX_INPUT_OPERATIONS_PER_SESSION
+            || session_lane.bytes.saturating_add(bytes) > MAX_RETAINED_INPUT_BYTES_PER_SESSION;
+        let client_full = client_lane.operations >= MAX_INPUT_OPERATIONS_PER_CLIENT
+            || client_lane.bytes.saturating_add(bytes) > MAX_RETAINED_INPUT_BYTES_PER_CLIENT;
+        if session_full || client_full {
+            return self.reject(
+                key,
+                operation_id,
+                InputOutcome::RejectedLaneFull,
+                if session_full {
+                    "session input lane is full"
+                } else {
+                    "client input lane is full"
+                },
+            );
+        }
+        let usage = LaneUsage {
+            operations: 1,
+            bytes,
         };
-        self.enqueue_input_result(&key.session_id, &subscription_id, &result)
-            .map_err(|_| ())
+        self.reserve_lane(&key.session_id, &client_id, usage);
+        let owner = self.live.get_mut(key).ok_or(())?;
+        owner.lane.operations += 1;
+        owner.lane.bytes += bytes;
+        owner.input_queue.push_back(AdmittedInput {
+            operation_id,
+            kind,
+            body,
+            accepted_payload_bytes,
+        });
+        Ok(())
+    }
+
+    fn reserve_lane(&mut self, session_id: &SessionId, client_id: &ClientId, usage: LaneUsage) {
+        let session = self.session_lanes.entry(session_id.clone()).or_default();
+        session.operations += usage.operations;
+        session.bytes += usage.bytes;
+        let client = self.client_lanes.entry(client_id.clone()).or_default();
+        client.operations += usage.operations;
+        client.bytes += usage.bytes;
+    }
+
+    fn release_lane(&mut self, session_id: &SessionId, client_id: &ClientId, usage: LaneUsage) {
+        if let Some(session) = self.session_lanes.get_mut(session_id) {
+            session.operations = session.operations.saturating_sub(usage.operations);
+            session.bytes = session.bytes.saturating_sub(usage.bytes);
+            if session.operations == 0 && session.bytes == 0 {
+                self.session_lanes.remove(session_id);
+            }
+        }
+        if let Some(client) = self.client_lanes.get_mut(client_id) {
+            client.operations = client.operations.saturating_sub(usage.operations);
+            client.bytes = client.bytes.saturating_sub(usage.bytes);
+            if client.operations == 0 && client.bytes == 0 {
+                self.client_lanes.remove(client_id);
+            }
+        }
+    }
+
+    /// Enqueue a Core-originated result. `Err` means the route hard-stopped.
+    fn reject(
+        &mut self,
+        key: &OwnerKey,
+        operation_id: u64,
+        outcome: InputOutcome,
+        detail: &str,
+    ) -> Result<(), ()> {
+        let mode_bits = self
+            .session_modes
+            .get(&key.session_id)
+            .map(|modes| modes.mode_bits)
+            .unwrap_or(0);
+        let result = InputResultBody {
+            operation_id,
+            outcome,
+            accepted_payload_bytes: Some(0),
+            written_pty_bytes: Some(0),
+            mode_bits,
+            detail: bounded_detail(detail),
+        };
+        self.enqueue_result(key, &result)
+    }
+
+    fn enqueue_result(&mut self, key: &OwnerKey, result: &InputResultBody) -> Result<(), ()> {
+        let frame = encode_input_result(result).map_err(|_| ())?;
+        match self.push_route_frame(&key.session_id, &key.subscription_id, frame) {
+            Ok(None) => Ok(()),
+            Ok(Some(_)) | Err(_) => Err(()),
+        }
     }
 
     fn expire_pastes_keys(&mut self, keys: &[OwnerKey], now: Instant) -> Vec<ClientWorkerTeardown> {
@@ -1100,10 +1573,14 @@ impl ClientWorker {
         for (key, operation_id) in expired {
             if let Some(owner) = self.live.get_mut(&key) {
                 owner.paste = None;
-                owner.paste_in_flight = None;
             }
             if self
-                .enqueue_paste_rejection(&key, operation_id, TerminalInputRejection::Timeout)
+                .reject(
+                    &key,
+                    operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "paste assembly timed out",
+                )
                 .is_err()
             {
                 if let Some(teardown) = self.hard_stop_key(&key) {
@@ -1149,176 +1626,165 @@ impl ClientWorker {
         routes
     }
 
-    /// Sessions that already have a parked gated owner.
-    #[must_use]
-    pub fn sessions_awaiting_gated(&self) -> HashSet<SessionId> {
-        self.live
-            .iter()
-            .filter(|(_, owner)| owner.awaiting_gated.is_some())
-            .map(|(key, _)| key.session_id.clone())
-            .collect()
-    }
-
-    /// Stage B: dequeue apply-budget commands from unparked owners.
-    pub fn take_terminal_input(
-        &mut self,
-        sessions_holding_gated: &HashSet<SessionId>,
-    ) -> Vec<TerminalInputDelivery> {
-        let mut held = sessions_holding_gated.clone();
-        held.extend(self.sessions_awaiting_gated());
-        let keys = self.rotated_live_keys();
-        let mut deliveries = Vec::new();
-        for key in keys {
-            for _ in 0..APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK {
-                let Some(delivery) = self.take_one_terminal_input(&key, &mut held) else {
-                    break;
-                };
-                let gated = matches!(
-                    delivery.command,
-                    TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. })
-                        | TerminalInputOperation::Paste(_)
-                );
-                deliveries.push(delivery);
-                if gated {
-                    break;
-                }
-            }
-        }
-        deliveries
-    }
-
-    /// Dequeue at most one command from one exact live owner.
+    /// Stage B: take at most one admitted operation from one exact live owner
+    /// and move it to the in-flight map under a unique worker key.
     pub(crate) fn take_one_terminal_input(
         &mut self,
         key: &OwnerKey,
-        held: &mut HashSet<SessionId>,
-    ) -> Option<TerminalInputDelivery> {
+    ) -> Option<StagedTerminalInput> {
         let owner = self.live.get_mut(key)?;
-        if owner.awaiting_gated.is_some() {
-            return None;
-        }
-        let head = owner.input_queue.front()?;
-        if matches!(
-            head,
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. })
-                | TerminalInputOperation::Paste(_)
-        ) && held.contains(&key.session_id)
-        {
-            return None;
-        }
-        let command = owner.input_queue.pop_front()?;
-        if matches!(
-            command,
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. })
-                | TerminalInputOperation::Paste(_)
-        ) {
-            held.insert(key.session_id.clone());
-        }
-        self.capacity_parked.remove(key);
-        Some(TerminalInputDelivery {
+        let input = owner.input_queue.pop_front()?;
+        let operation_key = self.next_operation_key;
+        self.next_operation_key = self.next_operation_key.checked_add(1)?;
+        let staged = StagedTerminalInput {
             client_id: owner.client_id.clone(),
             session_id: key.session_id.clone(),
             subscription_id: key.subscription_id.clone(),
             generation: owner.generation,
-            command,
-        })
-    }
-
-    /// Record that this owner is parked on a submitted gated request.
-    pub fn set_awaiting_gated(
-        &mut self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-        request_id: String,
-        deadline: Instant,
-        kind: TerminalInputKind,
-        operation_id: Option<u32>,
-    ) {
-        if let Some(owner) = self.live.get_mut(&OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-        }) {
-            owner.awaiting_gated = Some(GatedWait {
-                request_id,
-                deadline,
-                kind,
-                operation_id,
-            });
-        }
-    }
-
-    /// Clear a parked gated wait after Ready, TimedOut, or teardown handling.
-    pub fn clear_awaiting_gated(
-        &mut self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-    ) -> Option<GatedWait> {
-        self.live
-            .get_mut(&OwnerKey {
-                session_id: session_id.clone(),
-                subscription_id: subscription_id.clone(),
-            })
-            .and_then(|owner| owner.awaiting_gated.take())
-    }
-
-    /// Outstanding gated wait for one owner, if any.
-    #[must_use]
-    pub fn awaiting_gated(
-        &self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-    ) -> Option<&GatedWait> {
-        self.live
-            .get(&OwnerKey {
-                session_id: session_id.clone(),
-                subscription_id: subscription_id.clone(),
-            })
-            .and_then(|owner| owner.awaiting_gated.as_ref())
-    }
-
-    /// Enqueue an `input_result` onto the owner's egress queue.
-    pub fn enqueue_input_result(
-        &mut self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-        result: &TerminalInputResult,
-    ) -> Result<(), EnqueueInputResultError> {
-        let key = OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
+            operation_key,
+            operation_id: input.operation_id,
+            kind: input.kind,
+            body: input.body,
+            accepted_payload_bytes: input.accepted_payload_bytes,
         };
-        let Some(owner) = self.live.get_mut(&key) else {
-            return Err(EnqueueInputResultError::OwnerGone);
-        };
-        let frame = TerminalEvent::InputResult(result.clone())
-            .to_frame()
-            .map_err(|_| EnqueueInputResultError::EncodeFailed)?;
-        if owner.queue.len() >= QueueSource::ClientWorker.default_capacity() {
-            return Err(EnqueueInputResultError::EgressFull);
-        }
-        owner.queue.push_back(QueuedFrame {
-            frame,
-            kind: QueuedKind::Other,
-        });
-        Ok(())
+        self.in_flight.insert(
+            operation_key,
+            InFlightOperation {
+                key: key.clone(),
+                client_id: owner.client_id.clone(),
+                operation_id: input.operation_id,
+                retained_bytes: staged.body.len(),
+            },
+        );
+        self.capacity_parked.remove(key);
+        Some(staged)
     }
 
-    /// Clear one paste's owner state when its authoritative result is ready.
-    pub fn finish_paste_operation(
-        &mut self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-        operation_id: u32,
-    ) {
-        if let Some(owner) = self.live.get_mut(&OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-        }) {
-            if owner.paste_in_flight == Some(operation_id) {
-                owner.paste_in_flight = None;
-                owner.paste = None;
+    /// Stage B across every live owner in rotated order.
+    pub fn take_terminal_input(&mut self) -> Vec<StagedTerminalInput> {
+        let keys = self.rotated_live_keys();
+        let mut staged = Vec::new();
+        for key in keys {
+            for _ in 0..APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK {
+                let Some(input) = self.take_one_terminal_input(&key) else {
+                    break;
+                };
+                staged.push(input);
             }
         }
+        staged
+    }
+
+    /// Deliver the worker's result for one in-flight operation.
+    ///
+    /// Releases lane usage and enqueues `INPUT_RESULT` on the route. A result
+    /// for a route that was torn down is dropped. Returns a teardown when the
+    /// enqueue hard-stopped the route.
+    pub fn complete_operation(
+        &mut self,
+        operation_key: u64,
+        result: InputResultBody,
+    ) -> Option<ClientWorkerTeardown> {
+        let operation = self.in_flight.remove(&operation_key)?;
+        let usage = LaneUsage {
+            operations: 1,
+            bytes: operation.retained_bytes,
+        };
+        self.release_lane(&operation.key.session_id, &operation.client_id, usage);
+        if let Some(owner) = self.live.get_mut(&operation.key) {
+            owner.lane.operations = owner.lane.operations.saturating_sub(1);
+            owner.lane.bytes = owner.lane.bytes.saturating_sub(operation.retained_bytes);
+        }
+        let mut result = result;
+        result.operation_id = operation.operation_id;
+        result.detail = bounded_detail(&result.detail);
+        match self.enqueue_result(&operation.key, &result) {
+            Ok(()) => None,
+            Err(()) => self.hard_stop_key(&operation.key),
+        }
+    }
+
+    /// Fail every in-flight operation on `session_id` with one outcome.
+    ///
+    /// Used for worker link failure (`OutcomeUnknown`) and session end.
+    pub fn fail_in_flight_for_session(
+        &mut self,
+        session_id: &SessionId,
+        outcome: InputOutcome,
+        detail: &str,
+    ) -> Vec<ClientWorkerTeardown> {
+        let keys: Vec<u64> = self
+            .in_flight
+            .iter()
+            .filter(|(_, operation)| &operation.key.session_id == session_id)
+            .map(|(key, _)| *key)
+            .collect();
+        let mode_bits = self
+            .session_modes
+            .get(session_id)
+            .map(|modes| modes.mode_bits)
+            .unwrap_or(0);
+        let mut teardowns = Vec::new();
+        for key in keys {
+            let result = InputResultBody {
+                operation_id: 0,
+                outcome,
+                accepted_payload_bytes: None,
+                written_pty_bytes: None,
+                mode_bits,
+                detail: bounded_detail(detail),
+            };
+            if let Some(teardown) = self.complete_operation(key, result) {
+                teardowns.push(teardown);
+            }
+        }
+        teardowns
+    }
+
+    /// Reject every queued but unsent operation on `session_id` as ended.
+    fn fail_queued_input_for_session(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Vec<ClientWorkerTeardown> {
+        let keys: Vec<_> = self
+            .live
+            .iter()
+            .filter(|(key, owner)| &key.session_id == session_id && !owner.input_queue.is_empty())
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut teardowns = Vec::new();
+        for key in keys {
+            let Some(owner) = self.live.get_mut(&key) else {
+                continue;
+            };
+            let client_id = owner.client_id.clone();
+            let drained: Vec<_> = owner.input_queue.drain(..).collect();
+            let released = LaneUsage {
+                operations: drained.len(),
+                bytes: drained.iter().map(|input| input.body.len()).sum(),
+            };
+            owner.lane.operations = owner.lane.operations.saturating_sub(released.operations);
+            owner.lane.bytes = owner.lane.bytes.saturating_sub(released.bytes);
+            owner.paste = None;
+            self.release_lane(session_id, &client_id, released);
+            for input in drained {
+                if self
+                    .reject(
+                        &key,
+                        input.operation_id,
+                        InputOutcome::SessionEnded,
+                        "session ended before the operation ran",
+                    )
+                    .is_err()
+                {
+                    if let Some(teardown) = self.hard_stop_key(&key) {
+                        teardowns.push(teardown);
+                    }
+                    break;
+                }
+            }
+        }
+        teardowns
     }
 
     /// Current ingress queue length for one live owner.
@@ -1334,6 +1800,15 @@ impl ClientWorker {
                 subscription_id: subscription_id.clone(),
             })
             .map(|owner| owner.input_queue.len())
+    }
+
+    /// Operations admitted for a session and not yet resulted.
+    #[must_use]
+    pub fn session_in_flight_operations(&self, session_id: &SessionId) -> usize {
+        self.session_lanes
+            .get(session_id)
+            .map(|lane| lane.operations)
+            .unwrap_or(0)
     }
 
     fn rotated_live_keys(&mut self) -> Vec<OwnerKey> {
@@ -1399,6 +1874,7 @@ impl ClientWorker {
             .filter(|key| &key.session_id == session_id)
             .cloned()
             .collect();
+        self.session_modes.remove(session_id);
         keys.into_iter()
             .filter_map(|key| self.hard_stop_key(&key))
             .collect()
@@ -1433,7 +1909,7 @@ struct WakingAdapterHolder {
 }
 
 impl TerminalAdapter for WakingAdapterHolder {
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         self.inner.try_write(frame)
     }
 
@@ -1450,122 +1926,61 @@ impl TerminalAdapter for WakingAdapterHolder {
     }
 }
 
-fn retire_and_hard_stop(
-    live: &mut HashMap<OwnerKey, SubscriptionOwner>,
-    phases: &mut HashMap<OwnerKey, SnapshotPhase>,
-    wake_source: &TerminalWakeSource,
-    key: &OwnerKey,
-) -> Option<ClientWorkerTeardown> {
-    wake_source.retire_route(&key.session_id, &key.subscription_id);
-    phases.remove(key);
-    hard_stop(live, key)
-}
-
-fn pump_one(
-    live: &mut HashMap<OwnerKey, SubscriptionOwner>,
-    phases: &mut HashMap<OwnerKey, SnapshotPhase>,
-    wake_source: &TerminalWakeSource,
-    key: &OwnerKey,
-) -> Option<ClientWorkerTeardown> {
-    let owner = live.get_mut(key)?;
-    let adapter = owner.adapter.as_mut()?;
-
-    if adapter.pressure() == TerminalAdapterPressure::Closed {
-        return retire_and_hard_stop(live, phases, wake_source, key);
-    }
-
-    if owner.in_flight {
-        match adapter.pressure() {
-            TerminalAdapterPressure::Ready => {
-                if let Some(completed) = owner.queue.pop_front() {
-                    if completed.kind == QueuedKind::ProcessExit {
-                        owner.process_exit_delivered = true;
-                    }
-                }
-                owner.in_flight = false;
-                owner.unsuccessful_writes = 0;
-            }
-            TerminalAdapterPressure::Closed => {
-                return retire_and_hard_stop(live, phases, wake_source, key);
-            }
-            TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
-                owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
-                if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                    return retire_and_hard_stop(live, phases, wake_source, key);
-                }
-                return None;
-            }
-        }
-    }
-
-    loop {
-        let owner = live.get_mut(key)?;
-        if owner.process_exit_delivered {
-            return retire_and_hard_stop(live, phases, wake_source, key);
-        }
-        let adapter = owner.adapter.as_mut()?;
-        if adapter.pressure() == TerminalAdapterPressure::Closed {
-            return retire_and_hard_stop(live, phases, wake_source, key);
-        }
-        let head = owner.queue.front()?;
-        match adapter.try_write(&head.frame) {
-            Ok(()) => {
-                owner.in_flight = true;
-                owner.unsuccessful_writes = 0;
-                if adapter.pressure() == TerminalAdapterPressure::Ready {
-                    if let Some(completed) = owner.queue.pop_front() {
-                        if completed.kind == QueuedKind::ProcessExit {
-                            owner.process_exit_delivered = true;
-                        }
-                    }
-                    owner.in_flight = false;
-                    continue;
-                }
-                return None;
-            }
-            Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
-                owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
-                if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                    return retire_and_hard_stop(live, phases, wake_source, key);
-                }
-                return None;
-            }
-            Err(TerminalAdapterWriteError::Closed) => {
-                return retire_and_hard_stop(live, phases, wake_source, key);
-            }
-        }
-    }
-}
-
 fn hard_stop(
-    live: &mut HashMap<OwnerKey, SubscriptionOwner>,
+    mut owner: SubscriptionOwner,
     key: &OwnerKey,
-) -> Option<ClientWorkerTeardown> {
-    let mut owner = live.remove(key)?;
+    in_flight_keys: Vec<u64>,
+) -> ClientWorkerTeardown {
     owner.queue.clear();
-    owner.held.clear();
+    owner.input_queue.clear();
     if let Some(mut adapter) = owner.adapter.take() {
         adapter.close();
         drop(adapter);
     }
-    Some(ClientWorkerTeardown {
+    ClientWorkerTeardown {
         client_id: owner.client_id,
         session_id: key.session_id.clone(),
         subscription_id: key.subscription_id.clone(),
         generation: owner.generation,
-        awaiting_gated: owner.awaiting_gated.map(|wait| wait.request_id),
-    })
+        in_flight_keys,
+    }
 }
 
-fn empty_mode_flags() -> TerminalModeFlags {
-    TerminalModeFlags {
-        kitty_enabled: false,
-        cursor_visible: false,
-        bracketed_paste: false,
-        mouse_mode: 0,
-        alt_screen: false,
-        focus_reporting: false,
-        application_cursor: false,
+fn command_operation_id(command: &TerminalInputCommand) -> u64 {
+    match command {
+        TerminalInputCommand::RawBytes { operation_id, .. }
+        | TerminalInputCommand::Key { operation_id, .. }
+        | TerminalInputCommand::Mouse { operation_id, .. }
+        | TerminalInputCommand::Focus { operation_id, .. }
+        | TerminalInputCommand::Resize { operation_id, .. }
+        | TerminalInputCommand::PasteBegin { operation_id, .. }
+        | TerminalInputCommand::PasteChunk { operation_id, .. }
+        | TerminalInputCommand::PasteCommit { operation_id }
+        | TerminalInputCommand::PasteAbort { operation_id } => *operation_id,
+    }
+}
+
+fn bounded_detail(detail: &str) -> String {
+    if detail.len() <= MAX_INPUT_RESULT_DETAIL_BYTES {
+        return detail.to_owned();
+    }
+    let mut end = MAX_INPUT_RESULT_DETAIL_BYTES;
+    while !detail.is_char_boundary(end) {
+        end -= 1;
+    }
+    detail[..end].to_owned()
+}
+
+/// Client-visible kind of one worker input kind, for diagnostics.
+#[must_use]
+pub fn terminal_input_kind_of(kind: WorkerInputKind) -> TerminalInputKind {
+    match kind {
+        WorkerInputKind::RawBytes => TerminalInputKind::RawBytes,
+        WorkerInputKind::Key => TerminalInputKind::Key,
+        WorkerInputKind::Mouse => TerminalInputKind::Mouse,
+        WorkerInputKind::Focus => TerminalInputKind::Focus,
+        WorkerInputKind::Resize => TerminalInputKind::Resize,
+        WorkerInputKind::Paste => TerminalInputKind::PasteCommit,
     }
 }
 
@@ -1597,668 +2012,5 @@ fn terminal_route(frame: &TransportEgress) -> Option<(&SessionId, &SubscriptionI
             ..
         } => Some((session_id, subscription_id)),
         _ => None,
-    }
-}
-
-fn encode_terminal_frame(
-    key: &OwnerKey,
-    frame: &TransportEgress,
-    snapshot_phase: Option<SnapshotPhase>,
-    capabilities: &TerminalCapabilitySet,
-) -> Result<Option<QueuedFrame>, ()> {
-    let event = match frame {
-        TransportEgress::TerminalOutput { data, .. } | TransportEgress::Scrollback { data, .. } => {
-            TerminalEvent::TerminalOutput(TerminalOutput::from_bytes(
-                key.session_id.0.clone(),
-                key.subscription_id.0.clone(),
-                data,
-            ))
-        }
-        TransportEgress::Snapshot { data, .. } => {
-            if !capabilities.contains(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY) {
-                return Ok(None);
-            }
-            TerminalEvent::Snapshot(Snapshot {
-                session_id: key.session_id.0.clone(),
-                subscription_id: key.subscription_id.0.clone(),
-                payload_base64: base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    data,
-                ),
-                payload_encoding: botster_terminal_protocol_client::PayloadEncoding::Base64,
-                bytes: data.len(),
-                phase: snapshot_phase.unwrap_or(SnapshotPhase::Ready),
-            })
-        }
-        TransportEgress::ProcessExit { code, .. } => TerminalEvent::ProcessExit(ProcessExit {
-            session_id: key.session_id.0.clone(),
-            subscription_id: key.subscription_id.0.clone(),
-            code: *code,
-        }),
-        TransportEgress::AttachState { state, .. } => {
-            let kind = match state {
-                TerminalAttachState::Attaching => AttachStateKind::Attaching,
-                TerminalAttachState::Attached => AttachStateKind::Attached,
-                TerminalAttachState::SnapshotHistoryIncomplete => {
-                    AttachStateKind::SnapshotHistoryIncomplete
-                }
-                TerminalAttachState::Detached => return Ok(None),
-            };
-            TerminalEvent::AttachState(AttachState {
-                session_id: key.session_id.0.clone(),
-                subscription_id: key.subscription_id.0.clone(),
-                state: kind,
-            })
-        }
-        _ => return Ok(None),
-    };
-    let encoded = event.to_frame().map_err(|_| ())?;
-    let kind = match frame {
-        TransportEgress::Snapshot { .. } => QueuedKind::Snapshot,
-        TransportEgress::ProcessExit { .. } => QueuedKind::ProcessExit,
-        _ => QueuedKind::Other,
-    };
-    Ok(Some(QueuedFrame {
-        frame: encoded,
-        kind,
-    }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::actor::TerminalAttachState;
-    use crate::contract::terminal_adapter::TerminalIngress;
-
-    struct ReadyWakingAdapter;
-
-    impl TerminalAdapter for ReadyWakingAdapter {
-        fn try_write(&mut self, _frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
-            Ok(())
-        }
-
-        fn close(&mut self) {}
-
-        fn pressure(&self) -> TerminalAdapterPressure {
-            TerminalAdapterPressure::Ready
-        }
-
-        fn try_read(&mut self) -> TerminalIngress {
-            TerminalIngress::Empty
-        }
-    }
-
-    impl WakingTerminalAdapter for ReadyWakingAdapter {
-        fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
-    }
-
-    fn ids() -> (ClientId, SessionId, SubscriptionId) {
-        (
-            ClientId("c".into()),
-            SessionId("s".into()),
-            SubscriptionId("sub".into()),
-        )
-    }
-
-    fn paste_result(owner: &SubscriptionOwner, index: usize) -> TerminalInputResult {
-        let event = TerminalEvent::from_frame(&owner.queue[index].frame).expect("input result");
-        let TerminalEvent::InputResult(result) = event else {
-            panic!("expected input result");
-        };
-        result
-    }
-
-    #[test]
-    fn paste_assembly_is_ordered_bounded_and_single_result() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        worker.record_attach(client, session.clone(), subscription.clone());
-        let key = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: subscription.clone(),
-        };
-        let data = vec![0x5a; MAX_PASTE_BYTES];
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 3,
-                    mode_generation: 4,
-                    mode_revision: 5,
-                    total_len: data.len() as u32,
-                },
-            )
-            .expect("begin");
-        for (index, chunk) in data.chunks(MAX_PASTE_CHUNK_DATA_BYTES).enumerate() {
-            worker
-                .intake_terminal_command(
-                    &key,
-                    TerminalInputCommand::PasteChunk {
-                        operation_id: 3,
-                        index: index as u32,
-                        data: chunk.to_vec(),
-                    },
-                )
-                .expect("chunk");
-        }
-        worker
-            .intake_terminal_command(&key, TerminalInputCommand::PasteCommit { operation_id: 3 })
-            .expect("commit");
-        let owner = worker.live.get(&key).expect("owner");
-        assert!(owner.paste.is_none());
-        assert_eq!(owner.paste_in_flight, Some(3));
-        assert_eq!(owner.input_queue.len(), 1);
-        let TerminalInputOperation::Paste(paste) = owner.input_queue.front().expect("paste") else {
-            panic!("expected queued paste");
-        };
-        assert_eq!(paste.operation_id, 3);
-        assert_eq!(paste.mode_generation, 4);
-        assert_eq!(paste.mode_revision, 5);
-        assert_eq!(paste.data, data);
-
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 4,
-                    mode_generation: 4,
-                    mode_revision: 5,
-                    total_len: 1,
-                },
-            )
-            .expect("in-flight rejection");
-        let owner = worker.live.get(&key).expect("owner");
-        let result = paste_result(owner, 0);
-        assert_eq!(result.subscription_id, subscription.0);
-        assert_eq!(result.operation_id, Some(4));
-        assert_eq!(
-            result.rejection,
-            Some(TerminalInputRejection::OperationInFlight)
-        );
-        assert_eq!(result.bytes_written, 0);
-        assert_eq!(owner.paste_in_flight, Some(3));
-
-        worker
-            .intake_terminal_command(&key, TerminalInputCommand::PasteAbort { operation_id: 3 })
-            .expect("abort queued paste");
-        let owner = worker.live.get(&key).expect("owner");
-        assert!(owner.input_queue.is_empty());
-        assert!(owner.paste_in_flight.is_none());
-        let result = paste_result(owner, 1);
-        assert_eq!(result.operation_id, Some(3));
-        assert_eq!(result.rejection, Some(TerminalInputRejection::Aborted));
-
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 4,
-                    mode_generation: 4,
-                    mode_revision: 5,
-                    total_len: 1,
-                },
-            )
-            .expect("rejected operation replay is ignored");
-        let owner = worker.live.get(&key).expect("owner");
-        assert_eq!(owner.queue.len(), 2);
-        assert!(owner.paste.is_none());
-        assert!(owner.paste_in_flight.is_none());
-    }
-
-    #[test]
-    fn paste_validation_timeout_and_commit_capacity_preserve_owner() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        worker.record_attach(client, session.clone(), subscription.clone());
-        let key = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: subscription.clone(),
-        };
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 7,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: 2,
-                },
-            )
-            .expect("begin");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 7,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: 2,
-                },
-            )
-            .expect("duplicate begin is ignored");
-        let owner = worker.live.get(&key).expect("owner");
-        assert!(owner.paste.is_some());
-        assert_eq!(owner.paste_in_flight, Some(7));
-        assert!(owner.queue.is_empty());
-
-        worker
-            .live
-            .get_mut(&key)
-            .expect("owner")
-            .paste
-            .as_mut()
-            .expect("paste")
-            .deadline = Instant::now() - Duration::from_millis(1);
-        assert_eq!(worker.expired_paste_routes(Instant::now()).len(), 1);
-        assert_eq!(
-            worker
-                .expire_pastes_keys(std::slice::from_ref(&key), Instant::now())
-                .len(),
-            0
-        );
-        let owner = worker.live.get(&key).expect("owner remains live");
-        assert!(owner.paste.is_none());
-        assert!(owner.paste_in_flight.is_none());
-        assert_eq!(
-            paste_result(owner, 0).rejection,
-            Some(TerminalInputRejection::Timeout)
-        );
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 7,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: 2,
-                },
-            )
-            .expect("completed operation replay is ignored");
-        assert_eq!(
-            worker
-                .live
-                .get(&key)
-                .expect("owner remains live")
-                .queue
-                .len(),
-            1,
-            "one operation id must produce one result"
-        );
-
-        let owner = worker.live.get_mut(&key).expect("owner");
-        for _ in 0..INPUT_QUEUE_CAPACITY {
-            owner.input_queue.push_back(TerminalInputOperation::Command(
-                TerminalInputCommand::Input { data: vec![1] },
-            ));
-        }
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 8,
-                    mode_generation: 1,
-                    mode_revision: 2,
-                    total_len: 1,
-                },
-            )
-            .expect("begin while queue full");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 8,
-                    index: 0,
-                    data: vec![9],
-                },
-            )
-            .expect("chunk while queue full");
-        worker
-            .intake_terminal_command(&key, TerminalInputCommand::PasteCommit { operation_id: 8 })
-            .expect("commit rejection");
-        let owner = worker.live.get(&key).expect("owner remains live");
-        assert_eq!(owner.input_queue.len(), INPUT_QUEUE_CAPACITY);
-        assert_eq!(
-            paste_result(owner, 1).rejection,
-            Some(TerminalInputRejection::OperationOutOfBounds)
-        );
-    }
-
-    #[test]
-    fn paste_incomplete_sequence_fails_cleanly_and_replacement_resets_identity() {
-        let mut worker = ClientWorker::new();
-        let (_, session, subscription) = ids();
-        let (generation, _) = worker.record_attach(
-            ClientId("first".into()),
-            session.clone(),
-            subscription.clone(),
-        );
-        let key = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: subscription.clone(),
-        };
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 9,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: (MAX_PASTE_CHUNK_DATA_BYTES + 1) as u32,
-                },
-            )
-            .expect("begin");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 9,
-                    index: 1,
-                    data: vec![0; MAX_PASTE_CHUNK_DATA_BYTES],
-                },
-            )
-            .expect("incomplete result");
-        let owner = worker.live.get(&key).expect("owner remains");
-        assert!(owner.paste.is_none());
-        assert!(owner.paste_in_flight.is_none());
-        let result = paste_result(owner, 0);
-        assert_eq!(result.subscription_id, subscription.0);
-        assert_eq!(result.operation_id, Some(9));
-        assert_eq!(result.bytes_written, 0);
-        assert_eq!(
-            result.rejection,
-            Some(TerminalInputRejection::OperationIncomplete)
-        );
-
-        let (replacement_generation, teardowns) = worker.record_attach(
-            ClientId("replacement".into()),
-            session.clone(),
-            subscription.clone(),
-        );
-        assert_eq!(teardowns.len(), 1);
-        assert!(replacement_generation > generation);
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 9,
-                    mode_generation: 2,
-                    mode_revision: 1,
-                    total_len: 1,
-                },
-            )
-            .expect("replacement can reuse operation id");
-        let owner = worker.live.get(&key).expect("replacement owner");
-        assert_eq!(owner.paste_in_flight, Some(9));
-        assert!(owner.queue.is_empty());
-    }
-
-    #[test]
-    fn paste_rejects_a_chunk_past_the_declared_chunk_count() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        worker.record_attach(client, session.clone(), subscription.clone());
-        let key = OwnerKey {
-            session_id: session,
-            subscription_id: subscription,
-        };
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 10,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: 5,
-                },
-            )
-            .expect("begin");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 10,
-                    index: 0,
-                    data: vec![1; 5],
-                },
-            )
-            .expect("declared chunk");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 10,
-                    index: 1,
-                    data: vec![2; 5],
-                },
-            )
-            .expect("extra chunk rejection");
-
-        let owner = worker.live.get(&key).expect("owner remains");
-        assert!(owner.paste.is_none());
-        assert!(owner.paste_in_flight.is_none());
-        assert!(owner.input_queue.is_empty());
-        let result = paste_result(owner, 0);
-        assert_eq!(result.operation_id, Some(10));
-        assert_eq!(result.bytes_written, 0);
-        assert_eq!(
-            result.rejection,
-            Some(TerminalInputRejection::OperationIncomplete)
-        );
-    }
-
-    #[test]
-    fn paste_rejects_a_repeated_final_chunk() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        worker.record_attach(client, session.clone(), subscription.clone());
-        let key = OwnerKey {
-            session_id: session,
-            subscription_id: subscription,
-        };
-        let total_len = MAX_PASTE_CHUNK_DATA_BYTES + 1;
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteBegin {
-                    operation_id: 11,
-                    mode_generation: 1,
-                    mode_revision: 1,
-                    total_len: total_len as u32,
-                },
-            )
-            .expect("begin");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 11,
-                    index: 0,
-                    data: vec![1; MAX_PASTE_CHUNK_DATA_BYTES],
-                },
-            )
-            .expect("first chunk");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 11,
-                    index: 1,
-                    data: vec![2],
-                },
-            )
-            .expect("final chunk");
-        worker
-            .intake_terminal_command(
-                &key,
-                TerminalInputCommand::PasteChunk {
-                    operation_id: 11,
-                    index: 1,
-                    data: vec![2],
-                },
-            )
-            .expect("repeated final chunk rejection");
-
-        let owner = worker.live.get(&key).expect("owner remains");
-        assert!(owner.paste.is_none());
-        assert!(owner.paste_in_flight.is_none());
-        assert!(owner.input_queue.is_empty());
-        let result = paste_result(owner, 0);
-        assert_eq!(result.operation_id, Some(11));
-        assert_eq!(result.bytes_written, 0);
-        assert_eq!(
-            result.rejection,
-            Some(TerminalInputRejection::OperationIncomplete)
-        );
-    }
-
-    #[test]
-    fn adapter_route_does_not_select_capacity_parked_sibling() {
-        let mut worker = ClientWorker::new();
-        let session = SessionId("shared-session".into());
-        let route_a = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: SubscriptionId("route-a".into()),
-        };
-        let route_b = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: SubscriptionId("route-b".into()),
-        };
-        worker.record_attach(
-            ClientId("client-a".into()),
-            session.clone(),
-            route_a.subscription_id.clone(),
-        );
-        worker.record_attach(
-            ClientId("client-b".into()),
-            session.clone(),
-            route_b.subscription_id.clone(),
-        );
-        worker.park_for_capacity(&route_b);
-
-        let route_only = TerminalWakeBatch {
-            adapter_routes: vec![crate::contract::terminal_wake::TerminalWakeRoute {
-                session_id: session.clone(),
-                subscription_id: route_a.subscription_id.clone(),
-            }],
-            ingress_sessions: Vec::new(),
-        };
-        assert!(worker.parked_route_keys(&route_only).is_empty());
-
-        let capacity_wake = TerminalWakeBatch {
-            adapter_routes: Vec::new(),
-            ingress_sessions: vec![session],
-        };
-        assert_eq!(worker.parked_route_keys(&capacity_wake), vec![route_b]);
-    }
-
-    #[test]
-    fn stale_parked_generation_does_not_select_replacement_owner() {
-        let mut worker = ClientWorker::new();
-        let session = SessionId("parked-generation-session".into());
-        let subscription = SubscriptionId("parked-generation-sub".into());
-        let key = OwnerKey {
-            session_id: session.clone(),
-            subscription_id: subscription.clone(),
-        };
-        let (old_generation, _) = worker.record_attach(
-            ClientId("parked-generation-old".into()),
-            session.clone(),
-            subscription.clone(),
-        );
-        worker.park_for_capacity(&key);
-        let _ = worker.detach_generation(&session, &subscription, old_generation);
-        let (new_generation, _) = worker.record_attach(
-            ClientId("parked-generation-new".into()),
-            session.clone(),
-            subscription,
-        );
-        assert_ne!(old_generation, new_generation);
-        worker.capacity_parked.insert(key, old_generation);
-
-        let capacity_wake = TerminalWakeBatch {
-            adapter_routes: Vec::new(),
-            ingress_sessions: vec![session],
-        };
-        assert!(worker.parked_route_keys(&capacity_wake).is_empty());
-    }
-
-    #[test]
-    fn waking_bind_after_attach_inserts_registry_and_rejection_does_not() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        let before = worker.wake_source().registry_len();
-        let err = worker.bind_waking_terminal_adapter(
-            &client,
-            session.clone(),
-            subscription.clone(),
-            TerminalSubscriptionGeneration(1),
-            TerminalCapabilitySet::empty(),
-            Box::new(ReadyWakingAdapter),
-        );
-        assert!(err.is_err());
-        assert_eq!(worker.wake_source().registry_len(), before);
-        worker.record_attach(client.clone(), session.clone(), subscription.clone());
-        let generation = worker
-            .live_generation(&session, &subscription)
-            .expect("generation");
-        worker
-            .bind_waking_terminal_adapter(
-                &client,
-                session.clone(),
-                subscription.clone(),
-                generation,
-                TerminalCapabilitySet::empty(),
-                Box::new(ReadyWakingAdapter),
-            )
-            .expect("bind");
-        assert_eq!(worker.wake_source().registry_len(), 1);
-        worker.teardown_session(&session);
-        assert_eq!(worker.wake_source().registry_len(), 0);
-    }
-
-    #[test]
-    fn flush_encode_failure_returns_teardown_from_ingest() {
-        let mut worker = ClientWorker::new();
-        let (client, session, subscription) = ids();
-        worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
-        worker.record_attach(client.clone(), session.clone(), subscription.clone());
-        let generation = worker
-            .live_generation(&session, &subscription)
-            .expect("generation");
-        let mut frames = vec![(
-            client.clone(),
-            TransportEgress::AttachState {
-                session_id: session.clone(),
-                subscription_id: subscription.clone(),
-                state: TerminalAttachState::Attached,
-            },
-        )];
-        assert!(worker.ingest_bound_terminal_frames(&mut frames).is_empty());
-        assert!(
-            frames.is_empty(),
-            "held attach state must not leak: {frames:?}"
-        );
-        worker
-            .bind_waking_terminal_adapter(
-                &client,
-                session.clone(),
-                subscription.clone(),
-                generation,
-                TerminalCapabilitySet::empty(),
-                Box::new(ReadyWakingAdapter),
-            )
-            .expect("bind");
-        worker.fail_next_encode = true;
-        let mut empty = Vec::new();
-        let teardowns = worker.ingest_bound_terminal_frames(&mut empty);
-        assert_eq!(
-            teardowns.len(),
-            1,
-            "encode failure must teardown: {teardowns:?}"
-        );
-        assert!(!worker.has_subscription(&session, &subscription));
-        assert_eq!(teardowns[0].client_id, client);
-        assert_eq!(teardowns[0].session_id, session);
-        assert_eq!(teardowns[0].subscription_id, subscription);
     }
 }

@@ -9,6 +9,7 @@ use std::{
     ops::Bound::{Excluded, Included, Unbounded},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
+    sync::Arc,
     time::{Duration, Instant},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -20,37 +21,40 @@ use botster_core::TerminalScreenSize;
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession,
     DefaultBotsterEngine, DefaultBotsterEngineError, DetachTerminalSubscriptionResult, EnvelopeId,
-    EnvelopeTarget, ModeFlags, ModeFlagsReady, ModeFreshnessToken, ModeGatedPtyInputResult,
-    NotificationId, NotificationInbox, QueueSource, RequestId, ResizeAckHold, ResizePayload,
-    RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady, SessionId, SessionIoEvent,
-    SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind, SessionWorkerHealthReason,
-    SessionWorkerStaleReason, SubscriptionId, TerminalBackendError, TerminalCapabilitySet,
-    TerminalColorProfile, TerminalScreenState, TerminalSnapshotPayload,
-    TerminalSubscriptionGeneration, TerminalSubscriptionRecord, TransportEgress,
-    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
+    EnvelopeTarget, ModeFlags, NotificationId, NotificationInbox, QueueSource, RequestId,
+    ResizeAckHold, ResizePayload, RoutedEnvelopeQueueConfig, RoutedEnvelopeRouter, ScreenReady,
+    SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
+    TerminalCapabilitySet, TerminalColorProfile, TerminalSubscriptionGeneration,
+    TerminalSubscriptionRecord, TransportEgress, WorkerBackedBotsterEngine,
+    WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
+use botster_terminal_protocol::HistoryUnavailableReason;
 use thiserror::Error;
 
+use crate::operation::{
+    CaptureId, CaptureOwner, ModeFlagsReadback, RetainedTerminal, ScreenReadback, SnapshotCapture,
+    SnapshotPage, CAPTURE_IDLE_TTL_SECONDS, MAX_OPEN_CAPTURES_PER_CLIENT,
+    MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
+};
 use crate::wake_pump::{WakePumpControl, WakePumpError, WakePumpState, WakePumpWait};
 
 use crate::api::{
     reserved_observe_slice_error, sanitize_observe_slice_error_message,
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
-    CaptureColorAndSnapshotRequest, CaptureColorAndSnapshotResult, CaptureSnapshotRequest,
-    CaptureSnapshotResult, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
+    CaptureSnapshotRequest, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
     DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
     GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult,
     ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
-    ReadModeFlagsRequest, ReadModeFlagsResult, ReadScreenRequest, ReadScreenResult,
-    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
-    SessionLifecycleBaseline, SessionLifecycleBaselinePage, SessionLifecycleChange,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
-    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SessionRegistryStateLookup, SpawnSessionRequest,
+    ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
+    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -67,6 +71,21 @@ pub const DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 10_000_000;
 
 /// Default number of ordered lifecycle changes retained for replay.
 pub const DEFAULT_LIFECYCLE_JOURNAL_CAPACITY: usize = 1_024;
+
+/// Default bound for a correlated worker reply behind a pending operation.
+pub const DEFAULT_WORKER_REPLY_TIMEOUT: Duration = botster_core::DEFAULT_WORKER_REPLY_TIMEOUT;
+
+/// Default retention policy for ended-session terminal history.
+///
+/// Hub supplies production values; these defaults keep a small daemon bounded.
+pub const DEFAULT_RETENTION_POLICY: RetentionPolicy = RetentionPolicy {
+    max_object_bytes: 16 * 1024 * 1024,
+    max_total_bytes: 256 * 1024 * 1024,
+    max_sessions: 256,
+};
+
+/// Bound for an orderly session shutdown behind a pending operation.
+const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(2);
 
 const TERMINAL_COMMIT_REARM_LIMIT: u8 = 3;
 
@@ -94,10 +113,10 @@ pub struct CoreDaemonConfig {
     /// presentation defaults. Hosts outside this repository supply color policy
     /// when OSC 10/11/12 replies or palette defaults are required.
     pub terminal_color_profile: Option<TerminalColorProfile>,
-    /// Parent wait bound for correlated mode-gated PTY input RPC.
-    pub mode_gated_input_timeout: Duration,
-    /// Optional per-request worker admit hold for deterministic race tests.
-    pub test_mode_gated_hold_ms: Option<u64>,
+    /// Bound for correlated worker replies behind pending operations.
+    pub worker_reply_timeout: Duration,
+    /// Retention policy for ended-session terminal history.
+    pub retention: RetentionPolicy,
     /// Test-only: hold after PTY read while still in the reader critical section.
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write WouldBlock until this Unix ms.
@@ -112,26 +131,12 @@ pub struct CoreDaemonConfig {
     pub pty_reader_chunk_capacity: Option<usize>,
     /// Test-only parent worker egress capacity.
     pub test_worker_egress_capacity: Option<usize>,
-    /// Test-only: fail snapshot history after READY.
-    pub test_fail_snapshot_history_after_ready: bool,
-    /// Test-only: omit worker resize acknowledgments after successful application.
-    pub test_omit_resize_applied: bool,
     /// Test-only: hold parent-side resize acknowledgements for one worker session.
     pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
     pub test_exit_code: Option<i32>,
-    /// Test-only: make observe's per-session runtime drain fail for this id.
-    pub test_fail_runtime_drain_for: Option<SessionId>,
-    /// Test-only: `Display` text for the injected observe drain failure.
-    pub test_fail_runtime_drain_message: Option<String>,
-    /// Test-only: fail final terminal-state retention for this session.
-    pub test_fail_retain_final_terminal_state_for: Option<SessionId>,
-    /// Test-only: return one applied attach resize for this session.
-    pub test_applied_attach_resize: Option<(SessionId, u16, u16, u64)>,
-    /// Test-only: force the daemon shutdown watchdog for this session.
-    pub test_force_shutdown_watchdog_for: Option<SessionId>,
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
@@ -149,8 +154,8 @@ impl CoreDaemonConfig {
             ghostty_max_scrollback_bytes: DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES,
             lifecycle_journal_capacity: DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
             terminal_color_profile: None,
-            mode_gated_input_timeout: botster_core::DEFAULT_MODE_GATED_INPUT_TIMEOUT,
-            test_mode_gated_hold_ms: None,
+            worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
+            retention: DEFAULT_RETENTION_POLICY,
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
@@ -158,32 +163,25 @@ impl CoreDaemonConfig {
             test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
-            test_fail_snapshot_history_after_ready: false,
-            test_omit_resize_applied: false,
             test_resize_ack_hold: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
-            test_fail_runtime_drain_for: None,
-            test_fail_runtime_drain_message: None,
-            test_fail_retain_final_terminal_state_for: None,
-            test_applied_attach_resize: None,
-            test_force_shutdown_watchdog_for: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
         }
     }
 
-    /// Override the mode-gated input RPC wait bound (tests may use a short timeout).
+    /// Override the correlated worker reply bound.
     #[must_use]
-    pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
-        self.mode_gated_input_timeout = timeout;
+    pub const fn with_worker_reply_timeout(mut self, timeout: Duration) -> Self {
+        self.worker_reply_timeout = timeout;
         self
     }
 
-    /// Set a per-request worker admit hold for deterministic race tests.
+    /// Supply the host retention policy for ended-session history.
     #[must_use]
-    pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_mode_gated_hold_ms = hold_ms;
+    pub const fn with_retention_policy(mut self, policy: RetentionPolicy) -> Self {
+        self.retention = policy;
         self
     }
 
@@ -222,13 +220,6 @@ impl CoreDaemonConfig {
         self
     }
 
-    /// Fail snapshot history after READY for a worker integration test.
-    #[must_use]
-    pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
-        self.test_fail_snapshot_history_after_ready = enabled;
-        self
-    }
-
     /// Hold after the worker sends FRAME_PROCESS_EXITED with stdout still open.
     #[must_use]
     pub const fn with_test_hold_before_exit_ms(mut self, hold_ms: Option<u64>) -> Self {
@@ -240,47 +231,6 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_exit_code(mut self, exit_code: Option<i32>) -> Self {
         self.test_exit_code = exit_code;
-        self
-    }
-
-    /// Fail observe's per-session runtime drain for this session id.
-    #[must_use]
-    pub fn with_test_fail_runtime_drain_for(mut self, session_id: Option<SessionId>) -> Self {
-        self.test_fail_runtime_drain_for = session_id;
-        self
-    }
-
-    /// Override the injected observe drain failure `Display` text.
-    #[must_use]
-    pub fn with_test_fail_runtime_drain_message(mut self, message: Option<String>) -> Self {
-        self.test_fail_runtime_drain_message = message;
-        self
-    }
-
-    /// Fail final terminal-state retention for this session id.
-    #[must_use]
-    pub fn with_test_fail_retain_final_terminal_state_for(
-        mut self,
-        session_id: Option<SessionId>,
-    ) -> Self {
-        self.test_fail_retain_final_terminal_state_for = session_id;
-        self
-    }
-
-    /// Return one test-only applied attach resize for this session.
-    #[must_use]
-    pub fn with_test_applied_attach_resize(
-        mut self,
-        resize: Option<(SessionId, u16, u16, u64)>,
-    ) -> Self {
-        self.test_applied_attach_resize = resize;
-        self
-    }
-
-    /// Force the test-only daemon shutdown watchdog for this session.
-    #[must_use]
-    pub fn with_test_force_shutdown_watchdog_for(mut self, session_id: Option<SessionId>) -> Self {
-        self.test_force_shutdown_watchdog_for = session_id;
         self
     }
 
@@ -344,15 +294,6 @@ impl CoreDaemonConfig {
         self.terminal_color_profile = Some(profile);
         self
     }
-}
-
-/// Outcome of [`CoreDaemon::mode_gated_input`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModeGatedInputOutcome {
-    /// Plain input path wrote bytes without a freshness token.
-    PlainWritten,
-    /// Correlated mode-gated worker admit result.
-    Gated(ModeGatedPtyInputResult),
 }
 
 /// Daemon API error.
@@ -446,7 +387,6 @@ pub struct ObserveLifecycleResult {
     /// Errors retained after every live session was attempted.
     pub session_errors: Vec<ObserveLifecycleSessionError>,
 }
-
 /// Production core daemon supervisor.
 ///
 /// `CoreDaemon` is intentionally not transferable between threads. A host that
@@ -465,10 +405,13 @@ pub struct CoreDaemon {
     notification_inbox: NotificationInbox,
     envelope_router: RoutedEnvelopeRouter,
     pending_drain: Vec<PendingDrainResult>,
-    retained_terminal: HashMap<SessionId, RetainedTerminalState>,
+    /// Retained ended-session terminal state under the retention policy.
+    retained_terminal: HashMap<SessionId, Arc<RetainedTerminal>>,
+    /// Ended sessions whose history is not retained, with the reason.
+    retained_unavailable: HashMap<SessionId, HistoryUnavailableReason>,
+    retention_accounting: RetentionAccounting,
     terminal_commit_obligations: HashMap<SessionId, SessionLifecycleState>,
     terminal_commit_failures: HashMap<SessionId, u8>,
-    last_mode_freshness: HashMap<SessionId, ModeFreshnessToken>,
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
@@ -477,6 +420,11 @@ pub struct CoreDaemon {
     observe_live_sessions: BTreeMap<String, u64>,
     observe_live_generation: u64,
     baseline_freeze: Option<BaselineFreeze>,
+    next_pending_operation: u64,
+    pending: BTreeMap<PendingOperationId, PendingState>,
+    completions: Vec<CoreCompletion>,
+    open_captures: HashMap<CaptureId, OpenCapture>,
+    next_capture: u64,
     #[cfg(test)]
     observe_index_scans: u64,
     #[cfg(test)]
@@ -489,6 +437,59 @@ pub struct CoreDaemon {
     registry_load_all_calls: Cell<u64>,
     running: bool,
     wake_pump: Option<WakePumpState>,
+}
+
+struct PendingState {
+    kind: PendingKind,
+    deadline: Option<Instant>,
+}
+
+enum PendingKind {
+    Spawn {
+        session_id: SessionId,
+        metadata: botster_core::CoreSessionMetadata,
+        size: ResizePayload,
+        label: String,
+        now_seconds: u64,
+    },
+    ShutdownSession {
+        session_id: SessionId,
+        now_seconds: u64,
+    },
+    ReadScreen {
+        session_id: SessionId,
+        probe_id: String,
+    },
+    ReadModeFlags {
+        session_id: SessionId,
+        probe_id: String,
+    },
+    CaptureSnapshot {
+        session_id: SessionId,
+        owner: CaptureOwner,
+        host_capture: u64,
+    },
+    Resize {
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+    },
+}
+
+struct OpenCapture {
+    owner: CaptureOwner,
+    bytes: Arc<[u8]>,
+    last_touched: Instant,
+}
+
+/// Where a readback for one session resolves.
+enum ReadbackSource {
+    /// The session is live; ask the worker or local backend.
+    Live,
+    /// The session ended in this incarnation and its history is retained.
+    Retained(Arc<RetainedTerminal>),
+    /// The session ended and its history is not available.
+    Unavailable(HistoryUnavailableReason),
 }
 
 struct ObservePassState {
@@ -527,21 +528,6 @@ struct PendingDrainResult {
     result: DrainResult,
 }
 
-#[derive(Clone)]
-struct RetainedTerminalState {
-    screen_text: String,
-    snapshot: TerminalSnapshotPayload,
-    mode_flags: Result<ModeFlags, TerminalBackendError>,
-    mode_freshness: ModeFreshnessToken,
-    /// Ghostty-owned colors frozen with the snapshot under one terminal borrow.
-    color_profile: TerminalColorProfile,
-}
-
-enum ReadbackResolution {
-    Live,
-    Retained(RetainedTerminalState),
-}
-
 impl CoreDaemon {
     /// Build a daemon with a caller-provided data directory.
     #[must_use]
@@ -555,8 +541,7 @@ impl CoreDaemon {
             .map(|worker_path| {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
-                options.mode_gated_input_timeout = config.mode_gated_input_timeout;
-                options.test_mode_gated_hold_ms = config.test_mode_gated_hold_ms;
+                options.worker_reply_timeout = config.worker_reply_timeout;
                 options.test_hold_after_read_ms = config.test_hold_after_read_ms;
                 options.test_write_block_until_unix_ms = config.test_write_block_until_unix_ms;
                 options.test_write_max_chunk = config.test_write_max_chunk;
@@ -564,9 +549,6 @@ impl CoreDaemon {
                 options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
                 options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
                 options.terminal_color_profile = terminal_color_profile.clone();
-                options.test_fail_snapshot_history_after_ready =
-                    config.test_fail_snapshot_history_after_ready;
-                options.test_omit_resize_applied = config.test_omit_resize_applied;
                 options.test_resize_ack_hold = config.test_resize_ack_hold.clone();
                 options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
                 options.test_exit_code = config.test_exit_code;
@@ -576,11 +558,7 @@ impl CoreDaemon {
                 if let Some(capacity) = config.test_worker_egress_capacity {
                     options.egress_capacity = capacity;
                 }
-                DaemonEngine::Worker(Box::new(worker_engine(
-                    options,
-                    ghostty_max_scrollback_bytes,
-                    terminal_color_profile.clone(),
-                )))
+                DaemonEngine::Worker(Box::new(WorkerBackedBotsterEngine::with_options(options)))
             })
             .unwrap_or_else(|| {
                 DaemonEngine::Local(Box::new(local_engine(
@@ -597,9 +575,10 @@ impl CoreDaemon {
             envelope_router: RoutedEnvelopeRouter::with_config(envelope_queue),
             pending_drain: Vec::new(),
             retained_terminal: HashMap::new(),
+            retained_unavailable: HashMap::new(),
+            retention_accounting: RetentionAccounting::default(),
             terminal_commit_obligations: HashMap::new(),
             terminal_commit_failures: HashMap::new(),
-            last_mode_freshness: HashMap::new(),
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
@@ -608,6 +587,11 @@ impl CoreDaemon {
             observe_live_sessions: BTreeMap::new(),
             observe_live_generation: 0,
             baseline_freeze: None,
+            next_pending_operation: 1,
+            pending: BTreeMap::new(),
+            completions: Vec::new(),
+            open_captures: HashMap::new(),
+            next_capture: 1,
             #[cfg(test)]
             observe_index_scans: 0,
             #[cfg(test)]
@@ -1340,33 +1324,8 @@ impl CoreDaemon {
         }
 
         for (session_id, result) in pumped_results {
-            if self
-                .config
-                .test_fail_runtime_drain_for
-                .as_ref()
-                .is_some_and(|failed| failed == &session_id)
-            {
-                let error = CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        self.config
-                            .test_fail_runtime_drain_message
-                            .clone()
-                            .unwrap_or_else(|| {
-                                format!("test-injected observe drain failure: {}", session_id.0)
-                            }),
-                    ),
-                ));
-                self.record_terminal_obligations(&result.observations);
-                self.record_terminal_commit_failure(&session_id, None);
-                self.retain_pending_drain_result(&session_id, result);
-                first_error.get_or_insert(error);
-                continue;
-            }
-
-            let applied_terminal_resize = self.engine.take_applied_terminal_resize(&session_id);
-            let applied_attach_resize = self.take_applied_attach_resize_to_persist(&session_id);
-            if let Some((rows, cols, resize_at)) = applied_terminal_resize.or(applied_attach_resize)
+            if let Some((rows, cols, resize_at)) =
+                self.engine.take_applied_terminal_resize(&session_id)
             {
                 if let Err(error) =
                     self.persist_changed_session_size(&session_id, rows, cols, resize_at)
@@ -1388,6 +1347,7 @@ impl CoreDaemon {
             }
             self.retain_pending_drain_result(&session_id, result);
         }
+        self.reconcile_pending(now_seconds);
 
         if let Some(error) = first_error {
             Err(error)
@@ -1466,7 +1426,6 @@ impl CoreDaemon {
         self.drop_pending_subscription_egress(&client_id, &session_id, &subscription_id);
         Ok(())
     }
-
     /// Send PTY input through the existing engine path.
     pub fn input(
         &mut self,
@@ -1496,10 +1455,10 @@ impl CoreDaemon {
         if self.engine.has_pending_terminal_resizes(&session_id) {
             return Err(CoreDaemonError::ExplicitResizeBusy(session_id));
         }
-        let resize_is_queued = self.engine.incremental_attach_active(&session_id);
+        let applied_later = self.engine.capture_active(&session_id);
         self.engine
             .resize(client_id, session_id.clone(), rows, cols, now_seconds)?;
-        if !resize_is_queued {
+        if !applied_later {
             self.persist_session_size(&session_id, rows, cols, now_seconds)?;
         }
         Ok(())
@@ -1569,14 +1528,6 @@ impl CoreDaemon {
             }
         }
         self.notify_bound_queue_wakes();
-        if let Some((rows, cols, resize_at)) =
-            self.take_applied_attach_resize_to_persist(session_id)
-        {
-            if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
-                self.retain_pending_drain_result(session_id, result);
-                return Err(error);
-            }
-        }
         if let Err(error) =
             self.commit_terminal_lifecycle(session_id, &result.observations, last_output_at)
         {
@@ -1585,7 +1536,6 @@ impl CoreDaemon {
         }
         Ok(result)
     }
-
     /// Drain one subscription without consuming frames for another route.
     pub fn drain_subscription(
         &mut self,
@@ -1618,193 +1568,1067 @@ impl CoreDaemon {
         Ok(result)
     }
 
-    /// Read the current terminal screen through the production daemon path.
-    ///
-    /// Worker-backed sessions update the daemon-owned terminal shadow while
-    /// runtime output is drained. This method drains before reading so callers
-    /// do not need an explicit pre-read drain. Any client egress or
-    /// observations produced by that internal drain are retained for the next
-    /// explicit [`Self::drain`] call. The internal drain does not `try_write`
-    /// a bound adapter. If it queues frames onto a bound Ready owner, it emits
-    /// one coalesced session ingress wake.
-    pub fn read_screen(
-        &mut self,
-        request: ReadScreenRequest,
-    ) -> Result<ReadScreenResult, CoreDaemonError> {
-        self.ensure_running()?;
-        let pump_retained = self.retained_readback_needs_pump(&request.session_id);
-        if let ReadbackResolution::Retained(retained) =
-            self.resolve_readback(&request.session_id, request.now_seconds)?
-        {
-            if pump_retained {
-                let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-            }
-            return Ok(ReadScreenResult {
-                screen: ScreenReady {
-                    request_id: request.request_id,
-                    session_id: request.session_id,
-                    text: retained.screen_text,
-                },
-            });
-        }
-        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-        let mut output = self.engine.read_screen(
-            request.request_id.clone(),
-            request.session_id.clone(),
-            request.now_seconds,
-        )?;
-        let screen = take_screen_ready(&mut output, &request.request_id)?;
-        self.retain_pending_drain_result(
-            &request.session_id,
-            drain_result_from_engine_output(output),
-        );
-        Ok(ReadScreenResult { screen })
+    /// Current retention policy.
+    #[must_use]
+    pub const fn retention_policy(&self) -> RetentionPolicy {
+        self.config.retention
     }
 
-    /// Read authoritative terminal mode flags through the production daemon path.
-    pub fn read_mode_flags(
-        &mut self,
-        request: ReadModeFlagsRequest,
-    ) -> Result<ReadModeFlagsResult, CoreDaemonError> {
-        self.ensure_running()?;
-        let pump_retained = self.retained_readback_needs_pump(&request.session_id);
-        if let ReadbackResolution::Retained(retained) =
-            self.resolve_readback(&request.session_id, request.now_seconds)?
-        {
-            if pump_retained {
-                let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-            }
-            let mode_flags = retained
-                .mode_flags
-                .map_err(managed_terminal_backend_error)?;
-            return Ok(ReadModeFlagsResult {
-                mode_flags: ModeFlagsReady {
-                    request_id: request.request_id,
-                    session_id: request.session_id,
-                    mode_flags,
-                    mode_freshness: retained.mode_freshness,
-                },
-            });
-        }
-        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-        let mut output = self.engine.read_mode_flags(
-            request.request_id.clone(),
-            request.session_id.clone(),
-            request.now_seconds,
-        )?;
-        let mode_flags = take_mode_flags_ready(&mut output, &request.request_id)?;
-        self.last_mode_freshness
-            .insert(request.session_id.clone(), mode_flags.mode_freshness);
-        self.retain_pending_drain_result(
-            &request.session_id,
-            drain_result_from_engine_output(output),
-        );
-        Ok(ReadModeFlagsResult { mode_flags })
+    /// Current retention accounting.
+    #[must_use]
+    pub const fn retention_accounting(&self) -> RetentionAccounting {
+        self.retention_accounting
     }
 
-    /// Admit mode-dependent PTY input under the worker atomic mode-gated path.
+    /// Start one operation and return at once.
     ///
-    /// When `expected_mode_freshness` is `None`, this is identical to
-    /// [`Self::input`] (plain `FRAME_PTY_INPUT`). When `Some`, the production
-    /// worker-backed path uses correlated mode-gated RPC; the worker is the
-    /// correctness boundary. Parent drain is optimization-only.
-    pub fn mode_gated_input(
+    /// Operations that need no worker round trip complete before this method
+    /// returns and appear in the next [`Self::take_completions`]. The rest are
+    /// reconciled by [`Self::pump_woken`]. Nothing here waits.
+    pub fn begin(
         &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        data: impl Into<Vec<u8>>,
-        expected_mode_freshness: Option<ModeFreshnessToken>,
+        operation: CoreOperation,
+    ) -> Result<PendingOperationId, CoreDaemonError> {
+        self.ensure_running()?;
+        let id = self.allocate_pending_id();
+        match operation {
+            CoreOperation::Spawn(request) => self.begin_spawn(id, request)?,
+            CoreOperation::Adopt(session_id) => {
+                let now_seconds = unix_now_seconds();
+                let result = self.adopt_session(&session_id, now_seconds);
+                self.completions.push(CoreCompletion::Adopt { id, result });
+            }
+            CoreOperation::ShutdownSession(session_id) => self.begin_shutdown(id, session_id)?,
+            CoreOperation::RemoveSession(session_id) => {
+                let result = self.remove_session(&session_id);
+                self.completions
+                    .push(CoreCompletion::RemoveSession { id, result });
+            }
+            CoreOperation::ReadScreen(request) => self.begin_read_screen(id, request)?,
+            CoreOperation::ReadModeFlags(request) => self.begin_read_mode_flags(id, request)?,
+            CoreOperation::CaptureSnapshot { request, owner } => {
+                self.begin_capture_snapshot(id, request, owner)?;
+            }
+            CoreOperation::Resize {
+                session_id,
+                rows,
+                cols,
+            } => self.begin_resize(id, session_id, rows, cols)?,
+            CoreOperation::CancelInput {
+                route,
+                generation,
+                operation_id,
+            } => {
+                let result = match &mut self.engine {
+                    DaemonEngine::Local(_) => Ok(false),
+                    DaemonEngine::Worker(engine) => engine
+                        .cancel_input_operation(&route, generation, operation_id)
+                        .map_err(CoreDaemonError::Engine),
+                };
+                self.completions
+                    .push(CoreCompletion::CancelInput { id, result });
+            }
+        }
+        Ok(id)
+    }
+
+    /// Cancel one pending operation. Returns `false` when it already finished.
+    ///
+    /// A cancelled operation completes with [`CoreDaemonError::Cancelled`].
+    /// Worker work already sent is not undone.
+    pub fn cancel(&mut self, id: PendingOperationId) -> bool {
+        let Some(state) = self.pending.remove(&id) else {
+            return false;
+        };
+        let completion = match state.kind {
+            PendingKind::Spawn { .. } => CoreCompletion::Spawn {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            PendingKind::ShutdownSession { .. } => CoreCompletion::ShutdownSession {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            PendingKind::ReadScreen { .. } => CoreCompletion::ReadScreen {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            PendingKind::ReadModeFlags { .. } => CoreCompletion::ReadModeFlags {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            PendingKind::CaptureSnapshot {
+                session_id,
+                host_capture,
+                ..
+            } => {
+                if let DaemonEngine::Worker(engine) = &mut self.engine {
+                    engine.cancel_host_capture(&session_id, host_capture);
+                }
+                CoreCompletion::CaptureSnapshot {
+                    id,
+                    result: Err(CoreDaemonError::Cancelled),
+                }
+            }
+            PendingKind::Resize { .. } => CoreCompletion::Resize {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+        };
+        self.completions.push(completion);
+        true
+    }
+
+    /// Take every finished operation since the last call.
+    pub fn take_completions(&mut self) -> Vec<CoreCompletion> {
+        std::mem::take(&mut self.completions)
+    }
+
+    /// Whether any operation is still pending.
+    #[must_use]
+    pub fn has_pending_operations(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// Read one page of an open snapshot capture without copying the bytes.
+    pub fn read_snapshot_page(
+        &mut self,
+        capture: &CaptureId,
+        page: u32,
+    ) -> Result<SnapshotPage, CoreDaemonError> {
+        let open = self
+            .open_captures
+            .get_mut(capture)
+            .ok_or_else(|| CoreDaemonError::UnknownCapture(capture.clone()))?;
+        let start = (page as usize).saturating_mul(SNAPSHOT_PAGE_BYTES);
+        if start >= open.bytes.len() && !(page == 0 && open.bytes.is_empty()) {
+            return Err(CoreDaemonError::SnapshotPageOutOfRange {
+                capture: capture.clone(),
+                page,
+            });
+        }
+        let end = start
+            .saturating_add(SNAPSHOT_PAGE_BYTES)
+            .min(open.bytes.len());
+        open.last_touched = Instant::now();
+        Ok(SnapshotPage::new(Arc::clone(&open.bytes), start, end))
+    }
+
+    /// Release one open capture.
+    pub fn release_capture(&mut self, capture: &CaptureId) -> bool {
+        self.open_captures.remove(capture).is_some()
+    }
+
+    /// Release every capture held by one owner, for client disconnect.
+    pub fn release_owner_captures(&mut self, owner: &CaptureOwner) -> usize {
+        let before = self.open_captures.len();
+        self.open_captures.retain(|_, open| &open.owner != owner);
+        before - self.open_captures.len()
+    }
+
+    fn allocate_pending_id(&mut self) -> PendingOperationId {
+        let id = PendingOperationId(self.next_pending_operation);
+        self.next_pending_operation += 1;
+        id
+    }
+
+    fn pending_spawns(&self) -> usize {
+        self.pending
+            .values()
+            .filter(|state| matches!(state.kind, PendingKind::Spawn { .. }))
+            .count()
+    }
+
+    fn pending_readbacks(&self, session_id: &SessionId) -> usize {
+        self.pending
+            .values()
+            .filter(|state| match &state.kind {
+                PendingKind::ReadScreen { session_id: id, .. }
+                | PendingKind::ReadModeFlags { session_id: id, .. }
+                | PendingKind::CaptureSnapshot { session_id: id, .. } => id == session_id,
+                _ => false,
+            })
+            .count()
+    }
+
+    fn open_captures_for(&self, owner: &CaptureOwner) -> usize {
+        self.open_captures
+            .values()
+            .filter(|open| &open.owner == owner)
+            .count()
+            + self
+                .pending
+                .values()
+                .filter(|state| {
+                    matches!(&state.kind, PendingKind::CaptureSnapshot { owner: pending, .. } if pending == owner)
+                })
+                .count()
+    }
+
+    fn begin_spawn(
+        &mut self,
+        id: PendingOperationId,
+        request: SpawnSessionRequest,
+    ) -> Result<(), CoreDaemonError> {
+        let now_seconds = unix_now_seconds();
+        let pending_spawns = self.pending_spawns();
+        match &mut self.engine {
+            DaemonEngine::Local(_) => {
+                let result = self.spawn(request, now_seconds);
+                self.completions.push(CoreCompletion::Spawn { id, result });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                if pending_spawns >= MAX_PENDING_SPAWNS {
+                    return Err(CoreDaemonError::PendingLimit(
+                        crate::operation::PendingLimitKind::Spawns,
+                    ));
+                }
+                let session_id = request.request.session_id.clone();
+                let size = request
+                    .request
+                    .initial_pty_size
+                    .clone()
+                    .unwrap_or(ResizePayload { rows: 24, cols: 80 });
+                let label = command_label(&request.request.executable);
+                engine.begin_spawn(request.request)?;
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::Spawn {
+                            session_id,
+                            metadata: request.metadata,
+                            size,
+                            label,
+                            now_seconds,
+                        },
+                        deadline: None,
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn finish_spawn_registry(
+        &mut self,
+        spawn: botster_core::BotsterSpawnOutcome,
+        size: ResizePayload,
+        label: String,
         now_seconds: u64,
-    ) -> Result<ModeGatedInputOutcome, CoreDaemonError> {
+    ) -> Result<CoreSession, CoreDaemonError> {
+        let session_id = spawn.session.session_id.clone();
+        self.track_live_session(&session_id);
+        let mut record = RegistryRecord::running(
+            session_id,
+            Some(spawn.handle.process),
+            size,
+            label,
+            now_seconds,
+        );
+        record.metadata = spawn.session.metadata.clone();
+        self.fence_baseline_before_save(&record.session_id)?;
+        if let Some(metadata) = self.engine.worker_metadata(&record.session_id) {
+            if let Some(identity) = metadata.recovery_identity.clone() {
+                record.observe_restart_contract(identity, now_seconds);
+            }
+        }
+        self.registry.save(&record)?;
+        self.append_lifecycle_upsert(&record, Some(spawn.session.lifecycle.clone()));
+        Ok(spawn.session)
+    }
+
+    fn begin_shutdown(
+        &mut self,
+        id: PendingOperationId,
+        session_id: SessionId,
+    ) -> Result<(), CoreDaemonError> {
+        let now_seconds = unix_now_seconds();
+        if let DaemonEngine::Local(_) = &self.engine {
+            let result = self.shutdown_session(session_id, now_seconds);
+            self.completions
+                .push(CoreCompletion::ShutdownSession { id, result });
+            return Ok(());
+        }
+        self.ensure_session(&session_id)?;
+        let shutdown =
+            self.engine
+                .shutdown_session(session_id.clone(), "daemon shutdown", now_seconds);
+        match shutdown {
+            Ok(output) => {
+                let drain = drain_result_from_engine_output(output);
+                let observations = drain.observations.clone();
+                self.retain_pending_drain_result(&session_id, drain);
+                self.commit_terminal_lifecycle(&session_id, &observations, now_seconds)?;
+            }
+            Err(error) => {
+                self.completions.push(CoreCompletion::ShutdownSession {
+                    id,
+                    result: Err(error.into()),
+                });
+                return Ok(());
+            }
+        }
+        self.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::ShutdownSession {
+                    session_id,
+                    now_seconds,
+                },
+                deadline: Some(Instant::now() + SHUTDOWN_DEADLINE),
+            },
+        );
+        Ok(())
+    }
+
+    fn begin_read_screen(
+        &mut self,
+        id: PendingOperationId,
+        request: ReadScreenRequest,
+    ) -> Result<(), CoreDaemonError> {
+        let session_id = request.session_id.clone();
+        match self.readback_source(&session_id, request.now_seconds)? {
+            ReadbackSource::Retained(retained) => {
+                self.completions.push(CoreCompletion::ReadScreen {
+                    id,
+                    result: Ok(ScreenReadback {
+                        text: Arc::clone(&retained.screen_text),
+                        unavailable: None,
+                    }),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Unavailable(reason) => {
+                self.completions.push(CoreCompletion::ReadScreen {
+                    id,
+                    result: Ok(ScreenReadback {
+                        text: Arc::from(""),
+                        unavailable: Some(reason),
+                    }),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Live => {}
+        }
+        if self.pending_readbacks(&session_id) >= MAX_PENDING_READBACKS_PER_SESSION {
+            return Err(CoreDaemonError::PendingLimit(
+                crate::operation::PendingLimitKind::ReadbacksPerSession,
+            ));
+        }
+        match &mut self.engine {
+            DaemonEngine::Local(engine) => {
+                let result = engine
+                    .read_screen(request.request_id.clone(), session_id, request.now_seconds)
+                    .map_err(CoreDaemonError::Engine)
+                    .and_then(|mut output| {
+                        let screen = take_screen_ready(&mut output, &request.request_id)?;
+                        self.pending_drain.push(PendingDrainResult {
+                            session_id: request.session_id.clone(),
+                            result: drain_result_from_engine_output(output),
+                        });
+                        Ok(ScreenReadback {
+                            text: Arc::from(screen.text),
+                            unavailable: None,
+                        })
+                    });
+                self.completions
+                    .push(CoreCompletion::ReadScreen { id, result });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                let probe_id = engine.begin_screen_probe(&session_id)?;
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::ReadScreen {
+                            session_id,
+                            probe_id,
+                        },
+                        deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn begin_read_mode_flags(
+        &mut self,
+        id: PendingOperationId,
+        request: ReadModeFlagsRequest,
+    ) -> Result<(), CoreDaemonError> {
+        let session_id = request.session_id.clone();
+        match self.readback_source(&session_id, request.now_seconds)? {
+            ReadbackSource::Retained(retained) => {
+                self.completions.push(CoreCompletion::ReadModeFlags {
+                    id,
+                    result: Ok(ModeFlagsReadback {
+                        mode_flags: ModeFlags::from_mode_bits(retained.mode_bits),
+                        rows: retained.rows,
+                        cols: retained.cols,
+                        unavailable: None,
+                    }),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Unavailable(reason) => {
+                self.completions.push(CoreCompletion::ReadModeFlags {
+                    id,
+                    result: Ok(ModeFlagsReadback {
+                        mode_flags: ModeFlags::default(),
+                        rows: 0,
+                        cols: 0,
+                        unavailable: Some(reason),
+                    }),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Live => {}
+        }
+        if self.pending_readbacks(&session_id) >= MAX_PENDING_READBACKS_PER_SESSION {
+            return Err(CoreDaemonError::PendingLimit(
+                crate::operation::PendingLimitKind::ReadbacksPerSession,
+            ));
+        }
+        match &mut self.engine {
+            DaemonEngine::Local(engine) => {
+                let result = engine
+                    .capture_terminal_state(&session_id)
+                    .map_err(CoreDaemonError::Engine)
+                    .and_then(|(screen, _, mode_flags)| {
+                        let mode_flags = mode_flags.map_err(managed_terminal_backend_error)?;
+                        Ok(ModeFlagsReadback {
+                            mode_flags,
+                            rows: screen.size.rows,
+                            cols: screen.size.cols,
+                            unavailable: None,
+                        })
+                    });
+                self.completions
+                    .push(CoreCompletion::ReadModeFlags { id, result });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                let probe_id = engine.begin_mode_flags_probe(&session_id)?;
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::ReadModeFlags {
+                            session_id,
+                            probe_id,
+                        },
+                        deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn begin_capture_snapshot(
+        &mut self,
+        id: PendingOperationId,
+        request: CaptureSnapshotRequest,
+        owner: CaptureOwner,
+    ) -> Result<(), CoreDaemonError> {
+        let session_id = request.session_id.clone();
+        if self.open_captures_for(&owner) >= MAX_OPEN_CAPTURES_PER_CLIENT {
+            return Err(CoreDaemonError::PendingLimit(
+                crate::operation::PendingLimitKind::CapturesPerClient,
+            ));
+        }
+        match self.readback_source(&session_id, request.now_seconds)? {
+            ReadbackSource::Retained(retained) => {
+                let result = match retained.snapshot.as_ref() {
+                    Some(snapshot) => Ok(self.open_capture(
+                        owner,
+                        Arc::clone(snapshot),
+                        retained.rows,
+                        retained.cols,
+                        retained.color_profile.clone(),
+                    )),
+                    None => Ok(unavailable_capture(
+                        HistoryUnavailableReason::CaptureFailed,
+                        retained.color_profile.clone(),
+                    )),
+                };
+                self.completions
+                    .push(CoreCompletion::CaptureSnapshot { id, result });
+                return Ok(());
+            }
+            ReadbackSource::Unavailable(reason) => {
+                self.completions.push(CoreCompletion::CaptureSnapshot {
+                    id,
+                    result: Ok(unavailable_capture(reason, TerminalColorProfile::default())),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Live => {}
+        }
+        if self.pending_readbacks(&session_id) >= MAX_PENDING_READBACKS_PER_SESSION {
+            return Err(CoreDaemonError::PendingLimit(
+                crate::operation::PendingLimitKind::ReadbacksPerSession,
+            ));
+        }
+        match &mut self.engine {
+            DaemonEngine::Local(engine) => {
+                let captured = engine
+                    .capture_color_and_snapshot(&session_id)
+                    .map_err(CoreDaemonError::Engine);
+                let result = match captured {
+                    Ok((color_profile, payload)) => {
+                        let rows = payload.size.rows;
+                        let cols = payload.size.cols;
+                        Ok(self.open_capture(
+                            owner,
+                            Arc::from(payload.bytes),
+                            rows,
+                            cols,
+                            color_profile,
+                        ))
+                    }
+                    Err(error) => Err(error),
+                };
+                self.completions
+                    .push(CoreCompletion::CaptureSnapshot { id, result });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                let host_capture = engine.begin_host_capture(&session_id);
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::CaptureSnapshot {
+                            session_id,
+                            owner,
+                            host_capture,
+                        },
+                        deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn begin_resize(
+        &mut self,
+        id: PendingOperationId,
+        session_id: SessionId,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), CoreDaemonError> {
+        let now_seconds = unix_now_seconds();
+        let host = ClientId("core-daemon-host".to_string());
+        if let DaemonEngine::Local(_) = &self.engine {
+            let result = self.resize(host, session_id, rows, cols, now_seconds);
+            self.completions.push(CoreCompletion::Resize { id, result });
+            return Ok(());
+        }
         self.ensure_running()?;
         self.ensure_session_mutable(&session_id)?;
-        let data = data.into();
-        let Some(expected) = expected_mode_freshness else {
-            self.engine
-                .write_bytes(client_id, session_id, data, now_seconds)?;
-            return Ok(ModeGatedInputOutcome::PlainWritten);
-        };
-
-        // Optimization-only pre-admit drain. Correctness is worker atomic admit.
-        let _ = self.drain_runtime_for_readback(&session_id, now_seconds);
-
-        let result = self
-            .engine
-            .mode_gated_pty_input(session_id.clone(), expected, data)?;
-        self.last_mode_freshness
-            .insert(session_id, result.mode_freshness);
-        Ok(ModeGatedInputOutcome::Gated(result))
+        if self.engine.has_pending_terminal_resizes(&session_id) {
+            return Err(CoreDaemonError::ExplicitResizeBusy(session_id));
+        }
+        self.engine
+            .resize(host, session_id.clone(), rows, cols, now_seconds)?;
+        self.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::Resize {
+                    session_id,
+                    rows,
+                    cols,
+                },
+                deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+            },
+        );
+        Ok(())
     }
 
-    /// Capture the current terminal snapshot through the production daemon path.
-    ///
-    /// The payload is Ghostty-owned opaque terminal state (`GHOSTSNP` /
-    /// `ghostty-terminal-snapshot-v1`). Scrollback retention is governed by
-    /// [`CoreDaemonConfig::ghostty_max_scrollback_bytes`] (default 10 MB of
-    /// Ghostty page-allocation budget). Ghostty stores page-quantized parsed
-    /// terminal state rather than a raw PTY byte tail, so effective retained
-    /// lines depend on terminal width.
-    pub fn capture_snapshot(
+    fn open_capture(
         &mut self,
-        request: CaptureSnapshotRequest,
-    ) -> Result<CaptureSnapshotResult, CoreDaemonError> {
-        self.ensure_running()?;
-        if let ReadbackResolution::Retained(retained) =
-            self.resolve_readback(&request.session_id, request.now_seconds)?
-        {
-            let payload = retained.snapshot;
-            let snapshot = payload
-                .clone()
-                .into_snapshot_ready(request.request_id, request.session_id);
-            return Ok(CaptureSnapshotResult { snapshot, payload });
-        }
-        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-        let payload = self.engine.capture_snapshot_payload(&request.session_id)?;
-        let snapshot = payload
-            .clone()
-            .into_snapshot_ready(request.request_id, request.session_id);
-        Ok(CaptureSnapshotResult { snapshot, payload })
-    }
-
-    /// Capture current colors and GHOSTSNP from one terminal ownership section.
-    ///
-    /// This is the Hub-facing production ordering boundary: palette/special
-    /// colors and the opaque snapshot are taken under the same session terminal
-    /// borrow after the drain-before-read path used by other readbacks. Host
-    /// `terminal_color_profile` remains spawn/initial baseline only; after
-    /// session start Ghostty owns current colors (including OSC mutations).
-    /// Retained post-exit freezes serve the same paired record without
-    /// re-entering a live terminal.
-    pub fn capture_color_and_snapshot(
-        &mut self,
-        request: CaptureColorAndSnapshotRequest,
-    ) -> Result<CaptureColorAndSnapshotResult, CoreDaemonError> {
-        self.ensure_running()?;
-        if let ReadbackResolution::Retained(retained) =
-            self.resolve_readback(&request.session_id, request.now_seconds)?
-        {
-            let payload = retained.snapshot;
-            let snapshot = payload
-                .clone()
-                .into_snapshot_ready(request.request_id, request.session_id);
-            return Ok(CaptureColorAndSnapshotResult {
-                color_profile: retained.color_profile,
-                snapshot,
-                payload,
-            });
-        }
-        let _ = self.drain_runtime_for_readback(&request.session_id, request.now_seconds);
-        let (color_profile, payload) = self
-            .engine
-            .capture_color_and_snapshot(&request.session_id)?;
-        let snapshot = payload
-            .clone()
-            .into_snapshot_ready(request.request_id, request.session_id);
-        Ok(CaptureColorAndSnapshotResult {
+        owner: CaptureOwner,
+        bytes: Arc<[u8]>,
+        rows: u16,
+        cols: u16,
+        color_profile: TerminalColorProfile,
+    ) -> SnapshotCapture {
+        let capture_id = CaptureId(format!(
+            "capture-{}-{}",
+            self.lifecycle_source_id.0, self.next_capture
+        ));
+        self.next_capture += 1;
+        let total_bytes = bytes.len() as u64;
+        let pages = bytes.len().div_ceil(SNAPSHOT_PAGE_BYTES).max(1) as u32;
+        self.open_captures.insert(
+            capture_id.clone(),
+            OpenCapture {
+                owner,
+                bytes,
+                last_touched: Instant::now(),
+            },
+        );
+        SnapshotCapture {
+            capture_id,
+            total_bytes,
+            page_bytes: SNAPSHOT_PAGE_BYTES as u32,
+            pages,
+            rows,
+            cols,
             color_profile,
-            snapshot,
-            payload,
-        })
+            unavailable: None,
+        }
+    }
+
+    /// Reconcile worker replies, deadlines, and expiries for pending operations.
+    fn reconcile_pending(&mut self, now_seconds: u64) {
+        let now = Instant::now();
+        let ids: Vec<_> = self.pending.keys().copied().collect();
+        for id in ids {
+            let Some(state) = self.pending.get(&id) else {
+                continue;
+            };
+            let expired = state.deadline.is_some_and(|deadline| deadline <= now);
+            let completion = match &state.kind {
+                PendingKind::Spawn {
+                    session_id,
+                    metadata,
+                    size,
+                    label,
+                    now_seconds: spawn_at,
+                } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    let polled = engine.poll_spawn(
+                        session_id,
+                        metadata.clone(),
+                        TerminalScreenSize::new(size.rows, size.cols),
+                    );
+                    match polled {
+                        Ok(None) => continue,
+                        Ok(Some(spawn)) => {
+                            let (size, label, spawn_at) = (size.clone(), label.clone(), *spawn_at);
+                            let result = self.finish_spawn_registry(spawn, size, label, spawn_at);
+                            CoreCompletion::Spawn { id, result }
+                        }
+                        Err(error) => CoreCompletion::Spawn {
+                            id,
+                            result: Err(error.into()),
+                        },
+                    }
+                }
+                PendingKind::ShutdownSession {
+                    session_id,
+                    now_seconds: shutdown_at,
+                } => {
+                    let session_id = session_id.clone();
+                    let shutdown_at = *shutdown_at;
+                    if self.engine_session_exited(&session_id)
+                        || self.engine.session(&session_id).is_none()
+                    {
+                        let result = self.finish_shutdown_registry(&session_id, shutdown_at);
+                        CoreCompletion::ShutdownSession { id, result }
+                    } else if expired {
+                        CoreCompletion::ShutdownSession {
+                            id,
+                            result: Err(CoreDaemonError::DeadlineExpired),
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+                PendingKind::ReadScreen {
+                    session_id,
+                    probe_id,
+                } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    let session_id = session_id.clone();
+                    let probe_id = probe_id.clone();
+                    let replies = engine.take_screen_replies(&session_id).unwrap_or_default();
+                    let matched = replies
+                        .into_iter()
+                        .find(|reply| reply.request_id == probe_id);
+                    match matched {
+                        Some(reply) => CoreCompletion::ReadScreen {
+                            id,
+                            result: match reply.error_kind {
+                                Some(error) => Err(CoreDaemonError::Engine(
+                                    DefaultBotsterEngineError::TerminalBackendOperation {
+                                        operation: "read_screen",
+                                        message: error,
+                                    },
+                                )),
+                                None => Ok(ScreenReadback {
+                                    text: Arc::from(reply.text),
+                                    unavailable: None,
+                                }),
+                            },
+                        },
+                        None if engine.session(&session_id).is_none()
+                            || engine.worker_link_ended(&session_id) =>
+                        {
+                            CoreCompletion::ReadScreen {
+                                id,
+                                result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
+                            }
+                        }
+                        None if expired => CoreCompletion::ReadScreen {
+                            id,
+                            result: Err(CoreDaemonError::DeadlineExpired),
+                        },
+                        None => continue,
+                    }
+                }
+                PendingKind::ReadModeFlags {
+                    session_id,
+                    probe_id,
+                } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    let session_id = session_id.clone();
+                    let probe_id = probe_id.clone();
+                    let replies = engine
+                        .take_mode_flags_replies(&session_id)
+                        .unwrap_or_default();
+                    let matched = replies
+                        .into_iter()
+                        .find(|reply| reply.request_id == probe_id);
+                    match matched {
+                        Some(reply) => CoreCompletion::ReadModeFlags {
+                            id,
+                            result: match reply.error_kind {
+                                Some(error) => Err(CoreDaemonError::Engine(
+                                    DefaultBotsterEngineError::TerminalBackendOperation {
+                                        operation: "read_mode_flags",
+                                        message: error,
+                                    },
+                                )),
+                                None => Ok(ModeFlagsReadback {
+                                    mode_flags: reply.mode_flags,
+                                    rows: reply.rows,
+                                    cols: reply.cols,
+                                    unavailable: None,
+                                }),
+                            },
+                        },
+                        None if engine.session(&session_id).is_none()
+                            || engine.worker_link_ended(&session_id) =>
+                        {
+                            CoreCompletion::ReadModeFlags {
+                                id,
+                                result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
+                            }
+                        }
+                        None if expired => CoreCompletion::ReadModeFlags {
+                            id,
+                            result: Err(CoreDaemonError::DeadlineExpired),
+                        },
+                        None => continue,
+                    }
+                }
+                PendingKind::CaptureSnapshot {
+                    session_id,
+                    owner,
+                    host_capture,
+                } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    let session_id = session_id.clone();
+                    let owner = owner.clone();
+                    let host_capture = *host_capture;
+                    match engine.take_host_capture(host_capture) {
+                        Some(Ok(captured)) => {
+                            let rows = captured.size.rows;
+                            let cols = captured.size.cols;
+                            let capture = self.open_capture(
+                                owner,
+                                Arc::from(captured.bytes),
+                                rows,
+                                cols,
+                                captured.color_profile,
+                            );
+                            CoreCompletion::CaptureSnapshot {
+                                id,
+                                result: Ok(capture),
+                            }
+                        }
+                        Some(Err(message)) => CoreCompletion::CaptureSnapshot {
+                            id,
+                            result: Err(CoreDaemonError::Engine(
+                                DefaultBotsterEngineError::TerminalBackendOperation {
+                                    operation: "capture_snapshot",
+                                    message,
+                                },
+                            )),
+                        },
+                        None if engine.session(&session_id).is_none()
+                            || engine.worker_link_ended(&session_id) =>
+                        {
+                            engine.cancel_host_capture(&session_id, host_capture);
+                            CoreCompletion::CaptureSnapshot {
+                                id,
+                                result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
+                            }
+                        }
+                        None if expired => {
+                            engine.cancel_host_capture(&session_id, host_capture);
+                            CoreCompletion::CaptureSnapshot {
+                                id,
+                                result: Err(CoreDaemonError::DeadlineExpired),
+                            }
+                        }
+                        None => continue,
+                    }
+                }
+                PendingKind::Resize {
+                    session_id,
+                    rows,
+                    cols,
+                } => {
+                    let session_id = session_id.clone();
+                    let (rows, cols) = (*rows, *cols);
+                    let applied = self
+                        .registry
+                        .load(&session_id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|record| record.rows == rows && record.cols == cols);
+                    if applied {
+                        CoreCompletion::Resize { id, result: Ok(()) }
+                    } else if self.engine.session(&session_id).is_none() {
+                        CoreCompletion::Resize {
+                            id,
+                            result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
+                        }
+                    } else if expired {
+                        CoreCompletion::Resize {
+                            id,
+                            result: Err(CoreDaemonError::DeadlineExpired),
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            self.pending.remove(&id);
+            self.completions.push(completion);
+        }
+        let _ = now_seconds;
+        let ttl = Duration::from_secs(CAPTURE_IDLE_TTL_SECONDS);
+        self.open_captures
+            .retain(|_, open| now.saturating_duration_since(open.last_touched) < ttl);
+    }
+
+    fn finish_shutdown_registry(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        self.retain_final_terminal_state(session_id, now_seconds)?;
+        if let Some(mut record) = self.registry.load(session_id)? {
+            if record.state != RegistrySessionState::Exited {
+                record.mark(RegistrySessionState::Exited, now_seconds);
+                self.fence_baseline_before_save(session_id)?;
+                self.registry.save(&record)?;
+                let lifecycle = self
+                    .engine
+                    .session(session_id)
+                    .map(|session| session.lifecycle.clone());
+                self.append_lifecycle_upsert(&record, lifecycle);
+            }
+        }
+        self.cleanup_worker_socket_dir_if_empty();
+        Ok(())
+    }
+
+    /// Resolve where a readback for `session_id` comes from.
+    fn readback_source(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<ReadbackSource, CoreDaemonError> {
+        let registry_state = self.registry.load(session_id)?.map(|record| record.state);
+        if matches!(registry_state, Some(RegistrySessionState::Stale)) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+        if let Some(retained) = self.retained_terminal.get(session_id) {
+            return Ok(ReadbackSource::Retained(Arc::clone(retained)));
+        }
+        if let Some(reason) = self.retained_unavailable.get(session_id) {
+            return Ok(ReadbackSource::Unavailable(*reason));
+        }
+        let lifecycle = self
+            .engine
+            .session(session_id)
+            .map(|session| session.lifecycle.clone());
+        let Some(lifecycle) = lifecycle else {
+            return match registry_state {
+                Some(RegistrySessionState::Exited | RegistrySessionState::Stopping) => {
+                    // Ended before this incarnation retained anything.
+                    Ok(ReadbackSource::Unavailable(
+                        HistoryUnavailableReason::Restart,
+                    ))
+                }
+                Some(_) => Err(CoreDaemonError::SessionNotReadable(session_id.clone())),
+                None => Err(CoreDaemonError::UnknownSession(session_id.clone())),
+            };
+        };
+        if matches!(lifecycle, SessionLifecycleState::Exited { .. }) {
+            self.retain_final_terminal_state(session_id, now_seconds)?;
+            return Ok(self
+                .retained_terminal
+                .get(session_id)
+                .map(|retained| ReadbackSource::Retained(Arc::clone(retained)))
+                .or_else(|| {
+                    self.retained_unavailable
+                        .get(session_id)
+                        .map(|reason| ReadbackSource::Unavailable(*reason))
+                })
+                .unwrap_or(ReadbackSource::Unavailable(
+                    HistoryUnavailableReason::CaptureFailed,
+                )));
+        }
+        if matches!(
+            lifecycle,
+            SessionLifecycleState::Stopping | SessionLifecycleState::Failed { .. }
+        ) || matches!(
+            registry_state,
+            Some(RegistrySessionState::Stopping | RegistrySessionState::Exited)
+        ) {
+            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
+        }
+        Ok(ReadbackSource::Live)
+    }
+
+    /// Retain the final terminal state of an exited session under the policy.
+    fn retain_final_terminal_state(
+        &mut self,
+        session_id: &SessionId,
+        now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        if self.retained_terminal.contains_key(session_id)
+            || self.retained_unavailable.contains_key(session_id)
+        {
+            return Ok(());
+        }
+        let retained = match &mut self.engine {
+            DaemonEngine::Worker(engine) => match engine.take_final_state(session_id) {
+                Some(final_state) => {
+                    let screen_text: Arc<str> = Arc::from(final_state.state.screen_text);
+                    let snapshot: Option<Arc<[u8]>> =
+                        final_state.snapshot.map(|bytes| Arc::from(bytes));
+                    let bytes =
+                        RetainedTerminal::accounted_bytes(&screen_text, snapshot.as_deref());
+                    RetainedTerminal {
+                        screen_text,
+                        snapshot,
+                        mode_bits: final_state.state.mode_bits,
+                        rows: final_state.state.rows,
+                        cols: final_state.state.cols,
+                        color_profile: final_state.state.color_profile,
+                        exited_at: now_seconds,
+                        bytes,
+                    }
+                }
+                None => {
+                    self.retained_unavailable
+                        .insert(session_id.clone(), HistoryUnavailableReason::CaptureFailed);
+                    return Ok(());
+                }
+            },
+            DaemonEngine::Local(engine) => {
+                let (screen, snapshot, mode_flags) = engine.capture_terminal_state(session_id)?;
+                let color_profile = screen.color_profile.ok_or_else(|| {
+                    managed_terminal_backend_error(TerminalBackendError::operation_failed(
+                        "color_profile",
+                        "terminal did not expose a color profile for retained freeze",
+                    ))
+                })?;
+                let screen_text: Arc<str> = Arc::from(screen.plain_text);
+                let snapshot: Option<Arc<[u8]>> = Some(Arc::from(snapshot.bytes));
+                let bytes = RetainedTerminal::accounted_bytes(&screen_text, snapshot.as_deref());
+                RetainedTerminal {
+                    screen_text,
+                    snapshot,
+                    mode_bits: mode_flags.map(|flags| flags.to_mode_bits()).unwrap_or(0),
+                    rows: screen.size.rows,
+                    cols: screen.size.cols,
+                    color_profile,
+                    exited_at: now_seconds,
+                    bytes,
+                }
+            }
+        };
+        self.admit_retained(session_id, retained);
+        Ok(())
+    }
+
+    /// Apply the retention policy: refuse oversize objects, evict the oldest.
+    fn admit_retained(&mut self, session_id: &SessionId, retained: RetainedTerminal) {
+        let policy = self.config.retention;
+        if retained.bytes > policy.max_object_bytes {
+            self.retention_accounting.oversize_refusals += 1;
+            self.retained_unavailable
+                .insert(session_id.clone(), HistoryUnavailableReason::Oversize);
+            return;
+        }
+        while !self.retained_terminal.is_empty()
+            && (self.retention_accounting.total_bytes + retained.bytes > policy.max_total_bytes
+                || self.retention_accounting.sessions + 1 > policy.max_sessions)
+        {
+            let oldest = self
+                .retained_terminal
+                .iter()
+                .min_by_key(|(id, entry)| (entry.exited_at, id.0.clone()))
+                .map(|(id, _)| id.clone());
+            let Some(oldest) = oldest else {
+                break;
+            };
+            self.evict_retained(&oldest);
+        }
+        if retained.bytes > policy.max_total_bytes || policy.max_sessions == 0 {
+            self.retention_accounting.oversize_refusals += 1;
+            self.retained_unavailable
+                .insert(session_id.clone(), HistoryUnavailableReason::Oversize);
+            return;
+        }
+        self.retention_accounting.total_bytes += retained.bytes;
+        self.retention_accounting.sessions += 1;
+        self.retained_terminal
+            .insert(session_id.clone(), Arc::new(retained));
+    }
+
+    fn evict_retained(&mut self, session_id: &SessionId) {
+        if let Some(entry) = self.retained_terminal.remove(session_id) {
+            self.retention_accounting.total_bytes = self
+                .retention_accounting
+                .total_bytes
+                .saturating_sub(entry.bytes);
+            self.retention_accounting.sessions =
+                self.retention_accounting.sessions.saturating_sub(1);
+            self.retention_accounting.evictions += 1;
+            self.retained_unavailable
+                .insert(session_id.clone(), HistoryUnavailableReason::Evicted);
+        }
+    }
+
+    fn forget_retained(&mut self, session_id: &SessionId) {
+        if let Some(entry) = self.retained_terminal.remove(session_id) {
+            self.retention_accounting.total_bytes = self
+                .retention_accounting
+                .total_bytes
+                .saturating_sub(entry.bytes);
+            self.retention_accounting.sessions =
+                self.retention_accounting.sessions.saturating_sub(1);
+        }
+        self.retained_unavailable.remove(session_id);
     }
 
     /// Queue one policy-free notification inbox item.
@@ -2121,7 +2945,7 @@ impl CoreDaemon {
                 "terminal removal precondition must match core engine state"
             );
         }
-        self.retained_terminal.remove(session_id);
+        self.forget_retained(session_id);
         self.terminal_commit_obligations.remove(session_id);
         self.terminal_commit_failures.remove(session_id);
         self.observe_live_sessions.remove(&session_id.0);
@@ -2131,7 +2955,6 @@ impl CoreDaemon {
         });
         Ok(true)
     }
-
     /// Release worker processes for an intentional daemon restart without shutting them down.
     pub fn release_for_restart(&mut self) {
         self.engine.release_workers_for_restart();
@@ -2161,10 +2984,11 @@ impl CoreDaemon {
             self.shutdown_session(session.session_id, now_seconds)?;
         }
         self.retained_terminal.clear();
+        self.retained_unavailable.clear();
+        self.retention_accounting = RetentionAccounting::default();
         self.running = false;
         Ok(())
     }
-
     fn shutdown_session(
         &mut self,
         session_id: SessionId,
@@ -2182,23 +3006,6 @@ impl CoreDaemon {
         let shutdown_observations = shutdown_drain.observations.clone();
         self.retain_pending_drain_result(&session_id, shutdown_drain);
         self.commit_terminal_lifecycle(&session_id, &shutdown_observations, now_seconds)?;
-        if self
-            .config
-            .test_force_shutdown_watchdog_for
-            .as_ref()
-            .is_some_and(|candidate| candidate == &session_id)
-        {
-            self.config.test_force_shutdown_watchdog_for = None;
-            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::ShutdownFailed,
-                    format!(
-                        "test-injected daemon shutdown watchdog timeout: {}",
-                        session_id.0
-                    ),
-                ),
-            )));
-        }
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
@@ -2232,7 +3039,7 @@ impl CoreDaemon {
             )));
         }
 
-        self.retain_final_terminal_state(&session_id)?;
+        self.retain_final_terminal_state(&session_id, now_seconds)?;
         if let Some(mut record) = self.registry.load(&session_id)? {
             if record.state != RegistrySessionState::Exited {
                 record.mark(RegistrySessionState::Exited, now_seconds);
@@ -2248,7 +3055,6 @@ impl CoreDaemon {
         self.cleanup_worker_socket_dir_if_empty();
         Ok(())
     }
-
     fn reconcile_lifecycle_observations(
         &mut self,
         observations: &[BotsterEngineObservation],
@@ -2334,7 +3140,7 @@ impl CoreDaemon {
         touched.dedup();
         for touched_session in &touched {
             if self.engine_session_exited(touched_session) {
-                if let Err(error) = self.retain_final_terminal_state(touched_session) {
+                if let Err(error) = self.retain_final_terminal_state(touched_session, now_seconds) {
                     let state = self
                         .engine
                         .session(touched_session)
@@ -2463,138 +3269,6 @@ impl CoreDaemon {
         Ok(())
     }
 
-    fn retained_readback_needs_pump(&self, session_id: &SessionId) -> bool {
-        self.retained_terminal.contains_key(session_id)
-            && (self.engine_session_exited(session_id)
-                || matches!(
-                    self.registry
-                        .load(session_id)
-                        .ok()
-                        .flatten()
-                        .map(|record| record.state),
-                    Some(RegistrySessionState::Exited)
-                ))
-    }
-
-    fn resolve_readback(
-        &mut self,
-        session_id: &SessionId,
-        now_seconds: u64,
-    ) -> Result<ReadbackResolution, CoreDaemonError> {
-        let registry_state = self.registry.load(session_id)?.map(|record| record.state);
-        if matches!(registry_state, Some(RegistrySessionState::Stale)) {
-            self.retained_terminal.remove(session_id);
-            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
-        }
-
-        let lifecycle = self
-            .engine
-            .session(session_id)
-            .map(|session| session.lifecycle.clone());
-        if let Some(retained) = self.retained_terminal.get(session_id) {
-            if matches!(registry_state, Some(RegistrySessionState::Exited))
-                || matches!(lifecycle, Some(SessionLifecycleState::Exited { .. }))
-            {
-                return Ok(ReadbackResolution::Retained(retained.clone()));
-            }
-        }
-
-        let Some(lifecycle) = lifecycle else {
-            return if matches!(
-                registry_state,
-                Some(
-                    RegistrySessionState::Stopping
-                        | RegistrySessionState::Exited
-                        | RegistrySessionState::Stale
-                )
-            ) {
-                Err(CoreDaemonError::SessionNotReadable(session_id.clone()))
-            } else {
-                Err(CoreDaemonError::UnknownSession(session_id.clone()))
-            };
-        };
-        if matches!(
-            lifecycle,
-            SessionLifecycleState::Stopping
-                | SessionLifecycleState::Exited { .. }
-                | SessionLifecycleState::Failed { .. }
-        ) || matches!(
-            registry_state,
-            Some(RegistrySessionState::Stopping | RegistrySessionState::Exited)
-        ) {
-            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
-        }
-
-        self.drain_runtime_for_readback(session_id, now_seconds)?;
-        if self.engine_session_exited(session_id) {
-            self.retain_final_terminal_state(session_id)?;
-            return Ok(ReadbackResolution::Retained(
-                self.retained_terminal
-                    .get(session_id)
-                    .expect("final terminal state was just retained")
-                    .clone(),
-            ));
-        }
-        if matches!(
-            self.engine
-                .session(session_id)
-                .map(|session| &session.lifecycle),
-            Some(SessionLifecycleState::Stopping | SessionLifecycleState::Failed { .. })
-        ) {
-            return Err(CoreDaemonError::SessionNotReadable(session_id.clone()));
-        }
-        Ok(ReadbackResolution::Live)
-    }
-
-    fn retain_final_terminal_state(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), CoreDaemonError> {
-        if self.retained_terminal.contains_key(session_id) {
-            return Ok(());
-        }
-        if self
-            .config
-            .test_fail_retain_final_terminal_state_for
-            .as_ref()
-            .is_some_and(|failed| failed == session_id)
-        {
-            self.config.test_fail_retain_final_terminal_state_for = None;
-            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    format!(
-                        "test-injected final terminal state retention failure: {}",
-                        session_id.0
-                    ),
-                ),
-            )));
-        }
-        let (screen, snapshot, mode_flags) = self.engine.capture_terminal_state(session_id)?;
-        let mode_freshness = self
-            .last_mode_freshness
-            .get(session_id)
-            .copied()
-            .unwrap_or_default();
-        let color_profile = screen.color_profile.ok_or_else(|| {
-            managed_terminal_backend_error(TerminalBackendError::operation_failed(
-                "color_profile",
-                "terminal did not expose a color profile for retained freeze",
-            ))
-        })?;
-        self.retained_terminal.insert(
-            session_id.clone(),
-            RetainedTerminalState {
-                screen_text: screen.plain_text,
-                snapshot,
-                mode_flags,
-                mode_freshness,
-                color_profile,
-            },
-        );
-        Ok(())
-    }
-
     fn engine_session_exited(&self, session_id: &SessionId) -> bool {
         matches!(
             self.engine
@@ -2663,54 +3337,6 @@ impl CoreDaemon {
     fn drop_pending_drain(&mut self, session_id: &SessionId) {
         self.pending_drain
             .retain(|pending| &pending.session_id != session_id);
-    }
-
-    fn drain_runtime_for_readback(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(), CoreDaemonError> {
-        let output = self.engine.drain_runtime_once(session_id, last_output_at)?;
-        let pending = drain_result_from_engine_output(output);
-        let mut rearm = Vec::new();
-        for observation in &pending.observations {
-            if let BotsterEngineObservation::SessionLifecycle { session_id, state } = observation {
-                self.terminal_commit_obligations
-                    .insert(session_id.clone(), state.clone());
-                if !rearm.contains(session_id) {
-                    rearm.push(session_id.clone());
-                }
-            }
-        }
-        for session_id in rearm {
-            self.engine.wake_source().notify_session(&session_id);
-        }
-        self.notify_bound_queue_wakes();
-        self.retain_pending_drain_result(session_id, pending);
-        Ok(())
-    }
-
-    fn take_applied_attach_resize_to_persist(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Option<(u16, u16, u64)> {
-        self.engine
-            .take_applied_attach_resize(session_id)
-            .or_else(|| {
-                if self
-                    .config
-                    .test_applied_attach_resize
-                    .as_ref()
-                    .is_some_and(|(candidate, _, _, _)| candidate == session_id)
-                {
-                    self.config
-                        .test_applied_attach_resize
-                        .take()
-                        .map(|(_, rows, cols, resize_at)| (rows, cols, resize_at))
-                } else {
-                    None
-                }
-            })
     }
 
     fn notify_bound_queue_wakes(&mut self) {
@@ -3271,40 +3897,21 @@ impl CoreDaemon {
         session_id: &SessionId,
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
-        let output = if self
-            .config
-            .test_fail_runtime_drain_for
-            .as_ref()
-            .is_some_and(|failed| failed == session_id)
-        {
-            return Err(CoreDaemonError::Engine(DefaultBotsterEngineError::Runtime(
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    self.config
-                        .test_fail_runtime_drain_message
-                        .clone()
-                        .unwrap_or_else(|| {
-                            format!("test-injected observe drain failure: {}", session_id.0)
-                        }),
-                ),
-            )));
-        } else {
-            match self.engine.drain_runtime_once(session_id, now_seconds) {
-                Ok(output) => output,
-                Err(error)
-                    if is_session_not_found(&error) && self.engine_session_exited(session_id) =>
-                {
-                    return Ok(());
-                }
-                Err(error) => return Err(error.into()),
+        let output = match self.engine.drain_runtime_once(session_id, now_seconds) {
+            Ok(output) => output,
+            Err(error)
+                if is_session_not_found(&error) && self.engine_session_exited(session_id) =>
+            {
+                return Ok(());
             }
+            Err(error) => return Err(error.into()),
         };
         let result = drain_result_from_engine_output(output);
         self.notify_bound_queue_wakes();
-        if let Some((rows, cols, resize_at)) =
-            self.take_applied_attach_resize_to_persist(session_id)
+        if let Some((rows, cols, resize_at)) = self.engine.take_applied_terminal_resize(session_id)
         {
-            if let Err(error) = self.persist_session_size(session_id, rows, cols, resize_at) {
+            if let Err(error) = self.persist_changed_session_size(session_id, rows, cols, resize_at)
+            {
                 self.retain_pending_drain_result(session_id, result);
                 return Err(error);
             }
@@ -3316,6 +3923,7 @@ impl CoreDaemon {
             return Err(error);
         }
         self.retain_pending_drain_result(session_id, result);
+        self.reconcile_pending(now_seconds);
         Ok(())
     }
 
@@ -3496,17 +4104,6 @@ fn local_engine(
         default_ghostty_terminal(size, max_scrollback_bytes, color_profile.clone())
     })
 }
-
-fn worker_engine(
-    options: WorkerProcessRuntimeOptions,
-    max_scrollback_bytes: usize,
-    color_profile: Option<TerminalColorProfile>,
-) -> WorkerBackedBotsterEngine {
-    WorkerBackedBotsterEngine::with_options_and_terminal_backend_factory(options, move |size| {
-        default_ghostty_terminal(size, max_scrollback_bytes, color_profile.clone())
-    })
-}
-
 fn default_ghostty_terminal(
     size: TerminalScreenSize,
     max_scrollback_bytes: usize,
@@ -3585,24 +4182,6 @@ fn take_screen_ready(
     }
 }
 
-fn take_mode_flags_ready(
-    output: &mut BotsterEngineOutput,
-    request_id: &RequestId,
-) -> Result<ModeFlagsReady, CoreDaemonError> {
-    let position = output
-        .session_events
-        .iter()
-        .position(|event| match event {
-            SessionIoEvent::ModeFlagsReady(mode_flags) => &mode_flags.request_id == request_id,
-            _ => false,
-        })
-        .ok_or_else(|| CoreDaemonError::MissingModeFlagsResponse(request_id.clone()))?;
-    match output.session_events.remove(position) {
-        SessionIoEvent::ModeFlagsReady(mode_flags) => Ok(mode_flags),
-        _ => unreachable!("position was selected from a ModeFlagsReady event"),
-    }
-}
-
 fn managed_terminal_backend_error(error: TerminalBackendError) -> CoreDaemonError {
     let error = match error {
         TerminalBackendError::Unsupported { operation } => {
@@ -3630,6 +4209,28 @@ fn is_session_not_found(error: &DefaultBotsterEngineError) -> bool {
         DefaultBotsterEngineError::Runtime(error)
             if error.kind == SessionRuntimeErrorKind::SessionNotFound
     )
+}
+fn unavailable_capture(
+    reason: HistoryUnavailableReason,
+    color_profile: TerminalColorProfile,
+) -> SnapshotCapture {
+    SnapshotCapture {
+        capture_id: CaptureId(String::new()),
+        total_bytes: 0,
+        page_bytes: SNAPSHOT_PAGE_BYTES as u32,
+        pages: 0,
+        rows: 0,
+        cols: 0,
+        color_profile,
+        unavailable: Some(reason),
+    }
+}
+
+fn unix_now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 impl DaemonEngine {
@@ -3925,25 +4526,6 @@ impl DaemonEngine {
         }
     }
 
-    fn mode_gated_pty_input(
-        &mut self,
-        session_id: SessionId,
-        expected: ModeFreshnessToken,
-        data: Vec<u8>,
-    ) -> Result<ModeGatedPtyInputResult, CoreDaemonError> {
-        match self {
-            Self::Local(_) => Err(CoreDaemonError::Engine(
-                DefaultBotsterEngineError::Runtime(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
-                    "mode-gated input requires a worker-backed daemon (CoreDaemonConfig::with_worker_path)",
-                )),
-            )),
-            Self::Worker(engine) => engine
-                .mode_gated_pty_input(session_id, expected, data)
-                .map_err(CoreDaemonError::Engine),
-        }
-    }
-
     fn resize(
         &mut self,
         client_id: ClientId,
@@ -3957,18 +4539,10 @@ impl DaemonEngine {
             Self::Worker(engine) => engine.resize(client_id, session_id, rows, cols, now_seconds),
         }
     }
-
-    fn incremental_attach_active(&self, session_id: &SessionId) -> bool {
+    fn capture_active(&self, session_id: &SessionId) -> bool {
         match self {
             Self::Local(_) => false,
-            Self::Worker(engine) => engine.incremental_attach_active(session_id),
-        }
-    }
-
-    fn take_applied_attach_resize(&mut self, session_id: &SessionId) -> Option<(u16, u16, u64)> {
-        match self {
-            Self::Local(_) => None,
-            Self::Worker(engine) => engine.take_applied_attach_resize(session_id),
+            Self::Worker(engine) => engine.capture_active(session_id),
         }
     }
 
@@ -3987,67 +4561,6 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.drain_runtime_once(session_id, last_output_at),
             Self::Worker(engine) => engine.drain_runtime_once(session_id, last_output_at),
-        }
-    }
-
-    fn read_screen(
-        &mut self,
-        request_id: RequestId,
-        session_id: SessionId,
-        now_seconds: u64,
-    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => engine.read_screen(request_id, session_id, now_seconds),
-            Self::Worker(engine) => engine.read_screen(request_id, session_id, now_seconds),
-        }
-    }
-
-    fn read_mode_flags(
-        &mut self,
-        request_id: RequestId,
-        session_id: SessionId,
-        now_seconds: u64,
-    ) -> Result<botster_core::BotsterEngineOutput, DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => engine.read_mode_flags(request_id, session_id, now_seconds),
-            Self::Worker(engine) => engine.read_mode_flags(request_id, session_id, now_seconds),
-        }
-    }
-
-    fn capture_snapshot_payload(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<botster_core::TerminalSnapshotPayload, DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => engine.capture_snapshot_payload(session_id),
-            Self::Worker(engine) => engine.capture_snapshot_payload(session_id),
-        }
-    }
-
-    fn capture_terminal_state(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<
-        (
-            TerminalScreenState,
-            TerminalSnapshotPayload,
-            Result<ModeFlags, TerminalBackendError>,
-        ),
-        DefaultBotsterEngineError,
-    > {
-        match self {
-            Self::Local(engine) => engine.capture_terminal_state(session_id),
-            Self::Worker(engine) => engine.capture_terminal_state(session_id),
-        }
-    }
-
-    fn capture_color_and_snapshot(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(TerminalColorProfile, TerminalSnapshotPayload), DefaultBotsterEngineError> {
-        match self {
-            Self::Local(engine) => engine.capture_color_and_snapshot(session_id),
-            Self::Worker(engine) => engine.capture_color_and_snapshot(session_id),
         }
     }
 

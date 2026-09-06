@@ -34,7 +34,10 @@ pub use botster::{
     DefaultBotsterEngine, DefaultBotsterEngineError, WorkerBackedBotsterEngine,
     WorkerBackedBotsterEngineError,
 };
-pub use client_worker::{ClientWorker, ClientWorkerTeardown, EnqueueInputResultError};
+pub use client_worker::{
+    ClientWorker, ClientWorkerTeardown, EnqueueRouteFrameError, GenerationAllocator,
+    RouteResyncRequest,
+};
 #[cfg(feature = "local-runtime")]
 pub use command::DefaultEngineCommand;
 pub use command::{

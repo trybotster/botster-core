@@ -82,11 +82,12 @@ pub const FRAME_METADATA_SHAPING: u8 = 0x18;
 // with scheme 1 and must not be reused.
 /// Session to daemon data plane: the worker applied one resize command.
 pub const FRAME_RESIZE_APPLIED: u8 = 0x1c;
-/// Parent to worker: one scheme 2 input operation.
+/// Parent to worker: one input operation.
 ///
-/// Payload: `[u64 LE worker_operation_key][InputFrame]`. The key is unique per
-/// parent process and maps in Core to client, route, route generation, and
-/// client operation id. The worker never interprets the key.
+/// Payload: `[u64 LE worker_operation_key][u8 kind][u64 LE operation_id]`
+/// `[u32 LE body_len][body]` (see [`encode_worker_input_operation`]). The key
+/// is unique per parent process and maps in Core to client, route, route
+/// generation, and client operation id. The worker never interprets the key.
 pub const FRAME_INPUT_OPERATION: u8 = 0x1d;
 /// Worker to parent: exactly one result per input operation.
 ///
@@ -111,6 +112,127 @@ pub const FRAME_FINAL_STATE: u8 = 0x21;
 
 /// Length of the worker operation key prefix on input frames.
 pub const WORKER_OPERATION_KEY_BYTES: usize = 8;
+
+/// Fixed prefix of a `FRAME_INPUT_OPERATION` payload after the worker key:
+/// `[u8 kind][u64 LE operation_id][u32 LE body_len]`.
+pub const WORKER_INPUT_OPERATION_PREFIX_BYTES: usize = 1 + 8 + 4;
+
+/// Kind of one parent-to-worker input operation.
+///
+/// Values equal the scheme 2 `TerminalInputKind` bytes for the single-frame
+/// kinds. `Paste` reuses the `PASTE_BEGIN` value and carries the complete
+/// assembled paste, which can exceed one client frame body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum WorkerInputKind {
+    /// Raw PTY bytes. Body is the bytes.
+    RawBytes = 1,
+    /// Key event. Body is the scheme 2 `KEY` body.
+    Key = 2,
+    /// Mouse event. Body is the scheme 2 `MOUSE` body.
+    Mouse = 3,
+    /// Focus event. Body is the scheme 2 `FOCUS` body.
+    Focus = 4,
+    /// Resize. Body is the scheme 2 `RESIZE` body.
+    Resize = 5,
+    /// Complete paste. Body is `[u8 allow_unsafe][paste bytes]`.
+    Paste = 6,
+}
+
+impl WorkerInputKind {
+    /// Decode a kind byte.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        Some(match byte {
+            1 => Self::RawBytes,
+            2 => Self::Key,
+            3 => Self::Mouse,
+            4 => Self::Focus,
+            5 => Self::Resize,
+            6 => Self::Paste,
+            _ => return None,
+        })
+    }
+}
+
+/// One decoded parent-to-worker input operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerInputOperation<'a> {
+    /// Parent-unique operation key.
+    pub key: u64,
+    /// Client operation id echoed in the result.
+    pub operation_id: u64,
+    /// Operation kind.
+    pub kind: WorkerInputKind,
+    /// Kind-specific body.
+    pub body: &'a [u8],
+}
+
+/// Encode a `FRAME_INPUT_OPERATION` payload.
+///
+/// Layout: `[u64 LE key][u8 kind][u64 LE operation_id][u32 LE body_len][body]`.
+pub fn encode_worker_input_operation(
+    key: u64,
+    operation_id: u64,
+    kind: WorkerInputKind,
+    body: &[u8],
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(
+        WORKER_OPERATION_KEY_BYTES + WORKER_INPUT_OPERATION_PREFIX_BYTES + body.len(),
+    );
+    payload.extend_from_slice(&key.to_le_bytes());
+    payload.push(kind as u8);
+    payload.extend_from_slice(&operation_id.to_le_bytes());
+    payload.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    payload.extend_from_slice(body);
+    payload
+}
+
+/// Decode a `FRAME_INPUT_OPERATION` payload.
+pub fn decode_worker_input_operation(
+    payload: &[u8],
+) -> Result<WorkerInputOperation<'_>, ProtocolError> {
+    let (key, rest) = split_worker_operation_key(payload)?;
+    if rest.len() < WORKER_INPUT_OPERATION_PREFIX_BYTES {
+        return Err(ProtocolError::FrameLengthZero);
+    }
+    let kind = WorkerInputKind::from_byte(rest[0]).ok_or(ProtocolError::FrameLengthZero)?;
+    let mut id = [0u8; 8];
+    id.copy_from_slice(&rest[1..9]);
+    let body_len = u32::from_le_bytes([rest[9], rest[10], rest[11], rest[12]]) as usize;
+    let body = &rest[WORKER_INPUT_OPERATION_PREFIX_BYTES..];
+    if body.len() != body_len {
+        return Err(ProtocolError::FrameLengthTooLarge {
+            len: body.len(),
+            max: body_len,
+        });
+    }
+    Ok(WorkerInputOperation {
+        key,
+        operation_id: u64::from_le_bytes(id),
+        kind,
+        body,
+    })
+}
+
+/// Worker plain-text screen reply for the correlated `FRAME_GET_SCREEN` RPC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenPayload {
+    /// Echo of the probe correlation id.
+    pub request_id: String,
+    /// Plain text of the visible screen.
+    pub text: String,
+    /// Optional read failure. When set, `text` is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+}
+
+/// Correlated worker probe request carrying only a request id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerProbeRequest {
+    /// Parent-issued correlation id.
+    pub request_id: String,
+}
 
 /// Final worker-owned terminal state retained by the parent after exit.
 ///
@@ -227,6 +349,9 @@ pub struct WorkerSnapshotResult {
     /// The worker applied the staged resize and released the PTY barrier.
     #[serde(default, skip_serializing_if = "bool_is_false")]
     pub barrier_released: bool,
+    /// Ghostty colors frozen with the snapshot. Present on the FINISH frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_profile: Option<crate::TerminalColorProfile>,
 }
 
 fn bool_is_false(value: &bool) -> bool {
@@ -240,6 +365,12 @@ pub struct ModeFlagsPayload {
     pub request_id: String,
     /// Current complete mode flags.
     pub mode_flags: ModeFlags,
+    /// Terminal rows at the time of the reply.
+    #[serde(default)]
+    pub rows: u16,
+    /// Terminal columns at the time of the reply.
+    #[serde(default)]
+    pub cols: u16,
     /// Optional probe failure kind. When set, modes are not authoritative.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,

@@ -6,7 +6,7 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::RoutedTerminalFrame;
 
 use super::core::OneSlotCore;
 use super::TerminalAdapterHarnessDriver;
@@ -22,7 +22,7 @@ pub struct UnixShapedTerminalAdapter {
 }
 
 impl TerminalAdapter for UnixShapedTerminalAdapter {
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         self.inner.try_write(frame)
     }
 

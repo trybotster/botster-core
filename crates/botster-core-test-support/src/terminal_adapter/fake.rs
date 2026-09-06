@@ -6,7 +6,7 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::RoutedTerminalFrame;
 
 use super::core::OneSlotCore;
 use super::TerminalAdapterHarnessDriver;
@@ -20,7 +20,7 @@ pub struct FakeTerminalAdapter {
 }
 
 impl TerminalAdapter for FakeTerminalAdapter {
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         self.inner.try_write(frame)
     }
 
@@ -159,7 +159,7 @@ impl SharedFakeTerminalAdapter {
 }
 
 impl TerminalAdapter for SharedFakeTerminalAdapter {
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         let result = self.lock().try_write(frame);
         if result.is_ok() && self.auto_complete {
             self.complete_active_write();

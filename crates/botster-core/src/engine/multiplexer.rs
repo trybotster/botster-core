@@ -419,24 +419,6 @@ where
         Ok(outcome)
     }
 
-    pub(crate) fn attach_snapshot(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: crate::SubscriptionId,
-        snapshot: Vec<u8>,
-    ) -> Result<MultiplexerEngineOutcome, MultiplexerEngineError> {
-        self.ensure_session(&session_id)?;
-        let mut outcome = MultiplexerEngineOutcome::empty();
-        outcome.append_multiplexer(self.subscriptions.attach_snapshot(
-            client_id,
-            session_id,
-            subscription_id,
-            snapshot,
-        ));
-        Ok(outcome)
-    }
-
     pub(crate) fn begin_snapshot_attach(
         &mut self,
         client_id: ClientId,

@@ -7,7 +7,7 @@ use botster_core::contract::terminal_adapter::{
     MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink};
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::RoutedTerminalFrame;
 
 #[derive(Debug, Default)]
 pub(super) struct OneSlotCore {
@@ -27,7 +27,7 @@ pub(super) struct OneSlotCore {
 impl OneSlotCore {
     pub(super) fn try_write(
         &mut self,
-        frame: &TerminalFrame,
+        frame: &RoutedTerminalFrame,
     ) -> Result<(), TerminalAdapterWriteError> {
         self.writes += 1;
         if self.closed {
@@ -39,8 +39,8 @@ impl OneSlotCore {
         if self.would_block {
             return Err(TerminalAdapterWriteError::WouldBlock);
         }
-        let bytes = frame.to_bytes().expect("fixture TerminalFrame serializes");
-        self.active = Some(bytes);
+        // Content-blind: copy only the shared TerminalBody bytes for delivery.
+        self.active = Some(frame.frame.as_bytes().to_vec());
         Ok(())
     }
 

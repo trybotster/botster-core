@@ -7,7 +7,7 @@ use botster_core::contract::terminal_wake::{
     TerminalWakeKind, TerminalWakeSource, WakingTerminalAdapter,
 };
 use botster_core::{SessionId, SubscriptionId, TerminalSubscriptionGeneration};
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::{encode_output, RouteId, RoutedTerminalFrame};
 
 use super::TerminalAdapterHarnessDriver;
 
@@ -25,12 +25,13 @@ where
     assert_idempotent_close::<D>();
 }
 
-fn opaque_frame(marker: &str) -> TerminalFrame {
-    let json = serde_json::json!({
-        "type": "terminal_output",
-        "marker": marker,
-    });
-    TerminalFrame::from_bytes(json.to_string().as_bytes()).expect("opaque fixture frame")
+fn opaque_frame(marker: &str) -> RoutedTerminalFrame {
+    RoutedTerminalFrame {
+        route: RouteId::new("wake-conformance").expect("fixture route"),
+        generation: 1,
+        stream_epoch: 0,
+        frame: encode_output(marker.as_bytes()).expect("opaque fixture frame"),
+    }
 }
 
 fn bind_driver<D: WakingTerminalAdapter>(driver: &mut D) -> TerminalWakeSource {
