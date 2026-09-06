@@ -29,7 +29,7 @@ pub fn terminal_protocol_typescript() -> String {
     );
     line(
         &mut out,
-        "// Regenerate/check with: cargo test -p botster-terminal-protocol-client typescript",
+        "// Regenerate with: cargo run -p botster-terminal-protocol-client --example generate_typescript",
     );
     line(&mut out, "");
     emit_constants(&mut out);
@@ -487,7 +487,24 @@ export function terminalKeyFromCode(code: string): number {
 
 const utf8Encoder = new TextEncoder();
 
+const MAX_OPERATION_ID = (1n << 64n) - 1n;
+
+/** Validate a client operation id. Numbers must be safe integers; bigints must fit u64. */
+export function toOperationId(operation_id: OperationId): bigint {
+  if (typeof operation_id === "number") {
+    if (!Number.isSafeInteger(operation_id) || operation_id < 1) {
+      throw new Error(`InvalidOperationId actual=${operation_id}`);
+    }
+    return BigInt(operation_id);
+  }
+  if (operation_id < 1n || operation_id > MAX_OPERATION_ID) {
+    throw new Error(`InvalidOperationId actual=${operation_id}`);
+  }
+  return operation_id;
+}
+
 function encodeInputFrame(kind: number, operation_id: OperationId, body: Uint8Array): Uint8Array {
+  const id = toOperationId(operation_id);
   if (body.length > MAX_TERMINAL_INPUT_BODY_BYTES) {
     throw new Error(`PayloadTooLarge kind=${kind} max=${MAX_TERMINAL_INPUT_BODY_BYTES} actual=${body.length}`);
   }
@@ -496,7 +513,7 @@ function encodeInputFrame(kind: number, operation_id: OperationId, body: Uint8Ar
   out[0] = TERMINAL_INPUT_SCHEME_VERSION;
   out[1] = kind;
   view.setUint16(2, body.length, false);
-  view.setBigUint64(4, BigInt(operation_id), false);
+  view.setBigUint64(4, id, false);
   out.set(body, INPUT_HEADER_BYTES);
   return out;
 }
