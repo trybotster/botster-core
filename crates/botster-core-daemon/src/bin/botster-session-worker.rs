@@ -385,7 +385,8 @@ impl WorkerState {
     fn send_result(&self, key: u64, result: &InputResultBody) {
         match encode_input_result(result) {
             Ok(frame) => {
-                let payload = botster_core::encode_worker_operation(key, frame.body());
+                // The parent decodes a complete TerminalBody (header included).
+                let payload = botster_core::encode_worker_operation(key, frame.as_bytes());
                 self.egress
                     .send_protected_frame(FRAME_INPUT_RESULT, payload);
             }
@@ -844,8 +845,9 @@ impl WorkerState {
         if modes != self.last_modes {
             self.last_modes = modes;
             if let Ok(frame) = encode_modes(modes) {
+                // The parent decodes a complete TerminalBody (header included).
                 self.egress
-                    .send_protected_frame(FRAME_MODES_CHANGED, frame.body().to_vec());
+                    .send_protected_frame(FRAME_MODES_CHANGED, frame.as_bytes().to_vec());
             }
         }
     }
@@ -2044,6 +2046,29 @@ mod tests {
                 super::FRAME_TITLE_CHANGED,
                 super::FRAME_PROCESS_EXITED
             ]
+        );
+    }
+
+    #[test]
+    fn input_result_frames_carry_the_full_terminal_body_the_parent_decodes() {
+        let result = botster_terminal_protocol::InputResultBody {
+            operation_id: 1,
+            outcome: botster_terminal_protocol::InputOutcome::Written,
+            accepted_payload_bytes: Some(4),
+            written_pty_bytes: Some(4),
+            mode_bits: 2,
+            detail: String::new(),
+        };
+        let frame = botster_terminal_protocol::encode_input_result(&result).expect("encode");
+        let payload = botster_core::encode_worker_operation(7, frame.as_bytes());
+
+        let (key, body) = botster_core::split_worker_operation_key(&payload).expect("key");
+        let decoded = botster_terminal_protocol::TerminalFrame::from_bytes(body)
+            .expect("parent validates the TerminalBody header");
+        assert_eq!(key, 7);
+        assert_eq!(
+            botster_terminal_protocol::decode_input_result(&decoded).expect("result"),
+            result
         );
     }
 

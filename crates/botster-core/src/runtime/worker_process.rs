@@ -353,6 +353,9 @@ struct PendingSpawn {
         SessionSpawnRequest,
         Result<LaunchedWorker, SessionRuntimeError>,
     )>,
+    /// The host cancelled the operation. The launched worker, when it
+    /// arrives, is stopped and reaped instead of installed.
+    abandoned: bool,
 }
 
 /// A worker whose process is running and whose handshake succeeded, before
@@ -364,6 +367,22 @@ struct LaunchedWorker {
     metadata: SessionMetadata,
     process: ProcessIdentity,
     supports_snapshot_boundary: bool,
+}
+
+impl LaunchedWorker {
+    /// Stop and reap a worker that will never be installed.
+    ///
+    /// Sends the shutdown frame, kills the child, reaps it in the
+    /// background, and removes the control socket this launch created.
+    fn discard(mut self) {
+        let _ = self.control.write_frame(FRAME_SHUTDOWN, &[]);
+        let _ = self.child.kill();
+        match self.child.try_wait() {
+            Ok(Some(_)) => {}
+            Ok(None) | Err(_) => reap_worker_child_in_background(self.child),
+        }
+        self.control.cleanup();
+    }
 }
 
 /// Parent-side runtime adapter for one-worker-process-per-session local PTYs.
@@ -758,12 +777,34 @@ impl WorkerProcessRuntime {
         let (sender, receiver) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let result = launch_worker(&options, &request);
-            let _ = sender.send((request, result));
+            if let Err(mpsc::SendError((_, Ok(launched)))) = sender.send((request, result)) {
+                // The runtime dropped the receiver; the child is ours to stop.
+                launched.discard();
+            }
             notify_session_wake(&wake_handle);
         });
-        self.pending_spawns
-            .insert(session_id, PendingSpawn { receiver });
+        self.pending_spawns.insert(
+            session_id,
+            PendingSpawn {
+                receiver,
+                abandoned: false,
+            },
+        );
         Ok(())
+    }
+
+    /// Mark a pending spawn abandoned. The launch thread keeps running; when
+    /// its result arrives, [`Self::poll_spawn`] stops and reaps the child
+    /// instead of installing it and reports `Failed`. Returns `false` when no
+    /// spawn is pending for the session.
+    pub fn abandon_spawn(&mut self, session_id: &SessionId) -> bool {
+        match self.pending_spawns.get_mut(session_id) {
+            Some(pending) => {
+                pending.abandoned = true;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Poll one spawn started by [`Self::begin_spawn`]. Never blocks.
@@ -774,7 +815,17 @@ impl WorkerProcessRuntime {
                 format!("no pending worker spawn for session {}", session_id.0),
             ));
         };
+        let abandoned = pending.abandoned;
         match pending.receiver.try_recv() {
+            Ok((_, Ok(launched))) if abandoned => {
+                self.pending_spawns.remove(session_id);
+                self.forget_session_wake(session_id);
+                launched.discard();
+                WorkerSpawnPoll::Failed(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    "worker spawn was abandoned before it finished",
+                ))
+            }
             Ok((request, Ok(launched))) => {
                 self.pending_spawns.remove(session_id);
                 match self.install_launched(request, launched) {
@@ -1598,6 +1649,13 @@ impl SessionRuntime for WorkerProcessRuntime {
 
 impl Drop for WorkerProcessRuntime {
     fn drop(&mut self) {
+        // A launch that already produced a worker is stopped here; a launch
+        // still running stops its worker itself when the send fails.
+        for (_, pending) in self.pending_spawns.drain() {
+            if let Ok((_, Ok(launched))) = pending.receiver.try_recv() {
+                launched.discard();
+            }
+        }
         if self.release_on_drop {
             return;
         }
