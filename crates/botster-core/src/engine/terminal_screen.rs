@@ -1,8 +1,8 @@
 //! Terminal screen engine over a host-owned runtime.
 
 use crate::contract::terminal_screen::{
-    TerminalBackendError, TerminalOutputChunk, TerminalScreenHook, TerminalScreenSize,
-    TerminalScreenState, TerminalSnapshotPayload,
+    TerminalBackendError, TerminalKeyEvent, TerminalMouseEvent, TerminalOutputChunk,
+    TerminalScreenHook, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 use crate::session_protocol::TerminalColorProfile;
 use crate::ModeFlags;
@@ -61,6 +61,82 @@ pub trait TerminalScreenRuntime {
     fn last_error(&self) -> Option<String> {
         None
     }
+
+    /// Encode one key event against the current terminal modes and append the
+    /// bytes to `out`. Returns the bytes appended.
+    ///
+    /// Backends without a key encoder return `Unsupported`.
+    fn encode_key(
+        &mut self,
+        event: &TerminalKeyEvent<'_>,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        let _ = (event, out);
+        Err(TerminalBackendError::unsupported("encode_key"))
+    }
+
+    /// Encode one mouse event against the current tracking mode and append
+    /// the bytes to `out`. Returns the bytes appended; zero when untracked.
+    fn encode_mouse(
+        &mut self,
+        event: &TerminalMouseEvent,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        let _ = (event, out);
+        Err(TerminalBackendError::unsupported("encode_mouse"))
+    }
+
+    /// Encode a focus report when focus reporting is enabled. Returns the
+    /// bytes appended; zero when the mode is off.
+    fn encode_focus(
+        &mut self,
+        focused: bool,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        let _ = (focused, out);
+        Err(TerminalBackendError::unsupported("encode_focus"))
+    }
+
+    /// Whether paste content is safe without an explicit client override.
+    fn paste_is_safe(&self, data: &[u8]) -> bool {
+        !data.contains(&b'\n') && !contains_bracketed_paste_end(data)
+    }
+
+    /// Encode paste content under the current bracketed-paste mode and append
+    /// the bytes to `out`. `data` may be modified in place. Returns the bytes
+    /// appended.
+    fn encode_paste(
+        &mut self,
+        data: &mut [u8],
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        let _ = (data, out);
+        Err(TerminalBackendError::unsupported("encode_paste"))
+    }
+
+    /// Install surface pixel geometry for mouse encoding.
+    fn set_pixel_geometry(&mut self, width_px: u32, height_px: u32) {
+        let _ = (width_px, height_px);
+    }
+
+    /// Export the current snapshot as record-aware frames in stream order.
+    ///
+    /// `emit` receives READY first, then history pages, then the finish
+    /// record. Backends without a streaming exporter return `Unsupported`.
+    fn capture_snapshot_frames(
+        &mut self,
+        emit: &mut dyn FnMut(crate::contract::terminal_screen::TerminalSnapshotFramePhase, Vec<u8>),
+    ) -> Result<(), TerminalBackendError> {
+        let _ = emit;
+        Err(TerminalBackendError::unsupported("capture_snapshot_frames"))
+    }
+}
+
+/// Whether `data` contains the bracketed paste end sequence.
+#[must_use]
+pub fn contains_bracketed_paste_end(data: &[u8]) -> bool {
+    const END: &[u8] = b"\x1b[201~";
+    data.windows(END.len()).any(|window| window == END)
 }
 
 impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
@@ -105,6 +181,98 @@ impl TerminalScreenRuntime for Box<dyn TerminalScreenRuntime> {
 
     fn last_error(&self) -> Option<String> {
         self.as_ref().last_error()
+    }
+
+    fn encode_key(
+        &mut self,
+        event: &TerminalKeyEvent<'_>,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        self.as_mut().encode_key(event, out)
+    }
+
+    fn encode_mouse(
+        &mut self,
+        event: &TerminalMouseEvent,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        self.as_mut().encode_mouse(event, out)
+    }
+
+    fn encode_focus(
+        &mut self,
+        focused: bool,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        self.as_mut().encode_focus(focused, out)
+    }
+
+    fn paste_is_safe(&self, data: &[u8]) -> bool {
+        self.as_ref().paste_is_safe(data)
+    }
+
+    fn encode_paste(
+        &mut self,
+        data: &mut [u8],
+        out: &mut Vec<u8>,
+    ) -> Result<usize, TerminalBackendError> {
+        self.as_mut().encode_paste(data, out)
+    }
+
+    fn set_pixel_geometry(&mut self, width_px: u32, height_px: u32) {
+        self.as_mut().set_pixel_geometry(width_px, height_px);
+    }
+
+    fn capture_snapshot_frames(
+        &mut self,
+        emit: &mut dyn FnMut(crate::contract::terminal_screen::TerminalSnapshotFramePhase, Vec<u8>),
+    ) -> Result<(), TerminalBackendError> {
+        (**self).capture_snapshot_frames(emit)
+    }
+}
+
+/// Terminal runtime that retains nothing.
+///
+/// Worker-backed sessions keep their only parser in the session worker. The
+/// parent installs this runtime so no second screen model exists in-process.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NullTerminalScreenRuntime {
+    size: TerminalScreenSize,
+}
+
+impl NullTerminalScreenRuntime {
+    /// Build a runtime that records only the last known size.
+    #[must_use]
+    pub const fn new(size: TerminalScreenSize) -> Self {
+        Self { size }
+    }
+}
+
+impl Default for TerminalScreenSize {
+    fn default() -> Self {
+        Self::new(24, 80)
+    }
+}
+
+impl TerminalScreenRuntime for NullTerminalScreenRuntime {
+    fn write_output(&mut self, bytes: &[u8]) -> TerminalOutputChunk {
+        TerminalOutputChunk::new(bytes.to_vec())
+    }
+
+    fn resize(&mut self, size: TerminalScreenSize) {
+        self.size = size;
+    }
+
+    fn capture_snapshot(&mut self) -> TerminalSnapshotPayload {
+        TerminalSnapshotPayload::new(Vec::new(), self.size, None)
+    }
+
+    fn replay_snapshot(&mut self, payload: TerminalSnapshotPayload) {
+        self.size = payload.size;
+    }
+
+    fn screen_state(&self) -> TerminalScreenState {
+        TerminalScreenState::new(self.size, String::new())
     }
 }
 

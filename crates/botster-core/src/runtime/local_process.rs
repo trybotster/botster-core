@@ -71,8 +71,6 @@ pub struct LocalProcessRuntimeOptions {
     /// Test-only: hold after successful fence enqueue while still critical
     /// (single-queue hold proofs; must stay under the fence the barrier waits on).
     pub test_hold_after_enqueue_ms: Option<u64>,
-    /// Test-only: fail the next PTY write or resize so apply can prove fail-closed teardown.
-    pub test_fail_pty_writes: bool,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -86,7 +84,6 @@ impl Default for LocalProcessRuntimeOptions {
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
-            test_fail_pty_writes: false,
         }
     }
 }
@@ -146,11 +143,23 @@ impl LocalProcessRuntime {
         }
     }
 
+    /// Write as much of `data` as the PTY accepts right now without waiting.
+    ///
+    /// Returns the bytes written. A short count means the PTY would block;
+    /// the caller keeps the remainder. `Err` carries the bytes written before
+    /// the failure.
+    pub fn try_write_input(
+        &self,
+        session_id: &SessionId,
+        data: &[u8],
+    ) -> Result<usize, PtyWriteFailure> {
+        self.registry.try_write_input(session_id, data)
+    }
+
     /// Run `body` with the PTY reader paused and exclusive session I/O ownership.
     ///
     /// The reader thread stops issuing new PTY reads before `body` runs, so
-    /// drained output, Ghostty apply, token comparison, and PTY write can form
-    /// one atomic admission barrier.
+    /// drained output and a snapshot export form one atomic capture boundary.
     pub fn with_pty_io_barrier<R, F>(
         &mut self,
         session_id: &SessionId,
@@ -565,16 +574,59 @@ impl LocalProcessRegistry {
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
-        if session.write_test_hooks.fail_writes {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                "test_fail_pty_writes",
-            ));
-        }
         let hooks = Arc::clone(&session.write_test_hooks);
         write_all_blocking(&mut session.writer, data, None, Some(hooks.as_ref()))
             .map(|_| ())
             .map_err(PtyWriteFailure::into_runtime_error)
+    }
+
+    /// Write as much of `data` as the PTY accepts right now without waiting.
+    ///
+    /// Returns the bytes written. `Ok(n)` with `n < data.len()` means the PTY
+    /// would block; the caller keeps the remainder and retries later.
+    fn try_write_input(
+        &self,
+        session_id: &SessionId,
+        data: &[u8],
+    ) -> Result<usize, PtyWriteFailure> {
+        let session = self
+            .session(session_id)
+            .map_err(|error| PtyWriteFailure::new(error.message, 0))?;
+        let mut session =
+            lock_session(&session).map_err(|error| PtyWriteFailure::new(error.message, 0))?;
+        let mut offset = 0;
+        while offset < data.len() {
+            match session.writer.write(&data[offset..]) {
+                Ok(0) => {
+                    return Err(PtyWriteFailure::new(
+                        "write pty input failed: wrote zero bytes",
+                        offset,
+                    ))
+                }
+                Ok(written) => offset += written,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(PtyWriteFailure::new(
+                        format!("write pty input failed: {error}"),
+                        offset,
+                    ))
+                }
+            }
+        }
+        match session.writer.flush() {
+            Ok(()) => {}
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock
+                    || error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                return Err(PtyWriteFailure::new(
+                    format!("flush pty input failed: {error}"),
+                    offset,
+                ))
+            }
+        }
+        Ok(offset)
     }
 
     fn resize(
@@ -584,12 +636,6 @@ impl LocalProcessRegistry {
     ) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let session = lock_session(&session)?;
-        if session.write_test_hooks.fail_writes {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                "test_fail_pty_writes",
-            ));
-        }
         session
             .master
             .resize(pty_size(Some(&size)))
@@ -771,7 +817,6 @@ struct WriteTestHooks {
     force_would_block_until_unix_ms: Option<u64>,
     max_chunk: Option<usize>,
     writes_completed: AtomicUsize,
-    fail_writes: bool,
 }
 
 impl WriteTestHooks {
@@ -780,7 +825,6 @@ impl WriteTestHooks {
             force_would_block_until_unix_ms: options.test_write_block_until_unix_ms,
             max_chunk: options.test_write_max_chunk,
             writes_completed: AtomicUsize::new(0),
-            fail_writes: options.test_fail_pty_writes,
         }
     }
 }

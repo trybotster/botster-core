@@ -75,6 +75,7 @@ pub mod contract;
 pub mod engine;
 pub mod identity;
 pub mod package;
+pub mod redb_store;
 pub mod runtime;
 pub mod storage;
 
@@ -139,11 +140,11 @@ pub use runtime::{
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
-    ControlPlaneState, ControlWriterError, ControlWriterOutcome, GatedPoll, GatedRequestId,
-    LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
-    ResizeAckHold, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
-    DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_PTY_READER_CHUNK_CAPACITY,
-    DEFAULT_WORKER_EGRESS_CAPACITY,
+    ControlPlaneState, ControlWriterError, ControlWriterOutcome, LocalProcessRuntime,
+    LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier, ResizeAckHold,
+    RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    WorkerSpawnPoll, DEFAULT_PTY_READER_CHUNK_CAPACITY, DEFAULT_WORKER_EGRESS_CAPACITY,
+    DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 
 pub use actor::{
@@ -212,11 +213,11 @@ pub use engine::{
     EngineNotificationItem, EngineNotificationTarget, EngineReplaySnapshotRequest, EngineRequestId,
     EngineSessionId, EngineSessionInspection, EngineSessionIoRequest, EngineSpawnSessionMetadata,
     EngineSpawnSessionRequest, EngineSpawnSessionResult, EngineSubscriptionId,
-    EnqueueInputResultError, ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngine,
-    MultiplexerEngineError, MultiplexerEngineObservation, MultiplexerEngineOutcome,
-    MultiplexerSpawnOutcome, PluginHandlerRegistration, PluginInvocationOutcome,
-    PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler,
-    PluginWorkerDebugSnapshot, PluginWorkerEngine, PluginWorkerEngineConfig,
+    EnqueueRouteFrameError, GenerationAllocator, ManagedSessionRuntime, ManagedSessionRuntimeError,
+    MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
+    MultiplexerEngineOutcome, MultiplexerSpawnOutcome, PluginHandlerRegistration,
+    PluginInvocationOutcome, PluginTimerDrainOutcome, PluginTimerScheduleOutcome,
+    PluginTimerScheduler, PluginWorkerDebugSnapshot, PluginWorkerEngine, PluginWorkerEngineConfig,
     PluginWorkerPluginDebugSnapshot, PluginWorkerRegistration, RoutedEnvelopeRouter,
     SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
     SubscriptionMultiplexer, SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
@@ -260,6 +261,7 @@ pub use package::{
     RunnableEntrypointResultField, RunnableEntrypointValidationError,
     RunnableEntrypointWorkingDirectory,
 };
+pub use redb_store::RedbStore;
 pub use routed_envelope::{
     EndpointId, EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId,
     EnvelopeTarget, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopeObservation,
@@ -270,18 +272,19 @@ pub use session::{
     SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
 };
 pub use session_protocol::{
-    decode_final_state, decode_hello, decode_welcome, encode_empty, encode_final_state,
-    encode_frame, encode_hello, encode_json, encode_string, encode_welcome,
-    encode_worker_operation, read_hello, read_welcome, split_worker_operation_key, write_hello,
-    write_welcome, Frame, FrameDecoder, ModeFlags, ModeFlagsPayload, NotificationPayload,
-    ProcessExitedPayload, PromptMarkPayload, ProtocolError, ResizePayload, Rgb, SessionMetadata,
-    TeePayload, TerminalColorProfile, TimeoutPayload, WorkerFinalState, DESYNC_THRESHOLD,
-    FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
-    FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION,
-    FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS,
-    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
-    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN,
-    FRAME_SET_COLOR_PROFILE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
+    decode_final_state, decode_hello, decode_welcome, decode_worker_input_operation, encode_empty,
+    encode_final_state, encode_frame, encode_hello, encode_json, encode_string, encode_welcome,
+    encode_worker_input_operation, encode_worker_operation, read_hello, read_welcome,
+    split_worker_operation_key, write_hello, write_welcome, Frame, FrameDecoder, ModeFlags,
+    ModeFlagsPayload, NotificationPayload, ProcessExitedPayload, PromptMarkPayload, ProtocolError,
+    ResizePayload, Rgb, ScreenPayload, SessionMetadata, TeePayload, TerminalColorProfile,
+    TimeoutPayload, WorkerFinalState, WorkerInputKind, WorkerInputOperation, WorkerProbeRequest,
+    DESYNC_THRESHOLD, FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE,
+    FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL,
+    FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED,
+    FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
+    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED,
+    FRAME_SCREEN, FRAME_SET_COLOR_PROFILE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
     FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN,
     PROTOCOL_VERSION, WELCOME_MAGIC, WORKER_OPERATION_KEY_BYTES,
 };
@@ -299,9 +302,9 @@ pub use terminal_screen::{
     TerminalScreenState, TerminalSnapshotPayload,
 };
 pub use terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, PasteOperation,
-    TerminalCapabilitySet, TerminalCapabilitySetError, TerminalInputCommand, TerminalInputDelivery,
-    TerminalInputOperation, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
+    StagedTerminalInput, TerminalCapabilitySet, TerminalCapabilitySetError, TerminalInputCommand,
+    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
 };
 pub use terminal_wake::{
     SessionWakeHandle, TerminalWakeBatch, TerminalWakeInterrupt, TerminalWakeKind,

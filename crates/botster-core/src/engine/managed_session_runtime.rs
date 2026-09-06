@@ -6,6 +6,7 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use botster_terminal_protocol::{InputOutcome, InputResultBody};
 use thiserror::Error;
 
 use crate::contract::actor::SessionLifecycleState;
@@ -14,15 +15,16 @@ use crate::contract::actor::{
     QueueSource, ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionIoRequest,
     SnapshotReady,
 };
+use crate::contract::terminal_screen::{TerminalKeyEvent, TerminalMouseEvent};
 use crate::contract::terminal_subscription::{
-    BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalInputDelivery, TerminalInputOperation, TerminalSubscriptionGeneration,
+    AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
+    StagedTerminalInput, TerminalCapabilitySet, TerminalSubscriptionGeneration,
     TerminalSubscriptionRecord,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
 };
-use crate::engine::client_worker::{ClientWorker, OwnerKey};
+use crate::engine::client_worker::{ClientWorker, ClientWorkerTeardown, OwnerKey};
 use crate::engine::command::EngineSessionInspection;
 use crate::engine::multiplexer::{
     MultiplexerEngine, MultiplexerEngineError, MultiplexerEngineObservation,
@@ -36,9 +38,9 @@ use crate::engine::terminal_screen::{
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{
-    ControlAdmission, ControlPlaneState, ControlWriterError, GatedPoll, LocalProcessRuntime,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT,
-    WORKER_CONTROL_QUEUE_FRAMES, WORKER_CONTROL_RESERVED_SLOTS,
+    ControlAdmission, ControlPlaneState, ControlWriterError, LocalProcessRuntime,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, WORKER_CONTROL_QUEUE_FRAMES,
+    WORKER_CONTROL_RESERVED_SLOTS,
 };
 use crate::runtime::{
     SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
@@ -47,17 +49,14 @@ use crate::runtime::{
 use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
 };
-use crate::session_protocol::{
-    ModeFlags, ModeFreshnessToken, ModeGatedPtyInputResult, ResizePayload, TerminalColorProfile,
-};
+use crate::session_protocol::{ModeFlags, ResizePayload, TerminalColorProfile, WorkerInputKind};
 use crate::terminal_screen::{
     TerminalBackendError, TerminalScreenSize, TerminalScreenState, TerminalSnapshotPayload,
 };
 use crate::transport::TransportIngress;
 use crate::ClientId;
 use botster_terminal_protocol_client::{
-    TerminalInputCommand, TerminalInputKind, TerminalInputRejection, TerminalInputResult,
-    TerminalModeFlags,
+    decode_input_body, TerminalInputCommand, TerminalInputKind,
 };
 
 /// Host-visible error from managed session runtime coordination.
@@ -129,7 +128,10 @@ where
     terminal_backend_factory: TerminalBackendFactory<T>,
     client_worker: ClientWorker,
     wake_source: TerminalWakeSource,
-    pending_input_teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+    pending_input_teardowns: Vec<ClientWorkerTeardown>,
+    /// Worker operation keys torn-down routes left in flight. The worker
+    /// path drains these into `FRAME_INPUT_CANCEL`.
+    pending_worker_cancels: Vec<(SessionId, u64)>,
     pending_terminal_resizes: HashMap<SessionId, VecDeque<PendingTerminalResize>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
 }
@@ -223,30 +225,8 @@ where
         self.engine
             .session_runtime_mut()
             .mark_control_plane_failed(session_id, ControlWriterError::ResizeAckTimeout);
-        self.pending_input_teardowns
-            .extend(self.client_worker.teardown_session(session_id));
-    }
-
-    /// Synchronize the parent terminal with one atomic worker snapshot boundary.
-    pub fn synchronize_worker_snapshot_boundary(
-        &mut self,
-        session_id: &SessionId,
-        last_output_at: u64,
-    ) -> Result<(MultiplexerEngineOutcome, TerminalSnapshotPayload), ManagedSessionRuntimeError>
-    {
-        let (snapshot, output) = self
-            .engine
-            .session_runtime_mut()
-            .capture_snapshot_boundary(session_id)?;
-        let mut outcome = self.route_runtime_outputs(session_id, output, last_output_at)?;
-        let worker = self.engine_worker(session_id).ok_or_else(|| {
-            MultiplexerEngineError::UnknownSession {
-                session_id: session_id.clone(),
-            }
-        })?;
-        worker.replay_snapshot(snapshot.clone())?;
-        self.route_pending_runtime_events(&mut outcome)?;
-        Ok((outcome, snapshot))
+        let teardowns = self.client_worker.teardown_session(session_id);
+        self.pending_input_teardowns.extend(teardowns);
     }
 
     /// Return whether one worker supports atomic snapshot boundaries.
@@ -289,6 +269,25 @@ where
         )?)
     }
 
+    /// Install a worker whose spawn finished asynchronously.
+    ///
+    /// The host called `begin_spawn` on the worker runtime and observed
+    /// `WorkerSpawnPoll::Ready`; this records core state for the handle.
+    pub fn install_spawned_worker(
+        &mut self,
+        handle: crate::SessionRuntimeHandle,
+        metadata: CoreSessionMetadata,
+        size: TerminalScreenSize,
+    ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
+        let terminal = (self.terminal_backend_factory)(size)
+            .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
+        Ok(self.engine.adopt_session(
+            handle,
+            metadata,
+            SessionRuntimeWorkerAdapter::new(terminal),
+        )?)
+    }
+
     /// Release worker processes for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
         self.pending_terminal_resizes.clear();
@@ -304,6 +303,70 @@ where
             .control_plane_state(session_id)
     }
 
+    /// Route worker-originated mode changes, input results, cancels, and link
+    /// failures for the named sessions into ClientWorker.
+    pub(crate) fn reconcile_worker_events(
+        &mut self,
+        session_ids: &HashSet<SessionId>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let mut teardowns = Vec::new();
+        for session_id in session_ids {
+            let modes = match self
+                .engine
+                .session_runtime_mut()
+                .take_mode_changes(session_id)
+            {
+                Ok(modes) => modes,
+                Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
+                    teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                        session_id,
+                        InputOutcome::OutcomeUnknown,
+                        "worker session is gone",
+                    ));
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for modes in modes {
+                teardowns.extend(self.client_worker.push_session_modes(session_id, modes));
+            }
+            let results = self
+                .engine
+                .session_runtime_mut()
+                .take_input_results(session_id)?;
+            for (key, result) in results {
+                if let Some(teardown) = self.client_worker.complete_operation(key, result) {
+                    teardowns.push(teardown);
+                }
+            }
+            if self
+                .engine
+                .session_runtime_mut()
+                .session_reader_finished(session_id)?
+            {
+                teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                    session_id,
+                    InputOutcome::OutcomeUnknown,
+                    "worker link ended before the result",
+                ));
+            }
+        }
+        self.flush_worker_cancels();
+        self.pending_input_teardowns.extend(teardowns);
+        Ok(())
+    }
+
+    fn flush_worker_cancels(&mut self) {
+        let mut cancels = std::mem::take(&mut self.pending_worker_cancels);
+        cancels.extend(self.client_worker.take_cancel_requests());
+        for (session_id, key) in cancels {
+            let _ = self
+                .engine
+                .session_runtime_mut()
+                .cancel_input_operation(&session_id, key);
+        }
+    }
+
     pub(crate) fn apply_woken_terminal_input(
         &mut self,
         batch: &TerminalWakeBatch,
@@ -311,6 +374,7 @@ where
         deferred_sessions: &HashSet<SessionId>,
         outcome: &mut MultiplexerEngineOutcome,
     ) -> Result<(), ManagedSessionRuntimeError> {
+        let _ = (last_output_at, outcome);
         let named_sessions: HashSet<_> = batch
             .adapter_routes
             .iter()
@@ -329,43 +393,22 @@ where
                 self.engine
                     .session_runtime_mut()
                     .mark_control_plane_failed(session_id, error);
+                teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                    session_id,
+                    InputOutcome::OutcomeUnknown,
+                    "worker control plane failed",
+                ));
                 teardowns.extend(self.client_worker.teardown_session(session_id));
                 failed_sessions.insert(session_id.clone());
             }
         }
 
-        let awaiting = self.client_worker.sessions_awaiting_gated();
-        let mut gated_sessions = self.engine.session_runtime().sessions_holding_gated();
-        gated_sessions.extend(awaiting);
-        for session_id in named_sessions.intersection(&gated_sessions) {
-            if failed_sessions.contains(session_id) {
-                continue;
-            }
-            match self
-                .engine
-                .session_runtime_mut()
-                .poll_mode_gated_pty_input(session_id)
-            {
-                Ok(GatedPoll::Ready(result)) => {
-                    if let Some(teardown) = self.complete_gated_result(session_id, result) {
-                        teardowns.push(teardown);
-                    }
-                }
-                Ok(GatedPoll::TimedOut) => {
-                    if let Some(teardown) = self.complete_gated_timeout(session_id) {
-                        teardowns.push(teardown);
-                    }
-                }
-                Ok(GatedPoll::Idle | GatedPoll::Pending) | Err(_) => {}
-            }
-        }
+        self.reconcile_worker_events(&named_sessions)?;
 
         let mut keys = self.client_worker.adapter_route_keys(batch);
         keys.extend(self.client_worker.parked_route_keys(batch));
         let mut seen = HashSet::new();
         keys.retain(|key| seen.insert(key.clone()));
-        let mut held = self.engine.session_runtime().sessions_holding_gated();
-        held.extend(self.client_worker.sessions_awaiting_gated());
         let mut full_sessions = HashSet::new();
 
         for key in keys {
@@ -390,30 +433,19 @@ where
                     ControlAdmission::Ready => {
                         if self.pending_terminal_resize_len(&key.session_id)
                             >= PENDING_INGRESS_RESIZE_CAP
-                            && matches!(
-                                self.client_worker.terminal_input_head(&key),
-                                Some(TerminalInputOperation::Command(
-                                    TerminalInputCommand::Resize { .. }
-                                ))
-                            )
+                            && self.client_worker.terminal_input_head_is_resize(&key)
                         {
                             self.client_worker.park_for_capacity(&key);
                             full_sessions.insert(key.session_id.clone());
                             break;
                         }
-                        let Some(delivery) =
-                            self.client_worker.take_one_terminal_input(&key, &mut held)
-                        else {
+                        let Some(staged) = self.client_worker.take_one_terminal_input(&key) else {
                             self.client_worker.clear_capacity_parked(&key);
                             break;
                         };
-                        match self.apply_one_delivery(delivery, last_output_at) {
-                            Ok(Some(step)) => append_outcome(outcome, step),
-                            Ok(None) => {}
-                            Err(teardown) => {
-                                teardowns.push(teardown);
-                                break;
-                            }
+                        if let Some(teardown) = self.submit_staged_input(staged, last_output_at) {
+                            teardowns.push(teardown);
+                            break;
                         }
                     }
                     ControlAdmission::Full => {
@@ -430,373 +462,86 @@ where
                 }
             }
         }
+        self.flush_worker_cancels();
         self.pending_input_teardowns.extend(teardowns);
         Ok(())
     }
 
-    fn apply_one_delivery(
+    /// Forward one staged operation to the worker. Returns a teardown when the
+    /// route hard-stopped.
+    fn submit_staged_input(
         &mut self,
-        delivery: TerminalInputDelivery,
+        staged: StagedTerminalInput,
         last_output_at: u64,
-    ) -> Result<Option<MultiplexerEngineOutcome>, crate::engine::client_worker::ClientWorkerTeardown>
-    {
-        let kind = match &delivery.command {
-            TerminalInputOperation::Command(TerminalInputCommand::Input { .. }) => {
-                TerminalInputKind::Input
+    ) -> Option<ClientWorkerTeardown> {
+        let session_id = staged.session_id.clone();
+        let resize = if staged.kind == WorkerInputKind::Resize {
+            match decode_input_body(TerminalInputKind::Resize, staged.operation_id, &staged.body) {
+                Ok(TerminalInputCommand::Resize { rows, cols, .. }) => Some((rows, cols)),
+                _ => None,
             }
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
-                TerminalInputKind::ModeGatedInput
-            }
-            TerminalInputOperation::Command(TerminalInputCommand::Resize { .. }) => {
-                TerminalInputKind::Resize
-            }
-            TerminalInputOperation::Command(
-                TerminalInputCommand::PasteBegin { .. }
-                | TerminalInputCommand::PasteChunk { .. }
-                | TerminalInputCommand::PasteCommit { .. }
-                | TerminalInputCommand::PasteAbort { .. },
-            ) => unreachable!("paste frames do not enter the Stage B queue"),
-            TerminalInputOperation::Paste(_) => TerminalInputKind::Paste,
+        } else {
+            None
         };
-        let session_id = delivery.session_id.clone();
-        let subscription_id = delivery.subscription_id.clone();
-        let client_id = delivery.client_id.clone();
-        let mut targeted_outcome = None;
-        let result = match delivery.command {
-            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => {
-                let ingress = TransportIngress::TerminalInput {
-                    session_id: session_id.clone(),
-                    data: data.clone(),
-                };
-                let applied =
-                    self.apply_targeted_client_ingress(client_id, ingress, last_output_at);
-                match applied {
-                    Ok(outcome) => {
-                        targeted_outcome = Some(outcome);
-                        input_result_ok(kind, data.len())
-                    }
-                    Err(_) => {
-                        return match owner_apply_teardown(
-                            &mut self.client_worker,
-                            &session_id,
-                            &subscription_id,
-                        ) {
-                            Err(teardown) => Err(teardown),
-                            Ok(()) => Ok(None),
-                        };
-                    }
-                }
-            }
-            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
-                let ingress = TransportIngress::Resize {
-                    session_id: session_id.clone(),
-                    rows,
-                    cols,
-                };
-                let applied =
-                    self.apply_targeted_client_ingress(client_id, ingress, last_output_at);
-                match applied {
-                    Ok(outcome) => {
-                        self.pending_terminal_resizes
-                            .entry(session_id.clone())
-                            .or_default()
-                            .push_back(PendingTerminalResize {
-                                rows,
-                                cols,
-                                applied_at: last_output_at,
-                                deadline: Instant::now()
-                                    + self.engine.session_runtime().mode_gated_input_timeout(),
-                            });
-                        targeted_outcome = Some(outcome);
-                        input_result_ok(kind, 0)
-                    }
-                    Err(_) => {
-                        return match owner_apply_teardown(
-                            &mut self.client_worker,
-                            &session_id,
-                            &subscription_id,
-                        ) {
-                            Err(teardown) => Err(teardown),
-                            Ok(()) => Ok(None),
-                        };
-                    }
-                }
-            }
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput {
-                mode_generation,
-                mode_revision,
-                data,
-            }) => {
-                match self
-                    .engine
-                    .session_runtime_mut()
-                    .submit_mode_gated_pty_input(
-                        &session_id,
-                        ModeFreshnessToken {
-                            mode_generation,
-                            mode_revision,
-                        },
-                        data,
-                    ) {
-                    Ok(request_id) => {
-                        let deadline = Instant::now()
-                            + DEFAULT_MODE_GATED_INPUT_TIMEOUT
-                            + Duration::from_secs(1);
-                        self.client_worker.set_awaiting_gated(
-                            &session_id,
-                            &subscription_id,
-                            request_id,
-                            deadline,
-                            TerminalInputKind::ModeGatedInput,
-                            None,
-                        );
-                        return Ok(None);
-                    }
-                    Err(error)
-                        if error.message.contains("control queue full")
-                            || error.message.contains("control plane sealed")
-                            || error.message.contains("already in flight") =>
-                    {
-                        if error.message.contains("already in flight") {
-                            input_result_rejected(kind, TerminalInputRejection::SessionNotWritable)
-                        } else {
-                            return owner_apply_teardown_outcome(
-                                &mut self.client_worker,
-                                &session_id,
-                                &subscription_id,
-                            );
-                        }
-                    }
-                    Err(_) => {
-                        return owner_apply_teardown_outcome(
-                            &mut self.client_worker,
-                            &session_id,
-                            &subscription_id,
-                        );
-                    }
-                }
-            }
-            TerminalInputOperation::Paste(paste) => {
-                let token = ModeFreshnessToken {
-                    mode_generation: paste.mode_generation,
-                    mode_revision: paste.mode_revision,
-                };
-                // The worker is the mode authority. Core keeps the latest
-                // (token, flags) pair the worker reported. A missing pair means
-                // no authority yet, which is not a stale token.
-                match self.engine.session_runtime().current_mode_for(&session_id) {
-                    None => with_operation(
-                        input_result_rejected(
-                            TerminalInputKind::Paste,
-                            TerminalInputRejection::SessionNotWritable,
-                        ),
-                        paste.operation_id,
-                    ),
-                    Some((current_token, current_flags)) if current_token != token => {
-                        with_operation(
-                            input_result_stale_mode(
-                                TerminalInputKind::Paste,
-                                current_token,
-                                current_flags,
-                            ),
-                            paste.operation_id,
-                        )
-                    }
-                    Some((_, flags)) => {
-                        let mut data = paste.data;
-                        if flags.bracketed_paste {
-                            let mut wrapped = Vec::with_capacity(data.len() + 12);
-                            wrapped.extend_from_slice(b"\x1b[200~");
-                            wrapped.append(&mut data);
-                            wrapped.extend_from_slice(b"\x1b[201~");
-                            data = wrapped;
-                        }
-                        match self
-                            .engine
-                            .session_runtime_mut()
-                            .submit_mode_gated_pty_input(&session_id, token, data)
-                        {
-                            Ok(request_id) => {
-                                let deadline = Instant::now()
-                                    + DEFAULT_MODE_GATED_INPUT_TIMEOUT
-                                    + Duration::from_secs(1);
-                                self.client_worker.set_awaiting_gated(
-                                    &session_id,
-                                    &subscription_id,
-                                    request_id,
-                                    deadline,
-                                    TerminalInputKind::Paste,
-                                    Some(paste.operation_id),
-                                );
-                                return Ok(None);
-                            }
-                            Err(error) if error.message.contains("already in flight") => {
-                                with_operation(
-                                    input_result_rejected(
-                                        TerminalInputKind::Paste,
-                                        TerminalInputRejection::SessionNotWritable,
-                                    ),
-                                    paste.operation_id,
-                                )
-                            }
-                            Err(_) => {
-                                return owner_apply_teardown_outcome(
-                                    &mut self.client_worker,
-                                    &session_id,
-                                    &subscription_id,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            TerminalInputOperation::Command(
-                TerminalInputCommand::PasteBegin { .. }
-                | TerminalInputCommand::PasteChunk { .. }
-                | TerminalInputCommand::PasteCommit { .. }
-                | TerminalInputCommand::PasteAbort { .. },
-            ) => unreachable!("paste frames do not enter the Stage B queue"),
-        };
-        if let Some(operation_id) = result.operation_id {
-            self.client_worker
-                .finish_paste_operation(&session_id, &subscription_id, operation_id);
-        }
-        let result = with_subscription(result, &subscription_id);
-        if self
-            .client_worker
-            .enqueue_input_result(&session_id, &subscription_id, &result)
-            .is_err()
-        {
-            return owner_apply_teardown_outcome(
-                &mut self.client_worker,
-                &session_id,
-                &subscription_id,
-            );
-        }
-        Ok(targeted_outcome)
-    }
-
-    fn complete_gated_result(
-        &mut self,
-        session_id: &SessionId,
-        result: ModeGatedPtyInputResult,
-    ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let (subscription_id, wait) = self.take_matching_gated(session_id, &result.request_id)?;
-        let partial_write = !result.admitted && result.bytes_written > 0;
-        let mut mapped = map_gated_result(wait.kind, result);
-        mapped.operation_id = wait.operation_id;
-        if let Some(operation_id) = wait.operation_id {
-            self.client_worker
-                .finish_paste_operation(session_id, &subscription_id, operation_id);
-        }
-        let mapped = with_subscription(mapped, &subscription_id);
-        if self
-            .client_worker
-            .enqueue_input_result(session_id, &subscription_id, &mapped)
-            .is_err()
-        {
-            return self.client_worker.detach_live(session_id, &subscription_id);
-        }
-        if partial_write {
-            let batch = TerminalWakeBatch {
-                adapter_routes: vec![crate::TerminalWakeRoute {
-                    session_id: session_id.clone(),
-                    subscription_id: subscription_id.clone(),
-                }],
-                ingress_sessions: Vec::new(),
-            };
-            let mut pumped = self.client_worker.pump_woken(&batch);
-            return pumped.pop().or_else(|| {
-                self.client_worker.hard_stop_owner(&OwnerKey {
-                    session_id: session_id.clone(),
-                    subscription_id,
-                })
-            });
-        }
-        let key = OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id,
-        };
-        if self.client_worker.has_terminal_input(&key) {
-            self.client_worker.park_for_capacity(&key);
-        }
-        None
-    }
-
-    fn complete_gated_timeout(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Option<crate::engine::client_worker::ClientWorkerTeardown> {
-        let (subscription_id, wait) = self.take_any_gated(session_id)?;
-        let mapped = with_subscription(
-            with_optional_operation(
-                input_result_rejected(wait.kind, TerminalInputRejection::Timeout),
-                wait.operation_id,
-            ),
-            &subscription_id,
+        let submitted = self.engine.session_runtime_mut().submit_input_operation(
+            &session_id,
+            staged.operation_key,
+            staged.operation_id,
+            staged.kind,
+            &staged.body,
         );
-        if let Some(operation_id) = wait.operation_id {
-            self.client_worker
-                .finish_paste_operation(session_id, &subscription_id, operation_id);
-        }
-        if self
-            .client_worker
-            .enqueue_input_result(session_id, &subscription_id, &mapped)
-            .is_err()
-        {
-            return self.client_worker.detach_live(session_id, &subscription_id);
-        }
-        let key = OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id,
-        };
-        if self.client_worker.has_terminal_input(&key) {
-            self.client_worker.park_for_capacity(&key);
-        }
-        None
-    }
-
-    fn take_matching_gated(
-        &mut self,
-        session_id: &SessionId,
-        request_id: &str,
-    ) -> Option<(SubscriptionId, crate::engine::client_worker::GatedWait)> {
-        let records = self.client_worker.list_terminal_subscriptions();
-        for record in records {
-            if &record.session_id != session_id {
-                continue;
+        match submitted {
+            Ok(()) => {
+                if let Some((rows, cols)) = resize {
+                    let deadline =
+                        Instant::now() + self.engine.session_runtime().worker_reply_timeout();
+                    self.pending_terminal_resizes
+                        .entry(session_id)
+                        .or_default()
+                        .push_back(PendingTerminalResize {
+                            rows,
+                            cols,
+                            applied_at: last_output_at,
+                            deadline,
+                        });
+                }
+                None
             }
-            if self
-                .client_worker
-                .awaiting_gated(session_id, &record.subscription_id)
-                .is_some_and(|wait| wait.request_id == request_id)
-            {
-                let wait = self
+            Err(error) => {
+                let sealed = error.message.contains("control plane sealed");
+                let outcome = if error.message.contains("control queue full") {
+                    InputOutcome::RejectedLaneFull
+                } else if sealed {
+                    InputOutcome::RejectedNotWritable
+                } else {
+                    InputOutcome::WriteFailed
+                };
+                let result = InputResultBody {
+                    operation_id: staged.operation_id,
+                    outcome,
+                    accepted_payload_bytes: Some(0),
+                    written_pty_bytes: Some(0),
+                    mode_bits: self
+                        .client_worker
+                        .session_modes(&session_id)
+                        .map(|modes| modes.mode_bits)
+                        .unwrap_or(0),
+                    detail: error.message,
+                };
+                let teardown = self
                     .client_worker
-                    .clear_awaiting_gated(session_id, &record.subscription_id)?;
-                return Some((record.subscription_id, wait));
+                    .complete_operation(staged.operation_key, result);
+                if sealed {
+                    return teardown.or_else(|| {
+                        self.client_worker.hard_stop_owner(&OwnerKey {
+                            session_id,
+                            subscription_id: staged.subscription_id,
+                        })
+                    });
+                }
+                teardown
             }
         }
-        None
-    }
-
-    fn take_any_gated(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Option<(SubscriptionId, crate::engine::client_worker::GatedWait)> {
-        let records = self.client_worker.list_terminal_subscriptions();
-        for record in records {
-            if &record.session_id != session_id {
-                continue;
-            }
-            if let Some(wait) = self
-                .client_worker
-                .clear_awaiting_gated(session_id, &record.subscription_id)
-            {
-                return Some((record.subscription_id, wait));
-            }
-        }
-        None
     }
 }
 
@@ -812,14 +557,12 @@ where
         outcome: &mut MultiplexerEngineOutcome,
     ) -> Result<(), ManagedSessionRuntimeError> {
         let mut teardowns = Vec::new();
-        let mut held = HashSet::new();
         for key in self.client_worker.adapter_route_keys(batch) {
             for _ in 0..crate::engine::client_worker::APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK {
-                let Some(delivery) = self.client_worker.take_one_terminal_input(&key, &mut held)
-                else {
+                let Some(staged) = self.client_worker.take_one_terminal_input(&key) else {
                     break;
                 };
-                match self.apply_one_local_delivery_targeted(delivery, last_output_at) {
+                match self.apply_one_local_input(staged, last_output_at) {
                     Ok(step) => append_outcome(outcome, step),
                     Err(teardown) => {
                         teardowns.push(teardown);
@@ -828,124 +571,138 @@ where
                 }
             }
         }
+        // Local sessions never hold worker operations; cancels are no-ops.
+        let _ = self.client_worker.take_cancel_requests();
+        self.pending_worker_cancels.clear();
         self.pending_input_teardowns.extend(teardowns);
         Ok(())
     }
 
-    fn apply_one_local_delivery_targeted(
+    /// Encode one staged operation with the local terminal backend and write
+    /// it to the local PTY.
+    fn apply_one_local_input(
         &mut self,
-        delivery: TerminalInputDelivery,
+        staged: StagedTerminalInput,
         last_output_at: u64,
-    ) -> Result<MultiplexerEngineOutcome, crate::engine::client_worker::ClientWorkerTeardown> {
-        let session_id = delivery.session_id.clone();
-        let subscription_id = delivery.subscription_id.clone();
-        let client_id = delivery.client_id;
-        let applied_resize = match &delivery.command {
-            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => {
-                Some((*rows, *cols, last_output_at))
-            }
-            _ => None,
+    ) -> Result<MultiplexerEngineOutcome, ClientWorkerTeardown> {
+        let session_id = staged.session_id.clone();
+        let subscription_id = staged.subscription_id.clone();
+        let client_id = staged.client_id.clone();
+        let mode_bits = self
+            .engine_worker(&session_id)
+            .and_then(|worker| worker.mode_bits())
+            .unwrap_or(0);
+        let finish = |runtime: &mut Self, result: InputResultBody| {
+            runtime
+                .client_worker
+                .complete_operation(staged.operation_key, result)
         };
-        let (ingress, result) = match delivery.command {
-            TerminalInputOperation::Command(TerminalInputCommand::Input { data }) => (
-                TransportIngress::TerminalInput {
-                    session_id: session_id.clone(),
-                    data: data.clone(),
-                },
-                input_result_ok(TerminalInputKind::Input, data.len()),
-            ),
-            TerminalInputOperation::Command(TerminalInputCommand::Resize { rows, cols }) => (
-                TransportIngress::Resize {
-                    session_id: session_id.clone(),
-                    rows,
-                    cols,
-                },
-                input_result_ok(TerminalInputKind::Resize, 0),
-            ),
-            TerminalInputOperation::Command(TerminalInputCommand::ModeGatedInput { .. }) => {
-                let result = with_subscription(
-                    input_result_rejected(
-                        TerminalInputKind::ModeGatedInput,
-                        TerminalInputRejection::SessionNotWritable,
-                    ),
-                    &subscription_id,
-                );
-                if self
-                    .client_worker
-                    .enqueue_input_result(&session_id, &subscription_id, &result)
-                    .is_err()
-                {
-                    return self
-                        .client_worker
-                        .detach_live(&session_id, &subscription_id)
-                        .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
-                }
-                return Ok(MultiplexerEngineOutcome::empty());
+        let reject = |runtime: &mut Self, outcome: InputOutcome, detail: String| {
+            let result = InputResultBody {
+                operation_id: staged.operation_id,
+                outcome,
+                accepted_payload_bytes: Some(0),
+                written_pty_bytes: Some(0),
+                mode_bits,
+                detail,
+            };
+            match finish(runtime, result) {
+                Some(teardown) => Err(teardown),
+                None => Ok(MultiplexerEngineOutcome::empty()),
             }
-            TerminalInputOperation::Paste(paste) => {
-                let result = with_subscription(
-                    with_operation(
-                        input_result_rejected(
-                            TerminalInputKind::Paste,
-                            TerminalInputRejection::SessionNotWritable,
-                        ),
-                        paste.operation_id,
-                    ),
-                    &subscription_id,
+        };
+        if staged.kind == WorkerInputKind::Resize {
+            let Ok(TerminalInputCommand::Resize { rows, cols, .. }) =
+                decode_input_body(TerminalInputKind::Resize, staged.operation_id, &staged.body)
+            else {
+                return reject(
+                    self,
+                    InputOutcome::RejectedProtocol,
+                    "resize body is malformed".to_owned(),
                 );
-                self.client_worker.finish_paste_operation(
-                    &session_id,
-                    &subscription_id,
-                    paste.operation_id,
+            };
+            let ingress = TransportIngress::Resize {
+                session_id: session_id.clone(),
+                rows,
+                cols,
+            };
+            let outcome =
+                match self.apply_targeted_client_ingress(client_id, ingress, last_output_at) {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        return reject(self, InputOutcome::WriteFailed, error.to_string());
+                    }
+                };
+            self.applied_terminal_resizes
+                .insert(session_id.clone(), (rows, cols, last_output_at));
+            let result = InputResultBody {
+                operation_id: staged.operation_id,
+                outcome: InputOutcome::Written,
+                accepted_payload_bytes: Some(0),
+                written_pty_bytes: Some(0),
+                mode_bits: self
+                    .engine_worker(&session_id)
+                    .and_then(|worker| worker.mode_bits())
+                    .unwrap_or(mode_bits),
+                detail: String::new(),
+            };
+            return match finish(self, result) {
+                Some(teardown) => Err(teardown),
+                None => Ok(outcome),
+            };
+        }
+        let encoded = {
+            let Some(worker) = self.engine_worker(&session_id) else {
+                return reject(
+                    self,
+                    InputOutcome::SessionEnded,
+                    "session is gone".to_owned(),
                 );
-                if self
-                    .client_worker
-                    .enqueue_input_result(&session_id, &subscription_id, &result)
-                    .is_err()
-                {
-                    return self
-                        .client_worker
-                        .detach_live(&session_id, &subscription_id)
-                        .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
-                }
-                return Ok(MultiplexerEngineOutcome::empty());
-            }
-            TerminalInputOperation::Command(
-                TerminalInputCommand::PasteBegin { .. }
-                | TerminalInputCommand::PasteChunk { .. }
-                | TerminalInputCommand::PasteCommit { .. }
-                | TerminalInputCommand::PasteAbort { .. },
-            ) => unreachable!("paste frames do not enter the Stage B queue"),
+            };
+            worker.encode_local_input(staged.kind, staged.operation_id, &staged.body)
+        };
+        let encoded = match encoded {
+            Ok(encoded) => encoded,
+            Err((outcome, detail)) => return reject(self, outcome, detail),
+        };
+        if encoded.is_empty() {
+            let result = InputResultBody {
+                operation_id: staged.operation_id,
+                outcome: InputOutcome::Written,
+                accepted_payload_bytes: Some(staged.accepted_payload_bytes),
+                written_pty_bytes: Some(0),
+                mode_bits,
+                detail: String::new(),
+            };
+            return match finish(self, result) {
+                Some(teardown) => Err(teardown),
+                None => Ok(MultiplexerEngineOutcome::empty()),
+            };
+        }
+        let written = encoded.len() as u64;
+        let ingress = TransportIngress::TerminalInput {
+            session_id: session_id.clone(),
+            data: encoded,
         };
         let outcome = match self.apply_targeted_client_ingress(client_id, ingress, last_output_at) {
             Ok(outcome) => outcome,
-            Err(_) => {
-                return self
-                    .client_worker
-                    .detach_live(&session_id, &subscription_id)
-                    .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
+            Err(error) => {
+                return reject(self, InputOutcome::WriteFailed, error.to_string());
             }
         };
-        if let Some(size) = applied_resize {
-            self.applied_terminal_resizes
-                .insert(session_id.clone(), size);
+        let result = InputResultBody {
+            operation_id: staged.operation_id,
+            outcome: InputOutcome::Written,
+            accepted_payload_bytes: Some(staged.accepted_payload_bytes),
+            written_pty_bytes: Some(written),
+            mode_bits,
+            detail: String::new(),
+        };
+        let _ = &subscription_id;
+        match finish(self, result) {
+            Some(teardown) => Err(teardown),
+            None => Ok(outcome),
         }
-        if let Some(operation_id) = result.operation_id {
-            self.client_worker
-                .finish_paste_operation(&session_id, &subscription_id, operation_id);
-        }
-        let result = with_subscription(result, &subscription_id);
-        if self
-            .client_worker
-            .enqueue_input_result(&session_id, &subscription_id, &result)
-            .is_err()
-        {
-            return self
-                .client_worker
-                .detach_live(&session_id, &subscription_id)
-                .map_or_else(|| Ok(MultiplexerEngineOutcome::empty()), Err);
-        }
-        Ok(outcome)
     }
 }
 
@@ -974,6 +731,7 @@ where
             client_worker,
             wake_source,
             pending_input_teardowns: Vec::new(),
+            pending_worker_cancels: Vec::new(),
             pending_terminal_resizes: HashMap::new(),
             applied_terminal_resizes: HashMap::new(),
         }
@@ -993,6 +751,36 @@ where
         &self.wake_source
     }
 
+    /// Bound-route egress owner. Engines push route-personal frames through it.
+    pub(crate) fn client_worker_mut(&mut self) -> &mut ClientWorker {
+        &mut self.client_worker
+    }
+
+    /// Bound-route egress owner, read-only.
+    pub(crate) fn client_worker(&self) -> &ClientWorker {
+        &self.client_worker
+    }
+
+    /// Export the local backend snapshot as stream frames, when the backend
+    /// owns a streaming exporter.
+    pub(crate) fn capture_local_snapshot_frames(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<
+        Vec<(
+            crate::contract::terminal_screen::TerminalSnapshotFramePhase,
+            Vec<u8>,
+        )>,
+        ManagedSessionRuntimeError,
+    > {
+        let worker = self.engine_worker(session_id).ok_or_else(|| {
+            MultiplexerEngineError::UnknownSession {
+                session_id: session_id.clone(),
+            }
+        })?;
+        worker.capture_snapshot_frames()
+    }
+
     /// Return a recorded session from the assembled core engine.
     #[must_use]
     pub fn session(&self, session_id: &SessionId) -> Option<&crate::CoreSession> {
@@ -1010,8 +798,8 @@ where
         self.wake_source.forget_session(session_id);
         self.applied_terminal_resizes.remove(session_id);
         self.pending_terminal_resizes.remove(session_id);
-        self.pending_input_teardowns
-            .extend(self.client_worker.teardown_session(session_id));
+        let teardowns = self.client_worker.teardown_session(session_id);
+        self.pending_input_teardowns.extend(teardowns);
         let mut outcome = MultiplexerEngineOutcome::empty();
         let _ = self.apply_client_worker(&mut outcome);
         self.engine.forget_terminal_session(session_id)
@@ -1077,11 +865,14 @@ where
         subscription_id: SubscriptionId,
         adapter: Box<dyn WakingTerminalAdapter + Send>,
     ) -> Result<(), BindTerminalAdapterError> {
-        let (_, teardowns) = self.client_worker.record_attach(
-            client_id.clone(),
-            session_id.clone(),
-            subscription_id.clone(),
-        );
+        let (_, teardowns) = self
+            .client_worker
+            .record_attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            )
+            .expect("test route is valid");
         self.pending_input_teardowns.extend(teardowns);
         let generation = self
             .client_worker
@@ -1181,11 +972,14 @@ where
             ref subscription_id,
         } = ingress
         {
-            let (_, replacements) = self.client_worker.record_attach(
-                subscribe_client.clone(),
-                session_id.clone(),
-                subscription_id.clone(),
-            );
+            let (_, replacements) = self
+                .client_worker
+                .record_attach(
+                    subscribe_client.clone(),
+                    session_id.clone(),
+                    subscription_id.clone(),
+                )
+                .map_err(attach_route_error)?;
             extra_teardowns.extend(replacements);
         }
         if let TransportIngress::UnsubscribeSession {
@@ -1238,26 +1032,6 @@ where
         Ok(outcome)
     }
 
-    pub(crate) fn attach_snapshot(
-        &mut self,
-        client_id: ClientId,
-        session_id: SessionId,
-        subscription_id: SubscriptionId,
-        snapshot: Vec<u8>,
-    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let mut outcome = self.engine.attach_snapshot(
-            client_id.clone(),
-            session_id.clone(),
-            subscription_id.clone(),
-            snapshot,
-        )?;
-        let (_, replacements) =
-            self.client_worker
-                .record_attach(client_id, session_id, subscription_id);
-        self.apply_client_worker_with(&mut outcome, replacements)?;
-        Ok(outcome)
-    }
-
     pub(crate) fn begin_snapshot_attach(
         &mut self,
         client_id: ClientId,
@@ -1269,9 +1043,10 @@ where
             session_id.clone(),
             subscription_id.clone(),
         )?;
-        let (_, replacements) =
-            self.client_worker
-                .record_attach(client_id, session_id, subscription_id);
+        let (_, replacements) = self
+            .client_worker
+            .record_attach(client_id, session_id, subscription_id)
+            .map_err(attach_route_error)?;
         self.apply_client_worker_with(&mut outcome, replacements)?;
         Ok(outcome)
     }
@@ -1305,16 +1080,6 @@ where
         )?;
         self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
-    }
-
-    pub(crate) fn note_snapshot_phase(
-        &mut self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-        phase: crate::WorkerSnapshotPhase,
-    ) {
-        self.client_worker
-            .note_snapshot_phase(session_id, subscription_id, phase);
     }
 
     /// Record that the next attach for this identity will bind an adapter.
@@ -1499,17 +1264,6 @@ where
             .bound_owner_has_held_frames(session_id, subscription_id)
     }
 
-    pub(crate) fn capture_parent_snapshot(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<TerminalSnapshotPayload, ManagedSessionRuntimeError> {
-        self.engine_worker(session_id)
-            .ok_or_else(|| MultiplexerEngineError::UnknownSession {
-                session_id: session_id.clone(),
-            })?
-            .capture_snapshot_payload()
-    }
-
     /// Route one session I/O request through the existing session worker path.
     pub fn handle_session_request(
         &mut self,
@@ -1666,14 +1420,36 @@ where
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut outcome = MultiplexerEngineOutcome::empty();
+        let mut teardowns = Vec::new();
 
         // Runtime drains are output-only; worker input buffers are populated by
-        // request routing paths and are flushed by those mutators.
+        // request routing paths and are flushed by those mutators. Bound routes
+        // receive the binary frame here, once per event; the multiplexer path
+        // below serves unbound drain consumers.
         for output in outputs {
             let runtime_event = match output {
                 SessionRuntimeOutput::PtyOutput { session_id, data } => {
-                    if let Some(worker) = self.engine_worker(&session_id) {
+                    let local_mode_bits = self.engine_worker(&session_id).and_then(|worker| {
                         worker.record_output(&session_id, &data);
+                        worker.mode_bits()
+                    });
+                    teardowns.extend(self.client_worker.push_session_output(&session_id, &data));
+                    if let Some(mode_bits) = local_mode_bits {
+                        let previous = self.client_worker.session_modes(&session_id);
+                        if previous.map(|modes| modes.mode_bits) != Some(mode_bits) {
+                            let size = self
+                                .engine_worker(&session_id)
+                                .map(|worker| worker.size())
+                                .unwrap_or_default();
+                            teardowns.extend(self.client_worker.push_session_modes(
+                                &session_id,
+                                botster_terminal_protocol::ModesBody {
+                                    mode_bits,
+                                    rows: size.rows,
+                                    cols: size.cols,
+                                },
+                            ));
+                        }
                     }
                     crate::SessionWorkerRuntimeEvent::TerminalBytes {
                         session_id,
@@ -1684,10 +1460,16 @@ where
                 SessionRuntimeOutput::ProcessExited {
                     session_id,
                     payload,
-                } => crate::SessionWorkerRuntimeEvent::ProcessExited {
-                    session_id,
-                    payload,
-                },
+                } => {
+                    teardowns.extend(
+                        self.client_worker
+                            .push_session_process_exit(&session_id, payload.exit_code),
+                    );
+                    crate::SessionWorkerRuntimeEvent::ProcessExited {
+                        session_id,
+                        payload,
+                    }
+                }
                 SessionRuntimeOutput::TitleChanged { session_id, title } => {
                     crate::SessionWorkerRuntimeEvent::TitleChanged { session_id, title }
                 }
@@ -1724,6 +1506,7 @@ where
             let step = self.engine.handle_runtime_event(runtime_event)?;
             append_outcome(&mut outcome, step);
         }
+        self.pending_input_teardowns.extend(teardowns);
 
         // write_pty replies queued during record_output must reach the child
         // PTY even when no client-facing request mutator flushes inputs.
@@ -1792,7 +1575,7 @@ where
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut teardowns = self
             .client_worker
-            .ingest_bound_terminal_frames(&mut outcome.client_egress);
+            .filter_bound_terminal_frames(&mut outcome.client_egress);
         teardowns.extend(self.client_worker.pump_woken(batch));
         let (owned_teardowns, foreign_teardowns) =
             std::mem::take(&mut self.pending_input_teardowns)
@@ -2038,8 +1821,8 @@ where
             &previous_lifecycle,
             SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping
         ) {
-            self.pending_input_teardowns
-                .extend(self.client_worker.teardown_session(&session_id));
+            let teardowns = self.client_worker.teardown_session(&session_id);
+            self.pending_input_teardowns.extend(teardowns);
             let mut outcome =
                 self.engine
                     .shutdown_session(session_id.clone(), reason, now_seconds)?;
@@ -2075,11 +1858,11 @@ where
     fn apply_client_worker_with(
         &mut self,
         outcome: &mut MultiplexerEngineOutcome,
-        mut teardowns: Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+        mut teardowns: Vec<ClientWorkerTeardown>,
     ) -> Result<(), ManagedSessionRuntimeError> {
         teardowns.extend(
             self.client_worker
-                .ingest_bound_terminal_frames(&mut outcome.client_egress),
+                .filter_bound_terminal_frames(&mut outcome.client_egress),
         );
         teardowns.splice(0..0, std::mem::take(&mut self.pending_input_teardowns));
         self.unsubscribe_owner_teardowns(outcome, &mut teardowns)
@@ -2088,14 +1871,12 @@ where
     fn unsubscribe_owner_teardowns(
         &mut self,
         outcome: &mut MultiplexerEngineOutcome,
-        teardowns: &mut Vec<crate::engine::client_worker::ClientWorkerTeardown>,
+        teardowns: &mut Vec<ClientWorkerTeardown>,
     ) -> Result<(), ManagedSessionRuntimeError> {
         for teardown in teardowns.drain(..) {
-            if let Some(request_id) = &teardown.awaiting_gated {
-                let _ = self
-                    .engine
-                    .session_runtime_mut()
-                    .cancel_mode_gated_pty_input(&teardown.session_id, request_id);
+            for key in &teardown.in_flight_keys {
+                self.pending_worker_cancels
+                    .push((teardown.session_id.clone(), *key));
             }
             let step = self.engine.handle_client_ingress(
                 teardown.client_id.clone(),
@@ -2238,158 +2019,11 @@ where
     }
 }
 
-fn owner_apply_teardown(
-    worker: &mut ClientWorker,
-    session_id: &SessionId,
-    subscription_id: &SubscriptionId,
-) -> Result<(), crate::engine::client_worker::ClientWorkerTeardown> {
-    match worker.detach_live(session_id, subscription_id) {
-        Some(teardown) => Err(teardown),
-        None => Ok(()),
-    }
-}
-
-#[cfg(feature = "local-runtime")]
-fn owner_apply_teardown_outcome(
-    worker: &mut ClientWorker,
-    session_id: &SessionId,
-    subscription_id: &SubscriptionId,
-) -> Result<Option<MultiplexerEngineOutcome>, crate::engine::client_worker::ClientWorkerTeardown> {
-    owner_apply_teardown(worker, session_id, subscription_id).map(|()| None)
-}
-
-fn with_subscription(
-    mut result: TerminalInputResult,
-    subscription_id: &SubscriptionId,
-) -> TerminalInputResult {
-    result.subscription_id = subscription_id.0.clone();
-    result
-}
-
-fn with_operation(mut result: TerminalInputResult, operation_id: u32) -> TerminalInputResult {
-    result.operation_id = Some(operation_id);
-    result
-}
-
-fn with_optional_operation(
-    mut result: TerminalInputResult,
-    operation_id: Option<u32>,
-) -> TerminalInputResult {
-    result.operation_id = operation_id;
-    result
-}
-
-fn input_result_ok(kind: TerminalInputKind, bytes_written: usize) -> TerminalInputResult {
-    TerminalInputResult {
-        subscription_id: String::new(),
-        kind,
-        operation_id: None,
-        admitted: true,
-        bytes_written,
-        mode_generation: 0,
-        mode_revision: 0,
-        mode_flags: empty_terminal_mode_flags(),
-        rejection: None,
-    }
-}
-
-fn input_result_rejected(
-    kind: TerminalInputKind,
-    rejection: TerminalInputRejection,
-) -> TerminalInputResult {
-    TerminalInputResult {
-        subscription_id: String::new(),
-        kind,
-        operation_id: None,
-        admitted: false,
-        bytes_written: 0,
-        mode_generation: 0,
-        mode_revision: 0,
-        mode_flags: empty_terminal_mode_flags(),
-        rejection: Some(rejection),
-    }
-}
-
-/// Stale-mode rejection that carries the worker's current token and flags.
-///
-/// A client retries with exactly this token. Zero bytes were written.
-fn input_result_stale_mode(
-    kind: TerminalInputKind,
-    current: ModeFreshnessToken,
-    flags: ModeFlags,
-) -> TerminalInputResult {
-    TerminalInputResult {
-        subscription_id: String::new(),
-        kind,
-        operation_id: None,
-        admitted: false,
-        bytes_written: 0,
-        mode_generation: current.mode_generation,
-        mode_revision: current.mode_revision,
-        mode_flags: terminal_mode_flags_from(flags),
-        rejection: Some(TerminalInputRejection::StaleMode),
-    }
-}
-
-fn empty_terminal_mode_flags() -> TerminalModeFlags {
-    TerminalModeFlags {
-        kitty_enabled: false,
-        cursor_visible: false,
-        bracketed_paste: false,
-        mouse_mode: 0,
-        alt_screen: false,
-        focus_reporting: false,
-        application_cursor: false,
-    }
-}
-
-fn map_gated_result(
-    kind: TerminalInputKind,
-    result: ModeGatedPtyInputResult,
-) -> TerminalInputResult {
-    let rejection = if result.admitted {
-        None
-    } else if result.error_kind.as_deref() == Some("partial_write")
-        || result
-            .error_kind
-            .as_deref()
-            .is_some_and(|kind| kind.starts_with("partial_write:"))
-    {
-        Some(TerminalInputRejection::PartialWrite)
-    } else if matches!(
-        result.error_kind.as_deref(),
-        Some("deadline_exceeded") | Some("cancelled")
-    ) {
-        Some(TerminalInputRejection::Timeout)
-    } else if result.error_kind.is_none() && result.bytes_written == 0 {
-        Some(TerminalInputRejection::StaleMode)
-    } else {
-        Some(TerminalInputRejection::SessionNotWritable)
-    };
-    TerminalInputResult {
-        subscription_id: String::new(),
-        kind,
-        operation_id: None,
-        admitted: result.admitted,
-        bytes_written: result.bytes_written,
-        mode_generation: result.mode_freshness.mode_generation,
-        mode_revision: result.mode_freshness.mode_revision,
-        mode_flags: terminal_mode_flags_from(result.mode_flags),
-        rejection,
-    }
-}
-
-/// Total mapping from Core `ModeFlags` to the client-facing copy.
-pub fn terminal_mode_flags_from(flags: ModeFlags) -> TerminalModeFlags {
-    TerminalModeFlags {
-        kitty_enabled: flags.kitty_enabled,
-        cursor_visible: flags.cursor_visible,
-        bracketed_paste: flags.bracketed_paste,
-        mouse_mode: flags.mouse_mode,
-        alt_screen: flags.alt_screen,
-        focus_reporting: flags.focus_reporting,
-        application_cursor: flags.application_cursor,
-    }
+fn attach_route_error(error: AttachTerminalRouteError) -> ManagedSessionRuntimeError {
+    ManagedSessionRuntimeError::Runtime(SessionRuntimeError::new(
+        SessionRuntimeErrorKind::InputFailed,
+        error.to_string(),
+    ))
 }
 
 fn append_outcome(target: &mut MultiplexerEngineOutcome, source: MultiplexerEngineOutcome) {
@@ -2435,9 +2069,6 @@ where
                 terminal: TerminalScreenEngine::new(terminal),
                 pending_runtime_events: Vec::new(),
                 prepared_mode_flags: None,
-                mode_generation: new_mode_generation(),
-                mode_revision: 1,
-                last_mode_flags: ModeFlags::default(),
             })),
         }
     }
@@ -2450,9 +2081,6 @@ where
     pub(crate) fn record_output(&mut self, session_id: &SessionId, data: &[u8]) {
         let mut state = self.state.borrow_mut();
         state.terminal.normalize_output(data);
-        if let Ok(flags) = state.terminal.runtime().mode_flags() {
-            let _ = state.observe_mode_flags(&flags);
-        }
         let pty_replies = state.terminal.runtime_mut().drain_pty_writes();
         if !pty_replies.is_empty() {
             state.inputs.push(SessionRuntimeInput::PtyInput {
@@ -2460,6 +2088,158 @@ where
                 data: pty_replies,
             });
         }
+    }
+
+    /// Current terminal size of the local backend.
+    pub(crate) fn size(&self) -> TerminalScreenSize {
+        self.state.borrow().terminal.runtime().screen_state().size
+    }
+
+    /// Stream frames of the local backend snapshot.
+    pub(crate) fn capture_snapshot_frames(
+        &mut self,
+    ) -> Result<
+        Vec<(
+            crate::contract::terminal_screen::TerminalSnapshotFramePhase,
+            Vec<u8>,
+        )>,
+        ManagedSessionRuntimeError,
+    > {
+        let mut frames = Vec::new();
+        self.state
+            .borrow_mut()
+            .terminal
+            .runtime_mut()
+            .capture_snapshot_frames(&mut |phase, bytes| frames.push((phase, bytes)))
+            .map_err(managed_terminal_backend_error)?;
+        Ok(frames)
+    }
+
+    /// Scheme 2 mode bits of the local backend, when it owns terminal modes.
+    pub(crate) fn mode_bits(&self) -> Option<u32> {
+        self.state
+            .borrow()
+            .terminal
+            .runtime()
+            .mode_flags()
+            .ok()
+            .map(|flags| flags.to_mode_bits())
+    }
+
+    /// Encode one staged operation with the local backend.
+    ///
+    /// Returns the PTY bytes, or the client-visible rejection.
+    pub(crate) fn encode_local_input(
+        &mut self,
+        kind: WorkerInputKind,
+        operation_id: u64,
+        body: &[u8],
+    ) -> Result<Vec<u8>, (InputOutcome, String)> {
+        let mut state = self.state.borrow_mut();
+        let backend = state.terminal.runtime_mut();
+        let mut out = Vec::new();
+        let protocol = |error: botster_terminal_protocol_client::TerminalInputDecodeError| {
+            (InputOutcome::RejectedProtocol, error.to_string())
+        };
+        let failed = |error: TerminalBackendError| (InputOutcome::WriteFailed, error.to_string());
+        match kind {
+            WorkerInputKind::RawBytes => out.extend_from_slice(body),
+            WorkerInputKind::Key => {
+                let command = decode_input_body(TerminalInputKind::Key, operation_id, body)
+                    .map_err(protocol)?;
+                let TerminalInputCommand::Key {
+                    action,
+                    key,
+                    mods,
+                    consumed_mods,
+                    composing,
+                    unshifted_codepoint,
+                    text,
+                    ..
+                } = command
+                else {
+                    return Err((InputOutcome::RejectedProtocol, "kind mismatch".to_owned()));
+                };
+                backend
+                    .encode_key(
+                        &TerminalKeyEvent {
+                            action,
+                            key,
+                            mods,
+                            consumed_mods,
+                            composing,
+                            unshifted_codepoint,
+                            text: &text,
+                        },
+                        &mut out,
+                    )
+                    .map_err(failed)?;
+            }
+            WorkerInputKind::Mouse => {
+                let command = decode_input_body(TerminalInputKind::Mouse, operation_id, body)
+                    .map_err(protocol)?;
+                let TerminalInputCommand::Mouse {
+                    action,
+                    button,
+                    mods,
+                    col,
+                    row,
+                    x_px,
+                    y_px,
+                    ..
+                } = command
+                else {
+                    return Err((InputOutcome::RejectedProtocol, "kind mismatch".to_owned()));
+                };
+                backend
+                    .encode_mouse(
+                        &TerminalMouseEvent {
+                            action,
+                            button,
+                            mods,
+                            col,
+                            row,
+                            x_px,
+                            y_px,
+                        },
+                        &mut out,
+                    )
+                    .map_err(failed)?;
+            }
+            WorkerInputKind::Focus => {
+                let command = decode_input_body(TerminalInputKind::Focus, operation_id, body)
+                    .map_err(protocol)?;
+                let TerminalInputCommand::Focus { focused, .. } = command else {
+                    return Err((InputOutcome::RejectedProtocol, "kind mismatch".to_owned()));
+                };
+                backend.encode_focus(focused, &mut out).map_err(failed)?;
+            }
+            WorkerInputKind::Resize => {
+                return Err((
+                    InputOutcome::RejectedProtocol,
+                    "resize is applied by the runtime, not encoded".to_owned(),
+                ));
+            }
+            WorkerInputKind::Paste => {
+                let Some((allow_unsafe, data)) = body.split_first() else {
+                    return Err((
+                        InputOutcome::RejectedProtocol,
+                        "paste body is empty".to_owned(),
+                    ));
+                };
+                if *allow_unsafe == 0 && !backend.paste_is_safe(data) {
+                    return Err((
+                        InputOutcome::RejectedUnsafePaste,
+                        "paste contains newlines or a bracketed paste end marker".to_owned(),
+                    ));
+                }
+                let mut scratch = data.to_vec();
+                backend
+                    .encode_paste(&mut scratch, &mut out)
+                    .map_err(failed)?;
+            }
+        }
+        Ok(out)
     }
 
     /// Drain pending runtime inputs recorded by worker operations.
@@ -2513,22 +2293,6 @@ where
             });
         }
         Ok(snapshot)
-    }
-
-    #[cfg(feature = "local-runtime")]
-    pub(crate) fn replay_snapshot(
-        &mut self,
-        snapshot: TerminalSnapshotPayload,
-    ) -> Result<(), ManagedSessionRuntimeError> {
-        let mut state = self.state.borrow_mut();
-        state.terminal.replay_snapshot(snapshot);
-        if let Some(message) = state.terminal.runtime().last_error() {
-            return Err(ManagedSessionRuntimeError::TerminalBackendOperation {
-                operation: "replay_snapshot",
-                message,
-            });
-        }
-        Ok(())
     }
 
     pub(crate) fn capture_terminal_state(
@@ -2630,47 +2394,6 @@ where
     terminal: TerminalScreenEngine<T>,
     pending_runtime_events: Vec<crate::SessionWorkerRuntimeEvent>,
     prepared_mode_flags: Option<ModeFlags>,
-    mode_generation: u64,
-    mode_revision: u64,
-    last_mode_flags: ModeFlags,
-}
-
-impl<T> SessionRuntimeWorkerState<T>
-where
-    T: TerminalScreenRuntime,
-{
-    fn observe_mode_flags(&mut self, mode_flags: &ModeFlags) -> ModeFreshnessToken {
-        if mode_flags != &self.last_mode_flags {
-            if self.mode_revision == u64::MAX {
-                // Overflow is fail-closed for gated admit; keep the saturated
-                // revision so probes remain self-consistent within the epoch.
-                self.mode_revision = u64::MAX;
-            } else {
-                self.mode_revision = self.mode_revision.saturating_add(1);
-            }
-            self.last_mode_flags = mode_flags.clone();
-        }
-        ModeFreshnessToken {
-            mode_generation: self.mode_generation,
-            mode_revision: self.mode_revision,
-        }
-    }
-}
-
-fn new_mode_generation() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as u64)
-        .unwrap_or(1);
-    let mixed = nanos
-        ^ (std::process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ (std::ptr::from_ref(&nanos) as usize as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    if mixed == 0 {
-        1
-    } else {
-        mixed
-    }
 }
 
 impl<T> SessionWorkerRuntime for SessionRuntimeWorkerAdapter<T>
@@ -2784,12 +2507,10 @@ where
                 "mode flags were not primed before routing",
             )
         })?;
-        let mode_freshness = state.observe_mode_flags(&mode_flags);
         Ok(ModeFlagsReady {
             request_id,
             session_id,
             mode_flags,
-            mode_freshness,
         })
     }
 

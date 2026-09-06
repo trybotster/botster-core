@@ -76,6 +76,55 @@ impl TerminalOutputChunk {
     }
 }
 
+/// One key event for backend encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalKeyEvent<'a> {
+    /// Press, release, or repeat.
+    pub action: botster_terminal_protocol::TerminalKeyAction,
+    /// Physical key.
+    pub key: botster_terminal_protocol::TerminalKey,
+    /// Held modifiers, `terminal_mods` bit layout.
+    pub mods: u16,
+    /// Modifiers the platform consumed to produce `text`.
+    pub consumed_mods: u16,
+    /// Whether the event is part of an IME composition.
+    pub composing: bool,
+    /// Unshifted codepoint, or 0 when unknown.
+    pub unshifted_codepoint: u32,
+    /// Layout text without control transformations. May be empty.
+    pub text: &'a str,
+}
+
+/// Phase of one record-aware snapshot frame emitted by a backend export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalSnapshotFramePhase {
+    /// Bytes through the READY record; the terminal is renderable after them.
+    Ready,
+    /// One history page.
+    History,
+    /// The finish record. Delivered as the last history page on the stream.
+    Finish,
+}
+
+/// One mouse event for backend encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalMouseEvent {
+    /// Press, release, or motion.
+    pub action: botster_terminal_protocol::TerminalMouseAction,
+    /// Button for press and release, held button for motion, or none.
+    pub button: Option<botster_terminal_protocol::TerminalMouseButton>,
+    /// Held modifiers, `terminal_mods` bit layout.
+    pub mods: u16,
+    /// Zero-based cell column.
+    pub col: u16,
+    /// Zero-based cell row.
+    pub row: u16,
+    /// Surface pixel x, or 0 when unknown.
+    pub x_px: u32,
+    /// Surface pixel y, or 0 when unknown.
+    pub y_px: u32,
+}
+
 /// Correlation-free opaque terminal snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalSnapshotPayload {

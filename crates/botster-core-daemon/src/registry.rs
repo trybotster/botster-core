@@ -202,7 +202,6 @@ impl SessionRegistry {
         session_id: &SessionId,
     ) -> Result<Option<RegistryRecord>, SessionRegistryError> {
         let Some(record) = read_record(&self.record_path(session_id))? else {
-            self.reject_legacy_record(session_id)?;
             return Ok(None);
         };
         verify_identity(&record, session_id)?;
@@ -290,22 +289,6 @@ impl SessionRegistry {
         Ok(())
     }
 
-    fn reject_legacy_record(&self, session_id: &SessionId) -> Result<(), SessionRegistryError> {
-        match fs::symlink_metadata(self.root.join(legacy_record_filename(session_id))) {
-            Ok(_) => Err(SessionRegistryError::UnsupportedFormat),
-            // An overlong legacy filename cannot exist. The new filename has a fixed length.
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::InvalidFilename
-                ) =>
-            {
-                Ok(())
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
-
     fn record_path(&self, session_id: &SessionId) -> PathBuf {
         self.root.join(record_filename(session_id))
     }
@@ -351,22 +334,6 @@ fn verify_identity(
         return Err(SessionRegistryError::IdentityMismatch);
     }
     Ok(())
-}
-
-// This filename is used only to reject an exact legacy file. Never read or write a record through it.
-fn legacy_record_filename(session_id: &SessionId) -> String {
-    let safe: String = session_id
-        .0
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    format!("{safe}.json")
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -537,39 +504,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn overlong_legacy_probe_does_not_reject_a_valid_new_identity() {
-        let fixture = Fixture::new();
-        let registry = &fixture.registry;
-        let expected = record(&"x".repeat(1_000));
-        let legacy = registry
-            .root()
-            .join(legacy_record_filename(&expected.session_id));
-        assert_eq!(
-            fs::symlink_metadata(legacy)
-                .expect_err("legacy filename exceeds the filesystem limit")
-                .kind(),
-            io::ErrorKind::InvalidFilename
-        );
-        assert!(registry
-            .load(&expected.session_id)
-            .expect("missing digest file")
-            .is_none());
-        registry
-            .save(&expected)
-            .expect("save with bounded filename");
-        assert_eq!(
-            registry
-                .load(&expected.session_id)
-                .expect("load exact identity"),
-            Some(expected.clone())
-        );
-        registry
-            .remove(&expected.session_id)
-            .expect("remove exact identity");
-        assert_eq!(registry.test_load_all_calls(), 0);
-    }
-
-    #[test]
     fn foreign_identity_is_rejected_before_return_overwrite_or_remove() {
         let fixture = Fixture::new();
         let registry = &fixture.registry;
@@ -642,43 +576,6 @@ mod tests {
                 Err(SessionRegistryError::UnsupportedFormat)
             ));
             assert_eq!(fs::read(&path).expect("unsupported bytes remain"), bytes);
-        }
-    }
-
-    #[test]
-    fn legacy_paths_are_rejected_without_migration_or_scans() {
-        for id in [String::new(), "audit:a".to_string(), "a".repeat(64)] {
-            let fixture = Fixture::new();
-            let registry = &fixture.registry;
-            let requested = record(&id);
-            let bytes = serde_json::to_vec(&requested).expect("legacy JSON");
-            let path = registry
-                .root()
-                .join(legacy_record_filename(&requested.session_id));
-            fs::write(&path, &bytes).expect("legacy fixture");
-            assert!(matches!(
-                registry.load(&requested.session_id),
-                Err(SessionRegistryError::UnsupportedFormat)
-            ));
-            assert!(matches!(
-                registry.load_skip_malformed(&requested.session_id),
-                Err(SessionRegistryError::UnsupportedFormat)
-            ));
-            assert!(matches!(
-                registry.save(&requested),
-                Err(SessionRegistryError::UnsupportedFormat)
-            ));
-            assert!(matches!(
-                registry.remove(&requested.session_id),
-                Err(SessionRegistryError::UnsupportedFormat)
-            ));
-            assert_eq!(registry.test_load_all_calls(), 0);
-            assert!(!registry.record_path(&requested.session_id).exists());
-            assert!(matches!(
-                registry.load_all(),
-                Err(SessionRegistryError::UnsupportedFormat)
-            ));
-            assert_eq!(fs::read(path).expect("legacy bytes remain"), bytes);
         }
     }
 

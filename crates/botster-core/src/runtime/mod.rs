@@ -67,8 +67,9 @@ pub use local_process::{
 };
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
-    GatedPoll, GatedRequestId, ResizeAckHold, WorkerHealth, WorkerProcessRuntime,
-    WorkerProcessRuntimeOptions, DEFAULT_MODE_GATED_INPUT_TIMEOUT, DEFAULT_WORKER_EGRESS_CAPACITY,
+    ResizeAckHold, RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime,
+    WorkerProcessRuntimeOptions, WorkerSpawnPoll, DEFAULT_WORKER_EGRESS_CAPACITY,
+    DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 
 /// Host-implemented session runtime boundary.
@@ -91,16 +92,6 @@ pub trait SessionRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError>;
-
-    /// Cancel one abandoned mode-gated request. Default is a no-op.
-    fn cancel_mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-        request_id: &str,
-    ) -> Result<(), SessionRuntimeError> {
-        let _ = (session_id, request_id);
-        Ok(())
-    }
 }
 
 /// Explicit request for a host runtime to spawn and connect one session.

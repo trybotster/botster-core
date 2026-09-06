@@ -109,39 +109,46 @@ pub enum DetachTerminalSubscriptionResult {
 
 pub use botster_terminal_protocol_client::TerminalInputCommand;
 
-/// One Core-owned terminal input operation ready for Stage B.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalInputOperation {
-    /// One existing single-frame terminal command.
-    Command(TerminalInputCommand),
-    /// One fully assembled bounded paste.
-    Paste(PasteOperation),
+/// Typed rejection from `record_attach` before any owner is created.
+///
+/// Not `#[non_exhaustive]`. Adding a variant is breaking.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AttachTerminalRouteError {
+    /// The subscription id is not a valid scheme 2 route id.
+    #[error("subscription id is not a valid terminal route: {subscription_id:?}")]
+    InvalidRoute {
+        /// Subscription presented to attach.
+        subscription_id: SubscriptionId,
+    },
+    /// The shared generation allocator is exhausted for this incarnation.
+    #[error("terminal route generations are exhausted")]
+    GenerationExhausted,
 }
 
-/// One complete paste after Stage A validation.
+/// One admitted client input operation staged for the worker.
+///
+/// Core already validated the frame and reserved lane capacity. `body` is the
+/// worker-side body for `kind`: the client body bytes for raw, key, mouse,
+/// focus, and resize operations, and `[u8 allow_unsafe][paste bytes]` for an
+/// assembled paste.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PasteOperation {
-    /// Client-chosen operation id.
-    pub operation_id: u32,
-    /// Worker ownership epoch expected at atomic admission.
-    pub mode_generation: u64,
-    /// Complete-ModeFlags counter expected at atomic admission.
-    pub mode_revision: u64,
-    /// Complete content bytes before optional bracket wrapping.
-    pub data: Vec<u8>,
-}
-
-/// One dequeued ingress command ready to apply on the production tick.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalInputDelivery {
+pub struct StagedTerminalInput {
     /// Client that owns the subscription.
     pub client_id: ClientId,
-    /// Session the command targets.
+    /// Session the operation targets.
     pub session_id: SessionId,
-    /// Subscription that submitted the command.
+    /// Subscription that submitted the operation.
     pub subscription_id: SubscriptionId,
-    /// Live generation at dequeue time.
+    /// Live generation at staging time.
     pub generation: TerminalSubscriptionGeneration,
-    /// Decoded and validated operation.
-    pub command: TerminalInputOperation,
+    /// Core-unique key echoed by the worker result.
+    pub operation_key: u64,
+    /// Client-chosen operation id.
+    pub operation_id: u64,
+    /// Worker input kind.
+    pub kind: crate::session_protocol::WorkerInputKind,
+    /// Worker-side operation body.
+    pub body: Vec<u8>,
+    /// Client payload bytes Core admitted, reported back in the result.
+    pub accepted_payload_bytes: u64,
 }

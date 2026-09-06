@@ -264,7 +264,6 @@ Depth lives in architecture docs:
 | [engine-command-surface.md](docs/architecture/engine-command-surface.md) | Canonical `BotsterEngine` / `DefaultBotsterEngine` commands |
 | [core-daemon.md](docs/architecture/core-daemon.md) | Production `CoreDaemon` supervisor and adoption |
 | [durable-session-worker-protocol.md](docs/architecture/durable-session-worker-protocol.md) | Durable session-worker protocol shapes |
-| [ghostty-shadow-terminal-adapter.md](docs/architecture/ghostty-shadow-terminal-adapter.md) | Ghostty adapter boundary (sibling crate) |
 | [terminal-protocol.md](docs/architecture/terminal-protocol.md) | Types-only terminal protocol crates, opacity rule, and pinned vocabulary |
 
 Living design notes live under `docs/architecture/`. Historical ticket plans under

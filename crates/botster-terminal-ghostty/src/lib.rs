@@ -235,6 +235,8 @@ pub(crate) mod native {
         last_error: RefCell<Option<GhosttyTerminalError>>,
         effects: Box<EffectsState>,
         input: crate::input::InputEncoders,
+        mouse_geometry: crate::input::GhosttyMouseGeometry,
+        pixel_size: (u32, u32),
     }
 
     impl fmt::Debug for GhosttyTerminal {
@@ -259,9 +261,8 @@ pub(crate) mod native {
             config: GhosttyAdapterConfig,
         ) -> Result<Self, GhosttyTerminalError> {
             let mut input = crate::input::InputEncoders::new()?;
-            input.set_mouse_geometry(crate::input::GhosttyMouseGeometry::cells(
-                size.rows, size.cols,
-            ));
+            let mouse_geometry = crate::input::GhosttyMouseGeometry::cells(size.rows, size.cols);
+            input.set_mouse_geometry(mouse_geometry);
             let mut terminal = ptr::null_mut();
             let result =
                 unsafe { ghostty_terminal_new(ptr::null(), &mut terminal, size.cols, size.rows) };
@@ -285,6 +286,8 @@ pub(crate) mod native {
                     pty_writes: RefCell::new(Vec::new()),
                 }),
                 input,
+                mouse_geometry,
+                pixel_size: (0, 0),
             };
 
             let max_scrollback = config.max_scrollback();
@@ -397,8 +400,33 @@ pub(crate) mod native {
             }
 
             self.size = size;
+            let (width_px, height_px) = self.pixel_size;
+            let geometry = crate::input::GhosttyMouseGeometry::from_surface(
+                size.rows, size.cols, width_px, height_px,
+            );
+            self.mouse_geometry = geometry;
+            self.input.set_mouse_geometry(geometry);
             self.clear_last_error();
             Ok(())
+        }
+
+        /// Remember the surface pixel size so later resizes keep cell geometry.
+        pub fn set_surface_pixels(&mut self, width_px: u32, height_px: u32) {
+            self.pixel_size = (width_px, height_px);
+            let geometry = crate::input::GhosttyMouseGeometry::from_surface(
+                self.size.rows,
+                self.size.cols,
+                width_px,
+                height_px,
+            );
+            self.mouse_geometry = geometry;
+            self.input.set_mouse_geometry(geometry);
+        }
+
+        /// Current mouse geometry used for pixel-to-cell mapping.
+        #[must_use]
+        pub const fn mouse_geometry(&self) -> crate::input::GhosttyMouseGeometry {
+            self.mouse_geometry
         }
 
         /// Export an opaque Ghostty terminal snapshot.
@@ -681,6 +709,7 @@ pub(crate) mod native {
 
         /// Install renderer geometry for pixel-to-cell mouse mapping.
         pub fn set_mouse_geometry(&mut self, geometry: crate::input::GhosttyMouseGeometry) {
+            self.mouse_geometry = geometry;
             self.input.set_mouse_geometry(geometry);
         }
 
@@ -1016,6 +1045,97 @@ pub(crate) mod native {
             if let Err(error) = self.import_snapshot(&payload) {
                 self.record_error(error);
             }
+        }
+
+        fn encode_key(
+            &mut self,
+            event: &botster_core::contract::terminal_screen::TerminalKeyEvent<'_>,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, TerminalBackendError> {
+            let input = crate::input::GhosttyKeyInput {
+                action: event.action,
+                key: event.key,
+                mods: event.mods,
+                consumed_mods: event.consumed_mods,
+                composing: event.composing,
+                unshifted_codepoint: event.unshifted_codepoint,
+                text: event.text,
+            };
+            GhosttyTerminal::encode_key(self, &input, out).map_err(|error| {
+                TerminalBackendError::operation_failed("encode_key", error.to_string())
+            })
+        }
+
+        fn encode_mouse(
+            &mut self,
+            event: &botster_core::contract::terminal_screen::TerminalMouseEvent,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, TerminalBackendError> {
+            let (x_px, y_px) = if event.x_px == 0 && event.y_px == 0 {
+                self.mouse_geometry.cell_center(event.col, event.row)
+            } else {
+                (event.x_px as f32, event.y_px as f32)
+            };
+            let input = crate::input::GhosttyMouseInput {
+                action: event.action,
+                button: event.button,
+                mods: event.mods,
+                x_px,
+                y_px,
+            };
+            GhosttyTerminal::encode_mouse(self, &input, out).map_err(|error| {
+                TerminalBackendError::operation_failed("encode_mouse", error.to_string())
+            })
+        }
+
+        fn encode_focus(
+            &mut self,
+            focused: bool,
+            out: &mut Vec<u8>,
+        ) -> Result<usize, TerminalBackendError> {
+            GhosttyTerminal::encode_focus(self, focused, out).map_err(|error| {
+                TerminalBackendError::operation_failed("encode_focus", error.to_string())
+            })
+        }
+
+        fn paste_is_safe(&self, data: &[u8]) -> bool {
+            GhosttyTerminal::paste_is_safe(data)
+        }
+
+        fn encode_paste(
+            &mut self,
+            data: &mut [u8],
+            out: &mut Vec<u8>,
+        ) -> Result<usize, TerminalBackendError> {
+            GhosttyTerminal::encode_paste(self, data, out).map_err(|error| {
+                TerminalBackendError::operation_failed("encode_paste", error.to_string())
+            })
+        }
+
+        fn set_pixel_geometry(&mut self, width_px: u32, height_px: u32) {
+            self.set_surface_pixels(width_px, height_px);
+        }
+
+        fn capture_snapshot_frames(
+            &mut self,
+            emit: &mut dyn FnMut(
+                botster_core::contract::terminal_screen::TerminalSnapshotFramePhase,
+                Vec<u8>,
+            ),
+        ) -> Result<(), TerminalBackendError> {
+            use botster_core::contract::terminal_screen::TerminalSnapshotFramePhase;
+            self.export_snapshot_frames(|frame| {
+                let phase = match frame.kind {
+                    GhosttySnapshotFrameKind::Ready => TerminalSnapshotFramePhase::Ready,
+                    GhosttySnapshotFrameKind::History => TerminalSnapshotFramePhase::History,
+                    GhosttySnapshotFrameKind::Finish => TerminalSnapshotFramePhase::Finish,
+                };
+                emit(phase, frame.bytes);
+                true
+            })
+            .map_err(|error| {
+                TerminalBackendError::operation_failed("capture_snapshot_frames", error.to_string())
+            })
         }
 
         fn screen_state(&self) -> TerminalScreenState {

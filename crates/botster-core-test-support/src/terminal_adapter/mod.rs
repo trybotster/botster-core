@@ -21,7 +21,7 @@ use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
     MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::{encode_output, RouteId, RoutedTerminalFrame};
 
 /// Deterministic driver over a [`TerminalAdapter`] under test.
 pub trait TerminalAdapterHarnessDriver {
@@ -132,16 +132,17 @@ enum ClosePath {
     Transport,
 }
 
-fn opaque_frame(marker: &str) -> TerminalFrame {
-    let json = serde_json::json!({
-        "type": "terminal_output",
-        "marker": marker,
-    });
-    TerminalFrame::from_bytes(json.to_string().as_bytes()).expect("opaque fixture frame")
+fn opaque_frame(marker: &str) -> RoutedTerminalFrame {
+    RoutedTerminalFrame {
+        route: RouteId::new("terminal-adapter-conformance").expect("fixture route"),
+        generation: 1,
+        stream_epoch: 0,
+        frame: encode_output(marker.as_bytes()).expect("opaque fixture frame"),
+    }
 }
 
-fn frame_bytes(frame: &TerminalFrame) -> Vec<u8> {
-    frame.to_bytes().expect("fixture frame emits bytes")
+fn frame_bytes(frame: &RoutedTerminalFrame) -> Vec<u8> {
+    frame.frame.as_bytes().to_vec()
 }
 
 fn assert_ready<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
@@ -154,8 +155,8 @@ fn assert_ready<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
 
 fn assert_bounds<D: TerminalAdapterHarnessDriver>(
     driver: &mut D,
-    first: &TerminalFrame,
-    second: &TerminalFrame,
+    first: &RoutedTerminalFrame,
+    second: &RoutedTerminalFrame,
     first_bytes: &[u8],
 ) {
     assert_eq!(driver.adapter().try_write(first), Ok(()));
@@ -175,8 +176,8 @@ fn assert_bounds<D: TerminalAdapterHarnessDriver>(
 
 fn assert_ordering<D: TerminalAdapterHarnessDriver>(
     driver: &mut D,
-    second: &TerminalFrame,
-    third: &TerminalFrame,
+    second: &RoutedTerminalFrame,
+    third: &RoutedTerminalFrame,
     first_bytes: &[u8],
     second_bytes: &[u8],
     third_bytes: &[u8],

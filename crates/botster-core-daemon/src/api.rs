@@ -4,12 +4,11 @@ use std::time::Duration;
 
 use botster_core::{
     BackpressureSummary, BotsterEngineObservation, ClientId, CoreSessionMetadata, EnvelopeCursor,
-    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, ModeFlagsReady, NotificationDeliveryStatus,
-    NotificationId, NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity,
-    RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome,
-    RoutedEnvelopePublishOutcome, ScreenReady, SessionId, SessionLifecycleState,
-    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SnapshotReady,
-    SubscriptionId, TerminalColorProfile, TerminalSnapshotPayload, TransportEgress,
+    EnvelopeDeliveryState, EnvelopeId, EnvelopeTarget, NotificationDeliveryStatus, NotificationId,
+    NotificationItem, NotificationTarget, NotificationTimestamp, ProcessIdentity, RequestId,
+    ResizePayload, RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopePublishOutcome,
+    SessionId, SessionLifecycleState, SessionSpawnRequest, SessionWorkerHealthReason,
+    SessionWorkerStaleReason, SubscriptionId, TransportEgress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -395,43 +394,6 @@ pub struct DrainResult {
     pub backpressure: Vec<BackpressureSummary>,
 }
 
-/// Result of reading the current daemon-owned terminal screen.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadScreenResult {
-    /// Correlated screen response from the core session contract.
-    pub screen: ScreenReady,
-}
-
-/// Result of reading authoritative terminal mode flags.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadModeFlagsResult {
-    /// Correlated mode response from the core session contract.
-    pub mode_flags: ModeFlagsReady,
-}
-
-/// Result of capturing the current daemon-owned terminal snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CaptureSnapshotResult {
-    /// Correlated snapshot response from the core session contract.
-    pub snapshot: SnapshotReady,
-    /// Backend-neutral reusable payload, including the runtime-owned format label.
-    pub payload: TerminalSnapshotPayload,
-}
-
-/// Result of an atomic color-profile + GHOSTSNP capture.
-///
-/// Both values come from one terminal ownership critical section so attach and
-/// reconnect consumers cannot observe colors that disagree with the snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CaptureColorAndSnapshotResult {
-    /// Ghostty-owned current palette and special colors (reserved indexes).
-    pub color_profile: TerminalColorProfile,
-    /// Correlated snapshot response from the core session contract.
-    pub snapshot: SnapshotReady,
-    /// Backend-neutral reusable payload, including the runtime-owned format label.
-    pub payload: TerminalSnapshotPayload,
-}
-
 /// Host request to read the current terminal screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadScreenRequest {
@@ -460,17 +422,6 @@ pub struct CaptureSnapshotRequest {
     /// Request correlation id.
     pub request_id: RequestId,
     /// Session to snapshot.
-    pub session_id: SessionId,
-    /// Logical timestamp used for the internal drain-before-read step.
-    pub now_seconds: u64,
-}
-
-/// Host request to capture current colors and GHOSTSNP atomically.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CaptureColorAndSnapshotRequest {
-    /// Request correlation id.
-    pub request_id: RequestId,
-    /// Session to read.
     pub session_id: SessionId,
     /// Logical timestamp used for the internal drain-before-read step.
     pub now_seconds: u64,

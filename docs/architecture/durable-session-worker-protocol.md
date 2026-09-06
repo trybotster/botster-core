@@ -1,226 +1,103 @@
-# Durable Session Worker Protocol
+# Durable session worker protocol
 
-This document defines the public **protocol vocabulary** for Botster's durable
-local session-worker model. Types live in `botster_core::durable_session` and are
-spoken by the production daemon and session worker; they do not by themselves
-start processes or open sockets.
+`botster-session-worker` owns one PTY and the only server-side terminal
+parser for its session. The parent daemon talks to it over a length-prefixed
+frame stream on stdio or a reconnectable Unix control socket. The worker
+parses every PTY output byte with Ghostty whether or not a client is
+attached, so late attaches, host readbacks, and resyncs always come from a
+current terminal.
 
-## Runtime ownership (workspace truth)
+## Framing
 
-| Layer | Crate / binary | Role today |
-| --- | --- | --- |
-| Protocol vocabulary | `botster-core` (`durable_session`) | Shared typed shapes for spawn/adopt, health, guarded writes, queues, daemon control ops |
-| Session worker process | `botster-session-worker` (binary in `botster-core-daemon`, Ghostty-hosted) | Owns one PTY, worker-local Ghostty mode authority, and child process; reconnectable control socket for adoption |
-| Production daemon | `botster-core-daemon` (`CoreDaemon`) | Registry metadata, adoption scan, guarded-write delivery states, typed host API |
-| Library engine | `DefaultBotsterEngine` / `worker_backed` | In-process or worker-backed embed path without the full supervisor |
+Every frame is `[u32 LE len][u8 frame_type][payload]`. `len` counts the type
+byte plus the payload. The handshake is hello (parent) then welcome (worker)
+carrying `SessionMetadata`; adopted connections repeat it.
 
-Do **not** treat this module as “unimplemented durable daemon.” The durable
-supervisor exists in `botster-core-daemon`. Embedding `CoreDaemon` without
-`with_worker_path` still uses in-process PTYs that are not restart-adoptable.
+## Parent to worker
 
-See also [`core-daemon.md`](core-daemon.md) and the workspace README production
-path.
-
-## Topology
-
-The durable model has three layers:
-
-| Layer | Responsibility | Explicitly excluded |
-| --- | --- | --- |
-| Hub or host | Product policy, user workflows, auth, config locations, routing decisions, plugin policy, persistence choices | Owning terminal bytes, parsing CLI output as an API |
-| Core daemon | Local policy-free multiplexer, supervisor, router, typed daemon control facade, bounded queue reporting, worker health/adoption coordination | Marketplace, Rails, WebRTC/cloud policy, product CLI UX |
-| Session worker | Owns one PTY and child process, emits output/snapshots/health, accepts PTY input, resize, shutdown, and guarded session-visible write commands | Host policy for when writes are allowed |
-
-The data plane remains session/client-worker owned. The durable worker contract
-sits above `contract::session_protocol` (advanced byte-frame constants) for PTY
-input/output, resize, snapshot, ping/pong, shutdown, mode flags, mode-gated PTY input, screen reads,
-prompt marks, and notifications.
-
-## Public Contracts
-
-The durable contract is exported from `botster_core::durable_session` and the
-crate root. The main shapes are:
-
-- `DurableSessionProtocolVersion` and `SessionWorkerCapability` for
-  compatibility metadata.
-- `SessionWorkerIdentity`, `SessionWorkerSpawnRequest`,
-  `SessionWorkerSpawned`, `SessionWorkerAdoptRequest`, and
-  `SessionWorkerAdoptionVerdict` for spawn/adopt identity.
-- `SessionWorkerAttachRequest` and `SessionWorkerDetached` for attach/detach.
-- `SessionWorkerHeartbeat`, `SessionWorkerHealth`, `SessionWorkerFailure`, and
-  `SessionWorkerShutdownRequest` for health, stale detection, shutdown, and
-  failure.
-- `SessionWorkerOutputFrame` for terminal bytes, snapshot handoff, and plain
-  screen handoff.
-- `SessionReadinessEvidence`, `GuardedSessionWriteRequest`, and
-  `GuardedSessionWriteState` for readiness-gated session writes.
-- `SessionWorkerQueueLimits` for bounded output, pressure, lag, and
-  slow-consumer semantics.
-- `DaemonControlOperation`, `DaemonControlOutcome`, and `DaemonCliOperation` for
-  typed daemon control and the thin CLI wrapper vocabulary.
-
-These are serializable public contracts. They do not execute scheduling,
-restart adoption, process supervision, or socket I/O by themselves.
-
-## Daemon Control API And CLI Role
-
-Embedders and the hub should use typed local IPC/library contracts. The daemon
-CLI is a thin operator/dev/debug wrapper over the same typed operations:
-`start`, `status`, `session list`, `attach` or `stream`, `shutdown`, and
-`health`.
-
-The CLI output is never the API. Programmatic callers should consume typed
-daemon control outcomes or the existing `BotsterEngine` facade documented in
-`docs/architecture/engine-command-surface.md`. The durable daemon operation
-types name the outer daemon lifecycle and health commands without introducing a
-second core router.
-
-## Write Primitives
-
-The contract separates two session write primitives:
-
-- `GuardedSessionWritePrimitive::PtyInput` is raw terminal input bytes and maps
-  to the existing `SessionIoRequest::PtyInput` path when routed.
-- `SessionAnnotation` and `SessionNotification` are host/plugin-authorized
-  writes intended to appear in a session stream or screen.
-
-Notification inbox delivery remains a separate core primitive. Guarded
-session-visible notification writes may reference `NotificationId` and can
-report `NotificationDeliveryStatus` when a later implementation can prove that
-relationship.
-
-## Readiness Evidence
-
-Core owns terminal/session observation and deterministic scheduling mechanics.
-Hosts and plugins own the semantic policy decision.
-
-`SessionReadinessEvidence` can carry:
-
-- terminal mode flags, including `ModeFlags::cursor_visible`, when a runtime
-  adapter reports them;
-- plain screen text summaries when available;
-- prompt waiting markers such as `waiting_for_answer`;
-- `unsafe_to_interrupt` for prompt or screen state that would make injection
-  unsafe;
-- snapshot-pending state;
-- worker health and session activity;
-- host semantic hints that core serializes but does not interpret.
-
-Cursor visibility is intentionally represented through `ModeFlags` only when
-that observation exists. Runtime adapters that expose only plain text must leave
-`mode_flags` empty rather than pretending cursor visibility was observed.
-
-## Delivery States
-
-Guarded writes must not overclaim delivery. The public state transitions are:
-
-| State | Meaning |
+| Frame | Payload |
 | --- | --- |
-| `Accepted` | Request was accepted for evaluation only. Nothing has been written. |
-| `Queued` | Request is waiting in the existing bounded session-I/O pressure path. |
-| `Deferred` | Request is held until readiness or host policy changes. |
-| `Rejected` | Request will not be written. |
-| `Written` | Bytes or annotation content were injected into the worker path. |
-| `Acknowledged` | Delivery was acknowledged where the implementation can prove it. |
+| `FRAME_SPAWN_SESSION` | `SessionSpawnRequest` JSON, once after hello |
+| `FRAME_PTY_INPUT` | Raw bytes written to the PTY as given |
+| `FRAME_INPUT_OPERATION` (0x1d) | `[u64 LE key][u8 kind][u64 LE operation_id][u32 LE body_len][body]` |
+| `FRAME_INPUT_CANCEL` (0x1f) | `[u64 LE key]` |
+| `FRAME_RESIZE` | `ResizePayload` JSON; staged when a snapshot barrier is open |
+| `FRAME_GET_MODE_FLAGS` | `WorkerProbeRequest { request_id }` |
+| `FRAME_GET_SCREEN` | `WorkerProbeRequest { request_id }` |
+| `FRAME_GET_SNAPSHOT` | `WorkerSnapshotRequest { request_id, cancel, complete }` |
+| `FRAME_PING`, `FRAME_SET_TIMEOUT`, `FRAME_SHUTDOWN` | Health, reconnect timeout, orderly shutdown |
 
-The contract intentionally reuses `BackpressureSummary`, `DeliveryLag`,
-`QueueSource`, and `NotificationDeliveryStatus` instead of creating a parallel
-pressure or notification-delivery vocabulary.
+`WorkerInputKind`: 1 raw bytes, 2 key, 3 mouse, 4 focus, 5 resize, 6 paste.
+Kinds 2 through 5 carry the client input body verbatim; paste carries
+`[u8 allow_unsafe][paste bytes]`. `key` is Core-unique and is echoed in the
+result; `operation_id` is the client id echoed to the client.
 
-## Restart Semantics
+## Worker to parent
 
-`DurableRestartSemantics::durable_worker_contract()` defines the north-star
-survival matrix:
-
-| Boundary | Contract |
+| Frame | Payload |
 | --- | --- |
-| Hub restart | Session survives because the worker owns the PTY/child process. |
-| Core daemon restart with successful adoption | Session survives after worker identity and protocol are verified. |
-| Core daemon restart with failed adoption | Session may survive degraded only if host recovery has enough evidence; otherwise stale-worker failure is reported. |
-| Session worker death | Session dies. The PTY and child-process owner is gone. |
+| `FRAME_PTY_OUTPUT` | Raw PTY bytes, already applied to the worker Ghostty |
+| `FRAME_INPUT_RESULT` (0x1e) | `[u64 LE key][INPUT_RESULT TerminalBody]` |
+| `FRAME_MODES_CHANGED` (0x20) | `MODES TerminalBody`, sent when mode bits or size change |
+| `FRAME_RESIZE_APPLIED` | `ResizePayload` JSON after the PTY and Ghostty resized |
+| `FRAME_MODE_FLAGS` | `ModeFlagsPayload { request_id, mode_flags, rows, cols, error_kind }` |
+| `FRAME_SCREEN` | `ScreenPayload { request_id, text, error_kind }` |
+| `FRAME_SNAPSHOT` | `WorkerSnapshotResult` per record-aware frame; `color_profile` on FINISH |
+| `FRAME_FINAL_STATE` (0x21) | `[u32 LE json_len][WorkerFinalState JSON][raw GHOSTSNP]` |
+| `FRAME_PROCESS_EXITED` | `ProcessExitedPayload` JSON, always the last frame |
+| Metadata lane | title, cwd, prompt mark, bell, notification, shaping reports |
 
-Stale workers are detected through identity mismatch, incompatible protocol,
-expired heartbeat, missing process, or worker death. Hosts may add a classified
-`Other` reason, but core does not define product policy from that detail.
+## Input operations
 
-The reconnectable endpoint is an opaque bounded implementation detail. Its
-fixed-length basename digests the complete `SessionId`; it never replaces,
-truncates, or aliases the public session identity carried by the protocol.
-Final Unix pathname capacity is validated before worker spawn. Adoption always
-uses the exact endpoint persisted in recovery metadata and reports an
-unreachable endpoint through the stable
-`connect worker control socket failed: ` `SpawnFailed` contract; it does not
-bind a replacement merely because the pathname is missing.
+For each `FRAME_INPUT_OPERATION` the worker replies exactly once with
+`FRAME_INPUT_RESULT`, or the link fails and the parent resolves the
+operation as `outcome_unknown`.
 
-The worker creates a missing endpoint root with private permissions and then
-revalidates that it is owned by the effective user with no group or other
-permission bits immediately before binding. A creation race fails closed
-rather than using an unverified directory. The parent captures worker startup
-diagnostics and connects only after the spawned child publishes a readiness
-line containing its process id. The protocol welcome must repeat that exact
-worker process id. Startup reads are bounded, so a foreign or incomplete peer
-cannot block `spawn_session` indefinitely.
-Consequently, a configured worker path must preserve the spawned process id:
-wrapper scripts must `exec` the worker rather than fork it and wait.
+1. The worker applies every drained PTY byte first so modes are current.
+2. It decodes the body, checks its own lane (32 operations or 2 MiB pending),
+   and encodes: raw bytes verbatim; key, mouse, and focus through the
+   Ghostty encoders under the current modes; paste through the safety check
+   (`allow_unsafe` overrides) and bracketed-paste wrapping; resize applies
+   Ghostty and PTY geometry, emits `FRAME_RESIZE_APPLIED`, and results as
+   `written` with zero bytes.
+3. Encoded bytes join one FIFO of pending PTY writes with keyless writes
+   (`FRAME_PTY_INPUT` and Ghostty query replies). Writes are nonblocking; a
+   blocked PTY is retried without holding the worker loop.
+4. Completion reports `written` with the accepted payload bytes and PTY bytes
+   written, `partial_write` or `write_failed` on a PTY error, `cancelled`
+   when `FRAME_INPUT_CANCEL` caught the unwritten remainder, and
+   `session_ended` for anything still pending when the child exits.
 
-On worker spawn, an existing connectable endpoint is preserved as live.
-Connection-refused endpoints are reclaimable only when a filesystem identity
-recheck including device, inode, and change time proves the same socket object
-is still present. Changed entries,
-non-socket entries, and other probe failures are not deleted. Normal worker
-exit removes its unchanged endpoint, intentional `release_for_restart`
-preserves the live route, and daemon-owned roots are removed only when empty.
-Explicit library roots stay caller-owned.
+Rejections at the worker (`rejected_protocol`, `rejected_too_large`,
+`rejected_unsafe_paste`, `rejected_lane_full`) carry zero progress and the
+current mode bits.
 
-A live worker does not self-repair a pathname removed by macOS temporary-file
-cleanup. That is an explicit deviation from the Hub listener repair convention:
-without a worker-owned repair handshake, binding from an adopter could create a
-second owner for a still-live PTY. Adoption therefore reports the stable
-connect failure and lets the host classify the persisted record as stale.
+## Snapshot boundary
 
-## Process Exit Delivery
+`FRAME_GET_SNAPSHOT` opens a PTY I/O barrier: the worker drains and applies
+every byte read so far, exports record-aware GHOSTSNP frames (READY, history
+pages, FINISH) inside the barrier, and holds the PTY until the parent sends
+`complete` (applying any staged resize first) or `cancel`. Output read after
+the barrier stays queued and follows the snapshot, so a route sees snapshot
+then live in one order from one capture point. The parent completes the
+barrier without waiting; the worker confirms with `barrier_released`.
 
-A received `FRAME_PROCESS_EXITED` payload is session-exit truth for the parent
-runtime. Parent delivery to drains and lifecycle observes must not wait for the
-worker process to become reapable and must not inspect the worker child's exit
-status.
+## Exit
 
-The worker sends no frames after `FRAME_PROCESS_EXITED`. The parent may emit
-`SessionRuntimeOutput::ProcessExited` while the worker child is still alive and
-stdout is still open. Connection death without a payload remains the existing
-true-error path; it does not invent a process-exit event.
+On child exit the worker resolves pending operations as `session_ended`,
+sends `FRAME_FINAL_STATE` with the final screen text, mode bits, size,
+colors, and the final GHOSTSNP, then `FRAME_PROCESS_EXITED`. The parent keeps
+the final state for ended-session readback under the daemon retention
+policy.
 
-## Queue And Backpressure
+## Parent side
 
-Durable worker output is bounded. `SessionWorkerQueueLimits` names output frame
-and byte capacity, reuses existing `BackpressureSummary` and `DeliveryLag`, and
-describes slow-consumer behavior as preserve-order/backpressure, drop live
-output after snapshot, or detach the slow consumer.
-
-The default durable worker path should use the existing `QueueSource::SessionIo`
-unless a future implementation proves a separate queue source is necessary.
-
-## PII And Examples
-
-Docs, fixtures, and tests for this contract use synthetic ids and generic
-labels only. Durable worker contracts must not log or fixture local usernames,
-paths, prompt text, terminal transcripts, customer data, or product workflow
-titles.
-
-## Current Runtime Proof
-
-`botster_core::durable_session` remains a serializable vocabulary layer (plus
-serialization/conformance tests). Production runtime proof for supervision and
-adoption lives in `botster-core-daemon` and the `botster-session-worker` path:
-
-- worker-backed local sessions with control sockets recorded as
-  `SessionMetadata.recovery_identity`
-- canonical UUID and deliberately long session ids using distinct
-  constant-length endpoints under macOS and Linux pathname limits
-- intentional daemon restart via `release_for_restart` and re-adoption over the
-  same `data_dir`
-- guarded-write delivery states and readiness fail-closed behavior
-
-Hosts that need durable local sessions should use `CoreDaemon` with
-`with_worker_path`, not only import these contract types. Hub product restart
-policy remains outside core.
+`WorkerProcessRuntime` never blocks the engine on a worker reply except the
+diagnostic ping. It exposes `submit_input_operation`,
+`cancel_input_operation`, `take_input_results`, `take_mode_changes`,
+`latest_modes`, `begin_mode_flags_probe` / `take_mode_flags_replies`,
+`begin_screen_probe` / `take_screen_replies`, `take_final_state`, the
+snapshot boundary begin/poll/cancel/complete calls, and asynchronous launch
+through `begin_spawn` / `poll_spawn` on a helper thread. The control lane is
+a bounded queue with a dedicated writer thread; a sealed or failed lane marks
+the session control plane failed and only a respawn recovers it.

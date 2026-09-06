@@ -1,13 +1,18 @@
 //! Local session runtime backed by a separate worker process.
+//!
+//! The worker owns the only Ghostty parser for its session. This adapter
+//! forwards binary control frames, demultiplexes worker egress into typed
+//! per-session queues, and never blocks the engine on a worker reply except
+//! for the diagnostic ping RPC.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +30,9 @@ use std::os::unix::net::UnixStream;
 
 #[cfg(unix)]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use botster_terminal_protocol::{
+    decode_input_result, decode_modes, InputResultBody, ModesBody, TerminalFrame,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use sha2::{Digest, Sha256};
@@ -36,52 +44,32 @@ use crate::runtime::control_queue::{
     WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_TIMEOUT,
 };
 use crate::{
-    read_welcome, write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame, ModeFlags,
-    ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest, ModeGatedPtyInputRequest,
-    ModeGatedPtyInputResult, NotificationPayload, ProcessExitedPayload, ProcessIdentity,
-    PromptMarkPayload, QueueSource, SessionId, SessionMetadata, SessionRuntime,
-    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SubscriptionId, TerminalMetadataShapingObservation,
-    TimeoutPayload, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED,
-    FRAME_GET_MODE_FLAGS, FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL,
-    FRAME_MODE_GATED_PTY_INPUT, FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING,
+    decode_final_state, encode_worker_input_operation, read_welcome, split_worker_operation_key,
+    write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame, ModeFlagsPayload,
+    NotificationPayload, ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource,
+    ScreenPayload, SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError,
+    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload,
+    WorkerFinalState, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotRequest,
+    WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
+    FRAME_GET_SCREEN, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT,
+    FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING,
     FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
-    FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
-    FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
+    FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
+    FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
 
 /// Default retained worker egress frames per session in the parent process.
 pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 
-/// Default parent wait bound for mode-gated PTY input RPC.
-pub const DEFAULT_MODE_GATED_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Extra parent wait after the worker write deadline so a correlated
-/// `deadline_exceeded` (or other) result can demux under load before the
-/// parent clears the in-flight slot and fails closed as a timeout.
-const MODE_GATED_REPLY_GRACE: Duration = Duration::from_secs(1);
-
-/// Correlated id for one in-flight mode-gated request.
-pub type GatedRequestId = String;
-
-/// Non-blocking poll of one session's gated lane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GatedPoll {
-    /// No gated request is outstanding.
-    Idle,
-    /// A request is outstanding and the deadline has not expired.
-    Pending,
-    /// The worker returned a correlated result.
-    Ready(ModeGatedPtyInputResult),
-    /// The parent wait expired without a correlated result.
-    TimedOut,
-}
+/// Default bound for a correlated worker reply: handshake reads, resize
+/// acknowledgements, and Core pending readbacks.
+pub const DEFAULT_WORKER_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
 const WORKER_REAP_GRACE: Duration = Duration::from_secs(2);
 const WORKER_REAP_POLL: Duration = Duration::from_millis(10);
-const GATED_POLL: Duration = Duration::from_millis(5);
 #[cfg(unix)]
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -202,10 +190,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub poll_interval_ms: u64,
     /// Directory for reconnectable worker control sockets.
     pub control_socket_dir: Option<PathBuf>,
-    /// Parent wait bound for correlated mode-gated PTY input RPC.
-    pub mode_gated_input_timeout: Duration,
-    /// Optional per-request worker admit hold for deterministic race tests.
-    pub test_mode_gated_hold_ms: Option<u64>,
+    /// Bound for correlated worker replies and pending readback deadlines.
+    pub worker_reply_timeout: Duration,
     /// Test-only: hold after PTY read while still in the reader critical section (worker CLI).
     pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: force write WouldBlock until this Unix ms (worker CLI).
@@ -216,10 +202,6 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still critical.
     pub test_hold_after_enqueue_ms: Option<u64>,
-    /// Test-only: fail snapshot encode when the first history PAGE is ready.
-    pub test_fail_snapshot_history_after_ready: bool,
-    /// Test-only: omit resize acknowledgments after successful worker application.
-    pub test_omit_resize_applied: bool,
     /// Test-only: hold `FRAME_RESIZE_APPLIED` in the parent reader for one session.
     pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
@@ -243,15 +225,12 @@ impl WorkerProcessRuntimeOptions {
             shutdown_grace_ms: 500,
             poll_interval_ms: 10,
             control_socket_dir: None,
-            mode_gated_input_timeout: DEFAULT_MODE_GATED_INPUT_TIMEOUT,
-            test_mode_gated_hold_ms: None,
+            worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
             test_hold_after_read_ms: None,
             test_write_block_until_unix_ms: None,
             test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
-            test_fail_snapshot_history_after_ready: false,
-            test_omit_resize_applied: false,
             test_resize_ack_hold: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
@@ -260,17 +239,10 @@ impl WorkerProcessRuntimeOptions {
         }
     }
 
-    /// Override the mode-gated input wait bound (tests may use a short timeout).
+    /// Override the correlated worker reply bound.
     #[must_use]
-    pub const fn with_mode_gated_input_timeout(mut self, timeout: Duration) -> Self {
-        self.mode_gated_input_timeout = timeout;
-        self
-    }
-
-    /// Set a per-request worker admit hold for deterministic race tests.
-    #[must_use]
-    pub const fn with_test_mode_gated_hold_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_mode_gated_hold_ms = hold_ms;
+    pub const fn with_worker_reply_timeout(mut self, timeout: Duration) -> Self {
+        self.worker_reply_timeout = timeout;
         self
     }
 
@@ -299,13 +271,6 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_pending_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_pending_capacity = capacity;
-        self
-    }
-
-    /// Enable a deterministic post-READY history encode failure.
-    #[must_use]
-    pub const fn with_test_fail_snapshot_history_after_ready(mut self, enabled: bool) -> Self {
-        self.test_fail_snapshot_history_after_ready = enabled;
         self
     }
 
@@ -360,10 +325,53 @@ pub struct WorkerSnapshotBoundaryPoll {
     pub complete: bool,
 }
 
+/// Final worker terminal state kept by the parent after exit.
+///
+/// Retained until [`WorkerProcessRuntime::take_final_state`] moves it into the
+/// daemon retention table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedWorkerFinalState {
+    /// Decoded final-state header.
+    pub state: WorkerFinalState,
+    /// Raw GHOSTSNP bytes when the worker exported one.
+    pub snapshot: Option<Vec<u8>>,
+}
+
+/// Nonblocking view of one asynchronous worker spawn.
+#[derive(Debug)]
+pub enum WorkerSpawnPoll {
+    /// The launch thread has not finished the worker handshake.
+    Pending,
+    /// The worker is installed and its session is live.
+    Ready(SessionRuntimeHandle),
+    /// The launch failed. The session id is free again.
+    Failed(SessionRuntimeError),
+}
+
+struct PendingSpawn {
+    receiver: Receiver<(
+        SessionSpawnRequest,
+        Result<LaunchedWorker, SessionRuntimeError>,
+    )>,
+}
+
+/// A worker whose process is running and whose handshake succeeded, before
+/// the parent reader and writer threads exist.
+struct LaunchedWorker {
+    child: Child,
+    control: WorkerControl,
+    reader: Box<dyn Read + Send>,
+    metadata: SessionMetadata,
+    process: ProcessIdentity,
+    supports_snapshot_boundary: bool,
+}
+
 /// Parent-side runtime adapter for one-worker-process-per-session local PTYs.
 pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
+    pending_spawns: HashMap<SessionId, PendingSpawn>,
+    retained_final_states: HashMap<SessionId, RetainedWorkerFinalState>,
     wake_source: Option<TerminalWakeSource>,
     release_on_drop: bool,
     fail_next_start_writer: bool,
@@ -403,6 +411,8 @@ impl WorkerProcessRuntime {
         Self {
             options,
             sessions: HashMap::new(),
+            pending_spawns: HashMap::new(),
+            retained_final_states: HashMap::new(),
             wake_source: None,
             release_on_drop: false,
             fail_next_start_writer: false,
@@ -581,192 +591,218 @@ impl WorkerProcessRuntime {
         )
     }
 
-    /// Read worker-authoritative mode flags and freshness token.
-    pub fn read_mode_flags(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<ModeFlagsPayload, SessionRuntimeError> {
-        let request_id = next_gated_request_id();
-        {
-            let session = self.session_mut(session_id)?;
-            if session
-                .gated_in_flight
-                .lock()
-                .map_err(lock_error)?
-                .is_some()
-            {
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::InputFailed,
-                    "mode-gated request already in flight for session",
-                ));
-            }
-            *session.mode_flags_slot.lock().map_err(lock_error)? = None;
-            *session.outstanding_mode_probe.lock().map_err(lock_error)? = Some(request_id.clone());
-            session.enqueue_json(
-                ControlFrameClass::Ordinary,
-                FRAME_GET_MODE_FLAGS,
-                &ModeFlagsProbeRequest {
-                    request_id: request_id.clone(),
-                },
-            )?;
-        }
-        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
-        loop {
-            self.pump_session_output(session_id)?;
-            let matched = {
-                let session = self.session_mut(session_id)?;
-                let mut slot = session.mode_flags_slot.lock().map_err(lock_error)?;
-                match slot.take() {
-                    Some(payload) if payload.request_id == request_id => {
-                        *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
-                        Some(payload)
-                    }
-                    Some(_) => None, // stale/mismatched probe reply
-                    None => None,
-                }
-            };
-            if let Some(payload) = matched {
-                if let Some(error_kind) = payload.error_kind {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        error_kind,
-                    ));
-                }
-                return Ok(payload);
-            }
-            if Instant::now() >= deadline {
-                let session = self.session_mut(session_id)?;
-                *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker mode-flags probe timed out",
-                ));
-            }
-            if self.session_reader_finished(session_id)? {
-                let session = self.session_mut(session_id)?;
-                *session.outstanding_mode_probe.lock().map_err(lock_error)? = None;
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker disconnected before mode-flags reply",
-                ));
-            }
-            thread::sleep(GATED_POLL);
-        }
+    /// Bound for correlated worker replies. Pending readbacks and ingress
+    /// resize acknowledgements derive their deadlines from it.
+    #[must_use]
+    pub fn worker_reply_timeout(&self) -> Duration {
+        self.options.worker_reply_timeout
     }
 
-    /// Return the current worker-authoritative token and flags as one pair.
+    /// Enqueue one client input operation for worker encoding and PTY write.
     ///
-    /// The pair is the latest one decoded from a worker mode-flags reply or a
-    /// mode-gated result in this daemon incarnation. `None` means no worker
-    /// authority has been observed yet for the session.
-    #[must_use]
-    pub fn current_mode_for(
-        &self,
+    /// `key` is the parent-unique correlation key echoed in the result. The
+    /// worker replies exactly once per accepted frame, or the link fails.
+    pub fn submit_input_operation(
+        &mut self,
         session_id: &SessionId,
-    ) -> Option<(ModeFreshnessToken, ModeFlags)> {
+        key: u64,
+        operation_id: u64,
+        kind: WorkerInputKind,
+        body: &[u8],
+    ) -> Result<(), SessionRuntimeError> {
+        let payload = encode_worker_input_operation(key, operation_id, kind, body);
+        self.session_mut(session_id)?.enqueue_frame(
+            ControlFrameClass::Ordinary,
+            FRAME_INPUT_OPERATION,
+            &payload,
+        )
+    }
+
+    /// Ask the worker to abandon the unwritten remainder of one operation.
+    ///
+    /// The worker still replies once, with `Cancelled` when it caught the
+    /// operation in time or with the terminal outcome it already reached.
+    pub fn cancel_input_operation(
+        &mut self,
+        session_id: &SessionId,
+        key: u64,
+    ) -> Result<(), SessionRuntimeError> {
+        self.session_mut(session_id)?.enqueue_frame(
+            ControlFrameClass::Cancel,
+            FRAME_INPUT_CANCEL,
+            &key.to_le_bytes(),
+        )
+    }
+
+    /// Take correlated input results in worker FIFO order.
+    pub fn take_input_results(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<(u64, InputResultBody)>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .input_results
+            .drain(..)
+            .collect())
+    }
+
+    /// Take worker mode transitions in FIFO order.
+    pub fn take_mode_changes(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<ModesBody>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .mode_changes
+            .drain(..)
+            .collect())
+    }
+
+    /// Latest worker-reported modes, or `None` before the worker reported any
+    /// in this daemon incarnation.
+    #[must_use]
+    pub fn latest_modes(&self, session_id: &SessionId) -> Option<ModesBody> {
         self.sessions
-            .get(session_id)?
-            .latest_mode
-            .lock()
-            .ok()?
-            .clone()
+            .get(session_id)
+            .and_then(|session| session.latest_modes)
     }
 
-    /// Return flags for the latest token decoded in this daemon incarnation.
-    #[must_use]
-    pub fn latest_mode_for(
-        &self,
-        session_id: &SessionId,
-        token: ModeFreshnessToken,
-    ) -> Option<ModeFlags> {
-        self.current_mode_for(session_id)
-            .filter(|(latest, _)| *latest == token)
-            .map(|(_, flags)| flags)
-    }
-
-    /// Capture a worker-owned snapshot after all pre-boundary PTY bytes.
-    ///
-    /// The returned output precedes the snapshot boundary on the worker's
-    /// protected FIFO. Output after the boundary remains queued for a later drain.
-    pub fn capture_snapshot_boundary(
+    /// Start one correlated mode-flags probe. The reply arrives through
+    /// [`Self::take_mode_flags_replies`].
+    pub fn begin_mode_flags_probe(
         &mut self,
         session_id: &SessionId,
-    ) -> Result<(crate::TerminalSnapshotPayload, Vec<SessionRuntimeOutput>), SessionRuntimeError>
-    {
-        let request_id = self.begin_snapshot_boundary(session_id)?;
+    ) -> Result<String, SessionRuntimeError> {
+        let request_id = next_request_id("mode-flags");
+        self.session_mut(session_id)?.enqueue_json(
+            ControlFrameClass::Ordinary,
+            FRAME_GET_MODE_FLAGS,
+            &WorkerProbeRequest {
+                request_id: request_id.clone(),
+            },
+        )?;
+        Ok(request_id)
+    }
 
-        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
-        let mut bytes = Vec::new();
-        let mut before_ready = Vec::new();
-        loop {
-            let poll = match self.poll_snapshot_boundary(session_id, &request_id) {
-                Ok(poll) => poll,
-                Err(error) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    return Err(error);
-                }
-            };
-            before_ready.extend(poll.before_ready);
-            for frame in poll.frames {
-                if let Some(error) = frame.error_kind {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        error,
-                    ));
-                }
-                let Some(phase) = frame.phase else {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "worker snapshot frame omitted its phase",
-                    ));
-                };
-                let Some(snapshot) = frame.snapshot else {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "worker snapshot frame omitted its bytes",
-                    ));
-                };
-                let size = snapshot.size;
-                let format = snapshot.format;
-                bytes.extend(snapshot.bytes);
-                if phase == crate::WorkerSnapshotPhase::Finish {
-                    if let Err(error) = self.complete_snapshot_boundary(session_id, &request_id) {
-                        let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                        return Err(error);
-                    }
-                    return Ok((
-                        crate::TerminalSnapshotPayload::new(bytes, size, format),
-                        before_ready,
-                    ));
-                }
-            }
-            if Instant::now() >= deadline {
-                let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker snapshot request timed out",
-                ));
-            }
-            match self.session_reader_finished(session_id) {
-                Ok(true) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    self.session_mut(session_id)?.outstanding_snapshot_request = None;
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "worker disconnected before snapshot response",
-                    ));
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, &request_id);
-                    return Err(error);
-                }
-            }
-            thread::sleep(GATED_POLL);
+    /// Take correlated mode-flags replies in worker FIFO order.
+    pub fn take_mode_flags_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<ModeFlagsPayload>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .mode_flags_replies
+            .drain(..)
+            .collect())
+    }
+
+    /// Start one correlated plain-text screen probe. The reply arrives
+    /// through [`Self::take_screen_replies`].
+    pub fn begin_screen_probe(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, SessionRuntimeError> {
+        let request_id = next_request_id("screen");
+        self.session_mut(session_id)?.enqueue_json(
+            ControlFrameClass::Ordinary,
+            FRAME_GET_SCREEN,
+            &WorkerProbeRequest {
+                request_id: request_id.clone(),
+            },
+        )?;
+        Ok(request_id)
+    }
+
+    /// Take correlated screen replies in worker FIFO order.
+    pub fn take_screen_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<ScreenPayload>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .screen_replies
+            .drain(..)
+            .collect())
+    }
+
+    /// Take the final worker state retained when the session exited.
+    ///
+    /// Returns `None` when the worker ended without `FRAME_FINAL_STATE` or the
+    /// state was already taken.
+    pub fn take_final_state(&mut self, session_id: &SessionId) -> Option<RetainedWorkerFinalState> {
+        self.retained_final_states.remove(session_id)
+    }
+
+    /// Start one worker spawn on a helper thread and return immediately.
+    ///
+    /// The session id is reserved until [`Self::poll_spawn`] reports a
+    /// terminal state. The session wake fires when the launch finishes.
+    pub fn begin_spawn(&mut self, request: SessionSpawnRequest) -> Result<(), SessionRuntimeError> {
+        let session_id = request.session_id.clone();
+        if self.sessions.contains_key(&session_id) || self.pending_spawns.contains_key(&session_id)
+        {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "worker process session already exists",
+            ));
         }
+        let options = self.options.clone();
+        let wake_handle = self
+            .wake_source
+            .as_ref()
+            .map(|source| source.session_handle(session_id.clone()));
+        let (sender, receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let result = launch_worker(&options, &request);
+            let _ = sender.send((request, result));
+            notify_session_wake(&wake_handle);
+        });
+        self.pending_spawns
+            .insert(session_id, PendingSpawn { receiver });
+        Ok(())
+    }
+
+    /// Poll one spawn started by [`Self::begin_spawn`]. Never blocks.
+    pub fn poll_spawn(&mut self, session_id: &SessionId) -> WorkerSpawnPoll {
+        let Some(pending) = self.pending_spawns.get(session_id) else {
+            return WorkerSpawnPoll::Failed(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SessionNotFound,
+                format!("no pending worker spawn for session {}", session_id.0),
+            ));
+        };
+        match pending.receiver.try_recv() {
+            Ok((request, Ok(launched))) => {
+                self.pending_spawns.remove(session_id);
+                match self.install_launched(request, launched) {
+                    Ok(handle) => WorkerSpawnPoll::Ready(handle),
+                    Err(error) => WorkerSpawnPoll::Failed(error),
+                }
+            }
+            Ok((_, Err(error))) => {
+                self.pending_spawns.remove(session_id);
+                self.forget_session_wake(session_id);
+                WorkerSpawnPoll::Failed(error)
+            }
+            Err(TryRecvError::Empty) => WorkerSpawnPoll::Pending,
+            Err(TryRecvError::Disconnected) => {
+                self.pending_spawns.remove(session_id);
+                self.forget_session_wake(session_id);
+                WorkerSpawnPoll::Failed(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    "worker launch thread ended without a result",
+                ))
+            }
+        }
+    }
+
+    /// Whether a spawn for this session is still on the launch thread.
+    #[must_use]
+    pub fn has_pending_spawn(&self, session_id: &SessionId) -> bool {
+        self.pending_spawns.contains_key(session_id)
     }
 
     /// Start one worker-owned snapshot encode without waiting for READY.
@@ -782,7 +818,7 @@ impl WorkerProcessRuntime {
                 "injected snapshot begin failure",
             ));
         }
-        let request_id = next_gated_request_id();
+        let request_id = next_request_id("snapshot");
         let session = self.session_mut(session_id)?;
         if session.outstanding_snapshot_request.is_some() {
             return Err(SessionRuntimeError::new(
@@ -821,6 +857,7 @@ impl WorkerProcessRuntime {
                     phase: None,
                     error_kind: Some("injected pre-ready failure".to_string()),
                     barrier_released: false,
+                    color_profile: None,
                 }],
                 before_ready: Vec::new(),
                 complete: false,
@@ -896,202 +933,25 @@ impl WorkerProcessRuntime {
         Ok(())
     }
 
-    /// Apply any staged resize and wait for the worker to release the PTY barrier.
+    /// Ask the worker to apply any staged resize and release the PTY barrier.
+    ///
+    /// Never waits. [`Self::poll_snapshot_boundary`] reports `complete` when
+    /// the worker confirms the release, or carries the release error.
     pub fn complete_snapshot_boundary(
         &mut self,
         session_id: &SessionId,
         request_id: &str,
     ) -> Result<(), SessionRuntimeError> {
-        {
-            let session = self.session_mut(session_id)?;
-            session.enqueue_json(
-                ControlFrameClass::Ordinary,
-                crate::FRAME_GET_SNAPSHOT,
-                &WorkerSnapshotRequest {
-                    request_id: request_id.to_owned(),
-                    cancel: false,
-                    complete: true,
-                },
-            )?;
-        }
-        let deadline = Instant::now() + self.options.mode_gated_input_timeout;
-        loop {
-            let poll = match self.poll_snapshot_boundary(session_id, request_id) {
-                Ok(poll) => poll,
-                Err(error) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
-                    return Err(error);
-                }
-            };
-            if let Some(error) = poll.frames.into_iter().find_map(|frame| frame.error_kind) {
-                let _ = self.cancel_snapshot_boundary(session_id, request_id);
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    error,
-                ));
-            }
-            if poll.complete {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                let _ = self.cancel_snapshot_boundary(session_id, request_id);
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker snapshot barrier release timed out",
-                ));
-            }
-            match self.session_reader_finished(session_id) {
-                Ok(true) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
-                    self.session_mut(session_id)?.outstanding_snapshot_request = None;
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "worker disconnected before snapshot barrier release",
-                    ));
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    let _ = self.cancel_snapshot_boundary(session_id, request_id);
-                    return Err(error);
-                }
-            }
-            thread::sleep(GATED_POLL);
-        }
-    }
-
-    /// Submit one mode-gated PTY input and return immediately.
-    ///
-    /// Claims the per-session lane and enqueues `FRAME_MODE_GATED_PTY_INPUT`.
-    /// Does not wait for a worker reply and does not write the control socket.
-    pub fn submit_mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-        expected: ModeFreshnessToken,
-        data: Vec<u8>,
-    ) -> Result<GatedRequestId, SessionRuntimeError> {
-        let request_id = next_gated_request_id();
-        let timeout = self.options.mode_gated_input_timeout;
-        let test_hold_ms = self.options.test_mode_gated_hold_ms;
-        let deadline_unix_ms = unix_now_ms().saturating_add(timeout.as_millis() as u64);
-        let parent_deadline = Instant::now() + timeout + MODE_GATED_REPLY_GRACE;
         let session = self.session_mut(session_id)?;
-        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-        if in_flight.is_some() {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::InputFailed,
-                "mode-gated request already in flight for session",
-            ));
-        }
-        *in_flight = Some(GatedInFlight {
-            request_id: request_id.clone(),
-            result: None,
-            cancelled: false,
-            parent_deadline,
-        });
-        drop(in_flight);
-        if let Err(error) = session.enqueue_json(
-            ControlFrameClass::Ordinary,
-            FRAME_MODE_GATED_PTY_INPUT,
-            &ModeGatedPtyInputRequest {
-                request_id: request_id.clone(),
-                expected,
-                data,
-                deadline_unix_ms,
-                test_hold_ms,
-            },
-        ) {
-            if let Ok(mut in_flight) = session.gated_in_flight.lock() {
-                *in_flight = None;
-            }
-            return Err(error);
-        }
-        Ok(request_id)
-    }
-
-    /// Pump output once and inspect the gated slot. Never sleeps.
-    pub fn poll_mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<GatedPoll, SessionRuntimeError> {
-        self.pump_session_output(session_id)?;
-        let session = self.session_mut(session_id)?;
-        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-        let Some(slot) = in_flight.as_mut() else {
-            return Ok(GatedPoll::Idle);
-        };
-        if let Some(result) = slot.result.take() {
-            *in_flight = None;
-            return result.map(GatedPoll::Ready);
-        }
-        if Instant::now() >= slot.parent_deadline {
-            *in_flight = None;
-            return Ok(GatedPoll::TimedOut);
-        }
-        Ok(GatedPoll::Pending)
-    }
-
-    /// Enqueue a cancel for one abandoned gated request. Never writes the socket.
-    ///
-    /// The parent lane stays occupied until the correlated reply arrives or the
-    /// parent wait expires.
-    pub fn cancel_mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-        request_id: &GatedRequestId,
-    ) -> Result<(), SessionRuntimeError> {
-        self.enqueue_gated_cancel(session_id, request_id)
-    }
-
-    fn enqueue_gated_cancel(
-        &mut self,
-        session_id: &SessionId,
-        request_id: &str,
-    ) -> Result<(), SessionRuntimeError> {
-        let session = self.session_mut(session_id)?;
-        let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-        match in_flight.as_mut() {
-            Some(slot) if slot.request_id == request_id => {
-                if slot.cancelled {
-                    return Ok(());
-                }
-                slot.cancelled = true;
-            }
-            _ => return Ok(()),
-        }
-        drop(in_flight);
         session.enqueue_json(
-            ControlFrameClass::Cancel,
-            FRAME_MODE_GATED_CANCEL,
-            &ModeGatedCancelRequest {
+            ControlFrameClass::Ordinary,
+            crate::FRAME_GET_SNAPSHOT,
+            &WorkerSnapshotRequest {
                 request_id: request_id.to_owned(),
+                cancel: false,
+                complete: true,
             },
         )
-    }
-
-    /// Whether the session gated lane is occupied, including a cancelled hold.
-    #[must_use]
-    pub fn has_gated_in_flight(&self, session_id: &SessionId) -> bool {
-        self.sessions
-            .get(session_id)
-            .and_then(|session| session.gated_in_flight.lock().ok())
-            .is_some_and(|slot| slot.is_some())
-    }
-
-    /// Sessions whose gated lane is occupied. Stage B uses the full set because
-    /// intake walks every live owner, not only the drained session.
-    #[must_use]
-    pub fn sessions_holding_gated(&self) -> HashSet<SessionId> {
-        self.sessions
-            .iter()
-            .filter(|(_, session)| {
-                session
-                    .gated_in_flight
-                    .lock()
-                    .ok()
-                    .is_some_and(|slot| slot.is_some())
-            })
-            .map(|(session_id, _)| session_id.clone())
-            .collect()
     }
 
     /// Current durable control-plane state.
@@ -1143,69 +1003,6 @@ impl WorkerProcessRuntime {
         self.sessions.contains_key(session_id)
     }
 
-    /// Parent wait bound reused by pending ingress resize deadlines.
-    #[must_use]
-    pub fn mode_gated_input_timeout(&self) -> Duration {
-        self.options.mode_gated_input_timeout
-    }
-
-    /// Correlated mode-gated PTY input against the worker atomic admit barrier.
-    ///
-    /// Interleaved PTY/metadata frames continue normal demux into pending
-    /// output. Only a matching result completes the wait. Fail closed on
-    /// timeout, disconnect, exit, malformed reply, and concurrent gated calls.
-    pub fn mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-        expected: ModeFreshnessToken,
-        data: Vec<u8>,
-    ) -> Result<ModeGatedPtyInputResult, SessionRuntimeError> {
-        let _request_id = self.submit_mode_gated_pty_input(session_id, expected, data)?;
-        loop {
-            match self.poll_mode_gated_pty_input(session_id)? {
-                GatedPoll::Ready(result) => return Ok(result),
-                GatedPoll::TimedOut => {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "mode-gated input timed out",
-                    ));
-                }
-                GatedPoll::Idle => {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::OutputFailed,
-                        "mode-gated lane released before a result",
-                    ));
-                }
-                GatedPoll::Pending => {}
-            }
-            if self.session_reader_finished(session_id)? {
-                if let Ok(session) = self.session_mut(session_id) {
-                    if let Ok(mut in_flight) = session.gated_in_flight.lock() {
-                        *in_flight = None;
-                    }
-                }
-                return Err(SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    "worker disconnected before mode-gated result",
-                ));
-            }
-            if let Ok(session) = self.session_mut(session_id) {
-                if let Some(child) = session.child.as_mut() {
-                    if child.try_wait().ok().flatten().is_some() {
-                        if let Ok(mut in_flight) = session.gated_in_flight.lock() {
-                            *in_flight = None;
-                        }
-                        return Err(SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::OutputFailed,
-                            "worker process exited before mode-gated result",
-                        ));
-                    }
-                }
-            }
-            thread::sleep(GATED_POLL);
-        }
-    }
-
     fn pump_session_output(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
         let mut drained = false;
@@ -1214,21 +1011,22 @@ impl WorkerProcessRuntime {
             match event {
                 WorkerChannelEvent::Output(output) => session.pending_output.push_back(output),
                 WorkerChannelEvent::ModeFlags(payload) => {
-                    *session.mode_flags_slot.lock().map_err(lock_error)? = Some(payload);
-                }
-                WorkerChannelEvent::ModeGatedResult(result) => {
-                    let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-                    match in_flight.as_mut() {
-                        Some(slot) if slot.request_id == result.request_id => {
-                            slot.result = Some(Ok(result));
-                        }
-                        Some(_) => {
-                            // Stale/mismatched request_id: ignore and keep waiting.
-                        }
-                        None => {
-                            // No outstanding wait: drop stale result.
-                        }
+                    if payload.error_kind.is_none() {
+                        session.latest_modes = Some(ModesBody {
+                            mode_bits: payload.mode_flags.to_mode_bits(),
+                            rows: payload.rows,
+                            cols: payload.cols,
+                        });
                     }
+                    session.mode_flags_replies.push_back(payload);
+                }
+                WorkerChannelEvent::Screen(payload) => session.screen_replies.push_back(payload),
+                WorkerChannelEvent::InputResult(key, result) => {
+                    session.input_results.push_back((key, result));
+                }
+                WorkerChannelEvent::ModesChanged(modes) => {
+                    session.latest_modes = Some(modes);
+                    session.mode_changes.push_back(modes);
                 }
                 WorkerChannelEvent::Snapshot(result) => {
                     if session.outstanding_snapshot_request.as_ref() == Some(&result.request_id) {
@@ -1250,20 +1048,6 @@ impl WorkerProcessRuntime {
                 WorkerChannelEvent::ResizeApplied(size) => {
                     session.applied_resizes.push_back(size);
                 }
-                WorkerChannelEvent::MalformedModeGated {
-                    request_id,
-                    message,
-                } => {
-                    let mut in_flight = session.gated_in_flight.lock().map_err(lock_error)?;
-                    if let Some(slot) = in_flight.as_mut() {
-                        if request_id.is_empty() || slot.request_id == request_id {
-                            slot.result = Some(Err(SessionRuntimeError::new(
-                                SessionRuntimeErrorKind::OutputFailed,
-                                message,
-                            )));
-                        }
-                    }
-                }
             }
         }
         if drained {
@@ -1284,7 +1068,8 @@ impl WorkerProcessRuntime {
             .collect())
     }
 
-    fn session_reader_finished(
+    /// Whether the worker egress reader has ended (EOF or link failure).
+    pub fn session_reader_finished(
         &mut self,
         session_id: &SessionId,
     ) -> Result<bool, SessionRuntimeError> {
@@ -1307,7 +1092,8 @@ impl WorkerProcessRuntime {
         socket_path: impl Into<PathBuf>,
         supports_snapshot_boundary: bool,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
-        if self.sessions.contains_key(&session_id) {
+        if self.sessions.contains_key(&session_id) || self.pending_spawns.contains_key(&session_id)
+        {
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
                 "worker process session already exists",
@@ -1325,7 +1111,7 @@ impl WorkerProcessRuntime {
         write_hello(&mut control)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         control
-            .set_read_timeout(Some(self.options.mode_gated_input_timeout))
+            .set_read_timeout(Some(self.options.worker_reply_timeout))
             .map_err(|error| {
                 SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
@@ -1352,74 +1138,124 @@ impl WorkerProcessRuntime {
                 "adopted worker welcome identified a different session",
             ));
         }
-        let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
-        let overflow = Arc::new(AtomicUsize::new(0));
-        let pong_count = Arc::new(AtomicUsize::new(0));
-        let last_health = Arc::new(Mutex::new(None));
-        let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let stall = Arc::new(EgressStall::new());
-        let latest_mode = Arc::new(Mutex::new(None));
-        spawn_stdout_reader(
-            control.try_clone().map_err(|error| {
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::SpawnFailed,
-                    format!("clone worker control socket failed: {error}"),
-                )
-            })?,
-            sender,
-            Arc::clone(&overflow),
-            Arc::clone(&pong_count),
-            Arc::clone(&last_health),
-            Arc::clone(&completion),
-            Arc::clone(&stall),
-            Arc::clone(&latest_mode),
-            self.wake_source
-                .as_ref()
-                .map(|source| source.session_handle(session_id.clone())),
+        let reader = control.try_clone().map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("clone worker control socket failed: {error}"),
+            )
+        })?;
+        // The adopted welcome repeats spawn-time modes. Probe for live ones.
+        self.install_session(
             session_id.clone(),
-            self.options.test_resize_ack_hold.clone(),
-        );
-        let mut session = WorkerProcessSession {
-            child: None,
-            control: WorkerControl::Socket {
+            None,
+            WorkerControl::Socket {
                 stream: control,
                 path: socket_path,
                 identity,
             },
-            control_queue: ControlQueue::new(),
-            writer_slot: ControlWriterSlot::running(),
-            control_plane: ControlPlaneState::Live,
-            writer: None,
-            wake_handle: self
-                .wake_source
-                .as_ref()
-                .map(|source| source.session_handle(session_id.clone())),
+            Box::new(reader),
             metadata,
-            output: receiver,
-            overflow,
-            pong_count,
-            last_health,
-            completion,
-            gated_in_flight: Arc::new(Mutex::new(None)),
-            mode_flags_slot: Arc::new(Mutex::new(None)),
-            latest_mode,
-            outstanding_mode_probe: Arc::new(Mutex::new(None)),
-            pending_output: std::collections::VecDeque::new(),
-            applied_resizes: std::collections::VecDeque::new(),
-            snapshot_boundary: std::collections::VecDeque::new(),
-            outstanding_snapshot_request: None,
             supports_snapshot_boundary,
-            egress_capacity: self.options.egress_capacity.max(1),
-            stall,
-        };
-        self.start_writer_or_forget(&mut session, &session_id)?;
-        self.sessions.insert(session_id.clone(), session);
+            None,
+        )?;
+        self.begin_mode_flags_probe(&session_id)?;
 
         Ok(SessionRuntimeHandle {
             request_id: crate::RequestId(format!("{}-adopt", session_id.0)),
             session_id,
             process,
         })
+    }
+
+    fn install_launched(
+        &mut self,
+        request: SessionSpawnRequest,
+        launched: LaunchedWorker,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
+        let seed_modes = ModesBody {
+            mode_bits: launched.metadata.mode_flags.to_mode_bits(),
+            rows: launched.metadata.rows,
+            cols: launched.metadata.cols,
+        };
+        self.install_session(
+            request.session_id.clone(),
+            Some(launched.child),
+            launched.control,
+            launched.reader,
+            launched.metadata,
+            launched.supports_snapshot_boundary,
+            Some(seed_modes),
+        )?;
+        Ok(SessionRuntimeHandle {
+            request_id: request.request_id,
+            session_id: request.session_id,
+            process: launched.process,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn install_session(
+        &mut self,
+        session_id: SessionId,
+        child: Option<Child>,
+        control: WorkerControl,
+        reader: Box<dyn Read + Send>,
+        metadata: SessionMetadata,
+        supports_snapshot_boundary: bool,
+        latest_modes: Option<ModesBody>,
+    ) -> Result<(), SessionRuntimeError> {
+        let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
+        let overflow = Arc::new(AtomicUsize::new(0));
+        let pong_count = Arc::new(AtomicUsize::new(0));
+        let last_health = Arc::new(Mutex::new(None));
+        let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
+        let stall = Arc::new(EgressStall::new());
+        let wake_handle = self
+            .wake_source
+            .as_ref()
+            .map(|source| source.session_handle(session_id.clone()));
+        spawn_stdout_reader(
+            reader,
+            sender,
+            Arc::clone(&overflow),
+            Arc::clone(&pong_count),
+            Arc::clone(&last_health),
+            Arc::clone(&completion),
+            Arc::clone(&stall),
+            wake_handle.clone(),
+            session_id.clone(),
+            self.options.test_resize_ack_hold.clone(),
+        );
+        let mut session = WorkerProcessSession {
+            child,
+            control,
+            control_queue: ControlQueue::new(),
+            writer_slot: ControlWriterSlot::running(),
+            control_plane: ControlPlaneState::Live,
+            writer: None,
+            wake_handle,
+            metadata,
+            output: receiver,
+            overflow,
+            pong_count,
+            last_health,
+            completion,
+            latest_modes,
+            input_results: VecDeque::new(),
+            mode_changes: VecDeque::new(),
+            mode_flags_replies: VecDeque::new(),
+            screen_replies: VecDeque::new(),
+            pending_output: VecDeque::new(),
+            applied_resizes: VecDeque::new(),
+            snapshot_boundary: VecDeque::new(),
+            outstanding_snapshot_request: None,
+            supports_snapshot_boundary,
+            egress_capacity: self.options.egress_capacity.max(1),
+            stall,
+        };
+        self.start_writer_or_forget(&mut session, &session_id)?;
+        self.sessions.insert(session_id, session);
+        Ok(())
     }
 
     fn session_mut(
@@ -1435,286 +1271,237 @@ impl WorkerProcessRuntime {
     }
 }
 
+/// Spawn the worker process and complete the hello/welcome handshake.
+///
+/// Runs without the runtime lock so [`WorkerProcessRuntime::begin_spawn`] can
+/// move it to a helper thread. Blocks up to the worker startup timeout.
+fn launch_worker(
+    options: &WorkerProcessRuntimeOptions,
+    request: &SessionSpawnRequest,
+) -> Result<LaunchedWorker, SessionRuntimeError> {
+    let mut command = Command::new(&options.worker_path);
+    command
+        .arg("--egress-capacity")
+        .arg(options.egress_capacity.to_string())
+        .arg("--pty-reader-capacity")
+        .arg(options.pty_reader_chunk_capacity.to_string())
+        .arg("--ghostty-max-scrollback-bytes")
+        .arg(options.ghostty_max_scrollback_bytes.to_string());
+    if let Some(profile) = options.terminal_color_profile.as_ref() {
+        command
+            .arg("--terminal-color-profile")
+            .arg(serde_json::to_string(profile).map_err(|error| {
+                SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.to_string())
+            })?);
+    }
+    command
+        .arg("--shutdown-grace-ms")
+        .arg(options.shutdown_grace_ms.to_string())
+        .arg("--poll-interval-ms")
+        .arg(options.poll_interval_ms.to_string())
+        .stderr(Stdio::piped());
+    if let Some(hold_ms) = options.test_hold_after_read_ms {
+        command
+            .arg("--test-hold-after-read-ms")
+            .arg(hold_ms.to_string());
+    }
+    if let Some(until) = options.test_write_block_until_unix_ms {
+        command
+            .arg("--test-write-block-until-unix-ms")
+            .arg(until.to_string());
+    }
+    if let Some(max_chunk) = options.test_write_max_chunk {
+        command
+            .arg("--test-write-max-chunk")
+            .arg(max_chunk.to_string());
+    }
+    if let Some(capacity) = options.test_pending_capacity {
+        command
+            .arg("--test-pending-capacity")
+            .arg(capacity.to_string());
+    }
+    if let Some(hold_ms) = options.test_hold_after_enqueue_ms {
+        command
+            .arg("--test-hold-after-enqueue-ms")
+            .arg(hold_ms.to_string());
+    }
+    if let Some(hold_ms) = options.test_hold_before_exit_ms {
+        command
+            .arg("--test-hold-before-exit-ms")
+            .arg(hold_ms.to_string());
+    }
+    if let Some(exit_code) = options.test_exit_code {
+        command.arg("--test-exit-code").arg(exit_code.to_string());
+    }
+
+    #[cfg(unix)]
+    let socket_path = options
+        .control_socket_dir
+        .as_ref()
+        .map(|dir| worker_socket_path(dir, &request.session_id))
+        .transpose()?;
+    #[cfg(not(unix))]
+    let socket_path: Option<PathBuf> = None;
+    let socket_mode = socket_path.is_some();
+    if let Some(path) = &socket_path {
+        command
+            .arg("--control-socket")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped());
+    } else {
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    }
+
+    let child = command.spawn().map_err(|error| {
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::SpawnFailed,
+            format!("spawn worker process failed: {error}"),
+        )
+    })?;
+    let mut pending_worker = PendingWorker::new(child, socket_path.clone());
+
+    let (mut control, mut reader): (WorkerControl, Box<dyn Read + Send>) = if let Some(path) =
+        socket_path
+    {
+        #[cfg(unix)]
+        {
+            pending_worker.wait_for_socket_readiness()?;
+            let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
+            stream
+                .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
+                .map_err(|error| {
+                    SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("configure worker startup timeout failed: {error}"),
+                    )
+                })?;
+            let identity = socket_identity(&path).ok();
+            let reader = stream.try_clone().map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("clone worker control socket failed: {error}"),
+                )
+            })?;
+            (
+                WorkerControl::Socket {
+                    stream,
+                    path,
+                    identity,
+                },
+                Box::new(reader) as Box<dyn Read + Send>,
+            )
+        }
+        #[cfg(not(unix))]
+        unreachable!("socket_path is never set on non-unix targets");
+    } else {
+        let stdin = pending_worker.child_mut().stdin.take().ok_or_else(|| {
+            SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, "worker stdin missing")
+        })?;
+        let stdout = pending_worker.child_mut().stdout.take().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "worker stdout missing",
+            )
+        })?;
+        (
+            WorkerControl::Stdio(stdin),
+            Box::new(stdout) as Box<dyn Read + Send>,
+        )
+    };
+
+    let startup = (|| {
+        control.write_hello()?;
+        control.write_json(FRAME_SPAWN_SESSION, request)?;
+        read_welcome(&mut reader)
+            .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
+    })()
+    .map_err(|error: SessionRuntimeError| {
+        SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.message)
+    });
+    let metadata = match startup {
+        Ok((peer_version, metadata)) => {
+            if peer_version != PROTOCOL_VERSION {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("unsupported worker protocol version: {peer_version}"),
+                ));
+            }
+            let worker_pid = metadata
+                .recovery_identity
+                .as_ref()
+                .and_then(|identity| identity.get("worker_pid"))
+                .and_then(serde_json::Value::as_u64);
+            if socket_mode && worker_pid != Some(u64::from(pending_worker.child_id())) {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    "worker welcome did not identify the spawned child",
+                ));
+            }
+            control.clear_startup_read_timeout()?;
+            metadata
+        }
+        Err(error) => {
+            if let Some(diagnostic) = pending_worker.exited_diagnostic() {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("connect worker control socket failed: {diagnostic}"),
+                ));
+            }
+            let _ = control.write_frame(FRAME_SHUTDOWN, &[]);
+            pending_worker.allow_graceful_exit();
+            return Err(error);
+        }
+    };
+    let process = ProcessIdentity {
+        pid: Some(metadata.pid),
+        runtime_id: metadata
+            .recovery_identity
+            .as_ref()
+            .and_then(|identity| identity.get("runtime_id"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| Some(request.session_id.0.clone())),
+    };
+    let supports_snapshot_boundary = metadata.recovery_identity.as_ref().is_some_and(|identity| {
+        identity
+            .get("atomic_snapshot_boundary")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+            && identity
+                .get("snapshot_delivery")
+                .and_then(serde_json::Value::as_str)
+                == Some("ready_then_history")
+    });
+    Ok(LaunchedWorker {
+        child: pending_worker.take(),
+        control,
+        reader,
+        metadata,
+        process,
+        supports_snapshot_boundary,
+    })
+}
+
 impl SessionRuntime for WorkerProcessRuntime {
+    /// Spawn synchronously: launch on this thread, then install.
+    ///
+    /// Core pending spawns use [`WorkerProcessRuntime::begin_spawn`] instead so
+    /// the engine thread never waits on worker startup.
     fn spawn_session(
         &mut self,
         request: SessionSpawnRequest,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
-        if self.sessions.contains_key(&request.session_id) {
+        if self.sessions.contains_key(&request.session_id)
+            || self.pending_spawns.contains_key(&request.session_id)
+        {
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
                 "worker process session already exists",
             ));
         }
-
-        let mut command = Command::new(&self.options.worker_path);
-        command
-            .arg("--egress-capacity")
-            .arg(self.options.egress_capacity.to_string())
-            .arg("--pty-reader-capacity")
-            .arg(self.options.pty_reader_chunk_capacity.to_string())
-            .arg("--ghostty-max-scrollback-bytes")
-            .arg(self.options.ghostty_max_scrollback_bytes.to_string());
-        if let Some(profile) = self.options.terminal_color_profile.as_ref() {
-            command
-                .arg("--terminal-color-profile")
-                .arg(serde_json::to_string(profile).map_err(|error| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        error.to_string(),
-                    )
-                })?);
-        }
-        command
-            .arg("--shutdown-grace-ms")
-            .arg(self.options.shutdown_grace_ms.to_string())
-            .arg("--poll-interval-ms")
-            .arg(self.options.poll_interval_ms.to_string())
-            .stderr(Stdio::piped());
-        if let Some(hold_ms) = self.options.test_hold_after_read_ms {
-            command
-                .arg("--test-hold-after-read-ms")
-                .arg(hold_ms.to_string());
-        }
-        if let Some(until) = self.options.test_write_block_until_unix_ms {
-            command
-                .arg("--test-write-block-until-unix-ms")
-                .arg(until.to_string());
-        }
-        if let Some(max_chunk) = self.options.test_write_max_chunk {
-            command
-                .arg("--test-write-max-chunk")
-                .arg(max_chunk.to_string());
-        }
-        if let Some(capacity) = self.options.test_pending_capacity {
-            command
-                .arg("--test-pending-capacity")
-                .arg(capacity.to_string());
-        }
-        if let Some(hold_ms) = self.options.test_hold_after_enqueue_ms {
-            command
-                .arg("--test-hold-after-enqueue-ms")
-                .arg(hold_ms.to_string());
-        }
-        if self.options.test_fail_snapshot_history_after_ready {
-            command.arg("--test-fail-snapshot-history-after-ready");
-        }
-        if self.options.test_omit_resize_applied {
-            command.arg("--test-omit-resize-applied");
-        }
-        if let Some(hold_ms) = self.options.test_hold_before_exit_ms {
-            command
-                .arg("--test-hold-before-exit-ms")
-                .arg(hold_ms.to_string());
-        }
-        if let Some(exit_code) = self.options.test_exit_code {
-            command.arg("--test-exit-code").arg(exit_code.to_string());
-        }
-
-        #[cfg(unix)]
-        let socket_path = self
-            .options
-            .control_socket_dir
-            .as_ref()
-            .map(|dir| worker_socket_path(dir, &request.session_id))
-            .transpose()?;
-        #[cfg(not(unix))]
-        let socket_path: Option<PathBuf> = None;
-        let socket_mode = socket_path.is_some();
-        if let Some(path) = &socket_path {
-            command
-                .arg("--control-socket")
-                .arg(path)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped());
-        } else {
-            command.stdin(Stdio::piped()).stdout(Stdio::piped());
-        }
-
-        let child = command.spawn().map_err(|error| {
-            SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SpawnFailed,
-                format!("spawn worker process failed: {error}"),
-            )
-        })?;
-        let mut pending_worker = PendingWorker::new(child, socket_path.clone());
-
-        let (mut control, mut reader): (WorkerControl, Box<dyn Read + Send>) =
-            if let Some(path) = socket_path {
-                #[cfg(unix)]
-                {
-                    pending_worker.wait_for_socket_readiness()?;
-                    let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
-                    stream
-                        .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
-                        .map_err(|error| {
-                            SessionRuntimeError::new(
-                                SessionRuntimeErrorKind::SpawnFailed,
-                                format!("configure worker startup timeout failed: {error}"),
-                            )
-                        })?;
-                    let identity = socket_identity(&path).ok();
-                    let reader = stream.try_clone().map_err(|error| {
-                        SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::SpawnFailed,
-                            format!("clone worker control socket failed: {error}"),
-                        )
-                    })?;
-                    (
-                        WorkerControl::Socket {
-                            stream,
-                            path,
-                            identity,
-                        },
-                        Box::new(reader) as Box<dyn Read + Send>,
-                    )
-                }
-                #[cfg(not(unix))]
-                unreachable!("socket_path is never set on non-unix targets");
-            } else {
-                let stdin = pending_worker.child_mut().stdin.take().ok_or_else(|| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        "worker stdin missing",
-                    )
-                })?;
-                let stdout = pending_worker.child_mut().stdout.take().ok_or_else(|| {
-                    SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        "worker stdout missing",
-                    )
-                })?;
-                (
-                    WorkerControl::Stdio(stdin),
-                    Box::new(stdout) as Box<dyn Read + Send>,
-                )
-            };
-
-        let startup = (|| {
-            control.write_hello()?;
-            control.write_json(FRAME_SPAWN_SESSION, &request)?;
-            read_welcome(&mut reader)
-                .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
-        })()
-        .map_err(|error: SessionRuntimeError| {
-            SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.message)
-        });
-        let metadata = match startup {
-            Ok((peer_version, metadata)) => {
-                if peer_version != PROTOCOL_VERSION {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        format!("unsupported worker protocol version: {peer_version}"),
-                    ));
-                }
-                let worker_pid = metadata
-                    .recovery_identity
-                    .as_ref()
-                    .and_then(|identity| identity.get("worker_pid"))
-                    .and_then(serde_json::Value::as_u64);
-                if socket_mode && worker_pid != Some(u64::from(pending_worker.child_id())) {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        "worker welcome did not identify the spawned child",
-                    ));
-                }
-                control.clear_startup_read_timeout()?;
-                metadata
-            }
-            Err(error) => {
-                if let Some(diagnostic) = pending_worker.exited_diagnostic() {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        format!("connect worker control socket failed: {diagnostic}"),
-                    ));
-                }
-                let _ = control.write_frame(FRAME_SHUTDOWN, &[]);
-                pending_worker.allow_graceful_exit();
-                return Err(error);
-            }
-        };
-        let process = ProcessIdentity {
-            pid: Some(metadata.pid),
-            runtime_id: metadata
-                .recovery_identity
-                .as_ref()
-                .and_then(|identity| identity.get("runtime_id"))
-                .and_then(serde_json::Value::as_str)
-                .map(ToOwned::to_owned)
-                .or_else(|| Some(request.session_id.0.clone())),
-        };
-        let supports_snapshot_boundary =
-            metadata.recovery_identity.as_ref().is_some_and(|identity| {
-                identity
-                    .get("atomic_snapshot_boundary")
-                    .and_then(serde_json::Value::as_bool)
-                    == Some(true)
-                    && identity
-                        .get("snapshot_delivery")
-                        .and_then(serde_json::Value::as_str)
-                        == Some("ready_then_history")
-            });
-
-        let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
-        let overflow = Arc::new(AtomicUsize::new(0));
-        let pong_count = Arc::new(AtomicUsize::new(0));
-        let last_health = Arc::new(Mutex::new(None));
-        let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
-        let stall = Arc::new(EgressStall::new());
-        let latest_mode = Arc::new(Mutex::new(None));
-        spawn_stdout_reader(
-            reader,
-            sender,
-            Arc::clone(&overflow),
-            Arc::clone(&pong_count),
-            Arc::clone(&last_health),
-            Arc::clone(&completion),
-            Arc::clone(&stall),
-            Arc::clone(&latest_mode),
-            self.wake_source
-                .as_ref()
-                .map(|source| source.session_handle(request.session_id.clone())),
-            request.session_id.clone(),
-            self.options.test_resize_ack_hold.clone(),
-        );
-
-        let mut session = WorkerProcessSession {
-            child: Some(pending_worker.take()),
-            control,
-            control_queue: ControlQueue::new(),
-            writer_slot: ControlWriterSlot::running(),
-            control_plane: ControlPlaneState::Live,
-            writer: None,
-            wake_handle: self
-                .wake_source
-                .as_ref()
-                .map(|source| source.session_handle(request.session_id.clone())),
-            metadata,
-            output: receiver,
-            overflow,
-            pong_count,
-            last_health,
-            completion,
-            gated_in_flight: Arc::new(Mutex::new(None)),
-            mode_flags_slot: Arc::new(Mutex::new(None)),
-            latest_mode,
-            outstanding_mode_probe: Arc::new(Mutex::new(None)),
-            pending_output: std::collections::VecDeque::new(),
-            applied_resizes: std::collections::VecDeque::new(),
-            snapshot_boundary: std::collections::VecDeque::new(),
-            outstanding_snapshot_request: None,
-            supports_snapshot_boundary,
-            egress_capacity: self.options.egress_capacity.max(1),
-            stall,
-        };
-        self.start_writer_or_forget(&mut session, &request.session_id)?;
-        self.sessions.insert(request.session_id.clone(), session);
-
-        Ok(SessionRuntimeHandle {
-            request_id: request.request_id,
-            session_id: request.session_id,
-            process,
-        })
+        let launched = launch_worker(&self.options, &request)?;
+        self.install_launched(request, launched)
     }
 
     fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
@@ -1734,20 +1521,12 @@ impl SessionRuntime for WorkerProcessRuntime {
         }
     }
 
-    fn cancel_mode_gated_pty_input(
-        &mut self,
-        session_id: &SessionId,
-        request_id: &str,
-    ) -> Result<(), SessionRuntimeError> {
-        WorkerProcessRuntime::enqueue_gated_cancel(self, session_id, request_id)
-    }
-
     fn drain_output(
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        // Demux interleaved gated/mode-flags frames before yielding output so
-        // outstanding RPC waits and pending buffers stay ordered.
+        // Demux correlated replies before yielding output so typed queues
+        // and pending buffers stay ordered.
         self.pump_session_output(session_id)?;
         let mut output = Vec::new();
         let completed = {
@@ -1788,6 +1567,15 @@ impl SessionRuntime for WorkerProcessRuntime {
             }
             // Map removal transfers wake-retirement ownership to CoreDaemon.
             if let Some(mut removed) = self.sessions.remove(session_id) {
+                let final_state = removed
+                    .completion
+                    .lock()
+                    .ok()
+                    .and_then(|mut completion| completion.final_state.take());
+                if let Some(final_state) = final_state {
+                    self.retained_final_states
+                        .insert(session_id.clone(), final_state);
+                }
                 removed.close_before_blocking_shutdown();
                 removed.shutdown_control();
                 if let Some(mut child) = removed.child.take() {
@@ -1983,13 +1771,14 @@ struct WorkerProcessSession {
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
-    gated_in_flight: Arc<Mutex<Option<GatedInFlight>>>,
-    mode_flags_slot: Arc<Mutex<Option<ModeFlagsPayload>>>,
-    latest_mode: Arc<Mutex<Option<(ModeFreshnessToken, ModeFlags)>>>,
-    outstanding_mode_probe: Arc<Mutex<Option<String>>>,
-    pending_output: std::collections::VecDeque<WorkerOutputEvent>,
-    applied_resizes: std::collections::VecDeque<crate::ResizePayload>,
-    snapshot_boundary: std::collections::VecDeque<(WorkerSnapshotResult, usize)>,
+    latest_modes: Option<ModesBody>,
+    input_results: VecDeque<(u64, InputResultBody)>,
+    mode_changes: VecDeque<ModesBody>,
+    mode_flags_replies: VecDeque<ModeFlagsPayload>,
+    screen_replies: VecDeque<ScreenPayload>,
+    pending_output: VecDeque<WorkerOutputEvent>,
+    applied_resizes: VecDeque<crate::ResizePayload>,
+    snapshot_boundary: VecDeque<(WorkerSnapshotResult, usize)>,
     outstanding_snapshot_request: Option<String>,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
@@ -2080,21 +1869,10 @@ impl Drop for WorkerProcessSession {
     }
 }
 
-struct GatedInFlight {
-    request_id: String,
-    result: Option<Result<ModeGatedPtyInputResult, SessionRuntimeError>>,
-    cancelled: bool,
-    parent_deadline: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ModeFlagsProbeRequest {
-    request_id: String,
-}
-
 #[derive(Default)]
 struct WorkerCompletion {
     process_exited: Option<ProcessExitedPayload>,
+    final_state: Option<RetainedWorkerFinalState>,
     reader_finished: bool,
 }
 
@@ -2525,10 +2303,11 @@ enum WorkerOutputEvent {
 enum WorkerChannelEvent {
     Output(WorkerOutputEvent),
     ModeFlags(ModeFlagsPayload),
-    ModeGatedResult(ModeGatedPtyInputResult),
+    Screen(ScreenPayload),
+    InputResult(u64, InputResultBody),
+    ModesChanged(ModesBody),
     ResizeApplied(crate::ResizePayload),
     Snapshot(WorkerSnapshotResult),
-    MalformedModeGated { request_id: String, message: String },
 }
 
 impl WorkerOutputEvent {
@@ -2599,7 +2378,6 @@ fn spawn_stdout_reader(
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
     stall: Arc<EgressStall>,
-    latest_mode: Arc<Mutex<Option<(ModeFreshnessToken, ModeFlags)>>>,
     wake_handle: Option<SessionWakeHandle>,
     session_id: crate::SessionId,
     resize_ack_hold: Option<ResizeAckHold>,
@@ -2621,6 +2399,15 @@ fn spawn_stdout_reader(
                         }
                     }
                     notify_session_wake(&wake_handle);
+                }
+                FRAME_FINAL_STATE => {
+                    if let Ok((state, snapshot)) = decode_final_state(&frame.payload) {
+                        let snapshot = state.has_snapshot.then(|| snapshot.to_vec());
+                        if let Ok(mut completion) = completion.lock() {
+                            completion.final_state =
+                                Some(RetainedWorkerFinalState { state, snapshot });
+                        }
+                    }
                 }
                 FRAME_TITLE_CHANGED => {
                     if let Ok(title) = String::from_utf8(frame.payload) {
@@ -2689,52 +2476,62 @@ fn spawn_stdout_reader(
                     }
                 }
                 FRAME_MODE_FLAGS => {
-                    match serde_json::from_slice::<ModeFlagsPayload>(&frame.payload) {
-                        Ok(payload) => {
-                            if payload.error_kind.is_none() {
-                                if let Ok(mut latest) = latest_mode.lock() {
-                                    *latest =
-                                        Some((payload.mode_freshness, payload.mode_flags.clone()));
-                                }
-                            }
-                            send_worker_event(
-                                &sender,
-                                &overflow,
-                                &stall,
-                                &wake_handle,
-                                WorkerChannelEvent::ModeFlags(payload),
-                            );
-                        }
-                        Err(error) => {
-                            let _ = error;
-                            // Malformed probe replies fail closed on the waiter timeout path.
-                        }
-                    }
-                }
-                FRAME_MODE_GATED_PTY_INPUT_RESULT => {
-                    match serde_json::from_slice::<ModeGatedPtyInputResult>(&frame.payload) {
-                        Ok(result) => {
-                            if let Ok(mut latest) = latest_mode.lock() {
-                                *latest = Some((result.mode_freshness, result.mode_flags.clone()));
-                            }
-                            send_worker_event(
-                                &sender,
-                                &overflow,
-                                &stall,
-                                &wake_handle,
-                                WorkerChannelEvent::ModeGatedResult(result),
-                            )
-                        }
-                        Err(error) => send_worker_event(
+                    if let Ok(payload) = serde_json::from_slice::<ModeFlagsPayload>(&frame.payload)
+                    {
+                        send_worker_event(
                             &sender,
                             &overflow,
                             &stall,
                             &wake_handle,
-                            WorkerChannelEvent::MalformedModeGated {
-                                request_id: String::new(),
-                                message: format!("malformed mode-gated result: {error}"),
-                            },
-                        ),
+                            WorkerChannelEvent::ModeFlags(payload),
+                        );
+                    }
+                }
+                FRAME_SCREEN => {
+                    if let Ok(payload) = serde_json::from_slice::<ScreenPayload>(&frame.payload) {
+                        send_worker_event(
+                            &sender,
+                            &overflow,
+                            &stall,
+                            &wake_handle,
+                            WorkerChannelEvent::Screen(payload),
+                        );
+                    }
+                }
+                FRAME_INPUT_RESULT => {
+                    let decoded =
+                        split_worker_operation_key(&frame.payload)
+                            .ok()
+                            .and_then(|(key, body)| {
+                                TerminalFrame::from_bytes(body)
+                                    .ok()
+                                    .and_then(|frame| decode_input_result(&frame).ok())
+                                    .map(|result| (key, result))
+                            });
+                    if let Some((key, result)) = decoded {
+                        // Results are correlated and must not be dropped under
+                        // egress pressure: a lost result leaks a client slot.
+                        if sender
+                            .send(WorkerChannelEvent::InputResult(key, result))
+                            .is_err()
+                        {
+                            break;
+                        }
+                        notify_session_wake(&wake_handle);
+                    }
+                }
+                FRAME_MODES_CHANGED => {
+                    if let Some(modes) = TerminalFrame::from_bytes(&frame.payload)
+                        .ok()
+                        .and_then(|frame| decode_modes(&frame).ok())
+                    {
+                        if sender
+                            .send(WorkerChannelEvent::ModesChanged(modes))
+                            .is_err()
+                        {
+                            break;
+                        }
+                        notify_session_wake(&wake_handle);
                     }
                 }
                 FRAME_RESIZE_APPLIED => {
@@ -2846,21 +2643,14 @@ fn send_worker_event(
     }
 }
 
-fn next_gated_request_id() -> String {
+fn next_request_id(label: &str) -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(1);
     let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    format!("mode-gated-{}-{}", nanos, ordinal)
-}
-
-fn unix_now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
+    format!("{label}-{nanos}-{ordinal}")
 }
 
 fn read_frame(stream: &mut impl Read) -> Result<Frame, SessionRuntimeError> {
@@ -3244,7 +3034,7 @@ mod tests {
     }
 
     #[test]
-    fn adoption_starts_without_a_live_mode_record() {
+    fn adoption_starts_without_trusted_welcome_modes() {
         let path = Path::new("/tmp").join(format!(
             "botster-mode-adoption-{}-{}.sock",
             std::process::id(),
@@ -3291,12 +3081,7 @@ mod tests {
             .expect("adopt current worker protocol");
 
         assert_eq!(
-            runtime.current_mode_for(&session_id),
-            None,
-            "adoption must not trust mode flags from the welcome metadata"
-        );
-        assert_eq!(
-            runtime.latest_mode_for(&session_id, crate::ModeFreshnessToken::default()),
+            runtime.latest_modes(&session_id),
             None,
             "adoption must not trust mode flags from the welcome metadata"
         );

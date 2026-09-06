@@ -405,7 +405,7 @@ impl GhosttyClientProjection {
     /// `ready` runs. The terminal is renderable when this method returns.
     pub fn install_ghostsnp_ready(
         &mut self,
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) -> Result<GhosttySnapshotDecodeProgress, GhosttyTerminalError> {
         if bytes.is_empty() || !bytes.starts_with(GHOSTSNP_MAGIC) {
             return Err(GhosttyTerminalError::operation(
@@ -414,7 +414,8 @@ impl GhosttyClientProjection {
             ));
         }
 
-        let mut source = Box::new(IncrementalReader::new(bytes));
+        let mut source = Box::new(IncrementalReader::new());
+        source.set(bytes);
         let reader = GhosttyReader {
             read: Some(incremental_read),
             userdata: (&raw mut *source).cast(),
@@ -424,7 +425,7 @@ impl GhosttyClientProjection {
         if result != GHOSTTY_SUCCESS {
             return Err(GhosttyTerminalError::operation("snapshot_decoder", result));
         }
-        let owned = IncrementalSnapshotDecoder { decoder, source };
+        let mut owned = IncrementalSnapshotDecoder { decoder, source };
         let continuation_limit = CONTINUATION_MAX_BYTES;
         let result = unsafe {
             ghostty_snapshot_decoder_set(
@@ -442,7 +443,9 @@ impl GhosttyClientProjection {
 
         let mut decoded = ptr::null_mut();
         let result = unsafe { ghostty_snapshot_decoder_ready(owned.decoder, &mut decoded) };
-        if result != GHOSTTY_SUCCESS || !owned.source.exhausted() {
+        let exhausted = owned.source.exhausted();
+        owned.source.clear();
+        if result != GHOSTTY_SUCCESS || !exhausted {
             let code = if result == GHOSTTY_SUCCESS {
                 GHOSTTY_INVALID_VALUE
             } else {
@@ -472,7 +475,7 @@ impl GhosttyClientProjection {
     /// Apply one frame that ends at a HISTORY PAGE or FINISH.
     pub fn apply_ghostsnp_history(
         &mut self,
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) -> Result<GhosttySnapshotDecodeProgress, GhosttyTerminalError> {
         let Some(incremental) = self.incremental.as_mut() else {
             return Err(GhosttyTerminalError::operation(
@@ -480,9 +483,11 @@ impl GhosttyClientProjection {
                 GHOSTTY_INVALID_VALUE,
             ));
         };
-        incremental.source.reset(bytes);
+        incremental.source.set(bytes);
         let result = unsafe { ghostty_snapshot_decoder_next(incremental.decoder) };
-        if !incremental.source.exhausted() {
+        let exhausted = incremental.source.exhausted();
+        incremental.source.clear();
+        if !exhausted {
             self.incremental = None;
             return Err(GhosttyTerminalError::operation(
                 "snapshot_history_frame",
@@ -1108,23 +1113,50 @@ impl Drop for GhosttyClientProjection {
     }
 }
 
+/// Borrowed page source for the incremental decoder.
+///
+/// The decoder reads only inside `ghostty_snapshot_decoder_ready` and
+/// `ghostty_snapshot_decoder_next`, which run synchronously while the caller's
+/// slice is borrowed. `set` installs the slice before that call and `clear`
+/// removes it before the method returns, so no page is copied or retained.
 struct IncrementalReader {
-    bytes: Vec<u8>,
+    ptr: *const u8,
+    len: usize,
     offset: usize,
 }
 
 impl IncrementalReader {
-    fn new(bytes: Vec<u8>) -> Self {
-        Self { bytes, offset: 0 }
+    const fn new() -> Self {
+        Self {
+            ptr: ptr::null(),
+            len: 0,
+            offset: 0,
+        }
     }
 
-    fn reset(&mut self, bytes: Vec<u8>) {
-        self.bytes = bytes;
+    fn set(&mut self, bytes: &[u8]) {
+        self.ptr = bytes.as_ptr();
+        self.len = bytes.len();
         self.offset = 0;
     }
 
+    fn clear(&mut self) {
+        self.ptr = ptr::null();
+        self.len = 0;
+        self.offset = 0;
+    }
+
+    fn remaining(&self) -> &[u8] {
+        if self.ptr.is_null() {
+            return &[];
+        }
+        // SAFETY: `set` installs a slice that outlives the decoder call in
+        // progress, and `clear` runs before that borrow ends.
+        unsafe { std::slice::from_raw_parts(self.ptr.add(self.offset), self.len - self.offset) }
+    }
+
     fn exhausted(&self) -> bool {
-        self.offset == self.bytes.len()
+        self.offset == self.len
     }
 }
 
@@ -1149,7 +1181,7 @@ unsafe extern "C" fn incremental_read(
         return false;
     }
     let source = unsafe { &mut *userdata.cast::<IncrementalReader>() };
-    let remaining = &source.bytes[source.offset..];
+    let remaining = source.remaining();
     let count = remaining.len().min(capacity);
     unsafe {
         ptr::copy_nonoverlapping(remaining.as_ptr(), buffer, count);
