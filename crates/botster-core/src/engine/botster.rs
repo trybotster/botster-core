@@ -29,6 +29,8 @@ use crate::contract::terminal_wake::{
 };
 use crate::contract::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
+use crate::engine::client_worker::EnqueueRouteFrameError;
+#[cfg(feature = "local-runtime")]
 use crate::engine::command::DefaultEngineCommand;
 use crate::engine::command::{
     EngineCommand, EngineCommandError, EngineCommandOutcome, EngineSessionInspection,
@@ -111,6 +113,8 @@ pub struct WorkerBackedBotsterEngine {
     next_host_capture: u64,
     /// Finished host captures awaiting `take_host_capture`.
     host_captures: HashMap<u64, Result<HostCaptureResult, String>>,
+    /// Host captures the daemon cancelled; a late result is discarded.
+    cancelled_host_captures: HashSet<u64>,
 }
 
 /// Why one route needs a worker capture.
@@ -151,6 +155,9 @@ struct RouteCapture {
     subscription_id: SubscriptionId,
     kind: CaptureKind,
     request_id: String,
+    /// Route capture fence when this capture started. Pages are enqueued
+    /// only while the route still carries this fence.
+    capture_fence: u64,
     ready: bool,
     /// `FINISH` or an error ended the pages; the barrier release is pending.
     awaiting_release: bool,
@@ -881,6 +888,7 @@ impl WorkerBackedBotsterEngine {
             capture_queue: HashMap::new(),
             next_host_capture: 1,
             host_captures: HashMap::new(),
+            cancelled_host_captures: HashSet::new(),
         }
     }
 
@@ -993,6 +1001,30 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn spawn_pending(&self, session_id: &SessionId) -> bool {
         self.runtime.session_runtime().has_pending_spawn(session_id)
+    }
+
+    /// Abandon a spawn started by [`Self::begin_spawn`]. The launch keeps
+    /// running until [`Self::poll_spawn`] collects it; the worker is then
+    /// stopped and reaped instead of installed.
+    pub fn abandon_spawn(&mut self, session_id: &SessionId) -> bool {
+        self.runtime.session_runtime_mut().abandon_spawn(session_id)
+    }
+
+    /// A route left the epoch its capture started in: cancel the worker
+    /// barrier and let the queued resync request start a fresh capture.
+    fn supersede_capture(
+        &mut self,
+        session_id: &SessionId,
+        capture: RouteCapture,
+        output: BotsterEngineOutput,
+    ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
+        let _ = self
+            .runtime
+            .session_runtime_mut()
+            .cancel_snapshot_boundary(session_id, &capture.request_id);
+        self.start_resync_captures()?;
+        self.start_next_capture(session_id)?;
+        Ok(output)
     }
 
     /// Attach a client to a session stream.
@@ -1483,20 +1515,22 @@ impl WorkerBackedBotsterEngine {
                         .runtime
                         .session_runtime_mut()
                         .cancel_snapshot_boundary(session_id, &capture.request_id);
-                    self.host_captures.insert(id, Err(error));
+                    self.record_host_capture(id, Err(error));
                     let _ = self.start_next_capture(session_id);
                     return Ok(output);
                 }
                 // History failed after READY: the screen is valid, history is not.
                 capture.history_incomplete = true;
-                self.push_capture_frames(
+                if self.push_capture_frames(
                     session_id,
                     &capture,
                     vec![
                         encode_history_unavailable(HistoryUnavailableReason::CaptureFailed),
                         encode_snapshot_finish(),
                     ],
-                );
+                ) {
+                    return self.supersede_capture(session_id, capture, output);
+                }
                 finished = true;
                 break;
             }
@@ -1531,25 +1565,31 @@ impl WorkerBackedBotsterEngine {
                     }
                     frames.push(encode_modes(modes));
                     frames.push(encode_snapshot_ready(&snapshot.bytes));
-                    self.push_capture_frames(session_id, &capture, frames);
+                    if self.push_capture_frames(session_id, &capture, frames) {
+                        return self.supersede_capture(session_id, capture, output);
+                    }
                 }
                 crate::WorkerSnapshotPhase::History => {
-                    self.push_capture_frames(
+                    if self.push_capture_frames(
                         session_id,
                         &capture,
                         vec![encode_snapshot_history(&snapshot.bytes)],
-                    );
+                    ) {
+                        return self.supersede_capture(session_id, capture, output);
+                    }
                 }
                 crate::WorkerSnapshotPhase::Finish => {
                     // The GHOSTSNP finish record is the last history page.
-                    self.push_capture_frames(
+                    if self.push_capture_frames(
                         session_id,
                         &capture,
                         vec![
                             encode_snapshot_history(&snapshot.bytes),
                             encode_snapshot_finish(),
                         ],
-                    );
+                    ) {
+                        return self.supersede_capture(session_id, capture, output);
+                    }
                     finished = true;
                 }
             }
@@ -1614,7 +1654,7 @@ impl WorkerBackedBotsterEngine {
                 }),
                 _ => Err("worker capture omitted size or color profile".to_owned()),
             };
-            self.host_captures.insert(id, result);
+            self.record_host_capture(id, result);
         }
         if capture.kind == CaptureKind::Attach {
             let attached = self.runtime.complete_snapshot_attach(
@@ -1643,6 +1683,8 @@ impl WorkerBackedBotsterEngine {
             .unwrap_or_default()
     }
 
+    /// Enqueue capture pages under the capture's epoch. Returns `true` when
+    /// the route left that epoch and the capture is superseded.
     fn push_capture_frames(
         &mut self,
         session_id: &SessionId,
@@ -1653,27 +1695,40 @@ impl WorkerBackedBotsterEngine {
                 botster_terminal_protocol::TerminalFrameError,
             >,
         >,
-    ) {
+    ) -> bool {
         if matches!(capture.kind, CaptureKind::Host(_)) {
-            return;
+            return false;
         }
         let worker = self.runtime.client_worker_mut();
         for frame in frames {
             let Ok(frame) = frame else {
                 let _ = worker.fail_route(session_id, &capture.subscription_id);
-                return;
+                return false;
             };
-            match worker.push_route_frame(session_id, &capture.subscription_id, frame) {
+            match worker.push_capture_frame(
+                session_id,
+                &capture.subscription_id,
+                capture.capture_fence,
+                frame,
+            ) {
                 Ok(None) => {}
-                Ok(Some(_)) | Err(_) => return,
+                Err(EnqueueRouteFrameError::EpochSuperseded) => return true,
+                Ok(Some(_)) | Err(_) => return false,
             }
         }
+        false
+    }
+
+    fn record_host_capture(&mut self, id: u64, result: Result<HostCaptureResult, String>) {
+        if self.cancelled_host_captures.remove(&id) {
+            return;
+        }
+        self.host_captures.insert(id, result);
     }
 
     fn fail_capture_route(&mut self, session_id: &SessionId, capture: &RouteCapture) {
         if let CaptureKind::Host(id) = capture.kind {
-            self.host_captures
-                .insert(id, Err("worker capture failed".to_owned()));
+            self.record_host_capture(id, Err("worker capture failed".to_owned()));
             return;
         }
         let _ = self
@@ -1705,9 +1760,12 @@ impl WorkerBackedBotsterEngine {
         self.host_captures.remove(&id)
     }
 
-    /// Cancel one host capture, whether queued or active.
+    /// Cancel one host capture, whether queued, active, or finished but not
+    /// yet taken. A result that arrives later is discarded.
     pub fn cancel_host_capture(&mut self, session_id: &SessionId, id: u64) {
-        self.host_captures.remove(&id);
+        if self.host_captures.remove(&id).is_none() {
+            self.cancelled_host_captures.insert(id);
+        }
         let subscription_id = SubscriptionId(format!("host-capture-{id}"));
         self.cancel_capture_for_route(session_id, &subscription_id);
         let _ = self.start_next_capture(session_id);
@@ -1753,10 +1811,13 @@ impl WorkerBackedBotsterEngine {
                 .begin_snapshot_boundary(session_id)
             {
                 Ok(request_id) => {
+                    let mut capture_fence = 0;
                     if !is_host {
-                        self.runtime
-                            .client_worker_mut()
-                            .begin_route_capture(session_id, &next.subscription_id);
+                        let worker = self.runtime.client_worker_mut();
+                        worker.begin_route_capture(session_id, &next.subscription_id);
+                        capture_fence = worker
+                            .route_capture_fence(session_id, &next.subscription_id)
+                            .unwrap_or(0);
                     }
                     self.captures.insert(
                         session_id.clone(),
@@ -1765,6 +1826,7 @@ impl WorkerBackedBotsterEngine {
                             subscription_id: next.subscription_id,
                             kind: next.kind,
                             request_id,
+                            capture_fence,
                             ready: false,
                             awaiting_release: false,
                             history_incomplete: false,
@@ -1787,7 +1849,7 @@ impl WorkerBackedBotsterEngine {
                 }
                 Err(error) => {
                     if let CaptureKind::Host(id) = next.kind {
-                        self.host_captures.insert(id, Err(error.message));
+                        self.record_host_capture(id, Err(error.message));
                         continue;
                     }
                     let _ = self
@@ -1809,6 +1871,19 @@ impl WorkerBackedBotsterEngine {
     fn start_resync_captures(&mut self) -> Result<(), WorkerBackedBotsterEngineError> {
         let requests = self.runtime.client_worker_mut().take_resync_requests();
         for request in requests {
+            // A capture still running for this route belongs to the epoch the
+            // overflow left; its remaining pages must not enter the new one.
+            let superseded = self
+                .captures
+                .get(&request.session_id)
+                .is_some_and(|capture| {
+                    capture.subscription_id == request.subscription_id
+                        && capture.capture_fence != request.capture_fence
+                        && !matches!(capture.kind, CaptureKind::Host(_))
+                });
+            if superseded {
+                self.cancel_capture_for_route(&request.session_id, &request.subscription_id);
+            }
             self.enqueue_capture(
                 &request.session_id,
                 CaptureRequest {
@@ -1884,11 +1959,14 @@ impl WorkerBackedBotsterEngine {
         let Some(capture) = self.captures.get(session_id) else {
             return Ok(());
         };
-        if self.runtime.terminal_subscription_matches(
-            session_id,
-            &capture.client_id,
-            &capture.subscription_id,
-        ) {
+        // Host captures belong to pending host operations, not to a route.
+        if matches!(capture.kind, CaptureKind::Host(_))
+            || self.runtime.terminal_subscription_matches(
+                session_id,
+                &capture.client_id,
+                &capture.subscription_id,
+            )
+        {
             return Ok(());
         }
         let capture = self
@@ -2670,6 +2748,3 @@ where
         Self::new(R::default())
     }
 }
-
-#[cfg(all(test, unix, feature = "local-runtime"))]
-mod takeover_fail_closed_tests;

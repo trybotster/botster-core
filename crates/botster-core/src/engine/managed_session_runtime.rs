@@ -2933,7 +2933,7 @@ mod tests {
         impl TerminalAdapter for QuietAdapter {
             fn try_write(
                 &mut self,
-                _frame: &TerminalFrame,
+                _frame: &botster_terminal_protocol::RoutedTerminalFrame,
             ) -> Result<(), TerminalAdapterWriteError> {
                 Ok(())
             }

@@ -47,6 +47,9 @@ pub const INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK: usize = 64;
 pub const APPLY_COMMANDS_PER_SUBSCRIPTION_PER_TICK: usize = 16;
 /// Maximum time between an accepted paste begin and complete commit.
 pub const PASTE_ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Maximum Core-originated rejection results queued on one route. Rejections
+/// hold no input-lane reservation, so they get their own hard cap.
+pub const MAX_QUEUED_REJECTIONS_PER_ROUTE: usize = 16;
 
 /// Routes that must be unsubscribed after ClientWorker ownership hard-stop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +80,8 @@ pub struct RouteResyncRequest {
     pub generation: TerminalSubscriptionGeneration,
     /// Stream epoch the route entered with the `ROUTE_RESYNC` frame.
     pub stream_epoch: u32,
+    /// Capture fence the fresh capture must carry.
+    pub capture_fence: u64,
 }
 
 /// Failure while enqueueing a route-personal frame.
@@ -86,6 +91,8 @@ pub enum EnqueueRouteFrameError {
     OwnerGone,
     /// The frame could not be encoded.
     EncodeFailed,
+    /// The frame belongs to a capture that an overflow resync superseded.
+    EpochSuperseded,
 }
 
 /// Monotonic generation source shared by attach generations and resync epochs.
@@ -177,7 +184,7 @@ pub(crate) struct OwnerKey {
     pub(crate) subscription_id: SubscriptionId,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct LaneUsage {
     operations: usize,
     bytes: usize,
@@ -201,6 +208,10 @@ struct SubscriptionOwner {
     /// Stream epoch inside the fixed attachment generation. Starts at 0 and
     /// advances only through `ROUTE_RESYNC`.
     stream_epoch: u32,
+    /// Capture fence. Advances whenever an overflow lost visual frames, so a
+    /// capture started before that overflow can never add pages afterwards,
+    /// even when the epoch did not change.
+    capture_fence: u64,
     /// Live output is suppressed until the route's `SNAPSHOT_READY` lands.
     awaiting_capture: bool,
     input_queue: VecDeque<AdmittedInput>,
@@ -219,7 +230,6 @@ struct AdmittedInput {
 
 struct InFlightOperation {
     key: OwnerKey,
-    client_id: ClientId,
     operation_id: u64,
     retained_bytes: usize,
 }
@@ -246,9 +256,14 @@ struct QueuedFrame {
 enum QueuedKind {
     /// `PROCESS_EXIT` or `ATTACH_STATE failed`: last frame on the route.
     Terminal,
-    /// `INPUT_RESULT`: preserved across resync in order.
-    InputResult,
-    Other,
+    /// `INPUT_RESULT`: preserved across resync in order. Carries the input
+    /// lane reservation released when the adapter completes the write.
+    InputResult(LaneUsage),
+    /// `ROUTE_RESYNC`: an unsent transition is preserved across a later
+    /// overflow so the receiver always sees a transition from its epoch.
+    Resync,
+    /// Output, modes, snapshot pages, attach state: dropped on overflow.
+    Visual,
 }
 
 impl ClientWorker {
@@ -325,6 +340,7 @@ impl ClientWorker {
                 terminal_enqueued: false,
                 terminal_delivered: false,
                 stream_epoch: 0,
+                capture_fence: 0,
                 awaiting_capture: true,
                 input_queue: VecDeque::new(),
                 last_operation_id: 0,
@@ -613,6 +629,22 @@ impl ClientWorker {
         self.session_modes.get(session_id).copied()
     }
 
+    /// Current capture fence of one live route. A capture records it at
+    /// start and passes it to [`Self::push_capture_frame`].
+    #[must_use]
+    pub fn route_capture_fence(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<u64> {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .map(|owner| owner.capture_fence)
+    }
+
     /// Current stream epoch of one live route.
     #[must_use]
     pub fn route_stream_epoch(
@@ -684,7 +716,8 @@ impl ClientWorker {
         let keys = self.receiving_keys(session_id, false);
         let mut teardowns = Vec::new();
         for key in keys {
-            if let Some(teardown) = self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Other)
+            if let Some(teardown) =
+                self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Visual)
             {
                 teardowns.push(teardown);
             }
@@ -801,11 +834,36 @@ impl ClientWorker {
             owner.awaiting_capture = false;
         }
         let kind = if frame.kind() == TerminalKind::InputResult {
-            QueuedKind::InputResult
+            QueuedKind::InputResult(LaneUsage::default())
         } else {
-            QueuedKind::Other
+            QueuedKind::Visual
         };
         Ok(self.enqueue_owner_frame(&key, frame, kind))
+    }
+
+    /// Enqueue one capture page under the fence the capture started with.
+    ///
+    /// A page from a capture that an overflow superseded is refused with
+    /// [`EnqueueRouteFrameError::EpochSuperseded`]; the host cancels that
+    /// capture and the pending resync request starts a fresh one.
+    pub fn push_capture_frame(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        capture_fence: u64,
+        frame: TerminalFrame,
+    ) -> Result<Option<ClientWorkerTeardown>, EnqueueRouteFrameError> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let Some(owner) = self.live.get(&key) else {
+            return Err(EnqueueRouteFrameError::OwnerGone);
+        };
+        if owner.capture_fence != capture_fence {
+            return Err(EnqueueRouteFrameError::EpochSuperseded);
+        }
+        self.push_route_frame(session_id, subscription_id, frame)
     }
 
     /// Enqueue an `ATTACH_STATE` frame for one route.
@@ -914,6 +972,20 @@ impl ClientWorker {
             if owner.terminal_enqueued {
                 return None;
             }
+            if matches!(kind, QueuedKind::InputResult(usage) if usage.operations == 0) {
+                let queued_rejections = owner
+                    .queue
+                    .iter()
+                    .filter(|queued| {
+                        matches!(queued.kind, QueuedKind::InputResult(usage) if usage.operations == 0)
+                    })
+                    .count();
+                if queued_rejections >= MAX_QUEUED_REJECTIONS_PER_ROUTE {
+                    // Rejection traffic has no lane reservation; end the
+                    // route explicitly instead of retaining it unbounded.
+                    return self.hard_stop_key(key);
+                }
+            }
             owner.queue.len() >= MAX_ROUTE_EGRESS_FRAMES
                 || owner.queued_bytes.saturating_add(frame.len()) > MAX_ROUTE_EGRESS_BYTES
         };
@@ -942,66 +1014,113 @@ impl ClientWorker {
         None
     }
 
+    /// Recover one overflowing route.
+    ///
+    /// Order of preference: the in-flight head is untouched; unsent visual
+    /// frames are dropped; terminal frames, input results, and an unsent
+    /// transition are preserved. When a visual frame was lost the route needs
+    /// a transition: an unsent transition already in the queue is kept (it
+    /// still names the receiver's epoch), otherwise the route enters the next
+    /// epoch and queues `ROUTE_RESYNC` first. Preserved results are re-stamped
+    /// with the route epoch. If the preserved frames still exceed the ceiling
+    /// the route ends explicitly.
     fn overflow_route(
         &mut self,
         key: &OwnerKey,
         overflowing: TerminalFrame,
         overflowing_kind: QueuedKind,
     ) -> Option<ClientWorkerTeardown> {
-        let from_epoch = self.live.get(key)?.stream_epoch;
-        let Some(to_epoch) = from_epoch.checked_add(1) else {
-            // Epoch exhausted: end the route explicitly. `fail_route` needs
-            // queue room, so drop the unsent frames first.
+        let mut lost_visual = matches!(overflowing_kind, QueuedKind::Visual);
+        let (needs_transition, epoch_exhausted, ready) = {
             let owner = self.live.get_mut(key)?;
             let keep = usize::from(owner.in_flight);
-            owner.queue.truncate(keep);
+            let mut kept: VecDeque<QueuedFrame> = VecDeque::new();
+            let mut unsent_transition: Option<QueuedFrame> = None;
+            for queued in owner.queue.drain(keep..) {
+                match queued.kind {
+                    QueuedKind::Visual => lost_visual = true,
+                    QueuedKind::Resync => unsent_transition = Some(queued),
+                    QueuedKind::Terminal | QueuedKind::InputResult(_) => kept.push_back(queued),
+                }
+            }
+            let terminal_incoming = matches!(overflowing_kind, QueuedKind::Terminal);
+            if !matches!(overflowing_kind, QueuedKind::Visual) {
+                kept.push_back(QueuedFrame {
+                    frame: overflowing,
+                    kind: overflowing_kind,
+                    stream_epoch: owner.stream_epoch,
+                });
+                if terminal_incoming {
+                    owner.terminal_enqueued = true;
+                }
+            }
+            // A terminal frame ends the route; no capture can follow it.
+            let needs_transition = lost_visual && !terminal_incoming && !owner.terminal_enqueued;
+            let mut epoch_exhausted = false;
+            if let Some(transition) = unsent_transition {
+                // The receiver still sits at the epoch this transition leaves.
+                kept.push_front(transition);
+            } else if needs_transition {
+                match owner.stream_epoch.checked_add(1) {
+                    Some(to_epoch) => match encode_route_resync(owner.stream_epoch, to_epoch) {
+                        Ok(frame) => {
+                            owner.stream_epoch = to_epoch;
+                            kept.push_front(QueuedFrame {
+                                frame,
+                                kind: QueuedKind::Resync,
+                                stream_epoch: to_epoch,
+                            });
+                        }
+                        Err(_) => epoch_exhausted = true,
+                    },
+                    None => epoch_exhausted = true,
+                }
+            }
+            for queued in &mut kept {
+                if matches!(queued.kind, QueuedKind::InputResult(_)) {
+                    queued.stream_epoch = owner.stream_epoch;
+                }
+            }
+            owner.queue.append(&mut kept);
             owner.queued_bytes = owner.queue.iter().map(|queued| queued.frame.len()).sum();
+            if needs_transition {
+                owner.awaiting_capture = true;
+                owner.capture_fence = owner.capture_fence.wrapping_add(1);
+            }
+            let ready = Self::owner_ready_for_bound_queue_wake(owner);
+            (needs_transition, epoch_exhausted, ready)
+        };
+        if epoch_exhausted {
             return self.fail_route(&key.session_id, &key.subscription_id);
-        };
-        let resync = match encode_route_resync(from_epoch, to_epoch) {
-            Ok(frame) => frame,
-            Err(_) => return self.hard_stop_key(key),
-        };
-        let owner = self.live.get_mut(key)?;
-        // The in-flight head is already copied by the adapter; keep its slot so
-        // completion bookkeeping stays exact. Unsent obsolete frames are
-        // dropped; accepted input results are preserved in order behind the
-        // transition under the new epoch.
-        let keep = usize::from(owner.in_flight);
-        let mut preserved: VecDeque<QueuedFrame> = owner.queue.drain(keep..).collect();
-        preserved.retain(|queued| queued.kind == QueuedKind::InputResult);
-        if overflowing_kind == QueuedKind::InputResult {
-            preserved.push_back(QueuedFrame {
-                frame: overflowing,
-                kind: overflowing_kind,
-                stream_epoch: from_epoch,
-            });
         }
-        owner.stream_epoch = to_epoch;
-        owner.awaiting_capture = true;
-        owner.queue.push_back(QueuedFrame {
-            frame: resync,
-            kind: QueuedKind::Other,
-            stream_epoch: to_epoch,
+        let still_over = self.live.get(key).is_some_and(|owner| {
+            owner.queue.len() > MAX_ROUTE_EGRESS_FRAMES
+                || owner.queued_bytes > MAX_ROUTE_EGRESS_BYTES
         });
-        for mut queued in preserved {
-            queued.stream_epoch = to_epoch;
-            owner.queue.push_back(queued);
+        if still_over {
+            // Bounded retention is impossible: end the route explicitly.
+            return self.hard_stop_key(key);
         }
-        owner.queued_bytes = owner.queue.iter().map(|queued| queued.frame.len()).sum();
-        let ready = Self::owner_ready_for_bound_queue_wake(owner);
-        let request = RouteResyncRequest {
-            client_id: owner.client_id.clone(),
-            session_id: key.session_id.clone(),
-            subscription_id: key.subscription_id.clone(),
-            generation: owner.generation,
-            stream_epoch: to_epoch,
-        };
         if ready {
             self.bound_queue_wake_sessions
                 .insert(key.session_id.clone());
         }
-        self.resync_requests.push(request);
+        if needs_transition {
+            let owner = self.live.get(key)?;
+            let request = RouteResyncRequest {
+                client_id: owner.client_id.clone(),
+                session_id: key.session_id.clone(),
+                subscription_id: key.subscription_id.clone(),
+                generation: owner.generation,
+                stream_epoch: owner.stream_epoch,
+                capture_fence: owner.capture_fence,
+            };
+            self.resync_requests.retain(|pending| {
+                pending.session_id != request.session_id
+                    || pending.subscription_id != request.subscription_id
+            });
+            self.resync_requests.push(request);
+        }
         None
     }
 
@@ -1053,7 +1172,8 @@ impl ClientWorker {
             if owner.in_flight {
                 match adapter.pressure() {
                     TerminalAdapterPressure::Ready => {
-                        Self::complete_head(owner);
+                        self.complete_head(key);
+                        continue;
                     }
                     TerminalAdapterPressure::Closed => return self.hard_stop_key(key),
                     TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
@@ -1083,7 +1203,7 @@ impl ClientWorker {
                     owner.in_flight = true;
                     owner.unsuccessful_writes = 0;
                     if adapter.pressure() == TerminalAdapterPressure::Ready {
-                        Self::complete_head(owner);
+                        self.complete_head(key);
                         continue;
                     }
                     return None;
@@ -1100,15 +1220,30 @@ impl ClientWorker {
         }
     }
 
-    fn complete_head(owner: &mut SubscriptionOwner) {
+    /// The adapter finished the head frame. Input lane reservations held by
+    /// a delivered result are released here, not at worker completion.
+    fn complete_head(&mut self, key: &OwnerKey) {
+        let Some(owner) = self.live.get_mut(key) else {
+            return;
+        };
+        let mut released = None;
         if let Some(completed) = owner.queue.pop_front() {
             owner.queued_bytes = owner.queued_bytes.saturating_sub(completed.frame.len());
-            if completed.kind == QueuedKind::Terminal {
-                owner.terminal_delivered = true;
+            match completed.kind {
+                QueuedKind::Terminal => owner.terminal_delivered = true,
+                QueuedKind::InputResult(usage) if usage.operations > 0 => {
+                    owner.lane.operations = owner.lane.operations.saturating_sub(usage.operations);
+                    owner.lane.bytes = owner.lane.bytes.saturating_sub(usage.bytes);
+                    released = Some((owner.client_id.clone(), usage));
+                }
+                _ => {}
             }
         }
         owner.in_flight = false;
         owner.unsuccessful_writes = 0;
+        if let Some((client_id, usage)) = released {
+            self.release_lane(&key.session_id, &client_id, usage);
+        }
     }
 
     /// Intake only routes named by a wake batch. Never `try_read`s an unnamed adapter.
@@ -1549,10 +1684,36 @@ impl ClientWorker {
     }
 
     fn enqueue_result(&mut self, key: &OwnerKey, result: &InputResultBody) -> Result<(), ()> {
+        self.enqueue_result_with_reservation(key, result, LaneUsage::default())
+    }
+
+    /// Enqueue a result that keeps `reservation` until the adapter delivers it.
+    fn enqueue_result_with_reservation(
+        &mut self,
+        key: &OwnerKey,
+        result: &InputResultBody,
+        reservation: LaneUsage,
+    ) -> Result<(), ()> {
         let frame = encode_input_result(result).map_err(|_| ())?;
-        match self.push_route_frame(&key.session_id, &key.subscription_id, frame) {
-            Ok(None) => Ok(()),
-            Ok(Some(_)) | Err(_) => Err(()),
+        let Some(owner) = self.live.get(key) else {
+            return Err(());
+        };
+        if owner.adapter.is_none() && !owner.hold_until_bound {
+            // Unbound owners never receive results; the reservation ends now.
+            if reservation.operations > 0 {
+                let client_id = owner.client_id.clone();
+                if let Some(owner) = self.live.get_mut(key) {
+                    owner.lane.operations =
+                        owner.lane.operations.saturating_sub(reservation.operations);
+                    owner.lane.bytes = owner.lane.bytes.saturating_sub(reservation.bytes);
+                }
+                self.release_lane(&key.session_id, &client_id, reservation);
+            }
+            return Ok(());
+        }
+        match self.enqueue_owner_frame(key, frame, QueuedKind::InputResult(reservation)) {
+            None => Ok(()),
+            Some(_) => Err(()),
         }
     }
 
@@ -1651,7 +1812,6 @@ impl ClientWorker {
             operation_key,
             InFlightOperation {
                 key: key.clone(),
-                client_id: owner.client_id.clone(),
                 operation_id: input.operation_id,
                 retained_bytes: staged.body.len(),
             },
@@ -1690,15 +1850,16 @@ impl ClientWorker {
             operations: 1,
             bytes: operation.retained_bytes,
         };
-        self.release_lane(&operation.key.session_id, &operation.client_id, usage);
-        if let Some(owner) = self.live.get_mut(&operation.key) {
-            owner.lane.operations = owner.lane.operations.saturating_sub(1);
-            owner.lane.bytes = owner.lane.bytes.saturating_sub(operation.retained_bytes);
+        if !self.live.contains_key(&operation.key) {
+            // The route is gone; its owner lane was released at hard-stop.
+            return None;
         }
         let mut result = result;
         result.operation_id = operation.operation_id;
         result.detail = bounded_detail(&result.detail);
-        match self.enqueue_result(&operation.key, &result) {
+        // The reservation moves from the in-flight map onto the queued result
+        // and is released when the adapter completes the write.
+        match self.enqueue_result_with_reservation(&operation.key, &result, usage) {
             Ok(()) => None,
             Err(()) => self.hard_stop_key(&operation.key),
         }
@@ -2012,5 +2173,217 @@ fn terminal_route(frame: &TransportEgress) -> Option<(&SessionId, &SubscriptionI
             ..
         } => Some((session_id, subscription_id)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::terminal_wake::TerminalWakeSink;
+    use botster_terminal_protocol::{encode_snapshot_history, encode_snapshot_ready};
+
+    /// Adapter whose write slot never drains, so frames stay queued in Core.
+    struct StuckAdapter;
+
+    impl TerminalAdapter for StuckAdapter {
+        fn try_write(
+            &mut self,
+            _frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
+            Err(TerminalAdapterWriteError::WouldBlock)
+        }
+
+        fn close(&mut self) {}
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            TerminalAdapterPressure::WouldBlock
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            TerminalIngress::Empty
+        }
+    }
+
+    impl WakingTerminalAdapter for StuckAdapter {
+        fn set_wake_sink(&mut self, _sink: TerminalWakeSink) {}
+    }
+
+    fn bound_route() -> (ClientWorker, OwnerKey) {
+        let mut worker = ClientWorker::new();
+        let client = ClientId("client".into());
+        let session = SessionId("session".into());
+        let subscription = SubscriptionId("route".into());
+        let (generation, _) = worker
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("valid route");
+        worker
+            .bind_waking_terminal_adapter(
+                &client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(StuckAdapter),
+            )
+            .expect("bind");
+        // The route has its capture; live output flows.
+        worker
+            .push_route_frame(
+                &session,
+                &subscription,
+                encode_snapshot_ready(b"GHOSTSNP").expect("ready"),
+            )
+            .expect("ready enqueue");
+        (
+            worker,
+            OwnerKey {
+                session_id: session,
+                subscription_id: subscription,
+            },
+        )
+    }
+
+    fn fill_route(worker: &mut ClientWorker, key: &OwnerKey) {
+        while worker.live[key].queue.len() < MAX_ROUTE_EGRESS_FRAMES {
+            let teardowns = worker.push_session_output(&key.session_id, b"x");
+            assert!(teardowns.is_empty());
+        }
+    }
+
+    fn kinds(worker: &ClientWorker, key: &OwnerKey) -> Vec<&'static str> {
+        worker.live[key]
+            .queue
+            .iter()
+            .map(|queued| match queued.kind {
+                QueuedKind::Terminal => "terminal",
+                QueuedKind::InputResult(_) => "result",
+                QueuedKind::Resync => "resync",
+                QueuedKind::Visual => "visual",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn overflow_on_a_full_route_preserves_the_terminal_frame() {
+        let (mut worker, key) = bound_route();
+        fill_route(&mut worker, &key);
+
+        let teardowns = worker.push_session_process_exit(&key.session_id, Some(0));
+
+        assert!(teardowns.is_empty());
+        let owner = &worker.live[&key];
+        assert!(owner.terminal_enqueued);
+        assert_eq!(kinds(&worker, &key), vec!["terminal"]);
+        assert_eq!(owner.stream_epoch, 0, "a terminal frame needs no new epoch");
+        assert!(worker.take_resync_requests().is_empty());
+    }
+
+    #[test]
+    fn second_overflow_keeps_the_unsent_transition_from_the_receiver_epoch() {
+        let (mut worker, key) = bound_route();
+        fill_route(&mut worker, &key);
+        assert!(worker
+            .push_session_output(&key.session_id, b"overflow")
+            .is_empty());
+        assert_eq!(kinds(&worker, &key), vec!["resync"]);
+        assert_eq!(worker.live[&key].stream_epoch, 1);
+        // The route awaits its capture, so live output is suppressed; a
+        // route-personal visual frame still queues and can overflow again.
+        for _ in 0..MAX_ROUTE_EGRESS_FRAMES {
+            let _ = worker.push_route_frame(
+                &key.session_id,
+                &key.subscription_id,
+                encode_modes(ModesBody::default()).expect("modes"),
+            );
+        }
+
+        let queued = kinds(&worker, &key);
+        assert_eq!(queued.first(), Some(&"resync"));
+        assert_eq!(queued.iter().filter(|kind| **kind == "resync").count(), 1);
+        let transition = decode_route_resync_frame(&worker.live[&key].queue[0].frame);
+        assert_eq!((transition.from_epoch, transition.to_epoch), (0, 1));
+        assert_eq!(worker.live[&key].stream_epoch, 1);
+        let requests = worker.take_resync_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].stream_epoch, 1);
+    }
+
+    #[test]
+    fn a_page_from_a_superseded_capture_is_refused() {
+        let (mut worker, key) = bound_route();
+        fill_route(&mut worker, &key);
+        assert!(worker
+            .push_session_output(&key.session_id, b"overflow")
+            .is_empty());
+
+        let refused = worker.push_capture_frame(
+            &key.session_id,
+            &key.subscription_id,
+            0,
+            encode_snapshot_history(b"stale page").expect("page"),
+        );
+
+        assert!(matches!(
+            refused,
+            Err(EnqueueRouteFrameError::EpochSuperseded)
+        ));
+        assert!(!kinds(&worker, &key).contains(&"visual"));
+    }
+
+    #[test]
+    fn queued_rejections_are_capped_and_end_the_route_explicitly() {
+        let (mut worker, key) = bound_route();
+        for operation_id in 1..=MAX_QUEUED_REJECTIONS_PER_ROUTE as u64 {
+            worker
+                .reject(&key, operation_id, InputOutcome::RejectedProtocol, "")
+                .expect("rejection fits");
+        }
+
+        let overflowed = worker.reject(&key, 99, InputOutcome::RejectedProtocol, "");
+
+        assert!(overflowed.is_err());
+        assert!(!worker.live.contains_key(&key), "route hard-stopped");
+    }
+
+    #[test]
+    fn a_delivered_result_releases_its_lane_reservation() {
+        let (mut worker, key) = bound_route();
+        let usage = LaneUsage {
+            operations: 1,
+            bytes: 7,
+        };
+        let client = worker.live[&key].client_id.clone();
+        worker.reserve_lane(&key.session_id, &client, usage);
+        worker.live.get_mut(&key).unwrap().lane = usage;
+        worker
+            .enqueue_result_with_reservation(
+                &key,
+                &InputResultBody {
+                    operation_id: 1,
+                    outcome: InputOutcome::Written,
+                    accepted_payload_bytes: Some(7),
+                    written_pty_bytes: Some(7),
+                    mode_bits: 0,
+                    detail: String::new(),
+                },
+                usage,
+            )
+            .expect("queued");
+        assert_eq!(worker.session_in_flight_operations(&key.session_id), 1);
+
+        // Deliver the READY frame, then the result.
+        worker.live.get_mut(&key).unwrap().in_flight = true;
+        worker.complete_head(&key);
+        worker.live.get_mut(&key).unwrap().in_flight = true;
+        worker.complete_head(&key);
+
+        assert_eq!(worker.session_in_flight_operations(&key.session_id), 0);
+        assert_eq!(worker.live[&key].lane.operations, 0);
+    }
+
+    fn decode_route_resync_frame(
+        frame: &TerminalFrame,
+    ) -> botster_terminal_protocol::RouteResyncBody {
+        botster_terminal_protocol::decode_route_resync(frame).expect("resync body")
     }
 }

@@ -49,17 +49,30 @@ adapter one frame at a time and never re-stamps a queued frame.
 The per-route queue is bounded to 64 frames or 4 MiB. On overflow:
 
 1. The in-flight head stays; the adapter already holds it.
-2. Unsent `OUTPUT`, `MODES`, and snapshot frames are dropped.
-3. The route enters `to_epoch = from_epoch + 1` and queues
-   `ROUTE_RESYNC { from_epoch, to_epoch }` under `to_epoch`.
-4. Unsent `INPUT_RESULT` frames are preserved in order behind the
-   transition and re-stamped with `to_epoch`.
-5. The route awaits a fresh capture; the engine takes the request through
-   `take_resync_requests` and starts a worker capture for that route only.
+2. Unsent `OUTPUT`, `MODES`, and snapshot frames are dropped. Terminal
+   frames (`PROCESS_EXIT`, `ATTACH_STATE failed`), `INPUT_RESULT` frames,
+   and an unsent `ROUTE_RESYNC` are preserved.
+3. When a visual frame was lost and the route is not ending: if an unsent
+   transition is already queued it is kept first (it still names the
+   receiver's epoch); otherwise the route enters `to_epoch = from_epoch + 1`
+   and queues `ROUTE_RESYNC { from_epoch, to_epoch }` first.
+4. Preserved `INPUT_RESULT` frames follow the transition, re-stamped with the
+   route epoch. Output and snapshot data are never re-stamped.
+5. The route's capture fence advances, the route awaits a fresh capture, and
+   the engine takes the request through `take_resync_requests`. A capture
+   started before the overflow cannot add pages afterwards: `push_capture_frame`
+   refuses pages whose fence is stale and the engine cancels that capture.
+6. If the preserved frames still exceed the ceiling, the route ends
+   explicitly (hard-stop; outstanding operations resolve as unknown).
 
 Epoch exhaustion ends the route with `ATTACH_STATE failed`. A route whose
-terminal frame (`PROCESS_EXIT` or `ATTACH_STATE failed`) was delivered
-hard-stops on the next pump.
+terminal frame was delivered hard-stops on the next pump. A terminal frame
+arriving on a full route replaces the unsent visual frames and is delivered.
+
+Input results hold their lane reservation until the adapter completes the
+write, so undelivered results count against admission. Core-originated
+rejections hold no reservation and are capped at 16 queued per route; the
+17th ends the route explicitly.
 
 ## Ingress (Stage A)
 
@@ -91,8 +104,9 @@ managed runtime sends it as `FRAME_INPUT_OPERATION` and, on a full or sealed
 control lane, resolves it at once (`rejected_lane_full`,
 `rejected_not_writable`).
 
-`complete_operation(key, result)` releases the lane and queues
-`INPUT_RESULT` on the route. Results for routes that were torn down are
+`complete_operation(key, result)` moves the lane reservation onto the
+queued `INPUT_RESULT`; the reservation is released when the adapter
+completes that write. Results for routes that were torn down are
 dropped; the client already resolved them as unknown on close.
 `fail_in_flight_for_session` resolves every in-flight operation with one
 outcome when the worker link ends (`outcome_unknown`).

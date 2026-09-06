@@ -1948,7 +1948,6 @@ mod tests {
             force_would_block_until_unix_ms: Some(unix_now_ms() + 5_000),
             max_chunk: Some(1),
             writes_completed: AtomicUsize::new(0),
-            fail_writes: false,
         };
         let deadline = unix_now_ms() + 30;
         let err = write_all_blocking(&mut writer, b"abcdef", Some(deadline), Some(&hooks))

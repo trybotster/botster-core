@@ -442,6 +442,9 @@ pub struct CoreDaemon {
 struct PendingState {
     kind: PendingKind,
     deadline: Option<Instant>,
+    /// The host cancelled this operation; the completion was already
+    /// emitted. The entry stays until the runtime finished the work it owns.
+    cancelled: bool,
 }
 
 enum PendingKind {
@@ -1637,6 +1640,26 @@ impl CoreDaemon {
     /// A cancelled operation completes with [`CoreDaemonError::Cancelled`].
     /// Worker work already sent is not undone.
     pub fn cancel(&mut self, id: PendingOperationId) -> bool {
+        if self.pending.get(&id).is_some_and(|state| state.cancelled) {
+            return false;
+        }
+        if let Some(state) = self.pending.get_mut(&id) {
+            if let PendingKind::Spawn { session_id, .. } = &state.kind {
+                // The launch thread still owns a child process. Keep the
+                // entry, and the spawn concurrency slot, until the runtime
+                // collects and stops that child.
+                let session_id = session_id.clone();
+                state.cancelled = true;
+                if let DaemonEngine::Worker(engine) = &mut self.engine {
+                    engine.abandon_spawn(&session_id);
+                }
+                self.completions.push(CoreCompletion::Spawn {
+                    id,
+                    result: Err(CoreDaemonError::Cancelled),
+                });
+                return true;
+            }
+        }
         let Some(state) = self.pending.remove(&id) else {
             return false;
         };
@@ -1723,7 +1746,24 @@ impl CoreDaemon {
     pub fn release_owner_captures(&mut self, owner: &CaptureOwner) -> usize {
         let before = self.open_captures.len();
         self.open_captures.retain(|_, open| &open.owner != owner);
-        before - self.open_captures.len()
+        let released_open = before - self.open_captures.len();
+        // Queued and active captures of this owner are cancelled as well so a
+        // late worker completion cannot reopen a capture for a gone client.
+        let pending_ids: Vec<_> = self
+            .pending
+            .iter()
+            .filter(|(_, state)| {
+                matches!(&state.kind, PendingKind::CaptureSnapshot { owner: pending, .. } if pending == owner)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut cancelled = 0;
+        for id in pending_ids {
+            if self.cancel(id) {
+                cancelled += 1;
+            }
+        }
+        released_open + cancelled
     }
 
     fn allocate_pending_id(&mut self) -> PendingOperationId {
@@ -1803,6 +1843,7 @@ impl CoreDaemon {
                             now_seconds,
                         },
                         deadline: None,
+                        cancelled: false,
                     },
                 );
                 Ok(())
@@ -1877,6 +1918,7 @@ impl CoreDaemon {
                     now_seconds,
                 },
                 deadline: Some(Instant::now() + SHUTDOWN_DEADLINE),
+                cancelled: false,
             },
         );
         Ok(())
@@ -1946,6 +1988,7 @@ impl CoreDaemon {
                             probe_id,
                         },
                         deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                        cancelled: false,
                     },
                 );
                 Ok(())
@@ -2019,6 +2062,7 @@ impl CoreDaemon {
                             probe_id,
                         },
                         deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                        cancelled: false,
                     },
                 );
                 Ok(())
@@ -2105,6 +2149,7 @@ impl CoreDaemon {
                             host_capture,
                         },
                         deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                        cancelled: false,
                     },
                 );
                 Ok(())
@@ -2142,6 +2187,7 @@ impl CoreDaemon {
                     cols,
                 },
                 deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                cancelled: false,
             },
         );
         Ok(())
@@ -2185,12 +2231,46 @@ impl CoreDaemon {
     /// Reconcile worker replies, deadlines, and expiries for pending operations.
     fn reconcile_pending(&mut self, now_seconds: u64) {
         let now = Instant::now();
+        // Drain worker probe replies once per session and hand each reply to
+        // the pending operation that owns its request id, so concurrent
+        // readbacks never consume each other's replies.
+        let mut screen_replies: HashMap<String, botster_core::ScreenPayload> = HashMap::new();
+        let mut mode_replies: HashMap<String, botster_core::ModeFlagsPayload> = HashMap::new();
+        if let DaemonEngine::Worker(engine) = &mut self.engine {
+            let mut screen_sessions = HashSet::new();
+            let mut mode_sessions = HashSet::new();
+            for state in self.pending.values() {
+                match &state.kind {
+                    PendingKind::ReadScreen { session_id, .. } => {
+                        screen_sessions.insert(session_id.clone());
+                    }
+                    PendingKind::ReadModeFlags { session_id, .. } => {
+                        mode_sessions.insert(session_id.clone());
+                    }
+                    _ => {}
+                }
+            }
+            for session_id in screen_sessions {
+                for reply in engine.take_screen_replies(&session_id).unwrap_or_default() {
+                    screen_replies.insert(reply.request_id.clone(), reply);
+                }
+            }
+            for session_id in mode_sessions {
+                for reply in engine
+                    .take_mode_flags_replies(&session_id)
+                    .unwrap_or_default()
+                {
+                    mode_replies.insert(reply.request_id.clone(), reply);
+                }
+            }
+        }
         let ids: Vec<_> = self.pending.keys().copied().collect();
         for id in ids {
             let Some(state) = self.pending.get(&id) else {
                 continue;
             };
             let expired = state.deadline.is_some_and(|deadline| deadline <= now);
+            let cancelled = state.cancelled;
             let completion = match &state.kind {
                 PendingKind::Spawn {
                     session_id,
@@ -2202,6 +2282,21 @@ impl CoreDaemon {
                     let DaemonEngine::Worker(engine) = &mut self.engine else {
                         continue;
                     };
+                    if cancelled {
+                        // Completion already emitted. Wait until the runtime
+                        // collected and stopped the abandoned launch.
+                        match engine.poll_spawn(
+                            session_id,
+                            metadata.clone(),
+                            TerminalScreenSize::new(size.rows, size.cols),
+                        ) {
+                            Ok(None) => continue,
+                            Ok(Some(_)) | Err(_) => {
+                                self.pending.remove(&id);
+                                continue;
+                            }
+                        }
+                    }
                     let polled = engine.poll_spawn(
                         session_id,
                         metadata.clone(),
@@ -2249,10 +2344,7 @@ impl CoreDaemon {
                     };
                     let session_id = session_id.clone();
                     let probe_id = probe_id.clone();
-                    let replies = engine.take_screen_replies(&session_id).unwrap_or_default();
-                    let matched = replies
-                        .into_iter()
-                        .find(|reply| reply.request_id == probe_id);
+                    let matched = screen_replies.remove(&probe_id);
                     match matched {
                         Some(reply) => CoreCompletion::ReadScreen {
                             id,
@@ -2293,12 +2385,7 @@ impl CoreDaemon {
                     };
                     let session_id = session_id.clone();
                     let probe_id = probe_id.clone();
-                    let replies = engine
-                        .take_mode_flags_replies(&session_id)
-                        .unwrap_or_default();
-                    let matched = replies
-                        .into_iter()
-                        .find(|reply| reply.request_id == probe_id);
+                    let matched = mode_replies.remove(&probe_id);
                     match matched {
                         Some(reply) => CoreCompletion::ReadModeFlags {
                             id,
@@ -2573,7 +2660,12 @@ impl CoreDaemon {
     /// Apply the retention policy: refuse oversize objects, evict the oldest.
     fn admit_retained(&mut self, session_id: &SessionId, retained: RetainedTerminal) {
         let policy = self.config.retention;
-        if retained.bytes > policy.max_object_bytes {
+        // Every unconditional refusal is decided before any eviction so an
+        // object that can never fit does not displace valid history.
+        if retained.bytes > policy.max_object_bytes
+            || retained.bytes > policy.max_total_bytes
+            || policy.max_sessions == 0
+        {
             self.retention_accounting.oversize_refusals += 1;
             self.retained_unavailable
                 .insert(session_id.clone(), HistoryUnavailableReason::Oversize);
@@ -2592,12 +2684,6 @@ impl CoreDaemon {
                 break;
             };
             self.evict_retained(&oldest);
-        }
-        if retained.bytes > policy.max_total_bytes || policy.max_sessions == 0 {
-            self.retention_accounting.oversize_refusals += 1;
-            self.retained_unavailable
-                .insert(session_id.clone(), HistoryUnavailableReason::Oversize);
-            return;
         }
         self.retention_accounting.total_bytes += retained.bytes;
         self.retention_accounting.sessions += 1;
@@ -5087,6 +5173,55 @@ fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {
         SessionWorkerStaleReason::WorkerDied
     } else {
         SessionWorkerStaleReason::ProcessMissing
+    }
+}
+
+#[cfg(test)]
+mod retention_admission_tests {
+    use super::*;
+
+    fn retained(bytes: usize, exited_at: u64) -> RetainedTerminal {
+        RetainedTerminal {
+            screen_text: Arc::from(""),
+            snapshot: Some(Arc::from(vec![0u8; bytes].into_boxed_slice())),
+            mode_bits: 0,
+            rows: 24,
+            cols: 80,
+            color_profile: TerminalColorProfile::default(),
+            exited_at,
+            bytes,
+        }
+    }
+
+    #[test]
+    fn an_object_that_can_never_fit_does_not_evict_valid_history() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-retention-admission-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let config = CoreDaemonConfig::new(&data_dir).with_retention_policy(RetentionPolicy {
+            max_object_bytes: 16 * 1024 * 1024,
+            max_total_bytes: 8 * 1024 * 1024,
+            max_sessions: 8,
+        });
+        let mut daemon = CoreDaemon::new(config);
+        let small = SessionId("small".to_string());
+        let large = SessionId("large".to_string());
+        daemon.admit_retained(&small, retained(1024, 1));
+
+        daemon.admit_retained(&large, retained(10 * 1024 * 1024, 2));
+
+        assert!(daemon.retained_terminal.contains_key(&small));
+        assert_eq!(
+            daemon.retained_unavailable.get(&large),
+            Some(&HistoryUnavailableReason::Oversize)
+        );
+        assert_eq!(daemon.retention_accounting.evictions, 0);
+        assert_eq!(daemon.retention_accounting.oversize_refusals, 1);
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }
 
