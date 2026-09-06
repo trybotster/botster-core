@@ -605,6 +605,376 @@ unsafe extern "C" {
     pub(crate) fn ghostty_free(allocator: *const c_void, ptr: *mut u8, len: usize);
 }
 
+// ---------------------------------------------------------------------------
+// Input encoders: key, mouse, focus, paste (ghostty/vt/key, mouse, focus, paste)
+// ---------------------------------------------------------------------------
+
+/// Opaque key event handle owned by libghostty-vt.
+pub(crate) type GhosttyKeyEvent = *mut c_void;
+/// Opaque key encoder handle owned by libghostty-vt.
+pub(crate) type GhosttyKeyEncoder = *mut c_void;
+/// Opaque mouse event handle owned by libghostty-vt.
+pub(crate) type GhosttyMouseEvent = *mut c_void;
+/// Opaque mouse encoder handle owned by libghostty-vt.
+pub(crate) type GhosttyMouseEncoder = *mut c_void;
+
+/// `GhosttyKeyAction` (`int`).
+pub(crate) type GhosttyKeyAction = c_int;
+pub(crate) const GHOSTTY_KEY_ACTION_RELEASE: GhosttyKeyAction = 0;
+pub(crate) const GHOSTTY_KEY_ACTION_PRESS: GhosttyKeyAction = 1;
+pub(crate) const GHOSTTY_KEY_ACTION_REPEAT: GhosttyKeyAction = 2;
+
+/// `GhosttyMods` (`uint16_t`). Bit layout matches `botster_terminal_protocol::terminal_mods`.
+pub(crate) type GhosttyMods = u16;
+
+/// `GhosttyKey` (`int`). Values follow `ghostty/vt/key/event.h` declaration order.
+pub(crate) type GhosttyKey = c_int;
+pub(crate) const GHOSTTY_KEY_UNIDENTIFIED: GhosttyKey = 0;
+pub(crate) const GHOSTTY_KEY_BACKQUOTE: GhosttyKey = 1;
+pub(crate) const GHOSTTY_KEY_BACKSLASH: GhosttyKey = 2;
+pub(crate) const GHOSTTY_KEY_BRACKET_LEFT: GhosttyKey = 3;
+pub(crate) const GHOSTTY_KEY_BRACKET_RIGHT: GhosttyKey = 4;
+pub(crate) const GHOSTTY_KEY_COMMA: GhosttyKey = 5;
+pub(crate) const GHOSTTY_KEY_DIGIT_0: GhosttyKey = 6;
+pub(crate) const GHOSTTY_KEY_DIGIT_1: GhosttyKey = 7;
+pub(crate) const GHOSTTY_KEY_DIGIT_2: GhosttyKey = 8;
+pub(crate) const GHOSTTY_KEY_DIGIT_3: GhosttyKey = 9;
+pub(crate) const GHOSTTY_KEY_DIGIT_4: GhosttyKey = 10;
+pub(crate) const GHOSTTY_KEY_DIGIT_5: GhosttyKey = 11;
+pub(crate) const GHOSTTY_KEY_DIGIT_6: GhosttyKey = 12;
+pub(crate) const GHOSTTY_KEY_DIGIT_7: GhosttyKey = 13;
+pub(crate) const GHOSTTY_KEY_DIGIT_8: GhosttyKey = 14;
+pub(crate) const GHOSTTY_KEY_DIGIT_9: GhosttyKey = 15;
+pub(crate) const GHOSTTY_KEY_EQUAL: GhosttyKey = 16;
+pub(crate) const GHOSTTY_KEY_INTL_BACKSLASH: GhosttyKey = 17;
+pub(crate) const GHOSTTY_KEY_INTL_RO: GhosttyKey = 18;
+pub(crate) const GHOSTTY_KEY_INTL_YEN: GhosttyKey = 19;
+pub(crate) const GHOSTTY_KEY_A: GhosttyKey = 20;
+pub(crate) const GHOSTTY_KEY_B: GhosttyKey = 21;
+pub(crate) const GHOSTTY_KEY_C: GhosttyKey = 22;
+pub(crate) const GHOSTTY_KEY_D: GhosttyKey = 23;
+pub(crate) const GHOSTTY_KEY_E: GhosttyKey = 24;
+pub(crate) const GHOSTTY_KEY_F: GhosttyKey = 25;
+pub(crate) const GHOSTTY_KEY_G: GhosttyKey = 26;
+pub(crate) const GHOSTTY_KEY_H: GhosttyKey = 27;
+pub(crate) const GHOSTTY_KEY_I: GhosttyKey = 28;
+pub(crate) const GHOSTTY_KEY_J: GhosttyKey = 29;
+pub(crate) const GHOSTTY_KEY_K: GhosttyKey = 30;
+pub(crate) const GHOSTTY_KEY_L: GhosttyKey = 31;
+pub(crate) const GHOSTTY_KEY_M: GhosttyKey = 32;
+pub(crate) const GHOSTTY_KEY_N: GhosttyKey = 33;
+pub(crate) const GHOSTTY_KEY_O: GhosttyKey = 34;
+pub(crate) const GHOSTTY_KEY_P: GhosttyKey = 35;
+pub(crate) const GHOSTTY_KEY_Q: GhosttyKey = 36;
+pub(crate) const GHOSTTY_KEY_R: GhosttyKey = 37;
+pub(crate) const GHOSTTY_KEY_S: GhosttyKey = 38;
+pub(crate) const GHOSTTY_KEY_T: GhosttyKey = 39;
+pub(crate) const GHOSTTY_KEY_U: GhosttyKey = 40;
+pub(crate) const GHOSTTY_KEY_V: GhosttyKey = 41;
+pub(crate) const GHOSTTY_KEY_W: GhosttyKey = 42;
+pub(crate) const GHOSTTY_KEY_X: GhosttyKey = 43;
+pub(crate) const GHOSTTY_KEY_Y: GhosttyKey = 44;
+pub(crate) const GHOSTTY_KEY_Z: GhosttyKey = 45;
+pub(crate) const GHOSTTY_KEY_MINUS: GhosttyKey = 46;
+pub(crate) const GHOSTTY_KEY_PERIOD: GhosttyKey = 47;
+pub(crate) const GHOSTTY_KEY_QUOTE: GhosttyKey = 48;
+pub(crate) const GHOSTTY_KEY_SEMICOLON: GhosttyKey = 49;
+pub(crate) const GHOSTTY_KEY_SLASH: GhosttyKey = 50;
+pub(crate) const GHOSTTY_KEY_ALT_LEFT: GhosttyKey = 51;
+pub(crate) const GHOSTTY_KEY_ALT_RIGHT: GhosttyKey = 52;
+pub(crate) const GHOSTTY_KEY_BACKSPACE: GhosttyKey = 53;
+pub(crate) const GHOSTTY_KEY_CAPS_LOCK: GhosttyKey = 54;
+pub(crate) const GHOSTTY_KEY_CONTEXT_MENU: GhosttyKey = 55;
+pub(crate) const GHOSTTY_KEY_CONTROL_LEFT: GhosttyKey = 56;
+pub(crate) const GHOSTTY_KEY_CONTROL_RIGHT: GhosttyKey = 57;
+pub(crate) const GHOSTTY_KEY_ENTER: GhosttyKey = 58;
+pub(crate) const GHOSTTY_KEY_META_LEFT: GhosttyKey = 59;
+pub(crate) const GHOSTTY_KEY_META_RIGHT: GhosttyKey = 60;
+pub(crate) const GHOSTTY_KEY_SHIFT_LEFT: GhosttyKey = 61;
+pub(crate) const GHOSTTY_KEY_SHIFT_RIGHT: GhosttyKey = 62;
+pub(crate) const GHOSTTY_KEY_SPACE: GhosttyKey = 63;
+pub(crate) const GHOSTTY_KEY_TAB: GhosttyKey = 64;
+pub(crate) const GHOSTTY_KEY_CONVERT: GhosttyKey = 65;
+pub(crate) const GHOSTTY_KEY_KANA_MODE: GhosttyKey = 66;
+pub(crate) const GHOSTTY_KEY_NON_CONVERT: GhosttyKey = 67;
+pub(crate) const GHOSTTY_KEY_DELETE: GhosttyKey = 68;
+pub(crate) const GHOSTTY_KEY_END: GhosttyKey = 69;
+pub(crate) const GHOSTTY_KEY_HELP: GhosttyKey = 70;
+pub(crate) const GHOSTTY_KEY_HOME: GhosttyKey = 71;
+pub(crate) const GHOSTTY_KEY_INSERT: GhosttyKey = 72;
+pub(crate) const GHOSTTY_KEY_PAGE_DOWN: GhosttyKey = 73;
+pub(crate) const GHOSTTY_KEY_PAGE_UP: GhosttyKey = 74;
+pub(crate) const GHOSTTY_KEY_ARROW_DOWN: GhosttyKey = 75;
+pub(crate) const GHOSTTY_KEY_ARROW_LEFT: GhosttyKey = 76;
+pub(crate) const GHOSTTY_KEY_ARROW_RIGHT: GhosttyKey = 77;
+pub(crate) const GHOSTTY_KEY_ARROW_UP: GhosttyKey = 78;
+pub(crate) const GHOSTTY_KEY_NUM_LOCK: GhosttyKey = 79;
+pub(crate) const GHOSTTY_KEY_NUMPAD_0: GhosttyKey = 80;
+pub(crate) const GHOSTTY_KEY_NUMPAD_1: GhosttyKey = 81;
+pub(crate) const GHOSTTY_KEY_NUMPAD_2: GhosttyKey = 82;
+pub(crate) const GHOSTTY_KEY_NUMPAD_3: GhosttyKey = 83;
+pub(crate) const GHOSTTY_KEY_NUMPAD_4: GhosttyKey = 84;
+pub(crate) const GHOSTTY_KEY_NUMPAD_5: GhosttyKey = 85;
+pub(crate) const GHOSTTY_KEY_NUMPAD_6: GhosttyKey = 86;
+pub(crate) const GHOSTTY_KEY_NUMPAD_7: GhosttyKey = 87;
+pub(crate) const GHOSTTY_KEY_NUMPAD_8: GhosttyKey = 88;
+pub(crate) const GHOSTTY_KEY_NUMPAD_9: GhosttyKey = 89;
+pub(crate) const GHOSTTY_KEY_NUMPAD_ADD: GhosttyKey = 90;
+pub(crate) const GHOSTTY_KEY_NUMPAD_BACKSPACE: GhosttyKey = 91;
+pub(crate) const GHOSTTY_KEY_NUMPAD_CLEAR: GhosttyKey = 92;
+pub(crate) const GHOSTTY_KEY_NUMPAD_CLEAR_ENTRY: GhosttyKey = 93;
+pub(crate) const GHOSTTY_KEY_NUMPAD_COMMA: GhosttyKey = 94;
+pub(crate) const GHOSTTY_KEY_NUMPAD_DECIMAL: GhosttyKey = 95;
+pub(crate) const GHOSTTY_KEY_NUMPAD_DIVIDE: GhosttyKey = 96;
+pub(crate) const GHOSTTY_KEY_NUMPAD_ENTER: GhosttyKey = 97;
+pub(crate) const GHOSTTY_KEY_NUMPAD_EQUAL: GhosttyKey = 98;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MEMORY_ADD: GhosttyKey = 99;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MEMORY_CLEAR: GhosttyKey = 100;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MEMORY_RECALL: GhosttyKey = 101;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MEMORY_STORE: GhosttyKey = 102;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MEMORY_SUBTRACT: GhosttyKey = 103;
+pub(crate) const GHOSTTY_KEY_NUMPAD_MULTIPLY: GhosttyKey = 104;
+pub(crate) const GHOSTTY_KEY_NUMPAD_PAREN_LEFT: GhosttyKey = 105;
+pub(crate) const GHOSTTY_KEY_NUMPAD_PAREN_RIGHT: GhosttyKey = 106;
+pub(crate) const GHOSTTY_KEY_NUMPAD_SUBTRACT: GhosttyKey = 107;
+pub(crate) const GHOSTTY_KEY_NUMPAD_SEPARATOR: GhosttyKey = 108;
+pub(crate) const GHOSTTY_KEY_NUMPAD_UP: GhosttyKey = 109;
+pub(crate) const GHOSTTY_KEY_NUMPAD_DOWN: GhosttyKey = 110;
+pub(crate) const GHOSTTY_KEY_NUMPAD_RIGHT: GhosttyKey = 111;
+pub(crate) const GHOSTTY_KEY_NUMPAD_LEFT: GhosttyKey = 112;
+pub(crate) const GHOSTTY_KEY_NUMPAD_BEGIN: GhosttyKey = 113;
+pub(crate) const GHOSTTY_KEY_NUMPAD_HOME: GhosttyKey = 114;
+pub(crate) const GHOSTTY_KEY_NUMPAD_END: GhosttyKey = 115;
+pub(crate) const GHOSTTY_KEY_NUMPAD_INSERT: GhosttyKey = 116;
+pub(crate) const GHOSTTY_KEY_NUMPAD_DELETE: GhosttyKey = 117;
+pub(crate) const GHOSTTY_KEY_NUMPAD_PAGE_UP: GhosttyKey = 118;
+pub(crate) const GHOSTTY_KEY_NUMPAD_PAGE_DOWN: GhosttyKey = 119;
+pub(crate) const GHOSTTY_KEY_ESCAPE: GhosttyKey = 120;
+pub(crate) const GHOSTTY_KEY_F1: GhosttyKey = 121;
+pub(crate) const GHOSTTY_KEY_F2: GhosttyKey = 122;
+pub(crate) const GHOSTTY_KEY_F3: GhosttyKey = 123;
+pub(crate) const GHOSTTY_KEY_F4: GhosttyKey = 124;
+pub(crate) const GHOSTTY_KEY_F5: GhosttyKey = 125;
+pub(crate) const GHOSTTY_KEY_F6: GhosttyKey = 126;
+pub(crate) const GHOSTTY_KEY_F7: GhosttyKey = 127;
+pub(crate) const GHOSTTY_KEY_F8: GhosttyKey = 128;
+pub(crate) const GHOSTTY_KEY_F9: GhosttyKey = 129;
+pub(crate) const GHOSTTY_KEY_F10: GhosttyKey = 130;
+pub(crate) const GHOSTTY_KEY_F11: GhosttyKey = 131;
+pub(crate) const GHOSTTY_KEY_F12: GhosttyKey = 132;
+pub(crate) const GHOSTTY_KEY_F13: GhosttyKey = 133;
+pub(crate) const GHOSTTY_KEY_F14: GhosttyKey = 134;
+pub(crate) const GHOSTTY_KEY_F15: GhosttyKey = 135;
+pub(crate) const GHOSTTY_KEY_F16: GhosttyKey = 136;
+pub(crate) const GHOSTTY_KEY_F17: GhosttyKey = 137;
+pub(crate) const GHOSTTY_KEY_F18: GhosttyKey = 138;
+pub(crate) const GHOSTTY_KEY_F19: GhosttyKey = 139;
+pub(crate) const GHOSTTY_KEY_F20: GhosttyKey = 140;
+pub(crate) const GHOSTTY_KEY_F21: GhosttyKey = 141;
+pub(crate) const GHOSTTY_KEY_F22: GhosttyKey = 142;
+pub(crate) const GHOSTTY_KEY_F23: GhosttyKey = 143;
+pub(crate) const GHOSTTY_KEY_F24: GhosttyKey = 144;
+pub(crate) const GHOSTTY_KEY_F25: GhosttyKey = 145;
+pub(crate) const GHOSTTY_KEY_FN: GhosttyKey = 146;
+pub(crate) const GHOSTTY_KEY_FN_LOCK: GhosttyKey = 147;
+pub(crate) const GHOSTTY_KEY_PRINT_SCREEN: GhosttyKey = 148;
+pub(crate) const GHOSTTY_KEY_SCROLL_LOCK: GhosttyKey = 149;
+pub(crate) const GHOSTTY_KEY_PAUSE: GhosttyKey = 150;
+pub(crate) const GHOSTTY_KEY_BROWSER_BACK: GhosttyKey = 151;
+pub(crate) const GHOSTTY_KEY_BROWSER_FAVORITES: GhosttyKey = 152;
+pub(crate) const GHOSTTY_KEY_BROWSER_FORWARD: GhosttyKey = 153;
+pub(crate) const GHOSTTY_KEY_BROWSER_HOME: GhosttyKey = 154;
+pub(crate) const GHOSTTY_KEY_BROWSER_REFRESH: GhosttyKey = 155;
+pub(crate) const GHOSTTY_KEY_BROWSER_SEARCH: GhosttyKey = 156;
+pub(crate) const GHOSTTY_KEY_BROWSER_STOP: GhosttyKey = 157;
+pub(crate) const GHOSTTY_KEY_EJECT: GhosttyKey = 158;
+pub(crate) const GHOSTTY_KEY_LAUNCH_APP_1: GhosttyKey = 159;
+pub(crate) const GHOSTTY_KEY_LAUNCH_APP_2: GhosttyKey = 160;
+pub(crate) const GHOSTTY_KEY_LAUNCH_MAIL: GhosttyKey = 161;
+pub(crate) const GHOSTTY_KEY_MEDIA_PLAY_PAUSE: GhosttyKey = 162;
+pub(crate) const GHOSTTY_KEY_MEDIA_SELECT: GhosttyKey = 163;
+pub(crate) const GHOSTTY_KEY_MEDIA_STOP: GhosttyKey = 164;
+pub(crate) const GHOSTTY_KEY_MEDIA_TRACK_NEXT: GhosttyKey = 165;
+pub(crate) const GHOSTTY_KEY_MEDIA_TRACK_PREVIOUS: GhosttyKey = 166;
+pub(crate) const GHOSTTY_KEY_POWER: GhosttyKey = 167;
+pub(crate) const GHOSTTY_KEY_SLEEP: GhosttyKey = 168;
+pub(crate) const GHOSTTY_KEY_AUDIO_VOLUME_DOWN: GhosttyKey = 169;
+pub(crate) const GHOSTTY_KEY_AUDIO_VOLUME_MUTE: GhosttyKey = 170;
+pub(crate) const GHOSTTY_KEY_AUDIO_VOLUME_UP: GhosttyKey = 171;
+pub(crate) const GHOSTTY_KEY_WAKE_UP: GhosttyKey = 172;
+pub(crate) const GHOSTTY_KEY_COPY: GhosttyKey = 173;
+pub(crate) const GHOSTTY_KEY_CUT: GhosttyKey = 174;
+pub(crate) const GHOSTTY_KEY_PASTE: GhosttyKey = 175;
+
+/// `GhosttyKeyEncoderOption` (`int`).
+pub(crate) type GhosttyKeyEncoderOption = c_int;
+/// macOS option-as-alt setting (`GhosttyOptionAsAlt`).
+pub(crate) const GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT: GhosttyKeyEncoderOption = 6;
+/// `GhosttyOptionAsAlt` (`int`).
+pub(crate) type GhosttyOptionAsAlt = c_int;
+pub(crate) const GHOSTTY_OPTION_AS_ALT_FALSE: GhosttyOptionAsAlt = 0;
+
+/// `GhosttyMouseAction` (`int`).
+pub(crate) type GhosttyMouseAction = c_int;
+pub(crate) const GHOSTTY_MOUSE_ACTION_PRESS: GhosttyMouseAction = 0;
+pub(crate) const GHOSTTY_MOUSE_ACTION_RELEASE: GhosttyMouseAction = 1;
+pub(crate) const GHOSTTY_MOUSE_ACTION_MOTION: GhosttyMouseAction = 2;
+
+/// `GhosttyMouseButton` (`int`).
+pub(crate) type GhosttyMouseButton = c_int;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_LEFT: GhosttyMouseButton = 1;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_RIGHT: GhosttyMouseButton = 2;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_MIDDLE: GhosttyMouseButton = 3;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_FOUR: GhosttyMouseButton = 4;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_FIVE: GhosttyMouseButton = 5;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_SIX: GhosttyMouseButton = 6;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_SEVEN: GhosttyMouseButton = 7;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_EIGHT: GhosttyMouseButton = 8;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_NINE: GhosttyMouseButton = 9;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_TEN: GhosttyMouseButton = 10;
+pub(crate) const GHOSTTY_MOUSE_BUTTON_ELEVEN: GhosttyMouseButton = 11;
+
+/// Mouse position in surface-space pixels.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GhosttyMousePosition {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+}
+
+/// Renderer geometry context for `GHOSTTY_MOUSE_ENCODER_OPT_SIZE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GhosttyMouseEncoderSize {
+    pub(crate) size: usize,
+    pub(crate) screen_width: u32,
+    pub(crate) screen_height: u32,
+    pub(crate) cell_width: u32,
+    pub(crate) cell_height: u32,
+    pub(crate) padding_top: u32,
+    pub(crate) padding_bottom: u32,
+    pub(crate) padding_right: u32,
+    pub(crate) padding_left: u32,
+}
+
+/// `GhosttyMouseEncoderOption` (`int`).
+pub(crate) type GhosttyMouseEncoderOption = c_int;
+/// Renderer size context (`GhosttyMouseEncoderSize`).
+pub(crate) const GHOSTTY_MOUSE_ENCODER_OPT_SIZE: GhosttyMouseEncoderOption = 2;
+/// Whether any mouse button is currently pressed (`bool`).
+pub(crate) const GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED: GhosttyMouseEncoderOption = 3;
+/// Motion deduplication by last cell (`bool`).
+pub(crate) const GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL: GhosttyMouseEncoderOption = 4;
+
+/// `GhosttyFocusEvent` (`int`).
+pub(crate) type GhosttyFocusEvent = c_int;
+pub(crate) const GHOSTTY_FOCUS_GAINED: GhosttyFocusEvent = 0;
+pub(crate) const GHOSTTY_FOCUS_LOST: GhosttyFocusEvent = 1;
+
+unsafe extern "C" {
+    pub(crate) fn ghostty_key_event_new(
+        allocator: *const c_void,
+        event: *mut GhosttyKeyEvent,
+    ) -> GhosttyResult;
+    pub(crate) fn ghostty_key_event_free(event: GhosttyKeyEvent);
+    pub(crate) fn ghostty_key_event_set_action(event: GhosttyKeyEvent, action: GhosttyKeyAction);
+    pub(crate) fn ghostty_key_event_set_key(event: GhosttyKeyEvent, key: GhosttyKey);
+    pub(crate) fn ghostty_key_event_set_mods(event: GhosttyKeyEvent, mods: GhosttyMods);
+    pub(crate) fn ghostty_key_event_set_consumed_mods(
+        event: GhosttyKeyEvent,
+        consumed_mods: GhosttyMods,
+    );
+    pub(crate) fn ghostty_key_event_set_composing(event: GhosttyKeyEvent, composing: bool);
+    pub(crate) fn ghostty_key_event_set_utf8(
+        event: GhosttyKeyEvent,
+        utf8: *const c_char,
+        len: usize,
+    );
+    pub(crate) fn ghostty_key_event_set_unshifted_codepoint(event: GhosttyKeyEvent, codepoint: u32);
+
+    pub(crate) fn ghostty_key_encoder_new(
+        allocator: *const c_void,
+        encoder: *mut GhosttyKeyEncoder,
+    ) -> GhosttyResult;
+    pub(crate) fn ghostty_key_encoder_free(encoder: GhosttyKeyEncoder);
+    pub(crate) fn ghostty_key_encoder_setopt(
+        encoder: GhosttyKeyEncoder,
+        option: GhosttyKeyEncoderOption,
+        value: *const c_void,
+    );
+    pub(crate) fn ghostty_key_encoder_setopt_from_terminal(
+        encoder: GhosttyKeyEncoder,
+        terminal: GhosttyTerminal,
+    );
+    pub(crate) fn ghostty_key_encoder_encode(
+        encoder: GhosttyKeyEncoder,
+        event: GhosttyKeyEvent,
+        out_buf: *mut c_char,
+        out_buf_size: usize,
+        out_len: *mut usize,
+    ) -> GhosttyResult;
+
+    pub(crate) fn ghostty_mouse_event_new(
+        allocator: *const c_void,
+        event: *mut GhosttyMouseEvent,
+    ) -> GhosttyResult;
+    pub(crate) fn ghostty_mouse_event_free(event: GhosttyMouseEvent);
+    pub(crate) fn ghostty_mouse_event_set_action(
+        event: GhosttyMouseEvent,
+        action: GhosttyMouseAction,
+    );
+    pub(crate) fn ghostty_mouse_event_set_button(
+        event: GhosttyMouseEvent,
+        button: GhosttyMouseButton,
+    );
+    pub(crate) fn ghostty_mouse_event_clear_button(event: GhosttyMouseEvent);
+    pub(crate) fn ghostty_mouse_event_set_mods(event: GhosttyMouseEvent, mods: GhosttyMods);
+    pub(crate) fn ghostty_mouse_event_set_position(
+        event: GhosttyMouseEvent,
+        position: GhosttyMousePosition,
+    );
+
+    pub(crate) fn ghostty_mouse_encoder_new(
+        allocator: *const c_void,
+        encoder: *mut GhosttyMouseEncoder,
+    ) -> GhosttyResult;
+    pub(crate) fn ghostty_mouse_encoder_free(encoder: GhosttyMouseEncoder);
+    pub(crate) fn ghostty_mouse_encoder_setopt(
+        encoder: GhosttyMouseEncoder,
+        option: GhosttyMouseEncoderOption,
+        value: *const c_void,
+    );
+    pub(crate) fn ghostty_mouse_encoder_setopt_from_terminal(
+        encoder: GhosttyMouseEncoder,
+        terminal: GhosttyTerminal,
+    );
+    pub(crate) fn ghostty_mouse_encoder_reset(encoder: GhosttyMouseEncoder);
+    pub(crate) fn ghostty_mouse_encoder_encode(
+        encoder: GhosttyMouseEncoder,
+        event: GhosttyMouseEvent,
+        out_buf: *mut c_char,
+        out_buf_size: usize,
+        out_len: *mut usize,
+    ) -> GhosttyResult;
+
+    pub(crate) fn ghostty_focus_encode(
+        event: GhosttyFocusEvent,
+        buf: *mut c_char,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> GhosttyResult;
+
+    pub(crate) fn ghostty_paste_is_safe(data: *const c_char, len: usize) -> bool;
+    pub(crate) fn ghostty_paste_encode(
+        data: *mut c_char,
+        data_len: usize,
+        bracketed: bool,
+        buf: *mut c_char,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> GhosttyResult;
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CStr;
@@ -694,6 +1064,8 @@ mod tests {
         layout!(GhosttyFormatterScreenExtra, 16, 8, { size: 0, cursor: 8, style: 9, hyperlink: 10, protection: 11, kitty_keyboard: 12, charsets: 13 });
         layout!(GhosttyFormatterTerminalExtra, 32, 8, { size: 0, palette: 8, modes: 9, scrolling_region: 10, tabstops: 11, pwd: 12, keyboard: 13, screen: 16 });
         layout!(GhosttyFormatterTerminalOptions, 56, 8, { size: 0, emit: 8, unwrap: 12, trim: 13, extra: 16, selection: 48 });
+        layout!(GhosttyMousePosition, 8, 4, { x: 0, y: 4 });
+        layout!(GhosttyMouseEncoderSize, 40, 8, { size: 0, screen_width: 8, screen_height: 12, cell_width: 16, cell_height: 20, padding_top: 24, padding_bottom: 28, padding_right: 32, padding_left: 36 });
         layout!(GhosttyReader, 16, 8, { read: 0, userdata: 8 });
         layout!(GhosttyStyle, 72, 8, { size: 0, fg_color: 8, bg_color: 24, underline_color: 40, bold: 56, italic: 57, faint: 58, blink: 59, inverse: 60, invisible: 61, strikethrough: 62, overline: 63, underline: 64 });
         layout!(GhosttyStyleColor, 16, 8, { tag: 0, value: 8 });

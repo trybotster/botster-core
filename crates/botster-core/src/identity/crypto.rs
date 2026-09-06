@@ -132,6 +132,45 @@ pub fn decrypt_aes_gcm(key: &AesGcmKey, envelope: &AesGcmEnvelope) -> Result<Vec
         .map_err(|_| CryptoError::DecryptFailed)
 }
 
+/// Sealed raw-byte layout: 12-byte nonce, then ciphertext, then 16-byte tag.
+pub const AES_GCM_SEALED_OVERHEAD_BYTES: usize = AES_GCM_NONCE_LEN + 16;
+
+/// Seal plaintext as raw bytes and append `nonce || ciphertext || tag` to `out`.
+///
+/// This is the binary counterpart of [`encrypt_aes_gcm`] for hot-path
+/// transports that must not pass through JSON or base64. Nonce generation
+/// stays inside core.
+pub fn seal_aes_gcm(
+    key: &AesGcmKey,
+    plaintext: &[u8],
+    out: &mut Vec<u8>,
+) -> Result<(), CryptoError> {
+    let mut nonce_bytes = [0_u8; AES_GCM_NONCE_LEN];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let ciphertext = key
+        .cipher()
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .map_err(|_| CryptoError::EncryptFailed)?;
+    out.reserve(AES_GCM_NONCE_LEN + ciphertext.len());
+    out.extend_from_slice(&nonce_bytes);
+    out.extend_from_slice(&ciphertext);
+    Ok(())
+}
+
+/// Open raw `nonce || ciphertext || tag` bytes produced by [`seal_aes_gcm`].
+pub fn open_aes_gcm(key: &AesGcmKey, sealed: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    if sealed.len() < AES_GCM_SEALED_OVERHEAD_BYTES {
+        return Err(CryptoError::InvalidNonceLength {
+            expected: AES_GCM_NONCE_LEN,
+            actual: sealed.len().min(AES_GCM_NONCE_LEN),
+        });
+    }
+    let (nonce, ciphertext) = sealed.split_at(AES_GCM_NONCE_LEN);
+    key.cipher()
+        .decrypt(Nonce::from_slice(nonce), ciphertext)
+        .map_err(|_| CryptoError::DecryptFailed)
+}
+
 /// Crypto operation a capability holder may request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

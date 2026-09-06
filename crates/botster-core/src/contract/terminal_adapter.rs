@@ -10,7 +10,7 @@
 //! Public enums in this module are exhaustive at `0.1.0`. Adding a variant is a
 //! breaking change.
 
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::RoutedTerminalFrame;
 
 /// Minimum complete ingress frames a conforming adapter must hold before it
 /// may report [`TerminalIngress::Lost`].
@@ -23,9 +23,12 @@ pub const MIN_ADAPTER_INGRESS_BUFFER_FRAMES: usize = 64;
 ///
 /// The adapter owns at most one transport-internal active write. That slot is
 /// transport state, not a policy queue. Implementations must not enqueue extra
-/// frames, retry rejected writes, reorder accepted frames, or inspect
-/// [`TerminalFrame`] bodies. Serializing with [`TerminalFrame::to_bytes`] is
-/// allowed.
+/// frames, retry rejected writes, reorder accepted frames, or inspect the
+/// frame body beyond its length. The adapter reads `route` and `generation`
+/// from the [`RoutedTerminalFrame`] envelope and copies the shared
+/// `TerminalBody` bytes (`frame.frame.as_bytes()`) to the transport. Holding
+/// the `Arc` in the slot is allowed; copying the body into a private queue
+/// is not.
 ///
 /// `Ok(())` means the frame occupies the single active-write slot until the
 /// transport finishes that write. It does not mean a client received the frame.
@@ -52,7 +55,7 @@ pub const MIN_ADAPTER_INGRESS_BUFFER_FRAMES: usize = 64;
 /// the published conformance harness. Core calls `close()` synchronously and
 /// does not spawn a closer thread.
 pub trait TerminalAdapter {
-    /// Attempt a non-blocking write of one opaque terminal frame.
+    /// Attempt a non-blocking write of one routed terminal frame.
     ///
     /// # Errors
     ///
@@ -60,7 +63,7 @@ pub trait TerminalAdapter {
     /// empty but the transport is not ready, [`TerminalAdapterWriteError::Full`]
     /// when the one active-write slot is occupied, or
     /// [`TerminalAdapterWriteError::Closed`] after close.
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError>;
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError>;
 
     /// Close the adapter.
     ///

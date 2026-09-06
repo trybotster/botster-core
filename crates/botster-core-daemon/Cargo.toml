@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 botster-core = { path = "../botster-core" }
 botster-terminal-ghostty = { path = "../botster-terminal-ghostty", features = ["libghostty-vt"] }
+botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.3.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11.0"

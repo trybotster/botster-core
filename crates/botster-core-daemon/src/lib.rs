@@ -8,8 +8,16 @@
 pub mod api;
 pub mod daemon;
 pub mod guarded_write;
+pub mod operation;
 pub mod registry;
 mod wake_pump;
+
+pub use operation::{
+    CaptureId, CaptureOwner, CoreCompletion, CoreOperation, ModeFlagsReadback, PendingLimitKind,
+    PendingOperationId, RetainedTerminal, RetentionAccounting, RetentionPolicy, ScreenReadback,
+    SnapshotCapture, MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION,
+    MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
+};
 
 pub use api::{
     is_observe_slice_error_message_byte, reserved_observe_slice_error,

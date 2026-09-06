@@ -78,14 +78,113 @@ pub const FRAME_SET_COLOR_PROFILE: u8 = 0x16;
 pub const FRAME_SPAWN_SESSION: u8 = 0x17;
 /// Session to daemon data plane: payload-free terminal metadata shaping report.
 pub const FRAME_METADATA_SHAPING: u8 = 0x18;
-/// Daemon data plane to session: mode-gated PTY input request (correlated RPC).
-pub const FRAME_MODE_GATED_PTY_INPUT: u8 = 0x19;
-/// Session to daemon data plane: mode-gated PTY input result (correlated RPC).
-pub const FRAME_MODE_GATED_PTY_INPUT_RESULT: u8 = 0x1a;
-/// Data-plane peer to session: cancel one in-flight mode-gated request.
-pub const FRAME_MODE_GATED_CANCEL: u8 = 0x1b;
+// 0x19, 0x1a, and 0x1b were the mode-gated PTY input family. They are deleted
+// with scheme 1 and must not be reused.
 /// Session to daemon data plane: the worker applied one resize command.
 pub const FRAME_RESIZE_APPLIED: u8 = 0x1c;
+/// Parent to worker: one scheme 2 input operation.
+///
+/// Payload: `[u64 LE worker_operation_key][InputFrame]`. The key is unique per
+/// parent process and maps in Core to client, route, route generation, and
+/// client operation id. The worker never interprets the key.
+pub const FRAME_INPUT_OPERATION: u8 = 0x1d;
+/// Worker to parent: exactly one result per input operation.
+///
+/// Payload: `[u64 LE worker_operation_key][INPUT_RESULT body]` where the body
+/// is the scheme 2 kind 17 layout with the client operation id echoed.
+pub const FRAME_INPUT_RESULT: u8 = 0x1e;
+/// Parent to worker: abandon the unwritten remainder of one operation.
+///
+/// Payload: `[u64 LE worker_operation_key]`. The worker reports `Cancelled`
+/// with the bytes written so far, or ignores an unknown or finished key.
+pub const FRAME_INPUT_CANCEL: u8 = 0x1f;
+/// Worker to parent: terminal modes or geometry changed (spontaneous).
+///
+/// Payload: the scheme 2 `MODES` body, `[u32 LE mode_bits][u16 LE rows][u16 LE cols]`.
+pub const FRAME_MODES_CHANGED: u8 = 0x20;
+/// Worker to parent: final terminal state after the last PTY output and
+/// before `FRAME_PROCESS_EXITED`.
+///
+/// Payload: `[u32 LE header_len][WorkerFinalState JSON][raw GHOSTSNP bytes]`.
+/// The snapshot is present when the header reports `has_snapshot`.
+pub const FRAME_FINAL_STATE: u8 = 0x21;
+
+/// Length of the worker operation key prefix on input frames.
+pub const WORKER_OPERATION_KEY_BYTES: usize = 8;
+
+/// Final worker-owned terminal state retained by the parent after exit.
+///
+/// The GHOSTSNP bytes travel after this header, never inside JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerFinalState {
+    /// Plain text of the visible screen at exit.
+    pub screen_text: String,
+    /// Whether raw GHOSTSNP bytes follow the header.
+    pub has_snapshot: bool,
+    /// Scheme 2 mode bits at exit.
+    pub mode_bits: u32,
+    /// Terminal rows at exit.
+    pub rows: u16,
+    /// Terminal columns at exit.
+    pub cols: u16,
+    /// Ghostty palette and special colors at exit.
+    pub color_profile: TerminalColorProfile,
+    /// Export failure detail when `has_snapshot` is false because export failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Encode a `FRAME_FINAL_STATE` payload: JSON header then raw snapshot bytes.
+pub fn encode_final_state(
+    state: &WorkerFinalState,
+    snapshot: Option<&[u8]>,
+) -> Result<Vec<u8>, ProtocolError> {
+    let header = serde_json::to_vec(state)?;
+    let snapshot = snapshot.unwrap_or(&[]);
+    let mut payload = Vec::with_capacity(4 + header.len() + snapshot.len());
+    payload.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    payload.extend_from_slice(&header);
+    payload.extend_from_slice(snapshot);
+    Ok(payload)
+}
+
+/// Decode a `FRAME_FINAL_STATE` payload into its header and trailing snapshot.
+pub fn decode_final_state(payload: &[u8]) -> Result<(WorkerFinalState, &[u8]), ProtocolError> {
+    if payload.len() < 4 {
+        return Err(ProtocolError::FrameLengthZero);
+    }
+    let header_len = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
+    let header_end = 4 + header_len;
+    if payload.len() < header_end {
+        return Err(ProtocolError::FrameLengthTooLarge {
+            len: header_end,
+            max: payload.len(),
+        });
+    }
+    let state: WorkerFinalState = serde_json::from_slice(&payload[4..header_end])?;
+    Ok((state, &payload[header_end..]))
+}
+
+/// Split a `[u64 LE worker_operation_key][rest]` payload.
+pub fn split_worker_operation_key(payload: &[u8]) -> Result<(u64, &[u8]), ProtocolError> {
+    if payload.len() < WORKER_OPERATION_KEY_BYTES {
+        return Err(ProtocolError::FrameLengthZero);
+    }
+    let mut key = [0u8; WORKER_OPERATION_KEY_BYTES];
+    key.copy_from_slice(&payload[..WORKER_OPERATION_KEY_BYTES]);
+    Ok((
+        u64::from_le_bytes(key),
+        &payload[WORKER_OPERATION_KEY_BYTES..],
+    ))
+}
+
+/// Prefix `rest` with a `u64 LE` worker operation key.
+pub fn encode_worker_operation(key: u64, rest: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(WORKER_OPERATION_KEY_BYTES + rest.len());
+    payload.extend_from_slice(&key.to_le_bytes());
+    payload.extend_from_slice(rest);
+    payload
+}
 
 /// Correlated request for an atomic worker-owned terminal snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,111 +233,16 @@ fn bool_is_false(value: &bool) -> bool {
     !*value
 }
 
-/// Public freshness token for race-free mode-dependent input admission.
-///
-/// `mode_generation` is a high-entropy epoch for the current worker mode owner.
-/// `mode_revision` counts complete [`ModeFlags`] changes within that epoch.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ModeFreshnessToken {
-    /// Worker/session mode-owner epoch. Changes only on new worker ownership.
-    pub mode_generation: u64,
-    /// Monotonic complete-`ModeFlags` counter within [`Self::mode_generation`].
-    pub mode_revision: u64,
-}
-
-/// Correlated mode-gated PTY input request payload.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModeGatedPtyInputRequest {
-    /// Parent-issued correlation id for this gated admit attempt.
-    pub request_id: String,
-    /// Expected complete-mode freshness token from the last successful probe.
-    pub expected: ModeFreshnessToken,
-    /// Candidate input bytes. Written only when the worker admits the request.
-    #[serde(with = "mode_gated_bytes")]
-    pub data: Vec<u8>,
-    /// Parent wall-clock deadline (Unix epoch milliseconds). Worker must not
-    /// write input after this instant even if the token still matches.
-    pub deadline_unix_ms: u64,
-    /// Optional deterministic hold before the final pre-write drain (tests only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub test_hold_ms: Option<u64>,
-}
-
-/// Correlated mode-gated PTY input result payload.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModeGatedPtyInputResult {
-    /// Echo of the request correlation id.
-    pub request_id: String,
-    /// Whether the worker wrote **all** input bytes to the PTY.
-    ///
-    /// Clean reject (stale token / deadline before any write): `admitted=false`
-    /// and [`Self::bytes_written`] is `0`. Complete success: `admitted=true`
-    /// and `bytes_written` equals the request payload length. Partial delivery
-    /// uses `admitted=false`, `error_kind=Some("partial_write")`, and a nonzero
-    /// `bytes_written` so callers never treat a prefix as a clean reject.
-    pub admitted: bool,
-    /// Number of request payload bytes actually written to the PTY.
-    #[serde(default)]
-    pub bytes_written: usize,
-    /// Current complete mode flags after the pre-barrier apply.
-    pub mode_flags: ModeFlags,
-    /// Current mode freshness token after the pre-barrier apply.
-    pub mode_freshness: ModeFreshnessToken,
-    /// Optional protocol/runtime failure kind (malformed request, overflow, …).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_kind: Option<String>,
-}
-
-/// Cancel one in-flight mode-gated request by exact id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModeGatedCancelRequest {
-    /// Request id to cancel.
-    pub request_id: String,
-}
-
-/// Worker mode-flags response payload, including the public freshness token.
+/// Worker mode-flags response payload for the correlated `FRAME_GET_MODE_FLAGS` RPC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModeFlagsPayload {
     /// Echo of the probe correlation id.
     pub request_id: String,
     /// Current complete mode flags.
     pub mode_flags: ModeFlags,
-    /// Current mode freshness token for mode-dependent input.
-    pub mode_freshness: ModeFreshnessToken,
     /// Optional probe failure kind. When set, modes are not authoritative.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
-}
-
-mod mode_gated_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&base64_encode(bytes))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let encoded = String::deserialize(deserializer)?;
-        base64_decode(&encoded).map_err(serde::de::Error::custom)
-    }
-
-    fn base64_encode(bytes: &[u8]) -> String {
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
-        STANDARD.encode(bytes)
-    }
-
-    fn base64_decode(encoded: &str) -> Result<Vec<u8>, String> {
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
-        STANDARD
-            .decode(encoded)
-            .map_err(|error| format!("invalid mode-gated input bytes encoding: {error}"))
-    }
 }
 
 /// Session metadata sent in the welcome handshake.
@@ -290,6 +294,77 @@ pub struct ModeFlags {
     /// Application cursor keys mode enabled.
     #[serde(default)]
     pub application_cursor: bool,
+}
+
+impl ModeFlags {
+    /// Collapse to the scheme 2 `MODES` bit set.
+    ///
+    /// `mouse_mode` bits are the existing worker mask: 1 normal (1000),
+    /// 2 any (1003), 4 button (1002), 8 SGR (1006).
+    #[must_use]
+    pub const fn to_mode_bits(&self) -> u32 {
+        use botster_terminal_protocol::mode_bits;
+        let mut bits = 0;
+        if self.kitty_enabled {
+            bits |= mode_bits::KITTY_KEYBOARD;
+        }
+        if self.cursor_visible {
+            bits |= mode_bits::CURSOR_VISIBLE;
+        }
+        if self.bracketed_paste {
+            bits |= mode_bits::BRACKETED_PASTE;
+        }
+        if self.mouse_mode & 1 != 0 {
+            bits |= mode_bits::MOUSE_NORMAL;
+        }
+        if self.mouse_mode & 2 != 0 {
+            bits |= mode_bits::MOUSE_ANY;
+        }
+        if self.mouse_mode & 4 != 0 {
+            bits |= mode_bits::MOUSE_BUTTON;
+        }
+        if self.mouse_mode & 8 != 0 {
+            bits |= mode_bits::MOUSE_SGR;
+        }
+        if self.alt_screen {
+            bits |= mode_bits::ALT_SCREEN;
+        }
+        if self.focus_reporting {
+            bits |= mode_bits::FOCUS_REPORTING;
+        }
+        if self.application_cursor {
+            bits |= mode_bits::APPLICATION_CURSOR;
+        }
+        bits
+    }
+
+    /// Expand a scheme 2 `MODES` bit set.
+    #[must_use]
+    pub const fn from_mode_bits(bits: u32) -> Self {
+        use botster_terminal_protocol::mode_bits;
+        let mut mouse_mode = 0;
+        if bits & mode_bits::MOUSE_NORMAL != 0 {
+            mouse_mode |= 1;
+        }
+        if bits & mode_bits::MOUSE_ANY != 0 {
+            mouse_mode |= 2;
+        }
+        if bits & mode_bits::MOUSE_BUTTON != 0 {
+            mouse_mode |= 4;
+        }
+        if bits & mode_bits::MOUSE_SGR != 0 {
+            mouse_mode |= 8;
+        }
+        Self {
+            kitty_enabled: bits & mode_bits::KITTY_KEYBOARD != 0,
+            cursor_visible: bits & mode_bits::CURSOR_VISIBLE != 0,
+            bracketed_paste: bits & mode_bits::BRACKETED_PASTE != 0,
+            mouse_mode,
+            alt_screen: bits & mode_bits::ALT_SCREEN != 0,
+            focus_reporting: bits & mode_bits::FOCUS_REPORTING != 0,
+            application_cursor: bits & mode_bits::APPLICATION_CURSOR != 0,
+        }
+    }
 }
 
 /// OSC notification payload.

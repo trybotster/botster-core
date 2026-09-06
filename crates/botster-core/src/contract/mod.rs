@@ -89,19 +89,20 @@ pub use session::{
     SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
 };
 pub use session_protocol::{
-    decode_hello, decode_welcome, encode_empty, encode_frame, encode_hello, encode_json,
-    encode_string, encode_welcome, read_hello, read_welcome, write_hello, write_welcome, Frame,
-    FrameDecoder, ModeFlags, ModeFlagsPayload, ModeFreshnessToken, ModeGatedCancelRequest,
-    ModeGatedPtyInputRequest, ModeGatedPtyInputResult, NotificationPayload, ProcessExitedPayload,
-    PromptMarkPayload, ProtocolError, ResizePayload, Rgb, SessionMetadata, TeePayload,
-    TerminalColorProfile, TimeoutPayload, DESYNC_THRESHOLD, FRAME_ARM_TEE, FRAME_BELL,
-    FRAME_CWD_CHANGED, FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT,
-    FRAME_METADATA_SHAPING, FRAME_MODE_FLAGS, FRAME_MODE_GATED_CANCEL, FRAME_MODE_GATED_PTY_INPUT,
-    FRAME_MODE_GATED_PTY_INPUT_RESULT, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG,
-    FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE,
-    FRAME_RESIZE_APPLIED, FRAME_SCREEN, FRAME_SET_COLOR_PROFILE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
-    FRAME_SNAPSHOT, FRAME_TITLE_CHANGED, HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN,
-    PROTOCOL_VERSION, WELCOME_MAGIC,
+    decode_final_state, decode_hello, decode_welcome, encode_empty, encode_final_state,
+    encode_frame, encode_hello, encode_json, encode_string, encode_welcome,
+    encode_worker_operation, read_hello, read_welcome, split_worker_operation_key, write_hello,
+    write_welcome, Frame, FrameDecoder, ModeFlags, ModeFlagsPayload, NotificationPayload,
+    ProcessExitedPayload, PromptMarkPayload, ProtocolError, ResizePayload, Rgb, SessionMetadata,
+    TeePayload, TerminalColorProfile, TimeoutPayload, WorkerFinalState, DESYNC_THRESHOLD,
+    FRAME_ARM_TEE, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
+    FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION,
+    FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS,
+    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
+    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN,
+    FRAME_SET_COLOR_PROFILE, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT,
+    FRAME_TITLE_CHANGED, HELLO_MAGIC, MAX_FRAME_LEN, MAX_METADATA_LEN, PROTOCOL_VERSION,
+    WELCOME_MAGIC, WORKER_OPERATION_KEY_BYTES,
 };
 pub use session_protocol::{WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult};
 pub use terminal_metadata::{

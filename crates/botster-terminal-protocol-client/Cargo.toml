@@ -1,9 +1,9 @@
 [package]
 name = "botster-terminal-protocol-client"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Botster contributors"]
-description = "Semantic Botster terminal protocol types for TUI consumers and TypeScript generation"
+description = "Semantic Botster terminal protocol scheme 2 codecs for TUI consumers and TypeScript generation"
 repository = "https://github.com/trybotster/botster-core"
 homepage = "https://github.com/trybotster/botster-core"
 documentation = "https://docs.rs/botster-terminal-protocol-client"
@@ -13,13 +13,11 @@ keywords = ["terminal", "protocol", "botster"]
 categories = ["encoding"]
 
 [dependencies]
-base64 = "0.22.1"
-botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.2.0" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.3.0" }
 thiserror = "2.0"
 
 [dev-dependencies]
+serde_json = "1.0"
 sha2 = "0.11.0"
 
 [package.metadata.docs.rs]
