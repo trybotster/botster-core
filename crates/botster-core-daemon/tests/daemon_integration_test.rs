@@ -6830,7 +6830,20 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
             Box::new(adapter.clone()),
         )
         .expect("bind");
-    wait_until_bound_attached(&mut daemon, &session_id, &adapter);
+    // Attached arrives first on a live attach; history finishes later and
+    // live output may interleave. Wait for FINISH within the same bound.
+    let started = Instant::now();
+    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
+        pump_next_available_wake(&mut daemon, 20);
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_phase(bytes) == Some("finish"))
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
     let mut phases = Vec::new();
     for bytes in adapter.snapshot_delivered_frame_bytes() {
         let frame = adapter_terminal_frame(&bytes);
@@ -6853,17 +6866,20 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
     let attached_at = phases.iter().position(|phase| phase == "attached");
     assert!(
         ready.is_some() && finish.is_some() && attached_at.is_some(),
-        "declared bind must deliver READY, FINISH, and Attached: {phases:?}"
+        "declared bind must deliver Attached, READY, and FINISH: {phases:?}"
     );
     let ready = ready.expect("ready");
     let finish = finish.expect("finish");
     let attached_at = attached_at.expect("attached");
-    assert!(ready < finish && finish < attached_at, "{phases:?}");
+    assert!(
+        attached_at < ready && ready < finish,
+        "live attach order is Attached, READY, FINISH: {phases:?}"
+    );
     assert!(
         phases[ready + 1..finish]
             .iter()
             .all(|phase| phase == "history"),
-        "HISTORY pages must sit between READY and FINISH: {phases:?}"
+        "only HISTORY pages sit between READY and FINISH: {phases:?}"
     );
     let _ = fs::remove_dir_all(data_dir);
 }
