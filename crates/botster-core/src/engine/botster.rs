@@ -2,6 +2,7 @@
 
 #[cfg(feature = "local-runtime")]
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "local-runtime")]
 use botster_terminal_protocol::{
@@ -54,7 +55,7 @@ use crate::engine::terminal_screen::{NullTerminalScreenRuntime, TerminalScreenRu
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{
-    LocalProcessRuntime, RetainedWorkerFinalState, WorkerProcessRuntime,
+    LocalProcessRuntime, RetainedWorkerFinalState, SnapshotCancelAdmission, WorkerProcessRuntime,
     WorkerProcessRuntimeOptions, WorkerSpawnPoll,
 };
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
@@ -113,6 +114,45 @@ pub struct WorkerBackedBotsterEngine {
     next_host_capture: u64,
     /// Finished host captures awaiting `take_host_capture`.
     host_captures: HashMap<u64, Result<HostCaptureResult, String>>,
+    /// Worker barrier cancels the control queue has not accepted yet. At
+    /// most one per session: the runtime holds at most one outstanding
+    /// barrier request, and a cancel exists only while that request does.
+    pending_barrier_cancels: HashMap<SessionId, PendingBarrierCancel>,
+}
+
+/// How long one refused barrier cancel may stay pending.
+///
+/// The control writer gives every queued frame `WORKER_CONTROL_WRITE_TIMEOUT`
+/// and fails the control plane itself when a write exceeds it. A queue that
+/// stays full for longer than every queued frame could legitimately take is
+/// a worker that does not consume control frames without the writer noticing;
+/// the engine then fails the control plane explicitly. Retries themselves are
+/// driven by session wakes, never by this clock, so fast unrelated turns
+/// cannot shorten the bound.
+#[cfg(feature = "local-runtime")]
+const BARRIER_CANCEL_RETRY_BOUND: Duration = Duration::from_secs(
+    crate::runtime::WORKER_CONTROL_WRITE_TIMEOUT.as_secs()
+        * crate::runtime::WORKER_CONTROL_QUEUE_FRAMES as u64,
+);
+
+/// A snapshot barrier cancel that the worker control queue refused.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingBarrierCancel {
+    /// Process-unique barrier request id; it names one worker incarnation.
+    request_id: String,
+    /// Monotonic time of the first refusal.
+    first_refused: Instant,
+}
+
+/// Outcome of one barrier cancel attempt.
+#[cfg(feature = "local-runtime")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BarrierCancelStep {
+    /// Nothing is owed for the request any more.
+    Done,
+    /// The request is still outstanding and the cancel was not queued.
+    Retry,
 }
 
 /// Why one route needs a worker capture.
@@ -889,6 +929,7 @@ impl WorkerBackedBotsterEngine {
             capture_queue: HashMap::new(),
             next_host_capture: 1,
             host_captures: HashMap::new(),
+            pending_barrier_cancels: HashMap::new(),
         }
     }
 
@@ -949,12 +990,10 @@ impl WorkerBackedBotsterEngine {
     /// Release workers without sending shutdown frames for an intentional daemon restart.
     pub fn release_workers_for_restart(&mut self) {
         for (session_id, capture) in std::mem::take(&mut self.captures) {
-            let _ = self
-                .runtime
-                .session_runtime_mut()
-                .cancel_snapshot_boundary(&session_id, &capture.request_id);
+            self.cancel_capture_boundary(&session_id, capture.request_id.clone());
         }
         self.capture_queue.clear();
+        self.pending_barrier_cancels.clear();
         self.runtime.release_workers_for_restart();
     }
 
@@ -1018,10 +1057,7 @@ impl WorkerBackedBotsterEngine {
         capture: RouteCapture,
         output: BotsterEngineOutput,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
-        let _ = self
-            .runtime
-            .session_runtime_mut()
-            .cancel_snapshot_boundary(session_id, &capture.request_id);
+        self.cancel_capture_boundary(session_id, capture.request_id.clone());
         self.start_resync_captures()?;
         self.start_next_capture(session_id)?;
         Ok(output)
@@ -1428,6 +1464,7 @@ impl WorkerBackedBotsterEngine {
                 .runtime
                 .drain_runtime_once(session_id, last_output_at)?;
             self.start_resync_captures()?;
+            self.start_next_capture(session_id)?;
             return Ok(output);
         };
         let poll = match self
@@ -1438,10 +1475,7 @@ impl WorkerBackedBotsterEngine {
             Ok(poll) => poll,
             Err(error) => {
                 let not_found = error.kind == crate::SessionRuntimeErrorKind::SessionNotFound;
-                let _ = self
-                    .runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.cancel_capture_boundary(session_id, capture.request_id.clone());
                 self.fail_capture_route(session_id, &capture);
                 if not_found {
                     let _ = self.start_next_capture(session_id);
@@ -1457,10 +1491,7 @@ impl WorkerBackedBotsterEngine {
         ) {
             Ok(output) => output,
             Err(error) => {
-                let _ = self
-                    .runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.cancel_capture_boundary(session_id, capture.request_id.clone());
                 self.fail_capture_route(session_id, &capture);
                 return Err(error);
             }
@@ -1486,10 +1517,7 @@ impl WorkerBackedBotsterEngine {
             if let Some(error) = error {
                 if !capture.ready {
                     // Capture failed before READY: the route ends explicitly.
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.cancel_capture_boundary(session_id, capture.request_id.clone());
                     self.fail_capture_route(session_id, &capture);
                     let _ = self.runtime.handle_client_ingress(
                         capture.client_id.clone(),
@@ -1510,10 +1538,7 @@ impl WorkerBackedBotsterEngine {
                 }
                 if let CaptureKind::Host(id) = capture.kind {
                     // A host capture needs the whole object; a partial one is a failure.
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.cancel_capture_boundary(session_id, capture.request_id.clone());
                     self.record_host_capture(id, Err(error));
                     let _ = self.start_next_capture(session_id);
                     return Ok(output);
@@ -1601,10 +1626,7 @@ impl WorkerBackedBotsterEngine {
                 .session_runtime_mut()
                 .complete_snapshot_boundary(session_id, &capture.request_id)
             {
-                let _ = self
-                    .runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.cancel_capture_boundary(session_id, capture.request_id.clone());
                 self.fail_capture_route(session_id, &capture);
                 let _ = self.start_next_capture(session_id);
                 return Err(error.into());
@@ -1630,10 +1652,7 @@ impl WorkerBackedBotsterEngine {
                     None | Some(crate::SessionLifecycleState::Exited { .. })
                         | Some(crate::SessionLifecycleState::Failed { .. })
                 ) {
-                    let _ = self
-                        .runtime
-                        .session_runtime_mut()
-                        .cancel_snapshot_boundary(session_id, &capture.request_id);
+                    self.cancel_capture_boundary(session_id, capture.request_id.clone());
                     self.capture_queue.remove(session_id);
                     return Ok(output);
                 }
@@ -1780,6 +1799,11 @@ impl WorkerBackedBotsterEngine {
         if self.captures.contains_key(session_id) {
             return Ok(());
         }
+        // A refused cancel still owns the worker barrier; no new capture can
+        // begin until the worker has been asked to release it.
+        if !self.retry_barrier_cancels(session_id) {
+            return Ok(());
+        }
         loop {
             let Some(next) = self
                 .capture_queue
@@ -1871,12 +1895,28 @@ impl WorkerBackedBotsterEngine {
     fn start_resync_captures(&mut self) -> Result<(), WorkerBackedBotsterEngineError> {
         let requests = self.runtime.client_worker_mut().take_resync_requests();
         for request in requests {
-            // A capture still running for this route belongs to the epoch the
-            // overflow left; its remaining pages must not enter the new one.
             let identity = CaptureIdentity {
                 generation: request.generation,
                 capture_fence: request.capture_fence,
             };
+            // A request that no longer names the live attachment and fence is
+            // stale. It must not touch capture work: the route it came from
+            // is gone or has already moved on, and any active or queued
+            // capture belongs to the current owner.
+            let live = self.runtime.terminal_subscription_matches(
+                &request.session_id,
+                &request.client_id,
+                &request.subscription_id,
+            ) && self.runtime.client_worker().capture_identity_is_live(
+                &request.session_id,
+                &request.subscription_id,
+                identity,
+            );
+            if !live {
+                continue;
+            }
+            // A capture still running for this route belongs to the epoch the
+            // overflow left; its remaining pages must not enter the new one.
             let superseded = self
                 .captures
                 .get(&request.session_id)
@@ -1915,10 +1955,117 @@ impl WorkerBackedBotsterEngine {
             .is_some_and(|capture| &capture.subscription_id == subscription_id);
         if active_matches {
             if let Some(capture) = self.captures.remove(session_id) {
-                let _ = self
-                    .runtime
-                    .session_runtime_mut()
-                    .cancel_snapshot_boundary(session_id, &capture.request_id);
+                self.cancel_capture_boundary(session_id, capture.request_id);
+            }
+        }
+    }
+
+    /// Ask the worker to release the barrier of one capture.
+    ///
+    /// Ownership of the release moves from the capture to this engine. The
+    /// obligation exists exactly while the runtime still holds `request_id`
+    /// as its outstanding barrier request: a cancel the control queue refuses
+    /// is retained and retried on later session wakes; once the runtime no
+    /// longer holds the request (accepted cancel, worker gone, worker
+    /// respawned or adopted under a new request) nothing remains to clean up.
+    fn cancel_capture_boundary(&mut self, session_id: &SessionId, request_id: String) {
+        self.cancel_capture_boundary_at(session_id, request_id, Instant::now());
+    }
+
+    fn cancel_capture_boundary_at(
+        &mut self,
+        session_id: &SessionId,
+        request_id: String,
+        now: Instant,
+    ) {
+        if let Some(pending) = self.pending_barrier_cancels.get(session_id) {
+            if pending.request_id == request_id {
+                // Already owed; the retry path carries it.
+                return;
+            }
+        }
+        match self.try_cancel_barrier(session_id, &request_id) {
+            BarrierCancelStep::Done => {
+                self.pending_barrier_cancels.remove(session_id);
+            }
+            BarrierCancelStep::Retry => {
+                // The runtime holds one outstanding request per session, so
+                // an older pending cancel for another id cannot still be owed.
+                self.pending_barrier_cancels.insert(
+                    session_id.clone(),
+                    PendingBarrierCancel {
+                        request_id,
+                        first_refused: now,
+                    },
+                );
+            }
+        }
+    }
+
+    /// One cancel attempt. `Done` means nothing is owed for this request any
+    /// more; `Retry` means the exact request is still outstanding at the
+    /// worker and the cancel did not enter the control queue.
+    fn try_cancel_barrier(
+        &mut self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> BarrierCancelStep {
+        let runtime = self.runtime.session_runtime_mut();
+        if !runtime.snapshot_request_is_outstanding(session_id, request_id) {
+            return BarrierCancelStep::Done;
+        }
+        if matches!(
+            runtime.control_plane_state(session_id),
+            crate::runtime::ControlPlaneState::Failed(_)
+        ) {
+            // Recovery is respawn; the barrier ends with this worker.
+            return BarrierCancelStep::Done;
+        }
+        match runtime.cancel_snapshot_boundary(session_id, request_id) {
+            Ok(SnapshotCancelAdmission::Accepted) => BarrierCancelStep::Done,
+            Ok(SnapshotCancelAdmission::QueueFull) => BarrierCancelStep::Retry,
+            // A queued shutdown ends the worker, barrier included.
+            Ok(SnapshotCancelAdmission::Sealed) => BarrierCancelStep::Done,
+            // The session exists and holds the request, yet the attempt
+            // failed: keep the obligation and try again on the next wake.
+            Err(_) => BarrierCancelStep::Retry,
+        }
+    }
+
+    /// Retry the refused barrier cancel of one session, if any.
+    ///
+    /// Called from session wakes: each drain and each attempt to start a
+    /// capture. Returns `true` when nothing is owed, so a new capture may
+    /// begin. A cancel still refused after `BARRIER_CANCEL_RETRY_BOUND` fails
+    /// the session control plane explicitly instead of leaving the worker
+    /// barrier unowned.
+    fn retry_barrier_cancels(&mut self, session_id: &SessionId) -> bool {
+        self.retry_barrier_cancels_at(session_id, Instant::now())
+    }
+
+    fn retry_barrier_cancels_at(&mut self, session_id: &SessionId, now: Instant) -> bool {
+        let Some(pending) = self.pending_barrier_cancels.get(session_id).cloned() else {
+            return true;
+        };
+        match self.try_cancel_barrier(session_id, &pending.request_id) {
+            BarrierCancelStep::Done => {
+                self.pending_barrier_cancels.remove(session_id);
+                true
+            }
+            BarrierCancelStep::Retry => {
+                if now.duration_since(pending.first_refused) >= BARRIER_CANCEL_RETRY_BOUND {
+                    self.runtime
+                        .session_runtime_mut()
+                        .mark_control_plane_failed(
+                            session_id,
+                            crate::runtime::ControlWriterError::DeadlineExpired,
+                        );
+                    self.pending_barrier_cancels.remove(session_id);
+                    self.capture_queue.remove(session_id);
+                    // The control plane is failed; nothing else can be sent.
+                    return true;
+                }
+                false
             }
         }
     }
@@ -1978,9 +2125,7 @@ impl WorkerBackedBotsterEngine {
             .captures
             .remove(session_id)
             .expect("capture existed above");
-        self.runtime
-            .session_runtime_mut()
-            .cancel_snapshot_boundary(session_id, &capture.request_id)?;
+        self.cancel_capture_boundary(session_id, capture.request_id.clone());
         self.start_next_capture(session_id)
     }
 
@@ -1992,9 +2137,7 @@ impl WorkerBackedBotsterEngine {
         now_seconds: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         if let Some(capture) = self.captures.remove(&session_id) {
-            self.runtime
-                .session_runtime_mut()
-                .cancel_snapshot_boundary(&session_id, &capture.request_id)?;
+            self.cancel_capture_boundary(&session_id, capture.request_id.clone());
         }
         self.capture_queue.remove(&session_id);
         self.runtime
@@ -2757,6 +2900,8 @@ where
 #[cfg(all(test, feature = "local-runtime"))]
 mod capture_identity_tests {
     use super::*;
+    use crate::engine::client_worker::RouteResyncRequest;
+    use crate::runtime::{ControlFrameClass, ControlPlaneState, ControlQueue, ControlWriterError};
 
     fn engine() -> WorkerBackedBotsterEngine {
         WorkerBackedBotsterEngine::new("/missing/botster-session-worker")
@@ -2809,18 +2954,334 @@ mod capture_identity_tests {
         assert!(!engine.capture_queue.contains_key(&session));
     }
 
+    fn route_capture(
+        client_id: &ClientId,
+        subscription_id: &SubscriptionId,
+        request_id: &str,
+        identity: Option<CaptureIdentity>,
+    ) -> RouteCapture {
+        RouteCapture {
+            client_id: client_id.clone(),
+            subscription_id: subscription_id.clone(),
+            kind: CaptureKind::Attach,
+            request_id: request_id.to_string(),
+            identity,
+            ready: false,
+            awaiting_release: false,
+            history_incomplete: false,
+            collected: Vec::new(),
+            collected_size: None,
+            collected_colors: None,
+        }
+    }
+
+    /// Attach `client`, then replace it with `other`. Returns the stale
+    /// resync request of the first owner and the live identity of the second.
+    fn stale_resync_after_replacement(
+        engine: &mut WorkerBackedBotsterEngine,
+    ) -> (RouteResyncRequest, ClientId, CaptureIdentity) {
+        let (client, session, subscription) = ids();
+        let worker = engine.runtime.client_worker_mut();
+        let (stale_generation, _) = worker
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("first attach");
+        let other = ClientId("other".into());
+        worker
+            .record_attach(other.clone(), session.clone(), subscription.clone())
+            .expect("replacement attach");
+        let live = worker
+            .capture_identity(&session, &subscription)
+            .expect("live identity");
+        assert_ne!(live.generation, stale_generation);
+        let stale = RouteResyncRequest {
+            client_id: client,
+            session_id: session,
+            subscription_id: subscription,
+            generation: stale_generation,
+            stream_epoch: 1,
+            capture_fence: 0,
+        };
+        (stale, other, live)
+    }
+
     #[test]
-    fn cancelling_a_queued_host_capture_retains_nothing() {
+    fn a_stale_resync_request_leaves_the_replacement_active_capture_intact() {
+        let mut engine = engine();
+        let (_, session, subscription) = ids();
+        let (stale, other, live) = stale_resync_after_replacement(&mut engine);
+        engine.captures.insert(
+            session.clone(),
+            route_capture(&other, &subscription, "req-replacement", Some(live)),
+        );
+        engine
+            .runtime
+            .client_worker_mut()
+            .queue_resync_request(stale);
+
+        engine.start_resync_captures().expect("resync pass");
+
+        let active = engine.captures.get(&session).expect("capture survives");
+        assert_eq!(active.request_id, "req-replacement");
+        assert_eq!(active.identity, Some(live));
+        assert!(
+            !engine.capture_queue.contains_key(&session),
+            "a stale request must not queue a resync capture"
+        );
+    }
+
+    #[test]
+    fn a_stale_resync_request_leaves_the_replacement_queued_request_intact() {
+        let mut engine = engine();
+        let (_, session, subscription) = ids();
+        let (stale, other, live) = stale_resync_after_replacement(&mut engine);
+        // Another capture holds the session; the replacement waits its turn.
+        engine.captures.insert(
+            session.clone(),
+            route_capture(
+                &ClientId("host-capture-1".into()),
+                &SubscriptionId("host-capture-1".into()),
+                "req-host",
+                None,
+            ),
+        );
+        engine
+            .capture_queue
+            .entry(session.clone())
+            .or_default()
+            .push_back(CaptureRequest {
+                client_id: other,
+                subscription_id: subscription.clone(),
+                kind: CaptureKind::Attach,
+                identity: Some(live),
+            });
+        engine
+            .runtime
+            .client_worker_mut()
+            .queue_resync_request(stale);
+
+        engine.start_resync_captures().expect("resync pass");
+
+        let queued = &engine.capture_queue[&session];
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].kind, CaptureKind::Attach);
+        assert_eq!(queued[0].identity, Some(live));
+        assert_eq!(engine.captures[&session].request_id, "req-host");
+    }
+
+    /// Fill every control slot of the session so no cancel can enter.
+    fn saturate_control_queue(
+        engine: &WorkerBackedBotsterEngine,
+        session: &SessionId,
+    ) -> ControlQueue {
+        let queue = engine
+            .runtime
+            .session_runtime()
+            .test_control_queue(session)
+            .expect("session queue");
+        while queue.admit(ControlFrameClass::Ordinary, vec![0]).is_ok() {}
+        while queue.admit(ControlFrameClass::Cancel, vec![0]).is_ok() {}
+        queue
+    }
+
+    #[test]
+    fn cancelling_queued_and_active_host_captures_retains_nothing() {
         let mut engine = engine();
         let (_, session, _) = ids();
-        let id = engine.begin_host_capture(&session);
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        let active = engine.begin_host_capture(&session);
+        let queued = engine.begin_host_capture(&session);
+        assert_eq!(
+            engine.captures[&session].kind,
+            CaptureKind::Host(active),
+            "the first host capture holds the worker barrier"
+        );
+        assert_eq!(engine.capture_queue[&session].len(), 1);
 
-        engine.cancel_host_capture(&session, id);
-
-        assert!(engine.take_host_capture(id).is_none());
-        assert!(engine.host_captures.is_empty());
+        engine.cancel_host_capture(&session, queued);
+        assert_eq!(engine.captures[&session].kind, CaptureKind::Host(active));
         assert!(!engine.capture_queue.contains_key(&session));
+
+        engine.cancel_host_capture(&session, active);
+        assert!(engine.take_host_capture(active).is_none());
+        assert!(engine.take_host_capture(queued).is_none());
+        assert!(engine.host_captures.is_empty());
         assert!(!engine.captures.contains_key(&session));
+        assert!(!engine.capture_queue.contains_key(&session));
+        assert!(
+            !engine.pending_barrier_cancels.contains_key(&session),
+            "an accepted cancel leaves no obligation behind"
+        );
+        assert!(
+            engine
+                .runtime
+                .session_runtime_mut()
+                .begin_snapshot_boundary(&session)
+                .is_ok(),
+            "the worker barrier was released"
+        );
+    }
+
+    #[test]
+    fn a_barrier_cancel_refused_by_a_full_control_queue_is_retained_and_retried() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        let active = engine.begin_host_capture(&session);
+        let request_id = engine.captures[&session].request_id.clone();
+        let queue = saturate_control_queue(&engine, &session);
+
+        engine.cancel_host_capture(&session, active);
+
+        assert!(!engine.captures.contains_key(&session));
+        assert_eq!(
+            engine.pending_barrier_cancels[&session].request_id, request_id,
+            "the refused cancel stays owned by the engine"
+        );
+        assert!(
+            engine
+                .runtime
+                .session_runtime()
+                .snapshot_request_is_outstanding(&session, &request_id),
+            "the runtime still holds the barrier request"
+        );
+        // While the cancel is pending no new capture may begin.
+        let next = engine.begin_host_capture(&session);
+        assert!(!engine.captures.contains_key(&session));
+        assert_eq!(
+            engine.capture_queue[&session][0].kind,
+            CaptureKind::Host(next)
+        );
+
+        // One drained slot: the next wake retries and the queued capture starts.
+        assert!(queue.pop().is_some());
+        engine.start_next_capture(&session).expect("retry pass");
+
+        assert!(!engine.pending_barrier_cancels.contains_key(&session));
+        assert!(!engine
+            .runtime
+            .session_runtime()
+            .snapshot_request_is_outstanding(&session, &request_id));
+        assert_eq!(engine.captures[&session].kind, CaptureKind::Host(next));
+    }
+
+    #[test]
+    fn a_second_cancel_of_the_same_request_is_deduplicated() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        let active = engine.begin_host_capture(&session);
+        let request_id = engine.captures[&session].request_id.clone();
+        let _queue = saturate_control_queue(&engine, &session);
+        let first = Instant::now();
+        engine.cancel_capture_boundary_at(&session, request_id.clone(), first);
+
+        engine.cancel_capture_boundary_at(
+            &session,
+            request_id.clone(),
+            first + Duration::from_secs(1),
+        );
+        engine.cancel_host_capture(&session, active);
+
+        assert_eq!(engine.pending_barrier_cancels.len(), 1);
+        let pending = &engine.pending_barrier_cancels[&session];
+        assert_eq!(pending.request_id, request_id);
+        assert_eq!(
+            pending.first_refused, first,
+            "the first refusal keeps the bound"
+        );
+    }
+
+    #[test]
+    fn fast_wakes_never_fail_a_healthy_worker_before_the_retry_bound() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        let active = engine.begin_host_capture(&session);
+        let _queue = saturate_control_queue(&engine, &session);
+        engine.cancel_host_capture(&session, active);
+        let first = engine.pending_barrier_cancels[&session].first_refused;
+
+        // Many wakes inside the bound: still pending, control plane live.
+        let inside = first + BARRIER_CANCEL_RETRY_BOUND - Duration::from_millis(1);
+        for _ in 0..1_000 {
+            assert!(!engine.retry_barrier_cancels_at(&session, inside));
+        }
+        assert!(engine.pending_barrier_cancels.contains_key(&session));
+        assert_eq!(
+            engine
+                .runtime
+                .session_runtime()
+                .control_plane_state(&session),
+            ControlPlaneState::Live
+        );
+
+        // The bound itself, still refused: explicit control-plane failure.
+        assert!(engine.retry_barrier_cancels_at(&session, first + BARRIER_CANCEL_RETRY_BOUND));
+        assert!(!engine.pending_barrier_cancels.contains_key(&session));
+        assert_eq!(
+            engine
+                .runtime
+                .session_runtime()
+                .control_plane_state(&session),
+            ControlPlaneState::Failed(ControlWriterError::DeadlineExpired)
+        );
+    }
+
+    #[test]
+    fn a_pending_cancel_is_discharged_only_when_its_request_is_no_longer_outstanding() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        let active = engine.begin_host_capture(&session);
+        let request_id = engine.captures[&session].request_id.clone();
+        let _queue = saturate_control_queue(&engine, &session);
+        engine.cancel_host_capture(&session, active);
+        assert!(engine.pending_barrier_cancels.contains_key(&session));
+
+        // A worker replaced under the same session id holds no such request.
+        engine
+            .runtime
+            .session_runtime_mut()
+            .remove_test_session(&session);
+        engine
+            .runtime
+            .session_runtime_mut()
+            .insert_test_session(session.clone());
+        assert!(!engine
+            .runtime
+            .session_runtime()
+            .snapshot_request_is_outstanding(&session, &request_id));
+
+        assert!(engine.retry_barrier_cancels_at(&session, Instant::now()));
+        assert!(!engine.pending_barrier_cancels.contains_key(&session));
+        assert_eq!(
+            engine
+                .runtime
+                .session_runtime()
+                .control_plane_state(&session),
+            ControlPlaneState::Live
+        );
+        // The new worker can take a barrier at once.
+        assert!(engine
+            .runtime
+            .session_runtime_mut()
+            .begin_snapshot_boundary(&session)
+            .is_ok());
     }
 
     #[test]

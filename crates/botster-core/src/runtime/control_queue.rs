@@ -26,7 +26,8 @@ pub const WORKER_CONTROL_WRITER_JOIN_BOUND: Duration = Duration::from_secs(1);
 pub enum ControlFrameClass {
     /// Ordinary post-spawn control traffic.
     Ordinary,
-    /// Mode-gated cancel. Uses a reserved slot.
+    /// Cancel of in-flight worker work (input cancel, snapshot barrier
+    /// cancel). Uses a reserved slot.
     Cancel,
     /// Shutdown. Uses a reserved slot and seals the queue.
     Terminal,

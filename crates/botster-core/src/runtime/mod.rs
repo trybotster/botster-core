@@ -67,9 +67,9 @@ pub use local_process::{
 };
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
-    ResizeAckHold, RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime,
-    WorkerProcessRuntimeOptions, WorkerSpawnPoll, DEFAULT_WORKER_EGRESS_CAPACITY,
-    DEFAULT_WORKER_REPLY_TIMEOUT,
+    ResizeAckHold, RetainedWorkerFinalState, SnapshotCancelAdmission, WorkerHealth,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerSpawnPoll,
+    DEFAULT_WORKER_EGRESS_CAPACITY, DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 
 /// Host-implemented session runtime boundary.
