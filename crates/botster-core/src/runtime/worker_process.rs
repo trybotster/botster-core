@@ -962,8 +962,13 @@ impl WorkerProcessRuntime {
 
     /// Whether `request_id` is the barrier request this session still holds.
     ///
-    /// Request ids are process-unique, so a match also proves the same worker
-    /// incarnation: a respawned or adopted worker never carries an old id.
+    /// Request ids come from one daemon-process-local allocator (wall-clock
+    /// nanoseconds plus an ordinal) and are distinct until the ordinal wraps.
+    /// A session installed by respawn or adoption starts with no outstanding
+    /// request and can only receive newly allocated ids, so within one daemon
+    /// process a match names the same worker session that began the barrier.
+    /// This is not a persistent worker-incarnation id across daemon restarts;
+    /// pending cancels live in memory, so none is needed.
     #[must_use]
     pub fn snapshot_request_is_outstanding(
         &self,
@@ -1040,9 +1045,46 @@ impl WorkerProcessRuntime {
         }
     }
 
+    /// Fail the control plane and end the control link to the worker.
+    ///
+    /// This is the explicit cleanup path for a worker that no longer accepts
+    /// control frames: the queue is sealed, the write half is hard-stopped
+    /// (the child is killed on stdio control; the socket write half is shut
+    /// on socket control), and the session's outstanding barrier request is
+    /// dropped. The worker's control reader observes end of stream and
+    /// releases any active snapshot barrier itself; the parent no longer owns
+    /// a request the worker can still be asked about.
+    pub fn fail_control_plane(&mut self, session_id: &SessionId, error: ControlWriterError) {
+        let Some(session) = self.sessions.get_mut(session_id) else {
+            return;
+        };
+        session.control_plane = ControlPlaneState::Failed(error);
+        session.control_queue.seal();
+        session.control.hard_stop_write(session.child.as_mut());
+        session.outstanding_snapshot_request = None;
+        session.snapshot_boundary.clear();
+    }
+
     #[cfg(test)]
     pub(crate) fn test_has_session(&self, session_id: &SessionId) -> bool {
         self.sessions.contains_key(session_id)
+    }
+
+    /// Record a writer failure as the writer thread would. Crate tests use it
+    /// to model a sealed queue whose seal came from a failed write.
+    #[cfg(test)]
+    pub(crate) fn test_fail_control_writer(
+        &self,
+        session_id: &SessionId,
+        error: ControlWriterError,
+    ) {
+        if let Some(session) = self.sessions.get(session_id) {
+            session.control_queue.seal();
+            session.writer_slot.set(ControlWriterOutcome::Failed {
+                error,
+                consumed: false,
+            });
+        }
     }
 
     /// Forget a session installed by [`Self::insert_test_session`].
@@ -2888,12 +2930,13 @@ fn run_control_writer(
         return;
     }
     loop {
-        let Some((class, frame, freed_ordinary_capacity)) = queue.pop_with_capacity_transition()
-        else {
+        let Some((class, frame, freed_capacity)) = queue.pop_with_capacity_transition() else {
             slot.set(ControlWriterOutcome::Stopped);
             return;
         };
-        if freed_ordinary_capacity {
+        if freed_capacity {
+            // Ordinary or reserved admission reopened: wake the session so a
+            // refused admitter (parked input, a pending barrier cancel) retries.
             notify_session_wake(&wake_handle);
         }
         match write_control_bytes(&mut write, &frame) {
@@ -3135,6 +3178,93 @@ mod tests {
             super::SnapshotCancelAdmission::Accepted
         );
         assert!(runtime.begin_snapshot_boundary(&session).is_ok());
+    }
+
+    fn wakes_after_writer_drains(ordinary: usize, cancel: usize) -> bool {
+        let source = TerminalWakeSource::new();
+        let session = SessionId("control-writer-capacity".to_string());
+        let handle = source.session_handle(session.clone());
+        let queue = ControlQueue::new();
+        for _ in 0..ordinary {
+            let frame = crate::encode_frame(FRAME_PTY_INPUT, b"x").expect("frame");
+            queue
+                .admit(ControlFrameClass::Ordinary, frame)
+                .expect("admit");
+        }
+        for _ in 0..cancel {
+            let frame =
+                crate::encode_frame(super::FRAME_INPUT_CANCEL, &0u64.to_le_bytes()).expect("frame");
+            queue
+                .admit(ControlFrameClass::Cancel, frame)
+                .expect("admit");
+        }
+        let (writer, mut peer) = UnixStream::pair().expect("socket pair");
+        let sink = std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(read) = std::io::Read::read(&mut peer, &mut buf) {
+                if read == 0 {
+                    break;
+                }
+            }
+        });
+        let write_queue = queue.clone();
+        let writer_thread = std::thread::spawn(move || {
+            run_control_writer(
+                write_queue,
+                WorkerWriteHalf::Socket(writer),
+                ControlWriterSlot::running(),
+                Some(handle),
+            );
+        });
+        // Let the writer drain everything, then seal so it exits.
+        while !queue.is_empty() {
+            std::thread::yield_now();
+        }
+        queue.seal();
+        writer_thread.join().expect("writer");
+        sink.join().expect("sink");
+        let batch = source.wait_wakes(Duration::from_millis(0));
+        batch.ingress_sessions.iter().any(|id| id == &session)
+    }
+
+    #[test]
+    fn draining_reserved_frames_from_a_full_queue_wakes_the_session() {
+        assert!(wakes_after_writer_drains(
+            20,
+            crate::runtime::WORKER_CONTROL_QUEUE_FRAMES - 20
+        ));
+    }
+
+    #[test]
+    fn draining_a_queue_that_was_never_full_wakes_nobody() {
+        assert!(!wakes_after_writer_drains(3, 1));
+    }
+
+    #[test]
+    fn failing_the_control_plane_ends_the_link_and_drops_the_barrier_request() {
+        let mut runtime = WorkerProcessRuntime::new("/missing/botster-session-worker");
+        let session = SessionId("failed-plane".to_string());
+        runtime.insert_test_session(session.clone());
+        let request_id = runtime
+            .begin_snapshot_boundary(&session)
+            .expect("begin barrier");
+        assert!(runtime.snapshot_request_is_outstanding(&session, &request_id));
+
+        runtime.fail_control_plane(&session, super::ControlWriterError::DeadlineExpired);
+
+        assert!(!runtime.snapshot_request_is_outstanding(&session, &request_id));
+        assert_eq!(
+            runtime.control_plane_state(&session),
+            super::ControlPlaneState::Failed(super::ControlWriterError::DeadlineExpired)
+        );
+        assert!(runtime
+            .test_control_queue(&session)
+            .expect("queue")
+            .is_sealed());
+        assert!(matches!(
+            runtime.cancel_snapshot_boundary(&session, &request_id),
+            Ok(super::SnapshotCancelAdmission::Sealed)
+        ));
     }
 
     #[test]
