@@ -1067,6 +1067,16 @@ impl ClientWorker {
         overflowing: TerminalFrame,
         overflowing_kind: QueuedKind,
     ) -> Option<ClientWorkerTeardown> {
+        // A declared route that has never bound cannot drain, so resync
+        // recovery would only start another capture it cannot receive. Its
+        // first overflow ends it explicitly; bound routes recover by resync.
+        if self
+            .live
+            .get(key)
+            .is_some_and(|owner| owner.adapter.is_none() && owner.hold_until_bound)
+        {
+            return self.hard_stop_key(key);
+        }
         let mut lost_visual = matches!(overflowing_kind, QueuedKind::Visual);
         let (needs_transition, epoch_exhausted, ready) = {
             let owner = self.live.get_mut(key)?;
@@ -2343,6 +2353,65 @@ mod tests {
         let requests = worker.take_resync_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].stream_epoch, 1);
+    }
+
+    #[test]
+    fn a_declared_route_that_never_bound_fails_on_its_first_overflow() {
+        let mut worker = ClientWorker::new();
+        let client = ClientId("client".into());
+        let session = SessionId("session".into());
+        let subscription = SubscriptionId("route".into());
+        worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+        let (generation, _) = worker
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("declared attach");
+        let key = OwnerKey {
+            session_id: session.clone(),
+            subscription_id: subscription.clone(),
+        };
+        assert!(worker.live[&key].hold_until_bound);
+        // Route-personal frames queue on the pre-bind hold.
+        for _ in 0..MAX_ROUTE_EGRESS_FRAMES {
+            let teardown = worker
+                .push_route_frame(
+                    &session,
+                    &subscription,
+                    encode_modes(ModesBody::default()).expect("modes"),
+                )
+                .expect("hold accepts frames");
+            assert!(teardown.is_none());
+        }
+
+        let teardown = worker
+            .push_route_frame(
+                &session,
+                &subscription,
+                encode_modes(ModesBody::default()).expect("modes"),
+            )
+            .expect("overflowing frame is accepted for the decision");
+
+        let teardown = teardown.expect("first overflow ends the unbound route");
+        assert_eq!(teardown.generation, generation);
+        assert_eq!(teardown.subscription_id, subscription);
+        assert!(!worker.has_subscription(&session, &subscription));
+        assert!(
+            worker.take_resync_requests().is_empty(),
+            "no resync capture may be requested for a route that cannot receive it"
+        );
+        assert!(
+            matches!(
+                worker.bind_waking_terminal_adapter(
+                    &client,
+                    session,
+                    subscription,
+                    generation,
+                    TerminalCapabilitySet::empty(),
+                    Box::new(StuckAdapter),
+                ),
+                Err(BindTerminalAdapterError::UnknownSubscription { .. })
+            ),
+            "a late bind is refused with the public failure signal"
+        );
     }
 
     #[test]
