@@ -8,7 +8,7 @@ use botster_core::contract::terminal_adapter::{
 };
 use botster_core::{TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter};
 use botster_core_test_support::terminal_adapter::TerminalAdapterHarnessDriver;
-use botster_terminal_protocol::TerminalFrame;
+use botster_terminal_protocol::RoutedTerminalFrame;
 
 /// Minimal external adapter. Not a published Core driver.
 #[derive(Default)]
@@ -24,7 +24,7 @@ pub struct HubShapedTerminalAdapter {
 }
 
 impl TerminalAdapter for HubShapedTerminalAdapter {
-    fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+    fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
         if self.closed {
             return Err(TerminalAdapterWriteError::Closed);
         }
@@ -34,7 +34,7 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
         if self.would_block {
             return Err(TerminalAdapterWriteError::WouldBlock);
         }
-        self.active = Some(frame.to_bytes().expect("serialize accepted frame"));
+        self.active = Some(frame.frame.as_bytes().to_vec());
         Ok(())
     }
 
@@ -178,7 +178,7 @@ mod tests {
     }
 
     impl TerminalAdapter for SharedHubAdapter {
-        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
             let mut inner = self.inner.lock().expect("hub adapter lock");
             let result = inner.try_write(frame);
             if result.is_ok() {
@@ -387,7 +387,7 @@ mod tests {
     }
 
     impl TerminalAdapter for SharedOneSlotHubAdapter {
-        fn try_write(&mut self, frame: &TerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
             self.inner.lock().expect("hub adapter lock").try_write(frame)
         }
 

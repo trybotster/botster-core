@@ -33,7 +33,6 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
-        test_fail_pty_writes: false,
     }
 }
 
@@ -47,7 +46,6 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
         test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
-        test_fail_pty_writes: false,
     }
 }
 

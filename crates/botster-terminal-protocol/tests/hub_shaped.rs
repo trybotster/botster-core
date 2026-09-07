@@ -54,7 +54,7 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
         "phase": "ready"
     });
     let frame = TerminalFrame::from_bytes(snapshot_json.to_string().as_bytes()).expect("frame");
-    let emitted = frame.to_bytes().expect("emit");
+    let emitted = frame.as_bytes().to_vec();
     let round_trip: serde_json::Value = serde_json::from_slice(&emitted).expect("json");
     assert_eq!(round_trip["type"], "snapshot");
     assert_eq!(PROTOCOL, "botster-terminal-v1");

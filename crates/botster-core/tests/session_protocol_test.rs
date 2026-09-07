@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use botster_core::engine::managed_session_runtime::terminal_mode_flags_from;
 use botster_core::session_protocol::*;
 
 fn metadata() -> SessionMetadata {
@@ -85,67 +84,7 @@ fn frame_constants_match_session_process_wire_spec() {
     assert_eq!(FRAME_SET_COLOR_PROFILE, 0x16);
     assert_eq!(FRAME_SPAWN_SESSION, 0x17);
     assert_eq!(FRAME_METADATA_SHAPING, 0x18);
-    assert_eq!(FRAME_MODE_GATED_PTY_INPUT, 0x19);
-    assert_eq!(FRAME_MODE_GATED_PTY_INPUT_RESULT, 0x1a);
-    assert_eq!(FRAME_MODE_GATED_CANCEL, 0x1b);
     assert_eq!(FRAME_RESIZE_APPLIED, 0x1c);
-}
-
-#[test]
-fn mode_flags_map_totally_onto_terminal_mode_flags() {
-    let flags = ModeFlags {
-        kitty_enabled: true,
-        cursor_visible: false,
-        bracketed_paste: true,
-        mouse_mode: 6,
-        alt_screen: true,
-        focus_reporting: true,
-        application_cursor: false,
-    };
-    let mapped = terminal_mode_flags_from(flags.clone());
-    assert_eq!(mapped.kitty_enabled, flags.kitty_enabled);
-    assert_eq!(mapped.cursor_visible, flags.cursor_visible);
-    assert_eq!(mapped.bracketed_paste, flags.bracketed_paste);
-    assert_eq!(mapped.mouse_mode, flags.mouse_mode);
-    assert_eq!(mapped.alt_screen, flags.alt_screen);
-    assert_eq!(mapped.focus_reporting, flags.focus_reporting);
-    assert_eq!(mapped.application_cursor, flags.application_cursor);
-}
-
-#[test]
-fn mode_gated_request_and_result_round_trip_json() {
-    let request = ModeGatedPtyInputRequest {
-        request_id: "req-1".to_string(),
-        expected: ModeFreshnessToken {
-            mode_generation: 9,
-            mode_revision: 3,
-        },
-        data: b"hello\n".to_vec(),
-        deadline_unix_ms: 1_700_000_000_000,
-        test_hold_ms: Some(5),
-    };
-    let encoded = serde_json::to_vec(&request).expect("encode request");
-    let decoded: ModeGatedPtyInputRequest =
-        serde_json::from_slice(&encoded).expect("decode request");
-    assert_eq!(decoded, request);
-
-    let result = ModeGatedPtyInputResult {
-        request_id: "req-1".to_string(),
-        admitted: false,
-        bytes_written: 0,
-        mode_flags: ModeFlags {
-            kitty_enabled: true,
-            ..ModeFlags::default()
-        },
-        mode_freshness: ModeFreshnessToken {
-            mode_generation: 9,
-            mode_revision: 4,
-        },
-        error_kind: None,
-    };
-    let encoded = serde_json::to_vec(&result).expect("encode result");
-    let decoded: ModeGatedPtyInputResult = serde_json::from_slice(&encoded).expect("decode result");
-    assert_eq!(decoded, result);
 }
 
 #[test]

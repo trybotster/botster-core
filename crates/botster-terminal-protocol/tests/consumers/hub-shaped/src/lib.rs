@@ -15,8 +15,8 @@ pub fn forward_attach(session_id: &str, subscription_id: &str) -> String {
 pub fn forward_frame(bytes: &[u8]) -> Vec<u8> {
     TerminalFrame::from_bytes(bytes)
         .expect("opaque frame")
-        .to_bytes()
-        .expect("emit frame")
+        .as_bytes()
+        .to_vec()
 }
 
 pub fn negotiated_capabilities(tokens: &[&str]) -> TerminalCapabilitySet {
