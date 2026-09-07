@@ -6966,7 +6966,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             TerminalCapabilitySet::empty(),
             Box::new(late),
         ),
-        Err(BindTerminalAdapterError::UnknownSubscription { .. })
+        Err(CoreDaemonError::BindTerminalAdapter(
+            BindTerminalAdapterError::UnknownSubscription { .. }
+        ))
     ));
     // The failed route remains absent while the flood continues and the
     // sibling keeps receiving live output. (Capture work itself is measured
