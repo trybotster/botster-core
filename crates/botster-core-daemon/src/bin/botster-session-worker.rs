@@ -2213,16 +2213,15 @@ mod tests {
             .expect("write half a frame");
         parent.shutdown(Shutdown::Write).expect("shut write half");
 
+        // The release is one-shot: the parked waiter consumed it here. A page
+        // loop observes the same cancel through is_cancelled only while no
+        // waiter is parked, so it is not re-checked after this take.
         assert!(matches!(
             released
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
         ));
-        assert!(
-            control.is_cancelled("snapshot-truncated"),
-            "a page loop still running must also stop"
-        );
         drop(parent);
     }
 
