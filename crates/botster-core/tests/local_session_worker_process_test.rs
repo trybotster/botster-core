@@ -27,35 +27,9 @@ extern "C" {
 }
 
 fn worker_path() -> std::path::PathBuf {
-    use std::process::Command;
-    use std::sync::Once;
-    static BUILD_WORKER: Once = Once::new();
-    BUILD_WORKER.call_once(|| {
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "botster-core-daemon",
-                "--bin",
-                "botster-session-worker",
-            ])
-            .status()
-            .expect("worker binary build command should run");
-        assert!(
-            status.success(),
-            "worker binary should build for core worker tests"
-        );
-    });
-    let mut path = std::env::current_exe().expect("test executable path should resolve");
-    while path.file_name().and_then(|name| name.to_str()) != Some("debug")
-        && path.file_name().and_then(|name| name.to_str()) != Some("release")
-    {
-        assert!(
-            path.pop(),
-            "test executable should live under target/debug or target/release"
-        );
-    }
-    path.join("botster-session-worker")
+    botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"))
+        .path
 }
 
 fn request_id(value: &str) -> RequestId {

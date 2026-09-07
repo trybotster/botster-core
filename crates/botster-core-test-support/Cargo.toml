@@ -21,8 +21,10 @@ ghostty-terminal = ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/li
 botster-core = { path = "../botster-core", version = "0.1.0", default-features = false }
 botster-terminal-ghostty = { path = "../botster-terminal-ghostty", optional = true, default-features = false }
 botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.4.0" }
+botster-terminal-protocol-client = { path = "../botster-terminal-protocol-client", version = "0.5.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.11.0"
 
 [package.metadata.docs.rs]
 all-features = true

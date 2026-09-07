@@ -7,6 +7,9 @@
 pub mod assertions;
 #[cfg(feature = "local-runtime")]
 pub mod conformance;
+pub mod diagnostics;
 pub mod fake;
 pub mod fixtures;
+pub mod real_worker;
+pub mod route_observer;
 pub mod terminal_adapter;

@@ -13,8 +13,8 @@ use build_data::{
     ghostty_build_args, GHOSTTY_LIB_VERSION, GHOSTTY_SOURCE_COMMIT, GHOSTTY_SOURCE_REPOSITORY,
 };
 use build_support::{
-    direct_zig, resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_local_cache_dir,
-    REQUIRED_ZIG_VERSION,
+    direct_zig, resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_install_prefix,
+    zig_local_cache_dir, zig_static_library_path, REQUIRED_ZIG_VERSION,
 };
 
 #[test]
@@ -57,6 +57,21 @@ fn default_zig_caches_share_the_cargo_out_dir() {
             None
         )),
         out_dir.join("zig-global-cache")
+    );
+}
+
+#[test]
+fn zig_install_output_stays_under_the_cargo_out_dir() {
+    let out_dir = Path::new("target/build/botster-terminal-ghostty/out");
+    let out_dir_text = out_dir.to_str().expect("test path is UTF-8");
+
+    assert_eq!(
+        zig_install_prefix(out_dir_text),
+        out_dir.join("zig-install")
+    );
+    assert_eq!(
+        zig_static_library_path(out_dir_text),
+        out_dir.join("zig-install/lib/libghostty-vt.a")
     );
 }
 

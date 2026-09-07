@@ -2905,32 +2905,10 @@ mod tests {
         use crate::contract::terminal_wake::TerminalWakeSink;
         use crate::runtime::ControlWriterError;
         use crate::{SpawnEnvironment, SpawnWorkingDirectory};
-        use std::process::Command;
-        use std::sync::Once;
-
         fn worker_path() -> std::path::PathBuf {
-            static BUILD_WORKER: Once = Once::new();
-            BUILD_WORKER.call_once(|| {
-                let status = Command::new("cargo")
-                    .args([
-                        "build",
-                        "-p",
-                        "botster-core-daemon",
-                        "--bin",
-                        "botster-session-worker",
-                    ])
-                    .status()
-                    .expect("worker binary build command should run");
-                assert!(status.success(), "worker binary should build");
-            });
-            let mut path = std::env::current_exe().expect("test executable path");
-            while !matches!(
-                path.file_name().and_then(|name| name.to_str()),
-                Some("debug" | "release")
-            ) {
-                assert!(path.pop(), "test executable must be under target");
-            }
-            path.join("botster-session-worker")
+            botster_core_test_support::real_worker::WorkerBinary::from_env()
+                .unwrap_or_else(|failure| panic!("{failure}"))
+                .path
         }
 
         struct QuietAdapter;
