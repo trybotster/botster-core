@@ -412,6 +412,7 @@ pub struct CoreDaemon {
     retention_accounting: RetentionAccounting,
     terminal_commit_obligations: HashMap<SessionId, SessionLifecycleState>,
     terminal_commit_failures: HashMap<SessionId, u8>,
+    acknowledged_terminal_inventory_revision: u64,
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
@@ -569,6 +570,7 @@ impl CoreDaemon {
                     terminal_color_profile,
                 )))
             });
+        let acknowledged_terminal_inventory_revision = engine.terminal_inventory_revision();
         let envelope_queue = config.routed_envelope_queue.clone();
         Self {
             config,
@@ -582,6 +584,7 @@ impl CoreDaemon {
             retention_accounting: RetentionAccounting::default(),
             terminal_commit_obligations: HashMap::new(),
             terminal_commit_failures: HashMap::new(),
+            acknowledged_terminal_inventory_revision,
             lifecycle_source_id: new_lifecycle_source_id(),
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
@@ -1283,6 +1286,7 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         self.ensure_running()?;
+        let terminal_inventory_revision_before = self.acknowledged_terminal_inventory_revision;
         let pumped_routes = batch.adapter_routes.len();
         let mut session_ids: Vec<_> = batch
             .adapter_routes
@@ -1355,7 +1359,13 @@ impl CoreDaemon {
         if let Some(error) = first_error {
             Err(error)
         } else {
-            Ok(PumpWokenOutcome { pumped_routes })
+            let terminal_inventory_revision_after = self.engine.terminal_inventory_revision();
+            self.acknowledged_terminal_inventory_revision = terminal_inventory_revision_after;
+            Ok(PumpWokenOutcome {
+                pumped_routes,
+                terminal_inventory_changed: terminal_inventory_revision_before
+                    != terminal_inventory_revision_after,
+            })
         }
     }
 
@@ -4616,6 +4626,13 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.list_terminal_subscriptions(),
             Self::Worker(engine) => engine.list_terminal_subscriptions(),
+        }
+    }
+
+    fn terminal_inventory_revision(&self) -> u64 {
+        match self {
+            Self::Local(engine) => engine.terminal_inventory_revision(),
+            Self::Worker(engine) => engine.terminal_inventory_revision(),
         }
     }
 

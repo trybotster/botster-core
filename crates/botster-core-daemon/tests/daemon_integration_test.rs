@@ -47,6 +47,7 @@ use botster_terminal_ghostty::{
 use botster_terminal_protocol::{
     decode_attach_state, AttachStateCode, TerminalFrame, TerminalKind,
 };
+use botster_terminal_protocol_client::{encode_terminal_input, TerminalInputCommand};
 
 const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
@@ -1873,10 +1874,12 @@ fn adapter_phase(bytes: &[u8]) -> Option<&'static str> {
 }
 
 fn adapter_frame_type(bytes: &[u8]) -> String {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|value| value.get("type")?.as_str().map(str::to_string))
-        .unwrap_or_default()
+    match adapter_terminal_frame(bytes).kind() {
+        TerminalKind::Output => "terminal_output",
+        TerminalKind::ProcessExit => "process_exit",
+        _ => "other",
+    }
+    .to_string()
 }
 
 fn adapter_payload_b64(bytes: &[u8]) -> String {
@@ -1887,50 +1890,10 @@ fn adapter_payload_b64(bytes: &[u8]) -> String {
 }
 
 fn adapter_payload_text(bytes: &[u8]) -> String {
-    decode_std_base64(&adapter_payload_b64(bytes))
-        .map(|payload| String::from_utf8_lossy(&payload).into_owned())
+    let frame = adapter_terminal_frame(bytes);
+    (frame.kind() == TerminalKind::Output)
+        .then(|| String::from_utf8_lossy(frame.body()).into_owned())
         .unwrap_or_default()
-}
-
-fn decode_std_base64(input: &str) -> Option<Vec<u8>> {
-    fn value(byte: u8) -> Option<u8> {
-        match byte {
-            b'A'..=b'Z' => Some(byte - b'A'),
-            b'a'..=b'z' => Some(byte - b'a' + 26),
-            b'0'..=b'9' => Some(byte - b'0' + 52),
-            b'+' => Some(62),
-            b'/' => Some(63),
-            b'=' => Some(0),
-            _ => None,
-        }
-    }
-    let cleaned: Vec<u8> = input
-        .bytes()
-        .filter(|byte| !byte.is_ascii_whitespace())
-        .collect();
-    if !cleaned.len().is_multiple_of(4) {
-        return None;
-    }
-    let pads = cleaned
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'=')
-        .count();
-    if pads > 2 {
-        return None;
-    }
-    let mut out = Vec::with_capacity(cleaned.len() / 4 * 3);
-    for chunk in cleaned.chunks_exact(4) {
-        let a = value(chunk[0])?;
-        let b = value(chunk[1])?;
-        let c = value(chunk[2])?;
-        let d = value(chunk[3])?;
-        out.push((a << 2) | (b >> 4));
-        out.push((b << 4) | (c >> 2));
-        out.push((c << 6) | d);
-    }
-    out.truncate(out.len().saturating_sub(pads));
-    Some(out)
 }
 
 #[cfg(unix)]
@@ -6224,11 +6187,12 @@ fn worker_path() -> std::path::PathBuf {
 }
 
 fn compact_input_frame(data: &[u8]) -> Vec<u8> {
-    let len = u16::try_from(data.len()).expect("input fits u16");
-    let mut bytes = vec![1, 1];
-    bytes.extend_from_slice(&len.to_be_bytes());
-    bytes.extend_from_slice(data);
-    bytes
+    encode_terminal_input(&TerminalInputCommand::RawBytes {
+        operation_id: 1,
+        data: data.to_vec(),
+    })
+    .expect("encode raw input")
+    .into_bytes()
 }
 
 fn adapter_input_result_subscription(bytes: &[u8]) -> Option<String> {
@@ -6540,6 +6504,7 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         .expect("kill worker");
     wait_for_condition("failed worker exits", || process_has_exited(worker_pid));
     let started = Instant::now();
+    let mut saw_inventory_change = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         let _ = daemon.input(
             ClientId("duplex-writer-idle-client".to_string()),
@@ -6547,7 +6512,13 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
             vec![b'X'; 4_096],
             29,
         );
-        pump_next_available_wake(&mut daemon, 30);
+        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            let outcome = daemon
+                .pump_woken(&batch, 30)
+                .expect("pump worker-link failure");
+            saw_inventory_change |= outcome.terminal_inventory_changed;
+        }
         let gone = daemon
             .list_terminal_subscriptions()
             .iter()
@@ -6557,6 +6528,10 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         }
         thread::sleep(Duration::from_millis(20));
     }
+    assert!(
+        saw_inventory_change,
+        "worker-link failure must report the inventory removal"
+    );
     assert!(
         daemon
             .list_terminal_subscriptions()
