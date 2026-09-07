@@ -3197,17 +3197,16 @@ mod tests {
             super::SnapshotCancelAdmission::Accepted
         );
         assert!(
-            runtime.begin_snapshot_boundary(&session).is_ok(),
+            !runtime.snapshot_request_is_outstanding(&session, &request_id),
             "an accepted cancel clears the outstanding request"
         );
 
-        // Now the reserved slots are occupied too.
+        // Drain one ordinary slot so a new barrier can begin, then occupy
+        // every reserved slot as well.
+        assert!(queue.pop().is_some());
         let request_id = runtime
-            .session_mut(&session)
-            .expect("session")
-            .outstanding_snapshot_request
-            .clone()
-            .expect("outstanding");
+            .begin_snapshot_boundary(&session)
+            .expect("begin a second barrier");
         while queue.admit(ControlFrameClass::Cancel, vec![0]).is_ok() {}
         assert_eq!(
             runtime
@@ -3367,6 +3366,9 @@ mod tests {
         let frame = crate::encode_frame(frame_type, &vec![0u8; 4 * 1024 * 1024]).expect("frame");
         queue.admit(class, frame).expect("admit");
         let (writer, mut peer) = UnixStream::pair().expect("socket pair");
+        // Bound the peer read before the writer can touch the socket.
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("bounded read");
         let slot = ControlWriterSlot::running();
         let writer_slot = slot.clone();
         let writer_thread = std::thread::spawn(move || {
@@ -3374,8 +3376,6 @@ mod tests {
         });
         writer_thread.join().expect("writer thread");
         let outcome = slot.get();
-        peer.set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("bounded read");
         let mut buf = vec![0u8; 64 * 1024];
         let mut saw_eof = false;
         loop {

@@ -327,6 +327,13 @@ mod tests {
         assert_eq!(class, ControlFrameClass::Ordinary);
         assert!(freed, "the first pop from a full queue must wake admitters");
         assert!(queue.admit(ControlFrameClass::Cancel, vec![0]).is_ok());
+        // Refilled to full: the next pop is a full -> available transition again.
+        let (_, _, freed_after_refill) = queue.pop_with_capacity_transition().expect("frame");
+        assert!(
+            freed_after_refill,
+            "a refilled full queue frees capacity again"
+        );
+        // Not refilled: the queue was below full, so nothing new is freed.
         let (_, _, freed_again) = queue.pop_with_capacity_transition().expect("frame");
         assert!(!freed_again, "a queue that was not full frees nothing new");
     }
