@@ -2227,7 +2227,9 @@ fn terminal_route(frame: &TransportEgress) -> Option<(&SessionId, &SubscriptionI
 mod tests {
     use super::*;
     use crate::contract::terminal_wake::TerminalWakeSink;
-    use botster_terminal_protocol::{encode_snapshot_history, encode_snapshot_ready};
+    use botster_terminal_protocol::{
+        decode_input_result, encode_snapshot_history, encode_snapshot_ready,
+    };
 
     /// Adapter whose write slot never drains, so frames stay queued in Core.
     struct StuckAdapter;
@@ -2308,6 +2310,204 @@ mod tests {
                 QueuedKind::Visual => "visual",
             })
             .collect()
+    }
+
+    fn input_results(worker: &ClientWorker, key: &OwnerKey) -> Vec<InputResultBody> {
+        worker.live[key]
+            .queue
+            .iter()
+            .filter(|queued| queued.frame.kind() == TerminalKind::InputResult)
+            .map(|queued| decode_input_result(&queued.frame).expect("input result"))
+            .collect()
+    }
+
+    fn assert_no_output(worker: &ClientWorker, key: &OwnerKey) {
+        assert!(worker.live[key]
+            .queue
+            .iter()
+            .all(|queued| queued.frame.kind() != TerminalKind::Output));
+    }
+
+    fn send_unmatched_paste_continuations(
+        worker: &mut ClientWorker,
+        key: &OwnerKey,
+        known_operation_id: u64,
+        unknown_operation_id: u64,
+    ) {
+        for command in [
+            TerminalInputCommand::PasteChunk {
+                operation_id: known_operation_id,
+                index: 0,
+                data: vec![b'x'],
+            },
+            TerminalInputCommand::PasteCommit {
+                operation_id: known_operation_id,
+            },
+            TerminalInputCommand::PasteAbort {
+                operation_id: unknown_operation_id,
+            },
+            TerminalInputCommand::PasteAbort {
+                operation_id: known_operation_id,
+            },
+        ] {
+            worker
+                .intake_terminal_command(key, command, Vec::new())
+                .expect("rejection queues");
+        }
+    }
+
+    fn assert_unmatched_paste_results(
+        results: &[InputResultBody],
+        known_operation_id: u64,
+        unknown_operation_id: u64,
+    ) {
+        assert_eq!(results.len(), 4, "one result per continuation");
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| (result.operation_id, result.outcome, result.detail.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    known_operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "unknown paste operation"
+                ),
+                (
+                    known_operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "unknown paste operation"
+                ),
+                (
+                    unknown_operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "unknown paste operation"
+                ),
+                (
+                    known_operation_id,
+                    InputOutcome::RejectedProtocol,
+                    "abort names no active paste"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn unmatched_paste_continuations_without_an_active_paste_are_rejected() {
+        let (mut worker, key) = bound_route();
+
+        send_unmatched_paste_continuations(&mut worker, &key, 0, 1);
+
+        assert_unmatched_paste_results(&input_results(&worker, &key), 0, 1);
+        assert_no_output(&worker, &key);
+    }
+
+    #[test]
+    fn unmatched_paste_continuations_after_a_completed_paste_are_rejected() {
+        let (mut worker, key) = bound_route();
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 51,
+                    total_len: 1,
+                    allow_unsafe: false,
+                },
+                Vec::new(),
+            )
+            .expect("paste begins");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 51,
+                    index: 0,
+                    data: vec![b'x'],
+                },
+                Vec::new(),
+            )
+            .expect("paste chunk");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteCommit { operation_id: 51 },
+                Vec::new(),
+            )
+            .expect("paste commit");
+        let staged = worker
+            .take_one_terminal_input(&key)
+            .expect("committed paste stages");
+        assert!(worker
+            .complete_operation(
+                staged.operation_key,
+                InputResultBody {
+                    operation_id: 0,
+                    outcome: InputOutcome::Written,
+                    accepted_payload_bytes: Some(1),
+                    written_pty_bytes: Some(1),
+                    mode_bits: 0,
+                    detail: String::new(),
+                },
+            )
+            .is_none());
+
+        send_unmatched_paste_continuations(&mut worker, &key, 51, 52);
+
+        let results = input_results(&worker, &key);
+        assert_eq!(results[0].operation_id, 51);
+        assert_eq!(results[0].outcome, InputOutcome::Written);
+        assert_unmatched_paste_results(&results[1..], 51, 52);
+        assert_no_output(&worker, &key);
+    }
+
+    #[test]
+    fn unmatched_paste_continuations_preserve_a_different_active_paste() {
+        let (mut worker, key) = bound_route();
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 60,
+                    total_len: 3,
+                    allow_unsafe: false,
+                },
+                Vec::new(),
+            )
+            .expect("paste begins");
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteChunk {
+                    operation_id: 60,
+                    index: 0,
+                    data: b"abc".to_vec(),
+                },
+                Vec::new(),
+            )
+            .expect("paste chunk");
+
+        send_unmatched_paste_continuations(&mut worker, &key, 51, 61);
+
+        let paste = worker.live[&key].paste.as_ref().expect("active paste");
+        assert_eq!(paste.operation_id, 60);
+        assert_eq!(paste.next_index, 1);
+        assert_eq!(paste.data, b"abc");
+        assert_unmatched_paste_results(&input_results(&worker, &key), 51, 61);
+        assert_no_output(&worker, &key);
+
+        worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteCommit { operation_id: 60 },
+                Vec::new(),
+            )
+            .expect("active paste commits");
+        let staged = worker
+            .take_one_terminal_input(&key)
+            .expect("active paste stages");
+        assert_eq!(staged.operation_id, 60);
+        assert_eq!(staged.kind, WorkerInputKind::Paste);
+        assert_eq!(staged.body, b"\0abc");
     }
 
     #[test]
