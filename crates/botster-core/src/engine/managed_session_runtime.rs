@@ -128,6 +128,7 @@ where
     terminal_backend_factory: TerminalBackendFactory<T>,
     client_worker: ClientWorker,
     wake_source: TerminalWakeSource,
+    terminal_inventory_revision: u64,
     pending_input_teardowns: Vec<ClientWorkerTeardown>,
     /// Worker operation keys torn-down routes left in flight. The worker
     /// path drains these into `FRAME_INPUT_CANCEL`.
@@ -736,6 +737,7 @@ where
             }),
             client_worker,
             wake_source,
+            terminal_inventory_revision: 0,
             pending_input_teardowns: Vec::new(),
             pending_worker_cancels: Vec::new(),
             pending_terminal_resizes: HashMap::new(),
@@ -1134,6 +1136,12 @@ where
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
         self.client_worker.list_terminal_subscriptions()
+    }
+
+    /// Monotonic revision of authoritative terminal route removals.
+    #[must_use]
+    pub const fn terminal_inventory_revision(&self) -> u64 {
+        self.terminal_inventory_revision
     }
 
     /// Detach the live generation if present.
@@ -1879,6 +1887,10 @@ where
         outcome: &mut MultiplexerEngineOutcome,
         teardowns: &mut Vec<ClientWorkerTeardown>,
     ) -> Result<(), ManagedSessionRuntimeError> {
+        for teardown in teardowns.iter() {
+            self.terminal_inventory_revision = self.terminal_inventory_revision.saturating_add(1);
+            self.wake_source.notify_session(&teardown.session_id);
+        }
         for teardown in teardowns.drain(..) {
             for key in &teardown.in_flight_keys {
                 self.pending_worker_cancels

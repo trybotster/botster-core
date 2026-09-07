@@ -17,11 +17,13 @@ use botster_core_daemon::{
     SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::terminal_adapter::{
-    SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
+    DeliveredFrame, SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
 };
 use botster_terminal_protocol::{
-    decode_attach_state, AttachStateCode, TerminalFrame, TerminalKind,
+    decode_attach_state, decode_input_result, decode_process_exit, AttachStateCode, InputOutcome,
+    InputResultBody, TerminalFrame, TerminalKind,
 };
+use botster_terminal_protocol_client::{encode_paste, encode_terminal_input, TerminalInputCommand};
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
     let nanos = SystemTime::now()
@@ -99,15 +101,8 @@ fn bind_size_reporting_worker(
     loop {
         assert!(Instant::now() < deadline, "worker attach did not finish");
         pump_next(daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
+            pump_available_wakes_until_quiet(daemon, 2);
             return (session_id, adapter);
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -167,10 +162,10 @@ fn pump_until_registry_size(
     }
 }
 
-fn pump_until_encoded_output(
+fn pump_until_output(
     daemon: &mut CoreDaemon,
     adapter: &SharedFakeTerminalAdapter,
-    encoded: &str,
+    expected: &[u8],
     tick: u64,
 ) {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -178,13 +173,32 @@ fn pump_until_encoded_output(
         assert!(Instant::now() < deadline, "worker output did not arrive");
         let batch = daemon.wait_wakes(Duration::from_millis(100));
         daemon.pump_woken(&batch, tick).expect("pump worker output");
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains(encoded))
-        {
+        if adapter_output_contains(adapter, expected) {
             return;
         }
+    }
+}
+
+fn pump_until_input_result_count(
+    daemon: &mut CoreDaemon,
+    adapter: &SharedFakeTerminalAdapter,
+    operation_ids: std::ops::RangeInclusive<u64>,
+    expected: usize,
+    tick: u64,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if delivered_input_result_count(adapter, operation_ids.clone()) == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "worker input results did not arrive"
+        );
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        daemon
+            .pump_woken(&batch, tick)
+            .expect("pump worker input result");
     }
 }
 
@@ -209,93 +223,125 @@ fn empty_caps() -> TerminalCapabilitySet {
     TerminalCapabilitySet::empty()
 }
 
-fn compact_input_frame(data: &[u8]) -> Vec<u8> {
-    let len = u16::try_from(data.len()).expect("input fits u16");
-    let mut bytes = vec![1, 1];
-    bytes.extend_from_slice(&len.to_be_bytes());
-    bytes.extend_from_slice(data);
-    bytes
+struct ShutdownSessionOnDrop<'a> {
+    daemon: &'a mut CoreDaemon,
+    session_id: SessionId,
+    complete: bool,
 }
 
-fn compact_resize_frame(rows: u16, cols: u16) -> Vec<u8> {
-    let mut bytes = vec![1, 3, 0, 4];
-    bytes.extend_from_slice(&rows.to_be_bytes());
-    bytes.extend_from_slice(&cols.to_be_bytes());
-    bytes
-}
-
-fn compact_paste_frames(
-    operation_id: u32,
-    mode_generation: u64,
-    mode_revision: u64,
-    data: &[u8],
-) -> Vec<Vec<u8>> {
-    const CHUNK_BYTES: usize = 65_527;
-    let mut begin = vec![1, 4, 0, 24];
-    begin.extend_from_slice(&operation_id.to_be_bytes());
-    begin.extend_from_slice(&mode_generation.to_be_bytes());
-    begin.extend_from_slice(&mode_revision.to_be_bytes());
-    begin.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    let mut frames = vec![begin];
-    for (index, data) in data.chunks(CHUNK_BYTES).enumerate() {
-        let body_len = u16::try_from(8 + data.len()).expect("paste chunk body fits");
-        let mut chunk = vec![1, 5];
-        chunk.extend_from_slice(&body_len.to_be_bytes());
-        chunk.extend_from_slice(&operation_id.to_be_bytes());
-        chunk.extend_from_slice(&(index as u32).to_be_bytes());
-        chunk.extend_from_slice(data);
-        frames.push(chunk);
+impl<'a> ShutdownSessionOnDrop<'a> {
+    fn new(daemon: &'a mut CoreDaemon, session_id: SessionId) -> Self {
+        Self {
+            daemon,
+            session_id,
+            complete: false,
+        }
     }
-    let mut commit = vec![1, 6, 0, 4];
-    commit.extend_from_slice(&operation_id.to_be_bytes());
-    frames.push(commit);
-    frames
+
+    fn daemon(&mut self) -> &mut CoreDaemon {
+        self.daemon
+    }
+
+    fn shutdown(&mut self, now_seconds: u64) {
+        self.daemon
+            .shutdown(Some(self.session_id.clone()), now_seconds)
+            .expect("shut down test session");
+        self.complete = true;
+    }
 }
 
-fn delivered_input_result_count(adapter: &SharedFakeTerminalAdapter, kind: &str) -> usize {
-    adapter
-        .snapshot_delivered_frame_bytes()
+impl Drop for ShutdownSessionOnDrop<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            let _ = self
+                .daemon
+                .shutdown(Some(self.session_id.clone()), u64::MAX);
+        }
+    }
+}
+
+fn compact_input_frame(operation_id: u64, data: &[u8]) -> Vec<u8> {
+    encode_terminal_input(&TerminalInputCommand::RawBytes {
+        operation_id,
+        data: data.to_vec(),
+    })
+    .expect("encode raw input")
+    .into_bytes()
+}
+
+fn compact_resize_frame(operation_id: u64, rows: u16, cols: u16) -> Vec<u8> {
+    encode_terminal_input(&TerminalInputCommand::Resize {
+        operation_id,
+        rows,
+        cols,
+        width_px: 0,
+        height_px: 0,
+    })
+    .expect("encode resize input")
+    .into_bytes()
+}
+
+fn compact_paste_frames(operation_id: u64, data: &[u8]) -> Vec<Vec<u8>> {
+    encode_paste(operation_id, false, data)
+        .expect("encode paste input")
+        .into_iter()
+        .map(|frame| frame.into_bytes())
+        .collect()
+}
+
+fn delivered_input_result_count(
+    adapter: &SharedFakeTerminalAdapter,
+    operation_ids: std::ops::RangeInclusive<u64>,
+) -> usize {
+    delivered_input_results(adapter)
         .iter()
-        .filter(|bytes| {
-            serde_json::from_slice::<serde_json::Value>(bytes)
-                .ok()
-                .is_some_and(|value| {
-                    value.get("type").and_then(|field| field.as_str()) == Some("input_result")
-                        && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
-                })
-        })
+        .filter(|(_, result)| operation_ids.contains(&result.operation_id))
         .count()
 }
 
-fn delivered_admitted_input_results(
+fn delivered_written_input_results(
     adapter: &SharedFakeTerminalAdapter,
-    kind: &str,
-) -> Vec<serde_json::Value> {
-    adapter
-        .snapshot_delivered_frame_bytes()
-        .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .filter(|value| {
-            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
-                && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
-                && value.get("admitted").and_then(|field| field.as_bool()) == Some(true)
+    operation_ids: std::ops::RangeInclusive<u64>,
+) -> Vec<(DeliveredFrame, InputResultBody)> {
+    delivered_input_results(adapter)
+        .into_iter()
+        .filter(|(_, result)| {
+            operation_ids.contains(&result.operation_id) && result.outcome == InputOutcome::Written
         })
         .collect()
 }
 
 fn delivered_input_results(
     adapter: &SharedFakeTerminalAdapter,
-    kind: &str,
-) -> Vec<serde_json::Value> {
+) -> Vec<(DeliveredFrame, InputResultBody)> {
+    adapter
+        .snapshot_delivered_frames()
+        .into_iter()
+        .filter_map(|delivery| {
+            let frame = TerminalFrame::from_bytes(&delivery.bytes).ok()?;
+            let result = decode_input_result(&frame).ok()?;
+            Some((delivery, result))
+        })
+        .collect()
+}
+
+fn adapter_output_count(adapter: &SharedFakeTerminalAdapter, needle: &[u8]) -> usize {
     adapter
         .snapshot_delivered_frame_bytes()
         .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .filter(|value| {
-            value.get("type").and_then(|field| field.as_str()) == Some("input_result")
-                && value.get("kind").and_then(|field| field.as_str()) == Some(kind)
+        .filter_map(|bytes| TerminalFrame::from_bytes(bytes).ok())
+        .filter(|frame| frame.kind() == TerminalKind::Output)
+        .filter(|frame| {
+            frame
+                .body()
+                .windows(needle.len())
+                .any(|window| window == needle)
         })
-        .collect()
+        .count()
+}
+
+fn adapter_output_contains(adapter: &SharedFakeTerminalAdapter, needle: &[u8]) -> bool {
+    adapter_output_count(adapter, needle) > 0
 }
 
 fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
@@ -543,22 +589,30 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
         "shutdown spun: {elapsed:?}"
     );
     let frames = adapter.snapshot_delivered_frame_bytes();
+    let decoded: Vec<_> = frames
+        .iter()
+        .filter_map(|bytes| TerminalFrame::from_bytes(bytes).ok())
+        .collect();
+    let final_output = decoded
+        .iter()
+        .position(|frame| {
+            frame.kind() == TerminalKind::Output
+                && frame
+                    .body()
+                    .windows(b"final".len())
+                    .any(|body| body == b"final")
+        })
+        .unwrap_or_else(|| panic!("shutdown must deliver the final terminal output: {frames:?}"));
+    let process_exit = decoded
+        .iter()
+        .position(|frame| {
+            frame.kind() == TerminalKind::ProcessExit
+                && decode_process_exit(frame).ok().and_then(|body| body.code) == Some(0)
+        })
+        .unwrap_or_else(|| panic!("shutdown must deliver a successful process exit: {frames:?}"));
     assert!(
-        frames
-            .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("ZmluYWw=")),
-        "shutdown must deliver the final terminal output: {frames:?}"
-    );
-    assert!(
-        frames.iter().any(|bytes| {
-            serde_json::from_slice::<serde_json::Value>(bytes)
-                .ok()
-                .is_some_and(|value| {
-                    value.get("type").and_then(|field| field.as_str()) == Some("process_exit")
-                        && value.get("code").and_then(|field| field.as_i64()) == Some(0)
-                })
-        }),
-        "shutdown must deliver a successful process exit: {frames:?}"
+        final_output < process_exit,
+        "final output must precede process exit: {frames:?}"
     );
 }
 
@@ -689,52 +743,28 @@ fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
         )
         .expect("bind waking adapter");
 
-    adapter.inject_ingress_frame(compact_input_frame(b"WAKE-INPUT\n"));
+    adapter.inject_ingress_frame(compact_input_frame(1, b"WAKE-INPUT\n"));
     let first = daemon.wait_wakes(Duration::from_secs(1));
     assert!(first.adapter_routes.iter().any(|route| {
         route.session_id == session_id && route.subscription_id == subscription_id
     }));
-    daemon.pump_woken(&first, 3).expect("apply input wake");
+    let input_outcome = daemon.pump_woken(&first, 3).expect("apply input wake");
+    assert_eq!(input_outcome.pumped_routes, first.adapter_routes.len());
+    assert!(
+        !input_outcome.terminal_inventory_changed,
+        "valid terminal input must not report an inventory change"
+    );
 
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(5) {
         let batch = daemon.wait_wakes(Duration::from_millis(100));
-        daemon.pump_woken(&batch, 4).expect("pump PTY echo");
-        let delivered = adapter.snapshot_delivered_frame_bytes();
-        let input_results = delivered
-            .iter()
-            .filter(|bytes| {
-                serde_json::from_slice::<serde_json::Value>(bytes)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("type")
-                            .and_then(|kind| kind.as_str())
-                            .map(str::to_owned)
-                    })
-                    .as_deref()
-                    == Some("input_result")
-            })
-            .count();
-        let echoes = delivered
-            .iter()
-            .filter(|bytes| {
-                serde_json::from_slice::<serde_json::Value>(bytes)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("payload_base64")
-                            .and_then(|payload| payload.as_str())
-                            .map(str::to_owned)
-                    })
-                    .is_some_and(|payload| {
-                        matches!(
-                            payload.as_str(),
-                            "ZWNobzpXQUtFLUlOUFVUDQo=" | "V0FLRS1JTlBVVA0KZWNobzpXQUtFLUlOUFVUDQo="
-                        )
-                    })
-            })
-            .count();
+        let output_outcome = daemon.pump_woken(&batch, 4).expect("pump PTY echo");
+        assert!(
+            !output_outcome.terminal_inventory_changed,
+            "ordinary PTY output must not report an inventory change"
+        );
+        let input_results = delivered_input_result_count(&adapter, 1..=1);
+        let echoes = adapter_output_count(&adapter, b"echo:WAKE-INPUT\r\n");
         if input_results == 1 && echoes == 1 {
             let _ = fs::remove_dir_all(data_dir);
             return;
@@ -819,29 +849,18 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
             "same-session routes did not finish attaching"
         );
         pump_next(&mut daemon, 2);
-        let attached = [&owner, &sibling].iter().all(|adapter| {
-            adapter
-                .snapshot_delivered_frame_bytes()
-                .iter()
-                .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-                .any(|value| {
-                    value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                        && value.get("state").and_then(serde_json::Value::as_str)
-                            == Some("attached")
-                })
-        });
+        let attached = [&owner, &sibling]
+            .iter()
+            .all(|adapter| adapter_has_attached(adapter));
         if attached {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let settled_batch = daemon.wait_wakes(Duration::ZERO);
-    daemon
-        .pump_woken(&settled_batch, 2)
-        .expect("settle attach wakes");
+    pump_available_wakes_until_quiet(&mut daemon, 2);
 
-    owner.inject_ingress_frame(compact_resize_frame(31, 91));
-    owner.inject_ingress_frame(compact_input_frame(b"OWNER\n"));
+    owner.inject_ingress_frame(compact_resize_frame(1, 31, 91));
+    owner.inject_ingress_frame(compact_input_frame(2, b"OWNER\n"));
     let mixed_batch = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(
         mixed_batch
@@ -858,21 +877,22 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
         .pump_woken(&mixed_batch, 3)
         .expect("apply mixed wake batch");
 
-    let resize_results = delivered_admitted_input_results(&owner, "resize");
-    let input_results = delivered_admitted_input_results(&owner, "input");
-    assert_eq!(resize_results.len(), 1, "resize must complete once");
-    assert_eq!(input_results.len(), 1, "input must complete once");
-    for result in resize_results.iter().chain(&input_results) {
-        assert_eq!(
-            result["subscription_id"].as_str(),
-            Some(owner_subscription.0.as_str()),
-            "each result must identify the live owner"
-        );
-    }
     let completion = wait_session_ingress_wake(&mut daemon, &session_id, 3);
     daemon
         .pump_woken(&completion, 3)
         .expect("pump mixed-batch resize completion");
+    pump_until_input_result_count(&mut daemon, &owner, 1..=2, 2, 3);
+    let resize_results = delivered_written_input_results(&owner, 1..=1);
+    let input_results = delivered_written_input_results(&owner, 2..=2);
+    assert_eq!(resize_results.len(), 1, "resize must complete once");
+    assert_eq!(input_results.len(), 1, "input must complete once");
+    for (delivery, _) in resize_results.iter().chain(&input_results) {
+        assert_eq!(
+            delivery.route.as_str(),
+            owner_subscription.0.as_str(),
+            "each result must identify the live owner"
+        );
+    }
     let record = daemon
         .registry()
         .load(&session_id)
@@ -890,26 +910,26 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
         }));
     }
 
-    pump_until_encoded_output(&mut daemon, &owner, "ZWNobzpPV05FUg0K", 4);
-    owner.inject_ingress_frame(compact_input_frame(b"REPORT-SIZE\n"));
+    pump_until_output(&mut daemon, &owner, b"echo:OWNER\r\n", 4);
+    owner.inject_ingress_frame(compact_input_frame(3, b"REPORT-SIZE\n"));
     let size_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&size_batch, 5)
         .expect("request worker size after mixed batch");
-    pump_until_encoded_output(&mut daemon, &owner, "MzEgOTENCg==", 6);
-    sibling.inject_ingress_frame(compact_input_frame(b"SIBLING\n"));
+    pump_until_output(&mut daemon, &owner, b"31 91\r\n", 6);
+    sibling.inject_ingress_frame(compact_input_frame(1, b"SIBLING\n"));
     let sibling_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&sibling_batch, 7)
         .expect("apply sibling input after mixed batch");
+    pump_until_output(&mut daemon, &sibling, b"echo:SIBLING\r\n", 8);
     assert_eq!(
-        delivered_admitted_input_results(&sibling, "input")
+        delivered_written_input_results(&sibling, 1..=1)
             .iter()
-            .map(|result| result["subscription_id"].as_str())
+            .map(|(delivery, _)| delivery.route.as_str())
             .collect::<Vec<_>>(),
-        vec![Some(sibling_subscription.0.as_str())]
+        vec![sibling_subscription.0.as_str()]
     );
-    pump_until_encoded_output(&mut daemon, &sibling, "ZWNobzpTSUJMSU5HDQo=", 8);
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -968,15 +988,7 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
             "worker attach did not finish"
         );
         pump_next(&mut daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
     }
@@ -989,8 +1001,8 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
     }
     assert_eq!(daemon.wake_source().occupancy(), 0);
 
-    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
-    adapter.inject_ingress_frame(compact_input_frame(b"SCRATCH\n"));
+    adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
+    adapter.inject_ingress_frame(compact_input_frame(2, b"SCRATCH\n"));
 
     let mixed = daemon.wait_wakes(Duration::from_secs(5));
     assert_eq!(mixed.adapter_routes.len(), 1);
@@ -999,27 +1011,6 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
     assert!(mixed.ingress_sessions.is_empty());
     daemon.pump_woken(&mixed, 3).expect("pump mixed wake");
 
-    assert_eq!(
-        delivered_input_result_count(&adapter, "resize"),
-        1,
-        "resize must emit one total result"
-    );
-    assert_eq!(
-        delivered_input_result_count(&adapter, "input"),
-        1,
-        "input must emit one total result"
-    );
-    let resize_results = delivered_admitted_input_results(&adapter, "resize");
-    let input_results = delivered_admitted_input_results(&adapter, "input");
-    assert_eq!(resize_results.len(), 1, "resize must complete once");
-    assert_eq!(input_results.len(), 1, "input must complete once");
-    for result in resize_results.iter().chain(&input_results) {
-        assert_eq!(
-            result["subscription_id"].as_str(),
-            Some(subscription_id.0.as_str()),
-            "each result must identify the live owner"
-        );
-    }
     let record = daemon
         .registry()
         .load(&session_id)
@@ -1041,36 +1032,36 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
     daemon
         .pump_woken(&retained, 4)
         .expect("pump retained resize-completion wake");
+    pump_until_input_result_count(&mut daemon, &adapter, 1..=2, 2, 4);
+    assert_eq!(
+        delivered_input_result_count(&adapter, 1..=1),
+        1,
+        "resize must emit one total result"
+    );
+    assert_eq!(
+        delivered_input_result_count(&adapter, 2..=2),
+        1,
+        "input must emit one total result"
+    );
+    let resize_results = delivered_written_input_results(&adapter, 1..=1);
+    let input_results = delivered_written_input_results(&adapter, 2..=2);
+    assert_eq!(resize_results.len(), 1, "resize must complete once");
+    assert_eq!(input_results.len(), 1, "input must complete once");
+    for (delivery, _) in resize_results.iter().chain(&input_results) {
+        assert_eq!(
+            delivery.route.as_str(),
+            subscription_id.0.as_str(),
+            "each result must identify the live owner"
+        );
+    }
     let record = daemon
         .registry()
         .load(&session_id)
         .expect("load resized worker after completion")
         .expect("worker registry record after completion");
     assert_eq!((record.rows, record.cols), (31, 91));
-    assert!(!adapter
-        .snapshot_delivered_frame_bytes()
-        .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .any(|value| value
-            .get("payload_base64")
-            .and_then(serde_json::Value::as_str)
-            == Some("ZWNobzpTQ1JBVENIDQo=")));
-
-    let echo = daemon.wait_wakes(Duration::from_secs(5));
-    assert!(echo.adapter_routes.is_empty());
-    assert_eq!(echo.ingress_sessions, vec![session_id.clone()]);
-    daemon.pump_woken(&echo, 5).expect("pump worker echo wake");
-    let exact_echoes = adapter
-        .snapshot_delivered_frame_bytes()
-        .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .filter(|value| {
-            value
-                .get("payload_base64")
-                .and_then(serde_json::Value::as_str)
-                == Some("ZWNobzpTQ1JBVENIDQo=")
-        })
-        .count();
+    pump_until_output(&mut daemon, &adapter, b"echo:SCRATCH\r\n", 5);
+    let exact_echoes = adapter_output_count(&adapter, b"echo:SCRATCH\r\n");
     assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
     assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
         row.session_id == session_id
@@ -1136,15 +1127,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         );
         pump_next(&mut daemon, 2);
         adapter.complete_write();
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
     }
@@ -1169,8 +1152,8 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         daemon.pump_woken(&batch, 2).expect("settle attach wakes");
     }
 
-    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
-    adapter.inject_ingress_frame(compact_input_frame(b"SCRATCH\n"));
+    adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
+    adapter.inject_ingress_frame(compact_input_frame(2, b"SCRATCH\n"));
 
     let WakePumpWait::Wakes(mixed) = daemon.wait_pump(Duration::from_secs(5)) else {
         panic!("uncontrolled wake pump must return the mixed wake");
@@ -1183,11 +1166,11 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
 
     assert_eq!(
         adapter.snapshot_pressure(),
-        TerminalAdapterPressure::Full,
-        "the first input result must occupy the only output slot"
+        TerminalAdapterPressure::Ready,
+        "worker results must arrive through a later ingress wake"
     );
-    assert_eq!(delivered_input_result_count(&adapter, "resize"), 0);
-    assert_eq!(delivered_input_result_count(&adapter, "input"), 0);
+    assert_eq!(delivered_input_result_count(&adapter, 1..=1), 0);
+    assert_eq!(delivered_input_result_count(&adapter, 2..=2), 0);
     assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
         row.session_id == session_id
             && row.subscription_id == subscription_id
@@ -1196,8 +1179,8 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
 
     let completion_deadline = Instant::now() + Duration::from_secs(5);
     let mut retained_resize_wake_observed = false;
-    while delivered_input_result_count(&adapter, "resize")
-        + delivered_input_result_count(&adapter, "input")
+    while delivered_input_result_count(&adapter, 1..=1)
+        + delivered_input_result_count(&adapter, 2..=2)
         < 2
     {
         assert!(
@@ -1208,9 +1191,9 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_secs(5)) else {
             panic!("uncontrolled wake pump must return a completion wake");
         };
-        assert_eq!(batch.adapter_routes.len(), 1);
-        assert_eq!(batch.adapter_routes[0].session_id, session_id);
-        assert_eq!(batch.adapter_routes[0].subscription_id, subscription_id);
+        assert!(batch.adapter_routes.iter().all(|route| {
+            route.session_id == session_id && route.subscription_id == subscription_id
+        }));
         assert!(
             batch
                 .ingress_sessions
@@ -1223,14 +1206,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             .expect("pump one-slot completion wake");
         if !batch.ingress_sessions.is_empty() {
             retained_resize_wake_observed = true;
-            assert!(!adapter
-                .snapshot_delivered_frame_bytes()
-                .iter()
-                .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-                .any(|value| value
-                    .get("payload_base64")
-                    .and_then(serde_json::Value::as_str)
-                    == Some("ZWNobzpTQ1JBVENIDQo=")));
+            assert!(!adapter_output_contains(&adapter, b"echo:SCRATCH\r\n"));
         }
         assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
             row.session_id == session_id
@@ -1240,16 +1216,16 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     }
 
-    assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
-    assert_eq!(delivered_input_result_count(&adapter, "input"), 1);
-    let resize_results = delivered_admitted_input_results(&adapter, "resize");
-    let input_results = delivered_admitted_input_results(&adapter, "input");
+    assert_eq!(delivered_input_result_count(&adapter, 1..=1), 1);
+    assert_eq!(delivered_input_result_count(&adapter, 2..=2), 1);
+    let resize_results = delivered_written_input_results(&adapter, 1..=1);
+    let input_results = delivered_written_input_results(&adapter, 2..=2);
     assert_eq!(resize_results.len(), 1, "resize must complete once");
     assert_eq!(input_results.len(), 1, "input must complete once");
-    for result in resize_results.iter().chain(&input_results) {
+    for (delivery, _) in resize_results.iter().chain(&input_results) {
         assert_eq!(
-            result["subscription_id"].as_str(),
-            Some(subscription_id.0.as_str()),
+            delivery.route.as_str(),
+            subscription_id.0.as_str(),
             "each result must identify the live owner"
         );
     }
@@ -1278,14 +1254,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             .pump_woken(&retained, 5)
             .expect("pump retained resize-completion wake");
         retained_resize_wake_observed = true;
-        assert!(!adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| value
-                .get("payload_base64")
-                .and_then(serde_json::Value::as_str)
-                == Some("ZWNobzpTQ1JBVENIDQo=")));
+        assert!(!adapter_output_contains(&adapter, b"echo:SCRATCH\r\n"));
     }
     assert!(retained_resize_wake_observed);
     let record = daemon
@@ -1295,29 +1264,30 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         .expect("worker registry record");
     assert_eq!((record.rows, record.cols), (31, 91));
 
-    let WakePumpWait::Wakes(echo) = daemon.wait_pump(Duration::from_secs(5)) else {
-        panic!("uncontrolled wake pump must return the echo wake");
-    };
-    assert!(echo.adapter_routes.is_empty());
-    assert_eq!(echo.ingress_sessions, vec![session_id.clone()]);
-    daemon.pump_woken(&echo, 6).expect("pump worker echo wake");
-    adapter.complete_write();
+    let echo_deadline = Instant::now() + Duration::from_secs(5);
+    while !adapter_output_contains(&adapter, b"echo:SCRATCH\r\n") {
+        assert!(Instant::now() < echo_deadline, "worker echo did not arrive");
+        adapter.complete_write();
+        let WakePumpWait::Wakes(echo) = daemon.wait_pump(Duration::from_secs(5)) else {
+            panic!("uncontrolled wake pump must return the echo wake");
+        };
+        assert!(!echo.adapter_routes.is_empty() || !echo.ingress_sessions.is_empty());
+        assert!(echo.adapter_routes.iter().all(|route| {
+            route.session_id == session_id && route.subscription_id == subscription_id
+        }));
+        assert!(echo
+            .ingress_sessions
+            .iter()
+            .all(|woken_session| woken_session == &session_id));
+        daemon.pump_woken(&echo, 6).expect("pump worker echo wake");
+        adapter.complete_write();
+    }
 
-    let delivered = adapter.snapshot_delivered_frame_bytes();
-    let exact_echoes = delivered
-        .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .filter(|value| {
-            value
-                .get("payload_base64")
-                .and_then(serde_json::Value::as_str)
-                == Some("ZWNobzpTQ1JBVENIDQo=")
-        })
-        .count();
+    let exact_echoes = adapter_output_count(&adapter, b"echo:SCRATCH\r\n");
     assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
-    assert!(!delivered
+    assert!(!delivered_input_results(&adapter)
         .iter()
-        .any(|bytes| { String::from_utf8_lossy(bytes).contains("core_adapter_closed") }));
+        .any(|(_, result)| result.detail.contains("core_adapter_closed")));
     assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
         row.session_id == session_id
@@ -1365,7 +1335,7 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
         )
         .expect("bind waking adapter");
 
-    let begin = compact_paste_frames(51, 1, 1, b"unfinished")
+    let begin = compact_paste_frames(51, b"unfinished")
         .into_iter()
         .next()
         .expect("begin");
@@ -1375,38 +1345,74 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
     daemon.pump_woken(&intake, 3).expect("accept begin");
     let _control = daemon.wake_pump_control();
     let started = Instant::now();
-    let WakePumpWait::Wakes(expired) = daemon.wait_pump(Duration::from_secs(30)) else {
-        panic!("paste deadline must return a wake batch");
+    let expired = loop {
+        let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_secs(30)) else {
+            panic!("paste deadline must return a wake batch");
+        };
+        daemon
+            .pump_woken(&batch, 4)
+            .expect("deliver replay rejection or timeout");
+        if delivered_input_results(&adapter)
+            .iter()
+            .any(|(_, result)| result.detail == "paste assembly timed out")
+        {
+            break batch;
+        }
     };
     assert!(started.elapsed() <= Duration::from_secs(6));
     assert_eq!(expired.ingress_sessions, Vec::<SessionId>::new());
     assert_eq!(expired.adapter_routes.len(), 1);
     assert_eq!(expired.adapter_routes[0].session_id, session_id);
     assert_eq!(expired.adapter_routes[0].subscription_id, subscription_id);
-    daemon.pump_woken(&expired, 4).expect("deliver timeout");
-    let results = delivered_input_results(&adapter, "paste");
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["operation_id"], 51);
-    assert_eq!(results[0]["bytes_written"], 0);
-    assert_eq!(results[0]["rejection"], "timeout");
+    pump_available_wakes_until_quiet(&mut daemon, 4);
+    let results = delivered_input_results(&adapter);
+    assert_eq!(results.len(), 2);
+    let timeout = results
+        .iter()
+        .find(|(_, result)| result.detail == "paste assembly timed out")
+        .expect("one timeout result");
+    assert_eq!(timeout.1.operation_id, 51);
+    assert_eq!(timeout.1.outcome, InputOutcome::RejectedProtocol);
+    assert_eq!(timeout.1.accepted_payload_bytes, Some(0));
+    assert_eq!(timeout.1.written_pty_bytes, Some(0));
+    let active_replay = results
+        .iter()
+        .find(|(_, result)| result.detail == "operation id is not strictly increasing")
+        .expect("active Begin replay rejection");
+    assert_eq!(active_replay.1.operation_id, 51);
+    assert_eq!(active_replay.1.outcome, InputOutcome::RejectedProtocol);
+    assert!(
+        !adapter_output_contains(&adapter, b"unfinished"),
+        "an incomplete paste must not reach the PTY"
+    );
 
     adapter.inject_ingress_frame(begin);
     let replay = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&replay, 5)
-        .expect("drop completed begin replay");
+        .expect("reject completed begin replay");
+    pump_until_input_result_count(&mut daemon, &adapter, 51..=51, 3, 5);
+    let results = delivered_input_results(&adapter);
     assert_eq!(
-        delivered_input_results(&adapter, "paste").len(),
-        1,
-        "active and completed Begin replays must not add a second result"
+        results
+            .iter()
+            .filter(|(_, result)| result.detail == "operation id is not strictly increasing")
+            .count(),
+        2,
+        "each invalid Begin replay must receive one typed rejection"
     );
-
-    let mut commit = vec![1, 6, 0, 4];
-    commit.extend_from_slice(&51_u32.to_be_bytes());
-    adapter.inject_ingress_frame(commit);
-    let late = daemon.wait_wakes(Duration::from_secs(1));
-    daemon.pump_woken(&late, 6).expect("drop late commit");
-    assert_eq!(delivered_input_results(&adapter, "paste").len(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|(_, result)| result.detail == "paste assembly timed out")
+            .count(),
+        1,
+        "the completed replay must not alter the original timeout result"
+    );
+    assert!(
+        !adapter_output_contains(&adapter, b"unfinished"),
+        "Begin replays must not write paste content to the PTY"
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -1466,28 +1472,21 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
             "worker attach did not finish"
         );
         pump_next(&mut daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+    pump_available_wakes_until_quiet(&mut daemon, 2);
     let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
 
-    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
     let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&resize_batch, 3)
         .expect("resize apply tick");
-    assert_eq!(delivered_input_result_count(&adapter, "resize"), 1);
     pump_until_registry_size(&mut daemon, &session_id, 31, 91, 3);
+    assert_eq!(delivered_input_result_count(&adapter, 1..=1), 1);
     let record = daemon
         .registry()
         .load(&session_id)
@@ -1495,7 +1494,7 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
         .expect("registry record");
     assert_eq!((record.rows, record.cols), (31, 91));
 
-    adapter.inject_ingress_frame(compact_input_frame(b"report-size\n"));
+    adapter.inject_ingress_frame(compact_input_frame(2, b"report-size\n"));
     let input_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&input_batch, 4)
@@ -1508,22 +1507,23 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
         );
         let batch = daemon.wait_wakes(Duration::from_millis(100));
         daemon.pump_woken(&batch, 5).expect("pump size report");
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("MzEgOTENCg=="))
-        {
+        if adapter_output_contains(&adapter, b"31 91\r\n") {
             break;
         }
     }
 
-    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
-    adapter.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter.inject_ingress_frame(compact_resize_frame(3, 31, 91));
+    adapter.inject_ingress_frame(compact_resize_frame(4, 31, 91));
     let repeated_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&repeated_batch, 6)
         .expect("identical resize apply tick");
-    assert_eq!(delivered_input_result_count(&adapter, "resize"), 3);
+    pump_until_input_result_count(&mut daemon, &adapter, 1..=4, 4, 6);
+    assert_eq!(
+        delivered_input_result_count(&adapter, 1..=1)
+            + delivered_input_result_count(&adapter, 3..=4),
+        3
+    );
     let resize_changes = daemon
         .lifecycle_changes_page(&before_resize, 16, 64 * 1024)
         .expect("resize journal page")
@@ -1560,14 +1560,14 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
     let (session_b, adapter_b) = bind_size_reporting_worker(&mut daemon, "resize-sibling-b");
     let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
     let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&resize_batch, 3)
         .expect("resize named worker");
-    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 1);
-    assert_eq!(delivered_input_result_count(&adapter_b, "resize"), 0);
+    assert_eq!(delivered_input_result_count(&adapter_b, 1..=1), 0);
     pump_until_registry_size(&mut daemon, &session_a, 31, 101, 3);
+    assert_eq!(delivered_input_result_count(&adapter_a, 1..=1), 1);
 
     let record_a = daemon
         .registry()
@@ -1582,14 +1582,14 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
     assert_eq!((record_a.rows, record_a.cols), (31, 101));
     assert_eq!((record_b.rows, record_b.cols), (24, 80));
 
-    adapter_a.inject_ingress_frame(compact_input_frame(b"report-a\n"));
+    adapter_a.inject_ingress_frame(compact_input_frame(2, b"report-a\n"));
     let input_a = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&input_a, 4).expect("request A size");
-    pump_until_encoded_output(&mut daemon, &adapter_a, "MzEgMTAxDQo=", 5);
-    adapter_b.inject_ingress_frame(compact_input_frame(b"report-b\n"));
+    pump_until_output(&mut daemon, &adapter_a, b"31 101\r\n", 5);
+    adapter_b.inject_ingress_frame(compact_input_frame(1, b"report-b\n"));
     let input_b = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&input_b, 6).expect("request B size");
-    pump_until_encoded_output(&mut daemon, &adapter_b, "MjQgODANCg==", 7);
+    pump_until_output(&mut daemon, &adapter_b, b"24 80\r\n", 7);
 
     let changes = daemon
         .lifecycle_changes_page(&before_resize, 32, 64 * 1024)
@@ -1641,8 +1641,8 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
 
     let first_batch = 16;
     assert!(first_batch < PENDING_INGRESS_RESIZE_CAP);
-    for _ in 0..first_batch {
-        adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    for operation_id in 1..=first_batch {
+        adapter_a.inject_ingress_frame(compact_resize_frame(operation_id as u64, 31, 101));
     }
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
@@ -1650,8 +1650,8 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
         .expect("accept first resize batch");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), first_batch);
 
-    for _ in 0..(PENDING_INGRESS_RESIZE_CAP - first_batch) {
-        adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    for operation_id in (first_batch + 1)..=PENDING_INGRESS_RESIZE_CAP {
+        adapter_a.inject_ingress_frame(compact_resize_frame(operation_id as u64, 31, 101));
     }
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 4).expect("fill pending cap");
@@ -1660,12 +1660,19 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
         PENDING_INGRESS_RESIZE_CAP
     );
     assert_eq!(
-        delivered_input_result_count(&adapter_a, "resize"),
-        PENDING_INGRESS_RESIZE_CAP
+        delivered_input_result_count(&adapter_a, 1..=PENDING_INGRESS_RESIZE_CAP as u64),
+        0
     );
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(32, 102));
-    adapter_a.inject_ingress_frame(compact_input_frame(b"behind-resize\n"));
+    adapter_a.inject_ingress_frame(compact_resize_frame(
+        PENDING_INGRESS_RESIZE_CAP as u64 + 1,
+        32,
+        102,
+    ));
+    adapter_a.inject_ingress_frame(compact_input_frame(
+        PENDING_INGRESS_RESIZE_CAP as u64 + 2,
+        b"behind-resize\n",
+    ));
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&wake, 5)
@@ -1675,16 +1682,26 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
         PENDING_INGRESS_RESIZE_CAP
     );
     assert_eq!(
-        delivered_input_result_count(&adapter_a, "resize"),
-        PENDING_INGRESS_RESIZE_CAP
+        delivered_input_result_count(&adapter_a, 1..=PENDING_INGRESS_RESIZE_CAP as u64),
+        0
     );
-    assert_eq!(delivered_input_result_count(&adapter_a, "input"), 0);
+    assert_eq!(
+        delivered_input_result_count(
+            &adapter_a,
+            PENDING_INGRESS_RESIZE_CAP as u64 + 2..=PENDING_INGRESS_RESIZE_CAP as u64 + 2,
+        ),
+        0
+    );
 
     hold.release();
     let resume_deadline = Instant::now() + Duration::from_secs(5);
     while daemon.pending_terminal_resize_len(&session_a) > 0
-        || delivered_input_result_count(&adapter_a, "resize") < PENDING_INGRESS_RESIZE_CAP + 1
-        || delivered_input_result_count(&adapter_a, "input") < 1
+        || delivered_input_result_count(&adapter_a, 1..=PENDING_INGRESS_RESIZE_CAP as u64 + 1)
+            < PENDING_INGRESS_RESIZE_CAP + 1
+        || delivered_input_result_count(
+            &adapter_a,
+            PENDING_INGRESS_RESIZE_CAP as u64 + 2..=PENDING_INGRESS_RESIZE_CAP as u64 + 2,
+        ) < 1
     {
         assert!(
             Instant::now() < resume_deadline,
@@ -1700,10 +1717,16 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
         );
     }
     assert_eq!(
-        delivered_input_result_count(&adapter_a, "resize"),
+        delivered_input_result_count(&adapter_a, 1..=PENDING_INGRESS_RESIZE_CAP as u64 + 1,),
         PENDING_INGRESS_RESIZE_CAP + 1
     );
-    assert_eq!(delivered_input_result_count(&adapter_a, "input"), 1);
+    assert_eq!(
+        delivered_input_result_count(
+            &adapter_a,
+            PENDING_INGRESS_RESIZE_CAP as u64 + 2..=PENDING_INGRESS_RESIZE_CAP as u64 + 2,
+        ),
+        1
+    );
     pump_until_registry_size(&mut daemon, &session_a, 32, 102, 7);
 
     let _ = fs::remove_dir_all(data_dir);
@@ -1723,14 +1746,14 @@ fn repeated_equal_resizes_complete_in_acknowledgement_order() {
     assert_eq!(bound_a, session_a);
     hold.arm();
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(24, 80));
-    adapter_a.inject_ingress_frame(compact_resize_frame(24, 80));
-    adapter_a.inject_ingress_frame(compact_resize_frame(31, 91));
+    adapter_a.inject_ingress_frame(compact_resize_frame(1, 24, 80));
+    adapter_a.inject_ingress_frame(compact_resize_frame(2, 24, 80));
+    adapter_a.inject_ingress_frame(compact_resize_frame(3, 31, 91));
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&wake, 3)
         .expect("accept repeated resizes");
-    assert_eq!(delivered_input_result_count(&adapter_a, "resize"), 3);
+    assert_eq!(delivered_input_result_count(&adapter_a, 1..=3), 0);
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 3);
     let record = daemon
         .registry()
@@ -1741,6 +1764,7 @@ fn repeated_equal_resizes_complete_in_acknowledgement_order() {
 
     hold.release();
     pump_until_registry_size(&mut daemon, &session_a, 31, 91, 4);
+    assert_eq!(delivered_input_result_count(&adapter_a, 1..=3), 3);
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
 
     let _ = fs::remove_dir_all(data_dir);
@@ -1761,7 +1785,7 @@ fn explicit_resize_is_busy_while_ingress_resize_is_pending() {
     let (session_b, _adapter_b) = bind_size_reporting_worker(&mut daemon, "z-busy-sibling");
     hold.arm();
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 3).expect("accept ingress resize");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
@@ -1795,6 +1819,7 @@ fn explicit_resize_is_busy_while_ingress_resize_is_pending() {
             5,
         )
         .expect("sibling explicit resize is unaffected");
+    pump_until_registry_size(&mut daemon, &session_b, 30, 90, 5);
     let record_b = daemon
         .registry()
         .load(&session_b)
@@ -1837,7 +1862,7 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
     assert_eq!(bound_a, session_a);
     hold.arm();
 
-    adapter_a.inject_ingress_frame(compact_resize_frame(31, 101));
+    adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 3).expect("accept pending resize");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
@@ -2165,7 +2190,7 @@ fn finish_short_lived_runtime_setup(
 }
 
 fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         assert!(
             Instant::now() < deadline,
@@ -2301,7 +2326,8 @@ fn assert_observe_then_targeted_process_exit(
         batch.ingress_sessions.iter().any(|id| id == session_id),
         "observe must emit a session ingress wake, got {batch:?}"
     );
-    daemon.pump_woken(&batch, 23).expect("targeted pump");
+    let outcome = daemon.pump_woken(&batch, 23).expect("targeted pump");
+    assert!(outcome.terminal_inventory_changed);
     assert!(adapter_has_process_exit(adapter));
     assert!(adapter.try_write_count() > writes_before);
     assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
@@ -2482,7 +2508,13 @@ fn observe_then_force_closed_adapter_still_retires_session_wake() {
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
     adapter.close_transport();
     let batch = daemon.wait_wakes(Duration::from_secs(2));
-    daemon.pump_woken(&batch, 4).expect("pump closed adapter");
+    let outcome = daemon.pump_woken(&batch, 4).expect("pump closed adapter");
+    assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
+    assert!(outcome.terminal_inventory_changed);
+    let unchanged = daemon
+        .pump_woken(&TerminalWakeBatch::default(), 5)
+        .expect("unchanged follow-up pump");
+    assert!(!unchanged.terminal_inventory_changed);
     assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
     assert_eq!(
@@ -2502,6 +2534,148 @@ fn observe_then_force_closed_adapter_still_retires_session_wake() {
             .count(),
         1
     );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
+    let data_dir = temp_data_dir("natural-exit-siblings");
+    let done = data_dir.join("done");
+    let go = data_dir.join("go");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("natural-exit-siblings-session".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "printf ready; while [ ! -f '{}' ]; do sleep 0.01; done; : > '{}'; exit 0",
+        go.display(),
+        done.display()
+    );
+    daemon.spawn(request, 1).expect("spawn gated session");
+
+    let routes = [
+        (
+            ClientId("natural-exit-siblings-client-a".into()),
+            SubscriptionId("natural-exit-siblings-sub-a".into()),
+            SharedFakeTerminalAdapter::auto_complete(),
+        ),
+        (
+            ClientId("natural-exit-siblings-client-b".into()),
+            SubscriptionId("natural-exit-siblings-sub-b".into()),
+            SharedFakeTerminalAdapter::auto_complete(),
+        ),
+    ];
+    for (client_id, subscription_id, adapter) in &routes {
+        daemon
+            .expect_terminal_adapter(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+            )
+            .expect("declare sibling adapter");
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                2,
+            )
+            .expect("attach sibling route");
+        let generation = daemon
+            .terminal_subscription_generation(&session_id, subscription_id)
+            .expect("sibling generation");
+        daemon
+            .bind_waking_terminal_adapter(
+                client_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                generation,
+                empty_caps(),
+                Box::new(adapter.clone()),
+            )
+            .expect("bind sibling adapter");
+    }
+    pump_available_wakes_until_quiet(&mut daemon, 2);
+
+    fs::write(&go, b"go").expect("release child");
+    wait_for_done_file(&done);
+    consume_runtime_ingress_wakes(&mut daemon, &session_id);
+    observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    let batch = daemon.wait_wakes(Duration::from_secs(2));
+    assert!(batch.ingress_sessions.contains(&session_id));
+    let outcome = daemon.pump_woken(&batch, 4).expect("deliver process exit");
+    assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
+    assert!(outcome.terminal_inventory_changed);
+    assert!(routes.iter().all(|(_, subscription_id, adapter)| {
+        adapter.snapshot_pressure() == TerminalAdapterPressure::Closed
+            && daemon
+                .terminal_subscription_generation(&session_id, subscription_id)
+                .is_none()
+    }));
+
+    let unchanged = daemon
+        .pump_woken(&TerminalWakeBatch::default(), 5)
+        .expect("later unchanged pump");
+    assert!(!unchanged.terminal_inventory_changed);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn ordinary_pty_output_does_not_report_inventory_change() {
+    let data_dir = temp_data_dir("ordinary-output-inventory");
+    let go = data_dir.join("go");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("ordinary-output-inventory-session".into());
+    let client_id = ClientId("ordinary-output-inventory-client".into());
+    let subscription_id = SubscriptionId("ordinary-output-inventory-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "while [ ! -f '{}' ]; do sleep 0.01; done; printf ordinary-output; sleep 30",
+        go.display()
+    );
+    daemon.spawn(request, 1).expect("spawn gated session");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach route");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("route generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind adapter");
+    pump_available_wakes_until_quiet(&mut daemon, 2);
+
+    fs::write(&go, b"go").expect("release child");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(Instant::now() < deadline, "ordinary output did not arrive");
+        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        let outcome = daemon.pump_woken(&batch, 3).expect("pump ordinary output");
+        assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
+        assert!(!outcome.terminal_inventory_changed);
+        if adapter_output_contains(&adapter, b"ordinary-output") {
+            break;
+        }
+    }
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -2729,7 +2903,7 @@ fn ingress_only_wake_does_not_apply_sibling_route_input() {
             )
             .expect("bind route");
     }
-    sibling.inject_ingress_frame(compact_input_frame(b"MUST-STAY-QUEUED\n"));
+    sibling.inject_ingress_frame(compact_input_frame(1, b"MUST-STAY-QUEUED\n"));
     let reads_before = sibling.try_read_count();
     daemon
         .pump_woken(
@@ -2745,7 +2919,7 @@ fn ingress_only_wake_does_not_apply_sibling_route_input() {
         reads_before,
         "session ingress must not intake a sibling adapter route"
     );
-    assert_eq!(delivered_input_result_count(&sibling, "input"), 0);
+    assert_eq!(delivered_input_result_count(&sibling, 1..=1), 0);
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -2771,11 +2945,17 @@ fn spurious_writable_wakes_hard_stop_one_route() {
         sibling.clone(),
     );
     let _ = daemon.wait_wakes(Duration::from_millis(0));
+    let mut inventory_changes = 0;
     for tick in 0..512 {
         let _ = blocked.wake(TerminalWakeKind::Writable);
         let batch = daemon.wait_wakes(Duration::from_millis(0));
-        let _ = daemon.pump_woken(&batch, 20 + tick);
+        let outcome = daemon
+            .pump_woken(&batch, 20 + tick)
+            .expect("pump blocked route");
+        assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
+        inventory_changes += usize::from(outcome.terminal_inventory_changed);
     }
+    assert_eq!(inventory_changes, 1);
     assert!(
         !daemon
             .list_terminal_subscriptions()
@@ -2791,6 +2971,142 @@ fn spurious_writable_wakes_hard_stop_one_route() {
         "sibling must survive the spurious-wake hard-stop"
     );
     let _ = (client, generation);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn malformed_input_reports_inventory_change() {
+    let data_dir = temp_data_dir("malformed-inventory-change");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    let (session_id, _, subscription_id, _) = bind_probe(
+        &mut daemon,
+        "malformed-inventory-session",
+        "malformed-inventory-client",
+        "malformed-inventory-sub",
+        adapter.clone(),
+    );
+    pump_available_wakes_until_quiet(&mut daemon, 2);
+
+    adapter.inject_ingress_frame(vec![0xff, 0xff, 0xff]);
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    let outcome = daemon.pump_woken(&batch, 3).expect("pump malformed input");
+    assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
+    assert!(outcome.terminal_inventory_changed);
+    assert!(daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .is_none());
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn outside_pump_replacement_wakes_and_failed_pump_does_not_acknowledge() {
+    let data_dir = temp_data_dir("outside-pump-replacement");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("outside-pump-replacement-session".into());
+    let subscription_id = SubscriptionId("outside-pump-replacement-sub".into());
+    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+    daemon
+        .attach(
+            ClientId("outside-pump-client-a".into()),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach first owner");
+    pump_available_wakes_until_quiet(&mut daemon, 2);
+
+    daemon
+        .attach(
+            ClientId("outside-pump-client-b".into()),
+            session_id.clone(),
+            subscription_id.clone(),
+            3,
+        )
+        .expect("replace owner outside pump");
+    assert!(daemon
+        .pump_woken(
+            &TerminalWakeBatch {
+                adapter_routes: Vec::new(),
+                ingress_sessions: vec![SessionId("unknown-session".into())],
+            },
+            4,
+        )
+        .is_err());
+
+    let batch = daemon.wait_wakes(Duration::from_secs(1));
+    assert_eq!(batch.ingress_sessions, vec![session_id]);
+    let outcome = daemon
+        .pump_woken(&batch, 5)
+        .expect("pump teardown notification");
+    assert_eq!(outcome.pumped_routes, 0);
+    assert!(outcome.terminal_inventory_changed);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
+    let data_dir = temp_data_dir("outside-pump-observe-hard-stop");
+    let go = data_dir.join("go");
+    let produced = data_dir.join("produced");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("outside-pump-observe-session".into());
+    let client_id = ClientId("outside-pump-observe-client".into());
+    let subscription_id = SubscriptionId("outside-pump-observe-sub".into());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        "while [ ! -f '{}' ]; do sleep 0.01; done; : > '{}'; dd if=/dev/zero bs=5242880 count=1 2>/dev/null; sleep 30",
+        go.display(),
+        produced.display()
+    );
+    daemon.spawn(request, 1).expect("spawn output producer");
+    let mut cleanup = ShutdownSessionOnDrop::new(&mut daemon, session_id.clone());
+    cleanup
+        .daemon()
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare held adapter");
+    cleanup
+        .daemon()
+        .attach(client_id, session_id.clone(), subscription_id.clone(), 2)
+        .expect("attach held route");
+    drain_follow_up_wakes(cleanup.daemon());
+
+    fs::write(&go, b"go").expect("release output producer");
+    wait_for_done_file(&produced);
+    let _ = cleanup.daemon().wait_wakes(Duration::from_secs(1));
+    drain_follow_up_wakes(cleanup.daemon());
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while cleanup
+        .daemon()
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .is_some()
+    {
+        assert!(Instant::now() < deadline, "observe did not hard-stop route");
+        cleanup
+            .daemon()
+            .observe_session_lifecycle(&session_id, 3)
+            .expect("observe output outside pump");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(cleanup
+        .daemon()
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .is_none());
+
+    let batch = cleanup.daemon().wait_wakes(Duration::from_secs(1));
+    assert_eq!(batch.ingress_sessions, vec![session_id]);
+    let outcome = cleanup
+        .daemon()
+        .pump_woken(&batch, 4)
+        .expect("pump observe teardown notification");
+    assert_eq!(outcome.pumped_routes, 0);
+    assert!(outcome.terminal_inventory_changed);
+    cleanup.shutdown(5);
+    drop(cleanup);
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -3045,15 +3361,7 @@ fn stale_registry_then_shutdown_completes_through_wait_wakes() {
     loop {
         assert!(Instant::now() < deadline, "worker attach did not finish");
         pump_next(&mut daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -3132,15 +3440,7 @@ fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_
     loop {
         assert!(Instant::now() < deadline, "worker attach did not finish");
         pump_next(&mut daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));

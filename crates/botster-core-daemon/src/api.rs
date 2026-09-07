@@ -20,6 +20,8 @@ use crate::registry::{RegistryRecord, RegistrySessionState};
 pub struct PumpWokenOutcome {
     /// Number of adapter routes named by the wake batch.
     pub pumped_routes: usize,
+    /// Whether authoritative terminal inventory changed since the last successful pump.
+    pub terminal_inventory_changed: bool,
 }
 
 /// Host request to spawn a daemon-owned session.

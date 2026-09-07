@@ -618,6 +618,12 @@ impl DefaultBotsterEngine {
         self.runtime.list_terminal_subscriptions()
     }
 
+    /// Monotonic revision of authoritative terminal route removals.
+    #[must_use]
+    pub const fn terminal_inventory_revision(&self) -> u64 {
+        self.runtime.terminal_inventory_revision()
+    }
+
     /// Detach one live generation if present.
     pub fn detach_terminal_subscription(
         &mut self,
@@ -1248,6 +1254,12 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
         self.runtime.list_terminal_subscriptions()
+    }
+
+    /// Monotonic revision of authoritative terminal route removals.
+    #[must_use]
+    pub const fn terminal_inventory_revision(&self) -> u64 {
+        self.runtime.terminal_inventory_revision()
     }
 
     /// Detach one live generation if present.
