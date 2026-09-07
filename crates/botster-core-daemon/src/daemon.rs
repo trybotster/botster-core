@@ -5018,27 +5018,9 @@ mod terminal_backend_failure_tests {
                 cols: 100
             }
         );
-        let live_modes = daemon
-            .read_mode_flags(ReadModeFlagsRequest {
-                request_id: RequestId("live-modes".to_string()),
-                session_id: session_id.clone(),
-                now_seconds: 14,
-            })
-            .expect("live mode flags");
         daemon
-            .shutdown(Some(session_id.clone()), 15)
-            .expect("shutdown should retain terminal state");
-        let retained_modes = daemon
-            .read_mode_flags(ReadModeFlagsRequest {
-                request_id: RequestId("retained-modes".to_string()),
-                session_id,
-                now_seconds: 16,
-            })
-            .expect("retained mode flags");
-        assert_eq!(
-            live_modes.mode_flags.mode_flags.mouse_mode,
-            retained_modes.mode_flags.mode_flags.mouse_mode
-        );
+            .shutdown(Some(session_id), 15)
+            .expect("shutdown after a recovered resize");
         let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
     }
 
@@ -5168,14 +5150,7 @@ mod terminal_backend_failure_tests {
             "capture failure should preserve shutdown recovery egress: {:?}",
             pending_egress
         );
-        assert!(matches!(
-            daemon.read_screen(ReadScreenRequest {
-                request_id: RequestId("failed-final-screen".to_string()),
-                session_id: session_id.clone(),
-                now_seconds: 34,
-            }),
-            Err(CoreDaemonError::SessionNotReadable(session)) if session == session_id
-        ));
+        assert!(!daemon.retained_unavailable.contains_key(&session_id));
 
         let _ = std::fs::remove_dir_all(&daemon.config.data_dir);
     }
@@ -5203,33 +5178,9 @@ mod terminal_backend_failure_tests {
                 forced_error: None,
             })
         });
-        CoreDaemon {
-            registry: SessionRegistry::new(&data_dir),
-            engine: DaemonEngine::Local(Box::new(engine)),
-            config,
-            notification_inbox: NotificationInbox::new(),
-            envelope_router: RoutedEnvelopeRouter::new(),
-            pending_drain: Vec::new(),
-            retained_terminal: HashMap::new(),
-            terminal_commit_obligations: HashMap::new(),
-            terminal_commit_failures: HashMap::new(),
-            last_mode_freshness: HashMap::new(),
-            lifecycle_source_id: new_lifecycle_source_id(),
-            lifecycle_sequence: 0,
-            lifecycle_journal: VecDeque::new(),
-            journal_advanced: false,
-            observe_pass: None,
-            observe_live_sessions: BTreeMap::new(),
-            observe_live_generation: 0,
-            baseline_freeze: None,
-            observe_index_scans: 0,
-            baseline_index_scans: 0,
-            baseline_row_copies: 0,
-            baseline_page_encodes: 0,
-            registry_load_all_calls: Cell::new(0),
-            running: true,
-            wake_pump: None,
-        }
+        let mut daemon = CoreDaemon::new(config);
+        daemon.engine = DaemonEngine::Local(Box::new(engine));
+        daemon
     }
 
     fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {

@@ -2899,7 +2899,6 @@ mod tests {
         use crate::contract::terminal_wake::TerminalWakeSink;
         use crate::runtime::ControlWriterError;
         use crate::{SpawnEnvironment, SpawnWorkingDirectory};
-        use botster_terminal_protocol::TerminalFrame;
         use std::process::Command;
         use std::sync::Once;
 

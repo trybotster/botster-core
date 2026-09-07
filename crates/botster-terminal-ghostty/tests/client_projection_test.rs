@@ -129,7 +129,7 @@ fn incremental_frames_restore_ready_then_one_page_steps_then_finish() {
     let ready = frames.remove(0);
     assert_eq!(
         client
-            .install_ghostsnp_ready(ready.bytes)
+            .install_ghostsnp_ready(&ready.bytes)
             .expect("decode through READY"),
         GhosttySnapshotDecodeProgress::Ready
     );
@@ -140,7 +140,7 @@ fn incremental_frames_restore_ready_then_one_page_steps_then_finish() {
 
     for frame in frames {
         let progress = client
-            .apply_ghostsnp_history(frame.bytes)
+            .apply_ghostsnp_history(&frame.bytes)
             .expect("decode one transport frame");
         match frame.kind {
             GhosttySnapshotFrameKind::History => {
@@ -177,13 +177,13 @@ fn blank_incremental_snapshot_is_ready_then_finish() {
     let mut client = client(size);
     assert_eq!(
         client
-            .install_ghostsnp_ready(frames.remove(0).bytes)
+            .install_ghostsnp_ready(&frames.remove(0).bytes)
             .expect("blank READY"),
         GhosttySnapshotDecodeProgress::Ready
     );
     assert_eq!(
         client
-            .apply_ghostsnp_history(frames.remove(0).bytes)
+            .apply_ghostsnp_history(&frames.remove(0).bytes)
             .expect("blank FINISH returns NO_VALUE"),
         GhosttySnapshotDecodeProgress::Finish
     );
@@ -204,7 +204,7 @@ fn abort_incremental_history_retains_ready_terminal_and_allows_resize() {
 
     let mut client = client(size);
     client
-        .install_ghostsnp_ready(frames.remove(0).bytes)
+        .install_ghostsnp_ready(&frames.remove(0).bytes)
         .expect("install READY");
     assert!(client.abort_ghostsnp_history());
     assert!(!client.snapshot_history_pending());
