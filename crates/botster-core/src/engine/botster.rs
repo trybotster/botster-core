@@ -1967,6 +1967,10 @@ impl WorkerBackedBotsterEngine {
     ) {
         if let Some(queue) = self.capture_queue.get_mut(session_id) {
             queue.retain(|queued| &queued.subscription_id != subscription_id);
+            // Nothing retained for a session with no queued capture.
+            if queue.is_empty() {
+                self.capture_queue.remove(session_id);
+            }
         }
         let active_matches = self
             .captures
