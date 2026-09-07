@@ -1,7 +1,6 @@
 #![allow(missing_docs)]
 
 use std::process::Command;
-use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{ProcessIdentity, ResizePayload, SessionId};
@@ -11,10 +10,9 @@ use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, RegistryRecord};
 #[test]
 fn daemon_cli_smoke_starts_inspects_and_uses_session() {
     let data_dir = temp_data_dir("daemon-cli");
-    build_worker_binary();
-    let binary = env!("CARGO_BIN_EXE_botster-core-daemon");
+    let binary = prepared_daemon_binary(&data_dir);
 
-    let status = Command::new(binary)
+    let status = Command::new(&binary)
         .arg("--data-dir")
         .arg(&data_dir)
         .arg("start")
@@ -28,7 +26,7 @@ fn daemon_cli_smoke_starts_inspects_and_uses_session() {
     let stdout = String::from_utf8_lossy(&status.stdout);
     assert!(stdout.contains("\"running\": true"));
 
-    let smoke = Command::new(binary)
+    let smoke = Command::new(&binary)
         .arg("--data-dir")
         .arg(&data_dir)
         .arg("smoke")
@@ -51,8 +49,7 @@ fn daemon_cli_smoke_starts_inspects_and_uses_session() {
 #[test]
 fn daemon_cli_adopt_exits_nonzero_when_worker_adoption_fails() {
     let data_dir = temp_data_dir("daemon-cli-adopt-failure");
-    build_worker_binary();
-    let binary = env!("CARGO_BIN_EXE_botster-core-daemon");
+    let binary = prepared_daemon_binary(&data_dir);
     let session_id = SessionId("daemon-cli-adopt-failure-session".to_string());
     let later_session_id = SessionId("daemon-cli-adopt-later-failure-session".to_string());
     let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
@@ -122,24 +119,22 @@ fn dead_worker_record(
     record
 }
 
-fn build_worker_binary() {
-    static BUILD_WORKER: Once = Once::new();
-    BUILD_WORKER.call_once(|| {
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "botster-core-daemon",
-                "--bin",
-                "botster-session-worker",
-            ])
-            .status()
-            .expect("worker binary build command should run");
-        assert!(
-            status.success(),
-            "worker binary should build for daemon CLI smoke"
-        );
-    });
+#[cfg(unix)]
+fn prepared_daemon_binary(data_dir: &std::path::Path) -> std::path::PathBuf {
+    use std::os::unix::fs::symlink;
+
+    let worker = botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"));
+    let bin_dir = data_dir.join("candidate-bin");
+    std::fs::create_dir_all(&bin_dir).expect("candidate bin directory should be created");
+    let daemon = bin_dir.join("botster-core-daemon");
+    std::fs::copy(env!("CARGO_BIN_EXE_botster-core-daemon"), &daemon)
+        .expect("daemon test binary should copy beside the verified worker");
+    let worker_path = std::fs::canonicalize(&worker.path)
+        .expect("verified worker path should have an absolute form");
+    symlink(worker_path, bin_dir.join("botster-session-worker"))
+        .expect("verified worker should link beside the daemon test binary");
+    daemon
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {

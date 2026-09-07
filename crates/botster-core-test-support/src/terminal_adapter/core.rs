@@ -9,12 +9,27 @@ use botster_core::contract::terminal_adapter::{
 use botster_core::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink};
 use botster_terminal_protocol::RoutedTerminalFrame;
 
+/// One completed delivery with the routing carried by its container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveredFrame {
+    /// Route id the frame was addressed to.
+    pub route: String,
+    /// Attachment generation stamped on the container.
+    pub generation: u64,
+    /// Stream epoch stamped on the container.
+    pub stream_epoch: u32,
+    /// The scheme 2 `TerminalBody` bytes.
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct OneSlotCore {
     closed: bool,
     would_block: bool,
     active: Option<Vec<u8>>,
+    active_routing: Option<(String, u64, u32)>,
     delivered: Vec<Vec<u8>>,
+    delivered_frames: Vec<DeliveredFrame>,
     ingress: VecDeque<Vec<u8>>,
     ingress_partial: Option<Vec<u8>>,
     lost_pending: bool,
@@ -41,12 +56,18 @@ impl OneSlotCore {
         }
         // Content-blind: copy only the shared TerminalBody bytes for delivery.
         self.active = Some(frame.frame.as_bytes().to_vec());
+        self.active_routing = Some((
+            frame.route.as_str().to_string(),
+            frame.generation,
+            frame.stream_epoch,
+        ));
         Ok(())
     }
 
     pub(super) fn close(&mut self) {
         self.closed = true;
         self.active = None;
+        self.active_routing = None;
         self.ingress.clear();
         self.ingress_partial = None;
         self.lost_pending = false;
@@ -155,11 +176,23 @@ impl OneSlotCore {
     }
 
     pub(super) fn push_delivered(&mut self, bytes: Vec<u8>) {
+        if let Some((route, generation, stream_epoch)) = self.active_routing.take() {
+            self.delivered_frames.push(DeliveredFrame {
+                route,
+                generation,
+                stream_epoch,
+                bytes: bytes.clone(),
+            });
+        }
         self.delivered.push(bytes);
     }
 
     pub(super) fn delivered(&self) -> &[Vec<u8>] {
         &self.delivered
+    }
+
+    pub(super) fn delivered_frames(&self) -> &[DeliveredFrame] {
+        &self.delivered_frames
     }
 
     pub(super) fn read_count(&self) -> usize {

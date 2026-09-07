@@ -7,7 +7,6 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Once;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -6219,29 +6218,9 @@ impl Drop for StoppedProcess {
 }
 
 fn worker_path() -> std::path::PathBuf {
-    static BUILD_WORKER: Once = Once::new();
-    BUILD_WORKER.call_once(|| {
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "botster-core-daemon",
-                "--bin",
-                "botster-session-worker",
-            ])
-            .status()
-            .expect("worker binary build command should run");
-        assert!(
-            status.success(),
-            "worker binary should build for daemon restart test"
-        );
-    });
-
-    let mut path = std::env::current_exe().expect("test executable path should resolve");
-    while path.file_name().and_then(|name| name.to_str()) != Some("debug") {
-        assert!(path.pop(), "test executable should live under target/debug");
-    }
-    path.join("botster-session-worker")
+    botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"))
+        .path
 }
 
 fn compact_input_frame(data: &[u8]) -> Vec<u8> {

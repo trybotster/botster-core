@@ -8,7 +8,7 @@ use botster_core::contract::terminal_adapter::{
 use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
 use botster_terminal_protocol::RoutedTerminalFrame;
 
-use super::core::OneSlotCore;
+use super::core::{DeliveredFrame, OneSlotCore};
 use super::TerminalAdapterHarnessDriver;
 
 /// In-memory one-slot terminal adapter.
@@ -237,6 +237,20 @@ impl SharedFakeTerminalAdapter {
     #[must_use]
     pub fn snapshot_delivered_frame_bytes(&self) -> Vec<Vec<u8>> {
         self.lock().delivered_frame_bytes().to_vec()
+    }
+
+    /// Copy of completed deliveries with their container routing.
+    #[must_use]
+    pub fn snapshot_delivered_frames(&self) -> Vec<DeliveredFrame> {
+        self.lock().inner.delivered_frames().to_vec()
+    }
+
+    /// Completed deliveries after the first `skip`, with routing.
+    #[must_use]
+    pub fn delivered_frames_from(&self, skip: usize) -> Vec<DeliveredFrame> {
+        let guard = self.lock();
+        let frames = guard.inner.delivered_frames();
+        frames[skip.min(frames.len())..].to_vec()
     }
 
     /// Current adapter pressure after bind.

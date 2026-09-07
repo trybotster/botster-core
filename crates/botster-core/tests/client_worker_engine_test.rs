@@ -14,8 +14,8 @@ use botster_core::{
     BindTerminalAdapterError, BotsterEngineOutput, ClientId, ClientWorker, CoreSessionMetadata,
     DefaultBotsterEngine, DetachTerminalSubscriptionResult, RequestId, ResizePayload, SessionId,
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalCapabilitySet, TerminalSubscriptionGeneration, TerminalWakeSink, TransportEgress,
-    WakingTerminalAdapter,
+    TerminalCapabilitySet, TerminalSubscriptionGeneration, TerminalWakeKind, TerminalWakeSink,
+    TransportEgress, WakingTerminalAdapter,
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{
@@ -250,6 +250,74 @@ fn close_is_observed_without_a_closer_thread() {
     let _ = worker.detach_live(&session, &subscription);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
     assert!(!worker.adapter_is_bound(&session, &subscription));
+}
+
+#[test]
+fn stale_adapter_close_after_reattach_does_not_stop_the_live_generation() {
+    let mut worker = ClientWorker::new();
+    let session = session("stale-close-session");
+    let client = client("stale-close-client");
+    let subscription = sub("stale-close-route");
+    let (first_generation, _) = worker
+        .record_attach(client.clone(), session.clone(), subscription.clone())
+        .expect("first attach");
+    let first_adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_waking_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            first_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(first_adapter.clone()),
+        )
+        .expect("first bind");
+
+    assert!(matches!(
+        worker.detach_generation(&session, &subscription, first_generation),
+        DetachTerminalSubscriptionResult::Detached { .. }
+    ));
+    let (second_generation, _) = worker
+        .record_attach(client.clone(), session.clone(), subscription.clone())
+        .expect("second attach");
+    assert_ne!(first_generation, second_generation);
+    let second_adapter = SharedFakeTerminalAdapter::auto_complete();
+    worker
+        .bind_waking_terminal_adapter(
+            &client,
+            session.clone(),
+            subscription.clone(),
+            second_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(second_adapter.clone()),
+        )
+        .expect("second bind");
+
+    first_adapter.close_transport();
+    assert!(
+        !first_adapter.wake(TerminalWakeKind::Closed),
+        "the retired adapter sink must not wake the reused route"
+    );
+    assert!(worker.adapter_is_bound(&session, &subscription));
+
+    worker
+        .push_route_frame(
+            &session,
+            &subscription,
+            botster_terminal_protocol::encode_snapshot_ready(b"GHOSTSNP").expect("ready frame"),
+        )
+        .expect("queue ready for the live generation");
+    assert!(second_adapter.wake(TerminalWakeKind::Writable));
+    let batch = worker.wake_source().wait_wakes(Duration::from_secs(1));
+    assert!(worker.pump_woken(&batch).is_empty());
+    let delivered = second_adapter.snapshot_delivered_frames();
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].generation, second_generation.0);
+    assert!(worker.adapter_is_bound(&session, &subscription));
+    assert_eq!(
+        second_adapter.snapshot_pressure(),
+        TerminalAdapterPressure::Ready
+    );
 }
 
 #[test]

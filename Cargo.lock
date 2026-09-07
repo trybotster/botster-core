@@ -121,8 +121,10 @@ dependencies = [
  "botster-core",
  "botster-terminal-ghostty",
  "botster-terminal-protocol",
+ "botster-terminal-protocol-client",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

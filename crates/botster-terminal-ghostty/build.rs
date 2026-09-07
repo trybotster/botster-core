@@ -13,7 +13,8 @@ mod build_support;
 
 use build_data::ghostty_build_args;
 use build_support::{
-    resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_local_cache_dir, ZigCommand,
+    resolve_zig_command, zig_candidates, zig_global_cache_dir, zig_install_prefix,
+    zig_local_cache_dir, zig_static_library_path, ZigCommand,
 };
 
 const FEATURE_ENV: &str = "CARGO_FEATURE_LIBGHOSTTY_VT";
@@ -37,7 +38,8 @@ fn build_ghostty_vt() {
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
     let repacked_lib = Path::new(&out_dir).join("libghostty-vt.a");
-    let zig_lib_path = ghostty_dir.join("zig-out/lib/libghostty-vt.a");
+    let zig_install_prefix = zig_install_prefix(&out_dir);
+    let zig_lib_path = zig_static_library_path(&out_dir);
     let zig = resolve_zig(&ghostty_dir);
     let zig_global_cache_dir =
         zig_global_cache_dir(&out_dir, env::var("ZIG_GLOBAL_CACHE_DIR").ok());
@@ -48,6 +50,8 @@ fn build_ghostty_vt() {
     let status = Command::new(&zig.program)
         .args(&zig.prefix_args)
         .args(ghostty_build_args())
+        .arg("--prefix")
+        .arg(&zig_install_prefix)
         .current_dir(&ghostty_dir)
         .env("DEVELOPER_DIR", "/Library/Developer/CommandLineTools")
         .env("ZIG_GLOBAL_CACHE_DIR", zig_global_cache_dir)
@@ -62,10 +66,10 @@ fn build_ghostty_vt() {
 
     assert!(
         zig_lib_path.exists(),
-        "botster-terminal-ghostty libghostty-vt feature expected Zig to produce zig-out/lib/libghostty-vt.a"
+        "botster-terminal-ghostty expected Zig to install lib/libghostty-vt.a under Cargo OUT_DIR"
     );
 
-    repack_static_library(&zig_lib_path, &repacked_lib);
+    repack_static_library(&zig_lib_path, &repacked_lib, &ghostty_dir);
     emit_link_directives(&out_dir);
     emit_rerun_directives();
 }
@@ -110,7 +114,7 @@ fn zig_version(candidate: &ZigCommand, ghostty_dir: &Path) -> Result<String, Str
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn repack_static_library(zig_lib_path: &Path, repacked_lib: &Path) {
+fn repack_static_library(zig_lib_path: &Path, repacked_lib: &Path, ghostty_dir: &Path) {
     let out_dir = repacked_lib.parent().expect("repacked lib has parent");
     let tmp_dir = out_dir.join("ghostty-repack");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -118,17 +122,17 @@ fn repack_static_library(zig_lib_path: &Path, repacked_lib: &Path) {
     let _ = fs::remove_file(repacked_lib);
 
     let zig_lib_abs = fs::canonicalize(zig_lib_path)
-        .unwrap_or_else(|_| panic!("zig-out/lib/libghostty-vt.a not found"));
+        .unwrap_or_else(|_| panic!("installed lib/libghostty-vt.a not found"));
 
     if is_thin_archive(&zig_lib_abs) {
-        let objects = external_archive_objects(&zig_lib_abs)
+        let objects = external_archive_objects(&zig_lib_abs, ghostty_dir)
             .unwrap_or_else(|| panic!("thin libghostty-vt.a members were not found"));
         archive_objects(repacked_lib, &objects);
         let _ = fs::remove_dir_all(&tmp_dir);
         return;
     }
 
-    if let Some(objects) = external_archive_objects(&zig_lib_abs) {
+    if let Some(objects) = external_archive_objects(&zig_lib_abs, ghostty_dir) {
         archive_objects(repacked_lib, &objects);
         let _ = fs::remove_dir_all(&tmp_dir);
         return;
@@ -167,7 +171,7 @@ fn is_thin_archive(archive: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn external_archive_objects(archive: &Path) -> Option<Vec<PathBuf>> {
+fn external_archive_objects(archive: &Path, ghostty_dir: &Path) -> Option<Vec<PathBuf>> {
     let output = Command::new("ar")
         .arg("t")
         .arg(archive)
@@ -175,11 +179,6 @@ fn external_archive_objects(archive: &Path) -> Option<Vec<PathBuf>> {
         .expect("failed to run `ar t`");
     assert!(output.status.success(), "ar t failed for libghostty-vt.a");
 
-    let ghostty_dir = archive
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .expect("zig-out/lib archive lives under Ghostty source root");
     let archive_dir = archive.parent().expect("archive has parent");
 
     let member_output = String::from_utf8_lossy(&output.stdout);

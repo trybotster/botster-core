@@ -1,8 +1,7 @@
 #![allow(missing_docs)]
 
 use std::fs;
-use std::process::Command;
-use std::sync::{mpsc, Once};
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::engine::managed_session_runtime::PENDING_INGRESS_RESIZE_CAP;
@@ -19,6 +18,9 @@ use botster_core_daemon::{
 };
 use botster_core_test_support::terminal_adapter::{
     SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
+};
+use botster_terminal_protocol::{
+    decode_attach_state, AttachStateCode, TerminalFrame, TerminalKind,
 };
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
@@ -42,28 +44,10 @@ fn pump_next(daemon: &mut CoreDaemon, now_seconds: u64) {
 
 #[cfg(unix)]
 fn worker_path() -> std::path::PathBuf {
-    static BUILD_WORKER: Once = Once::new();
-    BUILD_WORKER.call_once(|| {
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "botster-core-daemon",
-                "--bin",
-                "botster-session-worker",
-            ])
-            .status()
-            .expect("worker build command");
-        assert!(status.success(), "worker binary must build");
-    });
-    let mut path = std::env::current_exe().expect("test executable path");
-    while !matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("debug" | "release")
-    ) {
-        assert!(path.pop(), "test executable must be under target");
-    }
-    path.join("botster-session-worker")
+    // Prebuilt and verified; tests never build the worker.
+    botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"))
+        .path
 }
 
 #[cfg(unix)]
@@ -2206,8 +2190,19 @@ fn adapter_has_process_exit(adapter: &SharedFakeTerminalAdapter) -> bool {
     adapter
         .snapshot_delivered_frame_bytes()
         .iter()
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .any(|value| value.get("type").and_then(serde_json::Value::as_str) == Some("process_exit"))
+        .filter_map(|bytes| TerminalFrame::from_bytes(bytes).ok())
+        .any(|frame| frame.kind() == TerminalKind::ProcessExit)
+}
+
+fn adapter_has_attached(adapter: &SharedFakeTerminalAdapter) -> bool {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .filter_map(|bytes| TerminalFrame::from_bytes(bytes).ok())
+        .any(|frame| {
+            frame.kind() == TerminalKind::AttachState
+                && decode_attach_state(&frame).ok() == Some(AttachStateCode::Attached)
+        })
 }
 
 fn bind_short_lived_session(
@@ -2388,15 +2383,7 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
     loop {
         assert!(Instant::now() < deadline, "worker attach did not finish");
         pump_next(&mut daemon, 2);
-        if adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-            .any(|value| {
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            })
-        {
+        if adapter_has_attached(&adapter) {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));

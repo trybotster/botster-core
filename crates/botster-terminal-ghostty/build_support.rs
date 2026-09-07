@@ -96,3 +96,11 @@ pub fn zig_local_cache_dir(out_dir: &str) -> String {
         .display()
         .to_string()
 }
+
+pub fn zig_install_prefix(out_dir: &str) -> PathBuf {
+    PathBuf::from(out_dir).join("zig-install")
+}
+
+pub fn zig_static_library_path(out_dir: &str) -> PathBuf {
+    zig_install_prefix(out_dir).join("lib/libghostty-vt.a")
+}

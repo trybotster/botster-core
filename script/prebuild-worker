@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Build the session worker once, in the dev profile, and write a candidate
+# manifest that tests verify before they start it. Tests never build.
+#
+# Usage: script/prebuild-worker [out-dir]
+# Prints the two environment assignments that Core-only tests need.
+# Cross-layer runs must use Hub's script/build-dev-artifacts manifest.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+out_dir="${1:-$root/target/candidate}"
+mkdir -p "$out_dir"
+out_dir="$(cd "$out_dir" && pwd)"
+
+CARGO_INCREMENTAL=0 cargo build --locked --jobs 2 \
+  -p botster-core-daemon --bin botster-session-worker \
+  --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
+cp "$root/target/debug/botster-session-worker" "$out_dir/botster-session-worker"
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+size_of() {
+  if stat -f '%z' "$1" >/dev/null 2>&1; then
+    stat -f '%z' "$1"
+  else
+    stat -c '%s' "$1"
+  fi
+}
+
+worker="$out_dir/botster-session-worker"
+worker_sha="$(sha256_of "$worker")"
+worker_size="$(size_of "$worker")"
+core_rev="$(git -C "$root" rev-parse HEAD)"
+if [ -n "$(git -C "$root" status --porcelain)" ]; then
+  core_rev="$core_rev-dirty"
+fi
+
+manifest="$out_dir/candidate-manifest.json"
+cat > "$manifest" <<MANIFEST
+{
+  "source_revisions": {
+    "botster_core": "$core_rev"
+  },
+  "artifacts": [
+    {
+      "name": "botster-session-worker",
+      "size": $worker_size,
+      "sha256": "$worker_sha"
+    }
+  ]
+}
+MANIFEST
+
+echo "export BOTSTER_SESSION_WORKER_BIN=$worker"
+echo "export BOTSTER_CANDIDATE_MANIFEST=$manifest"
