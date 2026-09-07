@@ -176,23 +176,27 @@ impl ControlQueue {
             .map(|(class, frame, _)| (class, frame))
     }
 
-    /// Pop one frame and report an ordinary-capacity transition.
+    /// Pop one frame and report whether the pop freed admission capacity.
+    ///
+    /// Capacity is freed when ordinary admission moves from full to
+    /// available, or when the whole queue moves from full to available so a
+    /// reserved-class frame (cancel, shutdown) can enter again. Either
+    /// transition must wake the session: an admitter that was refused waits
+    /// for exactly this signal.
     pub(crate) fn pop_with_capacity_transition(
         &self,
     ) -> Option<(ControlFrameClass, Vec<u8>, bool)> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
+            let was_total_full = state.frames.len() >= WORKER_CONTROL_QUEUE_FRAMES;
             if let Some((class, frame)) = state.frames.pop_front() {
                 let was_ordinary_full = state.ordinary_len
                     >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
                 if class == ControlFrameClass::Ordinary {
                     state.ordinary_len = state.ordinary_len.saturating_sub(1);
                 }
-                return Some((
-                    class,
-                    frame,
-                    class == ControlFrameClass::Ordinary && was_ordinary_full,
-                ));
+                let freed_ordinary = class == ControlFrameClass::Ordinary && was_ordinary_full;
+                return Some((class, frame, freed_ordinary || was_total_full));
             }
             if state.sealed {
                 return None;
@@ -294,6 +298,50 @@ pub fn write_slice_timeout(deadline: Instant, now: Instant) -> Option<Duration> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fill(queue: &ControlQueue, ordinary: usize, cancel: usize) {
+        for _ in 0..ordinary {
+            queue
+                .admit(ControlFrameClass::Ordinary, vec![0])
+                .expect("ordinary slot");
+        }
+        for _ in 0..cancel {
+            queue
+                .admit(ControlFrameClass::Cancel, vec![0])
+                .expect("reserved slot");
+        }
+    }
+
+    #[test]
+    fn draining_any_frame_from_a_full_queue_frees_reserved_capacity() {
+        let queue = ControlQueue::new();
+        // Ordinary admission is not full, yet the queue as a whole is.
+        fill(&queue, 20, WORKER_CONTROL_QUEUE_FRAMES - 20);
+        assert_eq!(
+            queue.admit(ControlFrameClass::Cancel, vec![0]),
+            Err(ControlQueueAdmitError::ControlQueueFull)
+        );
+
+        let (class, _, freed) = queue.pop_with_capacity_transition().expect("frame");
+
+        assert_eq!(class, ControlFrameClass::Ordinary);
+        assert!(freed, "the first pop from a full queue must wake admitters");
+        assert!(queue.admit(ControlFrameClass::Cancel, vec![0]).is_ok());
+        let (_, _, freed_again) = queue.pop_with_capacity_transition().expect("frame");
+        assert!(!freed_again, "a queue that was not full frees nothing new");
+    }
+
+    #[test]
+    fn draining_ordinary_capacity_still_frees_capacity() {
+        let queue = ControlQueue::new();
+        fill(
+            &queue,
+            WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS,
+            0,
+        );
+        let (_, _, freed) = queue.pop_with_capacity_transition().expect("frame");
+        assert!(freed);
+    }
 
     #[test]
     fn ordinary_capacity_is_thirty_and_reserved_slots_remain() {

@@ -1248,6 +1248,12 @@ fn spawn_control_reader(
                     }
                 }
             }
+            if frame.frame_type == FRAME_SHUTDOWN {
+                // The main loop handles shutdown, but it may be parked in
+                // wait_for_release for an active barrier. Release it here so
+                // the shutdown frame is acted on; the barrier is over.
+                snapshot_barrier.cancel_active();
+            }
             if sender.send(frame).is_err() {
                 break;
             }
@@ -2106,6 +2112,92 @@ mod tests {
 
         lifecycle.observe_process_exit();
         assert!(!lifecycle.should_continue());
+    }
+
+    #[test]
+    fn a_shutdown_frame_on_the_control_reader_releases_an_active_barrier() {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+
+        let control = Arc::new(SnapshotBarrierControl::default());
+        control.begin("snapshot-shutdown".to_string());
+        let waiter = Arc::clone(&control);
+        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-shutdown"));
+        let (frames_tx, frames_rx) = std::sync::mpsc::channel();
+        let (mut parent, worker) = UnixStream::pair().expect("socket pair");
+        super::spawn_control_reader(
+            Box::new(worker),
+            frames_tx,
+            Arc::clone(&control),
+            super::TerminalWakeSource::new(),
+            super::SessionId("shutdown-reader".to_string()),
+        );
+
+        let shutdown =
+            botster_core::encode_frame(super::FRAME_SHUTDOWN, &[]).expect("shutdown frame");
+        parent.write_all(&shutdown).expect("write shutdown");
+
+        assert!(matches!(
+            joined.join().expect("barrier waiter"),
+            SnapshotBarrierRelease::Cancel
+        ));
+        let forwarded = frames_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("shutdown still reaches the main loop");
+        assert_eq!(forwarded.frame_type, super::FRAME_SHUTDOWN);
+        drop(parent);
+    }
+
+    #[test]
+    fn a_truncated_frame_followed_by_link_shutdown_releases_the_barrier() {
+        use std::io::Write;
+        use std::net::Shutdown;
+        use std::os::unix::net::UnixStream;
+
+        let control = Arc::new(SnapshotBarrierControl::default());
+        let (frames_tx, frames_rx) = std::sync::mpsc::channel();
+        let (mut parent, worker) = UnixStream::pair().expect("socket pair");
+        super::spawn_control_reader(
+            Box::new(worker),
+            frames_tx,
+            Arc::clone(&control),
+            super::TerminalWakeSource::new(),
+            super::SessionId("truncated-reader".to_string()),
+        );
+
+        // The reader itself begins the barrier from a real begin frame.
+        let begin = serde_json::to_vec(&super::WorkerSnapshotRequest {
+            request_id: "snapshot-truncated".to_string(),
+            cancel: false,
+            complete: false,
+        })
+        .expect("begin json");
+        let begin = botster_core::encode_frame(super::FRAME_GET_SNAPSHOT, &begin).expect("frame");
+        parent.write_all(&begin).expect("write begin");
+        let forwarded = frames_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("begin frame reaches the main loop");
+        assert_eq!(forwarded.frame_type, super::FRAME_GET_SNAPSHOT);
+        let waiter = Arc::clone(&control);
+        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-truncated"));
+
+        // The parent's writer dies mid-frame, then the parent shuts the link
+        // as fail_control_plane does. The half frame must not park the reader.
+        let ping = botster_core::encode_frame(super::FRAME_PING, &[0u8; 64]).expect("frame");
+        parent
+            .write_all(&ping[..ping.len() / 2])
+            .expect("write half a frame");
+        parent.shutdown(Shutdown::Write).expect("shut write half");
+
+        assert!(matches!(
+            joined.join().expect("barrier waiter"),
+            SnapshotBarrierRelease::Cancel
+        ));
+        assert!(
+            control.is_cancelled("snapshot-truncated"),
+            "a page loop still running must also stop"
+        );
+        drop(parent);
     }
 
     #[test]
