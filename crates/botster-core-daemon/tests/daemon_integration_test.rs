@@ -14,15 +14,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
 use botster_core::TerminalScreenSize;
 use botster_core::{
-    BotsterEngineObservation, ClientId, ClientStreamObservation, CoreSessionMetadata, EndpointId,
-    EnvelopeCursor, EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget, ModeFlags,
-    NotificationContent, NotificationDeliveryStatus, NotificationId, NotificationItem,
-    NotificationSeverity, NotificationSource, NotificationTarget, NotificationTimestamp, RequestId,
-    ResizePayload, RoutedEnvelope, RoutedEnvelopeObservation, RoutedEnvelopePayload,
-    RoutedEnvelopeQueueConfig, SessionId, SessionLifecycleState, SessionSpawnRequest,
-    SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment, SpawnWorkingDirectory,
-    SubscriptionId, SubscriptionMultiplexerObservation, TerminalAttachState, TerminalCapabilitySet,
-    TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
+    BindTerminalAdapterError, BotsterEngineObservation, ClientId, ClientStreamObservation,
+    CoreSessionMetadata, EndpointId, EnvelopeCursor, EnvelopeDeliveryStatus, EnvelopeId,
+    EnvelopeTarget, ModeFlags, NotificationContent, NotificationDeliveryStatus, NotificationId,
+    NotificationItem, NotificationSeverity, NotificationSource, NotificationTarget,
+    NotificationTimestamp, RequestId, ResizePayload, RoutedEnvelope, RoutedEnvelopeObservation,
+    RoutedEnvelopePayload, RoutedEnvelopeQueueConfig, SessionId, SessionLifecycleState,
+    SessionSpawnRequest, SessionWorkerHealthReason, SessionWorkerStaleReason, SpawnEnvironment,
+    SpawnWorkingDirectory, SubscriptionId, SubscriptionMultiplexerObservation, TerminalAttachState,
+    TerminalCapabilitySet, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
 use botster_core_daemon::{
     reserved_observe_slice_error, sanitize_observe_slice_error_message,
@@ -6916,11 +6916,22 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
         route_terminal_frames(&attached.client_egress, &holder, &session_id, &holder_sub)
             .is_empty()
     );
+    let holder_generation = daemon
+        .list_terminal_subscriptions()
+        .into_iter()
+        .find(|row| row.subscription_id == holder_sub)
+        .expect("holder inventory after attach")
+        .generation;
 
+    // The `yes` flood overflows the never-bound holder's pre-bind hold on
+    // the first full queue. The bound below is a failure bound only; the
+    // overflow itself arrives within the first few pumps.
     let started = Instant::now();
     let mut unsubscribe_count = 0;
+    let mut pumps = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         pump_next_available_wake(&mut daemon, 30);
+        pumps += 1;
         let drained = daemon.drain(&session_id, 30).expect("read overflow result");
         unsubscribe_count +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
@@ -6928,37 +6939,53 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             .list_terminal_subscriptions()
             .iter()
             .any(|row| row.subscription_id == holder_sub);
-        if !holder_live && unsubscribe_count > 0 {
+        if !holder_live {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
-    let extra = daemon.drain(&session_id, 30).expect("drain after overflow");
-    unsubscribe_count +=
-        count_production_unsubscribe(&extra.observations, &holder, &session_id, &holder_sub);
     assert!(
         daemon
             .list_terminal_subscriptions()
             .iter()
             .all(|row| row.subscription_id != holder_sub),
-        "overflow must remove the holding owner"
-    );
-    assert_eq!(
-        unsubscribe_count, 1,
-        "overflow must run production UnsubscribeSession exactly once"
+        "first pre-bind overflow must remove the never-bound holder (after {pumps} pumps)"
     );
     assert!(
-        daemon
-            .list_terminal_subscriptions()
-            .iter()
-            .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
-        "sibling must remain bound"
+        unsubscribe_count >= 1,
+        "the teardown must run the production unsubscribe path"
     );
+    // Public failure signal: the holder's generation is no longer bindable.
+    let late = SharedFakeTerminalAdapter::auto_complete();
+    assert!(matches!(
+        daemon.bind_waking_terminal_adapter(
+            holder.clone(),
+            session_id.clone(),
+            holder_sub.clone(),
+            holder_generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(late),
+        ),
+        Err(BindTerminalAdapterError::UnknownSubscription { .. })
+    ));
+    // No new capture loop for that route: it never comes back while the
+    // flood continues and the sibling keeps being served.
     let before = sibling_adapter.snapshot_delivered_frame_bytes().len();
     let sibling_started = Instant::now();
     let mut sibling_progress = false;
+    let mut extra_unsubscribes = 0;
     while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         pump_next_available_wake(&mut daemon, 31);
+        let drained = daemon.drain(&session_id, 31).expect("drain after overflow");
+        extra_unsubscribes +=
+            count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
+        assert!(
+            daemon
+                .list_terminal_subscriptions()
+                .iter()
+                .all(|row| row.subscription_id != holder_sub),
+            "a failed never-bound route must not be recreated by a capture"
+        );
         if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
             sibling_progress = true;
             break;
@@ -6967,7 +6994,18 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     }
     assert!(
         sibling_progress,
-        "sibling must keep delivering after overflow"
+        "sibling must keep delivering after the holder failed"
+    );
+    assert_eq!(
+        extra_unsubscribes, 0,
+        "one teardown, one production unsubscribe: none may follow"
+    );
+    assert!(
+        daemon
+            .list_terminal_subscriptions()
+            .iter()
+            .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
+        "sibling must remain bound"
     );
     let _ = fs::remove_dir_all(data_dir);
 }
