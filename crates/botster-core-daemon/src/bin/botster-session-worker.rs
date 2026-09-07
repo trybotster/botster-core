@@ -330,6 +330,20 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// `FRAME_INPUT_RESULT` payload: `[u64 LE key][complete INPUT_RESULT TerminalBody]`.
+///
+/// The parent splits the key and validates the full TerminalBody header, so
+/// the body is sent with its header, never as bare body bytes.
+fn input_result_payload(key: u64, result: &InputResultBody) -> Option<Vec<u8>> {
+    let frame = encode_input_result(result).ok()?;
+    Some(botster_core::encode_worker_operation(key, frame.as_bytes()))
+}
+
+/// `FRAME_MODES_CHANGED` payload: one complete MODES TerminalBody.
+fn modes_changed_payload(modes: ModesBody) -> Option<Vec<u8>> {
+    Some(encode_modes(modes).ok()?.as_bytes().to_vec())
+}
+
 fn probe_request_id(payload: &[u8]) -> String {
     serde_json::from_slice::<WorkerProbeRequest>(payload)
         .map(|request| request.request_id)
@@ -383,17 +397,11 @@ impl WorkerState {
     }
 
     fn send_result(&self, key: u64, result: &InputResultBody) {
-        match encode_input_result(result) {
-            Ok(frame) => {
-                // The parent decodes a complete TerminalBody (header included).
-                let payload = botster_core::encode_worker_operation(key, frame.as_bytes());
-                self.egress
-                    .send_protected_frame(FRAME_INPUT_RESULT, payload);
-            }
-            Err(_) => {
-                // A body that cannot encode is a programming error in this
-                // process; the parent reports OutcomeUnknown on link loss.
-            }
+        // A body that cannot encode is a programming error in this process;
+        // the parent reports OutcomeUnknown on link loss.
+        if let Some(payload) = input_result_payload(key, result) {
+            self.egress
+                .send_protected_frame(FRAME_INPUT_RESULT, payload);
         }
     }
 
@@ -844,10 +852,9 @@ impl WorkerState {
         };
         if modes != self.last_modes {
             self.last_modes = modes;
-            if let Ok(frame) = encode_modes(modes) {
-                // The parent decodes a complete TerminalBody (header included).
+            if let Some(payload) = modes_changed_payload(modes) {
                 self.egress
-                    .send_protected_frame(FRAME_MODES_CHANGED, frame.as_bytes().to_vec());
+                    .send_protected_frame(FRAME_MODES_CHANGED, payload);
             }
         }
     }
@@ -2059,8 +2066,8 @@ mod tests {
             mode_bits: 2,
             detail: String::new(),
         };
-        let frame = botster_terminal_protocol::encode_input_result(&result).expect("encode");
-        let payload = botster_core::encode_worker_operation(7, frame.as_bytes());
+        // The same producer helper the worker uses for every result.
+        let payload = super::input_result_payload(7, &result).expect("payload");
 
         let (key, body) = botster_core::split_worker_operation_key(&payload).expect("key");
         let decoded = botster_terminal_protocol::TerminalFrame::from_bytes(body)
@@ -2069,6 +2076,24 @@ mod tests {
         assert_eq!(
             botster_terminal_protocol::decode_input_result(&decoded).expect("result"),
             result
+        );
+    }
+
+    #[test]
+    fn modes_changed_frames_carry_the_full_terminal_body_the_parent_decodes() {
+        let modes = botster_terminal_protocol::ModesBody {
+            mode_bits: 5,
+            rows: 30,
+            cols: 100,
+        };
+        // The same producer helper the worker uses on every mode change.
+        let payload = super::modes_changed_payload(modes).expect("payload");
+
+        let decoded = botster_terminal_protocol::TerminalFrame::from_bytes(&payload)
+            .expect("parent validates the TerminalBody header");
+        assert_eq!(
+            botster_terminal_protocol::decode_modes(&decoded).expect("modes"),
+            modes
         );
     }
 

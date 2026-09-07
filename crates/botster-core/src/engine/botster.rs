@@ -29,7 +29,7 @@ use crate::contract::terminal_wake::{
 };
 use crate::contract::transport::{TransportEgress, TransportIngress};
 #[cfg(feature = "local-runtime")]
-use crate::engine::client_worker::EnqueueRouteFrameError;
+use crate::engine::client_worker::{CaptureIdentity, EnqueueRouteFrameError};
 #[cfg(feature = "local-runtime")]
 use crate::engine::command::DefaultEngineCommand;
 use crate::engine::command::{
@@ -113,8 +113,6 @@ pub struct WorkerBackedBotsterEngine {
     next_host_capture: u64,
     /// Finished host captures awaiting `take_host_capture`.
     host_captures: HashMap<u64, Result<HostCaptureResult, String>>,
-    /// Host captures the daemon cancelled; a late result is discarded.
-    cancelled_host_captures: HashSet<u64>,
 }
 
 /// Why one route needs a worker capture.
@@ -147,6 +145,9 @@ struct CaptureRequest {
     client_id: ClientId,
     subscription_id: SubscriptionId,
     kind: CaptureKind,
+    /// Identity captured when the request was created. Host captures carry
+    /// `None`; route captures carry the attachment generation and fence.
+    identity: Option<CaptureIdentity>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -155,9 +156,9 @@ struct RouteCapture {
     subscription_id: SubscriptionId,
     kind: CaptureKind,
     request_id: String,
-    /// Route capture fence when this capture started. Pages are enqueued
-    /// only while the route still carries this fence.
-    capture_fence: u64,
+    /// Identity from the request that created this capture. Pages are
+    /// enqueued only while the route still carries exactly this identity.
+    identity: Option<CaptureIdentity>,
     ready: bool,
     /// `FINISH` or an error ended the pages; the barrier release is pending.
     awaiting_release: bool,
@@ -888,7 +889,6 @@ impl WorkerBackedBotsterEngine {
             capture_queue: HashMap::new(),
             next_host_capture: 1,
             host_captures: HashMap::new(),
-            cancelled_host_captures: HashSet::new(),
         }
     }
 
@@ -1047,17 +1047,16 @@ impl WorkerBackedBotsterEngine {
             session_id.clone(),
             subscription_id.clone(),
         )?;
-        let _ = self.runtime.client_worker_mut().push_attach_state(
-            &session_id,
-            &subscription_id,
-            AttachStateCode::Attaching,
-        );
+        let worker = self.runtime.client_worker_mut();
+        let _ = worker.push_attach_state(&session_id, &subscription_id, AttachStateCode::Attaching);
+        let identity = worker.capture_identity(&session_id, &subscription_id);
         self.enqueue_capture(
             &session_id,
             CaptureRequest {
                 client_id,
                 subscription_id,
                 kind: CaptureKind::Attach,
+                identity,
             },
         );
         self.sync_worker_consumers(&session_id)?;
@@ -1705,12 +1704,10 @@ impl WorkerBackedBotsterEngine {
                 let _ = worker.fail_route(session_id, &capture.subscription_id);
                 return false;
             };
-            match worker.push_capture_frame(
-                session_id,
-                &capture.subscription_id,
-                capture.capture_fence,
-                frame,
-            ) {
+            let Some(identity) = capture.identity else {
+                return true;
+            };
+            match worker.push_capture_frame(session_id, &capture.subscription_id, identity, frame) {
                 Ok(None) => {}
                 Err(EnqueueRouteFrameError::EpochSuperseded) => return true,
                 Ok(Some(_)) | Err(_) => return false,
@@ -1720,9 +1717,6 @@ impl WorkerBackedBotsterEngine {
     }
 
     fn record_host_capture(&mut self, id: u64, result: Result<HostCaptureResult, String>) {
-        if self.cancelled_host_captures.remove(&id) {
-            return;
-        }
         self.host_captures.insert(id, result);
     }
 
@@ -1750,6 +1744,7 @@ impl WorkerBackedBotsterEngine {
                 client_id: ClientId(format!("host-capture-{id}")),
                 subscription_id: SubscriptionId(format!("host-capture-{id}")),
                 kind: CaptureKind::Host(id),
+                identity: None,
             },
         );
         id
@@ -1761,11 +1756,10 @@ impl WorkerBackedBotsterEngine {
     }
 
     /// Cancel one host capture, whether queued, active, or finished but not
-    /// yet taken. A result that arrives later is discarded.
+    /// yet taken. Queued and active work is removed, so no later result can
+    /// exist and nothing is retained for the cancelled id.
     pub fn cancel_host_capture(&mut self, session_id: &SessionId, id: u64) {
-        if self.host_captures.remove(&id).is_none() {
-            self.cancelled_host_captures.insert(id);
-        }
+        self.host_captures.remove(&id);
         let subscription_id = SubscriptionId(format!("host-capture-{id}"));
         self.cancel_capture_for_route(session_id, &subscription_id);
         let _ = self.start_next_capture(session_id);
@@ -1796,14 +1790,23 @@ impl WorkerBackedBotsterEngine {
                 return Ok(());
             };
             let is_host = matches!(next.kind, CaptureKind::Host(_));
-            if !is_host
-                && !self.runtime.terminal_subscription_matches(
+            if !is_host {
+                // A queued request must still name the live attachment and
+                // fence; a stale request never starts work.
+                let live = self.runtime.terminal_subscription_matches(
                     session_id,
                     &next.client_id,
                     &next.subscription_id,
-                )
-            {
-                continue;
+                ) && next.identity.is_some_and(|identity| {
+                    self.runtime.client_worker().capture_identity_is_live(
+                        session_id,
+                        &next.subscription_id,
+                        identity,
+                    )
+                });
+                if !live {
+                    continue;
+                }
             }
             match self
                 .runtime
@@ -1811,13 +1814,10 @@ impl WorkerBackedBotsterEngine {
                 .begin_snapshot_boundary(session_id)
             {
                 Ok(request_id) => {
-                    let mut capture_fence = 0;
                     if !is_host {
-                        let worker = self.runtime.client_worker_mut();
-                        worker.begin_route_capture(session_id, &next.subscription_id);
-                        capture_fence = worker
-                            .route_capture_fence(session_id, &next.subscription_id)
-                            .unwrap_or(0);
+                        self.runtime
+                            .client_worker_mut()
+                            .begin_route_capture(session_id, &next.subscription_id);
                     }
                     self.captures.insert(
                         session_id.clone(),
@@ -1826,7 +1826,7 @@ impl WorkerBackedBotsterEngine {
                             subscription_id: next.subscription_id,
                             kind: next.kind,
                             request_id,
-                            capture_fence,
+                            identity: next.identity,
                             ready: false,
                             awaiting_release: false,
                             history_incomplete: false,
@@ -1873,12 +1873,16 @@ impl WorkerBackedBotsterEngine {
         for request in requests {
             // A capture still running for this route belongs to the epoch the
             // overflow left; its remaining pages must not enter the new one.
+            let identity = CaptureIdentity {
+                generation: request.generation,
+                capture_fence: request.capture_fence,
+            };
             let superseded = self
                 .captures
                 .get(&request.session_id)
                 .is_some_and(|capture| {
                     capture.subscription_id == request.subscription_id
-                        && capture.capture_fence != request.capture_fence
+                        && capture.identity != Some(identity)
                         && !matches!(capture.kind, CaptureKind::Host(_))
                 });
             if superseded {
@@ -1890,6 +1894,7 @@ impl WorkerBackedBotsterEngine {
                     client_id: request.client_id,
                     subscription_id: request.subscription_id,
                     kind: CaptureKind::Resync,
+                    identity: Some(identity),
                 },
             );
         }
@@ -2746,5 +2751,103 @@ where
 {
     fn default() -> Self {
         Self::new(R::default())
+    }
+}
+
+#[cfg(all(test, feature = "local-runtime"))]
+mod capture_identity_tests {
+    use super::*;
+
+    fn engine() -> WorkerBackedBotsterEngine {
+        WorkerBackedBotsterEngine::new("/missing/botster-session-worker")
+    }
+
+    fn ids() -> (ClientId, SessionId, SubscriptionId) {
+        (
+            ClientId("client".into()),
+            SessionId("session".into()),
+            SubscriptionId("route".into()),
+        )
+    }
+
+    #[test]
+    fn a_queued_request_with_a_stale_attachment_identity_never_starts_work() {
+        let mut engine = engine();
+        let (client, session, subscription) = ids();
+        let (stale_generation, _) = engine
+            .runtime
+            .client_worker_mut()
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("first attach");
+        // A replacement attach by another client supersedes the first owner.
+        let other = ClientId("other".into());
+        engine
+            .runtime
+            .client_worker_mut()
+            .record_attach(other.clone(), session.clone(), subscription.clone())
+            .expect("replacement attach");
+        engine.enqueue_capture(
+            &session,
+            CaptureRequest {
+                client_id: other.clone(),
+                subscription_id: subscription.clone(),
+                kind: CaptureKind::Resync,
+                identity: Some(CaptureIdentity {
+                    generation: stale_generation,
+                    capture_fence: 0,
+                }),
+            },
+        );
+
+        // Without the identity check the request would reach the runtime,
+        // fail (no such session), and tear the live route down.
+        assert!(engine.captures.is_empty());
+        assert!(engine
+            .runtime
+            .client_worker()
+            .has_subscription(&session, &subscription));
+        assert!(!engine.capture_queue.contains_key(&session));
+    }
+
+    #[test]
+    fn cancelling_a_queued_host_capture_retains_nothing() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        let id = engine.begin_host_capture(&session);
+
+        engine.cancel_host_capture(&session, id);
+
+        assert!(engine.take_host_capture(id).is_none());
+        assert!(engine.host_captures.is_empty());
+        assert!(!engine.capture_queue.contains_key(&session));
+        assert!(!engine.captures.contains_key(&session));
+    }
+
+    #[test]
+    fn host_captures_survive_the_route_ownership_reconcile() {
+        let mut engine = engine();
+        let (_, session, _) = ids();
+        engine.captures.insert(
+            session.clone(),
+            RouteCapture {
+                client_id: ClientId("host-capture-9".into()),
+                subscription_id: SubscriptionId("host-capture-9".into()),
+                kind: CaptureKind::Host(9),
+                request_id: "req".into(),
+                identity: None,
+                ready: false,
+                awaiting_release: false,
+                history_incomplete: false,
+                collected: Vec::new(),
+                collected_size: None,
+                collected_colors: None,
+            },
+        );
+
+        engine
+            .reconcile_capture_after_teardown(&session)
+            .expect("reconcile");
+
+        assert!(engine.captures.contains_key(&session));
     }
 }

@@ -2264,6 +2264,7 @@ impl CoreDaemon {
                 }
             }
         }
+        self.resolve_pending_readbacks(&mut screen_replies, &mut mode_replies);
         let ids: Vec<_> = self.pending.keys().copied().collect();
         for id in ids {
             let Some(state) = self.pending.get(&id) else {
@@ -2344,6 +2345,7 @@ impl CoreDaemon {
                     };
                     let session_id = session_id.clone();
                     let probe_id = probe_id.clone();
+                    // Matching replies were resolved before this loop.
                     let matched = screen_replies.remove(&probe_id);
                     match matched {
                         Some(reply) => CoreCompletion::ReadScreen {
@@ -2511,6 +2513,123 @@ impl CoreDaemon {
         let ttl = Duration::from_secs(CAPTURE_IDLE_TTL_SECONDS);
         self.open_captures
             .retain(|_, open| now.saturating_duration_since(open.last_touched) < ttl);
+    }
+
+    #[cfg(test)]
+    fn test_insert_pending_read_screen(
+        &mut self,
+        session_id: SessionId,
+        probe_id: &str,
+    ) -> PendingOperationId {
+        let id = self.allocate_pending_id();
+        self.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::ReadScreen {
+                    session_id,
+                    probe_id: probe_id.to_owned(),
+                },
+                deadline: None,
+                cancelled: false,
+            },
+        );
+        id
+    }
+
+    #[cfg(test)]
+    fn test_insert_pending_capture(
+        &mut self,
+        session_id: SessionId,
+        owner: CaptureOwner,
+        host_capture: u64,
+    ) -> PendingOperationId {
+        let id = self.allocate_pending_id();
+        self.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::CaptureSnapshot {
+                    session_id,
+                    owner,
+                    host_capture,
+                },
+                deadline: None,
+                cancelled: false,
+            },
+        );
+        id
+    }
+
+    /// Resolve pending readbacks against replies already drained from the
+    /// worker. Split out so the distribution rule is testable without a
+    /// worker process.
+    fn resolve_pending_readbacks(
+        &mut self,
+        screen_replies: &mut HashMap<String, botster_core::ScreenPayload>,
+        mode_replies: &mut HashMap<String, botster_core::ModeFlagsPayload>,
+    ) {
+        let ids: Vec<_> = self
+            .pending
+            .iter()
+            .filter(|(_, state)| {
+                matches!(
+                    state.kind,
+                    PendingKind::ReadScreen { .. } | PendingKind::ReadModeFlags { .. }
+                )
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(state) = self.pending.get(&id) else {
+                continue;
+            };
+            let completion = match &state.kind {
+                PendingKind::ReadScreen { probe_id, .. } => {
+                    let Some(reply) = screen_replies.remove(probe_id) else {
+                        continue;
+                    };
+                    CoreCompletion::ReadScreen {
+                        id,
+                        result: match reply.error_kind {
+                            Some(error) => Err(CoreDaemonError::Engine(
+                                DefaultBotsterEngineError::TerminalBackendOperation {
+                                    operation: "read_screen",
+                                    message: error,
+                                },
+                            )),
+                            None => Ok(ScreenReadback {
+                                text: Arc::from(reply.text),
+                                unavailable: None,
+                            }),
+                        },
+                    }
+                }
+                PendingKind::ReadModeFlags { probe_id, .. } => {
+                    let Some(reply) = mode_replies.remove(probe_id) else {
+                        continue;
+                    };
+                    CoreCompletion::ReadModeFlags {
+                        id,
+                        result: match reply.error_kind {
+                            Some(error) => Err(CoreDaemonError::Engine(
+                                DefaultBotsterEngineError::TerminalBackendOperation {
+                                    operation: "read_mode_flags",
+                                    message: error,
+                                },
+                            )),
+                            None => Ok(ModeFlagsReadback {
+                                mode_flags: reply.mode_flags,
+                                rows: reply.rows,
+                                cols: reply.cols,
+                                unavailable: None,
+                            }),
+                        },
+                    }
+                }
+                _ => continue,
+            };
+            self.pending.remove(&id);
+            self.completions.push(completion);
+        }
     }
 
     fn finish_shutdown_registry(
@@ -5173,6 +5292,163 @@ fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {
         SessionWorkerStaleReason::WorkerDied
     } else {
         SessionWorkerStaleReason::ProcessMissing
+    }
+}
+
+#[cfg(test)]
+mod pending_operation_tests {
+    use super::*;
+
+    fn daemon(label: &str) -> CoreDaemon {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-pending-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        CoreDaemon::new(CoreDaemonConfig::new(data_dir))
+    }
+
+    fn reply(id: &str, text: &str) -> botster_core::ScreenPayload {
+        botster_core::ScreenPayload {
+            request_id: id.to_owned(),
+            text: text.to_owned(),
+            error_kind: None,
+        }
+    }
+
+    #[test]
+    fn two_readbacks_in_one_pump_each_keep_their_own_reply() {
+        let mut daemon = daemon("readbacks");
+        let session = SessionId("s".into());
+        let a = daemon.test_insert_pending_read_screen(session.clone(), "probe-a");
+        let b = daemon.test_insert_pending_read_screen(session.clone(), "probe-b");
+        let mut screen: HashMap<_, _> = [
+            ("probe-a".to_owned(), reply("probe-a", "A")),
+            ("probe-b".to_owned(), reply("probe-b", "B")),
+        ]
+        .into_iter()
+        .collect();
+        let mut modes = HashMap::new();
+
+        daemon.resolve_pending_readbacks(&mut screen, &mut modes);
+
+        let mut texts: Vec<(PendingOperationId, String)> = daemon
+            .take_completions()
+            .into_iter()
+            .map(|completion| match completion {
+                CoreCompletion::ReadScreen { id, result } => {
+                    (id, result.expect("reply").text.to_string())
+                }
+                other => panic!("unexpected completion {:?}", other.id()),
+            })
+            .collect();
+        texts.sort();
+        assert_eq!(texts, vec![(a, "A".to_owned()), (b, "B".to_owned())]);
+        assert!(daemon.pending.is_empty());
+        assert!(screen.is_empty(), "every reply was delivered to its owner");
+    }
+
+    #[test]
+    fn a_reply_for_the_other_readback_is_not_consumed_by_the_first() {
+        let mut daemon = daemon("readback-order");
+        let session = SessionId("s".into());
+        let _a = daemon.test_insert_pending_read_screen(session.clone(), "probe-a");
+        let b = daemon.test_insert_pending_read_screen(session, "probe-b");
+        let mut screen: HashMap<_, _> = [("probe-b".to_owned(), reply("probe-b", "B"))]
+            .into_iter()
+            .collect();
+
+        daemon.resolve_pending_readbacks(&mut screen, &mut HashMap::new());
+
+        let completed: Vec<_> = daemon
+            .take_completions()
+            .into_iter()
+            .map(|completion| completion.id())
+            .collect();
+        assert_eq!(completed, vec![b]);
+        assert_eq!(daemon.pending.len(), 1, "A still waits for its own reply");
+    }
+
+    #[test]
+    fn owner_release_cancels_pending_and_open_captures() {
+        let mut daemon = daemon("owner-release");
+        let owner = CaptureOwner("client-a".into());
+        let other = CaptureOwner("client-b".into());
+        let session = SessionId("s".into());
+        let pending = daemon.test_insert_pending_capture(session.clone(), owner.clone(), 1);
+        let kept = daemon.test_insert_pending_capture(session, other.clone(), 2);
+        let open = daemon.open_capture(
+            owner.clone(),
+            Arc::from(vec![1u8, 2, 3].into_boxed_slice()),
+            24,
+            80,
+            TerminalColorProfile::default(),
+        );
+
+        let released = daemon.release_owner_captures(&owner);
+
+        assert_eq!(released, 2);
+        assert!(!daemon.open_captures.contains_key(&open.capture_id));
+        assert!(!daemon.pending.contains_key(&pending));
+        assert!(daemon.pending.contains_key(&kept));
+        let cancelled: Vec<_> = daemon
+            .take_completions()
+            .into_iter()
+            .filter(|completion| {
+                matches!(
+                    completion,
+                    CoreCompletion::CaptureSnapshot {
+                        result: Err(CoreDaemonError::Cancelled),
+                        ..
+                    }
+                )
+            })
+            .map(|completion| completion.id())
+            .collect();
+        assert_eq!(cancelled, vec![pending]);
+        assert_eq!(daemon.open_captures_for(&owner), 0);
+    }
+
+    #[test]
+    fn a_cancelled_spawn_keeps_its_slot_until_the_launch_is_collected() {
+        let mut daemon = daemon("cancelled-spawn");
+        let id = daemon.allocate_pending_id();
+        daemon.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::Spawn {
+                    session_id: SessionId("s".into()),
+                    metadata: botster_core::CoreSessionMetadata::new(),
+                    size: ResizePayload { rows: 24, cols: 80 },
+                    label: "sh".into(),
+                    now_seconds: 1,
+                },
+                deadline: None,
+                cancelled: false,
+            },
+        );
+
+        assert!(daemon.cancel(id));
+
+        assert_eq!(daemon.pending_spawns(), 1, "slot stays reserved");
+        assert!(daemon.pending[&id].cancelled);
+        assert!(!daemon.cancel(id), "a second cancel is a no-op");
+        let completions = daemon
+            .take_completions()
+            .into_iter()
+            .filter(|completion| {
+                matches!(
+                    completion,
+                    CoreCompletion::Spawn {
+                        result: Err(CoreDaemonError::Cancelled),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(completions, 1, "exactly one Cancelled completion");
     }
 }
 

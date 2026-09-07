@@ -67,6 +67,16 @@ pub struct ClientWorkerTeardown {
     pub in_flight_keys: Vec<u64>,
 }
 
+/// Identity a capture is bound to: the attachment generation and the
+/// route's capture fence at request time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CaptureIdentity {
+    /// Fixed attachment generation of the route.
+    pub generation: TerminalSubscriptionGeneration,
+    /// Route capture fence; advances when an overflow lost visual frames.
+    pub capture_fence: u64,
+}
+
 /// One route that needs a fresh worker capture after egress overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteResyncRequest {
@@ -629,22 +639,6 @@ impl ClientWorker {
         self.session_modes.get(session_id).copied()
     }
 
-    /// Current capture fence of one live route. A capture records it at
-    /// start and passes it to [`Self::push_capture_frame`].
-    #[must_use]
-    pub fn route_capture_fence(
-        &self,
-        session_id: &SessionId,
-        subscription_id: &SubscriptionId,
-    ) -> Option<u64> {
-        self.live
-            .get(&OwnerKey {
-                session_id: session_id.clone(),
-                subscription_id: subscription_id.clone(),
-            })
-            .map(|owner| owner.capture_fence)
-    }
-
     /// Current stream epoch of one live route.
     #[must_use]
     pub fn route_stream_epoch(
@@ -850,7 +844,7 @@ impl ClientWorker {
         &mut self,
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
-        capture_fence: u64,
+        identity: CaptureIdentity,
         frame: TerminalFrame,
     ) -> Result<Option<ClientWorkerTeardown>, EnqueueRouteFrameError> {
         let key = OwnerKey {
@@ -860,10 +854,42 @@ impl ClientWorker {
         let Some(owner) = self.live.get(&key) else {
             return Err(EnqueueRouteFrameError::OwnerGone);
         };
-        if owner.capture_fence != capture_fence {
+        if owner.generation != identity.generation || owner.capture_fence != identity.capture_fence
+        {
             return Err(EnqueueRouteFrameError::EpochSuperseded);
         }
         self.push_route_frame(session_id, subscription_id, frame)
+    }
+
+    /// Complete capture identity of one live route right now: the fixed
+    /// attachment generation plus the capture fence. A capture records it
+    /// when its request is created and carries it unchanged to every page.
+    #[must_use]
+    pub fn capture_identity(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<CaptureIdentity> {
+        self.live
+            .get(&OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            })
+            .map(|owner| CaptureIdentity {
+                generation: owner.generation,
+                capture_fence: owner.capture_fence,
+            })
+    }
+
+    /// Whether `identity` still names the live attachment and fence.
+    #[must_use]
+    pub fn capture_identity_is_live(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        identity: CaptureIdentity,
+    ) -> bool {
+        self.capture_identity(session_id, subscription_id) == Some(identity)
     }
 
     /// Enqueue an `ATTACH_STATE` frame for one route.
@@ -2309,6 +2335,44 @@ mod tests {
     }
 
     #[test]
+    fn a_page_from_a_replaced_attachment_is_refused_even_with_an_equal_fence() {
+        let (mut worker, key) = bound_route();
+        let old = worker
+            .capture_identity(&key.session_id, &key.subscription_id)
+            .expect("live identity");
+        // Another client takes the same subscription: a new attachment with
+        // a new generation and a fresh fence of zero.
+        let (generation, _) = worker
+            .record_attach(
+                ClientId("other".into()),
+                key.session_id.clone(),
+                key.subscription_id.clone(),
+            )
+            .expect("replacement attach");
+        assert_ne!(generation, old.generation);
+        assert_eq!(
+            worker.capture_identity(&key.session_id, &key.subscription_id),
+            Some(CaptureIdentity {
+                generation,
+                capture_fence: 0
+            })
+        );
+
+        let refused = worker.push_capture_frame(
+            &key.session_id,
+            &key.subscription_id,
+            old,
+            encode_snapshot_ready(b"GHOSTSNP").expect("ready"),
+        );
+
+        assert!(matches!(
+            refused,
+            Err(EnqueueRouteFrameError::EpochSuperseded)
+        ));
+        assert!(!worker.capture_identity_is_live(&key.session_id, &key.subscription_id, old));
+    }
+
+    #[test]
     fn a_page_from_a_superseded_capture_is_refused() {
         let (mut worker, key) = bound_route();
         fill_route(&mut worker, &key);
@@ -2319,7 +2383,10 @@ mod tests {
         let refused = worker.push_capture_frame(
             &key.session_id,
             &key.subscription_id,
-            0,
+            CaptureIdentity {
+                generation: worker.live[&key].generation,
+                capture_fence: 0,
+            },
             encode_snapshot_history(b"stale page").expect("page"),
         );
 
