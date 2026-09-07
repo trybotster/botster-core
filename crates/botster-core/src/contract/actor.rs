@@ -1347,15 +1347,26 @@ pub struct PluginCompletion {
     pub result: PluginInvocationResult,
 }
 
+/// One plugin completion with its encoded transfer size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCompletionItem {
+    /// Typed completion result.
+    pub completion: PluginCompletion,
+    /// Encoded byte length used by bounded drains and host retention.
+    pub encoded_len: usize,
+}
+
 /// Bounded drain of previously published plugin completions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PluginCompletionDrain {
     /// Completions released by this drain call, in mailbox order.
-    pub completions: Vec<PluginCompletion>,
+    pub completions: Vec<PluginCompletionItem>,
     /// Number of completions returned.
     pub item_count: usize,
     /// Sum of encoded completion bytes returned.
     pub byte_count: usize,
+    /// Whether Core has, or is concurrently publishing, an undrained completion.
+    pub has_remaining: bool,
 }
 
 /// Cleanup scope for plugin reload or unload.

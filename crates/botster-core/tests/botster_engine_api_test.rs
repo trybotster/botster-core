@@ -644,7 +644,7 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
     while started.elapsed() < Duration::from_secs(1) {
         let drain = engine.drain_plugin_completions(8, usize::MAX);
         if let Some(item) = drain.completions.into_iter().next() {
-            completion = Some(item);
+            completion = Some(item.completion);
             break;
         }
         std::thread::sleep(Duration::from_millis(2));

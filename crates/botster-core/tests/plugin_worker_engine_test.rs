@@ -8,8 +8,8 @@ use botster_core::{
     BoundaryJson, Capability, CapabilitySurface, ExtensionEntrypoint, ExtensionKind,
     ExtensionRuntime, HostProfileMetadata, HostProfilePolicySection, PackageManifest,
     PluginAdmissionResult, PluginCancellationToken, PluginCleanupScope, PluginCompletion,
-    PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind, PluginHandlerRef,
-    PluginHandlerRegistration, PluginInvocationClass, PluginInvocationContext,
+    PluginCompletionItem, PluginDescriptorKind, PluginDescriptorRef, PluginHandlerKind,
+    PluginHandlerRef, PluginHandlerRegistration, PluginInvocationClass, PluginInvocationContext,
     PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
     PluginInvocationResult, PluginInvocationSuccess, PluginKey, PluginLoadSpec,
     PluginOwnedDescriptor, PluginReloadSpec, PluginResourceKind, PluginResourceRef, PluginRuntime,
@@ -1706,15 +1706,16 @@ fn wait_for_completion(engine: &PluginWorkerEngine, request: &str) -> PluginComp
     let started = std::time::Instant::now();
     while started.elapsed() < Duration::from_secs(1) {
         let drain = engine.drain_completions(8, usize::MAX);
-        if let Some(completion) = drain
-            .completions
-            .into_iter()
-            .find(|completion| match &completion.result {
-                PluginInvocationResult::Completed(success) => success.request_id.0 == request,
-                PluginInvocationResult::Failed(failure) => failure.request_id.0 == request,
-            })
+        if let Some(item) =
+            drain
+                .completions
+                .into_iter()
+                .find(|item| match &item.completion.result {
+                    PluginInvocationResult::Completed(success) => success.request_id.0 == request,
+                    PluginInvocationResult::Failed(failure) => failure.request_id.0 == request,
+                })
         {
-            return completion;
+            return item.completion;
         }
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -1854,13 +1855,31 @@ fn drain_completions_honors_item_and_byte_caps() {
     let first = engine.drain_completions(1, usize::MAX);
     assert_eq!(first.item_count, 1);
     assert_eq!(first.completions.len(), 1);
+    assert_eq!(first.byte_count, first.completions[0].encoded_len);
+    assert_eq!(
+        first.completions[0].encoded_len,
+        serde_json::to_vec(&first.completions[0].completion)
+            .expect("completion encodes")
+            .len()
+    );
+    assert!(first.has_remaining);
     assert_eq!(engine.debug_snapshot().undrained_completions, 2);
     let too_small = engine.drain_completions(8, 1);
     assert_eq!(too_small.item_count, 0);
+    assert_eq!(too_small.byte_count, 0);
     assert!(too_small.completions.is_empty());
+    assert!(too_small.has_remaining);
     assert_eq!(engine.debug_snapshot().undrained_completions, 2);
     let rest = engine.drain_completions(8, usize::MAX);
     assert_eq!(rest.item_count, 2);
+    assert_eq!(
+        rest.byte_count,
+        rest.completions
+            .iter()
+            .map(|item| item.encoded_len)
+            .sum::<usize>()
+    );
+    assert!(!rest.has_remaining);
 }
 
 #[test]
@@ -1967,15 +1986,25 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         plugin_key: plugin.clone(),
         cleanup: PluginCleanupScope::DescriptorsAndResources,
     });
+    let pending = engine.drain_completions(0, usize::MAX);
+    assert!(pending.completions.is_empty());
+    assert!(
+        pending.has_remaining,
+        "shutdown migration preserves remainder"
+    );
     let stopped = engine.drain_completions(8, usize::MAX);
     assert!(matches!(
         stopped.completions.as_slice(),
-        [PluginCompletion {
-            result: PluginInvocationResult::Failed(failure),
+        [PluginCompletionItem {
+            completion: PluginCompletion {
+                result: PluginInvocationResult::Failed(failure),
+                ..
+            },
             ..
         }] if failure.kind == PluginInvocationFailureKind::WorkerStopped
             && failure.request_id.0 == "open-job"
     ));
+    assert!(!stopped.has_remaining);
 
     engine.load_plugin(registration(
         &plugin,
@@ -2043,9 +2072,9 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
         PluginAdmissionResult::Queued { .. }
     ));
     let first = engine.drain_completions(8, usize::MAX);
-    assert!(first.completions.iter().all(|completion| {
+    assert!(first.completions.iter().all(|item| {
         matches!(
-            completion.result,
+            item.completion.result,
             PluginInvocationResult::Failed(ref failure)
                 if failure.kind == PluginInvocationFailureKind::WorkerStopped
         )

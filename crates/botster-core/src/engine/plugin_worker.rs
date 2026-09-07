@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 
 use crate::actor::{
     BackpressureRoute, BackpressureSummary, PluginAdmissionResult, PluginCleanupResult,
-    PluginCleanupScope, PluginCompletion, PluginCompletionDrain, PluginDescriptorRef,
-    PluginHandlerRef, PluginInvocationClass, PluginInvocationFailure, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginKey, PluginLoadSpec, PluginReloadSpec,
-    PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent, QueueSource,
+    PluginCleanupScope, PluginCompletion, PluginCompletionDrain, PluginCompletionItem,
+    PluginDescriptorRef, PluginHandlerRef, PluginInvocationClass, PluginInvocationFailure,
+    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    PluginLoadSpec, PluginReloadSpec, PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent,
+    QueueSource,
 };
 use crate::capability::Capability;
 use crate::manifest::PackageManifest;
@@ -28,6 +29,9 @@ static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 const DEFAULT_QUEUE_BYTE_CAPACITY: usize = 1024 * 1024;
 const OVERSIZE_COMPLETION_REASON: &str = "completion exceeded reserved byte budget";
 const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
+
+/// Host callback invoked after Core publishes an async plugin completion.
+pub type PluginCompletionNotifier = Arc<dyn Fn() + Send + Sync + 'static>;
 
 /// Engine-wide worker execution configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +263,7 @@ struct EngineShared {
     config: PluginWorkerEngineConfig,
     workers: Mutex<HashMap<PluginKey, WorkerState>>,
     leftover_completions: Mutex<VecDeque<MailboxItem>>,
+    completion_notifier: Mutex<Option<PluginCompletionNotifier>>,
     metrics: Arc<PluginWorkerEngineMetrics>,
     deadlines: Mutex<DeadlineBook>,
     deadline_cvar: Condvar,
@@ -366,6 +371,7 @@ impl PluginWorkerEngine {
             config,
             workers: Mutex::new(HashMap::new()),
             leftover_completions: Mutex::new(VecDeque::new()),
+            completion_notifier: Mutex::new(None),
             metrics: Arc::new(PluginWorkerEngineMetrics::default()),
             deadlines: Mutex::new(DeadlineBook::default()),
             deadline_cvar: Condvar::new(),
@@ -381,6 +387,30 @@ impl PluginWorkerEngine {
                 shared,
                 waiter: Mutex::new(Some(waiter)),
             }),
+        }
+    }
+
+    /// Install the callback invoked after Core publishes a completion.
+    ///
+    /// Hosts should install the callback before they admit async plugin work.
+    /// Installation also signals completions that Core already published.
+    /// The callback must return promptly and must not panic.
+    pub fn install_completion_notifier(&self, notifier: PluginCompletionNotifier) {
+        *self
+            .inner
+            .shared
+            .completion_notifier
+            .lock()
+            .expect("plugin completion notifier mutex poisoned") = Some(notifier.clone());
+        if self
+            .inner
+            .shared
+            .metrics
+            .undrained_completions
+            .load(Ordering::SeqCst)
+            > 0
+        {
+            notifier();
         }
     }
 
@@ -724,13 +754,13 @@ impl PluginWorkerEngine {
             .reserved_completion_bytes
             .fetch_add(reservation_bytes, Ordering::SeqCst);
 
-        if already_expired {
+        let published = if already_expired {
             cancellation.cancel();
             publish_prepared_into(
                 &mut admission,
                 &async_state,
                 async_state.fallbacks.timed_out.clone(),
-            );
+            )
         } else {
             cancellations.insert(request_id.clone(), cancellation.clone());
             admission.push_queued(class, job, &worker);
@@ -742,6 +772,14 @@ impl PluginWorkerEngine {
             });
             worker.work_cvar.notify_one();
             self.inner.shared.deadline_cvar.notify_one();
+            false
+        };
+
+        drop(cancellations);
+        drop(deadlines);
+        drop(admission);
+        if published {
+            notify_completion(&self.inner.shared);
         }
 
         PluginAdmissionResult::Queued {
@@ -759,7 +797,7 @@ impl PluginWorkerEngine {
     /// left in the mailbox.
     pub fn drain_completions(&self, max_items: usize, max_bytes: usize) -> PluginCompletionDrain {
         if max_items == 0 || max_bytes == 0 {
-            return PluginCompletionDrain::default();
+            return self.finish_completion_drain(PluginCompletionDrain::default());
         }
 
         let mut drain = PluginCompletionDrain::default();
@@ -775,7 +813,7 @@ impl PluginWorkerEngine {
                     break;
                 };
                 if drain.byte_count + front.encoded_len > max_bytes {
-                    return drain;
+                    return self.finish_completion_drain(drain);
                 }
                 let item = leftover.pop_front().expect("front existed before pop");
                 self.inner
@@ -795,11 +833,14 @@ impl PluginWorkerEngine {
                     .fetch_sub(1, Ordering::SeqCst);
                 drain.item_count += 1;
                 drain.byte_count += item.encoded_len;
-                drain.completions.push(item.completion);
+                drain.completions.push(PluginCompletionItem {
+                    completion: item.completion,
+                    encoded_len: item.encoded_len,
+                });
             }
         }
         if drain.item_count >= max_items {
-            return drain;
+            return self.finish_completion_drain(drain);
         }
 
         let mut workers = self
@@ -823,7 +864,7 @@ impl PluginWorkerEngine {
                     break;
                 };
                 if drain.byte_count + front.encoded_len > max_bytes {
-                    return drain;
+                    return self.finish_completion_drain(drain);
                 }
                 let item = admission
                     .mailbox
@@ -863,12 +904,26 @@ impl PluginWorkerEngine {
                     .fetch_sub(1, Ordering::SeqCst);
                 drain.item_count += 1;
                 drain.byte_count += item.encoded_len;
-                drain.completions.push(item.completion);
+                drain.completions.push(PluginCompletionItem {
+                    completion: item.completion,
+                    encoded_len: item.encoded_len,
+                });
             }
             if drain.item_count >= max_items {
                 break;
             }
         }
+        self.finish_completion_drain(drain)
+    }
+
+    fn finish_completion_drain(&self, mut drain: PluginCompletionDrain) -> PluginCompletionDrain {
+        drain.has_remaining = self
+            .inner
+            .shared
+            .metrics
+            .undrained_completions
+            .load(Ordering::SeqCst)
+            > 0;
         drain
     }
 
@@ -1312,7 +1367,11 @@ impl PluginWorkerEngine {
         });
         let prepared = prepared_completion(class, handler_failed_result(&request, reason))
             .unwrap_or_else(|_| async_state.fallbacks.oversize.clone());
-        publish_prepared_into(&mut admission, &async_state, prepared);
+        let published = publish_prepared_into(&mut admission, &async_state, prepared);
+        drop(admission);
+        if published {
+            notify_completion(&self.inner.shared);
+        }
         PluginAdmissionResult::Queued {
             request_id,
             class,
@@ -2083,19 +2142,15 @@ fn prepared_completion(
     })
 }
 
+#[must_use]
 fn publish_prepared_into(
     admission: &mut WorkerAdmission,
     state: &AsyncJobState,
     prepared: PreparedCompletion,
-) {
+) -> bool {
     if !state.terminal.try_seal() {
-        return;
+        return false;
     }
-    admission.mailbox.push_back(MailboxItem {
-        completion: prepared.completion,
-        encoded_len: prepared.encoded.len(),
-        reservation_bytes: state.reservation_bytes,
-    });
     state
         .worker
         .metrics
@@ -2107,6 +2162,23 @@ fn publish_prepared_into(
         .metrics
         .undrained_completions
         .fetch_add(1, Ordering::SeqCst);
+    admission.mailbox.push_back(MailboxItem {
+        completion: prepared.completion,
+        encoded_len: prepared.encoded.len(),
+        reservation_bytes: state.reservation_bytes,
+    });
+    true
+}
+
+fn notify_completion(shared: &EngineShared) {
+    let notifier = shared
+        .completion_notifier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    if let Some(notifier) = notifier {
+        notifier();
+    }
 }
 
 fn remove_deadline_entry(
@@ -2157,24 +2229,30 @@ fn seal_and_publish(
             }
         }
     };
-    if let Ok(mut admission) = state.worker.admission.lock() {
+    let published = if let Ok(mut admission) = state.worker.admission.lock() {
+        state
+            .worker
+            .metrics
+            .undrained_completions
+            .fetch_add(1, Ordering::SeqCst);
+        state
+            .worker
+            .shared
+            .metrics
+            .undrained_completions
+            .fetch_add(1, Ordering::SeqCst);
         admission.mailbox.push_back(MailboxItem {
             completion,
             encoded_len: encoded.len(),
             reservation_bytes: state.reservation_bytes,
         });
+        true
+    } else {
+        false
+    };
+    if published {
+        notify_completion(&state.worker.shared);
     }
-    state
-        .worker
-        .metrics
-        .undrained_completions
-        .fetch_add(1, Ordering::SeqCst);
-    state
-        .worker
-        .shared
-        .metrics
-        .undrained_completions
-        .fetch_add(1, Ordering::SeqCst);
 }
 
 fn complete_job(completion: JobCompletion, result: PluginInvocationResult) {
@@ -2739,6 +2817,100 @@ mod tests {
     }
 
     #[test]
+    fn immediate_completion_notifies_after_mailbox_unlock() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("immediate-notify".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let admission = engine.worker_for(&plugin).expect("worker").admission;
+        let (sender, receiver) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let admission = admission.try_lock().expect("mailbox lock is released");
+            assert!(!admission.mailbox.is_empty(), "completion is published");
+            sender.send(()).expect("notification receiver");
+        }));
+        let missing = PluginHandlerRef {
+            plugin_key: plugin,
+            kind: PluginHandlerKind::Command,
+            handler_id: "missing".into(),
+        };
+
+        assert!(matches!(
+            try_admit_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                request("immediate", missing, 1_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+
+        receiver
+            .recv_timeout(Duration::from_millis(100))
+            .expect("completion notification");
+        assert!(receiver.try_recv().is_err(), "one notification");
+        assert_eq!(engine.drain_completions(1, usize::MAX).item_count, 1);
+    }
+
+    #[test]
+    fn executed_completion_notifies_after_mailbox_unlock() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("executed-notify".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let admission = engine.worker_for(&plugin).expect("worker").admission;
+        let (sender, receiver) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let admission = admission.try_lock().expect("mailbox lock is released");
+            assert!(!admission.mailbox.is_empty(), "completion is published");
+            sender.send(()).expect("notification receiver");
+        }));
+
+        assert!(matches!(
+            try_admit_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                request("executed", handler(&plugin), 1_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+
+        receiver
+            .recv_timeout(Duration::from_millis(250))
+            .expect("completion notification");
+        assert!(receiver.try_recv().is_err(), "one notification");
+        assert_eq!(engine.drain_completions(1, usize::MAX).item_count, 1);
+    }
+
+    #[test]
+    fn notifier_install_signals_an_existing_completion() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("late-notify".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let missing = PluginHandlerRef {
+            plugin_key: plugin,
+            kind: PluginHandlerKind::Command,
+            handler_id: "missing".into(),
+        };
+        assert!(matches!(
+            try_admit_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                request("already-published", missing, 1_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        let (sender, receiver) = mpsc::channel();
+
+        engine.install_completion_notifier(Arc::new(move || {
+            sender.send(()).expect("notification receiver");
+        }));
+
+        receiver
+            .recv_timeout(Duration::from_millis(100))
+            .expect("reconciled completion notification");
+        assert!(receiver.try_recv().is_err(), "one notification");
+        assert_eq!(engine.drain_completions(1, usize::MAX).item_count, 1);
+    }
+
+    #[test]
     fn deadline_first_then_unload_keeps_only_timed_out() {
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("deadline-first".into());
@@ -2754,7 +2926,13 @@ mod tests {
         let started = Instant::now();
         let mut completions = Vec::new();
         while started.elapsed() < Duration::from_millis(250) {
-            completions.extend(engine.drain_completions(8, usize::MAX).completions);
+            completions.extend(
+                engine
+                    .drain_completions(8, usize::MAX)
+                    .completions
+                    .into_iter()
+                    .map(|item| item.completion),
+            );
             if !completions.is_empty() {
                 break;
             }
@@ -2799,8 +2977,11 @@ mod tests {
         let drain = engine.drain_completions(8, usize::MAX);
         assert!(matches!(
             drain.completions.as_slice(),
-            [PluginCompletion {
-                result: PluginInvocationResult::Failed(failure),
+            [PluginCompletionItem {
+                completion: PluginCompletion {
+                    result: PluginInvocationResult::Failed(failure),
+                    ..
+                },
                 ..
             }] if failure.kind == PluginInvocationFailureKind::WorkerStopped
         ));
@@ -2935,9 +3116,9 @@ mod tests {
             PluginAdmissionResult::Queued { .. }
         ));
         let first = engine.drain_completions(8, usize::MAX);
-        assert!(first.completions.iter().all(|completion| {
+        assert!(first.completions.iter().all(|item| {
             matches!(
-                completion.result,
+                item.completion.result,
                 PluginInvocationResult::Failed(ref failure)
                     if failure.kind == PluginInvocationFailureKind::WorkerStopped
             )
@@ -2986,9 +3167,9 @@ mod tests {
                 .drain_completions(8, usize::MAX)
                 .completions
                 .into_iter()
-                .filter(|completion| {
+                .filter(|item| {
                     matches!(
-                        completion.result,
+                        item.completion.result,
                         PluginInvocationResult::Failed(ref failure)
                             if failure.kind == PluginInvocationFailureKind::TimedOut
                     )
