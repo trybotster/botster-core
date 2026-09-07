@@ -435,12 +435,6 @@ pub struct WorkerProcessRuntime {
     wake_source: Option<TerminalWakeSource>,
     release_on_drop: bool,
     fail_next_start_writer: bool,
-    #[cfg(test)]
-    fail_next_snapshot_cancel_count: usize,
-    #[cfg(test)]
-    fail_next_snapshot_begin_count: usize,
-    #[cfg(test)]
-    fail_next_pre_ready_error: bool,
 }
 
 impl WorkerProcessRuntime {
@@ -476,12 +470,6 @@ impl WorkerProcessRuntime {
             wake_source: None,
             release_on_drop: false,
             fail_next_start_writer: false,
-            #[cfg(test)]
-            fail_next_snapshot_cancel_count: 0,
-            #[cfg(test)]
-            fail_next_snapshot_begin_count: 0,
-            #[cfg(test)]
-            fail_next_pre_ready_error: false,
         }
     }
 
@@ -519,40 +507,6 @@ impl WorkerProcessRuntime {
         session.start_writer().inspect_err(|_| {
             self.forget_session_wake(session_id);
         })
-    }
-
-    /// Fail the next snapshot cancel write. Crate tests use this to prove fail-closed takeover.
-    #[cfg(test)]
-    pub(crate) fn fail_next_snapshot_cancel(&mut self) {
-        self.fail_next_snapshot_cancel_count = 1;
-    }
-
-    /// Fail the next `count` snapshot begin writes.
-    #[cfg(test)]
-    pub(crate) fn fail_next_snapshot_begins(&mut self, count: usize) {
-        self.fail_next_snapshot_begin_count = count;
-    }
-
-    /// Fail the next snapshot poll before READY. Crate tests use this for fail-closed promotion.
-    #[cfg(test)]
-    pub(crate) fn fail_next_pre_ready_snapshot(&mut self) {
-        self.fail_next_pre_ready_error = true;
-    }
-
-    /// Cancel the live snapshot request without completing attach. Crate tests use this to reach reconcile.
-    #[cfg(test)]
-    pub(crate) fn cancel_outstanding_snapshot(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<(), SessionRuntimeError> {
-        let request_id = self
-            .session_mut(session_id)?
-            .outstanding_snapshot_request
-            .clone();
-        if let Some(request_id) = request_id {
-            self.cancel_snapshot_boundary(session_id, &request_id)?;
-        }
-        Ok(())
     }
 
     /// Return worker welcome metadata captured after spawning a session.
@@ -901,14 +855,6 @@ impl WorkerProcessRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<String, SessionRuntimeError> {
-        #[cfg(test)]
-        if self.fail_next_snapshot_begin_count > 0 {
-            self.fail_next_snapshot_begin_count -= 1;
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::OutputFailed,
-                "injected snapshot begin failure",
-            ));
-        }
         let request_id = next_request_id("snapshot");
         let session = self.session_mut(session_id)?;
         if session.outstanding_snapshot_request.is_some() {
@@ -938,22 +884,6 @@ impl WorkerProcessRuntime {
         request_id: &str,
     ) -> Result<WorkerSnapshotBoundaryPoll, SessionRuntimeError> {
         self.pump_session_output(session_id)?;
-        #[cfg(test)]
-        if self.fail_next_pre_ready_error {
-            self.fail_next_pre_ready_error = false;
-            return Ok(WorkerSnapshotBoundaryPoll {
-                frames: vec![crate::WorkerSnapshotResult {
-                    request_id: request_id.to_owned(),
-                    snapshot: None,
-                    phase: None,
-                    error_kind: Some("injected pre-ready failure".to_string()),
-                    barrier_released: false,
-                    color_profile: None,
-                }],
-                before_ready: Vec::new(),
-                complete: false,
-            });
-        }
         let session = self.session_mut(session_id)?;
         if session.outstanding_snapshot_request.as_deref() != Some(request_id) {
             return Ok(WorkerSnapshotBoundaryPoll {
@@ -1006,14 +936,6 @@ impl WorkerProcessRuntime {
         session_id: &SessionId,
         request_id: &str,
     ) -> Result<SnapshotCancelAdmission, SessionRuntimeError> {
-        #[cfg(test)]
-        if self.fail_next_snapshot_cancel_count > 0 {
-            self.fail_next_snapshot_cancel_count -= 1;
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::OutputFailed,
-                "injected snapshot cancel failure",
-            ));
-        }
         let session = self.session_mut(session_id)?;
         let frame = crate::encode_json(
             crate::FRAME_GET_SNAPSHOT,
