@@ -413,6 +413,19 @@ impl Drop for LaunchedWorker {
     }
 }
 
+/// Whether a snapshot barrier cancel entered the worker control queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotCancelAdmission {
+    /// The cancel is queued; the runtime no longer tracks the request.
+    Accepted,
+    /// Every control slot is occupied. The request stays outstanding and
+    /// the caller retains the obligation to retry.
+    QueueFull,
+    /// The control queue is sealed: a shutdown frame is already queued and
+    /// ends the worker, barrier included. The request stays outstanding.
+    Sealed,
+}
+
 /// Parent-side runtime adapter for one-worker-process-per-session local PTYs.
 pub struct WorkerProcessRuntime {
     options: WorkerProcessRuntimeOptions,
@@ -983,11 +996,16 @@ impl WorkerProcessRuntime {
     }
 
     /// Cancel one in-progress encode and release the worker PTY barrier.
+    ///
+    /// The cancel travels in a reserved control slot so ordinary traffic
+    /// cannot starve it. When even the reserved slots are occupied the
+    /// request stays outstanding and the caller must retry; the runtime
+    /// never forgets a barrier it has not asked the worker to release.
     pub fn cancel_snapshot_boundary(
         &mut self,
         session_id: &SessionId,
         request_id: &str,
-    ) -> Result<(), SessionRuntimeError> {
+    ) -> Result<SnapshotCancelAdmission, SessionRuntimeError> {
         #[cfg(test)]
         if self.fail_next_snapshot_cancel_count > 0 {
             self.fail_next_snapshot_cancel_count -= 1;
@@ -997,18 +1015,42 @@ impl WorkerProcessRuntime {
             ));
         }
         let session = self.session_mut(session_id)?;
-        session.enqueue_json(
-            ControlFrameClass::Ordinary,
+        let frame = crate::encode_json(
             crate::FRAME_GET_SNAPSHOT,
             &WorkerSnapshotRequest {
                 request_id: request_id.to_owned(),
                 cancel: true,
                 complete: false,
             },
-        )?;
-        session.outstanding_snapshot_request = None;
-        session.snapshot_boundary.clear();
-        Ok(())
+        )
+        .map_err(|error| runtime_error(SessionRuntimeErrorKind::InputFailed, error))?;
+        match session
+            .control_queue
+            .admit(ControlFrameClass::Cancel, frame)
+        {
+            Ok(()) => {
+                session.outstanding_snapshot_request = None;
+                session.snapshot_boundary.clear();
+                Ok(SnapshotCancelAdmission::Accepted)
+            }
+            Err(ControlQueueAdmitError::ControlQueueFull) => Ok(SnapshotCancelAdmission::QueueFull),
+            Err(ControlQueueAdmitError::Sealed) => Ok(SnapshotCancelAdmission::Sealed),
+        }
+    }
+
+    /// Whether `request_id` is the barrier request this session still holds.
+    ///
+    /// Request ids are process-unique, so a match also proves the same worker
+    /// incarnation: a respawned or adopted worker never carries an old id.
+    #[must_use]
+    pub fn snapshot_request_is_outstanding(
+        &self,
+        session_id: &SessionId,
+        request_id: &str,
+    ) -> bool {
+        self.sessions.get(session_id).is_some_and(|session| {
+            session.outstanding_snapshot_request.as_deref() == Some(request_id)
+        })
     }
 
     /// Ask the worker to apply any staged resize and release the PTY barrier.
@@ -1079,6 +1121,62 @@ impl WorkerProcessRuntime {
     #[cfg(test)]
     pub(crate) fn test_has_session(&self, session_id: &SessionId) -> bool {
         self.sessions.contains_key(session_id)
+    }
+
+    /// Forget a session installed by [`Self::insert_test_session`].
+    #[cfg(test)]
+    pub(crate) fn remove_test_session(&mut self, session_id: &SessionId) {
+        self.sessions.remove(session_id);
+    }
+
+    /// Install a session with no child, no writer, and an undrained control
+    /// queue. Crate tests use it to exercise control-queue admission paths.
+    #[cfg(test)]
+    pub(crate) fn insert_test_session(&mut self, session_id: SessionId) {
+        let (_sender, receiver) = mpsc::channel();
+        let session = WorkerProcessSession {
+            child: None,
+            control: WorkerControl::ReleasedStdio,
+            control_queue: ControlQueue::new(),
+            writer_slot: ControlWriterSlot::running(),
+            control_plane: ControlPlaneState::Live,
+            writer: None,
+            wake_handle: None,
+            metadata: SessionMetadata {
+                session_uuid: session_id.0.clone(),
+                pid: 0,
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            },
+            output: receiver,
+            overflow: Arc::new(AtomicUsize::new(0)),
+            pong_count: Arc::new(AtomicUsize::new(0)),
+            last_health: Arc::new(Mutex::new(None)),
+            completion: Arc::new(Mutex::new(WorkerCompletion {
+                process_exited: None,
+                final_state: None,
+                reader_finished: false,
+            })),
+            latest_modes: None,
+            input_results: VecDeque::new(),
+            mode_changes: VecDeque::new(),
+            mode_flags_replies: VecDeque::new(),
+            screen_replies: VecDeque::new(),
+            pending_output: VecDeque::new(),
+            applied_resizes: VecDeque::new(),
+            snapshot_boundary: VecDeque::new(),
+            outstanding_snapshot_request: None,
+            supports_snapshot_boundary: true,
+            egress_capacity: 1,
+            stall: Arc::new(EgressStall::new()),
+        };
+        self.sessions.insert(session_id, session);
     }
 
     fn pump_session_output(&mut self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
@@ -3063,6 +3161,58 @@ mod tests {
             before + 1,
             "dropping a queued launch must run its cleanup"
         );
+    }
+
+    #[test]
+    fn a_barrier_cancel_uses_a_reserved_slot_and_stays_outstanding_when_refused() {
+        let mut runtime = WorkerProcessRuntime::new("/missing/botster-session-worker");
+        let session = SessionId("saturated".to_string());
+        runtime.insert_test_session(session.clone());
+        let request_id = runtime
+            .begin_snapshot_boundary(&session)
+            .expect("begin barrier");
+        let queue = runtime.test_control_queue(&session).expect("session queue");
+        // Ordinary capacity is full, yet the reserved slots stay usable.
+        while queue.admit(ControlFrameClass::Ordinary, vec![0]).is_ok() {}
+        assert_eq!(
+            runtime
+                .cancel_snapshot_boundary(&session, &request_id)
+                .expect("cancel with reserved slot"),
+            super::SnapshotCancelAdmission::Accepted
+        );
+        assert!(
+            runtime.begin_snapshot_boundary(&session).is_ok(),
+            "an accepted cancel clears the outstanding request"
+        );
+
+        // Now the reserved slots are occupied too.
+        let request_id = runtime
+            .session_mut(&session)
+            .expect("session")
+            .outstanding_snapshot_request
+            .clone()
+            .expect("outstanding");
+        while queue.admit(ControlFrameClass::Cancel, vec![0]).is_ok() {}
+        assert_eq!(
+            runtime
+                .cancel_snapshot_boundary(&session, &request_id)
+                .expect("refusal is not an error"),
+            super::SnapshotCancelAdmission::QueueFull
+        );
+        let refused = runtime
+            .begin_snapshot_boundary(&session)
+            .expect_err("the barrier is still outstanding");
+        assert!(refused.message.contains("already in flight"));
+
+        // One drained slot lets the retry through.
+        assert!(queue.pop().is_some());
+        assert_eq!(
+            runtime
+                .cancel_snapshot_boundary(&session, &request_id)
+                .expect("retry"),
+            super::SnapshotCancelAdmission::Accepted
+        );
+        assert!(runtime.begin_snapshot_boundary(&session).is_ok());
     }
 
     #[test]

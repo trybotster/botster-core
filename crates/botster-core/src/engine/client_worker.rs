@@ -423,6 +423,10 @@ impl ClientWorker {
         self.wake_source
             .retire_route(&key.session_id, &key.subscription_id);
         self.capacity_parked.remove(key);
+        // A route that ends can no longer ask for a fresh capture.
+        self.resync_requests.retain(|pending| {
+            pending.session_id != key.session_id || pending.subscription_id != key.subscription_id
+        });
         let owner = self.live.remove(key)?;
         self.release_lane(&key.session_id, &owner.client_id, owner.lane);
         let in_flight_keys: Vec<u64> = self
@@ -923,6 +927,13 @@ impl ClientWorker {
     #[must_use]
     pub fn take_resync_requests(&mut self) -> Vec<RouteResyncRequest> {
         std::mem::take(&mut self.resync_requests)
+    }
+
+    /// Queue one resync request directly. Crate tests use it to model an
+    /// overflow that happened before a later route event.
+    #[cfg(test)]
+    pub(crate) fn queue_resync_request(&mut self, request: RouteResyncRequest) {
+        self.resync_requests.push(request);
     }
 
     /// Worker key of one in-flight operation addressed by route identity.
@@ -2332,6 +2343,24 @@ mod tests {
         let requests = worker.take_resync_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].stream_epoch, 1);
+    }
+
+    #[test]
+    fn a_route_that_ends_takes_its_pending_resync_request_with_it() {
+        let (mut worker, key) = bound_route();
+        fill_route(&mut worker, &key);
+        assert!(worker
+            .push_session_output(&key.session_id, b"overflow")
+            .is_empty());
+        assert_eq!(worker.resync_requests.len(), 1);
+
+        let teardown = worker.detach_live(&key.session_id, &key.subscription_id);
+
+        assert!(teardown.is_some());
+        assert!(
+            worker.take_resync_requests().is_empty(),
+            "an ended route must not ask the engine for a capture"
+        );
     }
 
     #[test]
