@@ -813,7 +813,7 @@ impl PluginWorkerEngine {
                     break;
                 };
                 if drain.byte_count + front.encoded_len > max_bytes {
-                    return self.finish_completion_drain(drain);
+                    break;
                 }
                 let item = leftover.pop_front().expect("front existed before pop");
                 self.inner
@@ -864,7 +864,7 @@ impl PluginWorkerEngine {
                     break;
                 };
                 if drain.byte_count + front.encoded_len > max_bytes {
-                    return self.finish_completion_drain(drain);
+                    break;
                 }
                 let item = admission
                     .mailbox
@@ -2799,6 +2799,164 @@ mod tests {
             }],
             resources: Vec::new(),
         });
+    }
+
+    fn publish_immediate_failure(
+        engine: &PluginWorkerEngine,
+        plugin: &PluginKey,
+        request_id: &str,
+    ) -> usize {
+        let missing = PluginHandlerRef {
+            plugin_key: plugin.clone(),
+            kind: PluginHandlerKind::Command,
+            handler_id: "missing".into(),
+        };
+        assert!(matches!(
+            try_admit_retrying_lock_busy(
+                engine,
+                PluginInvocationClass::Background,
+                request(request_id, missing, 1_000),
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        let worker = engine.worker_for(plugin).expect("worker");
+        let admission = worker.admission.lock().expect("admission");
+        let encoded_len = admission
+            .mailbox
+            .back()
+            .expect("published completion")
+            .encoded_len;
+        encoded_len
+    }
+
+    fn completion_request_id(item: &PluginCompletionItem) -> &RequestId {
+        match &item.completion.result {
+            PluginInvocationResult::Completed(success) => &success.request_id,
+            PluginInvocationResult::Failed(failure) => &failure.request_id,
+        }
+    }
+
+    #[test]
+    fn blocked_worker_does_not_starve_a_later_fitting_worker() {
+        let engine = PluginWorkerEngine::new();
+        let first = PluginKey("a-large".into());
+        let second = PluginKey("b-small".into());
+        load(&engine, &first, Duration::from_millis(1));
+        load(&engine, &second, Duration::from_millis(1));
+        let large_request = "large".repeat(64);
+        let large_len = publish_immediate_failure(&engine, &first, &large_request);
+        let small_len = publish_immediate_failure(&engine, &second, "small");
+        assert!(large_len > small_len);
+
+        let fitting = engine.drain_completions(8, small_len);
+
+        assert_eq!(fitting.item_count, 1);
+        assert_eq!(completion_request_id(&fitting.completions[0]).0, "small");
+        assert!(fitting.has_remaining);
+        let restored = engine.drain_completions(8, large_len);
+        assert_eq!(restored.item_count, 1);
+        assert_eq!(
+            completion_request_id(&restored.completions[0]).0,
+            large_request
+        );
+        assert!(!restored.has_remaining);
+    }
+
+    #[test]
+    fn blocked_leftover_does_not_starve_a_fitting_worker() {
+        let engine = PluginWorkerEngine::new();
+        let removed = PluginKey("removed-large".into());
+        let active = PluginKey("active-small".into());
+        load(&engine, &removed, Duration::from_millis(1));
+        load(&engine, &active, Duration::from_millis(1));
+        let large_request = "leftover".repeat(64);
+        let large_len = publish_immediate_failure(&engine, &removed, &large_request);
+        let small_len = publish_immediate_failure(&engine, &active, "active");
+        engine.unload_plugin(PluginUnloadSpec {
+            request_id: RequestId("unload".into()),
+            plugin_key: removed,
+            cleanup: PluginCleanupScope::DescriptorsAndResources,
+        });
+
+        let fitting = engine.drain_completions(8, small_len);
+
+        assert_eq!(fitting.item_count, 1);
+        assert_eq!(completion_request_id(&fitting.completions[0]).0, "active");
+        assert!(fitting.has_remaining);
+        let restored = engine.drain_completions(8, large_len);
+        assert_eq!(restored.item_count, 1);
+        assert_eq!(
+            completion_request_id(&restored.completions[0]).0,
+            large_request
+        );
+        assert!(!restored.has_remaining);
+    }
+
+    #[test]
+    fn blocked_head_preserves_fifo_within_one_worker() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("fifo".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let large_request = "first".repeat(64);
+        let large_len = publish_immediate_failure(&engine, &plugin, &large_request);
+        let small_len = publish_immediate_failure(&engine, &plugin, "second");
+        assert!(large_len > small_len);
+
+        let blocked = engine.drain_completions(8, small_len);
+
+        assert_eq!(blocked.item_count, 0);
+        assert!(blocked.completions.is_empty());
+        assert!(blocked.has_remaining);
+        let restored = engine.drain_completions(8, usize::MAX);
+        assert_eq!(restored.item_count, 2);
+        assert_eq!(
+            restored
+                .completions
+                .iter()
+                .map(completion_request_id)
+                .map(|id| id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec![large_request.as_str(), "second"]
+        );
+    }
+
+    #[test]
+    fn item_cap_still_stops_before_a_later_worker() {
+        let engine = PluginWorkerEngine::new();
+        let first = PluginKey("a-first".into());
+        let second = PluginKey("b-second".into());
+        load(&engine, &first, Duration::from_millis(1));
+        load(&engine, &second, Duration::from_millis(1));
+        publish_immediate_failure(&engine, &first, "first");
+        publish_immediate_failure(&engine, &second, "second");
+
+        let limited = engine.drain_completions(1, usize::MAX);
+
+        assert_eq!(limited.item_count, 1);
+        assert_eq!(completion_request_id(&limited.completions[0]).0, "first");
+        assert!(limited.has_remaining);
+        let rest = engine.drain_completions(1, usize::MAX);
+        assert_eq!(completion_request_id(&rest.completions[0]).0, "second");
+        assert!(!rest.has_remaining);
+    }
+
+    #[test]
+    fn nonfitting_head_remains_counted_and_queued() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("counted".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let encoded_len = publish_immediate_failure(&engine, &plugin, "pending");
+        assert_eq!(engine.debug_snapshot().undrained_completions, 1);
+
+        let blocked = engine.drain_completions(8, encoded_len - 1);
+
+        assert_eq!(blocked.item_count, 0);
+        assert!(blocked.has_remaining);
+        assert_eq!(engine.debug_snapshot().undrained_completions, 1);
+        let restored = engine.drain_completions(8, encoded_len);
+        assert_eq!(restored.item_count, 1);
+        assert_eq!(completion_request_id(&restored.completions[0]).0, "pending");
+        assert!(!restored.has_remaining);
     }
 
     #[test]
