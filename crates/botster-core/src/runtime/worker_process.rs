@@ -1038,13 +1038,6 @@ impl WorkerProcessRuntime {
             .and_then(|session| session.writer_slot.consume_failure())
     }
 
-    /// Record a durable control-plane failure. Recovery is respawn only.
-    pub fn mark_control_plane_failed(&mut self, session_id: &SessionId, error: ControlWriterError) {
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            session.control_plane = ControlPlaneState::Failed(error);
-        }
-    }
-
     /// Fail the control plane and end the control link to the worker.
     ///
     /// This is the explicit cleanup path for a worker that no longer accepts
@@ -1054,10 +1047,17 @@ impl WorkerProcessRuntime {
     /// dropped. The worker's control reader observes end of stream and
     /// releases any active snapshot barrier itself; the parent no longer owns
     /// a request the worker can still be asked about.
+    ///
+    /// Exactly once per session: a later call on a failed plane is a no-op,
+    /// so the writer-failure sweep and the barrier deadline path cannot
+    /// double-clean. Recovery is respawn only.
     pub fn fail_control_plane(&mut self, session_id: &SessionId, error: ControlWriterError) {
         let Some(session) = self.sessions.get_mut(session_id) else {
             return;
         };
+        if matches!(session.control_plane, ControlPlaneState::Failed(_)) {
+            return;
+        }
         session.control_plane = ControlPlaneState::Failed(error);
         session.control_queue.seal();
         session.control.hard_stop_write(session.child.as_mut());
@@ -1097,10 +1097,32 @@ impl WorkerProcessRuntime {
     /// queue. Crate tests use it to exercise control-queue admission paths.
     #[cfg(test)]
     pub(crate) fn insert_test_session(&mut self, session_id: SessionId) {
+        self.insert_test_session_with_control(session_id, WorkerControl::ReleasedStdio);
+    }
+
+    /// Install a test session whose control link is one end of a socket
+    /// pair, as after `take_write_half` released it. Returns the worker-side
+    /// end so a test can observe end of stream on the link.
+    #[cfg(test)]
+    pub(crate) fn insert_test_socket_session(&mut self, session_id: SessionId) -> UnixStream {
+        let (parent, worker) = UnixStream::pair().expect("socket pair");
+        self.insert_test_session_with_control(
+            session_id,
+            WorkerControl::ReleasedSocket {
+                stream: parent,
+                path: PathBuf::from("/nonexistent/test-control.sock"),
+                identity: None,
+            },
+        );
+        worker
+    }
+
+    #[cfg(test)]
+    fn insert_test_session_with_control(&mut self, session_id: SessionId, control: WorkerControl) {
         let (_sender, receiver) = mpsc::channel();
         let session = WorkerProcessSession {
             child: None,
-            control: WorkerControl::ReleasedStdio,
+            control,
             control_queue: ControlQueue::new(),
             writer_slot: ControlWriterSlot::running(),
             control_plane: ControlPlaneState::Live,
@@ -2899,6 +2921,22 @@ impl WorkerWriteHalf {
             Self::Socket(stream) => stream.set_write_timeout(timeout),
         }
     }
+
+    /// End the worker-facing control link from the writer's own handle.
+    ///
+    /// Dropping a stdio handle closes the pipe, so the worker reads EOF. A
+    /// socket is shared with the session's shutdown clone, so dropping this
+    /// handle alone keeps it open; shutting the write direction here reaches
+    /// the worker regardless of what the parent still holds.
+    fn end_link(&mut self) {
+        match self {
+            Self::Stdio(_) => {}
+            #[cfg(unix)]
+            Self::Socket(stream) => {
+                let _ = stream.shutdown(Shutdown::Write);
+            }
+        }
+    }
 }
 
 fn set_fd_nonblocking(fd: std::os::unix::io::RawFd) -> io::Result<()> {
@@ -2920,8 +2958,16 @@ fn run_control_writer(
     slot: ControlWriterSlot,
     wake_handle: Option<SessionWakeHandle>,
 ) {
+    // Every writer failure ends the worker-facing link here, at the one
+    // boundary all three failure paths share (prepare, ordinary/cancel write,
+    // terminal write). Queue admission is not delivery: a frame admitted
+    // before the failure, a barrier cancel included, never reached the
+    // worker, and the worker's control reader must observe EOF so it
+    // releases whatever it still holds for this parent. This does not depend
+    // on a session wake or on any pending capture state.
     if let Err(error) = write.prepare() {
         queue.seal();
+        write.end_link();
         slot.set(ControlWriterOutcome::Failed {
             error: ControlWriterError::WriteError(error.to_string()),
             consumed: false,
@@ -2948,11 +2994,13 @@ fn run_control_writer(
             }
             Err(error) => {
                 queue.seal();
+                write.end_link();
                 slot.set(ControlWriterOutcome::Failed {
                     error,
                     consumed: false,
                 });
-                // Terminal-class shutdown is teardown, not session ingress.
+                // Terminal-class shutdown is teardown, not session ingress:
+                // no wake, but the link above is already ended.
                 if class != ControlFrameClass::Terminal {
                     notify_session_wake(&wake_handle);
                 }
@@ -3045,7 +3093,10 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use crate::contract::terminal_wake::TerminalWakeSource;
-    use crate::runtime::control_queue::{ControlFrameClass, ControlQueue, ControlWriterSlot};
+    use crate::runtime::control_queue::{
+        ControlFrameClass, ControlQueue, ControlWriterError, ControlWriterOutcome,
+        ControlWriterSlot,
+    };
 
     use super::{
         remove_socket_if_unchanged, run_control_writer, socket_identity, worker_socket_path,
@@ -3265,6 +3316,107 @@ mod tests {
             runtime.cancel_snapshot_boundary(&session, &request_id),
             Ok(super::SnapshotCancelAdmission::Sealed)
         ));
+    }
+
+    #[test]
+    fn failing_the_control_plane_is_exactly_once_and_shuts_the_socket_link() {
+        use std::io::Read;
+
+        let mut runtime = WorkerProcessRuntime::new("/missing/botster-session-worker");
+        let session = SessionId("socket-plane".to_string());
+        let mut peer = runtime.insert_test_socket_session(session.clone());
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("bounded read");
+        let request_id = runtime
+            .begin_snapshot_boundary(&session)
+            .expect("begin barrier");
+        assert_eq!(
+            runtime
+                .cancel_snapshot_boundary(&session, &request_id)
+                .expect("cancel"),
+            super::SnapshotCancelAdmission::Accepted
+        );
+
+        runtime.fail_control_plane(&session, super::ControlWriterError::PeerClosed);
+        // A second failure report must not restate the cause or re-run cleanup.
+        runtime.fail_control_plane(&session, super::ControlWriterError::DeadlineExpired);
+
+        assert_eq!(
+            runtime.control_plane_state(&session),
+            super::ControlPlaneState::Failed(super::ControlWriterError::PeerClosed)
+        );
+        let mut buf = [0u8; 8];
+        assert_eq!(
+            peer.read(&mut buf).expect("read within the bound"),
+            0,
+            "the worker end observes EOF"
+        );
+    }
+
+    /// Run the writer against a peer that never reads, so the write deadline
+    /// fails the writer mid-frame. Returns the writer outcome and whether the
+    /// peer then observed end of stream within a bound.
+    fn writer_deadline_failure_ends_link(
+        class: ControlFrameClass,
+        frame_type: u8,
+    ) -> (ControlWriterOutcome, bool) {
+        use std::io::Read;
+
+        let queue = ControlQueue::new();
+        // Far larger than any socket buffer: the write cannot complete.
+        let frame = crate::encode_frame(frame_type, &vec![0u8; 4 * 1024 * 1024]).expect("frame");
+        queue.admit(class, frame).expect("admit");
+        let (writer, mut peer) = UnixStream::pair().expect("socket pair");
+        let slot = ControlWriterSlot::running();
+        let writer_slot = slot.clone();
+        let writer_thread = std::thread::spawn(move || {
+            run_control_writer(queue, WorkerWriteHalf::Socket(writer), writer_slot, None);
+        });
+        writer_thread.join().expect("writer thread");
+        let outcome = slot.get();
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("bounded read");
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut saw_eof = false;
+        loop {
+            match peer.read(&mut buf) {
+                Ok(0) => {
+                    saw_eof = true;
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+        (outcome, saw_eof)
+    }
+
+    #[test]
+    fn an_ordinary_write_failure_ends_the_worker_link_at_the_writer() {
+        let (outcome, saw_eof) =
+            writer_deadline_failure_ends_link(ControlFrameClass::Ordinary, FRAME_PTY_INPUT);
+        assert!(matches!(
+            outcome,
+            ControlWriterOutcome::Failed {
+                error: ControlWriterError::DeadlineExpired,
+                ..
+            }
+        ));
+        assert!(saw_eof, "the worker end must observe EOF after the failure");
+    }
+
+    #[test]
+    fn a_terminal_write_failure_ends_the_worker_link_without_a_wake() {
+        let (outcome, saw_eof) =
+            writer_deadline_failure_ends_link(ControlFrameClass::Terminal, FRAME_SHUTDOWN);
+        assert!(matches!(
+            outcome,
+            ControlWriterOutcome::Failed {
+                error: ControlWriterError::DeadlineExpired,
+                ..
+            }
+        ));
+        assert!(saw_eof, "shutdown teardown must still end the link");
     }
 
     #[test]

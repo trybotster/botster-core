@@ -3373,9 +3373,10 @@ mod capture_identity_tests {
     }
 
     #[test]
-    fn a_seal_from_a_queued_shutdown_keeps_the_obligation() {
+    fn a_seal_without_a_failed_writer_keeps_the_obligation() {
         let (mut engine, session, request_id, queue) = refused_cancel();
-        // A shutdown was queued: the queue is sealed, the writer is healthy.
+        // The queue is sealed but the writer has not failed (as after a
+        // shutdown frame is admitted). Nothing proves delivery yet.
         queue.seal();
 
         engine.settle_barrier_cancels_for(&[session.clone()].into_iter().collect(), Instant::now());

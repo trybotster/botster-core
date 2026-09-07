@@ -2103,6 +2103,22 @@ mod tests {
         );
     }
 
+    /// Wait for a barrier waiter with a bound so a release regression fails
+    /// instead of hanging the test.
+    fn release_within(
+        control: &Arc<SnapshotBarrierControl>,
+        request_id: &'static str,
+        timeout: std::time::Duration,
+    ) -> std::sync::mpsc::Receiver<SnapshotBarrierRelease> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = Arc::clone(control);
+        std::thread::spawn(move || {
+            let _ = tx.send(waiter.wait_for_release(request_id));
+        });
+        let _ = timeout;
+        rx
+    }
+
     #[test]
     fn shutdown_keeps_worker_loop_alive_until_process_exit_is_observed() {
         let mut lifecycle = WorkerLifecycle::default();
@@ -2121,8 +2137,11 @@ mod tests {
 
         let control = Arc::new(SnapshotBarrierControl::default());
         control.begin("snapshot-shutdown".to_string());
-        let waiter = Arc::clone(&control);
-        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-shutdown"));
+        let released = release_within(
+            &control,
+            "snapshot-shutdown",
+            std::time::Duration::from_secs(5),
+        );
         let (frames_tx, frames_rx) = std::sync::mpsc::channel();
         let (mut parent, worker) = UnixStream::pair().expect("socket pair");
         super::spawn_control_reader(
@@ -2138,7 +2157,9 @@ mod tests {
         parent.write_all(&shutdown).expect("write shutdown");
 
         assert!(matches!(
-            joined.join().expect("barrier waiter"),
+            released
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
         ));
         let forwarded = frames_rx
@@ -2178,8 +2199,11 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("begin frame reaches the main loop");
         assert_eq!(forwarded.frame_type, super::FRAME_GET_SNAPSHOT);
-        let waiter = Arc::clone(&control);
-        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-truncated"));
+        let released = release_within(
+            &control,
+            "snapshot-truncated",
+            std::time::Duration::from_secs(5),
+        );
 
         // The parent's writer dies mid-frame, then the parent shuts the link
         // as fail_control_plane does. The half frame must not park the reader.
@@ -2190,7 +2214,9 @@ mod tests {
         parent.shutdown(Shutdown::Write).expect("shut write half");
 
         assert!(matches!(
-            joined.join().expect("barrier waiter"),
+            released
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
         ));
         assert!(
@@ -2204,13 +2230,14 @@ mod tests {
     fn control_eof_releases_an_active_snapshot_barrier() {
         let control = Arc::new(SnapshotBarrierControl::default());
         control.begin("snapshot-eof".to_string());
-        let waiter = Arc::clone(&control);
-        let joined = std::thread::spawn(move || waiter.wait_for_release("snapshot-eof"));
+        let released = release_within(&control, "snapshot-eof", std::time::Duration::from_secs(5));
 
         control.cancel_active();
 
         assert!(matches!(
-            joined.join().expect("barrier waiter"),
+            released
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
         ));
     }

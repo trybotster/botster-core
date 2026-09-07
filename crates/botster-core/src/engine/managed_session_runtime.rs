@@ -222,9 +222,11 @@ where
 
     fn fail_expired_pending_resize(&mut self, session_id: &SessionId) {
         self.pending_terminal_resizes.remove(session_id);
+        // The worker stopped acknowledging control frames: end the link, not
+        // only the flag, so a worker parked on a barrier is released.
         self.engine
             .session_runtime_mut()
-            .mark_control_plane_failed(session_id, ControlWriterError::ResizeAckTimeout);
+            .fail_control_plane(session_id, ControlWriterError::ResizeAckTimeout);
         let teardowns = self.client_worker.teardown_session(session_id);
         self.pending_input_teardowns.extend(teardowns);
     }
@@ -390,9 +392,13 @@ where
                 .session_runtime()
                 .consume_control_writer_failure(session_id)
             {
+                // Queue admission is not delivery: a frame admitted before the
+                // failure (a barrier cancel included) never reached the worker.
+                // End the control link so the worker's reader observes EOF and
+                // releases anything it still holds for this parent.
                 self.engine
                     .session_runtime_mut()
-                    .mark_control_plane_failed(session_id, error);
+                    .fail_control_plane(session_id, error);
                 teardowns.extend(self.client_worker.fail_in_flight_for_session(
                     session_id,
                     InputOutcome::OutcomeUnknown,
@@ -3022,5 +3028,56 @@ mod tests {
             ));
             let _ = runtime.shutdown_session(session_id, "test cleanup", 1);
         }
+    }
+    #[test]
+    fn a_writer_failure_after_an_accepted_cancel_ends_the_control_link() {
+        use std::io::Read;
+
+        let mut runtime =
+            ManagedSessionRuntime::with_worker_process("/missing/botster-session-worker");
+        let session_id = SessionId("accepted-then-lost".into());
+        let mut peer = runtime
+            .session_runtime_mut()
+            .insert_test_socket_session(session_id.clone());
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("bounded peer read");
+        let request_id = runtime
+            .session_runtime_mut()
+            .begin_snapshot_boundary(&session_id)
+            .expect("begin barrier");
+        assert_eq!(
+            runtime
+                .session_runtime_mut()
+                .cancel_snapshot_boundary(&session_id, &request_id)
+                .expect("cancel"),
+            crate::runtime::SnapshotCancelAdmission::Accepted
+        );
+        assert!(!runtime
+            .session_runtime()
+            .snapshot_request_is_outstanding(&session_id, &request_id));
+
+        // The writer dies before the admitted cancel is delivered.
+        runtime
+            .session_runtime()
+            .test_fail_control_writer(&session_id, ControlWriterError::DeadlineExpired);
+        let batch = TerminalWakeBatch {
+            adapter_routes: Vec::new(),
+            ingress_sessions: vec![session_id.clone()],
+        };
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        runtime
+            .apply_woken_terminal_input(&batch, 0, &HashSet::new(), &mut outcome)
+            .expect("production writer-failure handling");
+
+        assert_eq!(
+            runtime.control_plane_state(&session_id),
+            ControlPlaneState::Failed(ControlWriterError::DeadlineExpired)
+        );
+        let mut buf = [0u8; 16];
+        assert_eq!(
+            peer.read(&mut buf).expect("peer read within the bound"),
+            0,
+            "the worker side must observe EOF on the control link"
+        );
     }
 }
