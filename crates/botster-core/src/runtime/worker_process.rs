@@ -361,6 +361,12 @@ struct PendingSpawn {
 /// A worker whose process is running and whose handshake succeeded, before
 /// the parent reader and writer threads exist.
 struct LaunchedWorker {
+    /// `None` only after [`Self::into_parts`] transferred ownership to an
+    /// installed session. Every other drop path stops and reaps the child.
+    parts: Option<LaunchedParts>,
+}
+
+struct LaunchedParts {
     child: Child,
     control: WorkerControl,
     reader: Box<dyn Read + Send>,
@@ -369,19 +375,41 @@ struct LaunchedWorker {
     supports_snapshot_boundary: bool,
 }
 
+#[cfg(test)]
+static LAUNCHED_WORKER_DISCARDS: AtomicUsize = AtomicUsize::new(0);
+
 impl LaunchedWorker {
-    /// Stop and reap a worker that will never be installed.
-    ///
-    /// Sends the shutdown frame, kills the child, reaps it in the
-    /// background, and removes the control socket this launch created.
-    fn discard(mut self) {
-        let _ = self.control.write_frame(FRAME_SHUTDOWN, &[]);
-        let _ = self.child.kill();
-        match self.child.try_wait() {
+    fn new(parts: LaunchedParts) -> Self {
+        Self { parts: Some(parts) }
+    }
+
+    /// Transfer ownership to the installer. Cleanup responsibility leaves
+    /// this guard only through this call.
+    fn into_parts(mut self) -> LaunchedParts {
+        self.parts
+            .take()
+            .expect("a launched worker is consumed at most once")
+    }
+}
+
+impl Drop for LaunchedWorker {
+    /// Stop and reap a worker that was never installed: sends the shutdown
+    /// frame, kills the child, reaps it in the background, and removes the
+    /// control socket this launch created. Runs on every drop path,
+    /// including a queued value dropped with its channel.
+    fn drop(&mut self) {
+        let Some(mut parts) = self.parts.take() else {
+            return;
+        };
+        #[cfg(test)]
+        LAUNCHED_WORKER_DISCARDS.fetch_add(1, Ordering::AcqRel);
+        let _ = parts.control.write_frame(FRAME_SHUTDOWN, &[]);
+        let _ = parts.child.kill();
+        match parts.child.try_wait() {
             Ok(Some(_)) => {}
-            Ok(None) | Err(_) => reap_worker_child_in_background(self.child),
+            Ok(None) | Err(_) => reap_worker_child_in_background(parts.child),
         }
-        self.control.cleanup();
+        parts.control.cleanup();
     }
 }
 
@@ -777,10 +805,9 @@ impl WorkerProcessRuntime {
         let (sender, receiver) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let result = launch_worker(&options, &request);
-            if let Err(mpsc::SendError((_, Ok(launched)))) = sender.send((request, result)) {
-                // The runtime dropped the receiver; the child is ours to stop.
-                launched.discard();
-            }
+            // A failed send drops the guard here; a queued guard drops with
+            // the receiver. Both paths stop and reap the child.
+            let _ = sender.send((request, result));
             notify_session_wake(&wake_handle);
         });
         self.pending_spawns.insert(
@@ -820,7 +847,7 @@ impl WorkerProcessRuntime {
             Ok((_, Ok(launched))) if abandoned => {
                 self.pending_spawns.remove(session_id);
                 self.forget_session_wake(session_id);
-                launched.discard();
+                drop(launched);
                 WorkerSpawnPoll::Failed(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     "worker spawn was abandoned before it finished",
@@ -1223,24 +1250,25 @@ impl WorkerProcessRuntime {
         request: SessionSpawnRequest,
         launched: LaunchedWorker,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
+        let parts = launched.into_parts();
         let seed_modes = ModesBody {
-            mode_bits: launched.metadata.mode_flags.to_mode_bits(),
-            rows: launched.metadata.rows,
-            cols: launched.metadata.cols,
+            mode_bits: parts.metadata.mode_flags.to_mode_bits(),
+            rows: parts.metadata.rows,
+            cols: parts.metadata.cols,
         };
         self.install_session(
             request.session_id.clone(),
-            Some(launched.child),
-            launched.control,
-            launched.reader,
-            launched.metadata,
-            launched.supports_snapshot_boundary,
+            Some(parts.child),
+            parts.control,
+            parts.reader,
+            parts.metadata,
+            parts.supports_snapshot_boundary,
             Some(seed_modes),
         )?;
         Ok(SessionRuntimeHandle {
             request_id: request.request_id,
             session_id: request.session_id,
-            process: launched.process,
+            process: parts.process,
         })
     }
 
@@ -1304,7 +1332,20 @@ impl WorkerProcessRuntime {
             egress_capacity: self.options.egress_capacity.max(1),
             stall,
         };
-        self.start_writer_or_forget(&mut session, &session_id)?;
+        if let Err(error) = self.start_writer_or_forget(&mut session, &session_id) {
+            // The session was never published; stop the worker we own.
+            session.close_before_blocking_shutdown();
+            session.shutdown_control();
+            if let Some(mut child) = session.child.take() {
+                let _ = child.kill();
+                match child.try_wait() {
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => reap_worker_child_in_background(child),
+                }
+            }
+            session.control.cleanup();
+            return Err(error);
+        }
         self.sessions.insert(session_id, session);
         Ok(())
     }
@@ -1524,14 +1565,14 @@ fn launch_worker(
                 .and_then(serde_json::Value::as_str)
                 == Some("ready_then_history")
     });
-    Ok(LaunchedWorker {
+    Ok(LaunchedWorker::new(LaunchedParts {
         child: pending_worker.take(),
         control,
         reader,
         metadata,
         process,
         supports_snapshot_boundary,
-    })
+    }))
 }
 
 impl SessionRuntime for WorkerProcessRuntime {
@@ -1649,13 +1690,10 @@ impl SessionRuntime for WorkerProcessRuntime {
 
 impl Drop for WorkerProcessRuntime {
     fn drop(&mut self) {
-        // A launch that already produced a worker is stopped here; a launch
-        // still running stops its worker itself when the send fails.
-        for (_, pending) in self.pending_spawns.drain() {
-            if let Ok((_, Ok(launched))) = pending.receiver.try_recv() {
-                launched.discard();
-            }
-        }
+        // Dropping the receivers drops any queued launch guard, which stops
+        // and reaps its child; a launch still running drops its guard when
+        // its send fails.
+        self.pending_spawns.clear();
         if self.release_on_drop {
             return;
         }
@@ -2973,6 +3011,58 @@ mod tests {
         );
         let batch = source.wait_wakes(Duration::from_millis(0));
         batch.ingress_sessions.iter().any(|id| id == &session)
+    }
+
+    #[test]
+    fn a_launched_worker_queued_in_a_dropped_channel_is_discarded() {
+        use std::process::{Command, Stdio};
+        use std::sync::atomic::Ordering;
+
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleeper");
+        let stdin = child.stdin.take().expect("piped stdin");
+        let pid = child.id();
+        let launched = super::LaunchedWorker::new(super::LaunchedParts {
+            child,
+            control: super::WorkerControl::Stdio(stdin),
+            reader: Box::new(std::io::empty()),
+            metadata: crate::SessionMetadata {
+                session_uuid: "guard".to_string(),
+                pid,
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            },
+            process: ProcessIdentity {
+                pid: Some(pid),
+                runtime_id: None,
+            },
+            supports_snapshot_boundary: true,
+        });
+        let before = super::LAUNCHED_WORKER_DISCARDS.load(Ordering::Acquire);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        sender.send(launched).expect("queue the guard");
+
+        // The receiver goes away with the guard still queued: the send had
+        // already succeeded, so only the guard's own drop can clean up.
+        drop(receiver);
+        drop(sender);
+
+        assert_eq!(
+            super::LAUNCHED_WORKER_DISCARDS.load(Ordering::Acquire),
+            before + 1,
+            "dropping a queued launch must run its cleanup"
+        );
     }
 
     #[test]

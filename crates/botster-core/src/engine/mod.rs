@@ -35,8 +35,8 @@ pub use botster::{
     WorkerBackedBotsterEngineError,
 };
 pub use client_worker::{
-    ClientWorker, ClientWorkerTeardown, EnqueueRouteFrameError, GenerationAllocator,
-    RouteResyncRequest,
+    CaptureIdentity, ClientWorker, ClientWorkerTeardown, EnqueueRouteFrameError,
+    GenerationAllocator, RouteResyncRequest,
 };
 #[cfg(feature = "local-runtime")]
 pub use command::DefaultEngineCommand;
