@@ -5,8 +5,6 @@
 //! never held across I/O.
 
 use std::collections::VecDeque;
-#[cfg(test)]
-use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -95,10 +93,6 @@ struct ControlQueueState {
     frames: VecDeque<(ControlFrameClass, Vec<u8>)>,
     ordinary_len: usize,
     sealed: bool,
-    #[cfg(test)]
-    hold_pops: bool,
-    #[cfg(test)]
-    pause_after_ready_probe: Option<(SyncSender<()>, Receiver<()>)>,
 }
 
 /// Synchronized control-queue owner.
@@ -117,10 +111,6 @@ impl ControlQueue {
                 frames: VecDeque::new(),
                 ordinary_len: 0,
                 sealed: false,
-                #[cfg(test)]
-                hold_pops: false,
-                #[cfg(test)]
-                pause_after_ready_probe: None,
             })),
             ready: Arc::new(Condvar::new()),
         }
@@ -161,7 +151,6 @@ impl ControlQueue {
 
     /// Probe ordinary capacity under the same lock used by [`Self::admit`].
     #[must_use]
-    #[cfg(not(test))]
     pub(crate) fn probe_ordinary(&self) -> ControlAdmission {
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         if state.sealed {
@@ -172,35 +161,6 @@ impl ControlQueue {
         } else {
             ControlAdmission::Ready
         }
-    }
-
-    /// Probe ordinary capacity and pause one test transition after releasing the lock.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn probe_ordinary(&self) -> ControlAdmission {
-        let (admission, pause) = {
-            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-            let admission = if state.sealed {
-                ControlAdmission::Sealed
-            } else if state.ordinary_len
-                >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS
-            {
-                ControlAdmission::Full
-            } else {
-                ControlAdmission::Ready
-            };
-            let pause = if admission == ControlAdmission::Ready {
-                state.pause_after_ready_probe.take()
-            } else {
-                None
-            };
-            (admission, pause)
-        };
-        if let Some((reached, release)) = pause {
-            reached.send(()).expect("report ready probe");
-            release.recv().expect("release ready probe");
-        }
-        admission
     }
 
     /// Seal without enqueueing. Used after a truncated write.
@@ -222,17 +182,6 @@ impl ControlQueue {
     ) -> Option<(ControlFrameClass, Vec<u8>, bool)> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
-            #[cfg(test)]
-            if state.hold_pops {
-                if state.sealed && state.frames.is_empty() {
-                    return None;
-                }
-                state = self
-                    .ready
-                    .wait(state)
-                    .unwrap_or_else(|error| error.into_inner());
-                continue;
-            }
             if let Some((class, frame)) = state.frames.pop_front() {
                 let was_ordinary_full = state.ordinary_len
                     >= WORKER_CONTROL_QUEUE_FRAMES - WORKER_CONTROL_RESERVED_SLOTS;
@@ -269,59 +218,6 @@ impl ControlQueue {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Stop the writer from popping so crate unit tests can fill the bound.
-    #[cfg(test)]
-    pub(crate) fn hold_pops(&self, hold: bool) {
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        state.hold_pops = hold;
-        self.ready.notify_all();
-    }
-
-    /// Pause one ready probe after it releases the queue lock.
-    #[cfg(test)]
-    pub(crate) fn pause_after_next_ready_probe(&self) -> (Receiver<()>, SyncSender<()>) {
-        let (reached_tx, reached_rx) = mpsc::sync_channel(0);
-        let (release_tx, release_rx) = mpsc::sync_channel(0);
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        assert!(
-            state.pause_after_ready_probe.is_none(),
-            "probe pause already set"
-        );
-        state.pause_after_ready_probe = Some((reached_tx, release_rx));
-        (reached_rx, release_tx)
-    }
-
-    /// Return queued frame types and payloads while crate tests hold queue pops.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn held_frames(&self) -> Vec<(u8, Vec<u8>)> {
-        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        debug_assert!(state.hold_pops);
-        state
-            .frames
-            .iter()
-            .filter_map(|(_, frame)| Some((*frame.get(4)?, frame.get(5..)?.to_vec())))
-            .collect()
-    }
-
-    /// Count queued frames by class for crate unit tests.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn class_counts(&self) -> (usize, usize, usize) {
-        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        let mut ordinary = 0;
-        let mut cancel = 0;
-        let mut terminal = 0;
-        for (class, _) in &state.frames {
-            match class {
-                ControlFrameClass::Ordinary => ordinary += 1,
-                ControlFrameClass::Cancel => cancel += 1,
-                ControlFrameClass::Terminal => terminal += 1,
-            }
-        }
-        (ordinary, cancel, terminal)
     }
 
     /// Whether the queue is sealed.
