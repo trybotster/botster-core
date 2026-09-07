@@ -45,6 +45,9 @@ use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
 };
+use botster_terminal_protocol::{
+    decode_attach_state, AttachStateCode, TerminalFrame, TerminalKind,
+};
 
 const EXPECTED_SNAPSHOT_FORMAT: &str = "ghostty-terminal-snapshot-v1";
 const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
@@ -1486,6 +1489,8 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
     let mut phases = Vec::new();
     let mut sent_live_input = false;
     let mut saw_live = false;
+    let mut live_output = Vec::new();
+    let mut seen_frames = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
         let batch = daemon.wait_wakes(Duration::from_millis(250));
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
@@ -1493,30 +1498,48 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
                 .pump_woken(&batch, 20)
                 .expect("pump bound worker wake");
         }
-        for bytes in adapter.snapshot_delivered_frame_bytes() {
-            let value: serde_json::Value =
-                serde_json::from_slice(&bytes).expect("opaque frame is JSON");
-            match value.get("type").and_then(serde_json::Value::as_str) {
-                Some("snapshot") => {
-                    if let Some(phase) = value.get("phase").and_then(serde_json::Value::as_str) {
-                        if !phases.iter().any(|seen| seen == phase) {
-                            phases.push(phase.to_string());
-                        }
+        let delivered = adapter.snapshot_delivered_frame_bytes();
+        for bytes in &delivered[seen_frames..] {
+            let frame = adapter_terminal_frame(bytes);
+            match frame.kind() {
+                TerminalKind::SnapshotReady => {
+                    assert!(
+                        frame.body().starts_with(b"GHOSTSNP"),
+                        "READY carries the GHOSTSNP prefix"
+                    );
+                    if !phases.iter().any(|seen| seen == "ready") {
+                        phases.push("ready".to_string());
                     }
                 }
-                Some("attach_state") => {
-                    if value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
+                TerminalKind::SnapshotHistory => {
+                    if !phases.iter().any(|seen| seen == "history") {
+                        phases.push("history".to_string());
+                    }
+                }
+                TerminalKind::SnapshotFinish => {
+                    assert!(frame.body().is_empty(), "FINISH carries no body");
+                    if !phases.iter().any(|seen| seen == "finish") {
+                        phases.push("finish".to_string());
+                    }
+                }
+                TerminalKind::AttachState => {
+                    if decode_attach_state(&frame).expect("attach state body")
+                        == AttachStateCode::Attached
                         && !phases.iter().any(|seen| seen == "attached")
                     {
                         phases.push("attached".to_string());
                     }
                 }
-                Some("terminal_output") if sent_live_input => {
-                    saw_live = true;
+                TerminalKind::Output if sent_live_input => {
+                    live_output.extend_from_slice(frame.body());
+                    saw_live = live_output
+                        .windows(b"echo:BOUND-LIVE".len())
+                        .any(|window| window == b"echo:BOUND-LIVE");
                 }
                 _ => {}
             }
         }
+        seen_frames = delivered.len();
         if phases.iter().any(|phase| phase == "attached") && !sent_live_input {
             daemon
                 .input(
@@ -1528,22 +1551,30 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
                 .expect("post-attach live input");
             sent_live_input = true;
         }
-        if phases
-            .windows(2)
-            .any(|window| window == ["ready", "finish"])
+        let ready = phases.iter().position(|phase| phase == "ready");
+        let finish = phases.iter().position(|phase| phase == "finish");
+        if ready
+            .zip(finish)
+            .is_some_and(|(ready, finish)| ready < finish)
             && saw_live
         {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
+    let ready = phases.iter().position(|phase| phase == "ready");
+    let finish = phases.iter().position(|phase| phase == "finish");
     assert!(
-        phases
-            .windows(2)
-            .any(|window| window == ["ready", "finish"]),
-        "bound adapter must receive READY then FINISH: {phases:?}"
+        ready
+            .zip(finish)
+            .is_some_and(|(ready, finish)| ready < finish),
+        "bound adapter must receive READY before FINISH: {phases:?}"
     );
-    assert!(saw_live, "bound adapter must receive live output");
+    assert!(
+        saw_live,
+        "bound adapter must receive the live echo `echo:BOUND-LIVE`; live output so far: {:?}",
+        String::from_utf8_lossy(&live_output)
+    );
     assert!(daemon
         .list()
         .expect("list")
@@ -1820,6 +1851,26 @@ fn adapter_has_process_exit(adapter: &SharedFakeTerminalAdapter) -> bool {
         .snapshot_delivered_frame_bytes()
         .iter()
         .any(|bytes| adapter_frame_type(bytes) == "process_exit")
+}
+
+/// Decode one bound-adapter delivery as the scheme 2 `TerminalBody` it is.
+fn adapter_terminal_frame(bytes: &[u8]) -> TerminalFrame {
+    TerminalFrame::from_bytes(bytes)
+        .expect("bound adapter deliveries are scheme 2 TerminalBody frames")
+}
+
+/// Snapshot phase or attached transition carried by one bound-adapter delivery.
+fn adapter_phase(bytes: &[u8]) -> Option<&'static str> {
+    let frame = adapter_terminal_frame(bytes);
+    match frame.kind() {
+        TerminalKind::SnapshotReady => Some("ready"),
+        TerminalKind::SnapshotHistory => Some("history"),
+        TerminalKind::SnapshotFinish => Some("finish"),
+        TerminalKind::AttachState => (decode_attach_state(&frame).expect("attach state body")
+            == AttachStateCode::Attached)
+            .then_some("attached"),
+        _ => None,
+    }
 }
 
 fn adapter_frame_type(bytes: &[u8]) -> String {
@@ -6223,13 +6274,7 @@ fn wait_until_bound_attached(
         let attached = adapter
             .snapshot_delivered_frame_bytes()
             .iter()
-            .any(|bytes| {
-                let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
-                    return false;
-                };
-                value.get("type").and_then(serde_json::Value::as_str) == Some("attach_state")
-                    && value.get("state").and_then(serde_json::Value::as_str) == Some("attached")
-            });
+            .any(|bytes| adapter_phase(bytes) == Some("attached"));
         if attached {
             return;
         }
@@ -6788,21 +6833,19 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
     wait_until_bound_attached(&mut daemon, &session_id, &adapter);
     let mut phases = Vec::new();
     for bytes in adapter.snapshot_delivered_frame_bytes() {
-        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-            continue;
-        };
-        match value.get("type").and_then(serde_json::Value::as_str) {
-            Some("snapshot") => {
-                if let Some(phase) = value.get("phase").and_then(serde_json::Value::as_str) {
-                    phases.push(phase.to_string());
-                }
-            }
-            Some("attach_state")
-                if value.get("state").and_then(serde_json::Value::as_str) == Some("attached") =>
-            {
-                phases.push("attached".to_string());
+        let frame = adapter_terminal_frame(&bytes);
+        match frame.kind() {
+            TerminalKind::SnapshotReady => assert!(
+                frame.body().starts_with(b"GHOSTSNP"),
+                "READY carries the GHOSTSNP prefix"
+            ),
+            TerminalKind::SnapshotFinish => {
+                assert!(frame.body().is_empty(), "FINISH carries no body");
             }
             _ => {}
+        }
+        if let Some(phase) = adapter_phase(&bytes) {
+            phases.push(phase.to_string());
         }
     }
     let ready = phases.iter().position(|phase| phase == "ready");
