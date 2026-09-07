@@ -6951,9 +6951,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             .all(|row| row.subscription_id != holder_sub),
         "first pre-bind overflow must remove the never-bound holder (after {pumps} pumps)"
     );
-    assert!(
-        unsubscribe_count >= 1,
-        "the teardown must run the production unsubscribe path"
+    assert_eq!(
+        unsubscribe_count, 1,
+        "the one teardown yields exactly one production unsubscribe observation"
     );
     // Public failure signal: the holder's generation is no longer bindable.
     let late = SharedFakeTerminalAdapter::auto_complete();
@@ -6968,8 +6968,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
         ),
         Err(BindTerminalAdapterError::UnknownSubscription { .. })
     ));
-    // No new capture loop for that route: it never comes back while the
-    // flood continues and the sibling keeps being served.
+    // The failed route remains absent while the flood continues and the
+    // sibling keeps receiving live output. (Capture work itself is measured
+    // by the unit regression: no resync request remains for the route.)
     let before = sibling_adapter.snapshot_delivered_frame_bytes().len();
     let sibling_started = Instant::now();
     let mut sibling_progress = false;
@@ -6984,9 +6985,13 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
                 .list_terminal_subscriptions()
                 .iter()
                 .all(|row| row.subscription_id != holder_sub),
-            "a failed never-bound route must not be recreated by a capture"
+            "the failed never-bound route remains absent"
         );
-        if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
+        let delivered = sibling_adapter.snapshot_delivered_frame_bytes();
+        if delivered[before.min(delivered.len())..]
+            .iter()
+            .any(|bytes| adapter_terminal_frame(bytes).kind() == TerminalKind::Output)
+        {
             sibling_progress = true;
             break;
         }
@@ -6994,7 +6999,7 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     }
     assert!(
         sibling_progress,
-        "sibling must keep delivering after the holder failed"
+        "sibling must receive new live OUTPUT after the holder failed"
     );
     assert_eq!(
         extra_unsubscribes, 0,
