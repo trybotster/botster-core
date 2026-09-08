@@ -427,9 +427,18 @@ fn try_admit_retrying_lock_busy(
     class: PluginInvocationClass,
     request: PluginInvocationRequest,
 ) -> PluginAdmissionResult {
+    try_admit_with_completion_reservation_retrying_lock_busy(engine, class, request, 1)
+}
+
+fn try_admit_with_completion_reservation_retrying_lock_busy(
+    engine: &PluginWorkerEngine,
+    class: PluginInvocationClass,
+    request: PluginInvocationRequest,
+    completion_reservation_bytes: usize,
+) -> PluginAdmissionResult {
     let started = std::time::Instant::now();
     loop {
-        match engine.try_admit(class, request.clone()) {
+        match engine.try_admit(class, request.clone(), completion_reservation_bytes) {
             PluginAdmissionResult::Backpressured { reason, .. }
                 if reason == ADMISSION_LOCK_BUSY
                     && started.elapsed() < Duration::from_millis(100) =>
@@ -1807,6 +1816,7 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
         match engine.try_admit(
             PluginInvocationClass::Background,
             invocation("second", command.clone(), 1_000),
+            1,
         ) {
             PluginAdmissionResult::Queued { .. } => {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
@@ -2203,8 +2213,202 @@ fn oversize_handler_result_uses_prebuilt_compact_failure() {
     assert!(matches!(
         completion.result,
         PluginInvocationResult::Failed(failure)
-            if failure.kind == PluginInvocationFailureKind::HandlerFailed
+            if failure.kind == PluginInvocationFailureKind::CompletionTooLarge
                 && failure.reason == "completion exceeded reserved byte budget"
+    ));
+}
+
+#[test]
+fn explicit_completion_reservation_allows_a_larger_bounded_result() {
+    let plugin = plugin_key("explicit-reservation");
+    let command = handler(&plugin, "run");
+    let result_value = "x".repeat(512);
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_byte_capacity: 2_048,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success(&result_value),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    let admitted = try_admit_with_completion_reservation_retrying_lock_busy(
+        &engine,
+        PluginInvocationClass::Background,
+        invocation("explicit-reservation", command, 1_000),
+        1_024,
+    );
+    assert!(matches!(
+        admitted,
+        PluginAdmissionResult::Queued {
+            reservation_bytes: 1_024,
+            ..
+        }
+    ));
+    let completion = wait_for_completion(&engine, "explicit-reservation");
+    assert!(matches!(
+        completion.result,
+        PluginInvocationResult::Completed(PluginInvocationSuccess {
+            payload: Some(BoundaryJson(payload)),
+            ..
+        }) if payload == serde_json::json!({ "value": result_value })
+    ));
+}
+
+#[test]
+fn completion_reservation_requires_a_positive_allowance_and_fits_fallback_overhead() {
+    let plugin = plugin_key("positive-reservation");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("unused"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("zero-reservation", command.clone(), 1_000),
+            0,
+        ),
+        PluginAdmissionResult::RejectedBudget { reason, .. }
+            if reason == "completion reservation must be positive"
+    ));
+    let admitted = try_admit_with_completion_reservation_retrying_lock_busy(
+        &engine,
+        PluginInvocationClass::Background,
+        invocation("fallback-overhead", command, 0),
+        1,
+    );
+    assert!(matches!(
+        admitted,
+        PluginAdmissionResult::Queued {
+            reservation_bytes,
+            ..
+        } if reservation_bytes > 1
+    ));
+    let completion = wait_for_completion(&engine, "fallback-overhead");
+    assert!(matches!(
+        completion.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::TimedOut
+    ));
+}
+
+#[test]
+fn request_overhead_above_completion_capacity_is_permanently_rejected() {
+    let plugin = plugin_key("request-overhead");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_byte_capacity: 512,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("unused"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    let mut request = invocation("large-request-overhead", command, 1_000);
+    request.payload = BoundaryJson(serde_json::json!({ "blob": "x".repeat(512) }));
+
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            request,
+            1,
+        ),
+        PluginAdmissionResult::RejectedBudget {
+            queue_bytes: Some(queue_bytes),
+            reason,
+            ..
+        } if queue_bytes > 512
+            && reason == "completion reservation exceeds completion byte capacity"
+    ));
+}
+
+#[test]
+fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
+    let plugin = plugin_key("explicit-capacity");
+    let command = handler(&plugin, "run");
+    let runtime = GatedRuntime::default();
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        per_plugin_queue_capacity: 8,
+        per_plugin_executor_concurrency: 2,
+        completion_queue_byte_capacity: 1_500,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        runtime.clone(),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("too-large", command.clone(), 1_000),
+            1_501,
+        ),
+        PluginAdmissionResult::RejectedBudget { reason, .. }
+            if reason == "completion reservation exceeds completion byte capacity"
+    ));
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("first", command.clone(), 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("second", command.clone(), 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Backpressured { .. }
+    ));
+
+    runtime.release();
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().undrained_completions == 1
+    });
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("before-drain", command.clone(), 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Backpressured { .. }
+    ));
+    let _ = wait_for_completion(&engine, "first");
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("after-drain", command, 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Queued { .. }
     ));
 }
 
