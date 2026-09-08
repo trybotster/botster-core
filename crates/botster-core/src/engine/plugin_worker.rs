@@ -49,9 +49,9 @@ pub struct PluginWorkerEngineConfig {
     pub background_queue_capacity: usize,
     /// Maximum encoded Background waiting-queue bytes per plugin.
     pub background_queue_byte_capacity: usize,
-    /// Maximum reserved async completions per plugin worker.
+    /// Maximum reserved async completions across the engine.
     pub completion_queue_capacity: usize,
-    /// Maximum reserved async completion bytes per plugin worker.
+    /// Maximum reserved async completion bytes across the engine.
     pub completion_queue_byte_capacity: usize,
 }
 
@@ -128,8 +128,6 @@ pub struct PluginWorkerPluginDebugSnapshot {
     pub request_response_saturated: bool,
     /// Whether the Background waiting queue is at its count or byte bound.
     pub background_saturated: bool,
-    /// Whether the completion reservation pool is at its count or byte bound.
-    pub completions_saturated: bool,
     /// Times RequestResponse admission returned backpressure.
     pub request_response_pressure_events: usize,
     /// Times Background admission returned backpressure.
@@ -153,9 +151,9 @@ pub struct PluginWorkerDebugSnapshot {
     pub configured_background_queue_capacity: usize,
     /// Configured Background waiting-queue byte capacity.
     pub configured_background_queue_byte_capacity: usize,
-    /// Configured completion reservation count.
+    /// Configured engine-wide completion reservation count.
     pub configured_completion_queue_capacity: usize,
-    /// Configured completion reservation byte capacity.
+    /// Configured engine-wide completion reservation byte capacity.
     pub configured_completion_queue_byte_capacity: usize,
     /// Loaded or retiring plugin executors.
     pub live_plugin_executors: usize,
@@ -177,9 +175,9 @@ pub struct PluginWorkerDebugSnapshot {
     pub background_queued_bytes: usize,
     /// Background jobs occupying an executor.
     pub background_in_flight_jobs: usize,
-    /// Reserved async completion slots across live and retiring workers.
+    /// Reserved async completion slots across active and retired generations.
     pub reserved_completion_count: usize,
-    /// Reserved async completion bytes across live and retiring workers.
+    /// Reserved async completion bytes across active and retired generations.
     pub reserved_completion_bytes: usize,
     /// Published completions the host has not drained.
     pub undrained_completions: usize,
@@ -187,7 +185,7 @@ pub struct PluginWorkerDebugSnapshot {
     pub request_response_saturated: bool,
     /// Whether any Background queue is at its count or byte bound.
     pub background_saturated: bool,
-    /// Whether any completion reservation pool is at its count or byte bound.
+    /// Whether the engine-wide completion pool is at its count or byte bound.
     pub completions_saturated: bool,
     /// Times RequestResponse admission returned backpressure.
     pub request_response_pressure_events: usize,
@@ -263,11 +261,53 @@ struct EngineShared {
     config: PluginWorkerEngineConfig,
     workers: Mutex<HashMap<PluginKey, WorkerState>>,
     leftover_completions: Mutex<VecDeque<MailboxItem>>,
+    completion_reservations: Mutex<CompletionReservationPool>,
     completion_notifier: Mutex<Option<PluginCompletionNotifier>>,
     metrics: Arc<PluginWorkerEngineMetrics>,
     deadlines: Mutex<DeadlineBook>,
     deadline_cvar: Condvar,
     stopping: AtomicBool,
+}
+
+/// Completion lock order:
+///
+/// - Admission locks a worker admission state before the shared reservation pool.
+/// - Active drain uses the same order.
+/// - Retired drain locks the leftover mailbox before the shared reservation pool.
+/// - Shutdown never holds a worker admission lock while it locks the leftover mailbox.
+/// - Host completion callbacks run after all reservation locks are released.
+#[derive(Default)]
+struct CompletionReservationPool {
+    reserved_count: usize,
+    reserved_bytes: usize,
+}
+
+impl CompletionReservationPool {
+    fn is_at_capacity(&self, reservation_bytes: usize, config: &PluginWorkerEngineConfig) -> bool {
+        self.reserved_count
+            .checked_add(1)
+            .is_none_or(|count| count > config.completion_queue_capacity)
+            || self
+                .reserved_bytes
+                .checked_add(reservation_bytes)
+                .is_none_or(|bytes| bytes > config.completion_queue_byte_capacity)
+    }
+
+    fn reserve(&mut self, reservation_bytes: usize) {
+        self.reserved_count += 1;
+        self.reserved_bytes += reservation_bytes;
+    }
+
+    fn release(&mut self, reservation_bytes: usize) {
+        self.reserved_count = self
+            .reserved_count
+            .checked_sub(1)
+            .expect("completion reservation count released exactly once");
+        self.reserved_bytes = self
+            .reserved_bytes
+            .checked_sub(reservation_bytes)
+            .expect("completion reservation bytes released exactly once");
+    }
 }
 
 #[derive(Default)]
@@ -371,6 +411,7 @@ impl PluginWorkerEngine {
             config,
             workers: Mutex::new(HashMap::new()),
             leftover_completions: Mutex::new(VecDeque::new()),
+            completion_reservations: Mutex::new(CompletionReservationPool::default()),
             completion_notifier: Mutex::new(None),
             metrics: Arc::new(PluginWorkerEngineMetrics::default()),
             deadlines: Mutex::new(DeadlineBook::default()),
@@ -601,6 +642,7 @@ impl PluginWorkerEngine {
                         &worker,
                         class,
                         request,
+                        completion_reservation_bytes,
                         "plugin handler requires a capability missing from package metadata",
                     );
                 }
@@ -610,6 +652,7 @@ impl PluginWorkerEngine {
                 &worker,
                 class,
                 request,
+                completion_reservation_bytes,
                 "plugin handler is not registered",
             );
         }
@@ -691,15 +734,19 @@ impl PluginWorkerEngine {
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
-        if admission
-            .reserved_completion_count
-            .checked_add(1)
-            .is_none_or(|count| count > self.inner.shared.config.completion_queue_capacity)
-            || admission
-                .reserved_completion_bytes
-                .checked_add(reservation_bytes)
-                .is_none_or(|bytes| bytes > self.inner.shared.config.completion_queue_byte_capacity)
+        let mut completion_reservations = match self.inner.shared.completion_reservations.try_lock()
         {
+            Ok(guard) => guard,
+            Err(_) => {
+                return self.admission_backpressured(
+                    class,
+                    request,
+                    ADMISSION_LOCK_BUSY,
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
+                );
+            }
+        };
+        if completion_reservations.is_at_capacity(reservation_bytes, &self.inner.shared.config) {
             worker
                 .metrics
                 .completion_pressure_events
@@ -760,6 +807,7 @@ impl PluginWorkerEngine {
             completion: JobCompletion::Async(async_state.clone()),
         };
 
+        completion_reservations.reserve(reservation_bytes);
         admission.reserved_completion_count += 1;
         admission.reserved_completion_bytes += reservation_bytes;
         worker
@@ -780,6 +828,7 @@ impl PluginWorkerEngine {
             .metrics
             .reserved_completion_bytes
             .fetch_add(reservation_bytes, Ordering::SeqCst);
+        drop(completion_reservations);
 
         let published = if already_expired {
             cancellation.cancel();
@@ -835,6 +884,12 @@ impl PluginWorkerEngine {
                 .leftover_completions
                 .lock()
                 .expect("plugin leftover completions mutex poisoned");
+            let mut completion_reservations = self
+                .inner
+                .shared
+                .completion_reservations
+                .lock()
+                .expect("plugin completion reservation mutex poisoned");
             while drain.item_count < max_items {
                 let Some(front) = leftover.front() else {
                     break;
@@ -843,6 +898,7 @@ impl PluginWorkerEngine {
                     break;
                 }
                 let item = leftover.pop_front().expect("front existed before pop");
+                completion_reservations.release(item.reservation_bytes);
                 self.inner
                     .shared
                     .metrics
@@ -886,6 +942,12 @@ impl PluginWorkerEngine {
                 .admission
                 .lock()
                 .expect("plugin worker admission mutex poisoned");
+            let mut completion_reservations = self
+                .inner
+                .shared
+                .completion_reservations
+                .lock()
+                .expect("plugin completion reservation mutex poisoned");
             while drain.item_count < max_items {
                 let Some(front) = admission.mailbox.front() else {
                     break;
@@ -897,6 +959,7 @@ impl PluginWorkerEngine {
                     .mailbox
                     .pop_front()
                     .expect("front existed before pop");
+                completion_reservations.release(item.reservation_bytes);
                 admission.reserved_completion_count =
                     admission.reserved_completion_count.saturating_sub(1);
                 admission.reserved_completion_bytes = admission
@@ -1034,7 +1097,21 @@ impl PluginWorkerEngine {
             .iter()
             .any(|plugin| plugin.request_response_saturated);
         let background_saturated = plugins.iter().any(|plugin| plugin.background_saturated);
-        let completions_saturated = plugins.iter().any(|plugin| plugin.completions_saturated);
+        let reserved_completion_count = self
+            .inner
+            .shared
+            .metrics
+            .reserved_completion_count
+            .load(Ordering::SeqCst);
+        let reserved_completion_bytes = self
+            .inner
+            .shared
+            .metrics
+            .reserved_completion_bytes
+            .load(Ordering::SeqCst);
+        let completions_saturated = reserved_completion_count
+            >= self.inner.shared.config.completion_queue_capacity
+            || reserved_completion_bytes >= self.inner.shared.config.completion_queue_byte_capacity;
 
         PluginWorkerDebugSnapshot {
             configured_queue_capacity: self.inner.shared.config.per_plugin_queue_capacity,
@@ -1128,18 +1205,8 @@ impl PluginWorkerEngine {
                 .metrics
                 .background_in_flight_jobs
                 .load(Ordering::SeqCst),
-            reserved_completion_count: self
-                .inner
-                .shared
-                .metrics
-                .reserved_completion_count
-                .load(Ordering::SeqCst),
-            reserved_completion_bytes: self
-                .inner
-                .shared
-                .metrics
-                .reserved_completion_bytes
-                .load(Ordering::SeqCst),
+            reserved_completion_count,
+            reserved_completion_bytes,
             undrained_completions: self
                 .inner
                 .shared
@@ -1314,6 +1381,7 @@ impl PluginWorkerEngine {
         worker: &WorkerState,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
         reason: &str,
     ) -> PluginAdmissionResult {
         let queue_bytes = plugin_invocation_queue_bytes(&request).unwrap_or(0);
@@ -1331,7 +1399,16 @@ impl PluginWorkerEngine {
         let reservation_bytes = queue_bytes
             .max(fallbacks.timed_out_bytes)
             .max(fallbacks.worker_stopped_bytes)
-            .max(fallbacks.oversize_bytes);
+            .max(fallbacks.oversize_bytes)
+            .max(completion_reservation_bytes);
+        if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "completion reservation exceeds completion byte capacity".to_string(),
+            };
+        }
         let plugin_key = request.handler.plugin_key.clone();
         let mut admission = match worker.admission.try_lock() {
             Ok(guard) => guard,
@@ -1351,11 +1428,19 @@ impl PluginWorkerEngine {
                 reason: "plugin worker stopped before accepting invocation".to_string(),
             };
         }
-        if admission.reserved_completion_count + 1
-            > self.inner.shared.config.completion_queue_capacity
-            || admission.reserved_completion_bytes + reservation_bytes
-                > self.inner.shared.config.completion_queue_byte_capacity
+        let mut completion_reservations = match self.inner.shared.completion_reservations.try_lock()
         {
+            Ok(guard) => guard,
+            Err(_) => {
+                return self.admission_backpressured(
+                    class,
+                    request,
+                    ADMISSION_LOCK_BUSY,
+                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
+                );
+            }
+        };
+        if completion_reservations.is_at_capacity(reservation_bytes, &self.inner.shared.config) {
             return self.admission_backpressured(
                 class,
                 request,
@@ -1363,6 +1448,7 @@ impl PluginWorkerEngine {
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
+        completion_reservations.reserve(reservation_bytes);
         admission.reserved_completion_count += 1;
         admission.reserved_completion_bytes += reservation_bytes;
         worker
@@ -1394,11 +1480,14 @@ impl PluginWorkerEngine {
         });
         let prepared = prepared_completion(class, handler_failed_result(&request, reason))
             .unwrap_or_else(|_| async_state.fallbacks.oversize.clone());
+        drop(completion_reservations);
         let published = publish_prepared_into(&mut admission, &async_state, prepared);
+        assert!(
+            published,
+            "a fresh immediate-failure terminal publishes exactly once"
+        );
         drop(admission);
-        if published {
-            notify_completion(&self.inner.shared);
-        }
+        notify_completion(&self.inner.shared);
         PluginAdmissionResult::Queued {
             request_id,
             class,
@@ -1695,8 +1784,6 @@ impl WorkerState {
                 || request_response_queued_bytes >= config.request_response_queue_byte_capacity,
             background_saturated: background_queued_jobs >= config.background_queue_capacity
                 || background_queued_bytes >= config.background_queue_byte_capacity,
-            completions_saturated: reserved_completion_count >= config.completion_queue_capacity
-                || reserved_completion_bytes >= config.completion_queue_byte_capacity,
             request_response_pressure_events: self
                 .metrics
                 .request_response_pressure_events
@@ -2638,6 +2725,20 @@ impl PluginWorkerEngine {
         self.try_admit(class, request, 1)
     }
 
+    fn try_admit_while_holding_completion_reservation_lock(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+    ) -> PluginAdmissionResult {
+        let _guard = self
+            .inner
+            .shared
+            .completion_reservations
+            .lock()
+            .expect("plugin completion reservation mutex poisoned");
+        self.try_admit(class, request, 1)
+    }
+
     fn try_admit_while_holding_cancellation_lock(
         &self,
         class: PluginInvocationClass,
@@ -3232,7 +3333,7 @@ mod tests {
     }
 
     #[test]
-    fn try_admit_returns_backpressured_when_registry_deadline_or_cancellation_lock_is_held() {
+    fn try_admit_returns_backpressured_when_an_internal_admission_lock_is_held() {
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("locks".into());
         load(&engine, &plugin, Duration::from_millis(1));
@@ -3247,6 +3348,13 @@ mod tests {
             engine.try_admit_while_holding_deadline_lock(
                 PluginInvocationClass::Background,
                 request("dead", handler(&plugin), 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        assert!(matches!(
+            engine.try_admit_while_holding_completion_reservation_lock(
+                PluginInvocationClass::Background,
+                request("completion", handler(&plugin), 1_000),
             ),
             PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
         ));
@@ -3273,6 +3381,18 @@ mod tests {
             engine.try_admit_while_holding_admission_lock(
                 PluginInvocationClass::Background,
                 request("fail", missing, 1_000),
+            ),
+            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+        ));
+        let missing = PluginHandlerRef {
+            plugin_key: plugin,
+            kind: PluginHandlerKind::Command,
+            handler_id: "missing-completion-lock".into(),
+        };
+        assert!(matches!(
+            engine.try_admit_while_holding_completion_reservation_lock(
+                PluginInvocationClass::Background,
+                request("fail-completion", missing, 1_000),
             ),
             PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
         ));

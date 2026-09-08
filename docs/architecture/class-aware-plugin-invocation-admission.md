@@ -215,7 +215,7 @@ Those Hub tickets consume the Core API; they are not implemented here.
 - Exact default byte capacities. Count defaults stay 256 via
   `QueueSource::PluginWorker.default_capacity()`. Byte defaults are a finite
   policy-free Core number: **1 MiB** per class queue and **1 MiB** for the
-  completion reservation pool. Hosts may lower them. Do not copy Hub
+  engine-wide completion reservation pool. Hosts may lower them. Do not copy Hub
   event-plane 512 KiB product numbers into Core.
 - Whether `PluginWorkerMessage` needs `TryAdmit` / `DrainCompletions`
   variants. Prefer methods on `PluginWorkerEngine` plus facade accessors.
@@ -362,6 +362,18 @@ reserved_completion_count
 reserved_completion_count <= completion_queue_capacity
 reserved_completion_bytes <= completion_queue_byte_capacity
 ```
+
+One engine-wide reservation pool enforces this invariant across all active and
+retired plugin generations. Reload and unload can move a completion to the
+retired mailbox, but neither operation releases its reservation. Only a drain
+or final engine destruction releases the reservation. Worker-local reservation
+counters provide attribution only and never control admission.
+
+Admission locks a worker admission state before it uses the shared reservation
+pool. Active drain uses the same order. Retired drain locks the retired mailbox
+before it uses the shared reservation pool. Shutdown releases the worker
+admission lock before it locks the retired mailbox. Core calls no host callback
+while it holds the reservation lock.
 
 At admit, build the **concrete** compact terminal outcomes for this request
 (same `request_id` and handler identity that will appear on the wire):
