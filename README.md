@@ -335,7 +335,8 @@ plugin-worker capability checks continue to use only
 its executor width. `per_plugin_queue_capacity` (RequestResponse count, default
 256) and `per_plugin_executor_concurrency` (default 2) remain the original
 knobs. Class-aware admission adds Background count/byte bounds, RequestResponse
-byte bounds, one engine-wide completion reservation pool, and
+byte bounds, one per-completion reservation byte bound, one engine-wide
+completion reservation pool, and
 `reserved_request_response_executors` (default 1). Reservation must be at least
 1 and strictly less than executor concurrency so a valid engine always has a
 Background execution slot. Queue capacity controls waiting jobs; executor

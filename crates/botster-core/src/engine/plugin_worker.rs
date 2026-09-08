@@ -51,6 +51,8 @@ pub struct PluginWorkerEngineConfig {
     pub background_queue_byte_capacity: usize,
     /// Maximum reserved async completions across the engine.
     pub completion_queue_capacity: usize,
+    /// Maximum bytes reserved for one async completion.
+    pub completion_reservation_byte_capacity: usize,
     /// Maximum reserved async completion bytes across the engine.
     pub completion_queue_byte_capacity: usize,
 }
@@ -65,6 +67,7 @@ impl Default for PluginWorkerEngineConfig {
             background_queue_capacity: QueueSource::PluginWorker.default_capacity(),
             background_queue_byte_capacity: DEFAULT_QUEUE_BYTE_CAPACITY,
             completion_queue_capacity: QueueSource::PluginWorker.default_capacity(),
+            completion_reservation_byte_capacity: DEFAULT_QUEUE_BYTE_CAPACITY,
             completion_queue_byte_capacity: DEFAULT_QUEUE_BYTE_CAPACITY,
         }
     }
@@ -403,6 +406,10 @@ impl PluginWorkerEngine {
             "completion queue capacity must be greater than zero"
         );
         assert!(
+            config.completion_reservation_byte_capacity > 0,
+            "completion reservation byte capacity must be greater than zero"
+        );
+        assert!(
             config.completion_queue_byte_capacity > 0,
             "completion queue byte capacity must be greater than zero"
         );
@@ -689,17 +696,32 @@ impl PluginWorkerEngine {
                 };
             }
         };
-        let reservation_bytes = queue_bytes
-            .max(fallbacks.timed_out_bytes)
-            .max(fallbacks.worker_stopped_bytes)
-            .max(fallbacks.oversize_bytes)
-            .max(completion_reservation_bytes);
+        let reservation_bytes = effective_completion_reservation_bytes(
+            queue_bytes,
+            &fallbacks,
+            completion_reservation_bytes,
+        );
+        if reservation_bytes
+            > self
+                .inner
+                .shared
+                .config
+                .completion_reservation_byte_capacity
+        {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "completion reservation exceeds per-completion byte capacity".to_string(),
+            };
+        }
         if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
             return PluginAdmissionResult::RejectedBudget {
                 request_id: request.request_id,
                 class,
                 queue_bytes: Some(queue_bytes),
-                reason: "completion reservation exceeds completion byte capacity".to_string(),
+                reason: "completion reservation exceeds engine completion pool byte capacity"
+                    .to_string(),
             };
         }
 
@@ -832,11 +854,16 @@ impl PluginWorkerEngine {
 
         let published = if already_expired {
             cancellation.cancel();
-            publish_prepared_into(
+            let published = publish_prepared_into(
                 &mut admission,
                 &async_state,
                 async_state.fallbacks.timed_out.clone(),
-            )
+            );
+            assert!(
+                published,
+                "a fresh already-expired terminal publishes exactly once"
+            );
+            published
         } else {
             cancellations.insert(request_id.clone(), cancellation.clone());
             admission.push_queued(class, job, &worker);
@@ -1384,7 +1411,25 @@ impl PluginWorkerEngine {
         completion_reservation_bytes: usize,
         reason: &str,
     ) -> PluginAdmissionResult {
-        let queue_bytes = plugin_invocation_queue_bytes(&request).unwrap_or(0);
+        let queue_bytes = match plugin_invocation_queue_bytes(&request) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return PluginAdmissionResult::RejectedBudget {
+                    request_id: request.request_id,
+                    class,
+                    queue_bytes: None,
+                    reason: "plugin invocation request could not be encoded".to_string(),
+                };
+            }
+        };
+        if queue_bytes > self.inner.shared.config.class_queue_byte_capacity(class) {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "plugin invocation exceeds class byte capacity".to_string(),
+            };
+        }
         let fallbacks = match build_completion_fallbacks(class, &request) {
             Ok(fallbacks) => fallbacks,
             Err(_) => {
@@ -1396,17 +1441,32 @@ impl PluginWorkerEngine {
                 };
             }
         };
-        let reservation_bytes = queue_bytes
-            .max(fallbacks.timed_out_bytes)
-            .max(fallbacks.worker_stopped_bytes)
-            .max(fallbacks.oversize_bytes)
-            .max(completion_reservation_bytes);
+        let reservation_bytes = effective_completion_reservation_bytes(
+            queue_bytes,
+            &fallbacks,
+            completion_reservation_bytes,
+        );
+        if reservation_bytes
+            > self
+                .inner
+                .shared
+                .config
+                .completion_reservation_byte_capacity
+        {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "completion reservation exceeds per-completion byte capacity".to_string(),
+            };
+        }
         if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
             return PluginAdmissionResult::RejectedBudget {
                 request_id: request.request_id,
                 class,
                 queue_bytes: Some(queue_bytes),
-                reason: "completion reservation exceeds completion byte capacity".to_string(),
+                reason: "completion reservation exceeds engine completion pool byte capacity"
+                    .to_string(),
             };
         }
         let plugin_key = request.handler.plugin_key.clone();
@@ -2192,6 +2252,18 @@ fn plugin_invocation_queue_bytes(request: &PluginInvocationRequest) -> Result<us
         .map_err(|_| ())
 }
 
+fn effective_completion_reservation_bytes(
+    queue_bytes: usize,
+    fallbacks: &CompletionFallbacks,
+    completion_reservation_bytes: usize,
+) -> usize {
+    queue_bytes
+        .max(fallbacks.timed_out_bytes)
+        .max(fallbacks.worker_stopped_bytes)
+        .max(fallbacks.oversize_bytes)
+        .max(completion_reservation_bytes)
+}
+
 fn encode_completion(completion: &PluginCompletion) -> Result<Vec<u8>, ()> {
     serde_json::to_vec(completion).map_err(|_| ())
 }
@@ -2343,6 +2415,8 @@ fn seal_and_publish(
             }
         }
     };
+    // Plugin code and host callbacks never run while Core holds this lock.
+    // A poisoned lock therefore identifies an internal programming error.
     let published = if let Ok(mut admission) = state.worker.admission.lock() {
         state
             .worker

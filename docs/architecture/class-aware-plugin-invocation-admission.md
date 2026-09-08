@@ -214,9 +214,10 @@ Those Hub tickets consume the Core API; they are not implemented here.
 
 - Exact default byte capacities. Count defaults stay 256 via
   `QueueSource::PluginWorker.default_capacity()`. Byte defaults are a finite
-  policy-free Core number: **1 MiB** per class queue and **1 MiB** for the
-  engine-wide completion reservation pool. Hosts may lower them. Do not copy Hub
-  event-plane 512 KiB product numbers into Core.
+  policy-free Core number: **1 MiB** per class queue, **1 MiB** for one
+  completion reservation, and **1 MiB** for the engine-wide completion pool.
+  Hosts may change them. Do not copy Hub event-plane 512 KiB product numbers
+  into Core.
 - Whether `PluginWorkerMessage` needs `TryAdmit` / `DrainCompletions`
   variants. Prefer methods on `PluginWorkerEngine` plus facade accessors.
   Add mailbox variants only if actor-contract inventory tests require the
@@ -238,6 +239,7 @@ PluginWorkerEngineConfig
   background_queue_capacity              // default 256
   background_queue_byte_capacity         // default 1 MiB
   completion_queue_capacity              // default 256
+  completion_reservation_byte_capacity   // default 1 MiB
   completion_queue_byte_capacity         // default 1 MiB
 ```
 
@@ -276,6 +278,7 @@ state.
 if any required try_lock fails -> Backpressured (reason: admission lock busy)
 if worker missing or stopping -> WorkerStopped
 if queue_bytes > class.queue_byte_capacity -> RejectedBudget
+if reservation_bytes > completion_reservation_byte_capacity -> RejectedBudget
 if class queued_count >= class.queue_capacity
    or class queued_bytes + queue_bytes > class.queue_byte_capacity
    or reserved_completion_count + 1 > completion_queue_capacity
@@ -369,6 +372,10 @@ retired mailbox, but neither operation releases its reservation. Only a drain
 or final engine destruction releases the reservation. Worker-local reservation
 counters provide attribution only and never control admission.
 
+One plugin's undrained completions can backpressure all plugins. The host drain
+rate controls release from the shared bound. The engine does not preserve
+per-plugin completion isolation.
+
 Admission locks a worker admission state before it uses the shared reservation
 pool. Active drain uses the same order. Retired drain locks the retired mailbox
 before it uses the shared reservation pool. Shutdown releases the worker
@@ -389,8 +396,15 @@ oversize_failed_bytes, completion_reservation_bytes)`. The host supplies
 `completion_reservation_bytes` as a positive bounded policy choice. Zero is
 `rejected_budget`; it is not an implicit request-derived mode. Core can raise
 the effective reservation to fit request and failure envelope overhead. Core
-rejects an effective reservation above `completion_queue_byte_capacity`. If
-any required encoding fails, admit returns
+rejects an effective reservation above
+`completion_reservation_byte_capacity` or `completion_queue_byte_capacity`.
+The first field bounds one reservation. The second field bounds the aggregate
+engine-wide pool. The per-completion ceiling is a defensive Core invariant.
+A valid Hub configuration cannot reach it because Hub allowances and class
+byte capacities do not exceed the ceiling. When the per-completion ceiling is
+not greater than the aggregate pool, it rejects first and makes the aggregate
+single-reservation rejection unreachable. Aggregate exhaustion still produces
+`backpressured`. If any required encoding fails, admit returns
 `rejected_budget`. There is no global fixture minimum.
 
 When the real completion is encoded:
