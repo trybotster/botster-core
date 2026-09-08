@@ -2413,6 +2413,294 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
 }
 
 #[test]
+fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
+    let plugin = plugin_key("reload-count-reservation");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_capacity: 1,
+        completion_queue_byte_capacity: 4_096,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("first"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("retired-count", command.clone(), 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().undrained_completions == 1
+    });
+
+    for generation in 2..=3 {
+        engine.reload_plugin(
+            PluginReloadSpec {
+                request_id: request_id(&format!("reload-count-{generation}")),
+                plugin_key: plugin.clone(),
+                load: load_spec(&plugin, vec![descriptor(&plugin, "run", command.clone())]),
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            },
+            registration(
+                &plugin,
+                FakeRuntime::success("next"),
+                command.clone(),
+                vec![descriptor(&plugin, "run", command.clone())],
+                Vec::new(),
+                None,
+            ),
+        );
+        assert!(matches!(
+            try_admit_with_completion_reservation_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                invocation(
+                    &format!("blocked-count-{generation}"),
+                    command.clone(),
+                    1_000,
+                ),
+                512,
+            ),
+            PluginAdmissionResult::Backpressured { .. }
+        ));
+    }
+
+    let _ = wait_for_completion(&engine, "retired-count");
+    let drained = engine.debug_snapshot();
+    assert_eq!(drained.reserved_completion_count, 0);
+    assert_eq!(drained.reserved_completion_bytes, 0);
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("released-count", command, 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+#[test]
+fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
+    let plugin = plugin_key("reload-byte-reservation");
+    let command = handler(&plugin, "run");
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_capacity: 8,
+        completion_queue_byte_capacity: 1_500,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("first"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        None,
+    ));
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("retired-bytes", command.clone(), 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    wait_until(Duration::from_millis(250), || {
+        engine.debug_snapshot().undrained_completions == 1
+    });
+
+    for generation in 2..=3 {
+        engine.reload_plugin(
+            PluginReloadSpec {
+                request_id: request_id(&format!("reload-bytes-{generation}")),
+                plugin_key: plugin.clone(),
+                load: load_spec(&plugin, vec![descriptor(&plugin, "run", command.clone())]),
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            },
+            registration(
+                &plugin,
+                FakeRuntime::success("next"),
+                command.clone(),
+                vec![descriptor(&plugin, "run", command.clone())],
+                Vec::new(),
+                None,
+            ),
+        );
+        assert!(matches!(
+            try_admit_with_completion_reservation_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                invocation(
+                    &format!("blocked-bytes-{generation}"),
+                    command.clone(),
+                    1_000,
+                ),
+                900,
+            ),
+            PluginAdmissionResult::Backpressured { .. }
+        ));
+    }
+
+    let _ = wait_for_completion(&engine, "retired-bytes");
+    let drained = engine.debug_snapshot();
+    assert_eq!(drained.reserved_completion_count, 0);
+    assert_eq!(drained.reserved_completion_bytes, 0);
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("released-bytes", command, 1_000),
+            900,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+#[test]
+fn active_plugins_share_one_engine_wide_completion_reservation() {
+    let first_plugin = plugin_key("shared-reservation-first");
+    let first_command = handler(&first_plugin, "run");
+    let second_plugin = plugin_key("shared-reservation-second");
+    let second_command = handler(&second_plugin, "run");
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_capacity: 1,
+        completion_queue_byte_capacity: 4_096,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &first_plugin,
+        FakeRuntime::success("first"),
+        first_command.clone(),
+        vec![descriptor(&first_plugin, "run", first_command.clone())],
+        Vec::new(),
+        None,
+    ));
+    engine.load_plugin(registration(
+        &second_plugin,
+        FakeRuntime::success("second"),
+        second_command.clone(),
+        vec![descriptor(&second_plugin, "run", second_command.clone())],
+        Vec::new(),
+        None,
+    ));
+
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("shared-first", first_command, 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("shared-blocked", second_command.clone(), 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Backpressured { .. }
+    ));
+
+    let _ = wait_for_completion(&engine, "shared-first");
+    let drained = engine.debug_snapshot();
+    assert_eq!(drained.reserved_completion_count, 0);
+    assert_eq!(drained.reserved_completion_bytes, 0);
+    assert!(matches!(
+        try_admit_with_completion_reservation_retrying_lock_busy(
+            &engine,
+            PluginInvocationClass::Background,
+            invocation("shared-released", second_command, 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+#[test]
+fn immediate_failure_uses_the_engine_wide_completion_reservation() {
+    let plugin = plugin_key("immediate-reservation");
+    let command = handler(&plugin, "run");
+    let required = network_capability();
+    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        completion_queue_capacity: 1,
+        completion_queue_byte_capacity: 1_024,
+        ..PluginWorkerEngineConfig::default()
+    });
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success("unused"),
+        command.clone(),
+        vec![descriptor(&plugin, "run", command.clone())],
+        Vec::new(),
+        Some(required.clone()),
+    ));
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("immediate-first", command.clone(), 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+
+    engine.reload_plugin(
+        PluginReloadSpec {
+            request_id: request_id("reload-immediate"),
+            plugin_key: plugin.clone(),
+            load: load_spec(&plugin, vec![descriptor(&plugin, "run", command.clone())]),
+            cleanup: PluginCleanupScope::DescriptorsAndResources,
+        },
+        registration(
+            &plugin,
+            FakeRuntime::success("unused"),
+            command.clone(),
+            vec![descriptor(&plugin, "run", command.clone())],
+            Vec::new(),
+            Some(required),
+        ),
+    );
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("immediate-blocked", command.clone(), 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Backpressured { .. }
+    ));
+
+    let completion = wait_for_completion(&engine, "immediate-first");
+    assert!(matches!(
+        completion.result,
+        PluginInvocationResult::Failed(failure)
+            if failure.kind == PluginInvocationFailureKind::HandlerFailed
+                && failure.reason.contains("capability")
+    ));
+    let drained = engine.debug_snapshot();
+    assert_eq!(drained.reserved_completion_count, 0);
+    assert_eq!(drained.reserved_completion_bytes, 0);
+    assert!(matches!(
+        engine.try_admit(
+            PluginInvocationClass::Background,
+            invocation("immediate-released", command, 1_000),
+            512,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+#[test]
 fn debug_snapshot_reports_live_class_fields() {
     let plugin = plugin_key("snap");
     let command = handler(&plugin, "run");
