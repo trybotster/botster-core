@@ -621,8 +621,10 @@ where
         &self,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
     ) -> PluginAdmissionResult {
-        self.plugins.try_admit(class, request)
+        self.plugins
+            .try_admit(class, request, completion_reservation_bytes)
     }
 
     /// Drain previously published async plugin completions without waiting.

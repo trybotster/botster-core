@@ -1225,6 +1225,8 @@ pub struct PluginInvocationRequest {
 pub enum PluginInvocationFailureKind {
     /// Handler returned a failure.
     HandlerFailed,
+    /// Handler result exceeded its reserved completion byte budget.
+    CompletionTooLarge,
     /// Handler exceeded the configured timeout.
     TimedOut,
     /// Invocation was cancelled by the runtime.

@@ -627,6 +627,7 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
         match engine.try_admit_plugin(
             PluginInvocationClass::Background,
             plugin_invocation_with_timeout("facade-timeout", handler.clone(), 10),
+            1,
         ) {
             queued @ PluginAdmissionResult::Queued { .. } => break queued,
             PluginAdmissionResult::Backpressured { reason, .. }

@@ -27,6 +27,8 @@ use botster_core_test_support::fake::{
     FakePluginRuntime, FakeSessionRuntime, FakeSessionWorkerRuntime,
 };
 
+const PLUGIN_ADMISSION_PROOF_COMPLETION_ALLOWANCE_BYTES: usize = 1024;
+
 /// Deterministic report emitted by the dev-only real embedder smoke harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineSmokeReport {
@@ -264,7 +266,11 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
     };
     let admit_started = Instant::now();
     let admitted = loop {
-        match engine.try_admit_plugin(PluginInvocationClass::Background, request.clone()) {
+        match engine.try_admit_plugin(
+            PluginInvocationClass::Background,
+            request.clone(),
+            PLUGIN_ADMISSION_PROOF_COMPLETION_ALLOWANCE_BYTES,
+        ) {
             PluginAdmissionResult::Queued { .. } => break true,
             PluginAdmissionResult::Backpressured { reason, .. }
                 if reason == "admission lock busy"

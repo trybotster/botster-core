@@ -369,10 +369,16 @@ At admit, build the **concrete** compact terminal outcomes for this request
 - `TimedOut` failure
 - `WorkerStopped` failure
 - oversize-result `Failed` with a fixed reason
-  `completion exceeded reserved byte budget`
+  `completion exceeded reserved byte budget` and typed kind
+  `CompletionTooLarge`
 
 `reservation_bytes = max(queue_bytes, timed_out_bytes, worker_stopped_bytes,
-oversize_failed_bytes)`. If any of those encodings fail, admit returns
+oversize_failed_bytes, completion_reservation_bytes)`. The host supplies
+`completion_reservation_bytes` as a positive bounded policy choice. Zero is
+`rejected_budget`; it is not an implicit request-derived mode. Core can raise
+the effective reservation to fit request and failure envelope overhead. Core
+rejects an effective reservation above `completion_queue_byte_capacity`. If
+any required encoding fails, admit returns
 `rejected_budget`. There is no global fixture minimum.
 
 When the real completion is encoded:

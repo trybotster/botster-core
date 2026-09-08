@@ -550,13 +550,27 @@ impl PluginWorkerEngine {
 
     /// Admit one invocation without waiting for execution or completion.
     ///
+    /// `completion_reservation_bytes` sets the host's positive completion
+    /// allowance. Core raises the effective reservation to fit request and
+    /// failure overhead. Core rejects an effective reservation above the
+    /// configured completion byte capacity.
+    ///
     /// Never blocks on job completion, `recv`, sleep, or a contended mutex.
     /// A busy registry or admission lock is [`PluginAdmissionResult::Backpressured`].
     pub fn try_admit(
         &self,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
     ) -> PluginAdmissionResult {
+        if completion_reservation_bytes == 0 {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: None,
+                reason: "completion reservation must be positive".to_string(),
+            };
+        }
         if self.inner.shared.stopping.load(Ordering::SeqCst) {
             return PluginAdmissionResult::WorkerStopped {
                 request_id: request.request_id,
@@ -635,7 +649,16 @@ impl PluginWorkerEngine {
         let reservation_bytes = queue_bytes
             .max(fallbacks.timed_out_bytes)
             .max(fallbacks.worker_stopped_bytes)
-            .max(fallbacks.oversize_bytes);
+            .max(fallbacks.oversize_bytes)
+            .max(completion_reservation_bytes);
+        if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "completion reservation exceeds completion byte capacity".to_string(),
+            };
+        }
 
         let plugin_key = request.handler.plugin_key.clone();
         let mut admission = match worker.admission.try_lock() {
@@ -668,10 +691,14 @@ impl PluginWorkerEngine {
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
-        if admission.reserved_completion_count + 1
-            > self.inner.shared.config.completion_queue_capacity
-            || admission.reserved_completion_bytes + reservation_bytes
-                > self.inner.shared.config.completion_queue_byte_capacity
+        if admission
+            .reserved_completion_count
+            .checked_add(1)
+            .is_none_or(|count| count > self.inner.shared.config.completion_queue_capacity)
+            || admission
+                .reserved_completion_bytes
+                .checked_add(reservation_bytes)
+                .is_none_or(|bytes| bytes > self.inner.shared.config.completion_queue_byte_capacity)
         {
             worker
                 .metrics
@@ -2111,7 +2138,7 @@ fn build_completion_fallbacks(
         PluginInvocationResult::Failed(PluginInvocationFailure {
             request_id: request.request_id.clone(),
             handler: request.handler.clone(),
-            kind: PluginInvocationFailureKind::HandlerFailed,
+            kind: PluginInvocationFailureKind::CompletionTooLarge,
             timeout_ms: None,
             reason: OVERSIZE_COMPLETION_REASON.to_string(),
         }),
@@ -2580,7 +2607,7 @@ impl PluginWorkerEngine {
             .admission
             .lock()
             .expect("plugin worker admission mutex poisoned");
-        self.try_admit(class, request)
+        self.try_admit(class, request, 1)
     }
 
     fn try_admit_while_holding_registry_lock(
@@ -2594,7 +2621,7 @@ impl PluginWorkerEngine {
             .workers
             .lock()
             .expect("plugin worker engine mutex poisoned");
-        self.try_admit(class, request)
+        self.try_admit(class, request, 1)
     }
 
     fn try_admit_while_holding_deadline_lock(
@@ -2608,7 +2635,7 @@ impl PluginWorkerEngine {
             .deadlines
             .lock()
             .expect("plugin deadline book mutex poisoned");
-        self.try_admit(class, request)
+        self.try_admit(class, request, 1)
     }
 
     fn try_admit_while_holding_cancellation_lock(
@@ -2624,7 +2651,7 @@ impl PluginWorkerEngine {
             .cancellations
             .lock()
             .expect("plugin worker cancellations mutex poisoned");
-        self.try_admit(class, request)
+        self.try_admit(class, request, 1)
     }
 
     fn tracked_job_count(&self, plugin_key: &PluginKey) -> usize {
@@ -2770,7 +2797,7 @@ mod tests {
     ) -> PluginAdmissionResult {
         let started = Instant::now();
         loop {
-            match engine.try_admit(class, request.clone()) {
+            match engine.try_admit(class, request.clone(), 1) {
                 PluginAdmissionResult::Backpressured { reason, .. }
                     if reason == ADMISSION_LOCK_BUSY
                         && started.elapsed() < Duration::from_millis(100) =>
