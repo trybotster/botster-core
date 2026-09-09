@@ -1361,7 +1361,9 @@ pub struct PluginCompletionItem {
 /// Bounded drain of previously published plugin completions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PluginCompletionDrain {
-    /// Completions released by this drain call, in mailbox order.
+    /// Completions released by this drain call, preserving each worker
+    /// generation's mailbox order. There is no global alphabetical ordering
+    /// or starvation-freedom guarantee across workers.
     pub completions: Vec<PluginCompletionItem>,
     /// Number of completions returned.
     pub item_count: usize,
