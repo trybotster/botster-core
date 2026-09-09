@@ -1467,7 +1467,9 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
         (_, TransportEgress::AttachState { .. })
     ));
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("inventory after attach")
@@ -1616,7 +1618,9 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
             .unwrap_or_else(|error| panic!("round {round} attach: {error:?}"));
         let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
         let generation = daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .into_iter()
             .find(|row| row.subscription_id == subscription_id)
             .unwrap_or_else(|| panic!("round {round} inventory"))
@@ -1748,7 +1752,9 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         )
         .expect("start incremental attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("inventory after attach")
@@ -1924,7 +1930,9 @@ fn worker_pending_replacement_does_not_start_the_old_subscription() {
         .attach(pending, session_id.clone(), new_sub.clone(), 13)
         .expect("replace pending");
     let live: Vec<_> = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .map(|row| row.subscription_id)
         .collect();
@@ -1983,7 +1991,9 @@ fn worker_same_key_owner_replacement_cancels_the_active_boundary() {
         .attach(first.clone(), session_id.clone(), subscription.clone(), 11)
         .expect("attach first owner");
     let first_gen = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription)
         .expect("first inventory")
@@ -2013,7 +2023,10 @@ fn worker_same_key_owner_replacement_cancels_the_active_boundary() {
             .all(|(client_id, _)| client_id != &first),
         "cancelled owner must not receive the replacement attach frames"
     );
-    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].client_id, second);
     assert_eq!(live[0].subscription_id, subscription);
@@ -2046,7 +2059,10 @@ fn worker_same_key_owner_replacement_cancels_the_active_boundary() {
         "replacement must start its own snapshot boundary: {:?}",
         replacement.client_egress
     );
-    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].client_id, second);
     let _ = fs::remove_dir_all(data_dir);
@@ -2092,7 +2108,10 @@ fn worker_same_key_takeover_preserves_pending_sibling_input_and_resize() {
     daemon
         .attach(second.clone(), session_id.clone(), first_sub.clone(), 15)
         .expect("take over first key");
-    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     assert!(live
         .iter()
         .any(|row| row.client_id == second && row.subscription_id == first_sub));
@@ -2134,7 +2153,10 @@ fn worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription()
     daemon
         .attach(second.clone(), session_id.clone(), first_sub.clone(), 13)
         .expect("take over first key");
-    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     assert!(live
         .iter()
         .any(|row| row.client_id == second && row.subscription_id == first_sub));
@@ -2164,7 +2186,10 @@ fn worker_same_key_takeover_drops_the_new_owners_obsolete_pending_subscription()
         "obsolete pending subscription must never start a snapshot boundary: {:?}",
         replacement.client_egress
     );
-    let live: Vec<_> = daemon.list_terminal_subscriptions();
+    let live: Vec<_> = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     assert!(live.iter().all(|row| row.subscription_id != stale_sub));
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4328,7 +4353,9 @@ fn terminal_subscription_generation_is_exact_membership() {
         )
         .expect("attach owner");
     let inventory = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.session_id == session_id && row.subscription_id == subscription_id)
         .expect("inventory row after attach");
@@ -6260,7 +6287,9 @@ fn bind_echo_worker(
         )
         .expect("attach echo worker");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("inventory after attach")
@@ -6369,7 +6398,9 @@ fn pump_woken_reconnects_and_rejects_stale_generation_ingress() {
         )
         .expect("attach generation N+1");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("N+1 inventory")
@@ -6435,7 +6466,9 @@ fn pump_woken_teardown_session_clears_ingress_and_inventory() {
         .expect("teardown session");
     let _ = daemon.drain(&session_id, 13);
     assert!(daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .iter()
         .all(|row| row.session_id != session_id));
     assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
@@ -6473,7 +6506,9 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         )
         .expect("attach second same-session owner");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == active_sub)
         .expect("active inventory")
@@ -6520,7 +6555,9 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
             saw_inventory_change |= outcome.terminal_inventory_changed;
         }
         let gone = daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub);
         if gone {
@@ -6534,7 +6571,9 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
     );
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub),
         "writer failure must sweep every same-session owner"
@@ -6606,7 +6645,9 @@ fn pump_woken_ingress_loss_and_malformed_input_remove_the_route() {
         assert!(pump_next_available_wake(&mut daemon, 30));
         assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
         assert!(daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .all(|row| row.subscription_id != failed_sub));
         let after = daemon.drain(&failed, 31).expect("drain after hard-stop");
@@ -6768,7 +6809,9 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
         pre_bind.client_egress
     );
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("inventory after attach")
@@ -6871,7 +6914,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             .is_empty()
     );
     let holder_generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == holder_sub)
         .expect("holder inventory after attach")
@@ -6890,7 +6935,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
         unsubscribe_count +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         let holder_live = daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.subscription_id == holder_sub);
         if !holder_live {
@@ -6900,7 +6947,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     }
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .all(|row| row.subscription_id != holder_sub),
         "first pre-bind overflow must remove the never-bound holder (after {pumps} pumps)"
@@ -6938,7 +6987,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         assert!(
             daemon
-                .list_terminal_subscriptions()
+                .list_terminal_subscriptions(1024 * 1024)
+                .expect("test inventory allowance")
+                .records
                 .iter()
                 .all(|row| row.subscription_id != holder_sub),
             "the failed never-bound route remains absent"
@@ -6963,7 +7014,9 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     );
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
         "sibling must remain bound"
@@ -7008,7 +7061,9 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         );
     }
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == holder_sub)
         .expect("holder inventory")
@@ -7035,7 +7090,9 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         unsubscribe_count +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
         if !daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.subscription_id == holder_sub)
             && unsubscribe_count > 0
@@ -7051,7 +7108,9 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         count_production_unsubscribe(&extra.observations, &holder, &session_id, &holder_sub);
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .all(|row| row.subscription_id != holder_sub),
         "closed adapter must remove the owner"
@@ -7064,7 +7123,9 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     assert_eq!(closed.snapshot_pressure(), TerminalAdapterPressure::Closed);
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.subscription_id == sibling_sub && row.adapter_bound),
         "sibling must remain bound"
@@ -7087,7 +7148,9 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     );
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.subscription_id == sibling_sub),
         "sibling must survive closed-adapter teardown"

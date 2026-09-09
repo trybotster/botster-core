@@ -31,7 +31,8 @@ use crate::contract::terminal_adapter::{
 };
 use crate::contract::terminal_subscription::{
     AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
-    StagedTerminalInput, TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    StagedTerminalInput, TerminalSubscriptionGeneration, TerminalSubscriptionInventory,
+    TerminalSubscriptionInventoryError, TerminalSubscriptionRecord,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
@@ -41,6 +42,22 @@ use crate::session_protocol::WorkerInputKind;
 use crate::transport::TransportEgress;
 
 const WRITE_ATTEMPT_BUDGET: usize = 512;
+
+fn inventory_add_bytes(
+    total: usize,
+    bytes: usize,
+) -> Result<usize, TerminalSubscriptionInventoryError> {
+    total
+        .checked_add(bytes)
+        .ok_or(TerminalSubscriptionInventoryError::SizeOverflow)
+}
+
+fn inventory_row_storage_bytes(rows: usize) -> Result<usize, TerminalSubscriptionInventoryError> {
+    let bytes = rows
+        .checked_mul(std::mem::size_of::<TerminalSubscriptionRecord>())
+        .ok_or(TerminalSubscriptionInventoryError::SizeOverflow)?;
+    inventory_add_bytes(std::mem::size_of::<TerminalSubscriptionInventory>(), bytes)
+}
 /// Stage A intake budget.
 pub const INTAKE_FRAMES_PER_SUBSCRIPTION_PER_TICK: usize = 64;
 /// Stage B apply budget.
@@ -563,29 +580,83 @@ impl ClientWorker {
         })
     }
 
-    /// Return control-plane inventory rows without terminal state.
-    #[must_use]
-    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
-        let mut records: Vec<_> = self
-            .live
-            .iter()
-            .map(|(key, owner)| TerminalSubscriptionRecord {
+    /// Return complete inventory only when its logical size fits the caller's
+    /// retained reservation. Sizing borrows owners before cloning any output.
+    pub fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
+        let mut logical_bytes = inventory_row_storage_bytes(self.live.len())?;
+        for (key, owner) in &self.live {
+            for bytes in [
+                owner.client_id.0.len(),
+                key.session_id.0.len(),
+                key.subscription_id.0.len(),
+            ] {
+                logical_bytes = inventory_add_bytes(logical_bytes, bytes)?;
+            }
+            if let Some(capabilities) = &owner.capabilities {
+                for token in capabilities.iter() {
+                    logical_bytes =
+                        inventory_add_bytes(logical_bytes, std::mem::size_of::<String>())?;
+                    logical_bytes = inventory_add_bytes(logical_bytes, token.len())?;
+                }
+            }
+        }
+        if logical_bytes > max_logical_bytes {
+            return Err(TerminalSubscriptionInventoryError::BudgetTooSmall {
+                required_bytes: logical_bytes,
+                max_bytes: max_logical_bytes,
+            });
+        }
+        let mut records = Vec::with_capacity(self.live.len());
+        for (key, owner) in &self.live {
+            records.push(TerminalSubscriptionRecord {
                 client_id: owner.client_id.clone(),
                 session_id: key.session_id.clone(),
                 subscription_id: key.subscription_id.clone(),
                 generation: owner.generation,
                 adapter_bound: owner.adapter.is_some(),
                 capabilities: owner.capabilities.clone(),
-            })
-            .collect();
-        records.sort_by(|left, right| {
+            });
+        }
+        // The map's unique (session, subscription) keys make ties impossible.
+        // Unstable in-place sorting preserves the old observable total order
+        // without the stable sort's temporary allocation.
+        records.sort_unstable_by(|left, right| {
             left.session_id
                 .0
                 .cmp(&right.session_id.0)
                 .then(left.subscription_id.0.cmp(&right.subscription_id.0))
                 .then(left.generation.0.cmp(&right.generation.0))
         });
-        records
+        Ok(TerminalSubscriptionInventory {
+            records,
+            logical_bytes,
+        })
+    }
+
+    /// Compare a live owner without materializing inventory or cloning IDs.
+    #[must_use]
+    pub fn terminal_subscription_matches(
+        &self,
+        session_id: &SessionId,
+        client_id: &ClientId,
+        subscription_id: &SubscriptionId,
+    ) -> bool {
+        self.live.iter().any(|(key, owner)| {
+            &key.session_id == session_id
+                && &key.subscription_id == subscription_id
+                && &owner.client_id == client_id
+        })
+    }
+
+    pub(crate) fn terminal_subscription_owners(
+        &self,
+    ) -> impl Iterator<Item = (&SessionId, &ClientId, &SubscriptionId)> {
+        self.live
+            .iter()
+            .map(|(key, owner)| (&key.session_id, &owner.client_id, &key.subscription_id))
     }
 
     /// Whether a live inventory row exists for this subscription.
@@ -2230,6 +2301,19 @@ mod tests {
     use botster_terminal_protocol::{
         decode_input_result, encode_snapshot_history, encode_snapshot_ready,
     };
+
+    #[test]
+    fn terminal_inventory_size_overflow_is_explicit() {
+        assert_eq!(
+            inventory_add_bytes(usize::MAX, 1),
+            Err(TerminalSubscriptionInventoryError::SizeOverflow)
+        );
+        assert_eq!(
+            inventory_row_storage_bytes(usize::MAX),
+            Err(TerminalSubscriptionInventoryError::SizeOverflow)
+        );
+        assert_eq!(inventory_add_bytes(usize::MAX - 1, 1), Ok(usize::MAX));
+    }
 
     /// Adapter whose write slot never drains, so frames stay queued in Core.
     struct StuckAdapter;

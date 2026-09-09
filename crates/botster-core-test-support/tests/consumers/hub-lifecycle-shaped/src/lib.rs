@@ -398,7 +398,9 @@ mod tests {
             )
             .expect("hub-shaped attach");
         let inventory = daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .into_iter()
             .find(|row| row.session_id == session_id && row.subscription_id == subscription_id)
             .expect("attach-created owner");

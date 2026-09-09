@@ -37,6 +37,41 @@ pub struct TerminalSubscriptionRecord {
     pub capabilities: Option<TerminalCapabilitySet>,
 }
 
+/// Complete inventory admitted against caller-owned logical byte capacity.
+///
+/// Logical bytes count this result wrapper, occupied row storage (including inline
+/// string and capability-set headers), identifier UTF-8 bytes, and one `String`
+/// header plus UTF-8 bytes per capability token. They exclude allocator metadata,
+/// spare capacity, and B-tree node padding/links.
+/// This is an exact logical size, not a measurement of allocator-resident bytes.
+/// Sorting is in place and needs no additional heap storage. The caller must
+/// retain its reservation while it retains these records.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TerminalSubscriptionInventory {
+    /// All live rows, ordered by session, subscription, and generation.
+    pub records: Vec<TerminalSubscriptionRecord>,
+    /// Logical bytes charged by the producer before constructing the rows.
+    pub logical_bytes: usize,
+}
+
+/// Inventory refusal before any output rows are allocated or cloned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TerminalSubscriptionInventoryError {
+    /// The complete inventory exceeds the caller's allowance; no partial rows.
+    #[error(
+        "terminal inventory requires {required_bytes} logical bytes; allowance is {max_bytes}"
+    )]
+    BudgetTooSmall {
+        /// Complete inventory's logical size.
+        required_bytes: usize,
+        /// Caller-supplied allowance.
+        max_bytes: usize,
+    },
+    /// Logical sizing overflowed `usize`.
+    #[error("terminal inventory logical byte size overflowed")]
+    SizeOverflow,
+}
+
 /// Typed rejection from `bind_waking_terminal_adapter`.
 ///
 /// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
