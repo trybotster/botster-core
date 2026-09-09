@@ -3022,6 +3022,7 @@ mod tests {
             let _ = runtime.shutdown_session(session_id, "test cleanup", 1);
         }
     }
+    #[cfg(all(unix, feature = "local-runtime"))]
     #[test]
     fn a_writer_failure_after_an_accepted_cancel_ends_the_control_link() {
         use std::io::Read;
