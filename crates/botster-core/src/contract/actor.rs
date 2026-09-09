@@ -1301,7 +1301,8 @@ pub enum PluginAdmissionResult {
         class: PluginInvocationClass,
         /// Encoded public request size counted against the class byte bound.
         queue_bytes: usize,
-        /// Completion-mailbox reservation for this job.
+        /// Total completion reservation: encoded payload allowance plus fixed
+        /// logical store metadata. Held until the completion is drained.
         reservation_bytes: usize,
     },
     /// The request cannot be accepted right now.

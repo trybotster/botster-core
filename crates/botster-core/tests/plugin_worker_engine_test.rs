@@ -2255,9 +2255,9 @@ fn explicit_completion_reservation_allows_a_larger_bounded_result() {
     assert!(matches!(
         admitted,
         PluginAdmissionResult::Queued {
-            reservation_bytes: 1_024,
+            reservation_bytes,
             ..
-        }
+        } if reservation_bytes == 1_024 + PluginWorkerEngine::completion_reservation_metadata_bytes()
     ));
     let completion = wait_for_completion(&engine, "explicit-reservation");
     assert!(matches!(
@@ -2267,6 +2267,45 @@ fn explicit_completion_reservation_allows_a_larger_bounded_result() {
             ..
         }) if payload == serde_json::json!({ "value": result_value })
     ));
+}
+
+#[test]
+fn completion_metadata_charge_does_not_enlarge_the_payload_allowance() {
+    let plugin = plugin_key("payload-only-limit");
+    let command = handler(&plugin, "run");
+    let value = "x".repeat(512);
+    let expected = PluginCompletion {
+        class: PluginInvocationClass::Background,
+        result: PluginInvocationResult::Completed(PluginInvocationSuccess {
+            request_id: request_id("payload-limit"),
+            handler: command.clone(),
+            payload: Some(BoundaryJson(serde_json::json!({ "value": value }))),
+        }),
+    };
+    let payload_bytes = 512;
+    let charged_bytes = payload_bytes + PluginWorkerEngine::completion_reservation_metadata_bytes();
+    let encoded_len = serde_json::to_vec(&expected)
+        .expect("encoded completion")
+        .len();
+    assert!(encoded_len > payload_bytes && encoded_len < charged_bytes);
+    let engine = PluginWorkerEngine::new();
+    engine.load_plugin(registration(
+        &plugin,
+        FakeRuntime::success(&value),
+        command.clone(),
+        Vec::new(),
+        Vec::new(),
+        None,
+    ));
+    assert!(
+        matches!(try_admit_with_completion_reservation_retrying_lock_busy(&engine, PluginInvocationClass::Background,
+        invocation("payload-limit", command, 1000), payload_bytes), PluginAdmissionResult::Queued { reservation_bytes, .. } if reservation_bytes == charged_bytes)
+    );
+    assert!(
+        matches!(wait_for_completion(&engine, "payload-limit").result, PluginInvocationResult::Failed(failure)
+        if failure.kind == PluginInvocationFailureKind::CompletionTooLarge)
+    );
+    assert_eq!(engine.debug_snapshot().reserved_completion_bytes, 0);
 }
 
 #[test]
@@ -2339,9 +2378,9 @@ fn per_completion_ceiling_checks_both_admission_paths() {
             1_024,
         ),
         PluginAdmissionResult::Queued {
-            reservation_bytes: 1_024,
+            reservation_bytes,
             ..
-        }
+        } if reservation_bytes == 1_024 + PluginWorkerEngine::completion_reservation_metadata_bytes()
     ));
     let _ = wait_for_completion(&engine, "exact-ceiling");
     assert!(matches!(
@@ -2457,7 +2496,8 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
-        completion_queue_byte_capacity: 1_500,
+        completion_queue_byte_capacity: 1_500
+            + PluginWorkerEngine::completion_reservation_metadata_bytes(),
         ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
@@ -2610,7 +2650,8 @@ fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
     let command = handler(&plugin, "run");
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         completion_queue_capacity: 8,
-        completion_queue_byte_capacity: 1_500,
+        completion_queue_byte_capacity: 1_500
+            + PluginWorkerEngine::completion_reservation_metadata_bytes(),
         ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
@@ -2635,7 +2676,10 @@ fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
     });
     let charged = engine.debug_snapshot();
     assert!(charged.reserved_completion_count < 8);
-    assert_eq!(charged.reserved_completion_bytes, 900);
+    assert_eq!(
+        charged.reserved_completion_bytes,
+        900 + PluginWorkerEngine::completion_reservation_metadata_bytes()
+    );
 
     for generation in 2..=3 {
         engine.reload_plugin(
@@ -2753,7 +2797,8 @@ fn immediate_failure_uses_the_engine_wide_completion_reservation() {
     let required = network_capability();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         completion_queue_capacity: 1,
-        completion_queue_byte_capacity: 1_024,
+        completion_queue_byte_capacity: 1_024
+            + PluginWorkerEngine::completion_reservation_metadata_bytes(),
         ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
