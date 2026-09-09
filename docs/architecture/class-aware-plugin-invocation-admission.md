@@ -355,32 +355,36 @@ tests must prove first-commit-wins.
 
 ### Completion reservation
 
-Admission, not completion time, owns mailbox capacity.
+Admission, not completion time, owns completion-store capacity.
 
 Invariant:
 
 ```text
 reserved_completion_count
-  = queued_async + in_flight_async + undrained_async_completions
+  = unpublished_reserved_slots + published_undrained_slots
 reserved_completion_count <= completion_queue_capacity
 reserved_completion_bytes <= completion_queue_byte_capacity
 ```
 
-One engine-wide reservation pool enforces this invariant across all active and
-retired plugin generations. Reload and unload can move a completion to the
-retired mailbox, but neither operation releases its reservation. Only a drain
-or final engine destruction releases the reservation. Worker-local reservation
-counters provide attribution only and never control admission.
+One engine-wide completion store and reservation pool enforce this invariant
+across all active and retired plugin generations. A slot is reserved before
+its logical metadata is allocated, and exists even before publication. The
+store owns generation routing and narrow metrics handles; worker admission
+has no completion mailbox or reservation counters. Reload and unload retire
+the generation under the store lock without releasing any reservation. Only
+drain or final engine destruction releases it. A deadline thread may win the
+terminal seal and pause before appending; its outstanding reservation retains
+the retired generation route until that publisher appends and the host drains.
+An empty published FIFO is not permission to remove a reserved generation.
 
 One plugin's undrained completions can backpressure all plugins. The host drain
 rate controls release from the shared bound. The engine does not preserve
 per-plugin completion isolation.
 
-Admission locks a worker admission state before it uses the shared reservation
-pool. Active drain uses the same order. Retired drain locks the retired mailbox
-before it uses the shared reservation pool. Shutdown releases the worker
-admission lock before it locks the retired mailbox. Core calls no host callback
-while it holds the reservation lock.
+Admission and retirement lock worker admission before the shared completion
+store. Publication and drain lock only the store and never acquire admission.
+Immediate publication uses the already-held store guard, without relocking.
+Host completion callbacks run only after all state guards are dropped.
 
 At admit, build the **concrete** compact terminal outcomes for this request
 (same `request_id` and handler identity that will appear on the wire):
@@ -391,25 +395,34 @@ At admit, build the **concrete** compact terminal outcomes for this request
   `completion exceeded reserved byte budget` and typed kind
   `CompletionTooLarge`
 
-`reservation_bytes = max(queue_bytes, timed_out_bytes, worker_stopped_bytes,
+`payload_bytes = max(queue_bytes, timed_out_bytes, worker_stopped_bytes,
 oversize_failed_bytes, completion_reservation_bytes)`. The host supplies
 `completion_reservation_bytes` as a positive bounded policy choice. Zero is
 `rejected_budget`; it is not an implicit request-derived mode. Core can raise
-the effective reservation to fit request and failure envelope overhead. Core
-rejects an effective reservation above
-`completion_reservation_byte_capacity` or `completion_queue_byte_capacity`.
-The first field bounds one reservation. The second field bounds the aggregate
-engine-wide pool. The per-completion ceiling is a defensive Core invariant.
-A valid Hub configuration cannot reach it because Hub allowances and class
-byte capacities do not exceed the ceiling. When the per-completion ceiling is
-not greater than the aggregate pool, it rejects first and makes the aggregate
-single-reservation rejection unreachable. Aggregate exhaustion still produces
-`backpressured`. If any required encoding fails, admit returns
-`rejected_budget`. There is no global fixture minimum.
+the effective payload allowance to fit request and failure envelope overhead.
+`completion_reservation_byte_capacity` bounds that encoded payload allowance.
+The charged reservation is `reservation_bytes = payload_bytes + metadata_bytes`
+with checked arithmetic. `completion_queue_byte_capacity` bounds the aggregate
+of those complete reservations. A single reservation larger than that pool or
+arithmetic/identity exhaustion is `rejected_budget`; aggregate saturation is
+`backpressured`. No configured capacity is increased to accommodate metadata.
+If required encoding fails, admission returns `rejected_budget`.
+
+`PluginWorkerEngine::completion_reservation_metadata_bytes()` reports a fixed,
+conservative logical allowance derived from Rust type sizes: a reservation
+slot and map key, generation row and map key, active-front index entry, root
+store/mutex wrapper, publication token/shared handle, and retained worker
+metrics/refcount storage. The slot and generation row include all FIFO links.
+Each slot reserves a full generation row/front entry even when shared with
+other slots. Allocator metadata, unused capacity and B-tree node padding/links
+are excluded from logical sizing. This is not allocator-resident accounting.
+The store reserves count/bytes and creates slot/routing metadata atomically
+before returning `Queued`; normal, already-expired and immediate-failure
+admissions use this same path. `Queued.reservation_bytes` includes metadata.
 
 When the real completion is encoded:
 
-- if it fits `reservation_bytes`, publish it
+- if it fits `payload_bytes`, publish it (metadata never enlarges payload)
 - if it does not, publish the **prebuilt** oversize failure for this request
 - never block an executor on the mailbox
 - never drop an open job without attempting a first-commit seal
@@ -434,7 +447,18 @@ backpressure, and worker-stopped keep current shapes.
 
 `drain_completions(max_items, max_bytes)` returns at most that many items /
 encoded completion bytes and never waits for future completions. It releases
-reservation as items leave the mailbox. Hosts own the poll loop
+reservation as items leave the store. Each generation preserves published
+FIFO order; there is no alphabetical cross-worker order or starvation promise.
+Retirement removes the active-front index before splicing the generation's
+published links onto the retired FIFO, without copying payloads or allocating
+a parallel retired index. Later retired publications append at that FIFO's tail.
+A fitting retired head has priority. An oversized retired head remains queued
+while a fitting active head can drain. Active fronts are indexed by numeric
+`(encoded_len, generation)`, so drain neither clones/sorts workers nor scans
+idle workers or oversized fronts. A blocked head still blocks its own active
+generation's later rows. Checked process-wide generation allocation and
+store-local slot allocation never wrap; exhausted workers cannot admit async
+jobs or insert deadlines. Hosts own the poll loop
 ([[botster core hosts need an explicit drain loop contract]]).
 
 ### Snapshots

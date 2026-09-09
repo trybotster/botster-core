@@ -24,7 +24,19 @@ use crate::manifest::PackageManifest;
 use crate::runtime::{PluginCancellationToken, PluginRuntime};
 use crate::session::RequestId;
 
+#[path = "plugin_completion_store.rs"]
+mod completion_store;
+use completion_store::{CompletionReservation, CompletionStore, StoreAdmissionError};
+
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn allocate_worker_generation(counter: &AtomicU64) -> Option<u64> {
+    counter
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |next| {
+            next.checked_add(1)
+        })
+        .ok()
+}
 
 const DEFAULT_QUEUE_BYTE_CAPACITY: usize = 1024 * 1024;
 const OVERSIZE_COMPLETION_REASON: &str = "completion exceeded reserved byte budget";
@@ -51,9 +63,9 @@ pub struct PluginWorkerEngineConfig {
     pub background_queue_byte_capacity: usize,
     /// Maximum reserved async completions across the engine.
     pub completion_queue_capacity: usize,
-    /// Maximum bytes reserved for one async completion.
+    /// Maximum encoded payload allowance for one async completion.
     pub completion_reservation_byte_capacity: usize,
-    /// Maximum reserved async completion bytes across the engine.
+    /// Maximum reserved payload and logical completion-store metadata bytes.
     pub completion_queue_byte_capacity: usize,
 }
 
@@ -263,22 +275,29 @@ struct PluginWorkerEngineInner {
 struct EngineShared {
     config: PluginWorkerEngineConfig,
     workers: Mutex<HashMap<PluginKey, WorkerState>>,
-    leftover_completions: Mutex<VecDeque<MailboxItem>>,
-    completion_reservations: Mutex<CompletionReservationPool>,
+    completions: Mutex<CompletionStore>,
     completion_notifier: Mutex<Option<PluginCompletionNotifier>>,
     metrics: Arc<PluginWorkerEngineMetrics>,
     deadlines: Mutex<DeadlineBook>,
     deadline_cvar: Condvar,
     stopping: AtomicBool,
+    #[cfg(test)]
+    publication_pause: Mutex<Option<Arc<PublicationPause>>>,
+}
+
+#[cfg(test)]
+struct PublicationPause {
+    generation: u64,
+    sealed: mpsc::SyncSender<()>,
+    resume: Mutex<mpsc::Receiver<()>>,
 }
 
 /// Completion lock order:
 ///
-/// - Admission locks a worker admission state before the shared reservation pool.
-/// - Active drain uses the same order.
-/// - Retired drain locks the leftover mailbox before the shared reservation pool.
-/// - Shutdown never holds a worker admission lock while it locks the leftover mailbox.
-/// - Host completion callbacks run after all reservation locks are released.
+/// - Admission and retirement lock worker admission before the completion store.
+/// - Completion publication and drain lock only the store, never admission.
+/// - The store owns every count/byte reservation and generation routing row.
+/// - Host completion callbacks run after every state guard has been dropped.
 #[derive(Default)]
 struct CompletionReservationPool {
     reserved_count: usize,
@@ -366,6 +385,16 @@ impl Default for PluginWorkerEngine {
 }
 
 impl PluginWorkerEngine {
+    /// Fixed conservative logical metadata allowance charged for each async
+    /// completion in addition to its encoded payload allowance. This includes
+    /// its slot, generation routing row, ready-front entry, FIFO links, and
+    /// publication handles; shared rows are conservatively charged per slot.
+    /// Allocator metadata, B-tree node padding and spare capacity are excluded.
+    #[must_use]
+    pub const fn completion_reservation_metadata_bytes() -> usize {
+        completion_store::metadata_bytes()
+    }
+
     /// Create a new engine with default queue and executor settings.
     pub fn new() -> Self {
         Self::with_config(PluginWorkerEngineConfig::default())
@@ -417,13 +446,14 @@ impl PluginWorkerEngine {
         let shared = Arc::new(EngineShared {
             config,
             workers: Mutex::new(HashMap::new()),
-            leftover_completions: Mutex::new(VecDeque::new()),
-            completion_reservations: Mutex::new(CompletionReservationPool::default()),
+            completions: Mutex::new(CompletionStore::default()),
             completion_notifier: Mutex::new(None),
             metrics: Arc::new(PluginWorkerEngineMetrics::default()),
             deadlines: Mutex::new(DeadlineBook::default()),
             deadline_cvar: Condvar::new(),
             stopping: AtomicBool::new(false),
+            #[cfg(test)]
+            publication_pause: Mutex::new(None),
         });
         let waiter_shared = shared.clone();
         let waiter = std::thread::Builder::new()
@@ -599,9 +629,10 @@ impl PluginWorkerEngine {
     /// Admit one invocation without waiting for execution or completion.
     ///
     /// `completion_reservation_bytes` sets the host's positive completion
-    /// allowance. Core raises the effective reservation to fit request and
-    /// failure overhead. Core rejects an effective reservation above the
-    /// configured completion byte capacity.
+    /// allowance. Core raises the payload allowance to fit request and failure
+    /// overhead, then charges fixed logical store metadata in addition. The
+    /// per-completion cap applies to payload; the engine pool includes metadata.
+    /// `Queued.reservation_bytes` reports the total retained reservation.
     ///
     /// Never blocks on job completion, `recv`, sleep, or a contended mutex.
     /// A busy registry or admission lock is [`PluginAdmissionResult::Backpressured`].
@@ -639,6 +670,14 @@ impl PluginWorkerEngine {
                 };
             }
             Ok(Some(worker)) => worker,
+        };
+        let Some(generation) = worker.generation else {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: None,
+                reason: "plugin worker generation identities exhausted".to_string(),
+            };
         };
 
         let handler = worker.handlers.get(&request.handler).cloned();
@@ -696,12 +735,12 @@ impl PluginWorkerEngine {
                 };
             }
         };
-        let reservation_bytes = effective_completion_reservation_bytes(
+        let payload_bytes = effective_completion_reservation_bytes(
             queue_bytes,
             &fallbacks,
             completion_reservation_bytes,
         );
-        if reservation_bytes
+        if payload_bytes
             > self
                 .inner
                 .shared
@@ -715,6 +754,15 @@ impl PluginWorkerEngine {
                 reason: "completion reservation exceeds per-completion byte capacity".to_string(),
             };
         }
+        let Some(reservation_bytes) = payload_bytes.checked_add(completion_store::metadata_bytes())
+        else {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "plugin completion reservation size overflowed".to_string(),
+            };
+        };
         if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
             return PluginAdmissionResult::RejectedBudget {
                 request_id: request.request_id,
@@ -756,8 +804,7 @@ impl PluginWorkerEngine {
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
-        let mut completion_reservations = match self.inner.shared.completion_reservations.try_lock()
-        {
+        let mut completions = match self.inner.shared.completions.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -768,24 +815,6 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        if completion_reservations.is_at_capacity(reservation_bytes, &self.inner.shared.config) {
-            worker
-                .metrics
-                .completion_pressure_events
-                .fetch_add(1, Ordering::SeqCst);
-            self.inner
-                .shared
-                .metrics
-                .completion_pressure_events
-                .fetch_add(1, Ordering::SeqCst);
-            return self.admission_backpressured(
-                class,
-                request,
-                "plugin completion reservation pool is at capacity",
-                Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-            );
-        }
-
         let mut deadlines = match self.inner.shared.deadlines.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
@@ -809,18 +838,44 @@ impl PluginWorkerEngine {
             }
         };
 
-        let request_id = request.request_id.clone();
         let timeout_ms = request.timeout_ms;
+        let Some(deadline) = Instant::now().checked_add(Duration::from_millis(timeout_ms)) else {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "plugin completion deadline is out of range".to_string(),
+            };
+        };
+        let reservation = match completions.reserve(
+            generation,
+            payload_bytes,
+            reservation_bytes,
+            &worker.metrics,
+            &self.inner.shared,
+        ) {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                return self.completion_admission_refused(
+                    error,
+                    class,
+                    request,
+                    queue_bytes,
+                    &worker,
+                )
+            }
+        };
+
+        let request_id = request.request_id.clone();
         let already_expired = timeout_ms == 0;
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let cancellation = PluginCancellationToken::new();
 
         let async_state = Arc::new(AsyncJobState {
             class,
-            reservation_bytes,
+            reservation,
             terminal: JobTerminal::new(),
             fallbacks,
-            worker: worker.clone(),
+            shared: self.inner.shared.clone(),
         });
         let job = WorkerJob {
             request,
@@ -829,33 +884,10 @@ impl PluginWorkerEngine {
             completion: JobCompletion::Async(async_state.clone()),
         };
 
-        completion_reservations.reserve(reservation_bytes);
-        admission.reserved_completion_count += 1;
-        admission.reserved_completion_bytes += reservation_bytes;
-        worker
-            .metrics
-            .reserved_completion_count
-            .fetch_add(1, Ordering::SeqCst);
-        worker
-            .metrics
-            .reserved_completion_bytes
-            .fetch_add(reservation_bytes, Ordering::SeqCst);
-        self.inner
-            .shared
-            .metrics
-            .reserved_completion_count
-            .fetch_add(1, Ordering::SeqCst);
-        self.inner
-            .shared
-            .metrics
-            .reserved_completion_bytes
-            .fetch_add(reservation_bytes, Ordering::SeqCst);
-        drop(completion_reservations);
-
         let published = if already_expired {
             cancellation.cancel();
             let published = publish_prepared_into(
-                &mut admission,
+                &mut completions,
                 &async_state,
                 async_state.fallbacks.timed_out.clone(),
             );
@@ -870,7 +902,7 @@ impl PluginWorkerEngine {
             deadlines.entries.push(DeadlineEntry {
                 at: deadline,
                 plugin_key,
-                generation: worker.generation,
+                generation,
                 request_id: request_id.clone(),
             });
             worker.work_cvar.notify_one();
@@ -880,6 +912,7 @@ impl PluginWorkerEngine {
 
         drop(cancellations);
         drop(deadlines);
+        drop(completions);
         drop(admission);
         if published {
             notify_completion(&self.inner.shared);
@@ -899,135 +932,23 @@ impl PluginWorkerEngine {
     /// most `max_bytes`. A completion that does not fit the remaining budget is
     /// left in the mailbox.
     pub fn drain_completions(&self, max_items: usize, max_bytes: usize) -> PluginCompletionDrain {
-        if max_items == 0 || max_bytes == 0 {
-            return self.finish_completion_drain(PluginCompletionDrain::default());
-        }
-
         let mut drain = PluginCompletionDrain::default();
-        {
-            let mut leftover = self
+        if max_items != 0 && max_bytes != 0 {
+            let mut completions = self
                 .inner
                 .shared
-                .leftover_completions
+                .completions
                 .lock()
-                .expect("plugin leftover completions mutex poisoned");
-            let mut completion_reservations = self
-                .inner
-                .shared
-                .completion_reservations
-                .lock()
-                .expect("plugin completion reservation mutex poisoned");
+                .expect("plugin completion store mutex poisoned");
             while drain.item_count < max_items {
-                let Some(front) = leftover.front() else {
+                let Some(item) = completions
+                    .take_fitting(max_bytes - drain.byte_count, &self.inner.shared.metrics)
+                else {
                     break;
                 };
-                if drain.byte_count + front.encoded_len > max_bytes {
-                    break;
-                }
-                let item = leftover.pop_front().expect("front existed before pop");
-                completion_reservations.release(item.reservation_bytes);
-                self.inner
-                    .shared
-                    .metrics
-                    .reserved_completion_count
-                    .fetch_sub(1, Ordering::SeqCst);
-                self.inner
-                    .shared
-                    .metrics
-                    .reserved_completion_bytes
-                    .fetch_sub(item.reservation_bytes, Ordering::SeqCst);
-                self.inner
-                    .shared
-                    .metrics
-                    .undrained_completions
-                    .fetch_sub(1, Ordering::SeqCst);
                 drain.item_count += 1;
                 drain.byte_count += item.encoded_len;
-                drain.completions.push(PluginCompletionItem {
-                    completion: item.completion,
-                    encoded_len: item.encoded_len,
-                });
-            }
-        }
-        if drain.item_count >= max_items {
-            return self.finish_completion_drain(drain);
-        }
-
-        let mut workers = self
-            .inner
-            .shared
-            .workers
-            .lock()
-            .expect("plugin worker engine mutex poisoned")
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        workers.sort_by(|left, right| left.plugin_key.0.cmp(&right.plugin_key.0));
-
-        for worker in workers {
-            let mut admission = worker
-                .admission
-                .lock()
-                .expect("plugin worker admission mutex poisoned");
-            let mut completion_reservations = self
-                .inner
-                .shared
-                .completion_reservations
-                .lock()
-                .expect("plugin completion reservation mutex poisoned");
-            while drain.item_count < max_items {
-                let Some(front) = admission.mailbox.front() else {
-                    break;
-                };
-                if drain.byte_count + front.encoded_len > max_bytes {
-                    break;
-                }
-                let item = admission
-                    .mailbox
-                    .pop_front()
-                    .expect("front existed before pop");
-                completion_reservations.release(item.reservation_bytes);
-                admission.reserved_completion_count =
-                    admission.reserved_completion_count.saturating_sub(1);
-                admission.reserved_completion_bytes = admission
-                    .reserved_completion_bytes
-                    .saturating_sub(item.reservation_bytes);
-                worker
-                    .metrics
-                    .reserved_completion_count
-                    .fetch_sub(1, Ordering::SeqCst);
-                worker
-                    .metrics
-                    .reserved_completion_bytes
-                    .fetch_sub(item.reservation_bytes, Ordering::SeqCst);
-                worker
-                    .metrics
-                    .undrained_completions
-                    .fetch_sub(1, Ordering::SeqCst);
-                self.inner
-                    .shared
-                    .metrics
-                    .reserved_completion_count
-                    .fetch_sub(1, Ordering::SeqCst);
-                self.inner
-                    .shared
-                    .metrics
-                    .reserved_completion_bytes
-                    .fetch_sub(item.reservation_bytes, Ordering::SeqCst);
-                self.inner
-                    .shared
-                    .metrics
-                    .undrained_completions
-                    .fetch_sub(1, Ordering::SeqCst);
-                drain.item_count += 1;
-                drain.byte_count += item.encoded_len;
-                drain.completions.push(PluginCompletionItem {
-                    completion: item.completion,
-                    encoded_len: item.encoded_len,
-                });
-            }
-            if drain.item_count >= max_items {
-                break;
+                drain.completions.push(item);
             }
         }
         self.finish_completion_drain(drain)
@@ -1411,6 +1332,14 @@ impl PluginWorkerEngine {
         completion_reservation_bytes: usize,
         reason: &str,
     ) -> PluginAdmissionResult {
+        let Some(generation) = worker.generation else {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: None,
+                reason: "plugin worker generation identities exhausted".to_string(),
+            };
+        };
         let queue_bytes = match plugin_invocation_queue_bytes(&request) {
             Ok(bytes) => bytes,
             Err(_) => {
@@ -1441,12 +1370,12 @@ impl PluginWorkerEngine {
                 };
             }
         };
-        let reservation_bytes = effective_completion_reservation_bytes(
+        let payload_bytes = effective_completion_reservation_bytes(
             queue_bytes,
             &fallbacks,
             completion_reservation_bytes,
         );
-        if reservation_bytes
+        if payload_bytes
             > self
                 .inner
                 .shared
@@ -1460,6 +1389,15 @@ impl PluginWorkerEngine {
                 reason: "completion reservation exceeds per-completion byte capacity".to_string(),
             };
         }
+        let Some(reservation_bytes) = payload_bytes.checked_add(completion_store::metadata_bytes())
+        else {
+            return PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "plugin completion reservation size overflowed".to_string(),
+            };
+        };
         if reservation_bytes > self.inner.shared.config.completion_queue_byte_capacity {
             return PluginAdmissionResult::RejectedBudget {
                 request_id: request.request_id,
@@ -1488,8 +1426,7 @@ impl PluginWorkerEngine {
                 reason: "plugin worker stopped before accepting invocation".to_string(),
             };
         }
-        let mut completion_reservations = match self.inner.shared.completion_reservations.try_lock()
-        {
+        let mut completions = match self.inner.shared.completions.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -1500,52 +1437,43 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        if completion_reservations.is_at_capacity(reservation_bytes, &self.inner.shared.config) {
-            return self.admission_backpressured(
-                class,
-                request,
-                "plugin completion reservation pool is at capacity",
-                Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-            );
-        }
-        completion_reservations.reserve(reservation_bytes);
-        admission.reserved_completion_count += 1;
-        admission.reserved_completion_bytes += reservation_bytes;
-        worker
-            .metrics
-            .reserved_completion_count
-            .fetch_add(1, Ordering::SeqCst);
-        worker
-            .metrics
-            .reserved_completion_bytes
-            .fetch_add(reservation_bytes, Ordering::SeqCst);
-        self.inner
-            .shared
-            .metrics
-            .reserved_completion_count
-            .fetch_add(1, Ordering::SeqCst);
-        self.inner
-            .shared
-            .metrics
-            .reserved_completion_bytes
-            .fetch_add(reservation_bytes, Ordering::SeqCst);
+        let reservation = match completions.reserve(
+            generation,
+            payload_bytes,
+            reservation_bytes,
+            &worker.metrics,
+            &self.inner.shared,
+        ) {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                return self.completion_admission_refused(
+                    error,
+                    class,
+                    request,
+                    queue_bytes,
+                    worker,
+                )
+            }
+        };
 
         let request_id = request.request_id.clone();
         let async_state = Arc::new(AsyncJobState {
             class,
-            reservation_bytes,
+            reservation,
             terminal: JobTerminal::new(),
             fallbacks,
-            worker: worker.clone(),
+            shared: self.inner.shared.clone(),
         });
         let prepared = prepared_completion(class, handler_failed_result(&request, reason))
-            .unwrap_or_else(|_| async_state.fallbacks.oversize.clone());
-        drop(completion_reservations);
-        let published = publish_prepared_into(&mut admission, &async_state, prepared);
+            .ok()
+            .filter(|prepared| prepared.encoded.len() <= payload_bytes)
+            .unwrap_or_else(|| async_state.fallbacks.oversize.clone());
+        let published = publish_prepared_into(&mut completions, &async_state, prepared);
         assert!(
             published,
             "a fresh immediate-failure terminal publishes exactly once"
         );
+        drop(completions);
         drop(admission);
         notify_completion(&self.inner.shared);
         PluginAdmissionResult::Queued {
@@ -1555,12 +1483,52 @@ impl PluginWorkerEngine {
             reservation_bytes,
         }
     }
+
+    fn completion_admission_refused(
+        &self,
+        error: StoreAdmissionError,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+        queue_bytes: usize,
+        worker: &WorkerState,
+    ) -> PluginAdmissionResult {
+        match error {
+            StoreAdmissionError::Capacity => {
+                worker
+                    .metrics
+                    .completion_pressure_events
+                    .fetch_add(1, Ordering::SeqCst);
+                self.inner
+                    .shared
+                    .metrics
+                    .completion_pressure_events
+                    .fetch_add(1, Ordering::SeqCst);
+                self.admission_backpressured(
+                    class,
+                    request,
+                    "plugin completion reservation pool is at capacity",
+                    Some(self.backpressure_snapshot(&worker.plugin_key, worker.queued_jobs())),
+                )
+            }
+            StoreAdmissionError::IdentityExhausted => PluginAdmissionResult::RejectedBudget {
+                request_id: request.request_id,
+                class,
+                queue_bytes: Some(queue_bytes),
+                reason: "plugin completion reservation identities exhausted".to_string(),
+            },
+            StoreAdmissionError::Retired => PluginAdmissionResult::WorkerStopped {
+                request_id: request.request_id,
+                class,
+                reason: "plugin completion generation is retired".to_string(),
+            },
+        }
+    }
 }
 
 #[derive(Clone)]
 struct WorkerState {
     plugin_key: PluginKey,
-    generation: u64,
+    generation: Option<u64>,
     manifest: PackageManifest,
     runtime: Arc<dyn PluginRuntime>,
     handlers: HashMap<PluginHandlerRef, PluginHandlerRegistration>,
@@ -1575,6 +1543,15 @@ struct WorkerState {
 
 impl WorkerState {
     fn new(registration: PluginWorkerRegistration, shared: Arc<EngineShared>) -> Self {
+        let generation = allocate_worker_generation(&NEXT_WORKER_GENERATION);
+        Self::with_generation(registration, shared, generation)
+    }
+
+    fn with_generation(
+        registration: PluginWorkerRegistration,
+        shared: Arc<EngineShared>,
+        generation: Option<u64>,
+    ) -> Self {
         let plugin_key = registration.load.plugin_key.clone();
         let descriptors = registration
             .load
@@ -1592,7 +1569,6 @@ impl WorkerState {
         let metrics = Arc::new(WorkerMetrics::default());
         let admission = Arc::new(Mutex::new(WorkerAdmission::default()));
         let work_cvar = Arc::new(Condvar::new());
-        let generation = NEXT_WORKER_GENERATION.fetch_add(1, Ordering::SeqCst);
         let executor_concurrency = shared.config.per_plugin_executor_concurrency;
         let mut join_handles = Vec::with_capacity(executor_concurrency);
         shared
@@ -1617,8 +1593,12 @@ impl WorkerState {
             let worker_cvar = work_cvar.clone();
             let worker_stopping = stopping.clone();
             let worker_config = shared.config.clone();
+            let thread_name = match generation {
+                Some(generation) => format!("botster-plugin-worker-{generation}-{worker_index}"),
+                None => format!("botster-plugin-worker-exhausted-{worker_index}"),
+            };
             let join_handle = std::thread::Builder::new()
-                .name(format!("botster-plugin-worker-{generation}-{worker_index}"))
+                .name(thread_name)
                 .spawn(move || {
                     let _liveness = WorkerLivenessGuard {
                         metrics: worker_metrics.clone(),
@@ -1731,7 +1711,9 @@ impl WorkerState {
         for token in tokens {
             token.cancel();
         }
-        remove_deadlines_for_generation(&self.shared, &self.plugin_key, self.generation);
+        if let Some(generation) = self.generation {
+            remove_deadlines_for_generation(&self.shared, &self.plugin_key, generation);
+        }
 
         let (queued, open_async) = {
             let mut admission = self
@@ -1739,6 +1721,13 @@ impl WorkerState {
                 .lock()
                 .expect("plugin worker admission mutex poisoned");
             admission.stopping = true;
+            if let Some(generation) = self.generation {
+                self.shared
+                    .completions
+                    .lock()
+                    .expect("plugin completion store mutex poisoned")
+                    .retire(generation);
+            }
             let queued = admission.drain_queued();
             let open_async = admission
                 .jobs
@@ -1774,20 +1763,6 @@ impl WorkerState {
             .unwrap_or_default();
         for join_handle in join_handles {
             let _ = join_handle.join();
-        }
-        let leftovers = self
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .mailbox
-            .drain(..)
-            .collect::<Vec<_>>();
-        if !leftovers.is_empty() {
-            self.shared
-                .leftover_completions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .extend(leftovers);
         }
         self.shared
             .metrics
@@ -1869,9 +1844,6 @@ struct WorkerAdmission {
     bg_queued_bytes: usize,
     executor_in_flight_rr: usize,
     executor_in_flight_bg: usize,
-    reserved_completion_count: usize,
-    reserved_completion_bytes: usize,
-    mailbox: VecDeque<MailboxItem>,
     jobs: HashMap<RequestId, TrackedJob>,
 }
 
@@ -2183,10 +2155,10 @@ enum JobCompletion {
 
 struct AsyncJobState {
     class: PluginInvocationClass,
-    reservation_bytes: usize,
+    reservation: CompletionReservation,
     terminal: JobTerminal,
     fallbacks: CompletionFallbacks,
-    worker: WorkerState,
+    shared: Arc<EngineShared>,
 }
 
 struct JobTerminal {
@@ -2221,12 +2193,6 @@ struct PreparedCompletion {
     completion: PluginCompletion,
     encoded: Vec<u8>,
     result: PluginInvocationResult,
-}
-
-struct MailboxItem {
-    completion: PluginCompletion,
-    encoded_len: usize,
-    reservation_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -2330,29 +2296,19 @@ fn prepared_completion(
 
 #[must_use]
 fn publish_prepared_into(
-    admission: &mut WorkerAdmission,
+    completions: &mut CompletionStore,
     state: &AsyncJobState,
     prepared: PreparedCompletion,
 ) -> bool {
     if !state.terminal.try_seal() {
         return false;
     }
-    state
-        .worker
-        .metrics
-        .undrained_completions
-        .fetch_add(1, Ordering::SeqCst);
-    state
-        .worker
-        .shared
-        .metrics
-        .undrained_completions
-        .fetch_add(1, Ordering::SeqCst);
-    admission.mailbox.push_back(MailboxItem {
-        completion: prepared.completion,
-        encoded_len: prepared.encoded.len(),
-        reservation_bytes: state.reservation_bytes,
-    });
+    completions.publish(
+        state.reservation,
+        prepared.completion,
+        prepared.encoded.len(),
+        &state.shared.metrics,
+    );
     true
 }
 
@@ -2367,20 +2323,12 @@ fn notify_completion(shared: &EngineShared) {
     }
 }
 
-fn remove_deadline_entry(
-    shared: &EngineShared,
-    plugin_key: &PluginKey,
-    generation: u64,
-    request_id: &RequestId,
-) {
+fn remove_deadline_entry(shared: &EngineShared, generation: u64, request_id: &RequestId) {
     let Ok(mut book) = shared.deadlines.lock() else {
         return;
     };
-    book.entries.retain(|entry| {
-        !(entry.plugin_key == *plugin_key
-            && entry.generation == generation
-            && entry.request_id == *request_id)
-    });
+    book.entries
+        .retain(|entry| !(entry.generation == generation && entry.request_id == *request_id));
 }
 
 fn remove_deadlines_for_generation(shared: &EngineShared, plugin_key: &PluginKey, generation: u64) {
@@ -2399,6 +2347,26 @@ fn seal_and_publish(
     if !state.terminal.try_seal() {
         return;
     }
+    #[cfg(test)]
+    {
+        let pause = state
+            .shared
+            .publication_pause
+            .lock()
+            .expect("publication pause")
+            .as_ref()
+            .filter(|pause| pause.generation == state.reservation.generation)
+            .cloned();
+        if let Some(pause) = pause {
+            pause.sealed.send(()).expect("test observes terminal seal");
+            pause
+                .resume
+                .lock()
+                .expect("publication resume")
+                .recv()
+                .expect("test releases publisher");
+        }
+    }
     let (completion, encoded) = match prepared {
         Some(prepared) => (prepared.completion, prepared.encoded),
         None => {
@@ -2407,7 +2375,9 @@ fn seal_and_publish(
                 result,
             };
             match encode_completion(&completion) {
-                Ok(encoded) if encoded.len() <= state.reservation_bytes => (completion, encoded),
+                Ok(encoded) if encoded.len() <= state.reservation.payload_bytes => {
+                    (completion, encoded)
+                }
                 _ => (
                     state.fallbacks.oversize.completion.clone(),
                     state.fallbacks.oversize.encoded.clone(),
@@ -2417,30 +2387,20 @@ fn seal_and_publish(
     };
     // Plugin code and host callbacks never run while Core holds this lock.
     // A poisoned lock therefore identifies an internal programming error.
-    let published = if let Ok(mut admission) = state.worker.admission.lock() {
-        state
-            .worker
-            .metrics
-            .undrained_completions
-            .fetch_add(1, Ordering::SeqCst);
-        state
-            .worker
+    {
+        let mut completions = state
             .shared
-            .metrics
-            .undrained_completions
-            .fetch_add(1, Ordering::SeqCst);
-        admission.mailbox.push_back(MailboxItem {
+            .completions
+            .lock()
+            .expect("plugin completion store mutex poisoned");
+        completions.publish(
+            state.reservation,
             completion,
-            encoded_len: encoded.len(),
-            reservation_bytes: state.reservation_bytes,
-        });
-        true
-    } else {
-        false
-    };
-    if published {
-        notify_completion(&state.worker.shared);
+            encoded.len(),
+            &state.shared.metrics,
+        );
     }
+    notify_completion(&state.shared);
 }
 
 fn complete_job(completion: JobCompletion, result: PluginInvocationResult) {
@@ -2454,12 +2414,7 @@ fn complete_job(completion: JobCompletion, result: PluginInvocationResult) {
                 PluginInvocationResult::Failed(failure) => failure.request_id.clone(),
             };
             seal_and_publish(&state, result, None);
-            remove_deadline_entry(
-                &state.worker.shared,
-                &state.worker.plugin_key,
-                state.worker.generation,
-                &request_id,
-            );
+            remove_deadline_entry(&state.shared, state.reservation.generation, &request_id);
         }
     }
 }
@@ -2656,7 +2611,7 @@ fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
             None => return,
         }
     };
-    if worker.generation != entry.generation {
+    if worker.generation != Some(entry.generation) {
         return;
     }
     let mut admission = match worker.admission.lock() {
@@ -2807,7 +2762,7 @@ impl PluginWorkerEngine {
         let _guard = self
             .inner
             .shared
-            .completion_reservations
+            .completions
             .lock()
             .expect("plugin completion reservation mutex poisoned");
         self.try_admit(class, request, 1)
@@ -2985,7 +2940,14 @@ mod tests {
     }
 
     fn load(engine: &PluginWorkerEngine, plugin: &PluginKey, delay: Duration) {
-        engine.load_plugin(PluginWorkerRegistration {
+        engine.load_plugin(registration(plugin, Arc::new(DelayRuntime::new(delay))));
+    }
+
+    fn registration(
+        plugin: &PluginKey,
+        runtime: Arc<dyn PluginRuntime>,
+    ) -> PluginWorkerRegistration {
+        PluginWorkerRegistration {
             load: PluginLoadSpec {
                 plugin_key: plugin.clone(),
                 package: "test".into(),
@@ -2994,13 +2956,13 @@ mod tests {
                 metadata: None,
             },
             manifest: manifest(),
-            runtime: Arc::new(DelayRuntime::new(delay)),
+            runtime,
             handlers: vec![PluginHandlerRegistration {
                 handler: handler(plugin),
                 required_capability: None,
             }],
             resources: Vec::new(),
-        });
+        }
     }
 
     fn publish_immediate_failure(
@@ -3022,13 +2984,15 @@ mod tests {
             PluginAdmissionResult::Queued { .. }
         ));
         let worker = engine.worker_for(plugin).expect("worker");
-        let admission = worker.admission.lock().expect("admission");
-        let encoded_len = admission
-            .mailbox
-            .back()
+        let store = engine
+            .inner
+            .shared
+            .completions
+            .lock()
+            .expect("completion store");
+        store
+            .last_published_len(worker.generation.expect("generation"))
             .expect("published completion")
-            .encoded_len;
-        encoded_len
     }
 
     fn completion_request_id(item: &PluginCompletionItem) -> &RequestId {
@@ -3036,6 +3000,329 @@ mod tests {
             PluginInvocationResult::Completed(success) => &success.request_id,
             PluginInvocationResult::Failed(failure) => &failure.request_id,
         }
+    }
+
+    fn completion_store_counts(engine: &PluginWorkerEngine) -> (usize, usize, usize, usize) {
+        engine
+            .inner
+            .shared
+            .completions
+            .lock()
+            .expect("completion store")
+            .counts()
+    }
+
+    #[test]
+    fn completion_store_admits_metadata_before_all_three_publication_paths() {
+        let payload_bytes = 4096;
+        let charged_bytes = payload_bytes + completion_store::metadata_bytes();
+        for (name, timeout) in [("run", 1000), ("run", 0), ("missing", 1000)] {
+            let plugin = PluginKey(format!("metadata-{name}-{timeout}"));
+            let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+                completion_queue_byte_capacity: charged_bytes - 1,
+                ..PluginWorkerEngineConfig::default()
+            });
+            load(&engine, &plugin, Duration::from_secs(1));
+            let mut reference = handler(&plugin);
+            reference.handler_id = name.into();
+            let rejected = engine.try_admit(
+                PluginInvocationClass::Background,
+                request("refused", reference, timeout),
+                payload_bytes,
+            );
+            assert!(
+                matches!(rejected, PluginAdmissionResult::RejectedBudget { reason, .. }
+                if reason == "completion reservation exceeds engine completion pool byte capacity")
+            );
+            assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
+            assert_eq!(engine.debug_snapshot().reserved_completion_count, 0);
+        }
+        let plugin = PluginKey("metadata-exact".into());
+        let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+            completion_queue_byte_capacity: charged_bytes,
+            ..PluginWorkerEngineConfig::default()
+        });
+        load(&engine, &plugin, Duration::from_secs(1));
+        let admitted = engine.try_admit(
+            PluginInvocationClass::Background,
+            request("exact", handler(&plugin), 0),
+            payload_bytes,
+        );
+        assert!(
+            matches!(admitted, PluginAdmissionResult::Queued { reservation_bytes, .. } if reservation_bytes == charged_bytes)
+        );
+        assert_eq!(completion_store_counts(&engine), (1, 1, 1, charged_bytes));
+        assert_eq!(
+            engine.debug_snapshot().reserved_completion_bytes,
+            charged_bytes
+        );
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("full", handler(&plugin), 0),
+                payload_bytes
+            ),
+            PluginAdmissionResult::Backpressured { .. }
+        ));
+        assert_eq!(completion_store_counts(&engine), (1, 1, 1, charged_bytes));
+        assert_eq!(engine.drain_completions(1, payload_bytes).item_count, 1);
+        assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
+        assert_eq!(engine.debug_snapshot().reserved_completion_bytes, 0);
+        assert_eq!(engine.drain_completions(1, payload_bytes).item_count, 0);
+    }
+
+    #[test]
+    fn completion_store_identity_exhaustion_never_creates_rows_or_credits() {
+        let generations = AtomicU64::new(u64::MAX - 1);
+        assert_eq!(allocate_worker_generation(&generations), Some(u64::MAX - 1));
+        assert_eq!(allocate_worker_generation(&generations), None);
+        assert_eq!(allocate_worker_generation(&generations), None);
+        let engine = PluginWorkerEngine::new();
+        for number in 0..2 {
+            let plugin = PluginKey(format!("exhausted-{number}"));
+            let worker = WorkerState::with_generation(
+                registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
+                engine.inner.shared.clone(),
+                None,
+            );
+            engine
+                .inner
+                .shared
+                .workers
+                .lock()
+                .expect("workers")
+                .insert(plugin.clone(), worker);
+            for (name, timeout) in [("run", 1000), ("run", 0), ("missing", 1000)] {
+                let mut reference = handler(&plugin);
+                reference.handler_id = name.into();
+                assert!(
+                    matches!(engine.try_admit(PluginInvocationClass::Background, request("no-generation", reference, timeout), 1),
+                    PluginAdmissionResult::RejectedBudget { reason, .. } if reason == "plugin worker generation identities exhausted")
+                );
+                assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
+                assert_eq!(engine.tracked_deadline_count(), 0);
+            }
+            engine.unload_plugin(PluginUnloadSpec {
+                request_id: RequestId("unload".into()),
+                plugin_key: plugin,
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            });
+        }
+        let plugin = PluginKey("slot-exhaustion".into());
+        load(&engine, &plugin, Duration::ZERO);
+        engine
+            .inner
+            .shared
+            .completions
+            .lock()
+            .expect("store")
+            .exhaust_slot_identities();
+        for name in ["run", "missing"] {
+            let mut reference = handler(&plugin);
+            reference.handler_id = name.into();
+            assert!(
+                matches!(engine.try_admit(PluginInvocationClass::Background, request("no-slot", reference, 0), 1),
+                PluginAdmissionResult::RejectedBudget { reason, .. } if reason == "plugin completion reservation identities exhausted")
+            );
+            assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
+        }
+    }
+
+    #[test]
+    fn completion_store_drop_releases_undrained_credits_once() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("drop-credits".into());
+        load(&engine, &plugin, Duration::ZERO);
+        let metrics = engine.inner.shared.metrics.clone();
+        let worker_metrics = engine.worker_for(&plugin).expect("worker").metrics;
+        publish_immediate_failure(&engine, &plugin, "not-drained");
+        assert_eq!(metrics.reserved_completion_count.load(Ordering::SeqCst), 1);
+        drop(engine);
+        assert_eq!(metrics.reserved_completion_count.load(Ordering::SeqCst), 0);
+        assert_eq!(metrics.reserved_completion_bytes.load(Ordering::SeqCst), 0);
+        assert_eq!(metrics.undrained_completions.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            worker_metrics
+                .reserved_completion_count
+                .load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            worker_metrics
+                .reserved_completion_bytes
+                .load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            worker_metrics.undrained_completions.load(Ordering::SeqCst),
+            0
+        );
+    }
+
+    struct HeldRuntime {
+        entered: mpsc::SyncSender<()>,
+        released: Mutex<bool>,
+        wake: Condvar,
+    }
+
+    impl PluginRuntime for HeldRuntime {
+        fn invoke(
+            &self,
+            request: PluginInvocationRequest,
+            _cancellation: PluginCancellationToken,
+        ) -> PluginInvocationResult {
+            self.entered.send(()).expect("test observes invocation");
+            let mut released = self.released.lock().expect("runtime gate");
+            while !*released {
+                released = self.wake.wait(released).expect("runtime gate");
+            }
+            handler_failed_result(&request, "runtime released")
+        }
+
+        fn stop(&self, _plugin_key: &PluginKey) {
+            *self.released.lock().expect("runtime gate") = true;
+            self.wake.notify_all();
+        }
+    }
+
+    fn deadline_publication_crosses_reload(publish_before_retire: bool) {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("paused-deadline".into());
+        let (entered, entered_rx) = mpsc::sync_channel(1);
+        let runtime = Arc::new(HeldRuntime {
+            entered,
+            released: Mutex::new(false),
+            wake: Condvar::new(),
+        });
+        engine.load_plugin(registration(&plugin, runtime));
+        let old = engine.worker_for(&plugin).expect("old worker");
+        let generation = old.generation.expect("generation");
+        let (sealed, sealed_rx) = mpsc::sync_channel(1);
+        let (resume, resume_rx) = mpsc::channel();
+        *engine.inner.shared.publication_pause.lock().expect("pause") =
+            Some(Arc::new(PublicationPause {
+                generation,
+                sealed,
+                resume: Mutex::new(resume_rx),
+            }));
+        let (notified, notified_rx) = mpsc::channel();
+        let shared = Arc::downgrade(&engine.inner.shared);
+        engine.install_completion_notifier(Arc::new(move || {
+            let shared = shared.upgrade().expect("engine alive");
+            let _store = shared
+                .completions
+                .try_lock()
+                .expect("notification after store unlock");
+            notified.send(()).expect("notification observed");
+        }));
+        assert!(matches!(
+            try_admit_retrying_lock_busy(
+                &engine,
+                PluginInvocationClass::Background,
+                request("same", handler(&plugin), 60_000)
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("handler entered");
+        {
+            let mut deadlines = engine.inner.shared.deadlines.lock().expect("deadline book");
+            deadlines
+                .entries
+                .iter_mut()
+                .find(|entry| entry.generation == generation)
+                .expect("admitted deadline")
+                .at = Instant::now();
+        }
+        engine.inner.shared.deadline_cvar.notify_all();
+        sealed_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("real deadline waiter sealed before publication");
+        assert_eq!(
+            old.metrics.reserved_completion_count.load(Ordering::SeqCst),
+            1
+        );
+        assert_eq!(old.metrics.undrained_completions.load(Ordering::SeqCst), 0);
+        if publish_before_retire {
+            resume.send(()).expect("publish before retire");
+            notified_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("deadline published");
+        }
+        load(&engine, &plugin, Duration::ZERO);
+        assert_ne!(
+            engine.worker_for(&plugin).expect("replacement").generation,
+            Some(generation)
+        );
+        assert_eq!(
+            old.metrics.reserved_completion_count.load(Ordering::SeqCst),
+            1,
+            "reload cannot release an outstanding reservation"
+        );
+        publish_immediate_failure(&engine, &plugin, "same");
+        notified_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("replacement published");
+        assert_eq!(completion_store_counts(&engine).2, 2);
+        let first = engine.drain_completions(1, usize::MAX);
+        assert_eq!(first.item_count, 1);
+        let expected = if publish_before_retire {
+            PluginInvocationFailureKind::TimedOut
+        } else {
+            PluginInvocationFailureKind::HandlerFailed
+        };
+        assert!(
+            matches!(&first.completions[0].completion.result, PluginInvocationResult::Failed(failure) if failure.kind == expected)
+        );
+        if !publish_before_retire {
+            assert_eq!(
+                old.metrics.reserved_completion_count.load(Ordering::SeqCst),
+                1
+            );
+            assert_eq!(
+                completion_store_counts(&engine).1,
+                1,
+                "empty retired route stays for unpublished reservation"
+            );
+            resume.send(()).expect("publish into retired generation");
+            notified_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("late deadline published");
+        }
+        let second = engine.drain_completions(1, usize::MAX);
+        assert_eq!(second.item_count, 1);
+        let expected = if publish_before_retire {
+            PluginInvocationFailureKind::HandlerFailed
+        } else {
+            PluginInvocationFailureKind::TimedOut
+        };
+        assert!(
+            matches!(&second.completions[0].completion.result, PluginInvocationResult::Failed(failure) if failure.kind == expected)
+        );
+        assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
+        assert_eq!(
+            old.metrics.reserved_completion_count.load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            old.metrics.reserved_completion_bytes.load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(old.metrics.undrained_completions.load(Ordering::SeqCst), 0);
+        assert_eq!(engine.debug_snapshot().reserved_completion_count, 0);
+        assert!(!second.has_remaining);
+        assert_eq!(engine.drain_completions(1, usize::MAX).item_count, 0);
+    }
+
+    #[test]
+    fn completion_store_keeps_retired_route_for_sealed_unpublished_deadline() {
+        deadline_publication_crosses_reload(false);
+    }
+
+    #[test]
+    fn completion_store_retires_published_deadline_before_replacement_front() {
+        deadline_publication_crosses_reload(true);
     }
 
     #[test]
@@ -3123,14 +3410,18 @@ mod tests {
     }
 
     #[test]
-    fn item_cap_still_stops_before_a_later_worker() {
+    fn item_cap_stops_after_one_fitting_front() {
         let engine = PluginWorkerEngine::new();
-        let first = PluginKey("a-first".into());
-        let second = PluginKey("b-second".into());
+        let first = PluginKey("z-first".into());
+        let second = PluginKey("a-second".into());
         load(&engine, &first, Duration::from_millis(1));
         load(&engine, &second, Duration::from_millis(1));
-        publish_immediate_failure(&engine, &first, "first");
-        publish_immediate_failure(&engine, &second, "second");
+        let first_len = publish_immediate_failure(&engine, &first, "first");
+        let second_len = publish_immediate_failure(&engine, &second, "second");
+        assert!(
+            first_len < second_len,
+            "numeric front size, not plugin name, selects first"
+        );
 
         let limited = engine.drain_completions(1, usize::MAX);
 
@@ -3177,15 +3468,24 @@ mod tests {
     }
 
     #[test]
-    fn immediate_completion_notifies_after_mailbox_unlock() {
+    fn immediate_completion_notifies_after_store_and_admission_unlock() {
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("immediate-notify".into());
         load(&engine, &plugin, Duration::from_millis(1));
         let admission = engine.worker_for(&plugin).expect("worker").admission;
+        let shared = Arc::downgrade(&engine.inner.shared);
         let (sender, receiver) = mpsc::channel();
         engine.install_completion_notifier(Arc::new(move || {
-            let admission = admission.try_lock().expect("mailbox lock is released");
-            assert!(!admission.mailbox.is_empty(), "completion is published");
+            let _admission = admission.try_lock().expect("admission lock is released");
+            let shared = shared.upgrade().expect("engine alive");
+            let _store = shared
+                .completions
+                .try_lock()
+                .expect("store lock is released");
+            assert!(
+                shared.metrics.undrained_completions.load(Ordering::SeqCst) > 0,
+                "completion is published"
+            );
             sender.send(()).expect("notification receiver");
         }));
         let missing = PluginHandlerRef {
@@ -3211,15 +3511,22 @@ mod tests {
     }
 
     #[test]
-    fn executed_completion_notifies_after_mailbox_unlock() {
+    fn executed_completion_notifies_after_store_unlock() {
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("executed-notify".into());
         load(&engine, &plugin, Duration::from_millis(1));
-        let admission = engine.worker_for(&plugin).expect("worker").admission;
+        let shared = Arc::downgrade(&engine.inner.shared);
         let (sender, receiver) = mpsc::channel();
         engine.install_completion_notifier(Arc::new(move || {
-            let admission = admission.try_lock().expect("mailbox lock is released");
-            assert!(!admission.mailbox.is_empty(), "completion is published");
+            let shared = shared.upgrade().expect("engine alive");
+            let _store = shared
+                .completions
+                .try_lock()
+                .expect("store lock is released");
+            assert!(
+                shared.metrics.undrained_completions.load(Ordering::SeqCst) > 0,
+                "completion is published"
+            );
             sender.send(()).expect("notification receiver");
         }));
 
