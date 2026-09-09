@@ -19,7 +19,7 @@ use crate::contract::terminal_screen::{TerminalKeyEvent, TerminalMouseEvent};
 use crate::contract::terminal_subscription::{
     AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
     StagedTerminalInput, TerminalCapabilitySet, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord,
+    TerminalSubscriptionInventory, TerminalSubscriptionInventoryError,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
@@ -1132,10 +1132,13 @@ where
         )
     }
 
-    /// Control-plane subscription inventory.
-    #[must_use]
-    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
-        self.client_worker.list_terminal_subscriptions()
+    /// Complete control-plane inventory admitted against caller-owned logical bytes.
+    pub fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
+        self.client_worker
+            .list_terminal_subscriptions(max_logical_bytes)
     }
 
     /// Monotonic revision of authoritative terminal route removals.
@@ -1223,13 +1226,13 @@ where
         subscription_id: &SubscriptionId,
     ) -> bool {
         self.client_worker
-            .list_terminal_subscriptions()
-            .iter()
-            .any(|row| {
-                &row.session_id == session_id
-                    && &row.client_id == client_id
-                    && &row.subscription_id == subscription_id
-            })
+            .terminal_subscription_matches(session_id, client_id, subscription_id)
+    }
+
+    pub(crate) fn terminal_subscription_owners(
+        &self,
+    ) -> impl Iterator<Item = (&SessionId, &ClientId, &SubscriptionId)> {
+        self.client_worker.terminal_subscription_owners()
     }
 
     /// Live generation for a subscription, if any.

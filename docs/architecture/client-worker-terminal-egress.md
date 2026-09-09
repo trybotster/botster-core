@@ -7,6 +7,24 @@ and no periodic scan; the host advances it from `wait_wakes` and `pump_woken`.
 
 ## Route identity
 
+Control-plane inventory uses `list_terminal_subscriptions(max_logical_bytes)`.
+The caller retains its byte reservation while holding the result. Core first
+measures borrowed owners with checked arithmetic; only a complete fitting
+inventory is cloned. `TerminalSubscriptionInventory` returns `records` and the
+exact `logical_bytes`. `BudgetTooSmall` and `SizeOverflow` return no rows and
+allocate no output. There is no unbounded compatibility entry point or paging
+fallback.
+
+Logical bytes include `size_of::<TerminalSubscriptionInventory>()` even for
+empty inventory, occupied `TerminalSubscriptionRecord` slots, the UTF-8 bytes
+of all three identifiers, and `size_of::<String>()` plus UTF-8 bytes for each
+capability token. Inline headers are already in the wrapper and row sizes.
+Allocator metadata, spare capacity, and implementation-specific B-tree node
+padding and links are excluded: this is logical retention accounting, not
+allocator-resident memory. Core adds no identifier limits. Sorting uses no heap
+scratch; unique `(session_id, subscription_id)` keys preserve deterministic
+session/subscription/generation order through an in-place unstable sort.
+
 Each live owner is keyed by `(session_id, subscription_id)`. On attach the
 worker allocates a generation from one shared monotonic allocator and
 validates the subscription id as a scheme 2 `RouteId`. Attach fails

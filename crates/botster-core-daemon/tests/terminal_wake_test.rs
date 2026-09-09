@@ -80,7 +80,9 @@ fn bind_size_reporting_worker(
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -726,7 +728,9 @@ fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -803,7 +807,10 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
             .expect("attach route");
     }
 
-    let subscriptions = daemon.list_terminal_subscriptions();
+    let subscriptions = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records;
     let owner_generation = subscriptions
         .iter()
         .find(|row| row.subscription_id == owner_subscription)
@@ -903,11 +910,16 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
         (&owner_subscription, owner_generation),
         (&sibling_subscription, sibling_generation),
     ] {
-        assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-            row.session_id == session_id
-                && row.subscription_id == *subscription
-                && row.generation == generation
-        }));
+        assert!(daemon
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
+            .iter()
+            .any(|row| {
+                row.session_id == session_id
+                    && row.subscription_id == *subscription
+                    && row.generation == generation
+            }));
     }
 
     pump_until_output(&mut daemon, &owner, b"echo:OWNER\r\n", 4);
@@ -964,7 +976,9 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
         )
         .expect("attach route");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -1021,11 +1035,16 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
         (24, 80),
         "registry geometry follows the completion wake, not accept"
     );
-    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-        row.session_id == session_id
-            && row.subscription_id == subscription_id
-            && row.generation == generation
-    }));
+    assert!(daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
+        .iter()
+        .any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == subscription_id
+                && row.generation == generation
+        }));
 
     let retained = wait_session_ingress_wake(&mut daemon, &session_id, 3);
     assert_eq!(retained.ingress_sessions, vec![session_id.clone()]);
@@ -1063,11 +1082,16 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
     pump_until_output(&mut daemon, &adapter, b"echo:SCRATCH\r\n", 5);
     let exact_echoes = adapter_output_count(&adapter, b"echo:SCRATCH\r\n");
     assert_eq!(exact_echoes, 1, "exact PTY echo must arrive once");
-    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-        row.session_id == session_id
-            && row.subscription_id == subscription_id
-            && row.generation == generation
-    }));
+    assert!(daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
+        .iter()
+        .any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == subscription_id
+                && row.generation == generation
+        }));
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -1102,7 +1126,9 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         )
         .expect("attach route");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -1171,11 +1197,16 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
     );
     assert_eq!(delivered_input_result_count(&adapter, 1..=1), 0);
     assert_eq!(delivered_input_result_count(&adapter, 2..=2), 0);
-    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-        row.session_id == session_id
-            && row.subscription_id == subscription_id
-            && row.generation == generation
-    }));
+    assert!(daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
+        .iter()
+        .any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == subscription_id
+                && row.generation == generation
+        }));
 
     let completion_deadline = Instant::now() + Duration::from_secs(5);
     let mut retained_resize_wake_observed = false;
@@ -1208,11 +1239,16 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             retained_resize_wake_observed = true;
             assert!(!adapter_output_contains(&adapter, b"echo:SCRATCH\r\n"));
         }
-        assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-            row.session_id == session_id
-                && row.subscription_id == subscription_id
-                && row.generation == generation
-        }));
+        assert!(daemon
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
+            .iter()
+            .any(|row| {
+                row.session_id == session_id
+                    && row.subscription_id == subscription_id
+                    && row.generation == generation
+            }));
         assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
     }
 
@@ -1289,11 +1325,16 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
         .iter()
         .any(|(_, result)| result.detail.contains("core_adapter_closed")));
     assert_ne!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
-    assert!(daemon.list_terminal_subscriptions().iter().any(|row| {
-        row.session_id == session_id
-            && row.subscription_id == subscription_id
-            && row.generation == generation
-    }));
+    assert!(daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
+        .iter()
+        .any(|row| {
+            row.session_id == session_id
+                && row.subscription_id == subscription_id
+                && row.generation == generation
+        }));
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -1318,7 +1359,9 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -1448,7 +1491,9 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("subscription")
@@ -2069,7 +2114,9 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
         )
         .expect("other attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("row")
@@ -2808,7 +2855,9 @@ fn bind_probe(
         )
         .expect("attach");
     let generation = daemon
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription_id)
         .expect("row")
@@ -2887,7 +2936,9 @@ fn ingress_only_wake_does_not_apply_sibling_route_input() {
         (sibling_client, sibling_sub.clone(), sibling.clone()),
     ] {
         let generation = daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .into_iter()
             .find(|row| row.subscription_id == subscription)
             .expect("inventory")
@@ -2958,14 +3009,18 @@ fn spurious_writable_wakes_hard_stop_one_route() {
     assert_eq!(inventory_changes, 1);
     assert!(
         !daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.session_id == session && row.subscription_id == sub),
         "512 rejected Writable pumps must UnsubscribeSession the blocked route"
     );
     assert!(
         daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.session_id == sibling_session && row.subscription_id == sibling_sub),
         "sibling must survive the spurious-wake hard-stop"

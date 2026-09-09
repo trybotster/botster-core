@@ -26,8 +26,8 @@ use botster_core::{
     SessionId, SessionIoEvent, SessionLifecycleState, SessionRuntimeError, SessionRuntimeErrorKind,
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
     TerminalCapabilitySet, TerminalColorProfile, TerminalSubscriptionGeneration,
-    TerminalSubscriptionRecord, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntimeOptions,
+    TerminalSubscriptionInventory, TerminalSubscriptionInventoryError, TransportEgress,
+    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use botster_terminal_protocol::HistoryUnavailableReason;
@@ -1375,10 +1375,12 @@ impl CoreDaemon {
         self.engine.wake_source()
     }
 
-    /// Control-plane subscription inventory. No terminal state is included.
-    #[must_use]
-    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
-        self.engine.list_terminal_subscriptions()
+    /// Complete control-plane inventory admitted against caller-owned logical bytes.
+    pub fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
+        self.engine.list_terminal_subscriptions(max_logical_bytes)
     }
 
     /// Exact live generation for one `(session_id, subscription_id)`, or `None`.
@@ -4622,10 +4624,13 @@ impl DaemonEngine {
         }
     }
 
-    fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
+    fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
         match self {
-            Self::Local(engine) => engine.list_terminal_subscriptions(),
-            Self::Worker(engine) => engine.list_terminal_subscriptions(),
+            Self::Local(engine) => engine.list_terminal_subscriptions(max_logical_bytes),
+            Self::Worker(engine) => engine.list_terminal_subscriptions(max_logical_bytes),
         }
     }
 

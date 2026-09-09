@@ -305,7 +305,8 @@ pub use terminal_screen::{
 pub use terminal_subscription::{
     AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
     StagedTerminalInput, TerminalCapabilitySet, TerminalCapabilitySetError, TerminalInputCommand,
-    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    TerminalSubscriptionGeneration, TerminalSubscriptionInventory,
+    TerminalSubscriptionInventoryError, TerminalSubscriptionRecord,
 };
 pub use terminal_wake::{
     SessionWakeHandle, TerminalWakeBatch, TerminalWakeInterrupt, TerminalWakeKind,

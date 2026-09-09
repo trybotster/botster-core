@@ -258,7 +258,9 @@ mod tests {
             )
             .expect("bind empty set through public Core API");
         let empty_row = engine
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .into_iter()
             .find(|row| row.subscription_id == subscription)
             .expect("empty-set inventory");
@@ -347,7 +349,9 @@ mod tests {
             )
             .expect("bind optional-token set");
         let row = engine
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .into_iter()
             .find(|row| row.subscription_id == subscription)
             .expect("optional-token inventory");

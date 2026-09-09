@@ -23,7 +23,8 @@ use crate::contract::notification::{
 use crate::contract::terminal_screen::TerminalSnapshotFramePhase;
 use crate::contract::terminal_subscription::{
     BindTerminalAdapterError, DetachTerminalSubscriptionResult, TerminalCapabilitySet,
-    TerminalSubscriptionGeneration, TerminalSubscriptionRecord,
+    TerminalSubscriptionGeneration, TerminalSubscriptionInventory,
+    TerminalSubscriptionInventoryError,
 };
 use crate::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, WakingTerminalAdapter,
@@ -612,10 +613,12 @@ impl DefaultBotsterEngine {
         self.runtime.wake_source()
     }
 
-    /// Control-plane subscription inventory.
-    #[must_use]
-    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
-        self.runtime.list_terminal_subscriptions()
+    /// Complete control-plane inventory admitted against caller-owned logical bytes.
+    pub fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
+        self.runtime.list_terminal_subscriptions(max_logical_bytes)
     }
 
     /// Monotonic revision of authoritative terminal route removals.
@@ -1250,10 +1253,12 @@ impl WorkerBackedBotsterEngine {
         self.runtime.wake_source()
     }
 
-    /// Control-plane subscription inventory.
-    #[must_use]
-    pub fn list_terminal_subscriptions(&self) -> Vec<TerminalSubscriptionRecord> {
-        self.runtime.list_terminal_subscriptions()
+    /// Complete control-plane inventory admitted against caller-owned logical bytes.
+    pub fn list_terminal_subscriptions(
+        &self,
+        max_logical_bytes: usize,
+    ) -> Result<TerminalSubscriptionInventory, TerminalSubscriptionInventoryError> {
+        self.runtime.list_terminal_subscriptions(max_logical_bytes)
     }
 
     /// Monotonic revision of authoritative terminal route removals.
@@ -2210,13 +2215,12 @@ impl WorkerBackedBotsterEngine {
         }
         let owners = self
             .runtime
-            .list_terminal_subscriptions()
-            .into_iter()
-            .filter(|row| {
-                row.session_id == *session_id
-                    && !excluded.contains(&(row.client_id.clone(), row.subscription_id.clone()))
+            .terminal_subscription_owners()
+            .filter(|(owner_session, client, subscription)| {
+                *owner_session == session_id
+                    && !excluded.contains(&((*client).clone(), (*subscription).clone()))
             })
-            .map(|row| (row.client_id, row.subscription_id))
+            .map(|(_, client, subscription)| (client.clone(), subscription.clone()))
             .collect::<Vec<_>>();
         self.runtime
             .session_runtime_mut()

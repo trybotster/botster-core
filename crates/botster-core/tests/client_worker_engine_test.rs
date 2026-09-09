@@ -124,7 +124,9 @@ trait LiveInventory {
 
 impl LiveInventory for DefaultBotsterEngine {
     fn has_live(&self, session: &SessionId, subscription: &SubscriptionId) -> bool {
-        self.list_terminal_subscriptions()
+        self.list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| &row.session_id == session && &row.subscription_id == subscription)
     }
@@ -394,7 +396,11 @@ fn rejected_attach_does_not_publish_inventory() {
             1,
         )
         .expect_err("unknown session");
-    assert!(engine.list_terminal_subscriptions().is_empty());
+    assert!(engine
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
+        .is_empty());
     let _ = error;
 }
 
@@ -421,7 +427,9 @@ fn empty_capability_set_binds_and_round_trips_inventory() {
         )
         .expect("empty set binds");
     let row = worker
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription)
         .expect("bound row");
@@ -475,7 +483,9 @@ fn second_bind_is_already_bound_even_when_the_set_differs() {
     assert!(closed.load(std::sync::atomic::Ordering::SeqCst));
     assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
     let row = worker
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .into_iter()
         .find(|row| row.subscription_id == subscription)
         .expect("still bound");
@@ -601,7 +611,9 @@ fn local_paste_rejects_without_pty_bytes_and_carries_operation_identity() {
 
 fn subscription_live(engine: &DefaultBotsterEngine, subscription: &SubscriptionId) -> bool {
     engine
-        .list_terminal_subscriptions()
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance")
+        .records
         .iter()
         .any(|row| &row.subscription_id == subscription)
 }

@@ -186,7 +186,9 @@ fn c_s1_real_worker_raw_echo_and_natural_exit_end_with_process_exit() {
     assert!(
         !harness
             .daemon
-            .list_terminal_subscriptions()
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
             .iter()
             .any(|row| row.session_id == session_id),
         "the terminal route must end after PROCESS_EXIT"
