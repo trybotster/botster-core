@@ -646,6 +646,17 @@ impl DefaultBotsterEngine {
         )
     }
 
+    /// Borrow the live client and generation, using an allocation-free O(n) scan.
+    #[must_use]
+    pub fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        self.runtime
+            .terminal_subscription_owner(session_id, subscription_id)
+    }
+
     /// Live generation for a subscription, if any.
     #[must_use]
     pub fn terminal_subscription_generation(
@@ -1296,6 +1307,17 @@ impl WorkerBackedBotsterEngine {
         let _ = self.start_next_capture(&session_id);
         let _ = self.sync_worker_consumers(&session_id);
         result
+    }
+
+    /// Borrow the live client and generation, using an allocation-free O(n) scan.
+    #[must_use]
+    pub fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        self.runtime
+            .terminal_subscription_owner(session_id, subscription_id)
     }
 
     /// Live generation for a subscription, if any.

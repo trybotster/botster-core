@@ -1383,6 +1383,22 @@ impl CoreDaemon {
         self.engine.list_terminal_subscriptions(max_logical_bytes)
     }
 
+    /// Borrow the live client identity and generation for one exact route.
+    ///
+    /// Uses an allocation-free O(n) scan. Only live owners are returned;
+    /// historical routes and pre-attach declarations are excluded. The borrow
+    /// ends before any subsequent mutation, so callers can retain scalar
+    /// client-match and generation decisions without cloning an inventory.
+    #[must_use]
+    pub fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        self.engine
+            .terminal_subscription_owner(session_id, subscription_id)
+    }
+
     /// Exact live generation for one `(session_id, subscription_id)`, or `None`.
     ///
     /// This query is independent of inventory size. It does not clone or sort
@@ -4663,6 +4679,17 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.bound_owner_has_held_frames(session_id, subscription_id),
             Self::Worker(engine) => engine.bound_owner_has_held_frames(session_id, subscription_id),
+        }
+    }
+
+    fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        match self {
+            Self::Local(engine) => engine.terminal_subscription_owner(session_id, subscription_id),
+            Self::Worker(engine) => engine.terminal_subscription_owner(session_id, subscription_id),
         }
     }
 
