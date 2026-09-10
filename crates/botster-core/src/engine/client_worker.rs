@@ -636,6 +636,25 @@ impl ClientWorker {
         })
     }
 
+    /// Borrow the live client identity and generation for one exact route.
+    ///
+    /// Scans live owners without allocating or cloning identifiers. This is
+    /// O(n) lookup work, not a constant-time index. Historical routes and
+    /// expected-but-unattached adapters are not live owners.
+    #[must_use]
+    pub fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        self.live
+            .iter()
+            .find(|(key, _)| {
+                &key.session_id == session_id && &key.subscription_id == subscription_id
+            })
+            .map(|(_, owner)| (&owner.client_id, owner.generation))
+    }
+
     /// Compare a live owner without materializing inventory or cloning IDs.
     #[must_use]
     pub fn terminal_subscription_matches(

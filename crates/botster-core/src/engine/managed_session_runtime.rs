@@ -1235,6 +1235,17 @@ where
         self.client_worker.terminal_subscription_owners()
     }
 
+    /// Borrow the live client and generation, using an allocation-free O(n) scan.
+    #[must_use]
+    pub fn terminal_subscription_owner(
+        &self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<(&ClientId, TerminalSubscriptionGeneration)> {
+        self.client_worker
+            .terminal_subscription_owner(session_id, subscription_id)
+    }
+
     /// Live generation for a subscription, if any.
     #[must_use]
     pub fn terminal_subscription_generation(
