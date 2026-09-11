@@ -13,12 +13,14 @@ use std::os::unix::net::UnixListener;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use botster_core::{
-    BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine, NotificationPayload,
-    PromptMarkPayload, QueueSource, RequestId, ResizePayload, SessionId, SessionMetadata,
+    write_startup_failure, BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine,
+    NotificationPayload, PromptMarkPayload, QueueSource, RequestId, ReservedSessionSpawnError,
+    ResizePayload, SessionId, SessionMetadata, SessionReservationRelease, SessionReservationState,
     SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalWakeSource,
-    TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, StartupFailureOutcome,
+    StartupFailureReport, SubscriptionId, TerminalMetadataShapingObservation,
+    TerminalMetadataShapingOutcome, TerminalWakeSource, TransportEgress, WorkerBackedBotsterEngine,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
 use sha2::{Digest, Sha256};
 
@@ -1953,4 +1955,259 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
     stdin.flush().expect("flush spawn frame");
     drop(stdin);
     let _ = child.wait();
+}
+
+fn write_signaling_worker(
+    dir: &std::path::Path,
+    name: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let script = dir.join(name);
+    let pid_path = dir.join(format!("{name}.pid"));
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
+            pid_path.display()
+        ),
+    )
+    .expect("write signaling worker");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
+        .expect("make signaling worker executable");
+    (script, pid_path)
+}
+
+fn reserved_spawn(
+    runtime: &mut WorkerProcessRuntime,
+    request: SessionSpawnRequest,
+) -> (
+    botster_core::SessionReservation,
+    Result<botster_core::SessionRuntimeHandle, ReservedSessionSpawnError>,
+) {
+    let admission = runtime
+        .session_admission()
+        .expect("worker runtime admission")
+        .clone();
+    let reservation = admission
+        .reserve(request.session_id.clone())
+        .expect("prelaunch reservation");
+    let result = runtime.spawn_reserved(&reservation, request);
+    (reservation, result)
+}
+
+#[test]
+fn real_worker_missing_executable_is_not_created_and_releases() {
+    let mut runtime = WorkerProcessRuntime::with_options(worker_options());
+    let session = session_id("spf1-missing-child");
+    let mut request = shell_request(session, "exit 0");
+    request.executable = "/no/such/botster-session-child".to_string();
+    request.arguments.clear();
+    let (reservation, result) = reserved_spawn(&mut runtime, request);
+    result.expect_err("missing child executable");
+    assert!(!reservation.startup_created_child());
+    assert_eq!(reservation.state(), SessionReservationState::Ended);
+    assert_eq!(
+        runtime
+            .session_admission()
+            .expect("admission")
+            .release(&reservation)
+            .expect("release not created"),
+        SessionReservationRelease::Released
+    );
+}
+
+#[test]
+fn spf1_wrong_worker_pid_is_unknown() {
+    let control_dir = temp_control_dir("spf1-pid");
+    create_private_control_dir(&control_dir);
+    let session = session_id("spf1-wrong-pid");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let (worker_script, worker_pid_path) = write_signaling_worker(&control_dir, "spf1-worker");
+    let server_pid_path = worker_pid_path.clone();
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        assert!(wait_until(|| server_pid_path.exists()));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        botster_core::read_hello(&mut stream).expect("read hello");
+        let mut frame_len = [0_u8; 4];
+        stream
+            .read_exact(&mut frame_len)
+            .expect("read spawn frame length");
+        let frame_len = u32::from_le_bytes(frame_len) as usize;
+        let mut frame = vec![0_u8; frame_len];
+        stream
+            .read_exact(&mut frame)
+            .expect("read complete spawn frame");
+        assert_eq!(frame[0], botster_core::FRAME_SPAWN_SESSION);
+        let request: SessionSpawnRequest =
+            serde_json::from_slice(&frame[1..]).expect("decode spawn request");
+        write_startup_failure(
+            &mut stream,
+            &StartupFailureReport {
+                request_id: request.request_id.0,
+                session_id: request.session_id.0,
+                worker_pid: 1,
+                message: "wrong pid".to_string(),
+                outcome: StartupFailureOutcome::NotCreated,
+            },
+        )
+        .expect("write mismatched spf1");
+    });
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let (reservation, result) = reserved_spawn(&mut runtime, shell_request(session, "cat"));
+    result.expect_err("mismatched worker pid");
+    server.join().expect("fake worker server");
+    assert_eq!(
+        reservation.state(),
+        SessionReservationState::CleanupUnconfirmed
+    );
+    assert_eq!(
+        runtime
+            .session_admission()
+            .expect("admission")
+            .release(&reservation)
+            .expect("retain unknown"),
+        SessionReservationRelease::RetainedUnconfirmed
+    );
+    let _ = std::fs::remove_file(worker_pid_path);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn old_worker_exits_before_connect_is_not_created() {
+    let control_dir = temp_control_dir("spf1-old-before");
+    create_private_control_dir(&control_dir);
+    let session = session_id("spf1-old-before-connect");
+    let worker_script = control_dir.join("old-worker");
+    std::fs::write(
+        &worker_script,
+        "#!/bin/sh\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\necho old-worker-stderr >&2\nexit 1\n",
+    )
+    .expect("write old worker");
+    std::fs::set_permissions(&worker_script, std::fs::Permissions::from_mode(0o700))
+        .expect("make old worker executable");
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let (reservation, result) = reserved_spawn(&mut runtime, shell_request(session, "cat"));
+    result.expect_err("old worker before connect");
+    assert!(!reservation.startup_created_child());
+    assert_eq!(reservation.state(), SessionReservationState::Ended);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn old_worker_reads_spawn_frame_then_exits_without_spf1_is_unknown() {
+    let control_dir = temp_control_dir("spf1-old-after");
+    create_private_control_dir(&control_dir);
+    let session = session_id("spf1-old-after-spawn");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let (worker_script, worker_pid_path) = write_signaling_worker(&control_dir, "old-after");
+    let server_pid_path = worker_pid_path.clone();
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        assert!(wait_until(|| server_pid_path.exists()));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        botster_core::read_hello(&mut stream).expect("read hello");
+        let mut frame_len = [0_u8; 4];
+        stream
+            .read_exact(&mut frame_len)
+            .expect("read spawn frame length");
+        let frame_len = u32::from_le_bytes(frame_len) as usize;
+        let mut frame = vec![0_u8; frame_len];
+        stream
+            .read_exact(&mut frame)
+            .expect("read complete spawn frame");
+        assert_eq!(frame[0], botster_core::FRAME_SPAWN_SESSION);
+        let _ = std::io::Write::write_all(&mut std::io::stderr(), b"old-worker-stderr\n");
+    });
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let (reservation, result) = reserved_spawn(&mut runtime, shell_request(session, "cat"));
+    result.expect_err("old worker after spawn frame");
+    server.join().expect("fake worker server");
+    assert_eq!(
+        reservation.state(),
+        SessionReservationState::CleanupUnconfirmed
+    );
+    let _ = std::fs::remove_file(worker_pid_path);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
+}
+
+#[test]
+fn crash_before_hello_is_not_created_crash_after_spawn_frame_is_unknown() {
+    let before_dir = temp_control_dir("spf1-before");
+    create_private_control_dir(&before_dir);
+    let before_session = session_id("spf1-before-hello");
+    let before_script = before_dir.join("crash-before");
+    std::fs::write(
+        &before_script,
+        "#!/bin/sh\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexit 1\n",
+    )
+    .expect("write crash-before worker");
+    std::fs::set_permissions(&before_script, std::fs::Permissions::from_mode(0o700))
+        .expect("make crash-before executable");
+    let mut before_options = worker_options();
+    before_options.worker_path = before_script.clone();
+    before_options.control_socket_dir = Some(before_dir.clone());
+    let mut before_runtime = WorkerProcessRuntime::with_options(before_options);
+    let (before_reservation, before_result) =
+        reserved_spawn(&mut before_runtime, shell_request(before_session, "cat"));
+    before_result.expect_err("crash before hello");
+    assert!(!before_reservation.startup_created_child());
+    assert_eq!(before_reservation.state(), SessionReservationState::Ended);
+
+    let after_dir = temp_control_dir("spf1-after");
+    create_private_control_dir(&after_dir);
+    let after_session = session_id("spf1-after-spawn");
+    let socket_path = derived_worker_socket(&after_dir, &after_session);
+    let (after_script, after_pid_path) = write_signaling_worker(&after_dir, "crash-after");
+    let server_pid_path = after_pid_path.clone();
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        assert!(wait_until(|| server_pid_path.exists()));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        botster_core::read_hello(&mut stream).expect("read hello");
+        let mut frame_len = [0_u8; 4];
+        stream
+            .read_exact(&mut frame_len)
+            .expect("read spawn frame length");
+        let frame_len = u32::from_le_bytes(frame_len) as usize;
+        let mut frame = vec![0_u8; frame_len];
+        stream
+            .read_exact(&mut frame)
+            .expect("read complete spawn frame");
+        assert_eq!(frame[0], botster_core::FRAME_SPAWN_SESSION);
+    });
+    let mut after_options = worker_options();
+    after_options.worker_path = after_script.clone();
+    after_options.control_socket_dir = Some(after_dir.clone());
+    let mut after_runtime = WorkerProcessRuntime::with_options(after_options);
+    let (after_reservation, after_result) =
+        reserved_spawn(&mut after_runtime, shell_request(after_session, "cat"));
+    after_result.expect_err("crash after spawn frame");
+    server.join().expect("fake worker server");
+    assert_eq!(
+        after_reservation.state(),
+        SessionReservationState::CleanupUnconfirmed
+    );
+    let _ = std::fs::remove_file(before_script);
+    let _ = std::fs::remove_dir(before_dir);
+    let _ = std::fs::remove_file(after_pid_path);
+    let _ = std::fs::remove_file(after_script);
+    let _ = std::fs::remove_dir(after_dir);
 }

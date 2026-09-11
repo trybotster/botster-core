@@ -190,7 +190,7 @@ impl<R: Clone, W: Clone> Clone for MultiplexerEngine<R, W> {
     fn clone(&self) -> Self {
         Self {
             session_runtime: self.session_runtime.clone(),
-            admission_owner: SessionAdmissionOwner::default(),
+            admission_owner: self.admission_owner.clone(),
             session_admissions: self.session_admissions.clone(),
             sessions: self.sessions.clone(),
             session_handles: self.session_handles.clone(),
@@ -320,17 +320,17 @@ where
         self.session_runtime
             .session_admission()
             .ok_or(SessionReservationRefusal::Unsupported)?
-            .release(reservation)
+            .release_for(reservation, &self.admission_owner)
     }
 
     pub(crate) fn validate_reservation_owner(
         &self,
         reservation: &SessionReservation,
     ) -> Result<(), SessionReservationRefusal> {
-        if !reservation.belongs_to(&self.admission_owner) {
-            return Err(SessionReservationRefusal::InvalidToken);
-        }
-        Ok(())
+        self.session_runtime
+            .session_admission()
+            .ok_or(SessionReservationRefusal::Unsupported)?
+            .validate(reservation, &self.admission_owner)
     }
 
     pub(crate) fn current_reservation(

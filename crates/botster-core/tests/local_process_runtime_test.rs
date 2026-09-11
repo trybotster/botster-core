@@ -959,6 +959,51 @@ fn local_process_runtime_can_be_used_through_public_session_runtime_trait() {
 }
 
 #[test]
+fn missing_executable_is_structural_not_created_and_releases() {
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let session = session_id("missing-executable");
+    let admission = runtime
+        .session_admission()
+        .expect("local runtime admission")
+        .clone();
+    let reservation = admission
+        .reserve(session.clone())
+        .expect("prelaunch reservation");
+    let error = runtime
+        .spawn_reserved(
+            &reservation,
+            SessionSpawnRequest {
+                request_id: request_id("missing"),
+                session_id: session,
+                executable: "/no/such/botster-session-child".to_string(),
+                arguments: Vec::new(),
+                working_directory: SpawnWorkingDirectory {
+                    path: ".".to_string(),
+                },
+                environment: SpawnEnvironment::default(),
+                initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+            },
+        )
+        .expect_err("missing executable");
+    assert!(matches!(
+        error,
+        botster_core::ReservedSessionSpawnError::Admitted(_)
+    ));
+    assert!(!reservation.startup_created_child());
+    assert_eq!(
+        reservation.state(),
+        botster_core::SessionReservationState::Ended
+    );
+    assert_eq!(
+        admission
+            .release(&reservation)
+            .expect("release not created"),
+        botster_core::SessionReservationRelease::Released
+    );
+}
+
+#[test]
 fn botster_engine_shutdown_uses_runtime_cleanup_path() {
     let _guard = local_process_test_lock();
     let runtime = LocalProcessRuntime::with_options(runtime_options());
