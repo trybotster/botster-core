@@ -28,6 +28,11 @@ use crate::session::RequestId;
 mod completion_store;
 use completion_store::{CompletionReservation, CompletionStore, StoreAdmissionError};
 
+#[path = "plugin_worker_resources.rs"]
+mod worker_resources;
+use worker_resources::WorkerJoinRecord;
+pub use worker_resources::{PluginWorkerResource, PluginWorkerResourceCountMismatch};
+
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 fn allocate_worker_generation(counter: &AtomicU64) -> Option<u64> {
@@ -494,9 +499,51 @@ impl PluginWorkerEngine {
 
     /// Load or replace one plugin worker.
     pub fn load_plugin(&self, registration: PluginWorkerRegistration) {
-        let plugin_key = registration.load.plugin_key.clone();
-        let worker = WorkerState::new(registration, self.inner.shared.clone());
+        self.load_plugin_inner(registration, None);
+    }
 
+    /// Load or replace a plugin with one host-funded resource per worker.
+    ///
+    /// The host must fund every resource before calling this method. The count
+    /// must equal `per_plugin_executor_concurrency`. A mismatch starts no worker,
+    /// changes no registration, and drops all supplied resources normally.
+    ///
+    /// Each started worker keeps its resource until its exact join returns
+    /// `Ok` or `Err`. Losing an unjoined record retains that resource until
+    /// process exit, including construction, registration, and shutdown unwinds.
+    /// A returned spawn failure releases only its never-started resource and
+    /// unused resources. Existing callers can continue to use `load_plugin`.
+    /// The existing panic on worker spawn failure remains unchanged. Resources
+    /// for previously started, unjoined workers stay retained during that unwind.
+    /// Worker resources do not cover the executor Arc or join-record Vec storage.
+    pub fn load_plugin_with_worker_resources(
+        &self,
+        registration: PluginWorkerRegistration,
+        resources: Vec<PluginWorkerResource>,
+    ) -> Result<(), PluginWorkerResourceCountMismatch> {
+        let expected = self.inner.shared.config.per_plugin_executor_concurrency;
+        if resources.len() != expected {
+            return Err(PluginWorkerResourceCountMismatch {
+                expected,
+                actual: resources.len(),
+            });
+        }
+        self.load_plugin_inner(registration, Some(resources));
+        Ok(())
+    }
+
+    fn load_plugin_inner(
+        &self,
+        registration: PluginWorkerRegistration,
+        resources: Option<Vec<PluginWorkerResource>>,
+    ) {
+        let plugin_key = registration.load.plugin_key.clone();
+        let worker = WorkerState::new(registration, self.inner.shared.clone(), resources);
+
+        self.install_worker(plugin_key, worker);
+    }
+
+    fn install_worker(&self, plugin_key: PluginKey, worker: WorkerState) {
         let previous = self
             .inner
             .shared
@@ -1542,15 +1589,20 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    fn new(registration: PluginWorkerRegistration, shared: Arc<EngineShared>) -> Self {
+    fn new(
+        registration: PluginWorkerRegistration,
+        shared: Arc<EngineShared>,
+        resources: Option<Vec<PluginWorkerResource>>,
+    ) -> Self {
         let generation = allocate_worker_generation(&NEXT_WORKER_GENERATION);
-        Self::with_generation(registration, shared, generation)
+        Self::with_generation(registration, shared, generation, resources)
     }
 
     fn with_generation(
         registration: PluginWorkerRegistration,
         shared: Arc<EngineShared>,
         generation: Option<u64>,
+        resources: Option<Vec<PluginWorkerResource>>,
     ) -> Self {
         let plugin_key = registration.load.plugin_key.clone();
         let descriptors = registration
@@ -1571,6 +1623,7 @@ impl WorkerState {
         let work_cvar = Arc::new(Condvar::new());
         let executor_concurrency = shared.config.per_plugin_executor_concurrency;
         let mut join_handles = Vec::with_capacity(executor_concurrency);
+        let mut resources = resources.map(Vec::into_iter);
         shared
             .metrics
             .live_plugin_executors
@@ -1597,65 +1650,73 @@ impl WorkerState {
                 Some(generation) => format!("botster-plugin-worker-{generation}-{worker_index}"),
                 None => format!("botster-plugin-worker-exhausted-{worker_index}"),
             };
-            let join_handle = std::thread::Builder::new()
-                .name(thread_name)
-                .spawn(move || {
-                    let _liveness = WorkerLivenessGuard {
-                        metrics: worker_metrics.clone(),
-                        engine_metrics: worker_engine_metrics.clone(),
-                    };
-                    loop {
-                        let job = {
-                            let mut admission = worker_admission
-                                .lock()
-                                .expect("plugin worker admission mutex poisoned");
-                            loop {
-                                if let Some(job) = admission.take_dispatchable(
-                                    &worker_config,
-                                    &worker_metrics,
-                                    &worker_engine_metrics,
-                                ) {
-                                    break Some(job);
-                                }
-                                if worker_stopping.load(Ordering::SeqCst) || admission.stopping {
-                                    break None;
-                                }
-                                admission = worker_cvar
-                                    .wait(admission)
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            }
-                        };
-                        let Some(job) = job else {
-                            break;
-                        };
-                        let request_id = job.request.request_id.clone();
-                        if job.cancellation.is_cancelled() {
-                            finish_skipped_job(
-                                job,
-                                &worker_metrics,
-                                &worker_engine_metrics,
-                                &worker_cancellations,
-                                &worker_admission,
-                            );
-                            worker_cvar.notify_one();
-                            continue;
-                        }
-                        let in_flight = InFlightGuard {
+            let resource = resources.as_mut().map(|resources| {
+                resources
+                    .next()
+                    .expect("validated plugin worker resource count")
+            });
+            let join_handle = WorkerJoinRecord::spawn(resource, || {
+                std::thread::Builder::new()
+                    .name(thread_name)
+                    .spawn(move || {
+                        let _liveness = WorkerLivenessGuard {
                             metrics: worker_metrics.clone(),
                             engine_metrics: worker_engine_metrics.clone(),
-                            cancellations: worker_cancellations.clone(),
-                            request_id: request_id.clone(),
-                            class: job_class(&job),
-                            async_state: async_state_of(&job),
-                            admission: worker_admission.clone(),
-                            work_cvar: worker_cvar.clone(),
                         };
-                        let result = worker_runtime.invoke(job.request, job.cancellation);
-                        complete_job(job.completion, result);
-                        drop(in_flight);
-                    }
-                })
-                .expect("spawn plugin worker thread");
+                        loop {
+                            let job = {
+                                let mut admission = worker_admission
+                                    .lock()
+                                    .expect("plugin worker admission mutex poisoned");
+                                loop {
+                                    if let Some(job) = admission.take_dispatchable(
+                                        &worker_config,
+                                        &worker_metrics,
+                                        &worker_engine_metrics,
+                                    ) {
+                                        break Some(job);
+                                    }
+                                    if worker_stopping.load(Ordering::SeqCst) || admission.stopping
+                                    {
+                                        break None;
+                                    }
+                                    admission = worker_cvar
+                                        .wait(admission)
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                }
+                            };
+                            let Some(job) = job else {
+                                break;
+                            };
+                            let request_id = job.request.request_id.clone();
+                            if job.cancellation.is_cancelled() {
+                                finish_skipped_job(
+                                    job,
+                                    &worker_metrics,
+                                    &worker_engine_metrics,
+                                    &worker_cancellations,
+                                    &worker_admission,
+                                );
+                                worker_cvar.notify_one();
+                                continue;
+                            }
+                            let in_flight = InFlightGuard {
+                                metrics: worker_metrics.clone(),
+                                engine_metrics: worker_engine_metrics.clone(),
+                                cancellations: worker_cancellations.clone(),
+                                request_id: request_id.clone(),
+                                class: job_class(&job),
+                                async_state: async_state_of(&job),
+                                admission: worker_admission.clone(),
+                                work_cvar: worker_cvar.clone(),
+                            };
+                            let result = worker_runtime.invoke(job.request, job.cancellation);
+                            complete_job(job.completion, result);
+                            drop(in_flight);
+                        }
+                    })
+            })
+            .expect("spawn plugin worker thread");
             join_handles.push(join_handle);
         }
 
@@ -2041,7 +2102,7 @@ impl WorkerAdmission {
 }
 
 struct WorkerExecutor {
-    join_handles: Mutex<Option<Vec<JoinHandle<()>>>>,
+    join_handles: Mutex<Option<Vec<WorkerJoinRecord>>>,
     stopping: Arc<AtomicBool>,
     cancellations: Arc<Mutex<HashMap<RequestId, PluginCancellationToken>>>,
 }
@@ -2826,6 +2887,10 @@ mod tests {
     use crate::manifest::PackageManifest;
     use crate::package::{ExtensionEntrypoint, ExtensionKind, ExtensionRuntime};
 
+    mod worker_resource_tests {
+        include!("plugin_worker_resources_test.rs");
+    }
+
     #[derive(Clone)]
     struct DelayRuntime {
         delay: Duration,
@@ -3083,6 +3148,7 @@ mod tests {
             let worker = WorkerState::with_generation(
                 registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
                 engine.inner.shared.clone(),
+                None,
                 None,
             );
             engine
