@@ -247,6 +247,84 @@ fn handshake_rejects_metadata_over_64k() {
     ));
 }
 
+fn startup_failure() -> StartupFailureReport {
+    StartupFailureReport {
+        request_id: "req-1".to_string(),
+        session_id: "session-1".to_string(),
+        worker_pid: 9,
+        message: "open pty failed".to_string(),
+        outcome: StartupFailureOutcome::NotCreated,
+    }
+}
+
+#[test]
+fn startup_failure_round_trips_in_welcome_slot() {
+    let encoded = encode_startup_failure(PROTOCOL_VERSION, &startup_failure())
+        .expect("encode startup failure");
+    assert_eq!(&encoded[..4], STARTUP_FAILURE_MAGIC);
+    let decoded = read_startup_reply(&mut encoded.as_slice()).expect("read startup failure");
+    assert_eq!(decoded, StartupReply::StartupFailure(startup_failure()));
+}
+
+#[test]
+fn old_welcome_reader_rejects_startup_failure_as_bad_magic() {
+    let encoded = encode_startup_failure(PROTOCOL_VERSION, &startup_failure())
+        .expect("encode startup failure");
+    let err = decode_welcome(&encoded).expect_err("old reader");
+    assert!(matches!(
+        err,
+        ProtocolError::BadMagic {
+            context: "welcome",
+            expected,
+            got
+        } if expected == *WELCOME_MAGIC && got == *STARTUP_FAILURE_MAGIC
+    ));
+}
+
+#[test]
+fn startup_failure_truncates_until_serialized_json_fits() {
+    let report = StartupFailureReport {
+        request_id: "req-1".to_string(),
+        session_id: "session-1".to_string(),
+        worker_pid: 9,
+        message: "x".repeat(MAX_METADATA_LEN),
+        outcome: StartupFailureOutcome::Created {
+            child_pid: Some(11),
+            process_group_id: Some(12),
+        },
+    };
+    let encoded = encode_startup_failure(PROTOCOL_VERSION, &report).expect("fit cap");
+    let json_len = u32::from_le_bytes(encoded[5..9].try_into().expect("len")) as usize;
+    assert!(json_len <= MAX_METADATA_LEN);
+    match read_startup_reply(&mut encoded.as_slice()).expect("decode truncated") {
+        StartupReply::StartupFailure(decoded) => {
+            assert!(decoded.message.len() < report.message.len());
+            assert_eq!(
+                decoded.outcome,
+                StartupFailureOutcome::Created {
+                    child_pid: Some(11),
+                    process_group_id: Some(12),
+                }
+            );
+        }
+        other => panic!("expected startup failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn startup_reply_rejects_oversized_length() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(STARTUP_FAILURE_MAGIC);
+    bytes.push(PROTOCOL_VERSION);
+    bytes.extend_from_slice(&((MAX_METADATA_LEN as u32) + 1).to_le_bytes());
+    let err = read_startup_reply(&mut bytes.as_slice()).expect_err("oversize");
+    assert!(matches!(
+        err,
+        ProtocolError::MetadataTooLarge { len, max }
+            if len == MAX_METADATA_LEN + 1 && max == MAX_METADATA_LEN
+    ));
+}
+
 #[test]
 fn session_metadata_round_trips_optional_recovery_identity_and_mode_flags() {
     let json = serde_json::to_vec(&metadata()).expect("expected protocol operation to succeed");

@@ -26,20 +26,21 @@ use botster_core::contract::terminal_screen::{TerminalKeyEvent, TerminalMouseEve
 use botster_core::contract::terminal_wake::TerminalWakeSource;
 use botster_core::engine::TerminalScreenRuntime;
 use botster_core::{
-    decode_worker_input_operation, encode_final_state, read_hello, write_welcome, Frame,
-    LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags, ModeFlagsPayload, ResizePayload,
-    ScreenPayload, SessionId, SessionMetadata, SessionRuntime, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, TerminalMetadataKind, TerminalMetadataLaneShaper,
-    TerminalMetadataObservation, TerminalMetadataProducer, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TerminalScreenSize, TimeoutPayload, WorkerFinalState,
-    WorkerHealth, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotPhase, WorkerSnapshotRequest,
-    WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
-    FRAME_GET_SCREEN, FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION,
-    FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS,
-    FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK,
-    FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN,
-    FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED,
-    PROTOCOL_VERSION,
+    decode_worker_input_operation, encode_final_state, read_hello, write_startup_failure,
+    write_welcome, Frame, LocalProcessRuntime, LocalProcessRuntimeOptions, ModeFlags,
+    ModeFlagsPayload, ReservedSessionSpawnError, ResizePayload, ScreenPayload, SessionId,
+    SessionMetadata, SessionReservation, SessionRuntime, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest, StartupFailureOutcome, StartupFailureReport, TerminalMetadataKind,
+    TerminalMetadataLaneShaper, TerminalMetadataObservation, TerminalMetadataProducer,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalScreenSize,
+    TimeoutPayload, WorkerFinalState, WorkerHealth, WorkerInputKind, WorkerProbeRequest,
+    WorkerSnapshotPhase, WorkerSnapshotRequest, WorkerSnapshotResult, FRAME_BELL,
+    FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN,
+    FRAME_GET_SNAPSHOT, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT,
+    FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING,
+    FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
+    FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
+    FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
@@ -94,9 +95,12 @@ fn run() -> Result<(), String> {
     if spawn_frame.frame_type != FRAME_SPAWN_SESSION {
         return Err("worker expected FRAME_SPAWN_SESSION after hello".to_string());
     }
-    let spawn_request: SessionSpawnRequest =
-        serde_json::from_slice(&spawn_frame.payload).map_err(|error| error.to_string())?;
+    let spawn_request: SessionSpawnRequest = match serde_json::from_slice(&spawn_frame.payload) {
+        Ok(request) => request,
+        Err(error) => return Err(error.to_string()),
+    };
     let session_id = spawn_request.session_id.clone();
+    let request_id = spawn_request.request_id.clone();
 
     let wakes = TerminalWakeSource::new();
     let runtime_options = LocalProcessRuntimeOptions {
@@ -115,24 +119,92 @@ fn run() -> Result<(), String> {
         .initial_pty_size
         .clone()
         .unwrap_or(ResizePayload { rows: 24, cols: 80 });
-    let handle = runtime
-        .spawn_session(spawn_request)
-        .map_err(|error| error.to_string())?;
+    let reservation = runtime
+        .session_admission()
+        .ok_or_else(|| "worker local runtime has no session admission".to_string())?
+        .reserve(session_id.clone())
+        .map_err(|error| format!("{error:?}"))?;
+    let handle = match runtime.spawn_reserved(&reservation, spawn_request) {
+        Ok(handle) => handle,
+        Err(error) => {
+            write_worker_startup_failure(
+                &mut initial_control,
+                &request_id.0,
+                &session_id.0,
+                &reservation,
+                &error,
+            )?;
+            return Err(error.to_string());
+        }
+    };
+    if args.test_fail_after_spawn {
+        write_created_startup_failure(
+            &mut initial_control,
+            &request_id.0,
+            &session_id.0,
+            handle.process.pid,
+            runtime
+                .session_process_group(&session_id)
+                .ok()
+                .flatten()
+                .filter(|group| *group > 1),
+            "test fail after spawn",
+        )?;
+        return Err("test fail after spawn".to_string());
+    }
     let initial_rows = initial_size.rows;
     let initial_cols = initial_size.cols;
     let mut ghostty = GhosttyTerminal::with_config(
         TerminalScreenSize::new(initial_rows, initial_cols),
         GhosttyAdapterConfig::with_max_scrollback_bytes(args.ghostty_max_scrollback_bytes),
     )
-    .map_err(|error| format!("worker Ghostty init failed: {error}"))?;
+    .map_err(|error| {
+        let _ = write_created_startup_failure(
+            &mut initial_control,
+            &request_id.0,
+            &session_id.0,
+            handle.process.pid,
+            runtime
+                .session_process_group(&session_id)
+                .ok()
+                .flatten()
+                .filter(|group| *group > 1),
+            &format!("worker Ghostty init failed: {error}"),
+        );
+        format!("worker Ghostty init failed: {error}")
+    })?;
     if let Some(profile) = args.terminal_color_profile.as_ref() {
-        ghostty
-            .apply_color_profile(profile)
-            .map_err(|error| format!("worker Ghostty color profile failed: {error}"))?;
+        ghostty.apply_color_profile(profile).map_err(|error| {
+            let _ = write_created_startup_failure(
+                &mut initial_control,
+                &request_id.0,
+                &session_id.0,
+                handle.process.pid,
+                runtime
+                    .session_process_group(&session_id)
+                    .ok()
+                    .flatten()
+                    .filter(|group| *group > 1),
+                &format!("worker Ghostty color profile failed: {error}"),
+            );
+            format!("worker Ghostty color profile failed: {error}")
+        })?;
     }
-    let initial_flags = ghostty
-        .read_mode_flags()
-        .map_err(|error| format!("worker initial mode flags failed: {error}"))?;
+    let initial_flags = ghostty.read_mode_flags().map_err(|error| {
+        let _ = write_created_startup_failure(
+            &mut initial_control,
+            &request_id.0,
+            &session_id.0,
+            handle.process.pid,
+            runtime
+                .session_process_group(&session_id)
+                .ok()
+                .flatten()
+                .filter(|group| *group > 1),
+            &format!("worker initial mode flags failed: {error}"),
+        );
+        format!("worker initial mode flags failed: {error}")
+    })?;
     let metadata = SessionMetadata {
         session_uuid: session_id.0.clone(),
         pid: handle.process.pid.unwrap_or_else(process::id),
@@ -1802,12 +1874,71 @@ fn read_frame(stream: &mut impl Read) -> Result<Frame, String> {
     })
 }
 
+fn write_worker_startup_failure(
+    stream: &mut impl Write,
+    request_id: &str,
+    session_id: &str,
+    reservation: &SessionReservation,
+    error: &ReservedSessionSpawnError,
+) -> Result<(), String> {
+    let outcome = if reservation.startup_created_child() {
+        StartupFailureOutcome::Created {
+            child_pid: None,
+            process_group_id: None,
+        }
+    } else {
+        StartupFailureOutcome::NotCreated
+    };
+    write_created_or_not(stream, request_id, session_id, outcome, &error.to_string())
+}
+
+fn write_created_startup_failure(
+    stream: &mut impl Write,
+    request_id: &str,
+    session_id: &str,
+    child_pid: Option<u32>,
+    process_group_id: Option<i32>,
+    message: &str,
+) -> Result<(), String> {
+    write_created_or_not(
+        stream,
+        request_id,
+        session_id,
+        StartupFailureOutcome::Created {
+            child_pid,
+            process_group_id,
+        },
+        message,
+    )
+}
+
+fn write_created_or_not(
+    stream: &mut impl Write,
+    request_id: &str,
+    session_id: &str,
+    outcome: StartupFailureOutcome,
+    message: &str,
+) -> Result<(), String> {
+    write_startup_failure(
+        stream,
+        &StartupFailureReport {
+            request_id: request_id.to_string(),
+            session_id: session_id.to_string(),
+            worker_pid: process::id(),
+            message: message.to_string(),
+            outcome,
+        },
+    )
+    .map_err(|error| error.to_string())
+}
+
 struct WorkerArgs {
     egress_capacity: usize,
     pty_reader_chunk_capacity: usize,
     shutdown_grace_ms: u64,
     poll_interval_ms: u64,
     control_socket: Option<PathBuf>,
+    test_fail_after_spawn: bool,
     test_hold_after_read_ms: Option<u64>,
     test_write_block_until_unix_ms: Option<u64>,
     test_write_max_chunk: Option<usize>,
@@ -1826,6 +1957,7 @@ impl WorkerArgs {
         let mut shutdown_grace_ms = 500;
         let mut poll_interval_ms = 10;
         let mut control_socket = None;
+        let mut test_fail_after_spawn = false;
         let mut test_hold_after_read_ms = None;
         let mut test_write_block_until_unix_ms = None;
         let mut test_write_max_chunk = None;
@@ -1862,6 +1994,9 @@ impl WorkerArgs {
                         index,
                         "--control-socket",
                     )?));
+                }
+                "--test-fail-after-spawn" => {
+                    test_fail_after_spawn = true;
                 }
                 "--test-hold-after-read-ms" => {
                     index += 1;
@@ -1923,6 +2058,7 @@ impl WorkerArgs {
             shutdown_grace_ms,
             poll_interval_ms,
             control_socket,
+            test_fail_after_spawn,
             test_hold_after_read_ms,
             test_write_block_until_unix_ms,
             test_write_max_chunk,

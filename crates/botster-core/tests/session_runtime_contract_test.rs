@@ -3,10 +3,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use botster_core::runtime::SessionAdmission;
 use botster_core::{
-    ProcessExitedPayload, RequestId, ResizePayload, SessionId, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
-    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory,
+    ProcessExitedPayload, RequestId, ReservedSessionSpawnError, ResizePayload, SessionId,
+    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable,
+    SpawnWorkingDirectory,
 };
 use botster_core_test_support::fake::FakeSessionRuntime;
 
@@ -67,6 +69,28 @@ fn runtime_source_files(root: impl AsRef<Path>) -> Vec<PathBuf> {
 
     files.sort();
     files
+}
+
+#[test]
+fn external_session_runtime_keeps_default_reservation_hooks() {
+    let mut runtime = FakeSessionRuntime::new();
+    assert!(runtime.session_admission().is_none());
+    let reservation = SessionAdmission::default()
+        .reserve(session_id())
+        .expect("unrelated table");
+    match runtime.spawn_reserved(&reservation, spawn_request()) {
+        Err(ReservedSessionSpawnError::Refused(error)) => {
+            assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
+            assert_eq!(
+                error.message,
+                "runtime does not support session reservations"
+            );
+        }
+        other => panic!("expected unsupported reserved spawn, got {other:?}"),
+    }
+    runtime
+        .spawn_session(spawn_request())
+        .expect("ordinary spawn remains compatible");
 }
 
 #[test]

@@ -48,12 +48,13 @@ use crate::runtime::control_queue::{
     WORKER_CONTROL_WRITER_JOIN_BOUND, WORKER_CONTROL_WRITE_TIMEOUT,
 };
 use crate::{
-    decode_final_state, encode_worker_input_operation, read_welcome, split_worker_operation_key,
-    write_hello, BackpressureRoute, BackpressureSummary, ClientId, Frame, ModeFlagsPayload,
-    NotificationPayload, ProcessExitedPayload, ProcessIdentity, PromptMarkPayload, QueueSource,
-    ScreenPayload, SessionId, SessionMetadata, SessionRuntime, SessionRuntimeError,
-    SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload,
+    decode_final_state, encode_worker_input_operation, read_startup_reply, read_welcome,
+    split_worker_operation_key, write_hello, BackpressureRoute, BackpressureSummary, ClientId,
+    Frame, ModeFlagsPayload, NotificationPayload, ProcessExitedPayload, ProcessIdentity,
+    PromptMarkPayload, QueueSource, ScreenPayload, SessionId, SessionMetadata, SessionRuntime,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
+    SessionRuntimeOutput, SessionSpawnRequest, StartupFailureOutcome, StartupFailureReport,
+    StartupReply, SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload,
     WorkerFinalState, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotRequest,
     WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
     FRAME_GET_SCREEN, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT,
@@ -814,7 +815,8 @@ impl WorkerProcessRuntime {
                 "worker process session already exists",
             ));
         }
-        self.admission.begin_launch(reservation, &session_id)?;
+        self.admission
+            .begin_launch(reservation, &session_id, None)?;
         reservation.pending_started();
         let options = self.options.clone();
         let wake_handle = self
@@ -1217,7 +1219,7 @@ impl WorkerProcessRuntime {
             .reserve_implicit(session_id.clone())
             .expect("test admission");
         self.admission
-            .begin_launch(&admission, &session_id)
+            .begin_launch(&admission, &session_id, None)
             .expect("test launch");
         admission.runtime_installed();
         admission.runtime_installing();
@@ -1387,7 +1389,8 @@ impl WorkerProcessRuntime {
                 "worker process session already exists",
             ));
         }
-        self.admission.begin_launch(reservation, &session_id)?;
+        self.admission
+            .begin_launch(reservation, &session_id, None)?;
         let result = self.adopt_reserved_inner(
             reservation,
             session_id,
@@ -1590,6 +1593,7 @@ impl WorkerProcessRuntime {
         if let Some(admission) = &session.admission {
             admission.runtime_installing();
             admission.runtime_installed();
+            admission.pending_collected();
         }
         self.sessions.insert(session_id, session);
         Ok(())
@@ -1608,17 +1612,10 @@ impl WorkerProcessRuntime {
     }
 }
 
-/// Spawn the worker process and complete the hello/welcome handshake.
+/// Spawn the reserved worker process and complete the hello/welcome handshake.
 ///
 /// Runs without the runtime lock so [`WorkerProcessRuntime::begin_spawn`] can
 /// move it to a helper thread. Blocks up to the worker startup timeout.
-fn launch_worker(
-    options: &WorkerProcessRuntimeOptions,
-    request: &SessionSpawnRequest,
-) -> Result<LaunchedWorker, SessionRuntimeError> {
-    launch_worker_inner(options, request, None, None)
-}
-
 fn launch_reserved_worker(
     options: &WorkerProcessRuntimeOptions,
     request: &SessionSpawnRequest,
@@ -1701,7 +1698,7 @@ fn launch_worker_inner(
         .transpose()?;
     #[cfg(not(unix))]
     let socket_path: Option<PathBuf> = None;
-    let socket_mode = socket_path.is_some();
+    let _socket_mode = socket_path.is_some();
     if let Some(path) = &socket_path {
         command
             .arg("--control-socket")
@@ -1775,14 +1772,25 @@ fn launch_worker_inner(
             admission.creation_possible();
         }
         control.write_json(FRAME_SPAWN_SESSION, request)?;
-        read_welcome(&mut reader)
+        read_startup_reply(&mut reader)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
     })()
     .map_err(|error: SessionRuntimeError| {
         SessionRuntimeError::new(SessionRuntimeErrorKind::SpawnFailed, error.message)
     });
+    let child_id = pending_worker.child_id();
     let metadata = match startup {
-        Ok((peer_version, metadata)) => {
+        Ok(StartupReply::StartupFailure(report)) => {
+            apply_startup_failure(admission.as_ref(), request, child_id, &report);
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                format!("worker startup failed: {}", report.message),
+            ));
+        }
+        Ok(StartupReply::Welcome {
+            version: peer_version,
+            metadata,
+        }) => {
             if peer_version != PROTOCOL_VERSION {
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
@@ -1800,7 +1808,7 @@ fn launch_worker_inner(
                 .as_ref()
                 .and_then(|identity| identity.get("worker_pid"))
                 .and_then(serde_json::Value::as_u64);
-            if socket_mode && worker_pid != Some(u64::from(pending_worker.child_id())) {
+            if worker_pid != Some(u64::from(child_id)) {
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     "worker welcome did not identify the spawned child",
@@ -1874,7 +1882,7 @@ impl SessionRuntime for WorkerProcessRuntime {
             ));
         }
         self.admission
-            .begin_launch(reservation, &request.session_id)
+            .begin_launch(reservation, &request.session_id, None)
             .map_err(|error| ReservedSessionSpawnError::Refused(error.into()))?;
         let launched = launch_reserved_worker(
             &self.options,
@@ -2004,6 +2012,34 @@ impl SessionRuntime for WorkerProcessRuntime {
     }
 }
 
+fn apply_startup_failure(
+    admission: Option<&SessionReservation>,
+    request: &SessionSpawnRequest,
+    worker_pid: u32,
+    report: &StartupFailureReport,
+) {
+    let Some(admission) = admission else {
+        return;
+    };
+    if report.session_id != request.session_id.0
+        || report.request_id != request.request_id.0
+        || report.worker_pid != worker_pid
+    {
+        admission.cleanup_unconfirmed();
+        return;
+    }
+    match &report.outcome {
+        StartupFailureOutcome::NotCreated => admission.runtime_ended(),
+        StartupFailureOutcome::Created {
+            process_group_id, ..
+        } => {
+            admission.mark_startup_created();
+            admission.capture_process_group(*process_group_id);
+            admission.cleanup_unconfirmed();
+        }
+    }
+}
+
 fn metadata_process_group(metadata: &SessionMetadata) -> Option<i32> {
     metadata
         .recovery_identity
@@ -2011,7 +2047,7 @@ fn metadata_process_group(metadata: &SessionMetadata) -> Option<i32> {
         .get("process_group_id")?
         .as_i64()
         .and_then(|group| i32::try_from(group).ok())
-        .filter(|group| *group > 0)
+        .filter(|group| *group > 1)
 }
 
 impl Drop for WorkerProcessRuntime {
@@ -3342,8 +3378,9 @@ mod tests {
     };
 
     use super::{
-        remove_socket_if_unchanged, run_control_writer, socket_identity, worker_socket_path,
-        ProcessIdentity, SessionId, SessionRuntimeErrorKind, WorkerProcessRuntime, WorkerWriteHalf,
+        apply_startup_failure, remove_socket_if_unchanged, run_control_writer, socket_identity,
+        worker_socket_path, ProcessIdentity, SessionAdmission, SessionId, SessionReservationState,
+        SessionRuntimeErrorKind, SessionSpawnRequest, WorkerProcessRuntime, WorkerWriteHalf,
         FRAME_PTY_INPUT, FRAME_SHUTDOWN, UNIX_SOCKET_PATH_MAX_BYTES,
     };
 
@@ -3887,5 +3924,75 @@ mod tests {
 
         assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
         assert_eq!(error.message, "unsupported worker protocol version: 2");
+    }
+
+    fn spawn_request(session: &str, request: &str) -> SessionSpawnRequest {
+        SessionSpawnRequest {
+            request_id: crate::RequestId(request.to_string()),
+            session_id: SessionId(session.to_string()),
+            executable: "sh".to_string(),
+            arguments: vec!["-c".to_string(), "exit 0".to_string()],
+            working_directory: crate::SpawnWorkingDirectory {
+                path: ".".to_string(),
+            },
+            environment: crate::SpawnEnvironment::default(),
+            initial_pty_size: None,
+        }
+    }
+
+    #[test]
+    fn stale_spf1_cannot_mutate_a_newer_reservation() {
+        let admission = SessionAdmission::synchronous();
+        let request = spawn_request("spf1-stale", "req-1");
+        let first = admission
+            .reserve(request.session_id.clone())
+            .expect("first reservation");
+        admission
+            .begin_launch(&first, first.session_id(), None)
+            .expect("launch first");
+        first.creation_possible();
+        let report = crate::StartupFailureReport {
+            request_id: request.request_id.0.clone(),
+            session_id: request.session_id.0.clone(),
+            worker_pid: 7,
+            message: "not created".to_string(),
+            outcome: crate::StartupFailureOutcome::NotCreated,
+        };
+        apply_startup_failure(Some(&first), &request, 7, &report);
+        assert!(!first.startup_created_child());
+        admission.release(&first).expect("release first");
+        let second = admission
+            .reserve(request.session_id.clone())
+            .expect("second generation");
+        apply_startup_failure(Some(&first), &request, 7, &report);
+        first.cleanup_unconfirmed();
+        first.runtime_ended();
+        assert_eq!(second.state(), SessionReservationState::Reserved);
+        assert_eq!(first.state(), SessionReservationState::Released);
+    }
+
+    #[test]
+    fn spf1_identity_mismatch_is_unknown() {
+        let admission = SessionAdmission::synchronous();
+        let request = spawn_request("spf1-mismatch", "req-2");
+        let reservation = admission
+            .reserve(request.session_id.clone())
+            .expect("reserve");
+        admission
+            .begin_launch(&reservation, reservation.session_id(), None)
+            .expect("launch");
+        reservation.creation_possible();
+        let report = crate::StartupFailureReport {
+            request_id: request.request_id.0.clone(),
+            session_id: request.session_id.0.clone(),
+            worker_pid: 1,
+            message: "mismatch".to_string(),
+            outcome: crate::StartupFailureOutcome::NotCreated,
+        };
+        apply_startup_failure(Some(&reservation), &request, 9, &report);
+        assert_eq!(
+            reservation.execution_state(),
+            SessionReservationState::CleanupUnconfirmed
+        );
     }
 }

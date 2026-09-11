@@ -213,7 +213,7 @@ where
             ));
         }
 
-        let outcome = match request {
+        let outcome: Result<SessionWorkerOutcome, SessionRuntimeError> = match request {
             SessionIoRequest::SubscribeTerminal {
                 request_id,
                 session_id,
@@ -356,9 +356,9 @@ where
                     self.last_output_at,
                 ))
             }
-        }?;
+        };
 
-        Ok(outcome)
+        Ok(outcome?)
     }
 
     /// Handle one runtime-originated event.

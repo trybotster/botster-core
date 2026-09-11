@@ -210,7 +210,7 @@ impl SessionRuntime for LocalProcessRuntime {
     ) -> Result<SessionRuntimeHandle, ReservedSessionSpawnError> {
         self.registry
             .admission
-            .begin_launch(reservation, &request.session_id)
+            .begin_launch(reservation, &request.session_id, None)
             .map_err(|error| ReservedSessionSpawnError::Refused(error.into()))?;
         let result = self.spawn_reserved_process(reservation, request);
         if result.is_err() {
@@ -260,6 +260,11 @@ impl LocalProcessRuntime {
             command.env(&variable.name, &variable.value);
         }
 
+        // portable-pty 0.9.0 `src/unix.rs:286` calls `std::process::Command::spawn`.
+        // Pinned std (`library/std/src/sys/process/unix/unix.rs`) reaps that
+        // child before returning Err: after the CLOEXEC pipe reports exec
+        // failure it runs `p.wait()` then `return Err(...)` (lines 134-150).
+        // So `spawn_command` Err leaves no live forked child.
         let child = pty_pair
             .slave
             .spawn_command(command)

@@ -21,6 +21,9 @@ pub const HELLO_MAGIC: &[u8; 4] = b"SPH1";
 /// Session to daemon endpoint welcome magic.
 pub const WELCOME_MAGIC: &[u8; 4] = b"SPA1";
 
+/// Session to daemon endpoint startup-failure magic.
+pub const STARTUP_FAILURE_MAGIC: &[u8; 4] = b"SPF1";
+
 /// Core-enforced maximum metadata JSON length for handshake payloads.
 pub const MAX_METADATA_LEN: usize = 64 * 1024;
 
@@ -232,6 +235,52 @@ pub struct ScreenPayload {
 pub struct WorkerProbeRequest {
     /// Parent-issued correlation id.
     pub request_id: String,
+}
+
+/// Typed worker startup failure occupying the welcome slot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartupFailureReport {
+    /// Spawn request identity echoed from the decoded FRAME_SPAWN_SESSION.
+    pub request_id: String,
+    /// Session identity echoed from the decoded FRAME_SPAWN_SESSION.
+    pub session_id: String,
+    /// Worker process id that produced this report.
+    pub worker_pid: u32,
+    /// Diagnostic text. Classification never parses this field.
+    pub message: String,
+    /// Structural creation evidence.
+    pub outcome: StartupFailureOutcome,
+}
+
+/// Whether the worker created a session child.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StartupFailureOutcome {
+    /// The worker local reservation was still launching. No child was created.
+    NotCreated,
+    /// A child may have existed. This is not a cleanup receipt.
+    Created {
+        /// Direct child pid when the worker observed one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        child_pid: Option<u32>,
+        /// Positive process group greater than 1, when captured.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        process_group_id: Option<i32>,
+    },
+}
+
+/// Handshake reply occupying the welcome slot.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StartupReply {
+    /// Ordinary welcome metadata.
+    Welcome {
+        /// Negotiated protocol version.
+        version: u8,
+        /// Worker session metadata.
+        metadata: SessionMetadata,
+    },
+    /// Typed startup failure.
+    StartupFailure(StartupFailureReport),
 }
 
 /// Final worker-owned terminal state retained by the parent after exit.
@@ -852,4 +901,82 @@ pub fn read_welcome(stream: &mut impl Read) -> Result<(u8, SessionMetadata), Pro
     stream.read_exact(&mut json_buf)?;
     let metadata = serde_json::from_slice(&json_buf)?;
     Ok((version[0], metadata))
+}
+
+/// Encode a startup-failure frame that fits [`MAX_METADATA_LEN`].
+pub fn encode_startup_failure(
+    version: u8,
+    report: &StartupFailureReport,
+) -> Result<Vec<u8>, ProtocolError> {
+    let mut report = report.clone();
+    loop {
+        let json = serde_json::to_vec(&report)?;
+        if json.len() <= MAX_METADATA_LEN {
+            let mut buf = Vec::with_capacity(9 + json.len());
+            buf.extend_from_slice(STARTUP_FAILURE_MAGIC);
+            buf.push(version);
+            buf.extend_from_slice(&(json.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&json);
+            return Ok(buf);
+        }
+        if report.message.is_empty() {
+            return Err(ProtocolError::MetadataTooLarge {
+                len: json.len(),
+                max: MAX_METADATA_LEN,
+            });
+        }
+        let keep = report.message.len() / 2;
+        report.message.truncate(keep);
+    }
+}
+
+/// Write a startup-failure frame to a stream.
+pub fn write_startup_failure(
+    stream: &mut impl Write,
+    report: &StartupFailureReport,
+) -> Result<(), ProtocolError> {
+    let bytes = encode_startup_failure(PROTOCOL_VERSION, report)?;
+    stream.write_all(&bytes)?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn read_capped_json(stream: &mut impl Read) -> Result<Vec<u8>, ProtocolError> {
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf)?;
+    let len = u32::from_le_bytes(len_buf) as usize;
+    if len > MAX_METADATA_LEN {
+        return Err(ProtocolError::MetadataTooLarge {
+            len,
+            max: MAX_METADATA_LEN,
+        });
+    }
+    let mut json_buf = vec![0u8; len];
+    stream.read_exact(&mut json_buf)?;
+    Ok(json_buf)
+}
+
+/// Read a welcome or SPF1 startup-failure occupying the welcome slot.
+pub fn read_startup_reply(stream: &mut impl Read) -> Result<StartupReply, ProtocolError> {
+    let mut magic = [0u8; 4];
+    stream.read_exact(&mut magic)?;
+    let mut version = [0u8; 1];
+    stream.read_exact(&mut version)?;
+    let json_buf = read_capped_json(stream)?;
+    if &magic == WELCOME_MAGIC {
+        let metadata = serde_json::from_slice(&json_buf)?;
+        Ok(StartupReply::Welcome {
+            version: version[0],
+            metadata,
+        })
+    } else if &magic == STARTUP_FAILURE_MAGIC {
+        let report = serde_json::from_slice(&json_buf)?;
+        Ok(StartupReply::StartupFailure(report))
+    } else {
+        Err(ProtocolError::BadMagic {
+            context: "welcome",
+            expected: *WELCOME_MAGIC,
+            got: magic,
+        })
+    }
 }
