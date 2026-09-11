@@ -30,8 +30,10 @@ use completion_store::{CompletionReservation, CompletionStore, StoreAdmissionErr
 
 #[path = "plugin_worker_resources.rs"]
 mod worker_resources;
-use worker_resources::WorkerJoinRecord;
-pub use worker_resources::{PluginWorkerResource, PluginWorkerResourceCountMismatch};
+pub use worker_resources::{
+    PluginWorkerResource, PluginWorkerResourceCountMismatch, PluginWorkerResources,
+};
+use worker_resources::{WorkerJoinRecord, WorkerMetadataGuard, WorkerResourceConstruction};
 
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -515,11 +517,12 @@ impl PluginWorkerEngine {
     /// unused resources. Existing callers can continue to use `load_plugin`.
     /// The existing panic on worker spawn failure remains unchanged. Resources
     /// for previously started, unjoined workers stay retained during that unwind.
-    /// Worker resources do not cover the executor Arc or join-record Vec storage.
+    /// Batch metadata stays guarded until the input buffer, join buffer, and
+    /// executor allocation are destroyed. Executor clones can outlive unload.
     pub fn load_plugin_with_worker_resources(
         &self,
         registration: PluginWorkerRegistration,
-        resources: Vec<PluginWorkerResource>,
+        resources: PluginWorkerResources,
     ) -> Result<(), PluginWorkerResourceCountMismatch> {
         let expected = self.inner.shared.config.per_plugin_executor_concurrency;
         if resources.len() != expected {
@@ -535,7 +538,7 @@ impl PluginWorkerEngine {
     fn load_plugin_inner(
         &self,
         registration: PluginWorkerRegistration,
-        resources: Option<Vec<PluginWorkerResource>>,
+        resources: Option<PluginWorkerResources>,
     ) {
         let plugin_key = registration.load.plugin_key.clone();
         let worker = WorkerState::new(registration, self.inner.shared.clone(), resources);
@@ -1583,7 +1586,7 @@ struct WorkerState {
     resources: Arc<Mutex<Vec<PluginResourceRef>>>,
     admission: Arc<Mutex<WorkerAdmission>>,
     work_cvar: Arc<Condvar>,
-    executor: Arc<WorkerExecutor>,
+    executor: WorkerExecutorHandle,
     metrics: Arc<WorkerMetrics>,
     shared: Arc<EngineShared>,
 }
@@ -1592,7 +1595,7 @@ impl WorkerState {
     fn new(
         registration: PluginWorkerRegistration,
         shared: Arc<EngineShared>,
-        resources: Option<Vec<PluginWorkerResource>>,
+        resources: Option<PluginWorkerResources>,
     ) -> Self {
         let generation = allocate_worker_generation(&NEXT_WORKER_GENERATION);
         Self::with_generation(registration, shared, generation, resources)
@@ -1602,7 +1605,7 @@ impl WorkerState {
         registration: PluginWorkerRegistration,
         shared: Arc<EngineShared>,
         generation: Option<u64>,
-        resources: Option<Vec<PluginWorkerResource>>,
+        resources: Option<PluginWorkerResources>,
     ) -> Self {
         let plugin_key = registration.load.plugin_key.clone();
         let descriptors = registration
@@ -1622,8 +1625,7 @@ impl WorkerState {
         let admission = Arc::new(Mutex::new(WorkerAdmission::default()));
         let work_cvar = Arc::new(Condvar::new());
         let executor_concurrency = shared.config.per_plugin_executor_concurrency;
-        let mut join_handles = Vec::with_capacity(executor_concurrency);
-        let mut resources = resources.map(Vec::into_iter);
+        let mut construction = WorkerResourceConstruction::new(resources, executor_concurrency);
         shared
             .metrics
             .live_plugin_executors
@@ -1650,11 +1652,7 @@ impl WorkerState {
                 Some(generation) => format!("botster-plugin-worker-{generation}-{worker_index}"),
                 None => format!("botster-plugin-worker-exhausted-{worker_index}"),
             };
-            let resource = resources.as_mut().map(|resources| {
-                resources
-                    .next()
-                    .expect("validated plugin worker resource count")
-            });
+            let resource = construction.next_resource();
             let join_handle = WorkerJoinRecord::spawn(resource, || {
                 std::thread::Builder::new()
                     .name(thread_name)
@@ -1717,8 +1715,10 @@ impl WorkerState {
                     })
             })
             .expect("spawn plugin worker thread");
-            join_handles.push(join_handle);
+            construction.push(join_handle);
         }
+
+        let executor = WorkerExecutorHandle::new(construction, stopping, cancellations);
 
         Self {
             plugin_key,
@@ -1730,11 +1730,7 @@ impl WorkerState {
             resources: Arc::new(Mutex::new(registration.resources)),
             admission,
             work_cvar,
-            executor: Arc::new(WorkerExecutor {
-                join_handles: Mutex::new(Some(join_handles)),
-                stopping,
-                cancellations,
-            }),
+            executor,
             metrics,
             shared,
         }
@@ -1820,6 +1816,7 @@ impl WorkerState {
             .join_handles
             .lock()
             .expect("plugin worker join handles mutex poisoned")
+            .join_handles
             .take()
             .unwrap_or_default();
         for join_handle in join_handles {
@@ -2102,9 +2099,92 @@ impl WorkerAdmission {
 }
 
 struct WorkerExecutor {
-    join_handles: Mutex<Option<Vec<WorkerJoinRecord>>>,
+    join_handles: Mutex<WorkerExecutorResources>,
     stopping: Arc<AtomicBool>,
     cancellations: Arc<Mutex<HashMap<RequestId, PluginCancellationToken>>>,
+}
+
+struct WorkerExecutorResources {
+    join_handles: Option<Vec<WorkerJoinRecord>>,
+    metadata: WorkerMetadataGuard,
+}
+
+struct WorkerExecutorHandle {
+    inner: Option<Arc<WorkerExecutor>>,
+}
+
+impl WorkerExecutorHandle {
+    fn new(
+        mut construction: WorkerResourceConstruction,
+        stopping: Arc<AtomicBool>,
+        cancellations: Arc<Mutex<HashMap<RequestId, PluginCancellationToken>>>,
+    ) -> Self {
+        construction.destroy_input();
+        // Construction still guards metadata while the Arc allocation starts.
+        let mut handle = Self {
+            inner: Some(Arc::new(WorkerExecutor {
+                join_handles: Mutex::new(WorkerExecutorResources {
+                    join_handles: None,
+                    metadata: WorkerMetadataGuard::default(),
+                }),
+                stopping,
+                cancellations,
+            })),
+        };
+        let executor = Arc::get_mut(handle.inner.as_mut().expect("worker executor handle"))
+            .expect("new worker executor has one owner");
+        let resources = executor
+            .join_handles
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        resources.join_handles = construction.take_join_handles();
+        resources.metadata = construction.take_metadata();
+        handle
+    }
+}
+
+impl Clone for WorkerExecutorHandle {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Some(Arc::clone(
+                self.inner.as_ref().expect("worker executor handle"),
+            )),
+        }
+    }
+}
+
+impl std::ops::Deref for WorkerExecutorHandle {
+    type Target = WorkerExecutor;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_deref().expect("worker executor handle")
+    }
+}
+
+impl Drop for WorkerExecutorHandle {
+    fn drop(&mut self) {
+        let Some(inner) = self.inner.take() else {
+            return;
+        };
+        // No raw Arc or Weak escapes. The allocation ends before extraction returns.
+        if let Some(executor) = Arc::into_inner(inner) {
+            let WorkerExecutor {
+                join_handles,
+                stopping,
+                cancellations,
+            } = executor;
+            let WorkerExecutorResources {
+                join_handles,
+                mut metadata,
+            } = join_handles
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            drop(join_handles);
+            drop(stopping);
+            drop(cancellations);
+            metadata.release();
+        }
+    }
 }
 
 #[derive(Default)]
