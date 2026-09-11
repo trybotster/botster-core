@@ -17,6 +17,11 @@ use std::{
 use botster_core::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, TerminalWakeWait, WakingTerminalAdapter,
 };
+use botster_core::engine::multiplexer::MultiplexerEngineError;
+use botster_core::runtime::{
+    ReservedSessionSpawnError, SessionReservation, SessionReservationRefusal,
+    SessionReservationRelease, SessionReservationState,
+};
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineObservation, BotsterEngineOutput, ClientId, CoreSession,
@@ -34,9 +39,10 @@ use botster_terminal_protocol::HistoryUnavailableReason;
 use thiserror::Error;
 
 use crate::operation::{
-    CaptureId, CaptureOwner, ModeFlagsReadback, RetainedTerminal, ScreenReadback, SnapshotCapture,
-    SnapshotPage, CAPTURE_IDLE_TTL_SECONDS, MAX_OPEN_CAPTURES_PER_CLIENT,
-    MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
+    CaptureId, CaptureOwner, ModeFlagsReadback, ReservedSpawnResult, RetainedTerminal,
+    ScreenReadback, SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS,
+    MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS,
+    SNAPSHOT_PAGE_BYTES,
 };
 use crate::wake_pump::{WakePumpControl, WakePumpError, WakePumpState, WakePumpWait};
 
@@ -299,6 +305,9 @@ impl CoreDaemonConfig {
 /// Daemon API error.
 #[derive(Debug, Error)]
 pub enum CoreDaemonError {
+    /// The reservation operation refused without starting a PTY.
+    #[error("session reservation refused: {0:?}")]
+    SessionReservation(SessionReservationRefusal),
     /// Core engine error.
     #[error(transparent)]
     Engine(#[from] DefaultBotsterEngineError),
@@ -450,6 +459,7 @@ struct PendingState {
 
 enum PendingKind {
     Spawn {
+        reservation: Option<SessionReservation>,
         session_id: SessionId,
         metadata: botster_core::CoreSessionMetadata,
         size: ResizePayload,
@@ -525,6 +535,25 @@ struct ObserveLifecycleWalk {
 enum DaemonEngine {
     Local(Box<DefaultBotsterEngine>),
     Worker(Box<WorkerBackedBotsterEngine>),
+}
+
+fn reservation_error(error: SessionReservationRefusal) -> CoreDaemonError {
+    match error {
+        SessionReservationRefusal::Capacity => {
+            CoreDaemonError::PendingLimit(crate::operation::PendingLimitKind::Spawns)
+        }
+        error => CoreDaemonError::SessionReservation(error),
+    }
+}
+
+fn reserved_launch_was_admitted(error: &DefaultBotsterEngineError) -> bool {
+    matches!(
+        error,
+        DefaultBotsterEngineError::Multiplexer(
+            MultiplexerEngineError::ReservedSpawn(ReservedSessionSpawnError::Admitted(_))
+                | MultiplexerEngineError::InstallationAfterLaunch(_)
+        )
+    )
 }
 
 struct PendingDrainResult {
@@ -1621,8 +1650,41 @@ impl CoreDaemon {
         operation: CoreOperation,
     ) -> Result<PendingOperationId, CoreDaemonError> {
         self.ensure_running()?;
-        let id = self.allocate_pending_id();
+        let id = self.allocate_pending_id()?;
         match operation {
+            CoreOperation::ReserveSession(session_id) => {
+                let result = self
+                    .engine
+                    .reserve_session_for_request(session_id, id.0, MAX_PENDING_SPAWNS)
+                    .map_err(reservation_error);
+                self.completions
+                    .push(CoreCompletion::ReserveSession { id, result });
+            }
+            CoreOperation::LookupSessionReservation {
+                session_id,
+                reserve_operation_id,
+            } => {
+                let result = self
+                    .engine
+                    .session_reservation_for_request(&session_id, reserve_operation_id.0)
+                    .map_err(reservation_error);
+                self.completions
+                    .push(CoreCompletion::LookupSessionReservation { id, result });
+            }
+            CoreOperation::SpawnReserved {
+                reservation,
+                request,
+            } => {
+                self.begin_reserved_spawn(id, reservation, request);
+            }
+            CoreOperation::ReleaseSessionReservation(reservation) => {
+                let result = self
+                    .engine
+                    .release_session_reservation(&reservation)
+                    .map_err(reservation_error);
+                self.completions
+                    .push(CoreCompletion::ReleaseSessionReservation { id, result });
+            }
             CoreOperation::Spawn(request) => self.begin_spawn(id, request)?,
             CoreOperation::Adopt(session_id) => {
                 let now_seconds = unix_now_seconds();
@@ -1672,7 +1734,12 @@ impl CoreDaemon {
             return false;
         }
         if let Some(state) = self.pending.get_mut(&id) {
-            if let PendingKind::Spawn { session_id, .. } = &state.kind {
+            if let PendingKind::Spawn {
+                session_id,
+                reservation,
+                ..
+            } = &state.kind
+            {
                 // The launch thread still owns a child process. Keep the
                 // entry, and the spawn concurrency slot, until the runtime
                 // collects and stops that child.
@@ -1681,9 +1748,18 @@ impl CoreDaemon {
                 if let DaemonEngine::Worker(engine) = &mut self.engine {
                     engine.abandon_spawn(&session_id);
                 }
-                self.completions.push(CoreCompletion::Spawn {
-                    id,
-                    result: Err(CoreDaemonError::Cancelled),
+                self.completions.push(match reservation {
+                    Some(reservation) => CoreCompletion::SpawnReserved {
+                        id,
+                        result: ReservedSpawnResult::AdmittedFailure {
+                            error: CoreDaemonError::Cancelled,
+                            state: reservation.state(),
+                        },
+                    },
+                    None => CoreCompletion::Spawn {
+                        id,
+                        result: Err(CoreDaemonError::Cancelled),
+                    },
                 });
                 return true;
             }
@@ -1794,10 +1870,12 @@ impl CoreDaemon {
         released_open + cancelled
     }
 
-    fn allocate_pending_id(&mut self) -> PendingOperationId {
+    fn allocate_pending_id(&mut self) -> Result<PendingOperationId, CoreDaemonError> {
         let id = PendingOperationId(self.next_pending_operation);
-        self.next_pending_operation += 1;
-        id
+        self.next_pending_operation = self.next_pending_operation.checked_add(1).ok_or(
+            CoreDaemonError::SessionReservation(SessionReservationRefusal::IdentityExhausted),
+        )?;
+        Ok(id)
     }
 
     fn pending_spawns(&self) -> usize {
@@ -1839,7 +1917,9 @@ impl CoreDaemon {
         request: SpawnSessionRequest,
     ) -> Result<(), CoreDaemonError> {
         let now_seconds = unix_now_seconds();
-        let pending_spawns = self.pending_spawns();
+        let pending_spawns = self
+            .pending_spawns()
+            .max(self.engine.pending_session_reservations());
         match &mut self.engine {
             DaemonEngine::Local(_) => {
                 let result = self.spawn(request, now_seconds);
@@ -1864,6 +1944,7 @@ impl CoreDaemon {
                     id,
                     PendingState {
                         kind: PendingKind::Spawn {
+                            reservation: None,
                             session_id,
                             metadata: request.metadata,
                             size,
@@ -1875,6 +1956,89 @@ impl CoreDaemon {
                     },
                 );
                 Ok(())
+            }
+        }
+    }
+
+    fn begin_reserved_spawn(
+        &mut self,
+        id: PendingOperationId,
+        reservation: SessionReservation,
+        request: SpawnSessionRequest,
+    ) {
+        if request.request.session_id != *reservation.session_id() {
+            self.completions.push(CoreCompletion::SpawnReserved {
+                id,
+                result: ReservedSpawnResult::Refused {
+                    error: reservation_error(SessionReservationRefusal::InvalidToken),
+                },
+            });
+            return;
+        }
+        let now_seconds = unix_now_seconds();
+        let session_id = request.request.session_id.clone();
+        let size = request
+            .request
+            .initial_pty_size
+            .clone()
+            .unwrap_or(ResizePayload { rows: 24, cols: 80 });
+        let label = command_label(&request.request.executable);
+        match &mut self.engine {
+            DaemonEngine::Worker(engine) => {
+                match engine.begin_spawn_reserved(&reservation, request.request, &request.metadata)
+                {
+                    Ok(()) => {
+                        self.pending.insert(
+                            id,
+                            PendingState {
+                                kind: PendingKind::Spawn {
+                                    reservation: Some(reservation),
+                                    session_id,
+                                    metadata: request.metadata,
+                                    size,
+                                    label,
+                                    now_seconds,
+                                },
+                                deadline: None,
+                                cancelled: false,
+                            },
+                        );
+                    }
+                    Err(error) => self.completions.push(CoreCompletion::SpawnReserved {
+                        id,
+                        result: ReservedSpawnResult::Refused {
+                            error: error.into(),
+                        },
+                    }),
+                }
+            }
+            DaemonEngine::Local(engine) => {
+                let result = match engine.spawn_reserved_session(
+                    &reservation,
+                    request.request,
+                    request.metadata,
+                ) {
+                    Ok(spawn) => {
+                        match self.finish_spawn_registry(spawn, size, label, now_seconds) {
+                            Ok(session) => ReservedSpawnResult::Installed { session },
+                            Err(error) => ReservedSpawnResult::AdmittedFailure {
+                                error,
+                                state: reservation.state(),
+                            },
+                        }
+                    }
+                    Err(error) if reserved_launch_was_admitted(&error) => {
+                        ReservedSpawnResult::AdmittedFailure {
+                            error: error.into(),
+                            state: reservation.state(),
+                        }
+                    }
+                    Err(error) => ReservedSpawnResult::Refused {
+                        error: error.into(),
+                    },
+                };
+                self.completions
+                    .push(CoreCompletion::SpawnReserved { id, result });
             }
         }
     }
@@ -2302,6 +2466,7 @@ impl CoreDaemon {
             let cancelled = state.cancelled;
             let completion = match &state.kind {
                 PendingKind::Spawn {
+                    reservation,
                     session_id,
                     metadata,
                     size,
@@ -2334,13 +2499,35 @@ impl CoreDaemon {
                     match polled {
                         Ok(None) => continue,
                         Ok(Some(spawn)) => {
+                            let reservation = reservation.clone();
                             let (size, label, spawn_at) = (size.clone(), label.clone(), *spawn_at);
                             let result = self.finish_spawn_registry(spawn, size, label, spawn_at);
-                            CoreCompletion::Spawn { id, result }
+                            match reservation {
+                                Some(reservation) => CoreCompletion::SpawnReserved {
+                                    id,
+                                    result: match result {
+                                        Ok(session) => ReservedSpawnResult::Installed { session },
+                                        Err(error) => ReservedSpawnResult::AdmittedFailure {
+                                            error,
+                                            state: reservation.state(),
+                                        },
+                                    },
+                                },
+                                None => CoreCompletion::Spawn { id, result },
+                            }
                         }
-                        Err(error) => CoreCompletion::Spawn {
-                            id,
-                            result: Err(error.into()),
+                        Err(error) => match reservation {
+                            Some(reservation) => CoreCompletion::SpawnReserved {
+                                id,
+                                result: ReservedSpawnResult::AdmittedFailure {
+                                    error: error.into(),
+                                    state: reservation.state(),
+                                },
+                            },
+                            None => CoreCompletion::Spawn {
+                                id,
+                                result: Err(error.into()),
+                            },
                         },
                     }
                 }
@@ -2549,7 +2736,7 @@ impl CoreDaemon {
         session_id: SessionId,
         probe_id: &str,
     ) -> PendingOperationId {
-        let id = self.allocate_pending_id();
+        let id = self.allocate_pending_id().expect("test operation identity");
         self.pending.insert(
             id,
             PendingState {
@@ -2571,7 +2758,7 @@ impl CoreDaemon {
         owner: CaptureOwner,
         host_capture: u64,
     ) -> PendingOperationId {
-        let id = self.allocate_pending_id();
+        let id = self.allocate_pending_id().expect("test operation identity");
         self.pending.insert(
             id,
             PendingState {
@@ -4467,6 +4654,50 @@ fn unix_now_seconds() -> u64 {
 }
 
 impl DaemonEngine {
+    fn reserve_session_for_request(
+        &self,
+        session_id: SessionId,
+        request_id: u64,
+        limit: usize,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        match self {
+            Self::Local(engine) => {
+                engine.reserve_session_for_request(session_id, request_id, limit)
+            }
+            Self::Worker(engine) => {
+                engine.reserve_session_for_request(session_id, request_id, limit)
+            }
+        }
+    }
+
+    fn session_reservation_for_request(
+        &self,
+        session_id: &SessionId,
+        request_id: u64,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        match self {
+            Self::Local(engine) => engine.session_reservation_for_request(session_id, request_id),
+            Self::Worker(engine) => engine.session_reservation_for_request(session_id, request_id),
+        }
+    }
+
+    fn release_session_reservation(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<SessionReservationRelease, SessionReservationRefusal> {
+        match self {
+            Self::Local(engine) => engine.release_session_reservation(reservation),
+            Self::Worker(engine) => engine.release_session_reservation(reservation),
+        }
+    }
+
+    fn pending_session_reservations(&self) -> usize {
+        match self {
+            Self::Local(engine) => engine.pending_session_reservations(),
+            Self::Worker(engine) => engine.pending_session_reservations(),
+        }
+    }
+
     fn session(&self, session_id: &SessionId) -> Option<&CoreSession> {
         match self {
             Self::Local(engine) => engine.session(session_id),
@@ -5414,11 +5645,14 @@ mod pending_operation_tests {
     #[test]
     fn a_cancelled_spawn_keeps_its_slot_until_the_launch_is_collected() {
         let mut daemon = daemon("cancelled-spawn");
-        let id = daemon.allocate_pending_id();
+        let id = daemon
+            .allocate_pending_id()
+            .expect("test operation identity");
         daemon.pending.insert(
             id,
             PendingState {
                 kind: PendingKind::Spawn {
+                    reservation: None,
                     session_id: SessionId("s".into()),
                     metadata: botster_core::CoreSessionMetadata::new(),
                     size: ResizePayload { rows: 24, cols: 80 },

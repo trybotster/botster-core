@@ -36,7 +36,9 @@ use crate::engine::subscription_multiplexer::{
     SubscriptionMultiplexer, SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
 };
 use crate::runtime::{
-    SessionRuntime, SessionRuntimeError, SessionRuntimeHandle, SessionSpawnRequest,
+    EngineSessionAdmission, ReservedSessionSpawnError, SessionAdmissionOwner, SessionReservation,
+    SessionReservationRefusal, SessionReservationRelease, SessionRuntime, SessionRuntimeError,
+    SessionRuntimeHandle, SessionSpawnRequest,
 };
 use crate::session::{
     CoreSession, CoreSessionMetadata, SessionActivityEvent, SessionActivityStatus, SessionId,
@@ -65,6 +67,22 @@ pub enum MultiplexerEngineError {
     /// Host session runtime returned an error.
     #[error(transparent)]
     Runtime(#[from] SessionRuntimeError),
+    /// A reserved runtime launch retained its exact admission stage.
+    #[error(transparent)]
+    ReservedSpawn(#[from] ReservedSessionSpawnError),
+    /// Runtime launch succeeded, but engine installation failed.
+    #[error("session installation failed after launch: {0}")]
+    InstallationAfterLaunch(Box<MultiplexerEngineError>),
+}
+
+impl MultiplexerEngineError {
+    fn ordinary_spawn_error(self) -> Self {
+        match self {
+            Self::ReservedSpawn(error) => Self::Runtime(error.into_runtime_error()),
+            Self::InstallationAfterLaunch(error) => error.ordinary_spawn_error(),
+            error => error,
+        }
+    }
 }
 
 /// Observable state change emitted by the assembled engine.
@@ -154,9 +172,10 @@ impl MultiplexerEngineOutcome {
 /// Hosts provide concrete runtime adapters and policy-resolved requests. The
 /// facade coordinates core state machines and returns typed outcomes without
 /// performing transport writes, persistence, auth, or product policy.
-#[derive(Clone)]
 pub struct MultiplexerEngine<R, W> {
     session_runtime: R,
+    admission_owner: SessionAdmissionOwner,
+    session_admissions: HashMap<SessionId, EngineSessionAdmission>,
     sessions: HashMap<SessionId, CoreSession>,
     session_handles: HashMap<SessionId, SessionRuntimeHandle>,
     session_workers: HashMap<SessionId, SessionWorkerEngine<W>>,
@@ -165,6 +184,24 @@ pub struct MultiplexerEngine<R, W> {
     routed_envelopes: RoutedEnvelopeRouter,
     plugins: PluginWorkerEngine,
     timers: PluginTimerScheduler,
+}
+
+impl<R: Clone, W: Clone> Clone for MultiplexerEngine<R, W> {
+    fn clone(&self) -> Self {
+        Self {
+            session_runtime: self.session_runtime.clone(),
+            admission_owner: SessionAdmissionOwner::default(),
+            session_admissions: self.session_admissions.clone(),
+            sessions: self.sessions.clone(),
+            session_handles: self.session_handles.clone(),
+            session_workers: self.session_workers.clone(),
+            subscriptions: self.subscriptions.clone(),
+            notifications: self.notifications.clone(),
+            routed_envelopes: self.routed_envelopes.clone(),
+            plugins: self.plugins.clone(),
+            timers: self.timers.clone(),
+        }
+    }
 }
 
 impl<R, W> MultiplexerEngine<R, W>
@@ -181,6 +218,8 @@ where
     pub fn with_plugin_config(session_runtime: R, plugin_config: PluginWorkerEngineConfig) -> Self {
         Self {
             session_runtime,
+            admission_owner: SessionAdmissionOwner::default(),
+            session_admissions: HashMap::new(),
             sessions: HashMap::new(),
             session_handles: HashMap::new(),
             session_workers: HashMap::new(),
@@ -210,6 +249,100 @@ where
         self.sessions.values().cloned().collect()
     }
 
+    /// Reserve an identity across the engine and its built-in runtime.
+    pub fn reserve_session(
+        &self,
+        session_id: SessionId,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        self.reserve_session_identity(session_id, true)
+    }
+
+    pub(crate) fn reserve_session_identity(
+        &self,
+        session_id: SessionId,
+        explicit: bool,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        if self.sessions.contains_key(&session_id) {
+            return Err(SessionReservationRefusal::Occupied);
+        }
+        self.session_runtime
+            .session_admission()
+            .ok_or(SessionReservationRefusal::Unsupported)?
+            .reserve_for(session_id, &self.admission_owner, explicit, None, None)
+    }
+
+    /// Reserve with the caller's operation identity and pending-spawn limit.
+    pub fn reserve_session_for_request(
+        &self,
+        session_id: SessionId,
+        request_id: u64,
+        limit: usize,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        if self.sessions.contains_key(&session_id) {
+            return Err(SessionReservationRefusal::Occupied);
+        }
+        self.session_runtime
+            .session_admission()
+            .ok_or(SessionReservationRefusal::Unsupported)?
+            .reserve_for(
+                session_id,
+                &self.admission_owner,
+                true,
+                Some(request_id),
+                Some(limit),
+            )
+    }
+
+    /// Count reservations whose ownership has not moved to an engine session.
+    #[must_use]
+    pub fn pending_session_reservations(&self) -> usize {
+        self.admission_owner.pending_count()
+    }
+
+    /// Recover only this engine's original reserve operation.
+    pub fn session_reservation_for_request(
+        &self,
+        session_id: &SessionId,
+        request_id: u64,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        Ok(self.current_reservation(session_id)?.filter(|reservation| {
+            reservation.belongs_to(&self.admission_owner)
+                && reservation.request_id() == Some(request_id)
+        }))
+    }
+
+    /// Release only a reservation issued to this engine.
+    pub fn release_session_reservation(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<SessionReservationRelease, SessionReservationRefusal> {
+        self.validate_reservation_owner(reservation)?;
+        self.session_runtime
+            .session_admission()
+            .ok_or(SessionReservationRefusal::Unsupported)?
+            .release(reservation)
+    }
+
+    pub(crate) fn validate_reservation_owner(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<(), SessionReservationRefusal> {
+        if !reservation.belongs_to(&self.admission_owner) {
+            return Err(SessionReservationRefusal::InvalidToken);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn current_reservation(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        self.session_runtime
+            .session_admission()
+            .ok_or(SessionReservationRefusal::Unsupported)?
+            .current(session_id)
+    }
+
     /// Forget all engine-owned state for one terminal session.
     ///
     /// This is a policy-free cleanup mechanism. Hosts decide whether and when
@@ -230,7 +363,13 @@ where
         self.session_handles.remove(session_id);
         self.session_workers.remove(session_id);
         self.subscriptions.forget_session(session_id);
-        true
+        let admission = self.session_admissions.remove(session_id);
+        let reservation = admission.as_ref().map(EngineSessionAdmission::reservation);
+        drop(admission);
+        match (self.session_runtime.session_admission(), reservation) {
+            (Some(table), Some(reservation)) => table.retire_implicit(&reservation).is_ok(),
+            _ => true,
+        }
     }
 
     /// Return the host runtime adapter.
@@ -283,6 +422,18 @@ where
             return Err(MultiplexerEngineError::MetadataTooLarge);
         }
 
+        if self.session_runtime.session_admission().is_some() {
+            let reservation = self
+                .reserve_session_identity(request.session_id.clone(), false)
+                .map_err(SessionRuntimeError::from)?;
+            let result =
+                self.spawn_reserved_session(&reservation, request, metadata, worker_runtime);
+            if result.is_err() {
+                let _ = self.release_session_reservation(&reservation);
+            }
+            return result.map_err(MultiplexerEngineError::ordinary_spawn_error);
+        }
+
         let handle = self.session_runtime.spawn_session(request)?;
         let mut session = CoreSession::with_metadata(
             handle.session_id.clone(),
@@ -331,6 +482,81 @@ where
             return Err(MultiplexerEngineError::MetadataTooLarge);
         }
 
+        if let Some(table) = self.session_runtime.session_admission() {
+            let reservation = table
+                .current(&handle.session_id)
+                .map_err(SessionRuntimeError::from)?
+                .ok_or_else(|| {
+                    SessionRuntimeError::from(SessionReservationRefusal::InvalidToken)
+                })?;
+            let admission = table
+                .attach_engine(&reservation, &self.admission_owner, true)
+                .map_err(SessionRuntimeError::from)?;
+            self.session_admissions
+                .insert(handle.session_id.clone(), admission);
+        }
+
+        Ok(self.install_session(handle, metadata, worker_runtime))
+    }
+
+    /// Launch and install only the session that owns this reservation.
+    pub fn spawn_reserved_session(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: CoreSessionMetadata,
+        worker_runtime: W,
+    ) -> Result<MultiplexerSpawnOutcome, MultiplexerEngineError> {
+        self.validate_reservation_owner(reservation)
+            .map_err(SessionRuntimeError::from)?;
+        if request.session_id != *reservation.session_id()
+            || self.sessions.contains_key(&request.session_id)
+        {
+            return Err(SessionRuntimeError::from(SessionReservationRefusal::InvalidToken).into());
+        }
+        if !metadata.is_within_encoded_len_limit() {
+            return Err(MultiplexerEngineError::MetadataTooLarge);
+        }
+        let handle = self.session_runtime.spawn_reserved(reservation, request)?;
+        self.adopt_reserved_session(reservation, handle, metadata, worker_runtime)
+            .map_err(|error| MultiplexerEngineError::InstallationAfterLaunch(Box::new(error)))
+    }
+
+    /// Install a runtime handle under the exact engine reservation.
+    pub(crate) fn adopt_reserved_session(
+        &mut self,
+        reservation: &SessionReservation,
+        handle: SessionRuntimeHandle,
+        metadata: CoreSessionMetadata,
+        worker_runtime: W,
+    ) -> Result<MultiplexerSpawnOutcome, MultiplexerEngineError> {
+        self.validate_reservation_owner(reservation)
+            .map_err(SessionRuntimeError::from)?;
+        if handle.session_id != *reservation.session_id()
+            || self.sessions.contains_key(&handle.session_id)
+        {
+            return Err(SessionRuntimeError::from(SessionReservationRefusal::InvalidToken).into());
+        }
+        if !metadata.is_within_encoded_len_limit() {
+            return Err(MultiplexerEngineError::MetadataTooLarge);
+        }
+        let admission = self
+            .session_runtime
+            .session_admission()
+            .ok_or_else(|| SessionRuntimeError::from(SessionReservationRefusal::Unsupported))?
+            .attach_engine(reservation, &self.admission_owner, false)
+            .map_err(SessionRuntimeError::from)?;
+        self.session_admissions
+            .insert(handle.session_id.clone(), admission);
+        Ok(self.install_session(handle, metadata, worker_runtime))
+    }
+
+    fn install_session(
+        &mut self,
+        handle: SessionRuntimeHandle,
+        metadata: CoreSessionMetadata,
+        worker_runtime: W,
+    ) -> MultiplexerSpawnOutcome {
         let mut session = CoreSession::with_metadata(
             handle.session_id.clone(),
             SessionLifecycleState::Starting,
@@ -352,14 +578,14 @@ where
         self.sessions
             .insert(handle.session_id.clone(), session.clone());
 
-        Ok(MultiplexerSpawnOutcome {
+        MultiplexerSpawnOutcome {
             handle,
             session: session.clone(),
             observations: vec![MultiplexerEngineObservation::SessionLifecycle {
                 session_id: session.session_id,
                 state: SessionLifecycleState::Running,
             }],
-        })
+        }
     }
 
     /// Route one client ingress frame through subscriptions and session workers.

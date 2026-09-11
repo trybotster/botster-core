@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
+use super::{ReservedSessionSpawnError, SessionAdmission, SessionReservation};
+
 use crate::contract::terminal_wake::{SessionWakeHandle, TerminalWakeSource};
 use crate::engine::session_worker::{SessionWorkerRuntime, SessionWorkerRuntimeEvent};
 use crate::{
@@ -109,6 +111,15 @@ impl Default for LocalProcessRuntime {
 }
 
 impl LocalProcessRuntime {
+    /// Return the process group captured when this PTY session started.
+    pub fn session_process_group(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<i32>, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        Ok(session.process_group.filter(|group| *group > 0))
+    }
     /// Build an empty local process runtime with default shutdown behavior.
     #[must_use]
     pub fn new() -> Self {
@@ -173,8 +184,68 @@ impl LocalProcessRuntime {
 }
 
 impl SessionRuntime for LocalProcessRuntime {
+    fn session_admission(&self) -> Option<&SessionAdmission> {
+        Some(&self.registry.admission)
+    }
+
     fn spawn_session(
         &mut self,
+        request: SessionSpawnRequest,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
+        let reservation = self
+            .registry
+            .admission
+            .reserve_synchronous(request.session_id.clone())?;
+        let result = self.spawn_reserved(&reservation, request);
+        if result.is_err() {
+            let _ = self.registry.admission.release(&reservation);
+        }
+        result.map_err(ReservedSessionSpawnError::into_runtime_error)
+    }
+
+    fn spawn_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+    ) -> Result<SessionRuntimeHandle, ReservedSessionSpawnError> {
+        self.registry
+            .admission
+            .begin_launch(reservation, &request.session_id)
+            .map_err(|error| ReservedSessionSpawnError::Refused(error.into()))?;
+        let result = self.spawn_reserved_process(reservation, request);
+        if result.is_err() {
+            reservation.launch_failed();
+        }
+        result.map_err(ReservedSessionSpawnError::Admitted)
+    }
+
+    fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
+        match input {
+            SessionRuntimeInput::PtyInput { session_id, data } => {
+                self.registry.write_input(&session_id, &data)
+            }
+            SessionRuntimeInput::Resize { session_id, size } => {
+                self.registry.resize(&session_id, size)
+            }
+            SessionRuntimeInput::Shutdown { session_id } => self
+                .registry
+                .shutdown_session(&session_id, self.options)
+                .map(|_| ()),
+        }
+    }
+
+    fn drain_output(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
+        self.registry.drain_output(session_id)
+    }
+}
+
+impl LocalProcessRuntime {
+    fn spawn_reserved_process(
+        &mut self,
+        reservation: &SessionReservation,
         request: SessionSpawnRequest,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
         let pty_size = pty_size(request.initial_pty_size.as_ref());
@@ -195,6 +266,17 @@ impl SessionRuntime for LocalProcessRuntime {
             .map_err(|error| spawn_error(&request.executable, error.to_string()))?;
         let pid = child.process_id();
         let process_group = process_group_leader(pty_pair.master.as_ref(), pid);
+        reservation.creation_possible();
+        reservation.capture_process_group(process_group);
+        let mut pending_child = PendingLocalChild {
+            child: Some(child),
+            process_group,
+            admission: reservation.clone(),
+            wake_handle: self
+                .wake_source
+                .as_ref()
+                .map(|source| source.session_handle(request.session_id.clone())),
+        };
         let process = ProcessIdentity {
             pid,
             runtime_id: Some(request.session_id.0.clone()),
@@ -254,13 +336,15 @@ impl SessionRuntime for LocalProcessRuntime {
             wake_handle,
         );
 
+        reservation.runtime_installing();
         self.registry.insert(
             request.session_id.clone(),
             LocalSession {
+                admission: reservation.clone(),
                 master: pty_pair.master,
                 writer,
                 residual_reader,
-                child,
+                child: pending_child.child.take().expect("local child ownership"),
                 output_pressure,
                 output_capacity,
                 process_group,
@@ -275,34 +359,13 @@ impl SessionRuntime for LocalProcessRuntime {
                 write_test_hooks: Arc::clone(&self.write_test_hooks),
             },
         )?;
+        reservation.runtime_installed();
 
         Ok(SessionRuntimeHandle {
             request_id: request.request_id,
             session_id: request.session_id,
             process,
         })
-    }
-
-    fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
-        match input {
-            SessionRuntimeInput::PtyInput { session_id, data } => {
-                self.registry.write_input(&session_id, &data)
-            }
-            SessionRuntimeInput::Resize { session_id, size } => {
-                self.registry.resize(&session_id, size)
-            }
-            SessionRuntimeInput::Shutdown { session_id } => self
-                .registry
-                .shutdown_session(&session_id, self.options)
-                .map(|_| ()),
-        }
-    }
-
-    fn drain_output(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError> {
-        self.registry.drain_output(session_id)
     }
 }
 
@@ -519,10 +582,20 @@ impl SessionWorkerRuntime for LocalProcessWorkerRuntime {
     }
 }
 
-#[derive(Default)]
 struct LocalProcessRegistry {
+    admission: SessionAdmission,
     sessions: Mutex<HashMap<SessionId, LocalSessionHandle>>,
     wake_source: Mutex<Option<TerminalWakeSource>>,
+}
+
+impl Default for LocalProcessRegistry {
+    fn default() -> Self {
+        Self {
+            admission: SessionAdmission::synchronous(),
+            sessions: Mutex::new(HashMap::new()),
+            wake_source: Mutex::new(None),
+        }
+    }
 }
 
 impl Drop for LocalProcessRegistry {
@@ -558,10 +631,22 @@ impl LocalProcessRegistry {
     fn insert(
         &self,
         session_id: SessionId,
-        session: LocalSession,
+        mut session: LocalSession,
     ) -> Result<(), SessionRuntimeError> {
-        let mut sessions = self.lock()?;
+        let mut sessions = match self.lock() {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                session.admission.runtime_removed();
+                let _ = terminate_session(&mut session, LocalProcessRuntimeOptions::default());
+                session.admission.cleanup_unconfirmed();
+                return Err(error);
+            }
+        };
         if sessions.contains_key(&session_id) {
+            drop(sessions);
+            session.admission.runtime_removed();
+            let _ = terminate_session(&mut session, LocalProcessRuntimeOptions::default());
+            session.admission.cleanup_unconfirmed();
             return Err(SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
                 "local process session already exists",
@@ -700,9 +785,13 @@ impl LocalProcessRegistry {
         }
 
         if session.exit_payload.is_some() && session.exit_output_queued {
+            let admission = session.admission.clone();
             drop(session);
             // Removal transfers wake-retirement ownership to the ProcessExited consumer.
             self.remove(session_id)?;
+            admission.runtime_removed();
+            admission.observe_process_exit();
+            self.admission.retire_implicit(&admission)?;
         }
 
         Ok(output)
@@ -772,7 +861,43 @@ impl LocalProcessRegistry {
 
 type LocalSessionHandle = Arc<Mutex<LocalSession>>;
 
+struct PendingLocalChild {
+    child: Option<Box<dyn Child + Send + Sync>>,
+    process_group: Option<i32>,
+    admission: SessionReservation,
+    wake_handle: Option<SessionWakeHandle>,
+}
+
+impl Drop for PendingLocalChild {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        let process_group = self.process_group;
+        let admission = self.admission.clone();
+        let wake_handle = self.wake_handle.clone();
+        thread::spawn(move || {
+            #[cfg(unix)]
+            let _ = signal_process_group(
+                process_group,
+                SIGKILL,
+                SessionRuntimeErrorKind::CleanupFailed,
+            );
+            #[cfg(not(unix))]
+            let _ = process_group;
+            let _ = child.kill();
+            if child.wait().is_ok() {
+                admission.observe_process_exit();
+            } else {
+                admission.cleanup_unconfirmed();
+            }
+            notify_session_wake(&wake_handle);
+        });
+    }
+}
+
 struct LocalSession {
+    admission: SessionReservation,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     residual_reader: Box<dyn Read + Send>,
