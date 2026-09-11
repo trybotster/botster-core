@@ -17,6 +17,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::{
+    ReservedSessionSpawnError, SessionAdmission, SessionReservation, SessionReservationState,
+};
+
 #[cfg(unix)]
 use std::net::Shutdown;
 #[cfg(unix)]
@@ -344,18 +348,28 @@ pub enum WorkerSpawnPoll {
     Pending,
     /// The worker is installed and its session is live.
     Ready(SessionRuntimeHandle),
-    /// The launch failed. The session id is free again.
+    /// The launch failed. Reservation state determines whether Core can release the identity.
     Failed(SessionRuntimeError),
 }
 
 struct PendingSpawn {
-    receiver: Receiver<(
-        SessionSpawnRequest,
-        Result<LaunchedWorker, SessionRuntimeError>,
-    )>,
+    reservation: SessionReservation,
+    receiver: Option<
+        Receiver<(
+            SessionSpawnRequest,
+            Result<LaunchedWorker, SessionRuntimeError>,
+        )>,
+    >,
+    cleanup_error: Option<SessionRuntimeError>,
     /// The host cancelled the operation. The launched worker, when it
     /// arrives, is stopped and reaped instead of installed.
     abandoned: bool,
+}
+
+impl Drop for PendingSpawn {
+    fn drop(&mut self) {
+        self.reservation.pending_collected();
+    }
 }
 
 /// A worker whose process is running and whose handshake succeeded, before
@@ -367,6 +381,8 @@ struct LaunchedWorker {
 }
 
 struct LaunchedParts {
+    admission: Option<SessionReservation>,
+    wake_handle: Option<SessionWakeHandle>,
     child: Child,
     control: WorkerControl,
     reader: Box<dyn Read + Send>,
@@ -393,24 +409,40 @@ impl LaunchedWorker {
 }
 
 impl Drop for LaunchedWorker {
-    /// Stop and reap a worker that was never installed: sends the shutdown
-    /// frame, kills the child, reaps it in the background, and removes the
-    /// control socket this launch created. Runs on every drop path,
-    /// including a queued value dropped with its channel.
+    /// Transfer an uninstalled worker to cleanup without waiting here.
     fn drop(&mut self) {
-        let Some(mut parts) = self.parts.take() else {
+        let Some(parts) = self.parts.take() else {
             return;
         };
         #[cfg(test)]
         LAUNCHED_WORKER_DISCARDS.fetch_add(1, Ordering::AcqRel);
-        let _ = parts.control.write_frame(FRAME_SHUTDOWN, &[]);
-        let _ = parts.child.kill();
-        match parts.child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) | Err(_) => reap_worker_child_in_background(parts.child),
-        }
-        parts.control.cleanup();
+        thread::spawn(move || cleanup_uninstalled_worker(parts));
     }
+}
+
+fn cleanup_uninstalled_worker(mut parts: LaunchedParts) {
+    let mut session_ended = false;
+    if parts.control.write_frame(FRAME_SHUTDOWN, &[]).is_ok() {
+        while let Ok(frame) = read_frame(&mut parts.reader) {
+            if frame.frame_type == FRAME_PROCESS_EXITED
+                && serde_json::from_slice::<crate::ProcessExitedPayload>(&frame.payload).is_ok()
+            {
+                session_ended = true;
+                break;
+            }
+        }
+    }
+    let _ = parts.child.kill();
+    let worker_reaped = parts.child.wait().is_ok();
+    parts.control.cleanup();
+    if let Some(admission) = &parts.admission {
+        if session_ended && worker_reaped {
+            admission.observe_process_exit();
+        } else {
+            admission.cleanup_unconfirmed();
+        }
+    }
+    notify_session_wake(&parts.wake_handle);
 }
 
 /// Whether a snapshot barrier cancel entered the worker control queue.
@@ -428,6 +460,7 @@ pub enum SnapshotCancelAdmission {
 
 /// Parent-side runtime adapter for one-worker-process-per-session local PTYs.
 pub struct WorkerProcessRuntime {
+    admission: SessionAdmission,
     options: WorkerProcessRuntimeOptions,
     sessions: HashMap<SessionId, WorkerProcessSession>,
     pending_spawns: HashMap<SessionId, PendingSpawn>,
@@ -463,6 +496,7 @@ impl WorkerProcessRuntime {
     #[must_use]
     pub fn with_options(options: WorkerProcessRuntimeOptions) -> Self {
         Self {
+            admission: SessionAdmission::default(),
             options,
             sessions: HashMap::new(),
             pending_spawns: HashMap::new(),
@@ -756,6 +790,22 @@ impl WorkerProcessRuntime {
     /// The session id is reserved until [`Self::poll_spawn`] reports a
     /// terminal state. The session wake fires when the launch finishes.
     pub fn begin_spawn(&mut self, request: SessionSpawnRequest) -> Result<(), SessionRuntimeError> {
+        let reservation = self
+            .admission
+            .reserve_implicit(request.session_id.clone())?;
+        let result = self.begin_spawn_reserved(&reservation, request);
+        if result.is_err() {
+            let _ = self.admission.release(&reservation);
+        }
+        result
+    }
+
+    /// Start the launch that owns this reservation.
+    pub fn begin_spawn_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+    ) -> Result<(), SessionRuntimeError> {
         let session_id = request.session_id.clone();
         if self.sessions.contains_key(&session_id) || self.pending_spawns.contains_key(&session_id)
         {
@@ -764,14 +814,18 @@ impl WorkerProcessRuntime {
                 "worker process session already exists",
             ));
         }
+        self.admission.begin_launch(reservation, &session_id)?;
+        reservation.pending_started();
         let options = self.options.clone();
         let wake_handle = self
             .wake_source
             .as_ref()
             .map(|source| source.session_handle(session_id.clone()));
         let (sender, receiver) = mpsc::sync_channel(1);
+        let launch_reservation = reservation.clone();
         thread::spawn(move || {
-            let result = launch_worker(&options, &request);
+            let result =
+                launch_reserved_worker(&options, &request, launch_reservation, wake_handle.clone());
             // A failed send drops the guard here; a queued guard drops with
             // the receiver. Both paths stop and reap the child.
             let _ = sender.send((request, result));
@@ -780,7 +834,9 @@ impl WorkerProcessRuntime {
         self.pending_spawns.insert(
             session_id,
             PendingSpawn {
-                receiver,
+                reservation: reservation.clone(),
+                receiver: Some(receiver),
+                cleanup_error: None,
                 abandoned: false,
             },
         );
@@ -810,15 +866,40 @@ impl WorkerProcessRuntime {
             ));
         };
         let abandoned = pending.abandoned;
-        match pending.receiver.try_recv() {
+        let reservation = pending.reservation.clone();
+        let Some(receiver) = &pending.receiver else {
+            match reservation.execution_state() {
+                SessionReservationState::Launching => return WorkerSpawnPoll::Pending,
+                SessionReservationState::Ended | SessionReservationState::CleanupUnconfirmed => {
+                    let mut pending = self
+                        .pending_spawns
+                        .remove(session_id)
+                        .expect("pending cleanup");
+                    pending.reservation.pending_collected();
+                    if reservation.state() == SessionReservationState::Ended {
+                        self.forget_session_wake(session_id);
+                        let _ = self.admission.retire_implicit(&reservation);
+                    }
+                    return WorkerSpawnPoll::Failed(
+                        pending.cleanup_error.take().expect("cleanup failure"),
+                    );
+                }
+                _ => return WorkerSpawnPoll::Pending,
+            }
+        };
+        match receiver.try_recv() {
             Ok((_, Ok(launched))) if abandoned => {
-                self.pending_spawns.remove(session_id);
-                self.forget_session_wake(session_id);
                 drop(launched);
-                WorkerSpawnPoll::Failed(SessionRuntimeError::new(
+                let pending = self
+                    .pending_spawns
+                    .get_mut(session_id)
+                    .expect("pending launch");
+                pending.receiver = None;
+                pending.cleanup_error = Some(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     "worker spawn was abandoned before it finished",
-                ))
+                ));
+                WorkerSpawnPoll::Pending
             }
             Ok((request, Ok(launched))) => {
                 self.pending_spawns.remove(session_id);
@@ -829,13 +910,16 @@ impl WorkerProcessRuntime {
             }
             Ok((_, Err(error))) => {
                 self.pending_spawns.remove(session_id);
-                self.forget_session_wake(session_id);
+                if reservation.state() == SessionReservationState::Ended {
+                    self.forget_session_wake(session_id);
+                    let _ = self.admission.retire_implicit(&reservation);
+                }
                 WorkerSpawnPoll::Failed(error)
             }
             Err(TryRecvError::Empty) => WorkerSpawnPoll::Pending,
             Err(TryRecvError::Disconnected) => {
                 self.pending_spawns.remove(session_id);
-                self.forget_session_wake(session_id);
+                reservation.launch_failed();
                 WorkerSpawnPoll::Failed(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     "worker launch thread ended without a result",
@@ -1090,7 +1174,15 @@ impl WorkerProcessRuntime {
     /// Forget a session installed by [`Self::insert_test_session`].
     #[cfg(test)]
     pub(crate) fn remove_test_session(&mut self, session_id: &SessionId) {
-        self.sessions.remove(session_id);
+        if let Some(session) = self.sessions.remove(session_id) {
+            if let Some(admission) = session.admission.as_ref() {
+                admission.runtime_removed();
+                admission.runtime_ended();
+                self.admission
+                    .retire_implicit(admission)
+                    .expect("retire test admission");
+            }
+        }
     }
 
     /// Install a session with no child, no writer, and an undrained control
@@ -1120,7 +1212,17 @@ impl WorkerProcessRuntime {
     #[cfg(test)]
     fn insert_test_session_with_control(&mut self, session_id: SessionId, control: WorkerControl) {
         let (_sender, receiver) = mpsc::channel();
+        let admission = self
+            .admission
+            .reserve_implicit(session_id.clone())
+            .expect("test admission");
+        self.admission
+            .begin_launch(&admission, &session_id)
+            .expect("test launch");
+        admission.runtime_installed();
+        admission.runtime_installing();
         let session = WorkerProcessSession {
+            admission: Some(admission),
             child: None,
             control,
             control_queue: ControlQueue::new(),
@@ -1254,6 +1356,30 @@ impl WorkerProcessRuntime {
         socket_path: impl Into<PathBuf>,
         supports_snapshot_boundary: bool,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
+        let reservation = self.admission.reserve_implicit(session_id.clone())?;
+        let result = self.adopt_session_reserved(
+            &reservation,
+            session_id,
+            process,
+            socket_path,
+            supports_snapshot_boundary,
+        );
+        if result.is_err() {
+            let _ = self.admission.release(&reservation);
+        }
+        result
+    }
+
+    /// Adopt only the worker that owns the supplied reservation.
+    #[cfg(unix)]
+    pub fn adopt_session_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        session_id: SessionId,
+        process: ProcessIdentity,
+        socket_path: impl Into<PathBuf>,
+        supports_snapshot_boundary: bool,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
         if self.sessions.contains_key(&session_id) || self.pending_spawns.contains_key(&session_id)
         {
             return Err(SessionRuntimeError::new(
@@ -1261,8 +1387,29 @@ impl WorkerProcessRuntime {
                 "worker process session already exists",
             ));
         }
+        self.admission.begin_launch(reservation, &session_id)?;
+        let result = self.adopt_reserved_inner(
+            reservation,
+            session_id,
+            process,
+            socket_path.into(),
+            supports_snapshot_boundary,
+        );
+        if result.is_err() {
+            reservation.launch_failed();
+        }
+        result
+    }
 
-        let socket_path = socket_path.into();
+    #[cfg(unix)]
+    fn adopt_reserved_inner(
+        &mut self,
+        reservation: &SessionReservation,
+        session_id: SessionId,
+        process: ProcessIdentity,
+        socket_path: PathBuf,
+        supports_snapshot_boundary: bool,
+    ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
         let mut control = UnixStream::connect(&socket_path).map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
@@ -1300,6 +1447,9 @@ impl WorkerProcessRuntime {
                 "adopted worker welcome identified a different session",
             ));
         }
+        if process.pid.is_some_and(|pid| pid == metadata.pid) {
+            reservation.capture_process_group(metadata_process_group(&metadata));
+        }
         let reader = control.try_clone().map_err(|error| {
             SessionRuntimeError::new(
                 SessionRuntimeErrorKind::SpawnFailed,
@@ -1309,6 +1459,7 @@ impl WorkerProcessRuntime {
         // The adopted welcome repeats spawn-time modes. Probe for live ones.
         self.install_session(
             session_id.clone(),
+            Some(reservation.clone()),
             None,
             WorkerControl::Socket {
                 stream: control,
@@ -1342,6 +1493,7 @@ impl WorkerProcessRuntime {
         };
         self.install_session(
             request.session_id.clone(),
+            parts.admission,
             Some(parts.child),
             parts.control,
             parts.reader,
@@ -1360,6 +1512,7 @@ impl WorkerProcessRuntime {
     fn install_session(
         &mut self,
         session_id: SessionId,
+        admission: Option<SessionReservation>,
         child: Option<Child>,
         control: WorkerControl,
         reader: Box<dyn Read + Send>,
@@ -1390,6 +1543,7 @@ impl WorkerProcessRuntime {
             self.options.test_resize_ack_hold.clone(),
         );
         let mut session = WorkerProcessSession {
+            admission,
             child,
             control,
             control_queue: ControlQueue::new(),
@@ -1417,6 +1571,9 @@ impl WorkerProcessRuntime {
             stall,
         };
         if let Err(error) = self.start_writer_or_forget(&mut session, &session_id) {
+            if let Some(admission) = &session.admission {
+                admission.cleanup_unconfirmed();
+            }
             // The session was never published; stop the worker we own.
             session.close_before_blocking_shutdown();
             session.shutdown_control();
@@ -1429,6 +1586,10 @@ impl WorkerProcessRuntime {
             }
             session.control.cleanup();
             return Err(error);
+        }
+        if let Some(admission) = &session.admission {
+            admission.runtime_installing();
+            admission.runtime_installed();
         }
         self.sessions.insert(session_id, session);
         Ok(())
@@ -1454,6 +1615,28 @@ impl WorkerProcessRuntime {
 fn launch_worker(
     options: &WorkerProcessRuntimeOptions,
     request: &SessionSpawnRequest,
+) -> Result<LaunchedWorker, SessionRuntimeError> {
+    launch_worker_inner(options, request, None, None)
+}
+
+fn launch_reserved_worker(
+    options: &WorkerProcessRuntimeOptions,
+    request: &SessionSpawnRequest,
+    admission: SessionReservation,
+    wake_handle: Option<SessionWakeHandle>,
+) -> Result<LaunchedWorker, SessionRuntimeError> {
+    let result = launch_worker_inner(options, request, Some(admission.clone()), wake_handle);
+    if result.is_err() {
+        admission.launch_failed();
+    }
+    result
+}
+
+fn launch_worker_inner(
+    options: &WorkerProcessRuntimeOptions,
+    request: &SessionSpawnRequest,
+    admission: Option<SessionReservation>,
+    wake_handle: Option<SessionWakeHandle>,
 ) -> Result<LaunchedWorker, SessionRuntimeError> {
     let mut command = Command::new(&options.worker_path);
     command
@@ -1588,6 +1771,9 @@ fn launch_worker(
 
     let startup = (|| {
         control.write_hello()?;
+        if let Some(admission) = &admission {
+            admission.creation_possible();
+        }
         control.write_json(FRAME_SPAWN_SESSION, request)?;
         read_welcome(&mut reader)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))
@@ -1601,6 +1787,12 @@ fn launch_worker(
                 return Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     format!("unsupported worker protocol version: {peer_version}"),
+                ));
+            }
+            if metadata.session_uuid != request.session_id.0 {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    "worker welcome identified a different session",
                 ));
             }
             let worker_pid = metadata
@@ -1629,6 +1821,9 @@ fn launch_worker(
             return Err(error);
         }
     };
+    if let Some(admission) = &admission {
+        admission.capture_process_group(metadata_process_group(&metadata));
+    }
     let process = ProcessIdentity {
         pid: Some(metadata.pid),
         runtime_id: metadata
@@ -1650,6 +1845,8 @@ fn launch_worker(
                 == Some("ready_then_history")
     });
     Ok(LaunchedWorker::new(LaunchedParts {
+        admission,
+        wake_handle,
         child: pending_worker.take(),
         control,
         reader,
@@ -1660,6 +1857,38 @@ fn launch_worker(
 }
 
 impl SessionRuntime for WorkerProcessRuntime {
+    fn session_admission(&self) -> Option<&SessionAdmission> {
+        Some(&self.admission)
+    }
+
+    fn spawn_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+    ) -> Result<SessionRuntimeHandle, ReservedSessionSpawnError> {
+        if self.sessions.contains_key(&request.session_id)
+            || self.pending_spawns.contains_key(&request.session_id)
+        {
+            return Err(ReservedSessionSpawnError::Refused(
+                super::SessionReservationRefusal::Occupied.into(),
+            ));
+        }
+        self.admission
+            .begin_launch(reservation, &request.session_id)
+            .map_err(|error| ReservedSessionSpawnError::Refused(error.into()))?;
+        let launched = launch_reserved_worker(
+            &self.options,
+            &request,
+            reservation.clone(),
+            self.wake_source
+                .as_ref()
+                .map(|source| source.session_handle(request.session_id.clone())),
+        )
+        .map_err(ReservedSessionSpawnError::Admitted)?;
+        self.install_launched(request, launched)
+            .map_err(ReservedSessionSpawnError::Admitted)
+    }
+
     /// Spawn synchronously: launch on this thread, then install.
     ///
     /// Core pending spawns use [`WorkerProcessRuntime::begin_spawn`] instead so
@@ -1668,16 +1897,14 @@ impl SessionRuntime for WorkerProcessRuntime {
         &mut self,
         request: SessionSpawnRequest,
     ) -> Result<SessionRuntimeHandle, SessionRuntimeError> {
-        if self.sessions.contains_key(&request.session_id)
-            || self.pending_spawns.contains_key(&request.session_id)
-        {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SpawnFailed,
-                "worker process session already exists",
-            ));
+        let reservation = self
+            .admission
+            .reserve_implicit(request.session_id.clone())?;
+        let result = self.spawn_reserved(&reservation, request);
+        if result.is_err() {
+            let _ = self.admission.release(&reservation);
         }
-        let launched = launch_worker(&self.options, &request)?;
-        self.install_launched(request, launched)
+        result.map_err(ReservedSessionSpawnError::into_runtime_error)
     }
 
     fn send_input(&mut self, input: SessionRuntimeInput) -> Result<(), SessionRuntimeError> {
@@ -1743,6 +1970,11 @@ impl SessionRuntime for WorkerProcessRuntime {
             }
             // Map removal transfers wake-retirement ownership to CoreDaemon.
             if let Some(mut removed) = self.sessions.remove(session_id) {
+                if let Some(admission) = &removed.admission {
+                    admission.runtime_removed();
+                    admission.observe_process_exit();
+                    let _ = self.admission.retire_implicit(admission);
+                }
                 let final_state = removed
                     .completion
                     .lock()
@@ -1770,6 +2002,16 @@ impl SessionRuntime for WorkerProcessRuntime {
 
         Ok(output)
     }
+}
+
+fn metadata_process_group(metadata: &SessionMetadata) -> Option<i32> {
+    metadata
+        .recovery_identity
+        .as_ref()?
+        .get("process_group_id")?
+        .as_i64()
+        .and_then(|group| i32::try_from(group).ok())
+        .filter(|group| *group > 0)
 }
 
 impl Drop for WorkerProcessRuntime {
@@ -1938,6 +2180,7 @@ impl EgressStall {
 }
 
 struct WorkerProcessSession {
+    admission: Option<SessionReservation>,
     child: Option<Child>,
     control: WorkerControl,
     control_queue: ControlQueue,
@@ -3142,6 +3385,8 @@ mod tests {
         let stdin = child.stdin.take().expect("piped stdin");
         let pid = child.id();
         let launched = super::LaunchedWorker::new(super::LaunchedParts {
+            admission: None,
+            wake_handle: None,
             child,
             control: super::WorkerControl::Stdio(stdin),
             reader: Box::new(std::io::empty()),

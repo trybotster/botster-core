@@ -147,6 +147,8 @@ fn run() -> Result<(), String> {
             "session_uuid": session_id.0,
             "runtime_id": handle.process.runtime_id,
             "worker_pid": process::id(),
+            "process_group_id": runtime.session_process_group(&session_id)
+                .map_err(|error| error.to_string())?,
             "worker_control_socket": args.control_socket,
             "atomic_snapshot_boundary": true,
             "snapshot_delivery": "ready_then_history",

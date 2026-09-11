@@ -17,6 +17,11 @@ use crate::api::{
 };
 use crate::daemon::CoreDaemonError;
 
+pub use botster_core::runtime::{
+    SessionReservation, SessionReservationRefusal, SessionReservationRelease,
+    SessionReservationState,
+};
+
 /// Maximum pending `Spawn` operations per daemon.
 pub const MAX_PENDING_SPAWNS: usize = 4;
 /// Maximum pending readbacks (`ReadScreen`, `ReadModeFlags`, `CaptureSnapshot`) per session.
@@ -41,6 +46,24 @@ pub struct CaptureOwner(pub String);
 /// One operation the host asks Core to run off the pump.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreOperation {
+    /// Reserve an identity before the host publishes context or launches a PTY.
+    ReserveSession(SessionId),
+    /// Recover only the original reserve operation for this identity.
+    LookupSessionReservation {
+        /// Exact session identity.
+        session_id: SessionId,
+        /// Operation that originally obtained the reservation.
+        reserve_operation_id: PendingOperationId,
+    },
+    /// Launch after the host publishes context under the reservation.
+    SpawnReserved {
+        /// Reservation returned by `ReserveSession`.
+        reservation: SessionReservation,
+        /// The request must name the reserved session.
+        request: SpawnSessionRequest,
+    },
+    /// Release an unused reservation or authoritatively ended execution.
+    ReleaseSessionReservation(SessionReservation),
     /// Launch a session. `begin` returns before the worker launch completes.
     Spawn(SpawnSessionRequest),
     /// Adopt a live worker from registry metadata.
@@ -154,9 +177,61 @@ impl SnapshotPage {
 /// Time an open capture stays readable without a page read or release.
 pub const CAPTURE_IDLE_TTL_SECONDS: u64 = 60;
 
+/// A reserved launch preserves the distinction between refusal and admission.
+#[derive(Debug)]
+pub enum ReservedSpawnResult {
+    /// Core did not consume the supplied reservation during this operation.
+    /// A valid unused reservation remains held until explicit release.
+    Refused {
+        /// The refusal reason.
+        error: CoreDaemonError,
+    },
+    /// Core admitted the launch, but did not complete installation and persistence.
+    /// The host must obtain a release receipt before it treats cleanup as complete.
+    AdmittedFailure {
+        /// The launch, installation, or persistence error.
+        error: CoreDaemonError,
+        /// Advisory ownership state when Core produced the completion.
+        state: SessionReservationState,
+    },
+    /// The installed session now owns the identity and its registry record.
+    Installed {
+        /// The installed session.
+        session: CoreSession,
+    },
+}
+
 /// Result of one finished operation.
 #[derive(Debug)]
 pub enum CoreCompletion {
+    /// Core granted a reservation or definitively refused without launching.
+    ReserveSession {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// The reservation or a typed refusal, including `PendingLimitKind::Spawns`.
+        result: Result<SessionReservation, CoreDaemonError>,
+    },
+    /// Core looked up the original reserve operation in the retained record.
+    LookupSessionReservation {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// `None` means this record no longer owns that original operation.
+        result: Result<Option<SessionReservation>, CoreDaemonError>,
+    },
+    /// A reserved launch reached a typed result.
+    SpawnReserved {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Refusal, admitted failure, or installed session.
+        result: ReservedSpawnResult,
+    },
+    /// Core issued a release receipt or retained execution ownership.
+    ReleaseSessionReservation {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Only `Released` authorizes the host to treat the reservation as released.
+        result: Result<SessionReservationRelease, CoreDaemonError>,
+    },
     /// `Spawn` finished.
     Spawn {
         /// Operation identity.
@@ -227,7 +302,11 @@ impl CoreCompletion {
     #[must_use]
     pub const fn id(&self) -> PendingOperationId {
         match self {
-            Self::Spawn { id, .. }
+            Self::ReserveSession { id, .. }
+            | Self::LookupSessionReservation { id, .. }
+            | Self::SpawnReserved { id, .. }
+            | Self::ReleaseSessionReservation { id, .. }
+            | Self::Spawn { id, .. }
             | Self::Adopt { id, .. }
             | Self::ShutdownSession { id, .. }
             | Self::RemoveSession { id, .. }

@@ -43,8 +43,9 @@ use crate::runtime::{
     WORKER_CONTROL_RESERVED_SLOTS,
 };
 use crate::runtime::{
-    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest,
+    SessionReservation, SessionReservationRefusal, SessionReservationRelease, SessionRuntime,
+    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
+    SessionSpawnRequest,
 };
 use crate::session::{
     CoreSessionMetadata, RequestId, SessionActivityStatus, SessionId, SubscriptionId,
@@ -135,6 +136,12 @@ where
     pending_worker_cancels: Vec<(SessionId, u64)>,
     pending_terminal_resizes: HashMap<SessionId, VecDeque<PendingTerminalResize>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
+    pending_spawn_adapters: HashMap<SessionId, PendingSpawnAdapter<T>>,
+}
+
+struct PendingSpawnAdapter<T: TerminalScreenRuntime> {
+    reservation: SessionReservation,
+    terminal: SessionRuntimeWorkerAdapter<T>,
 }
 
 impl<R> ManagedSessionRuntime<R, PlainTerminalScreenRuntime>
@@ -257,19 +264,105 @@ where
                 MultiplexerEngineError::MetadataTooLarge,
             ));
         }
-        let handle = self.engine.session_runtime_mut().adopt_session(
-            session_id,
-            process,
-            socket_path,
-            supports_snapshot_boundary,
-        )?;
-        let terminal = (self.terminal_backend_factory)(TerminalScreenSize::new(24, 80))
+        let reservation = self
+            .engine
+            .reserve_session_identity(session_id.clone(), false)
+            .map_err(SessionRuntimeError::from)?;
+        let result = (|| {
+            let terminal = (self.terminal_backend_factory)(TerminalScreenSize::new(24, 80))
+                .map_err(
+                    |source| ManagedSessionRuntimeError::TerminalBackendConstruction { source },
+                )?;
+            let handle = self.engine.session_runtime_mut().adopt_session_reserved(
+                &reservation,
+                session_id,
+                process,
+                socket_path,
+                supports_snapshot_boundary,
+            )?;
+            Ok(self.engine.adopt_reserved_session(
+                &reservation,
+                handle,
+                metadata,
+                SessionRuntimeWorkerAdapter::new(terminal),
+            )?)
+        })();
+        if result.is_err() {
+            let _ = self.engine.release_session_reservation(&reservation);
+        }
+        result
+    }
+
+    /// Reserve engine identity before an ordinary asynchronous worker launch.
+    pub fn begin_spawn(
+        &mut self,
+        request: SessionSpawnRequest,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        let reservation = self
+            .engine
+            .reserve_session_identity(request.session_id.clone(), false)
+            .map_err(SessionRuntimeError::from)?;
+        let result = self.begin_reserved_worker(&reservation, request, None);
+        if result.is_err() {
+            let _ = self.engine.release_session_reservation(&reservation);
+        }
+        result
+    }
+
+    /// Prepare installation before the reserved worker can start its PTY.
+    pub fn begin_spawn_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: &CoreSessionMetadata,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        self.begin_reserved_worker(reservation, request, Some(metadata))
+    }
+
+    fn begin_reserved_worker(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: Option<&CoreSessionMetadata>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        self.engine
+            .validate_reservation_owner(reservation)
+            .map_err(SessionRuntimeError::from)?;
+        if request.session_id != *reservation.session_id()
+            || self.engine.session(&request.session_id).is_some()
+        {
+            return Err(SessionRuntimeError::from(SessionReservationRefusal::InvalidToken).into());
+        }
+        if metadata.is_some_and(|metadata| !metadata.is_within_encoded_len_limit()) {
+            return Err(MultiplexerEngineError::MetadataTooLarge.into());
+        }
+        let size = request
+            .initial_pty_size
+            .as_ref()
+            .map(|size| TerminalScreenSize::new(size.rows, size.cols))
+            .unwrap_or_else(|| TerminalScreenSize::new(24, 80));
+        let terminal = (self.terminal_backend_factory)(size)
             .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
-        Ok(self.engine.adopt_session(
-            handle,
-            metadata,
-            SessionRuntimeWorkerAdapter::new(terminal),
-        )?)
+        let session_id = request.session_id.clone();
+        self.engine
+            .session_runtime_mut()
+            .begin_spawn_reserved(reservation, request)?;
+        self.pending_spawn_adapters.insert(
+            session_id,
+            PendingSpawnAdapter {
+                reservation: reservation.clone(),
+                terminal: SessionRuntimeWorkerAdapter::new(terminal),
+            },
+        );
+        Ok(())
+    }
+
+    pub(crate) fn discard_pending_spawn(&mut self, session_id: &SessionId) {
+        if let Some(pending) = self.pending_spawn_adapters.remove(session_id) {
+            if let Some(table) = self.engine.session_runtime().session_admission() {
+                let _ = table.retire_implicit(&pending.reservation);
+            }
+        }
     }
 
     /// Install a worker whose spawn finished asynchronously.
@@ -282,6 +375,14 @@ where
         metadata: CoreSessionMetadata,
         size: TerminalScreenSize,
     ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
+        if let Some(pending) = self.pending_spawn_adapters.remove(&handle.session_id) {
+            return Ok(self.engine.adopt_reserved_session(
+                &pending.reservation,
+                handle,
+                metadata,
+                pending.terminal,
+            )?);
+        }
         let terminal = (self.terminal_backend_factory)(size)
             .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
         Ok(self.engine.adopt_session(
@@ -742,6 +843,7 @@ where
             pending_worker_cancels: Vec::new(),
             pending_terminal_resizes: HashMap::new(),
             applied_terminal_resizes: HashMap::new(),
+            pending_spawn_adapters: HashMap::new(),
         }
     }
 
@@ -928,6 +1030,66 @@ where
     /// Return a mutable host session runtime adapter.
     pub const fn session_runtime_mut(&mut self) -> &mut R {
         self.engine.session_runtime_mut()
+    }
+
+    /// Reserve an identity before context publication or process launch.
+    pub fn reserve_session_for_request(
+        &self,
+        session_id: SessionId,
+        request_id: u64,
+        limit: usize,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        self.engine
+            .reserve_session_for_request(session_id, request_id, limit)
+    }
+
+    /// Recover only the matching original reserve request.
+    pub fn session_reservation_for_request(
+        &self,
+        session_id: &SessionId,
+        request_id: u64,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        self.engine
+            .session_reservation_for_request(session_id, request_id)
+    }
+
+    /// Return a definitive release or retained execution ownership.
+    pub fn release_session_reservation(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<SessionReservationRelease, SessionReservationRefusal> {
+        self.engine.release_session_reservation(reservation)
+    }
+
+    /// Count unresolved reservations owned by this engine.
+    #[must_use]
+    pub fn pending_session_reservations(&self) -> usize {
+        self.engine.pending_session_reservations()
+    }
+
+    /// Launch synchronously under the supplied reservation.
+    pub fn spawn_reserved_session(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: CoreSessionMetadata,
+    ) -> Result<MultiplexerSpawnOutcome, ManagedSessionRuntimeError> {
+        self.engine
+            .validate_reservation_owner(reservation)
+            .map_err(SessionRuntimeError::from)?;
+        let size = request
+            .initial_pty_size
+            .as_ref()
+            .map(|size| TerminalScreenSize::new(size.rows, size.cols))
+            .unwrap_or_else(|| TerminalScreenSize::new(24, 80));
+        let terminal = (self.terminal_backend_factory)(size)
+            .map_err(|source| ManagedSessionRuntimeError::TerminalBackendConstruction { source })?;
+        Ok(self.engine.spawn_reserved_session(
+            reservation,
+            request,
+            metadata,
+            SessionRuntimeWorkerAdapter::new(terminal),
+        )?)
     }
 
     /// Spawn a session and install a runtime-backed session worker adapter.

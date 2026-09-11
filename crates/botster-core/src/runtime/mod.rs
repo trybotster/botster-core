@@ -12,6 +12,7 @@ mod control_queue;
 mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
+mod session_admission;
 #[cfg(feature = "local-runtime")]
 mod worker_process;
 
@@ -65,6 +66,11 @@ pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
     DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
+pub(crate) use session_admission::{EngineSessionAdmission, SessionAdmissionOwner};
+pub use session_admission::{
+    SessionAdmission, SessionReservation, SessionReservationRefusal, SessionReservationRelease,
+    SessionReservationState,
+};
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
     ResizeAckHold, RetainedWorkerFinalState, SnapshotCancelAdmission, WorkerHealth,
@@ -78,6 +84,27 @@ pub use worker_process::{
 /// own process, thread, Tokio, PTY, or test runtime without `botster-core`
 /// selecting one.
 pub trait SessionRuntime {
+    /// Return the runtime's authoritative admission capability, when supported.
+    ///
+    /// Existing adapters can keep ordinary spawning without this capability.
+    /// Reserved producers must refuse an adapter that returns `None`.
+    fn session_admission(&self) -> Option<&SessionAdmission> {
+        None
+    }
+
+    /// Launch only the process that owns the supplied reservation.
+    ///
+    /// The default preserves existing adapters without claiming exclusion.
+    fn spawn_reserved(
+        &mut self,
+        _reservation: &SessionReservation,
+        _request: SessionSpawnRequest,
+    ) -> Result<SessionRuntimeHandle, ReservedSessionSpawnError> {
+        Err(ReservedSessionSpawnError::Refused(
+            SessionReservationRefusal::Unsupported.into(),
+        ))
+    }
+
     /// Spawn a new session from an explicit, policy-free request.
     fn spawn_session(
         &mut self,
@@ -92,6 +119,61 @@ pub trait SessionRuntime {
         &mut self,
         session_id: &SessionId,
     ) -> Result<Vec<SessionRuntimeOutput>, SessionRuntimeError>;
+}
+
+/// Failure before or after the runtime consumes a reservation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReservedSessionSpawnError {
+    /// The runtime did not consume the reservation.
+    Refused(SessionRuntimeError),
+    /// The runtime consumed the reservation and retained execution ownership.
+    Admitted(SessionRuntimeError),
+}
+
+impl ReservedSessionSpawnError {
+    /// Return the error expected by the ordinary synchronous spawn API.
+    pub fn into_runtime_error(self) -> SessionRuntimeError {
+        match self {
+            Self::Refused(error) | Self::Admitted(error) => error,
+        }
+    }
+}
+
+impl fmt::Display for ReservedSessionSpawnError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Refused(error) | Self::Admitted(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for ReservedSessionSpawnError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Refused(error) | Self::Admitted(error) => Some(error),
+        }
+    }
+}
+
+impl From<SessionReservationRefusal> for SessionRuntimeError {
+    fn from(refusal: SessionReservationRefusal) -> Self {
+        Self::new(
+            SessionRuntimeErrorKind::SpawnFailed,
+            match refusal {
+                SessionReservationRefusal::Occupied => "session identity is occupied",
+                SessionReservationRefusal::Busy => "session admission is busy",
+                SessionReservationRefusal::Unsupported => {
+                    "runtime does not support session reservations"
+                }
+                SessionReservationRefusal::IdentityExhausted => {
+                    "session reservation identity is exhausted"
+                }
+                SessionReservationRefusal::Unavailable => "session admission is unavailable",
+                SessionReservationRefusal::InvalidToken => "session reservation token is invalid",
+                SessionReservationRefusal::Capacity => "session reservation capacity is full",
+            },
+        )
+    }
 }
 
 /// Explicit request for a host runtime to spawn and connect one session.

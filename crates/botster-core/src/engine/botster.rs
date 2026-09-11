@@ -56,7 +56,8 @@ use crate::engine::terminal_screen::{NullTerminalScreenRuntime, TerminalScreenRu
 use crate::runtime::ProcessIdentity;
 #[cfg(feature = "local-runtime")]
 use crate::runtime::{
-    LocalProcessRuntime, RetainedWorkerFinalState, SnapshotCancelAdmission, WorkerProcessRuntime,
+    LocalProcessRuntime, RetainedWorkerFinalState, SessionReservation, SessionReservationRefusal,
+    SessionReservationRelease, SnapshotCancelAdmission, WorkerProcessRuntime,
     WorkerProcessRuntimeOptions, WorkerSpawnPoll,
 };
 use crate::runtime::{SessionRuntime, SessionSpawnRequest};
@@ -1040,7 +1041,18 @@ impl WorkerBackedBotsterEngine {
         &mut self,
         request: SessionSpawnRequest,
     ) -> Result<(), WorkerBackedBotsterEngineError> {
-        Ok(self.runtime.session_runtime_mut().begin_spawn(request)?)
+        self.runtime.begin_spawn(request)
+    }
+
+    /// Start a reserved launch after its host publishes session context.
+    pub fn begin_spawn_reserved(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: &CoreSessionMetadata,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        self.runtime
+            .begin_spawn_reserved(reservation, request, metadata)
     }
 
     /// Poll one spawn started by [`Self::begin_spawn`]. Never blocks.
@@ -1054,7 +1066,10 @@ impl WorkerBackedBotsterEngine {
     ) -> Result<Option<BotsterSpawnOutcome>, WorkerBackedBotsterEngineError> {
         match self.runtime.session_runtime_mut().poll_spawn(session_id) {
             WorkerSpawnPoll::Pending => Ok(None),
-            WorkerSpawnPoll::Failed(error) => Err(error.into()),
+            WorkerSpawnPoll::Failed(error) => {
+                self.runtime.discard_pending_spawn(session_id);
+                Err(error.into())
+            }
             WorkerSpawnPoll::Ready(handle) => Ok(Some(
                 self.runtime
                     .install_spawned_worker(handle, metadata, size)?,
@@ -3042,6 +3057,93 @@ where
 {
     fn default() -> Self {
         Self::new(R::default())
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl DefaultBotsterEngine {
+    /// Reserve one session before any PTY launch.
+    pub fn reserve_session_for_request(
+        &self,
+        session_id: SessionId,
+        request_id: u64,
+        limit: usize,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        self.runtime
+            .reserve_session_for_request(session_id, request_id, limit)
+    }
+
+    /// Recover only the original reserve operation.
+    pub fn session_reservation_for_request(
+        &self,
+        session_id: &SessionId,
+        request_id: u64,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        self.runtime
+            .session_reservation_for_request(session_id, request_id)
+    }
+
+    /// Release an unused reservation or completed execution.
+    pub fn release_session_reservation(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<SessionReservationRelease, SessionReservationRefusal> {
+        self.runtime.release_session_reservation(reservation)
+    }
+
+    /// Count reservations that still own pending-spawn capacity.
+    #[must_use]
+    pub fn pending_session_reservations(&self) -> usize {
+        self.runtime.pending_session_reservations()
+    }
+
+    /// Launch synchronously under the exact supplied reservation.
+    pub fn spawn_reserved_session(
+        &mut self,
+        reservation: &SessionReservation,
+        request: SessionSpawnRequest,
+        metadata: CoreSessionMetadata,
+    ) -> Result<BotsterSpawnOutcome, DefaultBotsterEngineError> {
+        self.runtime
+            .spawn_reserved_session(reservation, request, metadata)
+    }
+}
+
+#[cfg(feature = "local-runtime")]
+impl WorkerBackedBotsterEngine {
+    /// Reserve one session before any PTY launch.
+    pub fn reserve_session_for_request(
+        &self,
+        session_id: SessionId,
+        request_id: u64,
+        limit: usize,
+    ) -> Result<SessionReservation, SessionReservationRefusal> {
+        self.runtime
+            .reserve_session_for_request(session_id, request_id, limit)
+    }
+
+    /// Recover only the original reserve operation.
+    pub fn session_reservation_for_request(
+        &self,
+        session_id: &SessionId,
+        request_id: u64,
+    ) -> Result<Option<SessionReservation>, SessionReservationRefusal> {
+        self.runtime
+            .session_reservation_for_request(session_id, request_id)
+    }
+
+    /// Release an unused reservation or completed execution.
+    pub fn release_session_reservation(
+        &self,
+        reservation: &SessionReservation,
+    ) -> Result<SessionReservationRelease, SessionReservationRefusal> {
+        self.runtime.release_session_reservation(reservation)
+    }
+
+    /// Count reservations that still own pending-spawn capacity.
+    #[must_use]
+    pub fn pending_session_reservations(&self) -> usize {
+        self.runtime.pending_session_reservations()
     }
 }
 
