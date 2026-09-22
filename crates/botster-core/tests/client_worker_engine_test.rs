@@ -19,9 +19,10 @@ use botster_core::{
 };
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_protocol::{
-    RoutedTerminalFrame, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+    decode_input_result, InputOutcome, RoutedTerminalFrame, TerminalFrame, TerminalKind,
+    FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
 };
-use serde_json::Value;
+use botster_terminal_protocol_client::encode_paste;
 
 fn advertised_capabilities() -> TerminalCapabilitySet {
     TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
@@ -520,28 +521,6 @@ fn compact_input_frame(data: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn compact_small_paste_frames(
-    operation_id: u32,
-    mode_generation: u64,
-    mode_revision: u64,
-    data: &[u8],
-) -> Vec<Vec<u8>> {
-    let mut begin = vec![1, 4, 0, 24];
-    begin.extend_from_slice(&operation_id.to_be_bytes());
-    begin.extend_from_slice(&mode_generation.to_be_bytes());
-    begin.extend_from_slice(&mode_revision.to_be_bytes());
-    begin.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    let body_len = u16::try_from(8 + data.len()).expect("small chunk");
-    let mut chunk = vec![1, 5];
-    chunk.extend_from_slice(&body_len.to_be_bytes());
-    chunk.extend_from_slice(&operation_id.to_be_bytes());
-    chunk.extend_from_slice(&0_u32.to_be_bytes());
-    chunk.extend_from_slice(data);
-    let mut commit = vec![1, 6, 0, 4];
-    commit.extend_from_slice(&operation_id.to_be_bytes());
-    vec![begin, chunk, commit]
-}
-
 fn bind_local_pair(
     engine: &mut DefaultBotsterEngine,
     session: &SessionId,
@@ -585,27 +564,56 @@ fn apply_and_pump(engine: &mut DefaultBotsterEngine, _session: &SessionId) {
 }
 
 #[test]
-fn local_paste_rejects_without_pty_bytes_and_carries_operation_identity() {
+fn local_unsafe_paste_rejects_with_zero_counts_and_exact_route_identity() {
     let mut engine = DefaultBotsterEngine::new();
     let session = session("local-paste-result-id");
     let client = client("local-paste-result-client");
     let subscription = sub("local-paste-result-sub");
     let adapter = bind_local_pair(&mut engine, &session, &client, &subscription, "sleep 30");
-    for frame in compact_small_paste_frames(77, 1, 1, b"paste") {
-        adapter.inject_ingress_frame(frame);
+    let generation = engine
+        .terminal_subscription_generation(&session, &subscription)
+        .expect("bound generation");
+    for frame in encode_paste(77, false, b"line1\nline2").expect("encode paste") {
+        adapter.inject_ingress_frame(frame.as_bytes().to_vec());
     }
-    apply_and_pump(&mut engine, &session);
-    let result = adapter
-        .snapshot_delivered_frame_bytes()
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let result = 'completion: loop {
+        for delivered in adapter.snapshot_delivered_frames() {
+            let frame = TerminalFrame::from_bytes(&delivered.bytes).expect("terminal frame");
+            if frame.kind() != TerminalKind::InputResult {
+                continue;
+            }
+            let result = decode_input_result(&frame).expect("input result");
+            if result.operation_id == 77 {
+                assert_eq!(delivered.route, subscription.0);
+                assert_eq!(delivered.generation, generation.0);
+                break 'completion result;
+            }
+        }
+        assert!(engine.adapter_is_bound(&session, &subscription));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "paste result deadline");
+        let batch = engine.wait_wakes(remaining);
+        engine.pump_woken(&batch, 2).expect("targeted pump");
+    };
+    assert_eq!(result.operation_id, 77);
+    assert_eq!(result.outcome, InputOutcome::RejectedUnsafePaste);
+    // These counts are the typed result, not an independent PTY write measurement.
+    assert_eq!(result.accepted_payload_bytes, Some(0));
+    assert_eq!(result.written_pty_bytes, Some(0));
+    let inventory = engine
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("test inventory allowance");
+    let row = inventory
+        .records
         .iter()
-        .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
-        .find(|value| value["type"] == "input_result" && value["kind"] == "paste")
-        .expect("paste result");
-    assert_eq!(result["subscription_id"], subscription.0);
-    assert_eq!(result["operation_id"], 77);
-    assert_eq!(result["admitted"], false);
-    assert_eq!(result["bytes_written"], 0);
-    assert_eq!(result["rejection"], "session_not_writable");
+        .find(|row| row.subscription_id == subscription)
+        .expect("subscription remains live");
+    assert_eq!(row.session_id, session);
+    assert_eq!(row.client_id, client);
+    assert_eq!(row.subscription_id, subscription);
+    assert_eq!(row.generation, generation);
+    assert!(row.adapter_bound);
     assert!(engine.adapter_is_bound(&session, &subscription));
 }
 
