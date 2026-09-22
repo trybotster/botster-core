@@ -36,6 +36,8 @@ trait WorkerResourceRelease: Send {
     fn release(self: Box<Self>);
 }
 
+// This function boundary frees the outer allocation before the returned resource drops.
+#[allow(clippy::boxed_local)]
 fn unbox<T>(boxed: Box<T>) -> T {
     *boxed
 }
