@@ -36,6 +36,10 @@ impl WorkerBinary {
     /// Read `BOTSTER_SESSION_WORKER_BIN` and `BOTSTER_CANDIDATE_MANIFEST`,
     /// hash the executable, and verify it against the manifest's
     /// `botster-session-worker` artifact entry.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Provenance failures deliberately retain rich harness diagnostics by value"
+    )]
     pub fn from_env() -> Result<Self, StepFailure> {
         let path = PathBuf::from(env_var(WORKER_BIN_ENV)?);
         let manifest_path = PathBuf::from(env_var(MANIFEST_ENV)?);
@@ -107,6 +111,10 @@ impl WorkerBinary {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "Provenance failures deliberately retain rich harness diagnostics by value"
+)]
 fn env_var(name: &str) -> Result<String, StepFailure> {
     std::env::var(name)
         .ok()
