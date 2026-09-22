@@ -1458,7 +1458,7 @@ impl PluginWorkerEngine {
             };
         }
         let plugin_key = request.handler.plugin_key.clone();
-        let mut admission = match worker.admission.try_lock() {
+        let admission = match worker.admission.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
