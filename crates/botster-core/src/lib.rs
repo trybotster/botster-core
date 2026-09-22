@@ -131,13 +131,14 @@ pub use runtime::{
     PluginStoreCapabilityRequest, PluginStoreEntry, PluginStoreKey, PluginStoreLimits,
     PluginStoreOperation, PluginStoreRecord, PluginStoreResult, ProcessIdentity,
     ReservedSessionSpawnError, ScopedRelativePath, SessionAdmission, SessionReservation,
-    SessionReservationRefusal, SessionReservationRelease, SessionReservationState, SessionRuntime,
-    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment, SpawnEnvironmentVariable,
-    SpawnWorkingDirectory, TimerCapabilityRequest, WatchCapabilityRequest, WatchChangeKind,
-    WebSocketCapabilityRequest, WebSocketCapabilityRuntimeConfig, WebSocketMessage,
-    DEFAULT_FILE_WATCH_DEBOUNCE_MS, DEFAULT_WEBSOCKET_EVENT_CAPACITY,
-    DEFAULT_WEBSOCKET_INBOUND_CAPACITY, DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
+    SessionReservationIdentity, SessionReservationRefusal, SessionReservationRelease,
+    SessionReservationState, SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind,
+    SessionRuntimeHandle, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, TimerCapabilityRequest,
+    WatchCapabilityRequest, WatchChangeKind, WebSocketCapabilityRequest,
+    WebSocketCapabilityRuntimeConfig, WebSocketMessage, DEFAULT_FILE_WATCH_DEBOUNCE_MS,
+    DEFAULT_WEBSOCKET_EVENT_CAPACITY, DEFAULT_WEBSOCKET_INBOUND_CAPACITY,
+    DEFAULT_WEBSOCKET_OUTBOUND_CAPACITY,
 };
 #[cfg(feature = "local-runtime")]
 pub use runtime::{

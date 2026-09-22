@@ -89,6 +89,33 @@ struct ReservationEntry {
 #[derive(Debug, Clone)]
 pub struct SessionReservation(Arc<ReservationEntry>);
 
+/// An opaque identity for one reservation in this process.
+///
+/// This value retains no reservation storage and grants no launch or release
+/// authority. Equality remains valid after the reservation ends. It does not
+/// establish current ownership or successful cleanup. Do not persist this value
+/// or use it to identify reservations across processes.
+///
+/// Release requires the original reservation:
+///
+/// ```compile_fail
+/// use botster_core::{SessionAdmission, SessionId};
+/// let admission = SessionAdmission::default();
+/// let reservation = admission.reserve(SessionId("example".into())).unwrap();
+/// admission.release(&reservation.identity());
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SessionReservationIdentity {
+    scope: u64,
+    generation: u64,
+}
+
+impl std::fmt::Debug for SessionReservationIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SessionReservationIdentity { .. }")
+    }
+}
+
 impl PartialEq for SessionReservation {
     fn eq(&self, other: &Self) -> bool {
         self.0.scope == other.0.scope && self.0.generation == other.0.generation
@@ -98,6 +125,17 @@ impl PartialEq for SessionReservation {
 impl Eq for SessionReservation {}
 
 impl SessionReservation {
+    /// Copy this reservation's identity without retaining its storage.
+    ///
+    /// Keep the original reservation while launch or release work needs it.
+    #[must_use]
+    pub fn identity(&self) -> SessionReservationIdentity {
+        SessionReservationIdentity {
+            scope: self.0.scope,
+            generation: self.0.generation,
+        }
+    }
+
     /// Return the exact reserved session identity.
     #[must_use]
     pub fn session_id(&self) -> &SessionId {
@@ -838,7 +876,94 @@ mod tests {
             .reserve_for(session("reuse"), &owner, true, Some(3), Some(4))
             .expect("reuse after release");
         assert_ne!(first, second);
+        assert_eq!(first.identity(), first.clone().identity());
+        assert_ne!(first.identity(), second.identity());
         assert_eq!(second.request_id(), Some(3));
+    }
+
+    #[test]
+    fn detached_identity_survives_storage_without_reusing_table_scope() {
+        let admission = SessionAdmission::synchronous();
+        let owner = SessionAdmissionOwner::default();
+        let reservation = admission
+            .reserve_for(session("detached"), &owner, true, None, None)
+            .expect("reserve");
+        let entry = Arc::downgrade(&reservation.0);
+        let owner_state = Arc::downgrade(&owner.0);
+        let identity = reservation.identity();
+        admission
+            .release_for(&reservation, &owner)
+            .expect("release");
+        drop(reservation);
+        drop(owner);
+        drop(admission);
+        assert!(entry.upgrade().is_none());
+        assert!(owner_state.upgrade().is_none());
+
+        let replacement = SessionAdmission::synchronous();
+        let next = replacement.reserve(session("detached")).expect("reserve");
+        assert_ne!(identity, next.identity());
+        replacement.release(&next).expect("release");
+    }
+
+    #[test]
+    fn detached_identity_does_not_change_ownership() {
+        fn copy_identity(identity: SessionReservationIdentity) -> SessionReservationIdentity {
+            identity
+        }
+
+        let admission = SessionAdmission::synchronous();
+        let owner = SessionAdmissionOwner::default();
+        let reservation = admission
+            .reserve_for(session("identity-only"), &owner, true, None, None)
+            .expect("reserve");
+        let entry_count = Arc::strong_count(&reservation.0);
+        let owner_count = Arc::strong_count(&owner.0);
+        let identity = reservation.identity();
+        assert_eq!(copy_identity(identity), reservation.identity());
+        assert_eq!(copy_identity(identity), identity);
+        assert_eq!(Arc::strong_count(&reservation.0), entry_count);
+        assert_eq!(Arc::strong_count(&owner.0), owner_count);
+        assert_eq!(owner.pending_count(), 1);
+        assert_eq!(reservation.state(), SessionReservationState::Reserved);
+        assert_eq!(
+            admission
+                .reserve(session("identity-only"))
+                .expect_err("occupied"),
+            SessionReservationRefusal::Occupied
+        );
+        assert_eq!(
+            admission
+                .release_for(&reservation, &owner)
+                .expect("release"),
+            SessionReservationRelease::Released
+        );
+        assert_eq!(owner.pending_count(), 0);
+        assert_eq!(identity, reservation.identity());
+    }
+
+    #[test]
+    fn generation_exhaustion_does_not_reuse_detached_identity() {
+        let admission = SessionAdmission::synchronous();
+        admission.table.lock().expect("table").next_generation = u64::MAX - 1;
+        let reservation = admission
+            .reserve(session("last-generation"))
+            .expect("reserve");
+        let identity = reservation.identity();
+        admission.release(&reservation).expect("release");
+        for _ in 0..2 {
+            assert_eq!(
+                admission
+                    .reserve(session("last-generation"))
+                    .expect_err("exhausted"),
+                SessionReservationRefusal::IdentityExhausted
+            );
+        }
+        assert_eq!(
+            admission.table.lock().expect("table").next_generation,
+            u64::MAX
+        );
+        assert_eq!(identity, reservation.identity());
     }
 
     #[test]
