@@ -46,8 +46,8 @@ fn resource_drops_after_thread_local_destructors() {
             EXIT_PROBE.with(|probe| *probe.borrow_mut() = Some(DropProbe(exited)));
         })
     })
-    .unwrap();
-    record.join().unwrap();
+    .expect("spawn the thread-local destructor worker");
+    record.join().expect("join after thread-local destructors");
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }
 
@@ -57,7 +57,7 @@ fn returned_worker_panic_releases_resource() {
     let record = WorkerJoinRecord::spawn(Some(resource(&drops)), || {
         std::thread::Builder::new().spawn(|| panic!("worker panic"))
     })
-    .unwrap();
+    .expect("spawn the worker that panics");
     assert!(record.join().is_err());
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
@@ -67,10 +67,15 @@ fn returned_spawn_failure_releases_only_unstarted_resources() {
     let started = Arc::new(AtomicUsize::new(0));
     let unstarted = Arc::new(AtomicUsize::new(0));
     let (finished, completion) = mpsc::channel();
-    let handle = std::thread::spawn(move || finished.send(()).unwrap());
-    let record = WorkerJoinRecord::spawn(Some(resource(&started)), || Ok(handle)).unwrap();
+    let handle = std::thread::spawn(move || {
+        finished
+            .send(())
+            .expect("signal completion of the started worker")
+    });
+    let record = WorkerJoinRecord::spawn(Some(resource(&started)), || Ok(handle))
+        .expect("retain the started worker record");
     assert!(catch_unwind(AssertUnwindSafe(|| {
-        let _previous = vec![record];
+        let _previous = [record];
         let _unused = resources(&unstarted, 2);
         WorkerJoinRecord::spawn(Some(resource(&unstarted)), || {
             Err(io::Error::other("injected spawn failure"))
@@ -78,7 +83,9 @@ fn returned_spawn_failure_releases_only_unstarted_resources() {
         .unwrap_or_else(|_| panic!("spawn plugin worker thread"));
     }))
     .is_err());
-    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    completion
+        .recv_timeout(Duration::from_secs(5))
+        .expect("receive completion after spawn failure");
     assert_eq!(started.load(Ordering::SeqCst), 0);
     assert_eq!(unstarted.load(Ordering::SeqCst), 3);
 }
@@ -100,16 +107,22 @@ fn join_unwind_retains_resource_after_handle_is_taken() {
     let (finished, completion) = mpsc::channel();
     let record = WorkerJoinRecord::spawn(Some(resource(&drops)), || {
         std::thread::Builder::new().spawn(move || {
-            let record = receiver.recv().unwrap();
+            let record = receiver
+                .recv()
+                .expect("receive the worker record for the self-join check");
             let result = catch_unwind(AssertUnwindSafe(|| record.join()));
-            finished.send(result.is_err()).unwrap();
+            finished
+                .send(result.is_err())
+                .expect("report whether self-join unwound");
         })
     })
-    .unwrap();
+    .expect("spawn the self-join worker");
     sender
         .send(record)
         .unwrap_or_else(|_| panic!("worker receiver closed"));
-    assert!(completion.recv_timeout(Duration::from_secs(5)).unwrap());
+    assert!(completion
+        .recv_timeout(Duration::from_secs(5))
+        .expect("receive the self-join outcome"));
     assert_eq!(drops.load(Ordering::SeqCst), 0);
 }
 
@@ -125,15 +138,18 @@ fn count_mismatch_preserves_existing_registration() {
             registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
             resources(&old_drops, width),
         )
-        .unwrap();
-    let generation = engine.worker_for(&plugin).unwrap().generation;
+        .expect("register the original worker resources");
+    let generation = engine
+        .worker_for(&plugin)
+        .expect("find the original worker generation")
+        .generation;
     for actual in [0, width - 1, width + 1] {
         let error = engine
             .load_plugin_with_worker_resources(
                 registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
                 resources(&rejected_drops, actual),
             )
-            .unwrap_err();
+            .expect_err("reject a mismatched resource count");
         assert_eq!(
             error,
             PluginWorkerResourceCountMismatch {
@@ -141,7 +157,13 @@ fn count_mismatch_preserves_existing_registration() {
                 actual
             }
         );
-        assert_eq!(engine.worker_for(&plugin).unwrap().generation, generation);
+        assert_eq!(
+            engine
+                .worker_for(&plugin)
+                .expect("retain the original worker after count refusal")
+                .generation,
+            generation
+        );
         assert_eq!(old_drops.load(Ordering::SeqCst), 0);
     }
     assert_eq!(rejected_drops.load(Ordering::SeqCst), width * 2);
@@ -161,7 +183,7 @@ fn replacement_unload_and_engine_drop_release_resources_once() {
                 registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
                 resources(&drops, width),
             )
-            .unwrap();
+            .expect("register replacement worker resources");
         assert_eq!(drops.load(Ordering::SeqCst), replacement * width);
     }
     engine.unload_plugin(PluginUnloadSpec {
@@ -175,7 +197,7 @@ fn replacement_unload_and_engine_drop_release_resources_once() {
             registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
             resources(&drops, width),
         )
-        .unwrap();
+        .expect("register resources before engine drop");
     drop(engine);
     assert_eq!(drops.load(Ordering::SeqCst), width * 3);
 }
@@ -226,16 +248,26 @@ fn registration_failure_retains_unjoined_resources() {
     let admission = worker.admission.clone();
     let wake = worker.work_cvar.clone();
     assert!(catch_unwind(AssertUnwindSafe(|| {
-        let _guard = engine.inner.shared.workers.lock().unwrap();
+        let _guard = engine
+            .inner
+            .shared
+            .workers
+            .lock()
+            .expect("lock the worker registry before poisoning it");
         panic!("poison registration mutex");
     }))
     .is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| engine.install_worker(plugin, worker))).is_err());
     engine.inner.shared.workers.clear_poison();
     // Stop detached test workers without recovering their join records.
-    admission.lock().unwrap().stopping = true;
+    admission
+        .lock()
+        .expect("lock admission to stop the detached worker")
+        .stopping = true;
     wake.notify_all();
-    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    completion
+        .recv_timeout(Duration::from_secs(5))
+        .expect("receive the detached worker completion");
     assert_eq!(drops.load(Ordering::SeqCst), 0);
 }
 
@@ -258,8 +290,10 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
                 ),
                 resources(&drops, width),
             )
-            .unwrap();
-        let worker = engine.worker_for(&plugin).unwrap();
+            .expect("register resources for cleanup retention");
+        let worker = engine
+            .worker_for(&plugin)
+            .expect("find the worker before cleanup");
         let admission = worker.admission.clone();
         let wake = worker.work_cvar.clone();
         drop(worker);
@@ -272,9 +306,14 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
             )
         }));
         assert_eq!(result.is_err(), panic_on_stop);
-        admission.lock().unwrap().stopping = true;
+        admission
+            .lock()
+            .expect("lock admission after cleanup")
+            .stopping = true;
         wake.notify_all();
-        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        completion
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive completion after cleanup");
         assert_eq!(drops.load(Ordering::SeqCst), 0);
     }
 }
@@ -345,8 +384,7 @@ fn full_batch_returns_the_original_resource() {
     let mut batch = metadata_resources(&accepted, resource(&metadata), 1);
     let returned = batch
         .try_push(resource(&refused))
-        .err()
-        .expect("batch is full");
+        .expect_err("full batch returns the original resource");
     assert_eq!(batch.len(), 1);
     assert_eq!(refused.load(Ordering::SeqCst), 0);
     assert_eq!(metadata.load(Ordering::SeqCst), 0);
@@ -369,8 +407,10 @@ fn metadata_waits_for_worker_clone_after_unload() {
             registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
             metadata_resources(&workers, resource(&metadata), width),
         )
-        .unwrap();
-    let survivor = engine.worker_for(&plugin).unwrap();
+        .expect("register worker and metadata resources");
+    let survivor = engine
+        .worker_for(&plugin)
+        .expect("retain a worker clone across unload");
     engine.unload_plugin(PluginUnloadSpec {
         request_id: RequestId("unload".into()),
         plugin_key: plugin,
@@ -381,7 +421,7 @@ fn metadata_waits_for_worker_clone_after_unload() {
         .executor
         .join_handles
         .lock()
-        .unwrap()
+        .expect("inspect the surviving executor join records")
         .join_handles
         .is_none());
     assert_eq!(metadata.load(Ordering::SeqCst), 0);
@@ -433,8 +473,12 @@ fn concurrent_final_handles_release_metadata_after_owned_fields() {
         other_start.wait();
         drop(second);
     });
-    first_thread.join().unwrap();
-    second_thread.join().unwrap();
+    first_thread
+        .join()
+        .expect("join the first final-handle drop thread");
+    second_thread
+        .join()
+        .expect("join the second final-handle drop thread");
     assert_eq!(metadata.load(Ordering::SeqCst), 1);
 }
 
@@ -451,14 +495,16 @@ fn replacement_keeps_old_metadata_with_its_surviving_clone() {
             registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
             metadata_resources(&workers, resource(&old_metadata), width),
         )
-        .unwrap();
-    let old_worker = engine.worker_for(&plugin).unwrap();
+        .expect("register the old metadata generation");
+    let old_worker = engine
+        .worker_for(&plugin)
+        .expect("retain the old worker across replacement");
     engine
         .load_plugin_with_worker_resources(
             registration(&plugin, Arc::new(DelayRuntime::new(Duration::ZERO))),
             metadata_resources(&workers, resource(&new_metadata), width),
         )
-        .unwrap();
+        .expect("register the new metadata generation");
     assert_eq!(workers.load(Ordering::SeqCst), width);
     assert_eq!(old_metadata.load(Ordering::SeqCst), 0);
     assert_eq!(new_metadata.load(Ordering::SeqCst), 0);
@@ -487,9 +533,13 @@ fn partial_spawn_failure_releases_metadata_after_unused_resources() {
     assert!(catch_unwind(AssertUnwindSafe(|| {
         let mut construction = WorkerResourceConstruction::new(Some(batch), 3);
         let first = WorkerJoinRecord::spawn(construction.next_resource(), || {
-            std::thread::Builder::new().spawn(move || finished.send(()).unwrap())
+            std::thread::Builder::new().spawn(move || {
+                finished
+                    .send(())
+                    .expect("signal completion of the partially constructed worker")
+            })
         })
-        .unwrap();
+        .expect("spawn the first worker before injected failure");
         construction.push(first);
         WorkerJoinRecord::spawn(construction.next_resource(), || {
             Err(io::Error::other("injected spawn failure"))
@@ -497,7 +547,9 @@ fn partial_spawn_failure_releases_metadata_after_unused_resources() {
         .unwrap_or_else(|_| panic!("spawn plugin worker thread"));
     }))
     .is_err());
-    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    completion
+        .recv_timeout(Duration::from_secs(5))
+        .expect("receive completion after partial spawn failure");
     assert_eq!(workers.load(Ordering::SeqCst), 2);
     assert_eq!(metadata.load(Ordering::SeqCst), 1);
 }
@@ -561,7 +613,12 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
         let wake = worker.work_cvar.clone();
         if registration_fails {
             assert!(catch_unwind(AssertUnwindSafe(|| {
-                let _guard = engine.inner.shared.workers.lock().unwrap();
+                let _guard = engine
+                    .inner
+                    .shared
+                    .workers
+                    .lock()
+                    .expect("lock the registry before injected registration failure");
                 panic!("poison registration mutex");
             }))
             .is_err());
@@ -582,11 +639,16 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
             assert_eq!(result.is_err(), panic_on_stop);
         }
         assert_eq!(metadata.load(Ordering::SeqCst), 0);
-        admission.lock().unwrap().stopping = true;
+        admission
+            .lock()
+            .expect("lock admission before final survivor drop")
+            .stopping = true;
         wake.notify_all();
         drop(survivor);
         assert_eq!(metadata.load(Ordering::SeqCst), 1);
-        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        completion
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive completion after final survivor drop");
         assert_eq!(workers.load(Ordering::SeqCst), 0);
     }
 }
@@ -612,7 +674,7 @@ fn count_mismatch_drops_input_resources_before_metadata() {
                 1,
             ),
         )
-        .unwrap_err();
+        .expect_err("reject the resource count before metadata release");
     assert_eq!(error.actual, 1);
     assert_eq!(metadata.load(Ordering::SeqCst), 1);
 }
@@ -642,9 +704,13 @@ fn poisoned_executor_mutex_still_releases_metadata_on_final_drop() {
     let mut construction = WorkerResourceConstruction::new(Some(batch), 1);
     let (finished, completion) = mpsc::channel();
     let record = WorkerJoinRecord::spawn(construction.next_resource(), || {
-        std::thread::Builder::new().spawn(move || finished.send(()).unwrap())
+        std::thread::Builder::new().spawn(move || {
+            finished
+                .send(())
+                .expect("signal completion of the executor worker")
+        })
     })
-    .unwrap();
+    .expect("spawn the worker for executor poison cleanup");
     construction.push(record);
     let handle = WorkerExecutorHandle::new(
         construction,
@@ -652,12 +718,17 @@ fn poisoned_executor_mutex_still_releases_metadata_on_final_drop() {
         Arc::new(Mutex::new(HashMap::new())),
     );
     assert!(catch_unwind(AssertUnwindSafe(|| {
-        let _guard = handle.join_handles.lock().unwrap();
+        let _guard = handle
+            .join_handles
+            .lock()
+            .expect("lock executor join records before poisoning");
         panic!("poison executor resource mutex");
     }))
     .is_err());
     drop(handle);
-    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    completion
+        .recv_timeout(Duration::from_secs(5))
+        .expect("receive completion after executor poison cleanup");
     assert_eq!(metadata.load(Ordering::SeqCst), 1);
     assert_eq!(workers.load(Ordering::SeqCst), 0);
 }

@@ -2820,7 +2820,11 @@ mod tests {
         };
         let client = worker.live[&key].client_id.clone();
         worker.reserve_lane(&key.session_id, &client, usage);
-        worker.live.get_mut(&key).unwrap().lane = usage;
+        worker
+            .live
+            .get_mut(&key)
+            .expect("find the bound route to reserve its lane")
+            .lane = usage;
         worker
             .enqueue_result_with_reservation(
                 &key,
@@ -2838,9 +2842,17 @@ mod tests {
         assert_eq!(worker.session_in_flight_operations(&key.session_id), 1);
 
         // Deliver the READY frame, then the result.
-        worker.live.get_mut(&key).unwrap().in_flight = true;
+        worker
+            .live
+            .get_mut(&key)
+            .expect("find the bound route before READY completion")
+            .in_flight = true;
         worker.complete_head(&key);
-        worker.live.get_mut(&key).unwrap().in_flight = true;
+        worker
+            .live
+            .get_mut(&key)
+            .expect("find the bound route before result completion")
+            .in_flight = true;
         worker.complete_head(&key);
 
         assert_eq!(worker.session_in_flight_operations(&key.session_id), 0);

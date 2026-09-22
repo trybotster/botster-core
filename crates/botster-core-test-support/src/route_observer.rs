@@ -134,7 +134,6 @@ impl RouteState {
     }
 
     /// Operation ids still awaiting a result.
-    #[must_use]
     pub fn outstanding(&self) -> impl Iterator<Item = u64> + '_ {
         self.outstanding.iter().copied()
     }
@@ -208,6 +207,10 @@ impl RouteObserver {
 
     /// Register an operation id the test will send. Rejects a duplicate and
     /// a 33rd outstanding id.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Route failures deliberately retain rich harness diagnostics by value"
+    )]
     pub fn expect_result(&mut self, operation_id: u64) -> Result<(), StepFailure> {
         if self.state.outstanding.contains(&operation_id) {
             return Err(self.failure(
@@ -246,6 +249,10 @@ impl RouteObserver {
     }
 
     /// Observe one delivered frame with the epoch from its container header.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Route failures deliberately retain rich harness diagnostics by value"
+    )]
     pub fn observe(&mut self, stream_epoch: u32, frame: &TerminalFrame) -> Result<(), StepFailure> {
         let event = decode_terminal_event(frame)
             .map_err(|error| self.failure("decode", format!("undecodable body: {error}")))?;
@@ -354,6 +361,10 @@ impl RouteObserver {
     /// available right now (the caller pumps its host between calls), or an
     /// error. `wait` runs between empty feeds so the caller can block on its
     /// host's wake source.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Route failures deliberately retain rich harness diagnostics by value"
+    )]
     pub fn wait_until(
         &mut self,
         step: &'static str,
