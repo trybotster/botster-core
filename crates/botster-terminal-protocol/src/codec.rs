@@ -485,11 +485,11 @@ fn expect_kind(frame: &TerminalFrame, expected: TerminalKind) -> Result<(), Term
     Ok(())
 }
 
-fn expect_body<'a>(
-    frame: &'a TerminalFrame,
+fn expect_body(
+    frame: &TerminalFrame,
     expected: TerminalKind,
     len: usize,
-) -> Result<&'a [u8], TerminalBodyError> {
+) -> Result<&[u8], TerminalBodyError> {
     expect_kind(frame, expected)?;
     let body = frame.body();
     if body.len() != len {
