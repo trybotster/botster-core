@@ -88,10 +88,8 @@ fn completion_drain_does_not_allocate_for_idle_workers_or_blocked_front() {
     // Darwin lazily allocates the std mutex on first lock. Compare fresh
     // engines before checking steady state so registry work cannot hide there.
     let empty_engine = PluginWorkerEngine::new();
-    let (_, empty_first_allocations) =
-        measured(|| empty_engine.drain_completions(8, 4096));
-    let (_, empty_repeated_allocations) =
-        measured(|| empty_engine.drain_completions(8, 4096));
+    let (_, empty_first_allocations) = measured(|| empty_engine.drain_completions(8, 4096));
+    let (_, empty_repeated_allocations) = measured(|| empty_engine.drain_completions(8, 4096));
     assert_eq!(empty_repeated_allocations, 0);
     let engine = PluginWorkerEngine::new();
     for index in 0..32 {
@@ -105,7 +103,10 @@ fn completion_drain_does_not_allocate_for_idle_workers_or_blocked_front() {
     assert_eq!(empty.item_count, 0);
     assert!(!empty.has_remaining);
     let (_, repeated_allocations) = measured(|| engine.drain_completions(8, 4096));
-    assert_eq!(repeated_allocations, 0, "idle registry must never be cloned by drain");
+    assert_eq!(
+        repeated_allocations, 0,
+        "idle registry must never be cloned by drain"
+    );
 
     let request = PluginInvocationRequest {
         request_id: RequestId("published".into()),
