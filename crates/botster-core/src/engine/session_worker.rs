@@ -358,7 +358,7 @@ where
             }
         };
 
-        Ok(outcome?)
+        outcome
     }
 
     /// Handle one runtime-originated event.

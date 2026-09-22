@@ -1325,9 +1325,7 @@ impl ClientWorker {
             if owner.terminal_delivered {
                 return self.hard_stop_key(key);
             }
-            let Some(head) = owner.queue.front() else {
-                return None;
-            };
+            let head = owner.queue.front()?;
             let routed = RoutedTerminalFrame {
                 route: owner.route.clone(),
                 generation: owner.generation.0,
@@ -1588,7 +1586,7 @@ impl ClientWorker {
                 let owner = self.live.get_mut(key).ok_or(())?;
                 if owner.paste.is_some() {
                     // The protocol allows one assembling paste per route.
-                    debug_assert!(MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION >= 1);
+                    const { assert!(MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION >= 1) };
                     return self.reject(
                         key,
                         operation_id,
