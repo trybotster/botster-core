@@ -68,8 +68,8 @@ pub use local_process::{
 };
 pub(crate) use session_admission::{EngineSessionAdmission, SessionAdmissionOwner};
 pub use session_admission::{
-    SessionAdmission, SessionReservation, SessionReservationRefusal, SessionReservationRelease,
-    SessionReservationState,
+    SessionAdmission, SessionReservation, SessionReservationIdentity, SessionReservationRefusal,
+    SessionReservationRelease, SessionReservationState,
 };
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
