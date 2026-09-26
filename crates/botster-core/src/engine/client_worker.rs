@@ -918,12 +918,14 @@ impl ClientWorker {
         let Some(owner) = self.live.get_mut(&key) else {
             return Err(EnqueueRouteFrameError::OwnerGone);
         };
+        if frame.kind() == TerminalKind::SnapshotReady {
+            // Also for an unbound owner: a later bind must not suppress live
+            // output behind a capture that already completed.
+            owner.awaiting_capture = false;
+        }
         if owner.adapter.is_none() && !owner.hold_until_bound {
             // Unbound owners are served by the drain path.
             return Ok(None);
-        }
-        if frame.kind() == TerminalKind::SnapshotReady {
-            owner.awaiting_capture = false;
         }
         let kind = if frame.kind() == TerminalKind::InputResult {
             QueuedKind::InputResult(LaneUsage::default())
@@ -2879,6 +2881,48 @@ mod tests {
 
         assert_eq!(worker.session_in_flight_operations(&key.session_id), 0);
         assert_eq!(worker.live[&key].lane.operations, 0);
+    }
+
+    #[test]
+    fn a_route_bound_after_its_unbound_capture_receives_live_output() {
+        let mut worker = ClientWorker::new();
+        let client = ClientId("client".into());
+        let session = SessionId("session".into());
+        let subscription = SubscriptionId("route".into());
+        let (generation, _) = worker
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("valid route");
+        // The drain path serves the capture while no adapter is bound.
+        let teardown = worker
+            .push_route_frame(
+                &session,
+                &subscription,
+                encode_snapshot_ready(b"GHOSTSNP").expect("ready"),
+            )
+            .expect("unbound ready");
+        assert!(teardown.is_none());
+        worker
+            .bind_waking_terminal_adapter(
+                &client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(StuckAdapter),
+            )
+            .expect("late bind");
+
+        assert!(worker.push_session_output(&session, b"live").is_empty());
+
+        let key = OwnerKey {
+            session_id: session,
+            subscription_id: subscription,
+        };
+        assert_eq!(kinds(&worker, &key), vec!["visual"]);
+        assert_eq!(
+            worker.live[&key].queue[0].frame.kind(),
+            TerminalKind::Output
+        );
     }
 
     /// Adapter that accepts one write per granted credit and records the
