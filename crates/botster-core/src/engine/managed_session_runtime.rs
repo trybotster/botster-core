@@ -418,12 +418,14 @@ where
     ) -> Result<(), ManagedSessionRuntimeError> {
         let mut teardowns = Vec::new();
         for session_id in session_ids {
-            let modes = match self
+            // Mode changes travel in the ordered output stream; see
+            // route_runtime_outputs.
+            let results = match self
                 .engine
                 .session_runtime_mut()
-                .take_mode_changes(session_id)
+                .take_input_results(session_id)
             {
-                Ok(modes) => modes,
+                Ok(results) => results,
                 Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
                     teardowns.extend(self.client_worker.fail_in_flight_for_session(
                         session_id,
@@ -434,13 +436,6 @@ where
                 }
                 Err(error) => return Err(error.into()),
             };
-            for modes in modes {
-                teardowns.extend(self.client_worker.push_session_modes(session_id, modes));
-            }
-            let results = self
-                .engine
-                .session_runtime_mut()
-                .take_input_results(session_id)?;
             for (key, result) in results {
                 if let Some(teardown) = self.client_worker.complete_operation(key, result) {
                     teardowns.push(teardown);
@@ -1664,6 +1659,12 @@ where
         // below serves unbound drain consumers.
         for output in outputs {
             let runtime_event = match output {
+                SessionRuntimeOutput::ModesChanged { session_id, modes } => {
+                    // Delivered at its place in the stream, before the output
+                    // that caused it.
+                    teardowns.extend(self.client_worker.push_session_modes(&session_id, modes));
+                    continue;
+                }
                 SessionRuntimeOutput::PtyOutput { session_id, data } => {
                     if let Some(worker) = self.engine_worker(&session_id) {
                         worker.record_output(&session_id, &data);
