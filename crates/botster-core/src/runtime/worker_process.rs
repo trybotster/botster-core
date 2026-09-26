@@ -1245,7 +1245,7 @@ impl WorkerProcessRuntime {
                 recovery_identity: None,
             },
             output: receiver,
-            overflow: Arc::new(AtomicUsize::new(0)),
+            overflow: Arc::new(ReaderOverflow::default()),
             pong_count: Arc::new(AtomicUsize::new(0)),
             last_health: Arc::new(Mutex::new(None)),
             completion: Arc::new(Mutex::new(WorkerCompletion {
@@ -1524,7 +1524,7 @@ impl WorkerProcessRuntime {
         latest_modes: Option<ModesBody>,
     ) -> Result<(), SessionRuntimeError> {
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
-        let overflow = Arc::new(AtomicUsize::new(0));
+        let overflow = Arc::new(ReaderOverflow::default());
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
@@ -1942,7 +1942,7 @@ impl SessionRuntime for WorkerProcessRuntime {
         let mut output = Vec::new();
         let completed = {
             let session = self.session_mut(session_id)?;
-            let overflow = session.overflow.swap(0, Ordering::AcqRel);
+            let overflow = session.overflow.pty.swap(0, Ordering::AcqRel);
             if overflow > 0 {
                 output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
                     source: QueueSource::SessionIo,
@@ -1960,6 +1960,11 @@ impl SessionRuntime for WorkerProcessRuntime {
             while let Some(event) = session.pending_output.pop_front() {
                 output.push(event.into_runtime_output(session_id));
             }
+            output.extend(
+                session
+                    .overflow
+                    .take_outputs(session_id, session.egress_capacity),
+            );
 
             let completion = session.completion.lock().map_err(lock_error)?;
             completion.process_exited.clone()
@@ -2226,7 +2231,7 @@ struct WorkerProcessSession {
     wake_handle: Option<SessionWakeHandle>,
     metadata: SessionMetadata,
     output: Receiver<WorkerChannelEvent>,
-    overflow: Arc<AtomicUsize>,
+    overflow: Arc<ReaderOverflow>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
@@ -2832,7 +2837,7 @@ fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
 fn spawn_stdout_reader(
     mut stdout: impl Read + Send + 'static,
     sender: SyncSender<WorkerChannelEvent>,
-    overflow: Arc<AtomicUsize>,
+    overflow: Arc<ReaderOverflow>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
@@ -2937,10 +2942,8 @@ fn spawn_stdout_reader(
                 FRAME_MODE_FLAGS => {
                     if let Ok(payload) = serde_json::from_slice::<ModeFlagsPayload>(&frame.payload)
                     {
-                        send_worker_event(
+                        send_correlated(
                             &sender,
-                            &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::ModeFlags(payload),
                         );
@@ -2948,13 +2951,7 @@ fn spawn_stdout_reader(
                 }
                 FRAME_SCREEN => {
                     if let Ok(payload) = serde_json::from_slice::<ScreenPayload>(&frame.payload) {
-                        send_worker_event(
-                            &sender,
-                            &overflow,
-                            &stall,
-                            &wake_handle,
-                            WorkerChannelEvent::Screen(payload),
-                        );
+                        send_correlated(&sender, &wake_handle, WorkerChannelEvent::Screen(payload));
                     }
                 }
                 FRAME_INPUT_RESULT => {
@@ -3035,70 +3032,149 @@ fn spawn_stdout_reader(
     });
 }
 
+/// What the worker reader could not deliver: the channel was full and no
+/// consumer could be stalled for.
+///
+/// Live PTY chunks are dropped and counted (the worker's terminal model
+/// already holds them). Title and cwd are state: the latest value waits in a
+/// slot, and a newer value the channel accepts supersedes it. Occurrence
+/// events are counted and reported as a `SessionEvents` summary, never
+/// silently lost.
+#[derive(Default)]
+struct ReaderOverflow {
+    pty: AtomicUsize,
+    events: AtomicUsize,
+    title: Mutex<Option<String>>,
+    cwd: Mutex<Option<String>>,
+}
+
+impl ReaderOverflow {
+    fn record_drop(&self, event: WorkerChannelEvent) {
+        match event {
+            WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_)) => {
+                self.pty.fetch_add(1, Ordering::AcqRel);
+            }
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)) => {
+                if let Ok(mut slot) = self.title.lock() {
+                    *slot = Some(title);
+                }
+            }
+            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)) => {
+                if let Ok(mut slot) = self.cwd.lock() {
+                    *slot = Some(cwd);
+                }
+            }
+            _ => {
+                self.events.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
+    /// The slot a state event would supersede once the channel accepts it.
+    fn state_slot(&self, event: &WorkerChannelEvent) -> Option<&Mutex<Option<String>>> {
+        match event {
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(_)) => Some(&self.title),
+            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(_)) => Some(&self.cwd),
+            _ => None,
+        }
+    }
+
+    /// Coalesced state values and the lost-event summary, after the queued
+    /// output they are newer than.
+    fn take_outputs(&self, session_id: &SessionId, capacity: usize) -> Vec<SessionRuntimeOutput> {
+        let mut output = Vec::new();
+        if let Some(title) = self.title.lock().ok().and_then(|mut slot| slot.take()) {
+            output.push(SessionRuntimeOutput::TitleChanged {
+                session_id: session_id.clone(),
+                title,
+            });
+        }
+        if let Some(cwd) = self.cwd.lock().ok().and_then(|mut slot| slot.take()) {
+            output.push(SessionRuntimeOutput::CwdChanged {
+                session_id: session_id.clone(),
+                cwd,
+            });
+        }
+        let lost = self.events.swap(0, Ordering::AcqRel);
+        if lost > 0 {
+            output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
+                source: QueueSource::SessionEvents,
+                capacity,
+                depth: lost,
+                route: BackpressureRoute {
+                    session_id: Some(session_id.clone()),
+                    client_id: None,
+                    subscription_id: None,
+                    plugin_key: None,
+                },
+            }));
+        }
+        output
+    }
+}
+
+/// Deliver a correlated reply. It answers one outstanding request, so it is
+/// bounded, and its caller waits for it: it blocks for space, never drops.
+fn send_correlated(
+    sender: &SyncSender<WorkerChannelEvent>,
+    wake_handle: &Option<SessionWakeHandle>,
+    event: WorkerChannelEvent,
+) {
+    #[cfg(test)]
+    if let Some(attempt) = CORRELATED_ATTEMPT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        let _ = attempt.send(());
+    }
+    if sender.send(event).is_ok() {
+        notify_session_wake(wake_handle);
+    }
+}
+
+/// Test seam: reports each correlated reply just before its blocking send.
+#[cfg(test)]
+static CORRELATED_ATTEMPT: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
+
 fn send_worker_event(
     sender: &SyncSender<WorkerChannelEvent>,
-    overflow: &AtomicUsize,
+    overflow: &ReaderOverflow,
     stall: &EgressStall,
     wake_handle: &Option<SessionWakeHandle>,
     event: WorkerChannelEvent,
 ) {
-    // Live PTY bytes are not replayable. While a parent consumer is attached,
-    // stall instead of dropping them. Detach must stop the stall so cancel and
-    // detached workers can still make progress. Wait on the drain/detach
-    // condvar; a blocking send cannot observe detach.
-    if matches!(
-        event,
-        WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
-    ) {
-        let mut event = event;
-        let mut seen_seq = 0;
-        loop {
-            if !stall.owners_present() {
-                match sender.try_send(event) {
-                    Ok(()) => {
-                        notify_session_wake(wake_handle);
-                        return;
-                    }
-                    Err(TrySendError::Full(_)) => {
-                        overflow.fetch_add(1, Ordering::AcqRel);
-                        return;
-                    }
-                    Err(TrySendError::Disconnected(_)) => return,
+    // Live PTY bytes and semantic events are not replayable. While a parent
+    // consumer is attached, stall instead of dropping them. Detach must stop
+    // the stall so cancel and detached workers can still make progress. Wait
+    // on the drain/detach condvar; a blocking send cannot observe detach.
+    let superseded = overflow.state_slot(&event);
+    let mut event = event;
+    let mut seen_seq = 0;
+    loop {
+        match sender.try_send(event) {
+            Ok(()) => {
+                // A newer state value is queued; an older waiting one is stale.
+                if let Some(Ok(mut slot)) = superseded.map(Mutex::lock) {
+                    *slot = None;
                 }
+                notify_session_wake(wake_handle);
+                return;
             }
-            match sender.try_send(event) {
-                Ok(()) => {
+            Err(TrySendError::Full(returned)) => {
+                if !stall.owners_present() {
+                    overflow.record_drop(returned);
                     notify_session_wake(wake_handle);
                     return;
                 }
-                Err(TrySendError::Full(returned)) => {
-                    event = returned;
-                    match stall.wait_for_space_or_detach(&mut seen_seq) {
-                        StallWait::Retry => {}
-                        StallWait::Detached => match sender.try_send(event) {
-                            Ok(()) => {
-                                notify_session_wake(wake_handle);
-                                return;
-                            }
-                            Err(TrySendError::Full(_)) => {
-                                overflow.fetch_add(1, Ordering::AcqRel);
-                                return;
-                            }
-                            Err(TrySendError::Disconnected(_)) => return,
-                        },
-                        StallWait::Closed => return,
-                    }
+                event = returned;
+                match stall.wait_for_space_or_detach(&mut seen_seq) {
+                    StallWait::Retry | StallWait::Detached => {}
+                    StallWait::Closed => return,
                 }
-                Err(TrySendError::Disconnected(_)) => return,
             }
+            Err(TrySendError::Disconnected(_)) => return,
         }
-    }
-    match sender.try_send(event) {
-        Ok(()) => notify_session_wake(wake_handle),
-        Err(TrySendError::Full(_)) => {
-            overflow.fetch_add(1, Ordering::AcqRel);
-        }
-        Err(TrySendError::Disconnected(_)) => {}
     }
 }
 
@@ -3416,6 +3492,218 @@ mod tests {
         SessionRuntimeErrorKind, SessionSpawnRequest, WorkerProcessRuntime, WorkerWriteHalf,
         FRAME_PTY_INPUT, FRAME_SHUTDOWN, UNIX_SOCKET_PATH_MAX_BYTES,
     };
+
+    mod lossless_events {
+        use std::sync::mpsc;
+
+        use super::super::{
+            send_worker_event, EgressStall, QueueSource, ReaderOverflow, SessionId,
+            SessionRuntimeOutput, WorkerChannelEvent, WorkerOutputEvent,
+        };
+
+        fn session() -> SessionId {
+            SessionId("lossless-events".into())
+        }
+
+        fn title(value: &str) -> WorkerChannelEvent {
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(value.into()))
+        }
+
+        fn bell() -> WorkerChannelEvent {
+            WorkerChannelEvent::Output(WorkerOutputEvent::Bell)
+        }
+
+        /// A one-slot channel that is already full.
+        fn full_channel() -> (
+            mpsc::SyncSender<WorkerChannelEvent>,
+            mpsc::Receiver<WorkerChannelEvent>,
+        ) {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            sender
+                .try_send(WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(
+                    b"fill".to_vec(),
+                )))
+                .expect("fill the slot");
+            (sender, receiver)
+        }
+
+        fn events_lost(outputs: &[SessionRuntimeOutput]) -> Option<usize> {
+            outputs.iter().find_map(|output| match output {
+                SessionRuntimeOutput::Backpressure(summary)
+                    if summary.source == QueueSource::SessionEvents =>
+                {
+                    Some(summary.depth)
+                }
+                _ => None,
+            })
+        }
+
+        /// Serializes tests that install the process-wide correlated seam.
+        static CORRELATED_SEAM: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+        /// Feed one encoded frame to the real stdout reader over a channel
+        /// that is already full, with no consumer attached, and wait until the
+        /// reader attempts the reply while the channel is still full.
+        fn reader_over_full_channel(frame: Vec<u8>) -> mpsc::Receiver<WorkerChannelEvent> {
+            let (sender, receiver) = full_channel();
+            let (attempt_sender, attempted) = mpsc::channel();
+            *super::super::CORRELATED_ATTEMPT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(attempt_sender);
+            super::super::spawn_stdout_reader(
+                std::io::Cursor::new(frame),
+                sender,
+                std::sync::Arc::new(ReaderOverflow::default()),
+                std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                std::sync::Arc::new(std::sync::Mutex::new(None)),
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    super::super::WorkerCompletion::default(),
+                )),
+                std::sync::Arc::new(EgressStall::new()),
+                None,
+                session(),
+                None,
+            );
+            // timer: deadline — the reader must reach the reply; a drop never does
+            let reached = attempted.recv_timeout(std::time::Duration::from_secs(5));
+            *super::super::CORRELATED_ATTEMPT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            reached.expect("the reader reached the correlated reply on a full channel");
+            receiver
+        }
+
+        /// The reply behind the fill, once the fill is taken.
+        fn reply_after_fill(receiver: &mpsc::Receiver<WorkerChannelEvent>) -> WorkerChannelEvent {
+            // timer: deadline — the filled slot is already queued
+            let fill = receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the fill");
+            assert!(matches!(
+                fill,
+                WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
+            ));
+            // timer: deadline — the correlated reply must follow; a drop never sends it
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("a correlated reply is never dropped")
+        }
+
+        #[test]
+        fn a_screen_reply_on_a_full_channel_reaches_its_caller() {
+            let _seam = CORRELATED_SEAM
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let frame = crate::contract::session_protocol::encode_json(
+                super::super::FRAME_SCREEN,
+                &crate::contract::session_protocol::ScreenPayload {
+                    request_id: "screen-1".into(),
+                    text: "hello".into(),
+                    error_kind: None,
+                },
+            )
+            .expect("encode screen reply");
+            let receiver = reader_over_full_channel(frame);
+            assert!(matches!(
+                reply_after_fill(&receiver),
+                WorkerChannelEvent::Screen(payload) if payload.request_id == "screen-1"
+            ));
+        }
+
+        #[test]
+        fn a_mode_flags_reply_on_a_full_channel_reaches_its_caller() {
+            let _seam = CORRELATED_SEAM
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let frame = crate::contract::session_protocol::encode_json(
+                super::super::FRAME_MODE_FLAGS,
+                &crate::contract::session_protocol::ModeFlagsPayload {
+                    request_id: "modes-1".into(),
+                    mode_flags: Default::default(),
+                    rows: 24,
+                    cols: 80,
+                    error_kind: None,
+                },
+            )
+            .expect("encode mode-flags reply");
+            let receiver = reader_over_full_channel(frame);
+            assert!(matches!(
+                reply_after_fill(&receiver),
+                WorkerChannelEvent::ModeFlags(payload) if payload.request_id == "modes-1"
+            ));
+        }
+
+        #[test]
+        fn a_burst_of_bells_with_no_consumer_is_counted_never_silently_lost() {
+            let (sender, _receiver) = full_channel();
+            let stall = EgressStall::new();
+            let overflow = ReaderOverflow::default();
+            for _ in 0..5 {
+                send_worker_event(&sender, &overflow, &stall, &None, bell());
+            }
+            let outputs = overflow.take_outputs(&session(), 1);
+            assert_eq!(events_lost(&outputs), Some(5), "{outputs:?}");
+            assert_eq!(events_lost(&overflow.take_outputs(&session(), 1)), None);
+        }
+
+        #[test]
+        fn a_burst_of_bells_with_a_consumer_reaches_it_in_full() {
+            let (sender, receiver) = full_channel();
+            let stall = std::sync::Arc::new(EgressStall::new());
+            stall.insert_direct().expect("attach a consumer");
+            let overflow = std::sync::Arc::new(ReaderOverflow::default());
+            let reader_stall = std::sync::Arc::clone(&stall);
+            let reader_overflow = std::sync::Arc::clone(&overflow);
+            let reader = std::thread::spawn(move || {
+                for _ in 0..5 {
+                    send_worker_event(&sender, &reader_overflow, &reader_stall, &None, bell());
+                }
+            });
+            let mut bells = 0;
+            while bells < 5 {
+                // timer: deadline — the stalled reader must deliver every bell
+                let event = receiver
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("the stalled reader delivers the next event");
+                stall.note_space();
+                if matches!(event, WorkerChannelEvent::Output(WorkerOutputEvent::Bell)) {
+                    bells += 1;
+                }
+            }
+            reader.join().expect("reader");
+            assert_eq!(events_lost(&overflow.take_outputs(&session(), 1)), None);
+        }
+
+        #[test]
+        fn a_title_change_under_a_full_channel_converges_to_the_latest_title() {
+            let (sender, receiver) = full_channel();
+            let stall = EgressStall::new();
+            let overflow = ReaderOverflow::default();
+            for value in ["a", "b", "c"] {
+                send_worker_event(&sender, &overflow, &stall, &None, title(value));
+            }
+            let _ = receiver.try_recv();
+            let outputs = overflow.take_outputs(&session(), 1);
+            assert!(
+                matches!(
+                    outputs.as_slice(),
+                    [SessionRuntimeOutput::TitleChanged { title, .. }] if title == "c"
+                ),
+                "{outputs:?}"
+            );
+
+            // A dropped title is superseded by a newer one the channel takes.
+            send_worker_event(&sender, &overflow, &stall, &None, title("d"));
+            send_worker_event(&sender, &overflow, &stall, &None, title("e"));
+            let _ = receiver.try_recv();
+            send_worker_event(&sender, &overflow, &stall, &None, title("f"));
+            assert!(overflow.take_outputs(&session(), 1).is_empty());
+            assert!(matches!(
+                receiver.try_recv(),
+                Ok(WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title))) if title == "f"
+            ));
+        }
+    }
 
     #[test]
     fn a_full_stdio_pipe_waits_for_the_reader_to_drain() {
