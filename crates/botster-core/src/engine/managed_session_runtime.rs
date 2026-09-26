@@ -1303,7 +1303,7 @@ where
             .list_terminal_subscriptions(max_logical_bytes)
     }
 
-    /// Monotonic revision of authoritative terminal route removals.
+    /// Monotonic revision of terminal route removals that Core has committed.
     #[must_use]
     pub const fn terminal_inventory_revision(&self) -> u64 {
         self.terminal_inventory_revision
