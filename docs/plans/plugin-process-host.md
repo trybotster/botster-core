@@ -147,7 +147,9 @@ then kills the process group (section 7):
 - an unknown frame type, or a frame that is not valid in the current lifecycle
   phase;
 - an `InvocationResult` for a request id that is not in flight, or a second
-  result for the same id;
+  result for the same id. An invoke that `stop` failed early stays in the
+  in-flight map, marked abandoned, until its result arrives or the process
+  exits. Its late result is discarded and is not a violation;
 - a `HostCall` with a duplicate `call_id`, or without enough credit;
 - a `Log` without enough credit.
 
@@ -337,11 +339,7 @@ reused while a kill is possible. After the reap, `kill_group` does nothing.
    zombie. This removes any other group member.
 3. It reads the fatal-cause pipe without blocking.
 4. It reaps with `try_wait`.
-5. It classifies the cause, in this order:
-   - a cause that the parent already recorded (a deadline, a violation, a
-     request, or `TransportClosed`);
-   - the fatal byte (`MemoryCap`, `Panic`);
-   - the wait status (`WorkerCrashed{signal or code}`).
+5. It classifies the cause from the evidence that the exit leaves (see 7.5).
 6. It fails every in-flight invoke of the generation with the new failure kinds:
    - `WorkerCrashed`;
    - `WorkerKilled` with reason `Deadline`, `Budget`, `ProtocolViolation`,
@@ -381,6 +379,42 @@ allocation and the vendored Lua heap, because mlua 0.11.6 allocates through
   watch classifies the exit by the wait status (`WorkerCrashed(SIGABRT)`).
 - **Parent side.** The parent kills the group and cleans up through the exit
   watch (section 7.3). The full IPC socket plays no part in this path.
+
+### 7.5 Cause arbitration (R7)
+
+The reader thread, the supervisor, and the exit watch can all observe the same
+death in any order. Therefore the cause never depends on which thread records
+its intent first. A parent thread that decides to kill records a **kill
+reason** (a deadline, a violation, a request, or `TransportClosed`) together
+with the fact that it sent SIGKILL. The kill reason is only a reason to kill; it
+is not evidence of how the process died. After the reap, the exit watch
+classifies the exit from evidence, in this order:
+
+1. **Fatal byte present:** `WorkerKilled(MemoryCap)` or `WorkerCrashed(Panic)`.
+   The child wrote the byte before it died, so the byte proves the cause even
+   if a parent kill came later.
+2. **Wait status is SIGKILL, and a parent thread sent SIGKILL:** the first
+   recorded kill reason (for example `WorkerKilled(Deadline)` or
+   `WorkerKilled(TransportClosed)`).
+3. **After a `Shutdown` was sent, the leader exited with code 0:** `Stopped`,
+   which is not a failure.
+4. **Anything else:** `WorkerCrashed` with the signal or the exit code. This
+   includes SIGABRT, a SIGKILL that no parent thread sent (for example the
+   `RLIMIT_CPU` hard limit), SIGXCPU, and an unexpected exit.
+
+Consequences:
+- An abort or a memory-cap death that closes the socket first still reports
+  its own cause. Its wait status is SIGABRT (rule 4), or its fatal byte is
+  present (rule 1). A later parent SIGKILL does not change the termination
+  status of a process that is already dying from a fatal signal.
+- A child that closes fd 3 and stays alive is killed and reports
+  `WorkerKilled(TransportClosed)` (rule 2).
+- One residual case remains. A child that calls `exit()` on its own while a
+  parent kill races it can report the parent's kill reason. A voluntary exit
+  is an anomaly in either classification. The tests cover rules 1, 2, and 4
+  under both orders (EOF first, and exit watch first), using a test hook that
+  holds the exit watch until the reader has recorded EOF, and the reverse
+  hook.
 
 ## 8. Resource limits (mechanism only)
 
@@ -556,3 +590,14 @@ Settled:
 | R4 memory failure path | Fatal byte on a separate `O_NONBLOCK` pipe, then abort; wait-status fallback; parent killpg while the leader is a zombie (7.2-7.4) |
 | R5 wire and validation | `memory_cap_bytes` in `Bootstrap`; every invalid child frame is a typed violation and a kill; `call_id` correlation (4, 5.1) |
 | R6 unsupervised resumption | `HostCallRefused` removed; every resumption is an engine-admitted `Invoke` under its deadline; suspension requires a debited unit (4) |
+| R7 cause arbitration | A kill reason is not exit evidence; classification uses the fatal byte, then SIGKILL plus a parent kill, then a clean exit after Shutdown, then the wait status; tests cover both race orders (7.5) |
+
+Implementation obligations recorded from the revision 2 review:
+- Delivery credits conserve request bytes as well as slots.
+- A failed or cancelled result unit is not reusable while its completion entry
+  is still occupied. The unit returns only when the completion entry is freed.
+- Sizes that come from the child are validated (a typed violation) before any
+  assertion about a Hub caller bug.
+- Stale call and result ids are rejected by generation scope: `call_id` and
+  `request_id` checks consult only the live in-flight maps of the current
+  generation. Core keeps no unbounded set of historical ids.
