@@ -1242,12 +1242,11 @@ impl WorkerBackedBotsterEngine {
         self.settle_barrier_cancels_for(&sessions, Instant::now());
         self.runtime
             .reconcile_terminal_resize_acknowledgments(&sessions)?;
-        self.runtime.apply_woken_terminal_input(
-            batch,
-            now_seconds,
-            &deferred_sessions,
-            &mut outcome,
-        )?;
+        // A drain above can release a capture barrier. Input parked for that
+        // session has no later wake, so apply it in this pass.
+        let capturing: HashSet<_> = self.captures.keys().cloned().collect();
+        self.runtime
+            .apply_woken_terminal_input(batch, now_seconds, &capturing, &mut outcome)?;
         self.start_resync_captures()?;
         self.runtime
             .pump_woken_phase_three(batch, outcome, &sessions)
