@@ -48,6 +48,10 @@ pub enum QueueSource {
     ClientWorker,
     /// Per-session I/O worker queue.
     SessionIo,
+    /// Semantic session events (prompt marks, bells, notifications, shaping
+    /// reports) the per-session I/O queue could not deliver. They share that
+    /// queue; a summary with this source counts events that were lost.
+    SessionEvents,
     /// Concrete transport adapter queue.
     TransportAdapter,
     /// Per-plugin worker queue.
@@ -62,6 +66,7 @@ impl QueueSource {
             Self::HubControl => "hub-control",
             Self::ClientWorker => "client-worker",
             Self::SessionIo => "session-io",
+            Self::SessionEvents => "session-events",
             Self::TransportAdapter => "transport-adapter",
             Self::PluginWorker => "plugin-worker",
         }
@@ -73,7 +78,7 @@ impl QueueSource {
         match self {
             Self::HubControl => 256,
             Self::ClientWorker => 512,
-            Self::SessionIo => 512,
+            Self::SessionIo | Self::SessionEvents => 512,
             Self::TransportAdapter => 512,
             Self::PluginWorker => 256,
         }
