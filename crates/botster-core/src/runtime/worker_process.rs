@@ -3193,6 +3193,18 @@ impl WorkerWriteHalf {
         }
     }
 
+    /// Wait until the worker can take more bytes or `timeout` passes.
+    ///
+    /// The stdio pipe is non-blocking, so readiness comes from `poll`. A
+    /// socket write already blocked for the slice through its write timeout.
+    fn wait_writable(&self, timeout: Duration) -> io::Result<()> {
+        match self {
+            Self::Stdio(stdin) => wait_fd_writable(stdin.as_raw_fd(), timeout),
+            #[cfg(unix)]
+            Self::Socket(_) => Ok(()),
+        }
+    }
+
     fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         match self {
             Self::Stdio(_) => Ok(()),
@@ -3216,6 +3228,25 @@ impl WorkerWriteHalf {
             }
         }
     }
+}
+
+/// Block until `fd` is writable, hangs up, or `timeout` passes. The caller
+/// retries the write and keeps its own deadline.
+fn wait_fd_writable(fd: std::os::unix::io::RawFd, timeout: Duration) -> io::Result<()> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    let millis = libc::c_int::try_from(timeout.as_millis().max(1)).unwrap_or(libc::c_int::MAX);
+    let result = unsafe { libc::poll(&mut poll_fd, 1, millis) };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 fn set_fd_nonblocking(fd: std::os::unix::io::RawFd) -> io::Result<()> {
@@ -3311,7 +3342,9 @@ fn write_control_bytes(
                     || error.kind() == ErrorKind::TimedOut
                     || error.kind() == ErrorKind::Interrupted =>
             {
-                thread::sleep(slice.min(Duration::from_millis(5)));
+                write
+                    .wait_writable(slice)
+                    .map_err(|error| ControlWriterError::WriteError(error.to_string()))?;
             }
             Err(error)
                 if error.kind() == ErrorKind::BrokenPipe
@@ -3383,6 +3416,27 @@ mod tests {
         SessionRuntimeErrorKind, SessionSpawnRequest, WorkerProcessRuntime, WorkerWriteHalf,
         FRAME_PTY_INPUT, FRAME_SHUTDOWN, UNIX_SOCKET_PATH_MAX_BYTES,
     };
+
+    #[test]
+    fn a_full_stdio_pipe_waits_for_the_reader_to_drain() {
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn cat");
+        let mut write = WorkerWriteHalf::Stdio(child.stdin.take().expect("piped stdin"));
+        write.prepare().expect("non-blocking stdin");
+        // Larger than a pipe buffer, so the writer meets a full pipe.
+        let payload = vec![b'x'; 1024 * 1024];
+
+        super::write_control_bytes(&mut write, &payload).expect("the reader drains the pipe");
+
+        drop(write);
+        child.wait().expect("cat exits at EOF");
+    }
 
     fn closed_peer_write_half() -> WorkerWriteHalf {
         let (writer, peer) = UnixStream::pair().expect("socket pair");
