@@ -1588,7 +1588,6 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
 #[cfg(unix)]
 #[test]
 fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
-    const LIVE_B64: &str = "TElWRQ==";
     let data_dir = temp_data_dir("bound-exit-rounds");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -1660,7 +1659,7 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
                     .unwrap_or_else(|error| panic!("round {round} pump: {error:?}"));
             }
             complete_one_slot_if_full(&adapter);
-            if adapter_has_live(&adapter, LIVE_B64) {
+            if adapter_has_live(&adapter) {
                 saw_live = true;
                 if adapter_has_process_exit(&adapter) {
                     break;
@@ -1687,8 +1686,7 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
         if let (Some(live_at), Some(exit_at)) = (
             delivered.iter().position(|bytes| {
                 adapter_frame_type(bytes) == "terminal_output"
-                    && (adapter_payload_b64(bytes) == LIVE_B64
-                        || adapter_payload_text(bytes).contains("LIVE"))
+                    && adapter_payload_text(bytes).contains("LIVE")
             }),
             types.iter().position(|kind| kind == "process_exit"),
         ) {
@@ -1714,7 +1712,6 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
 #[cfg(unix)]
 #[test]
 fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attach() {
-    const LIVE_B64: &str = "TElWRQ==";
     let data_dir = temp_data_dir("bound-exit-during-attach");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
@@ -1790,16 +1787,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         !adapter
             .snapshot_delivered_frame_bytes()
             .iter()
-            .any(|bytes| {
-                serde_json::from_slice::<serde_json::Value>(bytes)
-                    .ok()
-                    .is_some_and(|value| {
-                        value.get("type").and_then(serde_json::Value::as_str)
-                            == Some("attach_state")
-                            && value.get("state").and_then(serde_json::Value::as_str)
-                                == Some("attached")
-                    })
-            }),
+            .any(|bytes| { adapter_phase(bytes) == Some("attached") }),
         "bind must happen before incremental attach finishes"
     );
 
@@ -1814,7 +1802,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
                 .expect("pump incremental attach wake");
         }
         complete_one_slot_if_full(&adapter);
-        if adapter_has_live(&adapter, LIVE_B64) {
+        if adapter_has_live(&adapter) {
             saw_live = true;
             break;
         }
@@ -1841,14 +1829,13 @@ fn complete_one_slot_if_full(adapter: &SharedFakeTerminalAdapter) {
     }
 }
 
-fn adapter_has_live(adapter: &SharedFakeTerminalAdapter, live_b64: &str) -> bool {
+fn adapter_has_live(adapter: &SharedFakeTerminalAdapter) -> bool {
     adapter
         .snapshot_delivered_frame_bytes()
         .iter()
         .any(|bytes| {
             adapter_frame_type(bytes) == "terminal_output"
-                && (adapter_payload_b64(bytes) == live_b64
-                    || adapter_payload_text(bytes).contains("LIVE"))
+                && adapter_payload_text(bytes).contains("LIVE")
         })
 }
 
@@ -1886,13 +1873,6 @@ fn adapter_frame_type(bytes: &[u8]) -> String {
         _ => "other",
     }
     .to_string()
-}
-
-fn adapter_payload_b64(bytes: &[u8]) -> String {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|value| value.get("payload_base64")?.as_str().map(str::to_string))
-        .unwrap_or_default()
 }
 
 fn adapter_payload_text(bytes: &[u8]) -> String {
@@ -6224,15 +6204,16 @@ fn compact_input_frame(data: &[u8]) -> Vec<u8> {
     .into_bytes()
 }
 
-fn adapter_input_result_subscription(bytes: &[u8]) -> Option<String> {
-    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
-    if value.get("type")?.as_str()? != "input_result" {
-        return None;
-    }
-    value
-        .get("subscription_id")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
+/// Route of each `INPUT_RESULT` the bound adapter delivered.
+fn adapter_input_result_routes(adapter: &SharedFakeTerminalAdapter) -> Vec<String> {
+    adapter
+        .snapshot_delivered_frames()
+        .into_iter()
+        .filter(|delivered| {
+            adapter_terminal_frame(&delivered.bytes).kind() == TerminalKind::InputResult
+        })
+        .map(|delivered| delivered.route)
+        .collect()
 }
 
 fn wait_until_bound_attached(
@@ -6343,11 +6324,9 @@ fn pump_woken_applies_injected_duplex_input_through_real_worker_pty() {
             {
                 saw_echo = true;
             }
-            if adapter_input_result_subscription(&bytes).as_deref()
-                == Some(subscription_id.0.as_str())
-            {
-                saw_result_id = true;
-            }
+        }
+        if adapter_input_result_routes(&adapter).contains(&subscription_id.0) {
+            saw_result_id = true;
         }
         if saw_echo && saw_result_id {
             break;
