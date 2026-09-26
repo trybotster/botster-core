@@ -149,3 +149,53 @@ fn a_result_must_match_the_whole_identity_and_come_once() {
         "a second result is a violation"
     );
 }
+
+/// Review I5: a waiter blocked only by its live id must not hold back a
+/// waiter behind it that fits, and withdrawing it changes nothing for the
+/// others. B is admitted before A retires.
+#[test]
+fn a_waiter_blocked_by_its_id_does_not_hold_back_the_next() {
+    let table = Invocations::new(2);
+    let frames = Frames::default();
+    let sink = frames.sink();
+    let a_request = request("a");
+    let a = Invocation::new(&a_request, vec![1]);
+    assert!(matches!(table.admit(&a, &sink), Admission::Admitted));
+    let duplicate = Invocation::new(&request("a"), vec![2]);
+    assert!(matches!(table.admit(&duplicate, &sink), Admission::Waiting));
+    let b = Invocation::new(&request("b"), vec![3]);
+
+    assert!(
+        matches!(table.admit(&b, &sink), Admission::Admitted),
+        "B fits the spare slot although the duplicate A waits"
+    );
+    assert!(a.lock().admitted && !duplicate.lock().admitted);
+
+    assert!(table.withdraw(&duplicate, &sink));
+    assert!(!table.withdraw(&duplicate, &sink), "withdrawn once");
+    table
+        .settle_result(completed(&a_request), &sink)
+        .expect("a valid result");
+    table.frame_written(a.request_id(), &sink);
+    assert!(
+        !duplicate.lock().admitted,
+        "a withdrawn waiter is never admitted"
+    );
+}
+
+/// Review I4: the waiting queue is bounded by the invocation width, so a
+/// caller beyond the executor width is refused instead of queued.
+#[test]
+fn the_waiting_queue_is_bounded_by_the_invocation_width() {
+    let table = Invocations::new(1);
+    let frames = Frames::default();
+    let sink = frames.sink();
+    let running = Invocation::new(&request("running"), vec![1]);
+    assert!(matches!(table.admit(&running, &sink), Admission::Admitted));
+    let waiting = Invocation::new(&request("waiting"), vec![2]);
+    assert!(matches!(table.admit(&waiting, &sink), Admission::Waiting));
+
+    let excess = Invocation::new(&request("excess"), vec![3]);
+    assert!(matches!(table.admit(&excess, &sink), Admission::Full));
+    assert!(!excess.lock().admitted);
+}

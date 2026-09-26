@@ -418,6 +418,12 @@ impl Shared {
                 }
             }
             Admission::Closed => return self.closed_failure(&failed),
+            Admission::Full => {
+                return failed(
+                    PluginInvocationFailureKind::Backpressured,
+                    "more callers than the plugin's invocation width are waiting".to_string(),
+                )
+            }
         }
 
         let mut cancel_handled = false;
@@ -430,7 +436,7 @@ impl Shared {
                 cancel_handled = true;
                 let admitted = state.admitted;
                 drop(state);
-                if !admitted && self.invocations.withdraw(&invocation) {
+                if !admitted && self.invocations.withdraw(&invocation, &sink) {
                     return failed(
                         PluginInvocationFailureKind::Cancelled,
                         "cancelled before it reached the plugin process".to_string(),
