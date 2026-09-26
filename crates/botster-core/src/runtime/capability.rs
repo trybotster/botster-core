@@ -314,6 +314,34 @@ impl HttpCapabilityRuntime {
         }
     }
 
+    /// Drain one plugin's events as of `now`. Operations whose deadline is
+    /// at or before `now` end with their timeout event. A host drains at its
+    /// own clock; [`PluginCapabilityRuntime::drain_events`] uses the current
+    /// instant.
+    pub fn drain_events_at(
+        &mut self,
+        plugin_key: &PluginKey,
+        now: Instant,
+    ) -> Result<Vec<CapabilityRuntimeEvent>, CapabilityRuntimeError> {
+        self.drain_worker_completions();
+        self.cancel_expired_at(now);
+        Ok(self.take_plugin_events(plugin_key))
+    }
+
+    fn take_plugin_events(&mut self, plugin_key: &PluginKey) -> Vec<CapabilityRuntimeEvent> {
+        let mut events = Vec::new();
+        let mut retained = VecDeque::new();
+        while let Some(event) = self.pending_events.pop_front() {
+            if event_plugin_key(&event).as_ref() == Some(plugin_key) {
+                events.push(event);
+            } else {
+                retained.push_back(event);
+            }
+        }
+        self.pending_events = retained;
+        events
+    }
+
     fn drain_worker_completions(&mut self) {
         while let Ok(completion) = self.completions_receiver.try_recv() {
             let key = (
@@ -358,11 +386,15 @@ impl HttpCapabilityRuntime {
     }
 
     fn cancel_expired(&mut self) {
+        self.cancel_expired_at(Instant::now());
+    }
+
+    fn cancel_expired_at(&mut self, now: Instant) {
         let expired = self
             .in_flight
             .iter()
             .filter_map(|(key, operation)| {
-                if Instant::now() >= operation.deadline {
+                if now >= operation.deadline {
                     Some((key.clone(), operation.cancellation.clone()))
                 } else {
                     None
@@ -619,20 +651,7 @@ impl PluginCapabilityRuntime for HttpCapabilityRuntime {
         &mut self,
         plugin_key: &PluginKey,
     ) -> Result<Vec<CapabilityRuntimeEvent>, CapabilityRuntimeError> {
-        self.drain_worker_completions();
-        self.cancel_expired();
-
-        let mut events = Vec::new();
-        let mut retained = VecDeque::new();
-        while let Some(event) = self.pending_events.pop_front() {
-            if event_plugin_key(&event).as_ref() == Some(plugin_key) {
-                events.push(event);
-            } else {
-                retained.push_back(event);
-            }
-        }
-        self.pending_events = retained;
-        Ok(events)
+        self.drain_events_at(plugin_key, Instant::now())
     }
 
     fn cleanup_plugin(
