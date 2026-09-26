@@ -43,6 +43,26 @@ use crate::transport::TransportEgress;
 
 const WRITE_ATTEMPT_BUDGET: usize = 512;
 
+/// How long a bound route's adapter may keep refusing or holding writes,
+/// while the route has frames pending, before Core ends the route as a dead
+/// reader.
+///
+/// - The clock runs only while the adapter refuses or holds writes with
+///   frames pending: it starts when the adapter refuses the head, or accepts
+///   a frame and has not finished it. It never runs for a route with nothing
+///   pending.
+/// - Only progress clears it: a write the transport completes, or an empty
+///   queue. A reader that falls behind but completes a write within the
+///   deadline stays attached, however fast the producer is.
+/// - The deadline does not delay a real transport close: an adapter that
+///   reports `Closed` ends the route at once.
+///
+/// A reader that never reads never drains its transport, so its adapter
+/// posts no writable wake and nothing else can observe it. The deadline is
+/// part of the host wait (see [`ClientWorker::next_reader_deadline`]), so a
+/// dead reader is closed even when the session produces nothing more.
+pub(crate) const READER_PROGRESS_DEADLINE: Duration = Duration::from_secs(10);
+
 /// What woke a route pump.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PumpOrigin {
@@ -238,6 +258,11 @@ struct SubscriptionOwner {
     queued_bytes: usize,
     hold_until_bound: bool,
     unsuccessful_writes: usize,
+    /// When the reader stopped making progress with frames pending: the
+    /// adapter refused the head, or accepted it and has not finished it.
+    /// Only a completed write or an empty queue clears it;
+    /// [`READER_PROGRESS_DEADLINE`] after it the route ends.
+    blocked_since: Option<Instant>,
     /// A stall resync ran and no write succeeded after it. The next
     /// exhausted attempt budget ends the route.
     stall_resynced: bool,
@@ -377,6 +402,7 @@ impl ClientWorker {
                 queued_bytes: 0,
                 hold_until_bound,
                 unsuccessful_writes: 0,
+                blocked_since: None,
                 stall_resynced: false,
                 in_flight: false,
                 terminal_enqueued: false,
@@ -1334,21 +1360,18 @@ impl ClientWorker {
                     }
                     TerminalAdapterPressure::Closed => return self.hard_stop_key(key),
                     TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
-                        if origin == PumpOrigin::SessionOutput {
-                            return None;
-                        }
-                        owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
-                        if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                            return self.stall_route(key);
-                        }
-                        return None;
+                        return self.head_refused(key, origin);
                     }
                 }
             }
             if owner.terminal_delivered {
                 return self.hard_stop_key(key);
             }
-            let head = owner.queue.front()?;
+            let Some(head) = owner.queue.front() else {
+                // Nothing is pending, so the reader is not blocked.
+                owner.blocked_since = None;
+                return None;
+            };
             let routed = RoutedTerminalFrame {
                 route: owner.route.clone(),
                 generation: owner.generation.0,
@@ -1360,7 +1383,7 @@ impl ClientWorker {
                 && adapter.pressure() != TerminalAdapterPressure::Ready
             {
                 // The adapter's writable wake retries this head.
-                return None;
+                return self.head_refused(key, origin);
             }
             match adapter.try_write(&routed) {
                 Ok(()) => {
@@ -1371,21 +1394,41 @@ impl ClientWorker {
                         self.complete_head(key);
                         continue;
                     }
+                    // Acceptance is not progress: the frame must complete.
+                    // Arm the deadline so a transport that holds the frame
+                    // forever, with no further wake, still ends the route.
+                    owner.blocked_since.get_or_insert_with(Instant::now);
                     return None;
                 }
                 Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
-                    if origin == PumpOrigin::SessionOutput {
-                        return None;
-                    }
-                    owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
-                    if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                        return self.stall_route(key);
-                    }
-                    return None;
+                    return self.head_refused(key, origin);
                 }
                 Err(TerminalAdapterWriteError::Closed) => return self.hard_stop_key(key),
             }
         }
+    }
+
+    /// The adapter did not accept the route's head.
+    ///
+    /// Starts the reader-progress deadline if it is not running, and ends
+    /// the route when the reader has accepted nothing for the whole
+    /// deadline. An adapter wake also counts one unsuccessful attempt toward
+    /// the budget that guards against spurious-wake storms; a session-output
+    /// pump does not.
+    fn head_refused(&mut self, key: &OwnerKey, origin: PumpOrigin) -> Option<ClientWorkerTeardown> {
+        let owner = self.live.get_mut(key)?;
+        let since = *owner.blocked_since.get_or_insert_with(Instant::now);
+        if since.elapsed() >= READER_PROGRESS_DEADLINE {
+            return self.hard_stop_key(key);
+        }
+        if origin == PumpOrigin::SessionOutput {
+            return None;
+        }
+        owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
+        if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
+            return self.stall_route(key);
+        }
+        None
     }
 
     /// The bound adapter refused writes for a full attempt budget.
@@ -1425,6 +1468,7 @@ impl ClientWorker {
         }
         owner.in_flight = false;
         owner.unsuccessful_writes = 0;
+        owner.blocked_since = None;
         owner.stall_resynced = false;
         if let Some((client_id, usage)) = released {
             self.release_lane(&key.session_id, &client_id, usage);
@@ -1935,6 +1979,59 @@ impl ClientWorker {
             }
         }
         teardowns
+    }
+
+    /// Earliest reader-progress deadline across bound routes.
+    ///
+    /// The host clamps its wait to this so a dead reader is closed without
+    /// any other traffic.
+    #[must_use]
+    pub fn next_reader_deadline(&self) -> Option<Instant> {
+        self.live
+            .values()
+            .filter_map(|owner| owner.blocked_since)
+            .min()
+            .map(|since| since + READER_PROGRESS_DEADLINE)
+    }
+
+    /// Exact live routes whose reader-progress deadline has passed.
+    #[must_use]
+    pub fn expired_reader_routes(&self, now: Instant) -> Vec<crate::TerminalWakeRoute> {
+        let mut routes: Vec<_> = self
+            .live
+            .iter()
+            .filter(|(_, owner)| {
+                owner
+                    .blocked_since
+                    .is_some_and(|since| since + READER_PROGRESS_DEADLINE <= now)
+            })
+            .map(|(key, _)| crate::TerminalWakeRoute {
+                session_id: key.session_id.clone(),
+                subscription_id: key.subscription_id.clone(),
+            })
+            .collect();
+        routes.sort_by(|left, right| {
+            left.session_id
+                .0
+                .cmp(&right.session_id.0)
+                .then(left.subscription_id.0.cmp(&right.subscription_id.0))
+        });
+        routes
+    }
+
+    /// Start a route's reader-progress deadline at `since`, for host tests.
+    #[cfg(test)]
+    pub(crate) fn test_start_reader_block(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+        since: Instant,
+    ) {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        self.live.get_mut(&key).expect("live route").blocked_since = Some(since);
     }
 
     /// Earliest assembly deadline across live owners.
@@ -3261,6 +3358,101 @@ mod tests {
         let written = adapter.lock().expect("adapter state").written.clone();
         assert!(written.contains(&TerminalKind::Output));
         assert!(!worker.live[&key].stall_resynced);
+    }
+
+    /// An instant `READER_PROGRESS_DEADLINE` ago: the deadline has passed.
+    fn deadline_ago() -> Instant {
+        Instant::now()
+            .checked_sub(READER_PROGRESS_DEADLINE)
+            .expect("the monotonic clock is past the deadline")
+    }
+
+    #[test]
+    fn a_reader_that_accepts_nothing_is_closed_at_its_progress_deadline() {
+        let (mut worker, key) = bound_route();
+        assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        assert!(worker.pump_woken(&output_wake(&key)).is_empty());
+        let since = worker.live[&key]
+            .blocked_since
+            .expect("a refused head starts the deadline");
+        assert_eq!(
+            worker.next_reader_deadline(),
+            Some(since + READER_PROGRESS_DEADLINE)
+        );
+
+        // Before the deadline, no amount of producer output ends the route,
+        // and adapter wakes below the budget do not either.
+        for _ in 0..WRITE_ATTEMPT_BUDGET * 4 {
+            assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+            assert!(worker.pump_woken(&output_wake(&key)).is_empty());
+        }
+        assert!(worker.expired_reader_routes(Instant::now()).is_empty());
+        assert!(worker.has_subscription(&key.session_id, &key.subscription_id));
+
+        worker.live.get_mut(&key).expect("route").blocked_since = Some(deadline_ago());
+        let expired = worker.expired_reader_routes(Instant::now());
+        assert_eq!(expired.len(), 1, "the host wait names the dead route");
+        let teardowns = worker.pump_woken(&adapter_wake(&key));
+        assert_eq!(teardowns.len(), 1, "the dead reader is closed");
+        assert!(!worker.has_subscription(&key.session_id, &key.subscription_id));
+        assert_eq!(worker.next_reader_deadline(), None);
+    }
+
+    #[test]
+    fn a_completed_write_restarts_the_reader_progress_deadline() {
+        let (mut worker, key, adapter) = metered_route();
+        for _ in 0..3 {
+            assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        }
+        assert!(worker.pump_woken(&output_wake(&key)).is_empty());
+        assert!(worker.live[&key].blocked_since.is_some());
+
+        let nearly = Instant::now()
+            .checked_sub(READER_PROGRESS_DEADLINE / 2)
+            .expect("clock");
+        worker.live.get_mut(&key).expect("route").blocked_since = Some(nearly);
+        // One frame completes; the next is accepted and held.
+        adapter.lock().expect("adapter state").credits = 2;
+        assert!(worker.pump_woken(&adapter_wake(&key)).is_empty());
+
+        let since = worker.live[&key]
+            .blocked_since
+            .expect("the held frame arms the deadline again");
+        assert!(since > nearly, "the completion restarted the deadline");
+    }
+
+    #[test]
+    fn a_frame_accepted_but_never_completed_is_closed_at_the_deadline() {
+        let (mut worker, key, adapter) = metered_route();
+        assert!(worker.live[&key].blocked_since.is_none());
+        // The transport accepts the head and then holds it forever.
+        adapter.lock().expect("adapter state").credits = 1;
+        assert!(worker.pump_woken(&adapter_wake(&key)).is_empty());
+        assert!(worker.live[&key].in_flight);
+        assert!(
+            worker.next_reader_deadline().is_some(),
+            "an accepted, unfinished frame arms the host wait with no further traffic"
+        );
+
+        worker.live.get_mut(&key).expect("route").blocked_since = Some(deadline_ago());
+        assert_eq!(worker.expired_reader_routes(Instant::now()).len(), 1);
+        let teardowns = worker.pump_woken(&adapter_wake(&key));
+        assert_eq!(teardowns.len(), 1, "the held frame never completed");
+        assert!(!worker.has_subscription(&key.session_id, &key.subscription_id));
+    }
+
+    #[test]
+    fn a_route_with_nothing_pending_is_not_blocked() {
+        let (mut worker, key, adapter) = metered_route();
+        adapter.lock().expect("adapter state").credits = usize::MAX;
+        assert!(worker.pump_woken(&adapter_wake(&key)).is_empty());
+        assert!(worker.live[&key].queue.is_empty());
+
+        worker.live.get_mut(&key).expect("route").blocked_since = Some(deadline_ago());
+        assert!(worker.pump_woken(&adapter_wake(&key)).is_empty());
+        assert!(worker.has_subscription(&key.session_id, &key.subscription_id));
+        assert_eq!(worker.live[&key].blocked_since, None);
+        assert!(worker.expired_reader_routes(Instant::now()).is_empty());
     }
 
     fn decode_route_resync_frame(

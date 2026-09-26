@@ -12,6 +12,12 @@ mod control_queue;
 mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
+#[cfg(all(feature = "local-runtime", unix))]
+#[allow(
+    dead_code,
+    reason = "the plugin process host and local shutdown are its first callers"
+)]
+mod process_exit;
 mod session_admission;
 #[cfg(feature = "local-runtime")]
 mod worker_process;
