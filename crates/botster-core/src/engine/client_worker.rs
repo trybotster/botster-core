@@ -43,6 +43,17 @@ use crate::transport::TransportEgress;
 
 const WRITE_ATTEMPT_BUDGET: usize = 512;
 
+/// What woke a route pump.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PumpOrigin {
+    /// The route's adapter posted a wake. A busy adapter here counts toward
+    /// [`WRITE_ATTEMPT_BUDGET`], which guards against spurious-wake storms.
+    AdapterWake,
+    /// The session produced output. It never counts: it follows the
+    /// producer's rate, not the reader's liveness.
+    SessionOutput,
+}
+
 fn inventory_add_bytes(
     total: usize,
     bytes: usize,
@@ -1279,7 +1290,7 @@ impl ClientWorker {
                 subscription_id: route.subscription_id.clone(),
             };
             if seen.insert(key.clone()) {
-                keys.push(key);
+                keys.push((key, PumpOrigin::AdapterWake));
             }
         }
         for session_id in &batch.ingress_sessions {
@@ -1293,19 +1304,22 @@ impl ClientWorker {
                 .sort_by(|left, right| left.subscription_id.0.cmp(&right.subscription_id.0));
             for key in session_keys {
                 if seen.insert(key.clone()) {
-                    keys.push(key);
+                    keys.push((key, PumpOrigin::SessionOutput));
                 }
             }
         }
-        for key in keys {
-            if let Some(teardown) = self.pump_one(&key) {
+        for (key, origin) in keys {
+            if let Some(teardown) = self.pump_one(&key, origin) {
                 teardowns.push(teardown);
             }
         }
         teardowns
     }
 
-    fn pump_one(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+    /// Pump one route. Only the adapter's own wake counts an attempt that
+    /// finds it busy: output wakes follow the producer's rate, not the
+    /// reader's, so a session-output pump writes only into a ready adapter.
+    fn pump_one(&mut self, key: &OwnerKey, origin: PumpOrigin) -> Option<ClientWorkerTeardown> {
         loop {
             let owner = self.live.get_mut(key)?;
             let adapter = owner.adapter.as_mut()?;
@@ -1320,6 +1334,9 @@ impl ClientWorker {
                     }
                     TerminalAdapterPressure::Closed => return self.hard_stop_key(key),
                     TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
+                        if origin == PumpOrigin::SessionOutput {
+                            return None;
+                        }
                         owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                         if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
                             return self.stall_route(key);
@@ -1339,6 +1356,12 @@ impl ClientWorker {
                 frame: head.frame.clone(),
             };
             let adapter = owner.adapter.as_mut()?;
+            if origin == PumpOrigin::SessionOutput
+                && adapter.pressure() != TerminalAdapterPressure::Ready
+            {
+                // The adapter's writable wake retries this head.
+                return None;
+            }
             match adapter.try_write(&routed) {
                 Ok(()) => {
                     owner.in_flight = true;
@@ -1351,6 +1374,9 @@ impl ClientWorker {
                     return None;
                 }
                 Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
+                    if origin == PumpOrigin::SessionOutput {
+                        return None;
+                    }
                     owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                     if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
                         return self.stall_route(key);
@@ -2983,7 +3009,7 @@ mod tests {
     /// Pump one route until one attempt short of the write budget.
     fn exhaust_all_but_one(worker: &mut ClientWorker, key: &OwnerKey) {
         for _ in 1..WRITE_ATTEMPT_BUDGET {
-            assert!(worker.pump_one(key).is_none());
+            assert!(worker.pump_one(key, PumpOrigin::AdapterWake).is_none());
         }
         assert_eq!(
             worker.live[key].unsuccessful_writes,
@@ -3040,7 +3066,7 @@ mod tests {
             }
             let before = worker.live[&key].unsuccessful_writes;
             assert!(
-                worker.pump_one(&key).is_none(),
+                worker.pump_one(&key, PumpOrigin::AdapterWake).is_none(),
                 "a reader that keeps writing must never be stopped"
             );
             if drain {
@@ -3104,7 +3130,10 @@ mod tests {
         exhaust_all_but_one(&mut worker, &key);
         let fence = worker.live[&key].capture_fence;
 
-        assert!(worker.pump_one(&key).is_none(), "the first stall resyncs");
+        assert!(
+            worker.pump_one(&key, PumpOrigin::AdapterWake).is_none(),
+            "the first stall resyncs"
+        );
 
         let owner = &worker.live[&key];
         assert_eq!(kinds(&worker, &key), vec!["resync"]);
@@ -3123,11 +3152,14 @@ mod tests {
         let (mut worker, key) = bound_route();
         assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
         exhaust_all_but_one(&mut worker, &key);
-        assert!(worker.pump_one(&key).is_none(), "the first stall resyncs");
+        assert!(
+            worker.pump_one(&key, PumpOrigin::AdapterWake).is_none(),
+            "the first stall resyncs"
+        );
         exhaust_all_but_one(&mut worker, &key);
 
         let teardown = worker
-            .pump_one(&key)
+            .pump_one(&key, PumpOrigin::AdapterWake)
             .expect("no write across a full budget after the resync ends the route");
 
         assert_eq!(teardown.subscription_id, key.subscription_id);
@@ -3143,7 +3175,7 @@ mod tests {
         }
         exhaust_all_but_one(&mut worker, &key);
         adapter.lock().expect("adapter state").credits = 1;
-        assert!(worker.pump_one(&key).is_none());
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
         assert_eq!(worker.live[&key].unsuccessful_writes, 0);
 
         exhaust_all_but_one(&mut worker, &key);
@@ -3152,6 +3184,83 @@ mod tests {
         assert!(!owner.stall_resynced);
         assert_eq!(owner.stream_epoch, 0, "no stall resync ran");
         assert!(worker.take_resync_requests().is_empty());
+    }
+
+    fn output_wake(key: &OwnerKey) -> TerminalWakeBatch {
+        TerminalWakeBatch {
+            adapter_routes: Vec::new(),
+            ingress_sessions: vec![key.session_id.clone()],
+        }
+    }
+
+    fn adapter_wake(key: &OwnerKey) -> TerminalWakeBatch {
+        TerminalWakeBatch {
+            adapter_routes: vec![crate::TerminalWakeRoute {
+                session_id: key.session_id.clone(),
+                subscription_id: key.subscription_id.clone(),
+            }],
+            ingress_sessions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn output_wakes_against_a_busy_adapter_never_count_toward_the_budget() {
+        let (mut worker, key, adapter) = metered_route();
+        for _ in 0..WRITE_ATTEMPT_BUDGET * 4 {
+            assert!(worker
+                .push_session_output(&key.session_id, b"y\n")
+                .is_empty());
+            assert!(
+                worker.pump_woken(&output_wake(&key)).is_empty(),
+                "a flooding producer must not end a live route"
+            );
+        }
+        let owner = &worker.live[&key];
+        assert_eq!(owner.unsuccessful_writes, 0);
+        assert!(!owner.stall_resynced);
+        assert!(adapter.lock().expect("adapter state").written.is_empty());
+
+        // The reader's writable wake delivers what is queued.
+        adapter.lock().expect("adapter state").credits = MAX_ROUTE_EGRESS_FRAMES;
+        assert!(worker.pump_woken(&adapter_wake(&key)).is_empty());
+        assert!(!adapter.lock().expect("adapter state").written.is_empty());
+    }
+
+    #[test]
+    fn a_slow_reader_under_a_flooding_producer_stays_attached_and_receives_output() {
+        let (mut worker, key, adapter) = metered_route();
+        // The reader drains a burst on each writable wake, far less often than
+        // the producer wakes the session.
+        let drain_every = WRITE_ATTEMPT_BUDGET / 4;
+        for tick in 1..=WRITE_ATTEMPT_BUDGET * 8 {
+            assert!(worker
+                .push_session_output(&key.session_id, b"y\n")
+                .is_empty());
+            for request in worker.take_resync_requests() {
+                let identity = CaptureIdentity {
+                    generation: request.generation,
+                    capture_fence: request.capture_fence,
+                };
+                let ready = encode_snapshot_ready(b"GHOSTSNP").expect("ready");
+                let teardown = worker
+                    .push_capture_frame(&key.session_id, &key.subscription_id, identity, ready)
+                    .expect("capture for the live fence");
+                assert!(teardown.is_none());
+            }
+            assert!(worker.pump_woken(&output_wake(&key)).is_empty());
+            if tick % drain_every == 0 {
+                adapter.lock().expect("adapter state").credits = 8;
+                assert!(
+                    worker.pump_woken(&adapter_wake(&key)).is_empty(),
+                    "a reader that keeps draining must never be stopped"
+                );
+                adapter.lock().expect("adapter state").credits = 0;
+            }
+        }
+        assert!(worker.has_subscription(&key.session_id, &key.subscription_id));
+        let written = adapter.lock().expect("adapter state").written.clone();
+        assert!(written.contains(&TerminalKind::Output));
+        assert!(!worker.live[&key].stall_resynced);
     }
 
     fn decode_route_resync_frame(
