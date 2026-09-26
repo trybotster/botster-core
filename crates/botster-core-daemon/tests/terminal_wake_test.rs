@@ -210,7 +210,10 @@ fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
             request_id: RequestId(format!("{}-spawn", session_id.0)),
             session_id: session_id.clone(),
             executable: "sh".to_string(),
-            arguments: vec!["-c".to_string(), "printf ready; sleep 2".to_string()],
+            arguments: vec![
+                "-c".to_string(),
+                "printf ready; exec cat >/dev/null".to_string(),
+            ],
             working_directory: SpawnWorkingDirectory {
                 path: ".".to_string(),
             },
@@ -3543,7 +3546,10 @@ fn shutdown_completion_arrives_through_wait_wakes() {
                     request_id: RequestId("shutdown-wake-spawn".into()),
                     session_id: session_id.clone(),
                     executable: "sh".to_string(),
-                    arguments: vec!["-c".to_string(), "printf FINAL; exec cat >/dev/null".to_string()],
+                    arguments: vec![
+                        "-c".to_string(),
+                        "printf FINAL; exec cat >/dev/null".to_string(),
+                    ],
                     working_directory: SpawnWorkingDirectory {
                         path: ".".to_string(),
                     },
