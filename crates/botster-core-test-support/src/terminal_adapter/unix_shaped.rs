@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    TerminalRouteCloseReason,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
 use botster_terminal_protocol::RoutedTerminalFrame;
@@ -26,8 +27,8 @@ impl TerminalAdapter for UnixShapedTerminalAdapter {
         self.inner.try_write(frame)
     }
 
-    fn close(&mut self) {
-        self.inner.close();
+    fn close(&mut self, reason: TerminalRouteCloseReason) {
+        self.inner.close_by_core(reason);
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {

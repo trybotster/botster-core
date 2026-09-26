@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use botster_core::contract::terminal_adapter::{
-    TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress, TerminalRouteCloseReason,
     MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeKind, TerminalWakeSink};
@@ -35,6 +35,7 @@ pub(super) struct OneSlotCore {
     lost_pending: bool,
     wake_sink: Option<TerminalWakeSink>,
     closed_woke: bool,
+    core_close_reason: Option<TerminalRouteCloseReason>,
     reads: usize,
     writes: usize,
 }
@@ -62,6 +63,18 @@ impl OneSlotCore {
             frame.stream_epoch,
         ));
         Ok(())
+    }
+
+    /// Core's close: records the first reason Core passed.
+    pub(super) fn close_by_core(&mut self, reason: TerminalRouteCloseReason) {
+        if self.core_close_reason.is_none() {
+            self.core_close_reason = Some(reason);
+        }
+        self.close();
+    }
+
+    pub(super) fn core_close_reason(&self) -> Option<TerminalRouteCloseReason> {
+        self.core_close_reason
     }
 
     pub(super) fn close(&mut self) {

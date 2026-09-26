@@ -15,6 +15,7 @@ use crate::contract::actor::{
     QueueSource, ScreenReady, SendFileFailed, SendFileRequest, SendFileWritten, SessionIoRequest,
     SnapshotReady,
 };
+use crate::contract::terminal_adapter::TerminalRouteCloseReason;
 use crate::contract::terminal_screen::{TerminalKeyEvent, TerminalMouseEvent};
 use crate::contract::terminal_subscription::{
     AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
@@ -235,7 +236,9 @@ where
         self.engine
             .session_runtime_mut()
             .fail_control_plane(session_id, ControlWriterError::ResizeAckTimeout);
-        let teardowns = self.client_worker.teardown_session(session_id);
+        let teardowns = self
+            .client_worker
+            .teardown_session(session_id, TerminalRouteCloseReason::WorkerLinkFailed);
         self.pending_input_teardowns.extend(teardowns);
     }
 
@@ -506,7 +509,10 @@ where
                     InputOutcome::OutcomeUnknown,
                     "worker control plane failed",
                 ));
-                teardowns.extend(self.client_worker.teardown_session(session_id));
+                teardowns.extend(
+                    self.client_worker
+                        .teardown_session(session_id, TerminalRouteCloseReason::WorkerLinkFailed),
+                );
                 failed_sessions.insert(session_id.clone());
             }
         }
@@ -562,7 +568,10 @@ where
                         break;
                     }
                     ControlAdmission::Sealed => {
-                        if let Some(teardown) = self.client_worker.hard_stop_owner(&key) {
+                        if let Some(teardown) = self
+                            .client_worker
+                            .hard_stop_owner(&key, TerminalRouteCloseReason::WorkerLinkFailed)
+                        {
                             teardowns.push(teardown);
                         }
                         break;
@@ -641,10 +650,13 @@ where
                     .complete_operation(staged.operation_key, result);
                 if sealed {
                     return teardown.or_else(|| {
-                        self.client_worker.hard_stop_owner(&OwnerKey {
-                            session_id,
-                            subscription_id: staged.subscription_id,
-                        })
+                        self.client_worker.hard_stop_owner(
+                            &OwnerKey {
+                                session_id,
+                                subscription_id: staged.subscription_id,
+                            },
+                            TerminalRouteCloseReason::WorkerLinkFailed,
+                        )
                     });
                 }
                 teardown
@@ -908,7 +920,9 @@ where
         self.wake_source.forget_session(session_id);
         self.applied_terminal_resizes.remove(session_id);
         self.pending_terminal_resizes.remove(session_id);
-        let teardowns = self.client_worker.teardown_session(session_id);
+        let teardowns = self
+            .client_worker
+            .teardown_session(session_id, TerminalRouteCloseReason::SessionEnded);
         self.pending_input_teardowns.extend(teardowns);
         let mut outcome = MultiplexerEngineOutcome::empty();
         let _ = self.apply_client_worker(&mut outcome);
@@ -2019,7 +2033,9 @@ where
             &previous_lifecycle,
             SessionLifecycleState::Exited { .. } | SessionLifecycleState::Stopping
         ) {
-            let teardowns = self.client_worker.teardown_session(&session_id);
+            let teardowns = self
+                .client_worker
+                .teardown_session(&session_id, TerminalRouteCloseReason::SessionEnded);
             self.pending_input_teardowns.extend(teardowns);
             let mut outcome =
                 self.engine
@@ -3117,7 +3133,7 @@ mod tests {
                 Ok(())
             }
 
-            fn close(&mut self) {}
+            fn close(&mut self, _reason: TerminalRouteCloseReason) {}
 
             fn pressure(&self) -> TerminalAdapterPressure {
                 TerminalAdapterPressure::Ready
