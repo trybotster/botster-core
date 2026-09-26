@@ -1756,9 +1756,11 @@ impl WorkerBackedBotsterEngine {
             append_engine_output(&mut output, attached);
         }
         self.sync_worker_consumers(session_id)?;
-        let leftover = self
+        let mut leftover = self
             .runtime
             .drain_runtime_once(session_id, last_output_at)?;
+        // Routes still queued for their own capture get these bytes in it.
+        suppress_route_output(&mut leftover, session_id, None, &self.capture_queue);
         append_engine_output(&mut output, leftover);
         self.start_next_capture(session_id)?;
         self.start_resync_captures()?;
@@ -2360,6 +2362,18 @@ fn suppress_capture_route_output(
     capture: &RouteCapture,
     queue: &HashMap<SessionId, VecDeque<CaptureRequest>>,
 ) {
+    suppress_route_output(output, session_id, Some(capture), queue);
+}
+
+/// Drop live output for routes whose attach has not reached `Attached`: the
+/// capturing route, if any, and every route still queued for a capture.
+/// Their snapshots carry these bytes.
+fn suppress_route_output(
+    output: &mut BotsterEngineOutput,
+    session_id: &SessionId,
+    capture: Option<&RouteCapture>,
+    queue: &HashMap<SessionId, VecDeque<CaptureRequest>>,
+) {
     output.client_egress.retain(|(routed_client, frame)| {
         let TransportEgress::TerminalOutput {
             session_id: routed_session,
@@ -2372,8 +2386,9 @@ fn suppress_capture_route_output(
         if routed_session != session_id {
             return true;
         }
-        let active =
-            routed_client == &capture.client_id && routed_subscription == &capture.subscription_id;
+        let active = capture.is_some_and(|capture| {
+            routed_client == &capture.client_id && routed_subscription == &capture.subscription_id
+        });
         let pending = queue.get(session_id).is_some_and(|queue| {
             queue.iter().any(|request| {
                 routed_client == &request.client_id
