@@ -2,11 +2,13 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write as _;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1723,13 +1725,23 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     let client_id = ClientId("bound-exit-during-attach-client".to_string());
     let subscription_id = SubscriptionId("bound-exit-during-attach-sub".to_string());
     let ready_path = data_dir.join("history-ready");
+    // The release is a named pipe: the child prints LIVE and exits the
+    // moment the test opens it, with no poll delay to let the capture finish
+    // first. The pipe is opened by an external command, which a signal the
+    // shell handles cannot interrupt.
     let release_path = data_dir.join("go");
+    fs::create_dir_all(&data_dir).expect("create data dir");
+    let made = Command::new("mkfifo")
+        .arg(&release_path)
+        .status()
+        .expect("run mkfifo");
+    assert!(made.success(), "mkfifo");
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
         concat!(
             "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
             "printf 'PRE-BARRIER-MARKER'; : > '{}'; ",
-            "while [ ! -f '{}' ]; do sleep 0.05; done; ",
+            "/bin/cat '{}' >/dev/null; ",
             "printf LIVE; exit 0"
         ),
         ready_path.display(),
@@ -1791,9 +1803,22 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         "bind must happen before incremental attach finishes"
     );
 
-    fs::write(&release_path, b"go").expect("release live exit");
+    let release = release_path.clone();
+    let (released_sender, released) = mpsc::channel();
+    thread::spawn(move || {
+        let mut gate = fs::OpenOptions::new()
+            .write(true)
+            .open(&release)
+            .expect("open the release pipe");
+        let _ = gate.write_all(b"go\n");
+        let _ = released_sender.send(());
+    });
+    // timer: deadline — the child must open its release pipe; expiry fails the test
+    released
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the child took its release");
 
-    let mut saw_live = false;
+    let mut saw_exit = false;
     for tick in 0..400 {
         let batch = daemon.wait_wakes(Duration::from_millis(250));
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
@@ -1802,22 +1827,58 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
                 .expect("pump incremental attach wake");
         }
         complete_one_slot_if_full(&adapter);
-        if adapter_has_live(&adapter) {
-            saw_live = true;
+        if adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_frame_type(bytes) == "process_exit")
+        {
+            saw_exit = true;
             break;
         }
         if !process_exists(pty_child_pid) {
             thread::sleep(Duration::from_millis(20));
         }
     }
+    let frames = adapter.snapshot_delivered_frame_bytes();
+    let described: Vec<String> = frames
+        .iter()
+        .map(|bytes| {
+            let frame = adapter_terminal_frame(bytes);
+            format!(
+                "{:?}:{}:live={}",
+                frame.kind(),
+                frame.body().len(),
+                frame.body().windows(4).any(|window| window == b"LIVE")
+            )
+        })
+        .collect();
     assert!(
-        saw_live,
-        "LIVE bytes must reach the bound adapter when ProcessExited arrives during incremental attach: payloads={:?}",
-        adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .map(|bytes| adapter_payload_text(bytes))
-            .collect::<Vec<_>>()
+        saw_exit,
+        "the process exit must reach the route: {described:?}"
+    );
+    // Bytes before the capture fence are in the snapshot only; bytes after
+    // it are output after FINISH. LIVE is in exactly one of the two.
+    let snapshot_live = frames.iter().any(|bytes| {
+        let frame = adapter_terminal_frame(bytes);
+        matches!(
+            frame.kind(),
+            TerminalKind::SnapshotReady | TerminalKind::SnapshotHistory
+        ) && frame.body().windows(4).any(|window| window == b"LIVE")
+    });
+    let output_text: String = frames
+        .iter()
+        .filter(|bytes| adapter_frame_type(bytes) == "terminal_output")
+        .map(|bytes| adapter_payload_text(bytes))
+        .collect();
+    let output_live = output_text.matches("LIVE").count();
+    assert_eq!(
+        usize::from(snapshot_live) + output_live,
+        1,
+        "LIVE must reach the route exactly once, in the snapshot or as output: {described:?}"
+    );
+    assert!(
+        !output_text.contains("history-") && !output_text.contains("PRE-BARRIER-MARKER"),
+        "pre-fence bytes must not be repeated as output: {output_text:?}"
     );
 
     let _ = fs::remove_dir_all(data_dir);
