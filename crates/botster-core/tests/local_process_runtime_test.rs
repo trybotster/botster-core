@@ -455,22 +455,32 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
     let _guard = local_process_test_lock();
     let mut runtime = LocalProcessRuntime::with_options(runtime_options());
     let session = session_id("local-final-reader-egress");
-    let ready_file = unique_temp_path("final-reader-ready");
+    let ready_fifo = unique_temp_path("final-reader-ready");
+    let hold_fifo = unique_temp_path("final-reader-hold");
     let child_pid_file = unique_temp_path("final-reader-child-pid");
+    for fifo in [&ready_fifo, &hold_fifo] {
+        let made = std::process::Command::new("mkfifo")
+            .arg(fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(made.success(), "mkfifo");
+    }
     let environment = SpawnEnvironment {
         variables: vec![
-            env_var("READY_FILE", ready_file.display().to_string()),
+            env_var("READY_FIFO", ready_fifo.display().to_string()),
+            env_var("HOLD_FIFO", hold_fifo.display().to_string()),
             env_var("CHILD_PID_FILE", child_pid_file.display().to_string()),
         ],
     };
-    // The pid file appears only after the descendant confirmed readiness.
-    let script = "sh -c 'trap \"\" TERM; printf ready > \"$READY_FILE\"; while true; do sleep 1; done' & child=$!; while [ ! -s \"$READY_FILE\" ]; do :; done; echo $child > \"$CHILD_PID_FILE\"; printf 'final-reader-marker\\n'; exit 7";
+    // The descendant reports readiness through the ready FIFO, then holds the
+    // PTY open while it blocks on the hold FIFO, which nothing ever writes.
+    // The leader blocks on the ready FIFO, so the pid file implies readiness.
+    let script = "sh -c 'trap \"\" TERM; printf \"ready\\n\" > \"$READY_FIFO\"; read hold < \"$HOLD_FIFO\"' & child=$!; read ready < \"$READY_FIFO\"; echo $child > \"$CHILD_PID_FILE\"; printf 'final-reader-marker\\n'; exit 7";
 
     runtime
         .spawn_session(shell_request_with_env(session.clone(), script, environment))
         .expect("spawn leader with PTY-holding descendant");
     let descendant_pid = wait_for_child_pid(&child_pid_file);
-    assert!(ready_file.exists(), "descendant should confirm readiness");
 
     let output = collect_until(&mut runtime, &session, has_exit);
     let marker_index = output
@@ -508,7 +518,8 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
         .expect_err("session should be removed only after final egress");
     assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
 
-    let _ = fs::remove_file(ready_file);
+    let _ = fs::remove_file(ready_fifo);
+    let _ = fs::remove_file(hold_fifo);
     let _ = fs::remove_file(child_pid_file);
 }
 
