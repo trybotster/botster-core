@@ -158,6 +158,36 @@ impl LocalProcessRuntime {
         self.registry.try_write_input(session_id, data)
     }
 
+    /// Wake the session once the PTY master can accept more input.
+    ///
+    /// For a host that keeps unwritten input after [`Self::try_write_input`]
+    /// wrote less than asked. At most one waiter runs per session; it also
+    /// ends when the PTY hangs up. Without a wake source this does nothing.
+    pub fn wake_when_writable(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        let Some(handle) = session.wake_handle.clone() else {
+            return Ok(());
+        };
+        if session.write_wake_armed.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let readiness = match PtyReadiness::for_master(session.master.as_ref()) {
+            Ok(readiness) => readiness,
+            Err(error) => {
+                session.write_wake_armed.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
+        let armed = Arc::clone(&session.write_wake_armed);
+        thread::spawn(move || {
+            readiness.wait_writable(None);
+            armed.store(false, Ordering::Release);
+            handle.notify();
+        });
+        Ok(())
+    }
+
     /// Run `body` with the PTY reader paused and exclusive session I/O ownership.
     ///
     /// The reader thread stops issuing new PTY reads before `body` runs, so
@@ -273,6 +303,13 @@ impl LocalProcessRuntime {
                 .as_ref()
                 .map(|source| source.session_handle(request.session_id.clone())),
         };
+        // The child may exit without PTY EOF when a descendant keeps the
+        // slave open; its exit still wakes the session.
+        #[cfg(unix)]
+        if let (Some(pid), Some(handle)) = (pid, pending_child.wake_handle.clone()) {
+            wake_on_child_exit(pid, handle)
+                .map_err(|error| spawn_error(&request.executable, error.to_string()))?;
+        }
         let process = ProcessIdentity {
             pid,
             runtime_id: Some(request.session_id.0.clone()),
@@ -356,6 +393,8 @@ impl LocalProcessRuntime {
                 authority_failed: None,
                 reader_fence,
                 write_readiness,
+                wake_handle: pending_child.wake_handle.clone(),
+                write_wake_armed: Arc::new(AtomicBool::new(false)),
             },
         )?;
         reservation.runtime_installed();
@@ -916,6 +955,10 @@ struct LocalSession {
     reader_fence: Arc<ReaderFence>,
     /// Waits for the non-blocking master to accept more input.
     write_readiness: PtyReadiness,
+    /// Session wake, when the host supplied a wake source.
+    wake_handle: Option<SessionWakeHandle>,
+    /// A thread is waiting to wake the session when the master is writable.
+    write_wake_armed: Arc<AtomicBool>,
 }
 
 struct ReaderFence {
@@ -1353,6 +1396,19 @@ fn pty_size(size: Option<&ResizePayload>) -> PtySize {
             pixel_height: 0,
         },
     }
+}
+
+/// Wake the session when child `pid` exits. Registers the exit watch now,
+/// while the child is unreaped, and waits for it on its own thread.
+#[cfg(unix)]
+fn wake_on_child_exit(pid: u32, handle: SessionWakeHandle) -> io::Result<()> {
+    let watch = super::process_exit::ExitWatch::register(pid)?;
+    thread::spawn(move || {
+        if watch.wait(None).unwrap_or(true) {
+            handle.notify();
+        }
+    });
+    Ok(())
 }
 
 fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
