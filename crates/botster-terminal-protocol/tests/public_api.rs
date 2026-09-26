@@ -59,13 +59,14 @@ fn terminal_input_frame_source_has_no_semantic_accessors() {
 
 #[test]
 fn terminal_input_header_accepts_all_published_kinds_only() {
-    for kind in 1..=7 {
-        let frame = botster_terminal_protocol::TerminalInputFrame::from_bytes(&[1, kind, 0, 0]);
+    let header = |kind: u8| [2, kind, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    for kind in 1..=9 {
+        let frame = botster_terminal_protocol::TerminalInputFrame::from_bytes(&header(kind));
         assert!(frame.is_ok(), "kind {kind} must be forwardable");
     }
     assert!(matches!(
-        botster_terminal_protocol::TerminalInputFrame::from_bytes(&[1, 8, 0, 0]),
-        Err(botster_terminal_protocol::TerminalInputFrameError::UnknownKind { found: 8 })
+        botster_terminal_protocol::TerminalInputFrame::from_bytes(&header(10)),
+        Err(botster_terminal_protocol::TerminalInputFrameError::UnknownKind { found: 10 })
     ));
 }
 

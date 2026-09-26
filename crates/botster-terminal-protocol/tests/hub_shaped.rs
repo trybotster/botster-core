@@ -7,8 +7,8 @@ use std::process::Command;
 
 use botster_terminal_protocol::{
     Attach, Detach, Resize, SendInput, TerminalCapabilitySet, TerminalCompatibility,
-    TerminalCompatibilityRequirement, TerminalFrame, TerminalInputFrame, FEATURE_RESIZE,
-    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL,
+    TerminalCompatibilityRequirement, TerminalFrame, TerminalInputFrame, TerminalKind,
+    FEATURE_RESIZE, FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL,
 };
 
 #[test]
@@ -44,20 +44,11 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     .expect("serialize resize");
     assert_eq!(resize["type"], "resize");
 
-    let snapshot_json = serde_json::json!({
-        "type": "snapshot",
-        "session_id": "session-1",
-        "subscription_id": "sub-1",
-        "payload_base64": "R0hPU1RTTlA=",
-        "payload_encoding": "base64",
-        "bytes": 8,
-        "phase": "ready"
-    });
-    let frame = TerminalFrame::from_bytes(snapshot_json.to_string().as_bytes()).expect("frame");
-    let emitted = frame.as_bytes().to_vec();
-    let round_trip: serde_json::Value = serde_json::from_slice(&emitted).expect("json");
-    assert_eq!(round_trip["type"], "snapshot");
-    assert_eq!(PROTOCOL, "botster-terminal-v1");
+    let snapshot = TerminalFrame::new(TerminalKind::SnapshotReady, 0, b"GHOSTSNP").expect("frame");
+    let forwarded = TerminalFrame::from_bytes(snapshot.as_bytes()).expect("opaque frame");
+    assert_eq!(forwarded.kind(), TerminalKind::SnapshotReady);
+    assert_eq!(forwarded.as_bytes(), snapshot.as_bytes());
+    assert_eq!(PROTOCOL, "botster-terminal-v2");
     let _ = TerminalCompatibility::current();
     let _ = TerminalCompatibilityRequirement::current();
     let empty = TerminalCapabilitySet::empty();
@@ -73,7 +64,7 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     assert!(negotiated.contains(FEATURE_TRANSPORT_DUPLEX_BINARY));
 
     let input_bytes = {
-        let mut bytes = vec![1, 1, 0, 3];
+        let mut bytes = vec![2, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1];
         bytes.extend_from_slice(b"abc");
         bytes
     };
@@ -81,9 +72,11 @@ fn hub_shaped_consumer_forwards_requests_and_opaque_frames() {
     assert_eq!(input_frame.to_bytes(), input_bytes);
     assert_eq!(input_frame.as_bytes(), input_bytes.as_slice());
 
-    let paste_begin_bytes = vec![
-        1, 4, 0, 24, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 3,
-    ];
+    let paste_begin_bytes = {
+        let mut bytes = vec![2, 6, 0, 16, 0, 0, 0, 0, 0, 0, 0, 2];
+        bytes.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1]);
+        bytes
+    };
     let paste_begin =
         TerminalInputFrame::from_bytes(&paste_begin_bytes).expect("opaque paste begin");
     assert_eq!(paste_begin.to_bytes(), paste_begin_bytes);

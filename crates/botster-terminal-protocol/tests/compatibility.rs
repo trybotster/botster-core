@@ -3,30 +3,14 @@
 use botster_terminal_protocol::{
     ensure_compatible, TerminalCapabilitySet, TerminalCapabilitySetError, TerminalCompatibility,
     TerminalCompatibilityRequirement, FEATURE_RESIZE, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY, PROTOCOL, PROTOCOL_VERSION,
+    FEATURE_TERMINAL_STREAMING, FEATURE_TRANSPORT_DUPLEX_BINARY,
 };
 
-fn baseline_descriptor() -> TerminalCompatibility {
-    TerminalCompatibility {
-        protocol: PROTOCOL.to_string(),
-        protocol_version: PROTOCOL_VERSION,
-        features: vec![
-            FEATURE_TERMINAL_STREAMING.to_string(),
-            FEATURE_RESIZE.to_string(),
-            FEATURE_TRANSPORT_DUPLEX_BINARY.to_string(),
-        ],
-        conformance_fixture_revision: 1,
-    }
-}
-
-#[test]
-fn default_requirement_accepts_descriptor_without_ready_then_history() {
-    let requirement = TerminalCompatibilityRequirement::current();
-    assert!(!requirement
-        .required_features
-        .iter()
-        .any(|feature| feature == FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY));
-    ensure_compatible(&requirement, &baseline_descriptor()).expect("baseline must satisfy default");
+/// Current advertised support without one feature token.
+fn current_without(feature: &str) -> TerminalCompatibility {
+    let mut descriptor = TerminalCompatibility::current();
+    descriptor.features.retain(|token| token != feature);
+    descriptor
 }
 
 #[test]
@@ -42,10 +26,7 @@ fn advertised_support_includes_optional_ready_then_history() {
 
 #[test]
 fn default_requirement_rejects_descriptor_without_duplex_binary() {
-    let mut missing_duplex = baseline_descriptor();
-    missing_duplex
-        .features
-        .retain(|feature| feature != FEATURE_TRANSPORT_DUPLEX_BINARY);
+    let missing_duplex = current_without(FEATURE_TRANSPORT_DUPLEX_BINARY);
     let rejected = ensure_compatible(
         &TerminalCompatibilityRequirement::current(),
         &missing_duplex,
@@ -58,16 +39,19 @@ fn default_requirement_rejects_descriptor_without_duplex_binary() {
 }
 
 #[test]
-fn ready_then_history_requirement_rejects_baseline_and_accepts_advertised() {
+fn ready_then_history_requirement_rejects_its_absence_and_accepts_advertised() {
     let requirement = TerminalCompatibilityRequirement::for_ready_then_history_attach();
     assert!(requirement
         .required_features
         .iter()
         .any(|feature| feature == FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY));
-    let rejected = ensure_compatible(&requirement, &baseline_descriptor());
+    let rejected = ensure_compatible(
+        &requirement,
+        &current_without(FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY),
+    );
     assert!(
         rejected.is_err(),
-        "baseline must fail the operation-specific requirement"
+        "a descriptor without ready_then_history must fail the operation-specific requirement"
     );
     let diagnostic = rejected.expect_err("checked").diagnostic;
     assert!(
