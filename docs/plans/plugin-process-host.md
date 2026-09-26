@@ -194,6 +194,10 @@ impl DeliveryPool {
   invariant is: plugin Background capacity = pool + ordinary Background work.
 - **Unit.** One accepted call holds one unit: one slot, its declared
   `max_result_bytes` of request bytes, and one completion entry.
+- **Exclusive to host calls.** Only the child's host calls debit the pool.
+  Hub-originated deliveries (event deliveries, timer fires, watch events) never
+  use the pool. They are admitted through ordinary Background capacity, so a
+  Hub event and a child host call can never spend the same room.
 - **Conservation.** At every instant: child delivery credits + units in flight =
   pool size. "In flight" means sent by the child, queued in the Hub, admitted as
   a result job, executing, or completed but not yet drained. The child debits a
