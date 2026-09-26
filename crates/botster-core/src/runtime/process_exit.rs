@@ -1,0 +1,301 @@
+//! Wait for a child process to become reapable as an OS event, without
+//! reaping it.
+//!
+//! macOS wakes through kqueue (`EVFILT_PROC`/`NOTE_EXIT` and `SIGCHLD`) and
+//! checks reapability with `waitid(WNOWAIT)`; Linux waits for a readable
+//! pidfd, which becomes readable only when the child can be reaped. Register
+//! the watch while the caller still owns the unreaped child, so the pid
+//! cannot be reused before the registration; the caller collects the status
+//! afterwards without blocking.
+
+use std::io;
+use std::time::Duration;
+
+/// Block until child `pid` has exited and can be reaped, or `timeout` passes.
+/// `None` waits for the exit alone. Returns `Ok(true)` when the child can be
+/// reaped (or is already gone), `Ok(false)` when the timeout passed first.
+pub(crate) fn wait_for_pid_exit(pid: u32, timeout: Option<Duration>) -> io::Result<bool> {
+    ExitWatch::register(pid)?.wait(timeout)
+}
+
+/// One registered exit watch for one unreaped child.
+pub(crate) struct ExitWatch {
+    inner: platform::Watch,
+}
+
+impl ExitWatch {
+    /// Register for the exit of `pid`. Call while the child is unreaped.
+    pub(crate) fn register(pid: u32) -> io::Result<Self> {
+        let pid = libc::pid_t::try_from(pid)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pid out of range"))?;
+        Ok(Self {
+            inner: platform::Watch::register(pid)?,
+        })
+    }
+
+    /// Block until the child has exited and can be reaped, or `timeout`
+    /// passes. `None` waits for the exit alone. Returns `Ok(true)` when the
+    /// child can be reaped (or is already gone).
+    pub(crate) fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
+        self.inner.wait(timeout)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod platform {
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::time::{Duration, Instant};
+
+    /// A kqueue that wakes on the child's `NOTE_EXIT` and on `SIGCHLD`.
+    ///
+    /// `NOTE_EXIT` can come before the child is reapable, and registration
+    /// fails with `ESRCH` while the child is still exiting. An exit may not
+    /// finish soon: a session leader's exit waits for its tty output to
+    /// drain. The kernel posts `SIGCHLD` when the child becomes reapable, so
+    /// every wake rechecks reapability without reaping, and the wait reports
+    /// the exit only once the child can be reaped.
+    pub(super) struct Watch {
+        pid: libc::pid_t,
+        kq: OwnedFd,
+    }
+
+    impl Watch {
+        pub(super) fn register(pid: libc::pid_t) -> io::Result<Self> {
+            // SAFETY: kqueue takes no arguments and returns a new descriptor.
+            let kq = unsafe { libc::kqueue() };
+            if kq < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: kq was just returned by kqueue and is owned by nothing else.
+            let kq = unsafe { OwnedFd::from_raw_fd(kq) };
+            // kqueue records a signal delivery even when its disposition
+            // discards it, and never consumes it, so this does not change
+            // how the process handles SIGCHLD.
+            add(
+                &kq,
+                libc::SIGCHLD as libc::uintptr_t,
+                libc::EVFILT_SIGNAL,
+                0,
+            )?;
+            match add(
+                &kq,
+                pid as libc::uintptr_t,
+                libc::EVFILT_PROC,
+                libc::NOTE_EXIT,
+            ) {
+                Ok(()) => {}
+                // The child has exited or is still exiting; SIGCHLD or the
+                // reapability check covers it.
+                Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+                Err(error) => return Err(error),
+            }
+            Ok(Self { pid, kq })
+        }
+
+        pub(super) fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
+            let deadline = timeout.map(|timeout| Instant::now() + timeout);
+            // SAFETY: a zeroed kevent is a valid output record.
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            loop {
+                if reapable(self.pid)? {
+                    return Ok(true);
+                }
+                // An interrupted or unrelated wake resumes with the time that
+                // is left.
+                let left =
+                    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                if left.is_some_and(|left| left.is_zero()) {
+                    return Ok(false);
+                }
+                let timespec = left.map(|left| libc::timespec {
+                    tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX),
+                    tv_nsec: libc::c_long::from(left.subsec_nanos()),
+                });
+                let timespec_ptr = timespec.as_ref().map_or(std::ptr::null(), |timespec| {
+                    timespec as *const libc::timespec
+                });
+                // SAFETY: event is a valid output record, and timespec_ptr is
+                // null or points at a live timespec.
+                let count = unsafe {
+                    libc::kevent(
+                        self.kq.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &mut event,
+                        1,
+                        timespec_ptr,
+                    )
+                };
+                if count < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::EINTR) {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+    }
+
+    fn add(kq: &OwnedFd, ident: libc::uintptr_t, filter: i16, fflags: u32) -> io::Result<()> {
+        let change = libc::kevent {
+            ident,
+            filter,
+            flags: libc::EV_ADD,
+            fflags,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        loop {
+            // SAFETY: change is one valid kevent record; no events are read.
+            let result = unsafe {
+                libc::kevent(
+                    kq.as_raw_fd(),
+                    &change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if result == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EINTR) {
+                return Err(error);
+            }
+        }
+    }
+
+    /// Whether the child is a zombie that can be reaped now. Does not reap.
+    /// A child that is gone (already reaped) counts as exited.
+    fn reapable(pid: libc::pid_t) -> io::Result<bool> {
+        // SAFETY: a zeroed siginfo_t is a valid output record.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        loop {
+            // SAFETY: info is a valid output record for waitid; WNOWAIT leaves
+            // the child reapable by its owner.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result == 0 {
+                return Ok(info.si_pid == pid);
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => {}
+                Some(libc::ECHILD) => return Ok(true),
+                _ => return Err(error),
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod platform {
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::time::{Duration, Instant};
+
+    /// A pidfd, or `None` when the child was already gone (reaped) at
+    /// registration.
+    pub(super) struct Watch {
+        pidfd: Option<OwnedFd>,
+    }
+
+    impl Watch {
+        pub(super) fn register(pid: libc::pid_t) -> io::Result<Self> {
+            // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor.
+            let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+            if fd < 0 {
+                let error = io::Error::last_os_error();
+                return match error.raw_os_error() {
+                    Some(libc::ESRCH) => Ok(Self { pidfd: None }),
+                    _ => Err(error),
+                };
+            }
+            // SAFETY: fd was just returned by pidfd_open and is owned by nothing else.
+            Ok(Self {
+                pidfd: Some(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) }),
+            })
+        }
+
+        pub(super) fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
+            let Some(pidfd) = &self.pidfd else {
+                return Ok(true);
+            };
+            let deadline = timeout.map(|timeout| Instant::now() + timeout);
+            let mut poll_fd = libc::pollfd {
+                fd: pidfd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            loop {
+                // An interrupted wait resumes with the time that is left,
+                // rounded up so a sub-millisecond rest cannot become 0.
+                let timeout_ms = deadline.map_or(-1, |deadline| {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    libc::c_int::try_from(left.as_nanos().div_ceil(1_000_000))
+                        .unwrap_or(libc::c_int::MAX)
+                });
+                // SAFETY: poll_fd points at one valid pollfd for the call.
+                let count = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+                if count < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::EINTR) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                return Ok(count > 0);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{wait_for_pid_exit, ExitWatch};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    #[test]
+    fn an_exited_child_is_reported_without_being_reaped() {
+        let mut child = Command::new("true").spawn().expect("spawn true");
+        assert!(wait_for_pid_exit(child.id(), None).expect("wait"));
+        // The status is still there to collect.
+        assert!(child.try_wait().expect("try_wait").is_some());
+    }
+
+    #[test]
+    fn a_live_child_is_not_reported_before_the_deadline() {
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn cat");
+        // timer: deadline — the child must still be alive when this bound expires
+        assert!(!wait_for_pid_exit(child.id(), Some(Duration::from_millis(20))).expect("wait"));
+        drop(child.stdin.take());
+        assert!(wait_for_pid_exit(child.id(), None).expect("wait"));
+        child.wait().expect("reap");
+    }
+
+    #[test]
+    fn a_watch_registered_before_exit_reports_it_on_another_thread() {
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn cat");
+        let watch = ExitWatch::register(child.id()).expect("register");
+        let waiter = std::thread::spawn(move || watch.wait(None).expect("wait"));
+        drop(child.stdin.take());
+        assert!(waiter.join().expect("waiter"));
+        child.wait().expect("reap");
+    }
+}

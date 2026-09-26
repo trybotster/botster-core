@@ -1785,7 +1785,8 @@ where
         self.merge_deadline_wakes(batch)
     }
 
-    /// Clamp a host wait so paste or pending-resize deadlines cannot be skipped.
+    /// Clamp a host wait so paste, reader-progress, or pending-resize
+    /// deadlines cannot be skipped.
     #[must_use]
     pub fn clamp_paste_wait(&self, timeout: Duration) -> Duration {
         self.next_core_deadline()
@@ -1797,11 +1798,18 @@ where
             .unwrap_or(timeout)
     }
 
-    /// Build the exact targeted wake batch for expired paste and resize deadlines.
+    /// Build the exact targeted wake batch for expired paste, reader-progress,
+    /// and resize deadlines.
     #[must_use]
     pub fn expired_paste_wake_batch(&self, now: Instant) -> TerminalWakeBatch {
+        let mut adapter_routes = self.client_worker.expired_paste_routes(now);
+        for route in self.client_worker.expired_reader_routes(now) {
+            if !adapter_routes.contains(&route) {
+                adapter_routes.push(route);
+            }
+        }
         TerminalWakeBatch {
-            adapter_routes: self.client_worker.expired_paste_routes(now),
+            adapter_routes,
             ingress_sessions: self.expired_pending_resize_sessions(now),
         }
     }
@@ -1827,14 +1835,14 @@ where
     }
 
     fn next_core_deadline(&self) -> Option<Instant> {
-        match (
+        [
             self.client_worker.next_paste_deadline(),
+            self.client_worker.next_reader_deadline(),
             self.next_pending_resize_deadline(),
-        ) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (Some(deadline), None) | (None, Some(deadline)) => Some(deadline),
-            (None, None) => None,
-        }
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     fn next_pending_resize_deadline(&self) -> Option<Instant> {
@@ -3122,6 +3130,57 @@ mod tests {
 
         impl crate::contract::terminal_wake::WakingTerminalAdapter for QuietAdapter {
             fn set_wake_sink(&mut self, _sink: TerminalWakeSink) {}
+        }
+
+        #[test]
+        fn the_host_wait_ends_at_a_dead_readers_deadline_and_names_its_route() {
+            let session_id = SessionId("dead-reader-deadline".into());
+            let subscription_id = SubscriptionId("dead-reader-deadline-sub".into());
+            let mut runtime = ManagedSessionRuntime::with_worker_process(worker_path());
+            runtime
+                .spawn_session(
+                    SessionSpawnRequest {
+                        request_id: RequestId("dead-reader-deadline-spawn".into()),
+                        session_id: session_id.clone(),
+                        executable: "sh".to_string(),
+                        arguments: vec!["-c".to_string(), "exec cat".to_string()],
+                        working_directory: SpawnWorkingDirectory {
+                            path: ".".to_string(),
+                        },
+                        environment: SpawnEnvironment::default(),
+                        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                    },
+                    CoreSessionMetadata::new(),
+                )
+                .expect("spawn worker session");
+            runtime
+                .test_bind_owner(
+                    ClientId("dead-reader-deadline-client".into()),
+                    session_id.clone(),
+                    subscription_id.clone(),
+                    Box::new(QuietAdapter),
+                )
+                .expect("bind owner");
+            let expired_at = Instant::now()
+                .checked_sub(crate::engine::client_worker::READER_PROGRESS_DEADLINE)
+                .expect("clock");
+            runtime.client_worker.test_start_reader_block(
+                &session_id,
+                &subscription_id,
+                expired_at,
+            );
+
+            assert_eq!(
+                runtime.clamp_paste_wait(Duration::from_secs(3_600)),
+                Duration::ZERO,
+                "the host wait may not outlast the reader deadline"
+            );
+            // timer: deadline — the clamp above makes this wait return at once
+            let batch = runtime.wait_wakes(Duration::from_secs(5));
+            assert!(batch.adapter_routes.contains(&crate::TerminalWakeRoute {
+                session_id,
+                subscription_id,
+            }));
         }
 
         #[test]
