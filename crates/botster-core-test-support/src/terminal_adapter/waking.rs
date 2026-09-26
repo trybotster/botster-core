@@ -2,7 +2,9 @@
 
 use std::time::Duration;
 
-use botster_core::contract::terminal_adapter::{TerminalAdapter, TerminalAdapterWriteError};
+use botster_core::contract::terminal_adapter::{
+    TerminalAdapter, TerminalAdapterWriteError, TerminalRouteCloseReason,
+};
 use botster_core::contract::terminal_wake::{
     TerminalWakeKind, TerminalWakeSource, WakingTerminalAdapter,
 };
@@ -72,8 +74,8 @@ where
 {
     let mut driver = D::default();
     let source = bind_driver(&mut driver);
-    driver.adapter().close();
-    driver.adapter().close();
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
     let batch = source.wait_wakes(Duration::from_millis(0));
     assert_eq!(
         batch.adapter_routes.len(),
@@ -103,7 +105,7 @@ where
 {
     let mut driver = D::default();
     let source = bind_driver(&mut driver);
-    driver.adapter().close();
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
     let _ = source.wait_wakes(Duration::from_millis(0));
     driver.clear_would_block();
     driver.complete_active_write();
@@ -157,7 +159,7 @@ where
     D: TerminalAdapterHarnessDriver + Default + WakingTerminalAdapter,
 {
     let mut driver = D::default();
-    driver.adapter().close();
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
     driver.force_closed();
     assert_eq!(
         driver.adapter().try_write(&opaque_frame("still-closed")),
