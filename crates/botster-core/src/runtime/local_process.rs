@@ -1227,15 +1227,12 @@ fn wait_for_exit(session: &mut LocalSession, grace: Duration) -> Result<bool, Se
             )
         })?;
         if exited {
-            // The exit event can arrive before the child is reapable; this
-            // wait returns as soon as the kernel finishes the exit.
-            let status = session.child.wait().map_err(|error| {
-                SessionRuntimeError::new(
-                    SessionRuntimeErrorKind::OutputFailed,
-                    format!("failed to inspect local process status: {error}"),
-                )
-            })?;
-            record_exit_status(session, &status);
+            // Reap only a child that is already reapable. The exit event can
+            // report a child that is still exiting, and its exit may not
+            // finish on its own: a session leader's exit waits for its tty
+            // output to drain, which needs this runtime's reader. A blocking
+            // wait here would never return. The later harvest reaps it.
+            harvest_session(session)?;
         }
     }
     #[cfg(not(unix))]

@@ -776,6 +776,64 @@ fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
 }
 
 #[test]
+fn shutdown_returns_while_an_undrained_reader_holds_the_child_in_its_exit() {
+    let _guard = local_process_test_lock();
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
+        test_pending_capacity: Some(1),
+        ..runtime_options()
+    })
+    .with_wake_source(wakes.clone());
+    let session = session_id("local-undrained-exit");
+    // The session leader floods its PTY. One enqueued chunk fills the fence
+    // and nothing drains it, so the reader stops reading the PTY. When the
+    // leader is terminated its exit waits for the tty output to drain, which
+    // never happens: the leader stays exiting and cannot be reaped.
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "exec dd if=/dev/zero bs=65536 count=64 2>/dev/null",
+        ))
+        .expect("spawn flooding leader");
+    // timer: deadline — the first output chunk must arrive; expiry fails the test
+    let batch = wakes.wait_wakes(Duration::from_secs(5));
+    assert!(batch.ingress_sessions.contains(&session), "{batch:?}");
+
+    let (done_sender, done) = mpsc::channel();
+    let shutdown_session = session.clone();
+    let shutdown = thread::spawn(move || {
+        let result = runtime.send_input(SessionRuntimeInput::Shutdown {
+            session_id: shutdown_session,
+        });
+        let _ = done_sender.send(());
+        (runtime, result)
+    });
+    // timer: deadline — shutdown must not block on a child it cannot reap yet
+    done.recv_timeout(Duration::from_secs(10))
+        .expect("shutdown returned while the child was still exiting");
+    let (mut runtime, _result) = shutdown.join().expect("shutdown thread");
+    // Draining releases the reader; the exit then completes and is harvested.
+    // timer: deadline — the exit must follow the drain; expiry fails the test
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut output = Vec::new();
+    loop {
+        output.extend(
+            runtime
+                .drain_output(&session)
+                .expect("drain after shutdown"),
+        );
+        if has_exit(&output) {
+            break;
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("the exit must be reported after the drain");
+        // timer: deadline — wait for the next reader or exit wake
+        let _ = wakes.wait_wakes(remaining);
+    }
+}
+
+#[test]
 fn local_process_runtime_shutdown_is_idempotent() {
     let _guard = local_process_test_lock();
     let mut runtime = LocalProcessRuntime::with_options(runtime_options());
