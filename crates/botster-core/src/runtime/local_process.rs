@@ -34,6 +34,9 @@ const PTY_READER_BUFFER_BYTES: usize = 8192;
 pub const DEFAULT_PTY_READER_CHUNK_CAPACITY: usize = 64;
 
 #[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+#[cfg(unix)]
 const SIGTERM: i32 = 15;
 #[cfg(unix)]
 const SIGKILL: i32 = 9;
@@ -334,8 +337,10 @@ impl LocalProcessRuntime {
             .wake_source
             .as_ref()
             .map(|source| source.session_handle(request.session_id.clone()));
+        let readiness = ReaderReadiness::for_master(pty_pair.master.as_ref())?;
         let (output_pressure, output_capacity) = spawn_reader(
             reader,
+            readiness,
             reader_capacity,
             Arc::clone(&reader_fence),
             wake_handle,
@@ -1365,8 +1370,63 @@ fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
     }
 }
 
+/// Readiness of the PTY master for the reader thread.
+///
+/// The master is non-blocking so a mode barrier can pause the reader between
+/// reads. Between reads the thread blocks in `poll` on its own duplicate of
+/// the master descriptor, outside the fence critical section, until data,
+/// hang-up, or an error arrives.
+struct ReaderReadiness {
+    #[cfg(unix)]
+    fd: Option<OwnedFd>,
+}
+
+impl ReaderReadiness {
+    fn for_master(master: &dyn MasterPty) -> Result<Self, SessionRuntimeError> {
+        #[cfg(unix)]
+        {
+            let Some(master_fd) = master.as_raw_fd() else {
+                return Ok(Self { fd: None });
+            };
+            // SAFETY: master_fd is the live master PTY descriptor; dup returns
+            // a new descriptor that this value owns.
+            let fd = unsafe { libc::dup(master_fd) };
+            if fd < 0 {
+                return Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!("dup pty reader fd failed: {}", io::Error::last_os_error()),
+                ));
+            }
+            // SAFETY: fd was just returned by dup and is owned by nothing else.
+            Ok(Self {
+                fd: Some(unsafe { OwnedFd::from_raw_fd(fd) }),
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = master;
+            Ok(Self {})
+        }
+    }
+
+    /// Block until the master is readable, hung up, or failed. No timeout.
+    fn wait(&self) {
+        #[cfg(unix)]
+        if let Some(fd) = &self.fd {
+            let mut poll_fd = libc::pollfd {
+                fd: fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: poll_fd points at one valid pollfd for the call.
+            let _ = unsafe { libc::poll(&mut poll_fd, 1, -1) };
+        }
+    }
+}
+
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
+    readiness: ReaderReadiness,
     capacity: usize,
     fence: Arc<ReaderFence>,
     wake_handle: Option<SessionWakeHandle>,
@@ -1422,7 +1482,7 @@ fn spawn_reader(
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     reader_fence.leave_critical();
-                    thread::sleep(Duration::from_millis(1));
+                    readiness.wait();
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                     reader_fence.leave_critical();
