@@ -19,7 +19,7 @@ mod worker_process;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -377,9 +377,37 @@ impl Error for SessionRuntimeError {}
 /// when its owning plugin is unloaded/reloaded. Runtimes should check it while
 /// executing long-running handlers and return promptly once cancellation is
 /// requested.
-#[derive(Debug, Clone, Default)]
+///
+/// A runtime that waits on something other than its own code can
+/// [`subscribe`](Self::subscribe) to be woken on cancellation instead of
+/// checking the flag in a loop.
+#[derive(Clone, Default)]
 pub struct PluginCancellationToken {
-    cancelled: Arc<AtomicBool>,
+    inner: Arc<CancellationInner>,
+}
+
+type CancelWake = Box<dyn FnOnce() + Send + 'static>;
+
+#[derive(Default)]
+struct CancellationInner {
+    /// Lock-free read path for [`PluginCancellationToken::is_cancelled`].
+    /// Written only while `wakers` is locked.
+    cancelled: AtomicBool,
+    wakers: Mutex<CancellationWakers>,
+}
+
+#[derive(Default)]
+struct CancellationWakers {
+    next_id: u64,
+    pending: Vec<(u64, CancelWake)>,
+}
+
+impl fmt::Debug for PluginCancellationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PluginCancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
 }
 
 impl PluginCancellationToken {
@@ -389,15 +417,99 @@ impl PluginCancellationToken {
         Self::default()
     }
 
-    /// Mark this invocation as cancelled.
+    /// Mark this invocation as cancelled and run every subscribed wake once.
+    ///
+    /// Wakes run on the calling thread after the token's lock is released.
+    /// A second call does nothing.
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
+        let wakes = {
+            let mut wakers = self.inner.lock_wakers();
+            if self.inner.cancelled.load(Ordering::SeqCst) {
+                return;
+            }
+            self.inner.cancelled.store(true, Ordering::SeqCst);
+            std::mem::take(&mut wakers.pending)
+        };
+        for (_, wake) in wakes {
+            wake();
+        }
     }
 
     /// Returns true after core has requested cooperative cancellation.
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.inner.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Run `wake` once when this token is cancelled.
+    ///
+    /// Registration and [`cancel`](Self::cancel) are serialized, so no wake is
+    /// lost: if the token is already cancelled, `wake` runs at once on the
+    /// calling thread. `wake` never runs while the token's lock is held.
+    /// Dropping the returned subscription before cancellation removes `wake`
+    /// without running it.
+    pub fn subscribe(&self, wake: Box<dyn FnOnce() + Send + 'static>) -> CancelSubscription {
+        let mut wakers = self.inner.lock_wakers();
+        if !self.inner.cancelled.load(Ordering::SeqCst) {
+            let id = wakers.next_id;
+            wakers.next_id += 1;
+            wakers.pending.push((id, wake));
+            return CancelSubscription {
+                inner: Arc::downgrade(&self.inner),
+                id: Some(id),
+            };
+        }
+        drop(wakers);
+        wake();
+        CancelSubscription {
+            inner: std::sync::Weak::new(),
+            id: None,
+        }
+    }
+}
+
+impl CancellationInner {
+    fn lock_wakers(&self) -> std::sync::MutexGuard<'_, CancellationWakers> {
+        // Wakes run outside this lock, so a poisoned guard only means a
+        // panic in this module's own bookkeeping; the state stays consistent.
+        self.wakers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Registration returned by [`PluginCancellationToken::subscribe`].
+///
+/// Dropping it before cancellation removes the wake without running it.
+#[must_use = "dropping the subscription removes the wake"]
+pub struct CancelSubscription {
+    inner: std::sync::Weak<CancellationInner>,
+    id: Option<u64>,
+}
+
+impl fmt::Debug for CancelSubscription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CancelSubscription")
+            .field("armed", &self.id.is_some())
+            .finish()
+    }
+}
+
+impl Drop for CancelSubscription {
+    fn drop(&mut self) {
+        let (Some(id), Some(inner)) = (self.id, self.inner.upgrade()) else {
+            return;
+        };
+        let removed = {
+            let mut wakers = inner.lock_wakers();
+            wakers
+                .pending
+                .iter()
+                .position(|(pending, _)| *pending == id)
+                .map(|index| wakers.pending.swap_remove(index))
+        };
+        // Drop the removed wake outside the lock: its captures may run code.
+        drop(removed);
     }
 }
 
