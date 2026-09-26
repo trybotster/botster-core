@@ -185,7 +185,13 @@ mod platform {
                 )
             };
             if result == 0 {
-                return Ok(info.si_pid == pid);
+                // macOS also reports a stopped child here despite WEXITED;
+                // only an exit makes the child reapable.
+                return Ok(info.si_pid == pid
+                    && matches!(
+                        info.si_code,
+                        libc::CLD_EXITED | libc::CLD_KILLED | libc::CLD_DUMPED
+                    ));
             }
             let error = io::Error::last_os_error();
             match error.raw_os_error() {
@@ -284,6 +290,39 @@ mod tests {
         drop(child.stdin.take());
         assert!(wait_for_pid_exit(child.id(), None).expect("wait"));
         child.wait().expect("reap");
+    }
+
+    /// Kills and reaps the child on every path, so a failed assertion never
+    /// leaves a stopped child holding the harness's output pipes.
+    struct Reaped(std::process::Child);
+
+    impl Drop for Reaped {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[test]
+    fn a_stopped_child_is_not_reported_as_exited() {
+        let mut child = Reaped(
+            Command::new("cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn cat"),
+        );
+        let pid = child.0.id();
+        let watch = ExitWatch::register(pid).expect("register");
+        // SAFETY: kill only sends a signal to our own child.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGSTOP) };
+        // timer: deadline — a stopped child must still be unexited when this bound expires
+        assert!(!watch.wait(Some(Duration::from_millis(200))).expect("wait"));
+        // SAFETY: kill only sends a signal to our own child.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGCONT) };
+        drop(child.0.stdin.take());
+        assert!(watch.wait(None).expect("wait"));
     }
 
     #[test]
