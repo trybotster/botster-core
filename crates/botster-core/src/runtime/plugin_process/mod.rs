@@ -108,6 +108,9 @@ pub struct PluginProcessExited {
     pub pid: u32,
     /// Classified cause.
     pub cause: PluginExitCause,
+    /// Message the child published with a fatal cause (for example the
+    /// panic message), truncated to one atomic pipe write.
+    pub fatal_message: String,
     /// Last bytes of the child's stderr at the time of the exit.
     pub stderr_tail: Vec<u8>,
     /// Stderr bytes that did not fit the tail.

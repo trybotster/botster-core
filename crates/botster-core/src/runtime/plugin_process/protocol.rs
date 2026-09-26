@@ -10,7 +10,7 @@ use std::os::fd::{AsRawFd, BorrowedFd};
 use serde::{Deserialize, Serialize};
 
 use crate::boundary::BoundaryJson;
-use crate::contract::session_protocol::{encode_frame, Frame, ProtocolError};
+use crate::contract::session_protocol::{encode_frame, Frame, ProtocolError, MAX_FRAME_LEN};
 
 /// Protocol identity carried in `Bootstrap` and echoed in `Ready`.
 pub(crate) const PROTOCOL_MAGIC: &str = "BPW1";
@@ -36,6 +36,11 @@ pub(crate) const CHILD_FATAL_FD: i32 = 4;
 /// Cause bytes written to the fatal-cause pipe.
 pub(crate) const CAUSE_MEMORY_CAP: u8 = 1;
 pub(crate) const CAUSE_PANIC: u8 = 2;
+/// POSIX guarantees that a pipe write of up to 512 bytes (`PIPE_BUF`) is
+/// atomic, so the cause byte plus this much message fit one non-blocking
+/// write into the empty fatal pipe. The parent reads no more than that. This
+/// is a protocol constant, not a plugin limit.
+pub(crate) const FATAL_MESSAGE_BYTES: usize = 511;
 
 /// The Hub's sandbox profile (for example Seatbelt, or Landlock with
 /// seccomp). Core carries it to the Hub's own `apply_sandbox` hook unread.
@@ -65,10 +70,12 @@ pub(crate) struct BootstrapFrame {
     pub version: u8,
     pub sandbox: SandboxProfile,
     pub memory_cap_bytes: Option<u64>,
-    /// The parent's frame bound, so the child can refuse locally a frame
-    /// that the parent would treat as a protocol violation.
-    pub max_frame_bytes: usize,
 }
+
+/// The worker's only argument: `--botster-plugin-max-frame-bytes <n>`. It
+/// arrives on argv, not in a frame, so the child's decoder is bounded before
+/// the first frame, `Bootstrap` included.
+pub(crate) const MAX_FRAME_ARG: &str = "--botster-plugin-max-frame-bytes";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ReadyFrame {
@@ -113,13 +120,69 @@ pub(crate) fn encode_bounded(
     encode_frame(frame_type, payload)
 }
 
+/// Encode `value` as one JSON frame. Serialization writes straight into the
+/// frame buffer and stops as soon as the frame would exceed `max_len` (type
+/// byte plus payload), so an oversize value never becomes an unbounded
+/// temporary.
 pub(crate) fn encode_json_bounded<T: Serialize>(
     frame_type: u8,
     value: &T,
     max_len: usize,
 ) -> Result<Vec<u8>, ProtocolError> {
-    let payload = serde_json::to_vec(value)?;
-    encode_bounded(frame_type, &payload, max_len)
+    let max_len = max_len.min(MAX_FRAME_LEN);
+    let mut writer = BoundedFrame {
+        buf: Vec::with_capacity(LEN_PREFIX + 64.min(max_len)),
+        limit: LEN_PREFIX + max_len,
+        refused_at: None,
+    };
+    // The type byte counts toward the frame length.
+    writer.buf.extend_from_slice(&[0, 0, 0, 0, frame_type]);
+    if let Err(error) = serde_json::to_writer(&mut writer, value) {
+        if let Some(attempted) = writer.refused_at {
+            return Err(ProtocolError::FrameEncodeTooLarge {
+                len: attempted - LEN_PREFIX,
+                max: max_len,
+            });
+        }
+        return Err(ProtocolError::Json(error));
+    }
+    // At most MAX_FRAME_LEN, which fits the u32 length prefix.
+    let len = (writer.buf.len() - LEN_PREFIX) as u32;
+    writer.buf[..LEN_PREFIX].copy_from_slice(&len.to_le_bytes());
+    Ok(writer.buf)
+}
+
+/// The u32 length prefix.
+const LEN_PREFIX: usize = 4;
+
+/// A frame buffer that refuses to grow past its limit.
+struct BoundedFrame {
+    buf: Vec<u8>,
+    limit: usize,
+    /// Buffer length the refused write would have reached.
+    refused_at: Option<usize>,
+}
+
+impl io::Write for BoundedFrame {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        let attempted = self.buf.len() + data.len();
+        if attempted > self.limit {
+            self.refused_at = Some(attempted);
+            return Err(io::Error::other("frame exceeds its bound"));
+        }
+        if attempted > self.buf.capacity() {
+            // Grow by doubling, but never past the limit, so the frame bound
+            // also bounds the allocation.
+            let capacity = (self.buf.capacity() * 2).clamp(attempted, self.limit);
+            self.buf.reserve_exact(capacity - self.buf.len());
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(crate) fn decode_json<T: serde::de::DeserializeOwned>(
@@ -162,3 +225,7 @@ pub(crate) fn send_all(fd: BorrowedFd<'_>, mut bytes: &[u8]) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "protocol_test.rs"]
+mod protocol_test;
