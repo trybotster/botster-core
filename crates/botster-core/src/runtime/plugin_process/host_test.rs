@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::{FaultPoint, PluginProcess, StartFault, START_FAULT};
+use super::{FaultPoint, Order, OrderSeam, PluginProcess, StartFault, ORDER_SEAM, START_FAULT};
 use crate::runtime::plugin_process::{
     LoadFrame, PluginProcessConfig, PluginProcessError, PluginProcessRlimits,
 };
@@ -86,6 +86,8 @@ fn config(fifos: &Fifos) -> PluginProcessConfig {
         max_frame_bytes: 1024 * 1024,
         startup_deadline: Duration::from_secs(30),
         shutdown_deadline: Duration::from_secs(30),
+        cancel_grace: Duration::from_secs(30),
+        max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
     }
 }
@@ -181,4 +183,83 @@ fn a_failed_exit_watch_registration_kills_the_group_and_reaps() {
 #[test]
 fn a_failed_exit_watch_thread_start_kills_the_group_and_reaps() {
     assert_rolled_back(FaultPoint::SpawnExitWatch, "spawn");
+}
+
+fn plain_config() -> PluginProcessConfig {
+    PluginProcessConfig {
+        worker_path: worker(),
+        cwd: std::env::temp_dir(),
+        env: Vec::new(),
+        rlimits: PluginProcessRlimits::default(),
+        sandbox: opaque(json!({})),
+        memory_cap_bytes: None,
+        max_frame_bytes: 1024 * 1024,
+        startup_deadline: Duration::from_secs(30),
+        shutdown_deadline: Duration::from_secs(30),
+        cancel_grace: Duration::from_secs(30),
+        max_in_flight_invokes: 2,
+        stderr_tail_bytes: 4096,
+    }
+}
+
+/// A handler abort closes the channel and exits by SIGABRT. Whichever of
+/// the reader's EOF kill and the exit watch's reap comes first, the cause is
+/// the crash, never the incidental `TransportClosed` kill (plan 7.5).
+fn assert_abort_classified(order: Order) {
+    use crate::actor::{
+        PluginHandlerKind, PluginHandlerRef, PluginInvocationContext, PluginInvocationFailureKind,
+        PluginInvocationRequest, PluginInvocationResult, PluginKey,
+    };
+    use crate::runtime::plugin_process::PluginExitCause;
+    use crate::runtime::{PluginCancellationToken, PluginRuntime};
+    use crate::session::RequestId;
+
+    let seam = OrderSeam::new(order);
+    ORDER_SEAM.with(|slot| *slot.borrow_mut() = Some(seam));
+    let (process, _) = PluginProcess::spawn(&plain_config(), &load()).expect("loaded");
+
+    let request = PluginInvocationRequest {
+        request_id: RequestId("abort".to_string()),
+        handler: PluginHandlerRef {
+            plugin_key: PluginKey("order".to_string()),
+            kind: PluginHandlerKind::Command,
+            handler_id: "abort".to_string(),
+        },
+        timeout_ms: 1_000,
+        context: PluginInvocationContext {
+            client_id: None,
+            session_id: None,
+            subscription_id: None,
+            surface_id: None,
+            origin: None,
+            metadata: None,
+        },
+        payload: opaque(json!({})),
+    };
+    let result = PluginRuntime::invoke(&process, request, PluginCancellationToken::new());
+    assert!(matches!(
+        result,
+        PluginInvocationResult::Failed(ref failure)
+            if failure.kind == PluginInvocationFailureKind::WorkerCrashed
+    ));
+    assert_eq!(
+        process
+            .exit()
+            .expect("the exit settled the invocation")
+            .cause,
+        PluginExitCause::Crashed {
+            signal: Some(libc::SIGABRT),
+            code: None,
+        }
+    );
+}
+
+#[test]
+fn an_abort_is_a_crash_when_the_eof_kill_comes_first() {
+    assert_abort_classified(Order::EofFirst);
+}
+
+#[test]
+fn an_abort_is_a_crash_when_the_exit_comes_first() {
+    assert_abort_classified(Order::ExitFirst);
 }

@@ -20,6 +20,8 @@ pub(crate) const PROTOCOL_VERSION: u8 = 1;
 // Parent to child.
 pub(crate) const FRAME_BOOTSTRAP: u8 = 0x01;
 pub(crate) const FRAME_LOAD: u8 = 0x02;
+pub(crate) const FRAME_INVOKE: u8 = 0x03;
+pub(crate) const FRAME_CANCEL: u8 = 0x04;
 pub(crate) const FRAME_SHUTDOWN: u8 = 0x06;
 
 // Child to parent.
@@ -27,6 +29,7 @@ pub(crate) const FRAME_READY: u8 = 0x81;
 pub(crate) const FRAME_BOOTSTRAP_FAILED: u8 = 0x82;
 pub(crate) const FRAME_LOADED: u8 = 0x83;
 pub(crate) const FRAME_LOAD_FAILED: u8 = 0x84;
+pub(crate) const FRAME_INVOCATION_RESULT: u8 = 0x85;
 
 /// The IPC socket end that the child finds at a fixed descriptor.
 pub(crate) const CHILD_IPC_FD: i32 = 3;
@@ -87,6 +90,13 @@ pub(crate) struct ReadyFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct FailedFrame {
     pub reason: String,
+}
+
+/// Cancel one invocation. The child answers a queued one at once with a
+/// `Cancelled` result and cancels the token of a running one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CancelFrame {
+    pub request_id: crate::session::RequestId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

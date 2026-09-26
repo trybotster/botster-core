@@ -1235,6 +1235,13 @@ pub enum PluginInvocationFailureKind {
     Backpressured,
     /// Worker stopped before the invocation completed.
     WorkerStopped,
+    /// The plugin's worker process died on its own (a signal it was not sent
+    /// by the host, an exit, or a panic) before the invocation completed.
+    WorkerCrashed,
+    /// The host killed the plugin's worker process (a deadline, a budget, a
+    /// protocol violation, the memory cap, or a request) before the
+    /// invocation completed.
+    WorkerKilled,
 }
 
 /// Successful plugin handler invocation result.

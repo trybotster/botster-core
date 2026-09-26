@@ -57,6 +57,8 @@ fn config(sandbox: Value) -> PluginProcessConfig {
         max_frame_bytes: 1024 * 1024,
         startup_deadline: GENEROUS_STARTUP,
         shutdown_deadline: GENEROUS_STARTUP,
+        cancel_grace: GENEROUS_STARTUP,
+        max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
     }
 }

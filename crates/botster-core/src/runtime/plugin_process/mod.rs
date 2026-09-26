@@ -10,6 +10,7 @@
 
 mod host;
 mod launch;
+mod outbound;
 mod protocol;
 mod supervisor;
 pub mod worker;
@@ -44,6 +45,12 @@ pub struct PluginProcessConfig {
     pub startup_deadline: Duration,
     /// Bound from `stop` to exit; expiry kills the process group.
     pub shutdown_deadline: Duration,
+    /// Time a cancelled invocation has to return before the host kills the
+    /// process group.
+    pub cancel_grace: Duration,
+    /// Invocations in flight to this process at once: the engine's executor
+    /// width for the plugin. It bounds the invoke and cancel lanes.
+    pub max_in_flight_invokes: usize,
     /// Bytes of the child's stderr kept for diagnostics.
     pub stderr_tail_bytes: usize,
 }
@@ -72,6 +79,8 @@ pub enum PluginKillReason {
     StartupFailed,
     /// The process did not exit within the shutdown deadline.
     ShutdownDeadline,
+    /// A cancelled invocation did not return within the cancel grace.
+    Deadline,
     /// The IPC channel closed or failed while the process was alive.
     TransportClosed,
     /// The child sent a frame that breaks the protocol.
