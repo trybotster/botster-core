@@ -174,7 +174,8 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
             | SessionRuntimeOutput::Bell { .. }
             | SessionRuntimeOutput::Notification { .. }
             | SessionRuntimeOutput::Backpressure(_)
-            | SessionRuntimeOutput::MetadataShaping(_) => None,
+            | SessionRuntimeOutput::MetadataShaping(_)
+            | SessionRuntimeOutput::ModesChanged { .. } => None,
         })
         .flatten()
         .copied()
