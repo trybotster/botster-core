@@ -1227,10 +1227,17 @@ fn http_runtime_drain_at_the_deadline_returns_the_timeout_event() {
         .expect("transport starts");
 
     let deadline = runtime.next_deadline().expect("pending deadline");
-    // timer: deadline — the operation deadline under test must pass before the drain
-    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    let early = runtime
+        .drain_events_at(&plugin, deadline - Duration::from_millis(1))
+        .expect("drain before the deadline");
+    assert!(
+        early.is_empty(),
+        "nothing expires before the deadline: {early:?}"
+    );
 
-    let events = runtime.drain_events(&plugin).expect("drain at deadline");
+    let events = runtime
+        .drain_events_at(&plugin, deadline)
+        .expect("drain at deadline");
     assert!(matches!(
         events.as_slice(),
         [CapabilityRuntimeEvent::TimedOut(_)]
