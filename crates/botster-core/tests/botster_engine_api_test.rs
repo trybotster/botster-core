@@ -622,23 +622,11 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
         &handler,
     ));
 
-    let started_admit = std::time::Instant::now();
-    let admitted = loop {
-        match engine.try_admit_plugin(
-            PluginInvocationClass::Background,
-            plugin_invocation_with_timeout("facade-timeout", handler.clone(), 10),
-            1,
-        ) {
-            queued @ PluginAdmissionResult::Queued { .. } => break queued,
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == "admission lock busy"
-                    && started_admit.elapsed() < Duration::from_millis(100) =>
-            {
-                std::thread::yield_now();
-            }
-            other => panic!("expected queued facade admission, got {other:?}"),
-        }
-    };
+    let admitted = engine.admit_plugin(
+        PluginInvocationClass::Background,
+        plugin_invocation_with_timeout("facade-timeout", handler.clone(), 10),
+        1,
+    );
     assert!(matches!(admitted, PluginAdmissionResult::Queued { .. }));
     let started = std::time::Instant::now();
     let mut completion = None;
