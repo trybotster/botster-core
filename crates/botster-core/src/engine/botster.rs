@@ -2995,6 +2995,19 @@ where
             .try_admit_plugin(class, request, completion_reservation_bytes)
     }
 
+    /// Admit one plugin invocation, waiting for the engine's short internal
+    /// locks. For tests and tools; an owner loop calls
+    /// [`Self::try_admit_plugin`].
+    pub fn admit_plugin(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
+    ) -> PluginAdmissionResult {
+        self.multiplexer
+            .admit_plugin(class, request, completion_reservation_bytes)
+    }
+
     /// Drain previously published async plugin completions without waiting.
     pub fn drain_plugin_completions(
         &self,

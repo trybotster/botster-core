@@ -3,7 +3,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use botster_core::{
     BoundaryJson, ExtensionEntrypoint, ExtensionKind, ExtensionRuntime, PackageManifest,
@@ -126,19 +125,11 @@ fn completion_drain_does_not_allocate_for_idle_workers_or_blocked_front() {
         },
         payload: BoundaryJson(serde_json::json!({})),
     };
-    let started = Instant::now();
-    loop {
-        match engine.try_admit(PluginInvocationClass::Background, request.clone(), 4096) {
-            PluginAdmissionResult::Queued { .. } => break,
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == "admission lock busy"
-                    && started.elapsed() < Duration::from_secs(5) =>
-            {
-                std::thread::yield_now();
-            }
-            other => panic!("expected immediate completion, got {other:?}"),
-        }
-    }
+    let admitted = engine.admit(PluginInvocationClass::Background, request, 4096);
+    assert!(
+        matches!(admitted, PluginAdmissionResult::Queued { .. }),
+        "expected immediate completion, got {admitted:?}"
+    );
     let (blocked, allocations) = measured(|| engine.drain_completions(8, 1));
     assert_eq!(
         allocations, 0,
