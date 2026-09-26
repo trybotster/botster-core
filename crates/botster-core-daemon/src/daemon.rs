@@ -20,7 +20,7 @@ use botster_core::contract::terminal_wake::{
 use botster_core::engine::multiplexer::MultiplexerEngineError;
 use botster_core::runtime::{
     ReservedSessionSpawnError, SessionReservation, SessionReservationRefusal,
-    SessionReservationRelease, SessionReservationState,
+    SessionReservationRelease,
 };
 use botster_core::TerminalScreenSize;
 use botster_core::{
@@ -2943,8 +2943,7 @@ impl CoreDaemon {
             DaemonEngine::Worker(engine) => match engine.take_final_state(session_id) {
                 Some(final_state) => {
                     let screen_text: Arc<str> = Arc::from(final_state.state.screen_text);
-                    let snapshot: Option<Arc<[u8]>> =
-                        final_state.snapshot.map(|bytes| Arc::from(bytes));
+                    let snapshot: Option<Arc<[u8]>> = final_state.snapshot.map(Arc::from);
                     let bytes =
                         RetainedTerminal::accounted_bytes(&screen_text, snapshot.as_deref());
                     RetainedTerminal {

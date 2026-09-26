@@ -1897,9 +1897,11 @@ fn adapter_payload_b64(bytes: &[u8]) -> String {
 
 fn adapter_payload_text(bytes: &[u8]) -> String {
     let frame = adapter_terminal_frame(bytes);
-    (frame.kind() == TerminalKind::Output)
-        .then(|| String::from_utf8_lossy(frame.body()).into_owned())
-        .unwrap_or_default()
+    if frame.kind() == TerminalKind::Output {
+        String::from_utf8_lossy(frame.body()).into_owned()
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(unix)]
