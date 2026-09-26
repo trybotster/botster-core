@@ -99,7 +99,7 @@ fn bind_before_attach_is_a_typed_error() {
     let session = session("bind-before-attach");
     engine
         .spawn_session(
-            shell_request(session.clone(), "sleep 30"),
+            shell_request(session.clone(), "exec cat >/dev/null"),
             CoreSessionMetadata::new(),
         )
         .expect("spawn");
@@ -141,7 +141,7 @@ fn detach_is_idempotent_by_generation_and_reuse_increments() {
     let subscription = sub("gen-sub");
     engine
         .spawn_session(
-            shell_request(session.clone(), "sleep 30"),
+            shell_request(session.clone(), "exec cat >/dev/null"),
             CoreSessionMetadata::new(),
         )
         .expect("spawn");
@@ -569,7 +569,13 @@ fn local_unsafe_paste_rejects_with_zero_counts_and_exact_route_identity() {
     let session = session("local-paste-result-id");
     let client = client("local-paste-result-client");
     let subscription = sub("local-paste-result-sub");
-    let adapter = bind_local_pair(&mut engine, &session, &client, &subscription, "sleep 30");
+    let adapter = bind_local_pair(
+        &mut engine,
+        &session,
+        &client,
+        &subscription,
+        "exec cat >/dev/null",
+    );
     let generation = engine
         .terminal_subscription_generation(&session, &subscription)
         .expect("bound generation");
@@ -690,14 +696,14 @@ fn bind_hard_stop_pair(
         &failed,
         &client(&format!("route-{label}-c")),
         &failed_sub,
-        "sleep 30",
+        "exec cat >/dev/null",
     );
     let sibling_adapter = bind_local_pair(
         &mut engine,
         &sibling,
         &client(&format!("route-{label}-sib-c")),
         &sibling_sub,
-        "sleep 30",
+        "exec cat >/dev/null",
     );
     (
         engine,
@@ -754,15 +760,33 @@ fn owner_removal_matrix_closes_adapter_and_route() {
     let live_client = client("owner-detach-live-c");
     let gen_client = client("owner-detach-gen-c");
     let torn_client = client("owner-teardown-session-c");
-    let live_adapter = bind_local_pair(&mut engine, &live, &live_client, &live_sub, "sleep 30");
-    let gen_adapter = bind_local_pair(&mut engine, &gen, &gen_client, &gen_sub, "sleep 30");
-    let torn_adapter = bind_local_pair(&mut engine, &torn, &torn_client, &torn_sub, "sleep 30");
+    let live_adapter = bind_local_pair(
+        &mut engine,
+        &live,
+        &live_client,
+        &live_sub,
+        "exec cat >/dev/null",
+    );
+    let gen_adapter = bind_local_pair(
+        &mut engine,
+        &gen,
+        &gen_client,
+        &gen_sub,
+        "exec cat >/dev/null",
+    );
+    let torn_adapter = bind_local_pair(
+        &mut engine,
+        &torn,
+        &torn_client,
+        &torn_sub,
+        "exec cat >/dev/null",
+    );
     let sibling_adapter = bind_local_pair(
         &mut engine,
         &sibling,
         &client("owner-matrix-sib-c"),
         &sibling_sub,
-        "sleep 30",
+        "exec cat >/dev/null",
     );
 
     engine
