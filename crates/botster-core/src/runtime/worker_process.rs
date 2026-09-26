@@ -74,7 +74,6 @@ pub const DEFAULT_WORKER_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 const PING_WAIT: Duration = Duration::from_secs(2);
 const PING_POLL: Duration = Duration::from_millis(10);
 const WORKER_REAP_GRACE: Duration = Duration::from_secs(2);
-const WORKER_REAP_POLL: Duration = Duration::from_millis(10);
 #[cfg(unix)]
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -270,8 +269,6 @@ pub struct WorkerProcessRuntimeOptions {
     pub pty_reader_chunk_capacity: usize,
     /// Worker-side shutdown grace in milliseconds.
     pub shutdown_grace_ms: u64,
-    /// Worker-side shutdown poll interval in milliseconds.
-    pub poll_interval_ms: u64,
     /// Directory for reconnectable worker control sockets.
     pub control_socket_dir: Option<PathBuf>,
     /// Bound for correlated worker replies and pending readback deadlines.
@@ -305,7 +302,6 @@ impl WorkerProcessRuntimeOptions {
             egress_capacity: DEFAULT_WORKER_EGRESS_CAPACITY,
             pty_reader_chunk_capacity: crate::DEFAULT_PTY_READER_CHUNK_CAPACITY,
             shutdown_grace_ms: 500,
-            poll_interval_ms: 10,
             control_socket_dir: None,
             worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
             test_hold_after_read_ms: None,
@@ -1746,8 +1742,6 @@ fn launch_worker_inner(
     command
         .arg("--shutdown-grace-ms")
         .arg(options.shutdown_grace_ms.to_string())
-        .arg("--poll-interval-ms")
-        .arg(options.poll_interval_ms.to_string())
         .stderr(Stdio::piped());
     if let Some(hold_ms) = options.test_hold_after_read_ms {
         command
@@ -2721,54 +2715,52 @@ impl PendingWorker {
             let _ = sender.send(read_worker_readiness(stdout));
         });
         let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
-        loop {
-            match receiver.recv_timeout(Duration::from_millis(10)) {
-                Ok(Ok(readiness)) => {
-                    let expected = format!("botster-session-worker-ready {}", self.child_id());
-                    if readiness == expected {
-                        return Ok(());
-                    }
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        format!("worker readiness identity mismatch: {readiness:?}"),
-                    ));
+        // timer: deadline — worker startup; expiry fails the spawn with "worker readiness timed out"
+        let readiness = receiver.recv_timeout(WORKER_STARTUP_TIMEOUT);
+        match readiness {
+            Ok(Ok(readiness)) => {
+                let expected = format!("botster-session-worker-ready {}", self.child_id());
+                if readiness == expected {
+                    return Ok(());
                 }
-                Ok(Err(error)) => loop {
-                    if let Some(diagnostic) = self.exited_diagnostic() {
-                        return Err(SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::SpawnFailed,
-                            format!("connect worker control socket failed: {diagnostic}"),
-                        ));
-                    }
-                    if Instant::now() >= deadline {
-                        return Err(SessionRuntimeError::new(
-                                SessionRuntimeErrorKind::SpawnFailed,
-                                format!(
-                                    "connect worker control socket failed: read worker readiness failed: {error}"
-                                ),
-                            ));
-                    }
-                    thread::sleep(Duration::from_millis(10));
-                },
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(SessionRuntimeError::new(
-                        SessionRuntimeErrorKind::SpawnFailed,
-                        "worker readiness channel disconnected",
-                    ));
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-            }
-            if let Some(diagnostic) = self.exited_diagnostic() {
-                return Err(SessionRuntimeError::new(
+                Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
-                    format!("connect worker control socket failed: {diagnostic}"),
-                ));
+                    format!("worker readiness identity mismatch: {readiness:?}"),
+                ))
             }
-            if Instant::now() >= deadline {
-                return Err(SessionRuntimeError::new(
+            Ok(Err(error)) => {
+                // Stdout ended without a readiness line: the worker is exiting.
+                // timer: deadline — rest of worker startup; expiry reports the readiness read failure
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let _ = super::process_exit::wait_for_pid_exit(self.child_id(), Some(remaining));
+                if let Some(diagnostic) = self.exited_diagnostic() {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("connect worker control socket failed: {diagnostic}"),
+                    ));
+                }
+                Err(SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::SpawnFailed,
+                    format!(
+                        "connect worker control socket failed: read worker readiness failed: {error}"
+                    ),
+                ))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::SpawnFailed,
+                "worker readiness channel disconnected",
+            )),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(diagnostic) = self.exited_diagnostic() {
+                    return Err(SessionRuntimeError::new(
+                        SessionRuntimeErrorKind::SpawnFailed,
+                        format!("connect worker control socket failed: {diagnostic}"),
+                    ));
+                }
+                Err(SessionRuntimeError::new(
                     SessionRuntimeErrorKind::SpawnFailed,
                     "connect worker control socket failed: worker readiness timed out",
-                ));
+                ))
             }
         }
     }
@@ -2829,13 +2821,11 @@ impl Drop for PendingWorker {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
             if self.graceful_shutdown {
-                let deadline = Instant::now() + Duration::from_millis(500);
-                while Instant::now() < deadline {
-                    if child.try_wait().ok().flatten().is_some() {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(10));
-                }
+                // timer: deadline — graceful worker exit; expiry kills the worker
+                let _ = super::process_exit::wait_for_pid_exit(
+                    child.id(),
+                    Some(Duration::from_millis(500)),
+                );
             }
             if child.try_wait().ok().flatten().is_none() {
                 let _ = child.kill();
@@ -2910,20 +2900,12 @@ impl WorkerOutputEvent {
 
 fn reap_worker_child_in_background(mut child: Child) {
     thread::spawn(move || {
-        let deadline = Instant::now() + WORKER_REAP_GRACE;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => return,
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        break;
-                    }
-                    thread::sleep(WORKER_REAP_POLL);
-                }
-                Err(_) => break,
-            }
+        // timer: deadline — worker exit grace; expiry kills the worker, then reaps it
+        let exited = super::process_exit::wait_for_pid_exit(child.id(), Some(WORKER_REAP_GRACE))
+            .unwrap_or(false);
+        if !exited {
+            let _ = child.kill();
         }
-        let _ = child.kill();
         let _ = child.wait();
     });
 }
