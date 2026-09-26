@@ -10,3 +10,4 @@ publish = false
 botster-core = { path = "../../../../botster-core" }
 botster-core-daemon = { path = "../../../../botster-core-daemon" }
 botster-core-test-support = { path = "../../..", default-features = false }
+botster-terminal-protocol = { path = "../../../../botster-terminal-protocol" }
