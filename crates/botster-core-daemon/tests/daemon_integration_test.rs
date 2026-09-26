@@ -2101,9 +2101,16 @@ fn worker_same_key_takeover_preserves_pending_sibling_input_and_resize() {
         .iter()
         .any(|row| row.client_id == sibling && row.subscription_id == sibling_sub));
     assert!(live.iter().all(|row| row.client_id != first));
-    let _ = drain_until_attached(&mut daemon, &session_id, &second);
-    let _ = drain_until_attached(&mut daemon, &session_id, &sibling);
-    drain_until_terminal_marker(&mut daemon, &session_id, "echo:SIBLING-KEEP", 30);
+    // One drain can carry both Attached frames and the echo, so keep every
+    // drained frame and wait only for what has not arrived yet.
+    let mut seen = drain_until_attached(&mut daemon, &session_id, &second);
+    if !client_attached(&seen, &sibling) {
+        let more = drain_until_attached(&mut daemon, &session_id, &sibling);
+        seen.client_egress.extend(more.client_egress);
+    }
+    if !terminal_output(&seen.client_egress).contains("echo:SIBLING-KEEP") {
+        drain_until_terminal_marker(&mut daemon, &session_id, "echo:SIBLING-KEEP", 30);
+    }
     let _ = fs::remove_dir_all(data_dir);
 }
 
@@ -5682,6 +5689,19 @@ fn wait_for_file(path: &std::path::Path) {
     panic!("child readiness file did not appear: {}", path.display());
 }
 
+fn client_attached(drained: &botster_core_daemon::DrainResult, client_id: &ClientId) -> bool {
+    drained.client_egress.iter().any(|(target, frame)| {
+        target == client_id
+            && matches!(
+                frame,
+                TransportEgress::AttachState {
+                    state: TerminalAttachState::Attached,
+                    ..
+                }
+            )
+    })
+}
+
 fn drain_until_attached(
     daemon: &mut CoreDaemon,
     session_id: &SessionId,
@@ -5692,16 +5712,7 @@ fn drain_until_attached(
         let drained = daemon
             .drain(session_id, 20 + tick)
             .expect("daemon attach drain should succeed");
-        let attached = drained.client_egress.iter().any(|(target, frame)| {
-            target == client_id
-                && matches!(
-                    frame,
-                    TransportEgress::AttachState {
-                        state: TerminalAttachState::Attached,
-                        ..
-                    }
-                )
-        });
+        let attached = client_attached(&drained, client_id);
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
