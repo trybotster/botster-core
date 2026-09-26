@@ -29,8 +29,6 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
         poll_interval: Duration::from_millis(5),
         pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
         test_hold_after_read_ms: None,
-        test_write_block_until_unix_ms: None,
-        test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
     }
@@ -42,8 +40,6 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
         poll_interval: Duration::from_millis(20),
         pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
         test_hold_after_read_ms: None,
-        test_write_block_until_unix_ms: None,
-        test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
     }

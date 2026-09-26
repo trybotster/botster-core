@@ -278,10 +278,6 @@ pub struct WorkerProcessRuntimeOptions {
     pub worker_reply_timeout: Duration,
     /// Test-only: hold after PTY read while still in the reader critical section (worker CLI).
     pub test_hold_after_read_ms: Option<u64>,
-    /// Test-only: force write WouldBlock until this Unix ms (worker CLI).
-    pub test_write_block_until_unix_ms: Option<u64>,
-    /// Test-only: cap each write() to this many bytes (partial-write proofs).
-    pub test_write_max_chunk: Option<usize>,
     /// Test-only: single-queue fence capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still critical.
@@ -313,8 +309,6 @@ impl WorkerProcessRuntimeOptions {
             control_socket_dir: None,
             worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
             test_hold_after_read_ms: None,
-            test_write_block_until_unix_ms: None,
-            test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             test_resize_ack_hold: None,
@@ -337,20 +331,6 @@ impl WorkerProcessRuntimeOptions {
     #[must_use]
     pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_hold_after_read_ms = hold_ms;
-        self
-    }
-
-    /// Set the test-only write backpressure deadline for timeout proofs.
-    #[must_use]
-    pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
-        self.test_write_block_until_unix_ms = until;
-        self
-    }
-
-    /// Set the test-only per-call write cap for partial-write proofs.
-    #[must_use]
-    pub const fn with_test_write_max_chunk(mut self, max_chunk: Option<usize>) -> Self {
-        self.test_write_max_chunk = max_chunk;
         self
     }
 
@@ -1773,16 +1753,6 @@ fn launch_worker_inner(
         command
             .arg("--test-hold-after-read-ms")
             .arg(hold_ms.to_string());
-    }
-    if let Some(until) = options.test_write_block_until_unix_ms {
-        command
-            .arg("--test-write-block-until-unix-ms")
-            .arg(until.to_string());
-    }
-    if let Some(max_chunk) = options.test_write_max_chunk {
-        command
-            .arg("--test-write-max-chunk")
-            .arg(max_chunk.to_string());
     }
     if let Some(capacity) = options.test_pending_capacity {
         command
