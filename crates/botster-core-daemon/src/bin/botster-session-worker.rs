@@ -1792,6 +1792,8 @@ struct EgressSpaceState {
     taken: u64,
     /// The writer thread exited; nothing will take another frame.
     closed: bool,
+    /// Senders waiting in `wait_after` right now.
+    blocked: usize,
 }
 
 /// Closes the egress space when the writer thread ends, a panic included.
@@ -1837,7 +1839,22 @@ impl EgressSpace {
     /// or `cancelled`.
     fn wait_after(&self, seen: u64, cancelled: &mut impl FnMut() -> bool) {
         let mut state = self.lock();
+        state.blocked += 1;
+        self.changed.notify_all();
         while state.taken == seen && !state.closed && !cancelled() {
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+        state.blocked -= 1;
+    }
+
+    /// Wait until `count` senders are blocked in `wait_after`.
+    #[cfg(test)]
+    fn wait_until_blocked(&self, count: usize) {
+        let mut state = self.lock();
+        while state.blocked < count {
             state = self
                 .changed
                 .wait(state)
@@ -2284,6 +2301,8 @@ mod tests {
                     .send_protected_json_cancellable(super::FRAME_PTY_OUTPUT, &"blocked", || false);
             let _ = done_tx.send(sent);
         });
+        // The sender is parked on the full lane before the writer exits.
+        space.wait_until_blocked(1);
         // The writer exits without taking the frame.
         drop(protected_rx);
         drop(super::CloseEgressOnExit(space));
