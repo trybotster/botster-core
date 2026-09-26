@@ -326,7 +326,7 @@ fn downstream_consumer_can_conform_against_managed_local_runtime() {
     let request = local_shell_spawn_request(
         RequestId("req-managed-local".to_string()),
         SessionId("session-managed-local".to_string()),
-        "printf 'botster-managed-local-output\\n'; sleep 1",
+        "printf 'botster-managed-local-output\\n'; exec cat >/dev/null",
     );
     let mut harness = DisposableManagedLocalSession::spawn(request, CoreSessionMetadata::new())
         .expect("spawn disposable managed local session");
@@ -388,7 +388,7 @@ fn downstream_consumer_can_conform_against_default_engine_commands() {
     let request = local_shell_spawn_request(
         RequestId("req-command-local".to_string()),
         SessionId("session-command-local".to_string()),
-        "printf 'botster-command-local-output\\n'; read line; printf \"command-input:%s\\n\" \"$line\"; sleep 1",
+        "printf 'botster-command-local-output\\n'; read line; printf \"command-input:%s\\n\" \"$line\"; exec cat >/dev/null",
     );
     let mut harness = DisposableCommandLocalSession::spawn(request, CoreSessionMetadata::new())
         .expect("spawn disposable command local session");
