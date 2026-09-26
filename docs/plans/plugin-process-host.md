@@ -97,6 +97,7 @@ Parent to child:
 | `Invoke` | `PluginInvocationRequest` |
 | `Cancel` | `request_id` |
 | `Credit` | returned HostCall credits `{count, bytes}` |
+| `HostCallRefused` | `call_id`, typed reason (`Backpressured`, `WorkerStopped`, `RejectedBudget`) from `try_reserve_delivery`; returns the call's credit. The child library resumes the waiting handler with this typed refusal inside its own serial FIFO. This is the only delivery that does not go through engine admission, because the engine refused it. |
 | `Shutdown` | none |
 
 Child to parent:
@@ -137,17 +138,51 @@ Every number below comes from the Hub. The process-host config type has no
    the call out of the ingress queue. The parent ingress queue therefore cannot
    overflow. A HostCall without credit is a protocol violation: Core kills the
    process (cause `ProtocolViolation`).
-2. **Delivery reservations.** When Core accepts a HostCall, the engine reserves
-   one delivery slot for that call's result `Invoke`: count 1 plus
-   `max_result_bytes`, in the same generation, bounded by the plugin's
-   reservation count and byte caps. If the caps cannot fit the reservation, the
-   child refuses the call locally, as for a missing credit. The result `Invoke`
-   consumes the reservation, and admission cannot refuse it for capacity. The
-   Hub guarantees that the result fits the reservation (a larger result becomes
-   a typed Hub failure); Core asserts this. Cancel, generation retirement, and
-   process exit release the reservation. The count cap also bounds the number of
-   suspended handlers, because each suspension holds exactly one reservation.
-   This is an engine mechanism, so the thread host uses the same API.
+2. **Delivery reservations (engine API, shared by both hosts).** A host-call
+   result must never be refused for capacity, or a suspended handler waits
+   forever. `PluginWorkerEngine` gets two non-blocking calls:
+
+   ```rust
+   pub fn try_reserve_delivery(
+       &self,
+       plugin_key: &PluginKey,
+       request_max_bytes: usize,         // encoded result Invoke request
+       completion_reservation_bytes: usize, // as for try_admit
+   ) -> Result<DeliveryReservation, DeliveryRefusal>;
+   // DeliveryRefusal: Backpressured | WorkerStopped | RejectedBudget
+
+   pub fn admit_reserved(
+       &self,
+       reservation: DeliveryReservation,
+       request: PluginInvocationRequest,
+   ) -> PluginAdmissionResult; // Queued, or WorkerStopped for a retired generation
+   ```
+
+   - The reservation binds to the plugin's current worker generation and holds
+     **both** of these, taken in one critical section:
+     - one Background queue slot plus `request_max_bytes` of Background queue
+       bytes;
+     - one completion-store reservation (count 1 plus the completion bytes).
+
+     Without the second item, a full completion pool could still refuse the
+     result.
+   - Reservations also count against a per-plugin reservation cap (count +
+     bytes), which the Hub supplies. The count cap bounds the number of
+     suspended handlers, because each suspension holds exactly one reservation.
+   - `admit_reserved` never refuses for capacity. It moves the slot, the queue
+     bytes, and the completion reservation to the queued job in one critical
+     section. A request larger than `request_max_bytes` is a caller bug; Core
+     asserts it. The Hub converts an oversize result into a typed failure that
+     fits.
+   - A `DeliveryReservation` that is dropped unused releases everything (RAII).
+     Unload, reload, and process exit retire the generation. `admit_reserved`
+     then returns `WorkerStopped` and releases the reservation.
+   - Process host: HostCall ingress acceptance calls `try_reserve_delivery` with
+     the HostCall's `max_result_bytes`. A refusal is a typed refusal to the
+     child, and the call never enters the ingress queue. The child library does
+     not know the engine state, so this refusal is a `HostCallRefused{call_id,
+     reason}` frame. The credit returns with that frame. Thread host: the Hub
+     calls `try_reserve_delivery` at host-call submit.
 3. **Log queue.** The log queue is per plugin and bounded (items + bytes). When
    the queue is full, Core drops the `Log` frame and increments a counter. Core
    reports the counter with the next accepted log. Logging never blocks the
