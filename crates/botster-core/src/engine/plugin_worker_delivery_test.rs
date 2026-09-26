@@ -157,7 +157,7 @@ fn pool_results_neither_take_ordinary_room_nor_need_it() {
         .try_reserve_delivery(&plugin, quota(2, 8))
         .expect("reserved");
     let admit = |id: &str| {
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             request(id, handler(&plugin), 60_000),
@@ -314,7 +314,7 @@ fn the_ordinary_share_bounds_one_plugin_and_leaves_others_the_global_pool() {
         .expect("reserved");
 
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             request("first", handler(&shared_plugin), 60_000),
@@ -323,7 +323,7 @@ fn the_ordinary_share_bounds_one_plugin_and_leaves_others_the_global_pool() {
     ));
     assert!(
         matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("second", handler(&shared_plugin), 60_000),
@@ -333,7 +333,7 @@ fn the_ordinary_share_bounds_one_plugin_and_leaves_others_the_global_pool() {
         "the plugin's one-entry share is in use"
     );
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             request("other", handler(&other), 60_000),
