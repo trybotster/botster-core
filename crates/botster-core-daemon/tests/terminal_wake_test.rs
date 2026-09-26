@@ -1348,7 +1348,7 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
     let client_id = ClientId("paste-timeout-client".into());
     let subscription_id = SubscriptionId("paste-timeout-sub".into());
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = "sleep 30".into();
+    request.request.arguments[1] = "exec cat >/dev/null".into();
     daemon.spawn(request, 1).expect("spawn idle child");
     daemon
         .attach(
@@ -3392,7 +3392,7 @@ fn stale_registry_then_shutdown_completes_through_wait_wakes() {
     let client_id = ClientId("stale-shutdown-wake-client".into());
     let subscription_id = SubscriptionId("stale-shutdown-wake-sub".into());
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = "printf ready; exec sleep 30".into();
+    request.request.arguments[1] = "printf ready; exec cat >/dev/null".into();
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -3543,7 +3543,7 @@ fn shutdown_completion_arrives_through_wait_wakes() {
                     request_id: RequestId("shutdown-wake-spawn".into()),
                     session_id: session_id.clone(),
                     executable: "sh".to_string(),
-                    arguments: vec!["-c".to_string(), "printf FINAL; exec sleep 30".to_string()],
+                    arguments: vec!["-c".to_string(), "printf FINAL; exec cat >/dev/null".to_string()],
                     working_directory: SpawnWorkingDirectory {
                         path: ".".to_string(),
                     },
