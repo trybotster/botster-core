@@ -986,7 +986,7 @@ fn spawn_adversarial_control_session(
     let request = local_shell_spawn_request(
         RequestId("adversarial-control-spawn".to_string()),
         control.session_id.clone(),
-        "printf 'adversarial-control:ready\\n'; IFS= read line; printf 'adversarial-control:input:%s\\n' \"$line\"; sleep 30",
+        "printf 'adversarial-control:ready\\n'; IFS= read line; printf 'adversarial-control:input:%s\\n' \"$line\"; exec cat >/dev/null",
     );
 
     harness
