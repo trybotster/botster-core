@@ -1649,9 +1649,10 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
                 12 + round,
             )
             .unwrap_or_else(|error| panic!("round {round} release: {error:?}"));
-        wait_for_condition(&format!("round {round} PTY child exit"), || {
-            !process_exists(pty_child_pid)
-        });
+        assert!(
+            wait_pid_exit(pty_child_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "round {round} PTY child exit"
+        );
         // Worker writer emits FRAME_PROCESS_EXITED before the hold starts.
         thread::sleep(Duration::from_millis(150));
 
@@ -3203,9 +3204,12 @@ fn adoption_of_live_process_with_reaped_socket_fails_without_rebinding() {
     original
         .shutdown(Some(session_id.clone()), 20)
         .expect("the connected owner should still shut down the reaped worker");
-    wait_for_condition("bounded reap after owner shutdown", || {
-        !process_exists(worker_pid) && !process_exists(pty_pid)
-    });
+    for pid in [worker_pid, pty_pid] {
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "bounded reap after owner shutdown: {pid}"
+        );
+    }
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4513,9 +4517,11 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
         .expect("W1 session should spawn");
     let after_spawn = daemon.lifecycle_baseline().expect("W1 baseline").cursor;
     let (worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
-    wait_for_condition("W1 session process exit with worker still alive", || {
-        !process_exists(pty_child_pid) && process_exists(worker_pid)
-    });
+    assert!(
+        wait_pid_exit(pty_child_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "W1 session process exit"
+    );
+    assert!(process_exists(worker_pid), "W1 worker still alive");
     // Worker loop + writer need a short beat after the PTY child exits to
     // queue FRAME_PROCESS_EXITED before the hold starts.
     thread::sleep(Duration::from_millis(150));
@@ -4572,7 +4578,10 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
             .count(),
         1
     );
-    wait_for_condition("W1 bounded reaper", || !process_exists(worker_pid));
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "W1 bounded reaper"
+    );
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4809,7 +4818,10 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         .lifecycle_baseline()
         .expect("watermark after spawn")
         .cursor;
-    wait_for_condition("OS-level finite-producer exit", || process_has_exited(pid));
+    assert!(
+        wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "OS-level finite-producer exit"
+    );
     let looked_up = daemon
         .session_registry_state(&session_id)
         .expect("non-mutating query");
@@ -5380,9 +5392,12 @@ fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
 
     daemon.release_for_restart();
     drop(daemon);
-    wait_for_condition("bounded reap after timeout resume", || {
-        !process_exists(worker_pid) && !process_exists(pty_child_pid)
-    });
+    for pid in [worker_pid, pty_child_pid] {
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "bounded reap after timeout resume: {pid}"
+        );
+    }
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -7039,7 +7054,10 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         .args(["-9", &worker_pid.to_string()])
         .status()
         .expect("kill worker");
-    wait_for_condition("failed worker exits", || process_has_exited(worker_pid));
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "failed worker exits"
+    );
     let started = Instant::now();
     let mut saw_inventory_change = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
