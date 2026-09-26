@@ -15,10 +15,11 @@ use crate::actor::{
 };
 use crate::package::{Capability, CapabilitySet};
 use crate::runtime::{
-    CapabilityOperation, CapabilityOperationId, CapabilityResourceEvent, CapabilityResourceId,
-    CapabilityRuntimeError, CapabilityRuntimeErrorKind, CapabilityRuntimeEvent,
-    CapabilityRuntimeHandle, CapabilityRuntimeRequest, CapabilityWatchEvent,
-    PluginCapabilityRuntime, ScopedRelativePath, WatchCapabilityRequest, WatchChangeKind,
+    CapabilityEventNotifier, CapabilityOperation, CapabilityOperationId, CapabilityResourceEvent,
+    CapabilityResourceId, CapabilityRuntimeError, CapabilityRuntimeErrorKind,
+    CapabilityRuntimeEvent, CapabilityRuntimeHandle, CapabilityRuntimeRequest,
+    CapabilityWatchEvent, PluginCapabilityRuntime, ScopedRelativePath, WatchCapabilityRequest,
+    WatchChangeKind,
 };
 use crate::RequestId;
 
@@ -75,6 +76,10 @@ pub trait FileWatchEventSource {
 
     /// Drain currently available backend events without blocking.
     fn drain_events(&mut self) -> Result<Vec<FileWatchSourceEvent>, FileWatchSourceError>;
+
+    /// Install the callback the backend calls after it queues an event for
+    /// [`Self::drain_events`]. It can run on any thread and must not block.
+    fn set_event_notifier(&mut self, notifier: CapabilityEventNotifier);
 }
 
 /// Validated watch registration sent to a host source.
@@ -220,6 +225,13 @@ where
             .entry(plugin_key)
             .or_default()
             .insert(capability);
+    }
+
+    /// Earliest logical time at which a debounced event becomes due. The
+    /// host advances to it with [`Self::advance_to`] and drains.
+    #[must_use]
+    pub fn next_due_at_ms(&self) -> Option<u64> {
+        self.pending.values().map(|pending| pending.due_at_ms).min()
     }
 
     /// Advance the injected monotonic clock used for deterministic debounce.
@@ -491,6 +503,17 @@ impl<S> PluginCapabilityRuntime for FileWatchRuntime<S>
 where
     S: FileWatchEventSource,
 {
+    /// Watch events arrive in the host backend, which calls the notifier.
+    fn set_event_notifier(&mut self, notifier: CapabilityEventNotifier) {
+        self.source.set_event_notifier(notifier);
+    }
+
+    /// The debounce runs on the host's logical clock, not on `Instant`; see
+    /// [`FileWatchRuntime::next_due_at_ms`].
+    fn next_deadline(&self) -> Option<std::time::Instant> {
+        None
+    }
+
     fn submit(
         &mut self,
         request: CapabilityRuntimeRequest,
