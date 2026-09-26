@@ -316,9 +316,9 @@ mod tests {
 
         /// Pump engine wakes until `done` holds. `wait_wakes` blocks on the
         /// engine's wake source; each adapter write completion wakes it.
-        fn pump_until(&mut self, mut done: impl FnMut() -> bool) -> bool {
+        fn pump_until(&mut self, bound: Duration, mut done: impl FnMut() -> bool) -> bool {
             // timer: deadline — the condition must arrive through engine wakes; expiry fails the test
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let deadline = Instant::now() + bound;
             while !done() {
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                     return false;
@@ -356,7 +356,9 @@ mod tests {
                 .to_vec()
         };
         assert!(
-            hub.pump_until(|| frame_kinds(&delivered()).contains(&TerminalKind::Output)),
+            hub.pump_until(Duration::from_secs(5), || {
+                frame_kinds(&delivered()).contains(&TerminalKind::Output)
+            }),
             "hub-shaped consumer never observed opaque live frames: {:?}",
             frame_kinds(&delivered())
         );
@@ -444,7 +446,7 @@ mod tests {
             Box::new(adapter.clone()),
         );
         hub.type_line(b"hub-shaped-hold-live\n");
-        let saw_live = hub.pump_until(|| {
+        let saw_live = hub.pump_until(Duration::from_secs(8), || {
             // Completing the one-slot write wakes the engine for the next frame.
             if adapter.pressure() == TerminalAdapterPressure::Full {
                 adapter.complete_write();
