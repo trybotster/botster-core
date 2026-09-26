@@ -67,10 +67,6 @@ pub struct LocalProcessRuntimeOptions {
     /// Test-only: hold after a successful PTY read while still inside the reader
     /// critical section, before leave_critical (still unpublished on the fence).
     pub test_hold_after_read_ms: Option<u64>,
-    /// Test-only: force write attempts to return `WouldBlock` until this Unix ms.
-    pub test_write_block_until_unix_ms: Option<u64>,
-    /// Test-only: cap each `write()` call to this many bytes (partial-write proofs).
-    pub test_write_max_chunk: Option<usize>,
     /// Test-only: override fence pending capacity (pressure / forced-loss proofs).
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after successful fence enqueue while still critical
@@ -85,8 +81,6 @@ impl Default for LocalProcessRuntimeOptions {
             poll_interval: POLL_INTERVAL,
             pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
             test_hold_after_read_ms: None,
-            test_write_block_until_unix_ms: None,
-            test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
         }
@@ -103,7 +97,6 @@ impl Default for LocalProcessRuntimeOptions {
 pub struct LocalProcessRuntime {
     registry: Arc<LocalProcessRegistry>,
     options: LocalProcessRuntimeOptions,
-    write_test_hooks: Arc<WriteTestHooks>,
     wake_source: Option<TerminalWakeSource>,
 }
 
@@ -134,7 +127,6 @@ impl LocalProcessRuntime {
     pub fn with_options(options: LocalProcessRuntimeOptions) -> Self {
         Self {
             registry: Arc::new(LocalProcessRegistry::default()),
-            write_test_hooks: Arc::new(WriteTestHooks::from_options(&options)),
             options,
             wake_source: None,
         }
@@ -337,7 +329,8 @@ impl LocalProcessRuntime {
             .wake_source
             .as_ref()
             .map(|source| source.session_handle(request.session_id.clone()));
-        let readiness = ReaderReadiness::for_master(pty_pair.master.as_ref())?;
+        let readiness = PtyReadiness::for_master(pty_pair.master.as_ref())?;
+        let write_readiness = PtyReadiness::for_master(pty_pair.master.as_ref())?;
         let (output_pressure, output_capacity) = spawn_reader(
             reader,
             readiness,
@@ -366,7 +359,7 @@ impl LocalProcessRuntime {
                 pending_reader_error: None,
                 authority_failed: None,
                 reader_fence,
-                write_test_hooks: Arc::clone(&self.write_test_hooks),
+                write_readiness,
             },
         )?;
         reservation.runtime_installed();
@@ -442,12 +435,12 @@ impl PtyIoBarrier<'_> {
         data: &[u8],
         deadline_unix_ms: Option<u64>,
     ) -> Result<usize, PtyWriteFailure> {
-        let hooks = Arc::clone(&self.session.write_test_hooks);
+        let session = &mut *self.session;
         write_all_blocking(
-            &mut self.session.writer,
+            &mut session.writer,
+            &session.write_readiness,
             data,
             deadline_unix_ms,
-            Some(hooks.as_ref()),
         )
     }
 
@@ -669,8 +662,8 @@ impl LocalProcessRegistry {
     fn write_input(&self, session_id: &SessionId, data: &[u8]) -> Result<(), SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
-        let hooks = Arc::clone(&session.write_test_hooks);
-        write_all_blocking(&mut session.writer, data, None, Some(hooks.as_ref()))
+        let session = &mut *session;
+        write_all_blocking(&mut session.writer, &session.write_readiness, data, None)
             .map(|_| ())
             .map_err(PtyWriteFailure::into_runtime_error)
     }
@@ -925,7 +918,8 @@ struct LocalSession {
     /// session lifetime. Probes and drains fail closed after retained output.
     authority_failed: Option<String>,
     reader_fence: Arc<ReaderFence>,
-    write_test_hooks: Arc<WriteTestHooks>,
+    /// Waits for the non-blocking master to accept more input.
+    write_readiness: PtyReadiness,
 }
 
 struct ReaderFence {
@@ -945,23 +939,6 @@ struct ReaderFence {
     overflow_error: Mutex<Option<String>>,
     /// Reader thread has exited (EOF/error stop).
     reader_finished: AtomicBool,
-}
-
-#[derive(Default)]
-struct WriteTestHooks {
-    force_would_block_until_unix_ms: Option<u64>,
-    max_chunk: Option<usize>,
-    writes_completed: AtomicUsize,
-}
-
-impl WriteTestHooks {
-    fn from_options(options: &LocalProcessRuntimeOptions) -> Self {
-        Self {
-            force_would_block_until_unix_ms: options.test_write_block_until_unix_ms,
-            max_chunk: options.test_write_max_chunk,
-            writes_completed: AtomicUsize::new(0),
-        }
-    }
 }
 
 #[derive(Default)]
@@ -1370,18 +1347,18 @@ fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
     }
 }
 
-/// Readiness of the PTY master for the reader thread.
+/// Readiness of the non-blocking PTY master, on a duplicate descriptor.
 ///
 /// The master is non-blocking so a mode barrier can pause the reader between
-/// reads. Between reads the thread blocks in `poll` on its own duplicate of
-/// the master descriptor, outside the fence critical section, until data,
-/// hang-up, or an error arrives.
-struct ReaderReadiness {
+/// reads. The reader thread blocks in `poll` outside the fence critical
+/// section until data, hang-up, or an error arrives; a writer blocks until
+/// the master accepts more input or its deadline passes.
+struct PtyReadiness {
     #[cfg(unix)]
     fd: Option<OwnedFd>,
 }
 
-impl ReaderReadiness {
+impl PtyReadiness {
     fn for_master(master: &dyn MasterPty) -> Result<Self, SessionRuntimeError> {
         #[cfg(unix)]
         {
@@ -1410,23 +1387,45 @@ impl ReaderReadiness {
     }
 
     /// Block until the master is readable, hung up, or failed. No timeout.
-    fn wait(&self) {
+    fn wait_readable(&self) {
         #[cfg(unix)]
+        self.poll(libc::POLLIN, -1);
+    }
+
+    /// Block until the master is writable, hung up, or failed, or until
+    /// `deadline_unix_ms` passes. The caller rechecks the deadline.
+    fn wait_writable(&self, deadline_unix_ms: Option<u64>) {
+        #[cfg(unix)]
+        {
+            let timeout_ms = match deadline_unix_ms {
+                // timer: deadline — the PTY write deadline; expiry fails the write with deadline_exceeded
+                Some(deadline) => libc::c_int::try_from(deadline.saturating_sub(unix_now_ms()))
+                    .unwrap_or(libc::c_int::MAX),
+                None => -1,
+            };
+            self.poll(libc::POLLOUT, timeout_ms);
+        }
+        #[cfg(not(unix))]
+        let _ = deadline_unix_ms;
+    }
+
+    #[cfg(unix)]
+    fn poll(&self, events: libc::c_short, timeout_ms: libc::c_int) {
         if let Some(fd) = &self.fd {
             let mut poll_fd = libc::pollfd {
                 fd: fd.as_raw_fd(),
-                events: libc::POLLIN,
+                events,
                 revents: 0,
             };
             // SAFETY: poll_fd points at one valid pollfd for the call.
-            let _ = unsafe { libc::poll(&mut poll_fd, 1, -1) };
+            let _ = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
         }
     }
 }
 
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
-    readiness: ReaderReadiness,
+    readiness: PtyReadiness,
     capacity: usize,
     fence: Arc<ReaderFence>,
     wake_handle: Option<SessionWakeHandle>,
@@ -1482,7 +1481,7 @@ fn spawn_reader(
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     reader_fence.leave_critical();
-                    readiness.wait();
+                    readiness.wait_readable();
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                     reader_fence.leave_critical();
@@ -1522,9 +1521,9 @@ fn spawn_reader(
 
 fn write_all_blocking(
     writer: &mut Box<dyn Write + Send>,
+    readiness: &PtyReadiness,
     data: &[u8],
     deadline_unix_ms: Option<u64>,
-    write_test_hooks: Option<&WriteTestHooks>,
 ) -> Result<usize, PtyWriteFailure> {
     if data.is_empty() {
         return Ok(0);
@@ -1537,40 +1536,17 @@ fn write_all_blocking(
     }
     let mut offset = 0;
     while offset < data.len() {
-        if deadline_reached(deadline_unix_ms) {
-            return Err(PtyWriteFailure::new(
-                format!(
-                    "write pty input failed: deadline_exceeded after {offset} of {} bytes",
-                    data.len()
-                ),
-                offset,
-            ));
-        }
-        if force_write_would_block(write_test_hooks) {
-            thread::sleep(Duration::from_millis(1));
-            continue;
-        }
-        let end = match write_test_hooks.and_then(|hooks| hooks.max_chunk) {
-            Some(max) if max > 0 => (offset + max).min(data.len()),
-            _ => data.len(),
-        };
-        match writer.write(&data[offset..end]) {
+        match writer.write(&data[offset..]) {
             Ok(0) => {
                 return Err(PtyWriteFailure::new(
                     "write pty input failed: wrote zero bytes",
                     offset,
                 ))
             }
-            Ok(written) => {
-                offset += written;
-                if let Some(hooks) = write_test_hooks {
-                    hooks.writes_completed.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock
-                    || error.kind() == io::ErrorKind::Interrupted =>
-            {
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                readiness.wait_writable(deadline_unix_ms);
                 if deadline_reached(deadline_unix_ms) {
                     return Err(PtyWriteFailure::new(
                         format!(
@@ -1580,7 +1556,6 @@ fn write_all_blocking(
                         offset,
                     ));
                 }
-                thread::sleep(Duration::from_millis(1));
             }
             Err(error) => {
                 return Err(PtyWriteFailure::new(
@@ -1591,22 +1566,16 @@ fn write_all_blocking(
         }
     }
     loop {
-        if deadline_reached(deadline_unix_ms) {
-            // All payload bytes were accepted by the kernel; flush timeout is
-            // still a complete delivery of the request payload.
-            return Ok(offset);
-        }
-        if force_write_would_block(write_test_hooks) {
-            thread::sleep(Duration::from_millis(1));
-            continue;
-        }
         match writer.flush() {
             Ok(()) => return Ok(offset),
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock
-                    || error.kind() == io::ErrorKind::Interrupted =>
-            {
-                thread::sleep(Duration::from_millis(1));
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                readiness.wait_writable(deadline_unix_ms);
+                if deadline_reached(deadline_unix_ms) {
+                    // All payload bytes were accepted by the kernel; a flush
+                    // timeout is still a complete delivery of the payload.
+                    return Ok(offset);
+                }
             }
             Err(error) => {
                 return Err(PtyWriteFailure::new(
@@ -1622,23 +1591,6 @@ fn deadline_reached(deadline_unix_ms: Option<u64>) -> bool {
     match deadline_unix_ms {
         Some(deadline) => unix_now_ms() >= deadline,
         None => false,
-    }
-}
-
-fn force_write_would_block(write_test_hooks: Option<&WriteTestHooks>) -> bool {
-    let Some(hooks) = write_test_hooks else {
-        return false;
-    };
-    // After the first successful write chunk, optional deadline backpressure
-    // forces WouldBlock so partial-write proofs can cross the deadline.
-    if hooks.max_chunk.is_some() && hooks.writes_completed.load(Ordering::Relaxed) > 0 {
-        if let Some(until) = hooks.force_would_block_until_unix_ms {
-            return unix_now_ms() < until;
-        }
-    }
-    match hooks.force_would_block_until_unix_ms {
-        Some(until) if hooks.max_chunk.is_none() => unix_now_ms() < until,
-        _ => false,
     }
 }
 
@@ -2111,6 +2063,31 @@ mod tests {
         assert!(reader_finalization_complete(true, None, None,));
     }
 
+    /// Write end of a pipe that is non-blocking and already full.
+    fn full_nonblocking_pipe() -> (OwnedFd, OwnedFd) {
+        let mut fds = [0; 2];
+        // SAFETY: fds has room for the two descriptors pipe returns.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "pipe");
+        // SAFETY: pipe returned two new descriptors owned by nothing else.
+        let (read_end, write_end) =
+            unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        // SAFETY: write_end is a live descriptor owned above.
+        unsafe {
+            let flags = libc::fcntl(write_end.as_raw_fd(), libc::F_GETFL);
+            libc::fcntl(
+                write_end.as_raw_fd(),
+                libc::F_SETFL,
+                flags | libc::O_NONBLOCK,
+            );
+        }
+        let chunk = [0_u8; 4096];
+        // SAFETY: chunk is a valid buffer for the write length.
+        while unsafe { libc::write(write_end.as_raw_fd(), chunk.as_ptr().cast(), chunk.len()) } > 0
+        {
+        }
+        (write_end, read_end)
+    }
+
     #[test]
     fn write_all_blocking_reports_partial_bytes_after_deadline() {
         struct ChunkWriter {
@@ -2134,13 +2111,14 @@ mod tests {
             limit: 1,
             written: 0,
         });
-        let hooks = WriteTestHooks {
-            force_would_block_until_unix_ms: Some(unix_now_ms() + 5_000),
-            max_chunk: Some(1),
-            writes_completed: AtomicUsize::new(0),
+        // Readiness comes from a full non-blocking pipe, so the wait runs
+        // until the write deadline.
+        let (full_pipe, _read_end) = full_nonblocking_pipe();
+        let readiness = PtyReadiness {
+            fd: Some(full_pipe),
         };
         let deadline = unix_now_ms() + 30;
-        let err = write_all_blocking(&mut writer, b"abcdef", Some(deadline), Some(&hooks))
+        let err = write_all_blocking(&mut writer, &readiness, b"abcdef", Some(deadline))
             .expect_err("must partial-fail");
         assert_eq!(err.bytes_written, 1);
         assert!(
