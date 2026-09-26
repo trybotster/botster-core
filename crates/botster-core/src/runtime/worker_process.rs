@@ -72,7 +72,6 @@ pub const DEFAULT_WORKER_EGRESS_CAPACITY: usize = 64;
 pub const DEFAULT_WORKER_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const PING_WAIT: Duration = Duration::from_secs(2);
-const PING_POLL: Duration = Duration::from_millis(10);
 const WORKER_REAP_GRACE: Duration = Duration::from_secs(2);
 #[cfg(unix)]
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -577,29 +576,26 @@ impl WorkerProcessRuntime {
     /// Send a ping frame and wait for typed worker health evidence.
     pub fn ping(&mut self, session_id: &SessionId) -> Result<WorkerHealth, SessionRuntimeError> {
         let session = self.session_mut(session_id)?;
-        let before = session.pong_count.load(Ordering::Acquire);
+        let before = session.pong_count.get()?;
         session.enqueue_frame(ControlFrameClass::Ordinary, FRAME_PING, &[])?;
-        let deadline = Instant::now() + PING_WAIT;
-        while Instant::now() < deadline {
-            if session.pong_count.load(Ordering::Acquire) > before {
-                return session
-                    .last_health
-                    .lock()
-                    .map_err(lock_error)?
-                    .clone()
-                    .ok_or_else(|| {
-                        SessionRuntimeError::new(
-                            SessionRuntimeErrorKind::OutputFailed,
-                            "worker pong did not carry health payload",
-                        )
-                    });
-            }
-            thread::sleep(PING_POLL);
+        // timer: deadline — worker pong; expiry fails the ping with "worker ping timed out"
+        if !session.pong_count.wait_past(before, PING_WAIT)? {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "worker ping timed out",
+            ));
         }
-        Err(SessionRuntimeError::new(
-            SessionRuntimeErrorKind::OutputFailed,
-            "worker ping timed out",
-        ))
+        session
+            .last_health
+            .lock()
+            .map_err(lock_error)?
+            .clone()
+            .ok_or_else(|| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    "worker pong did not carry health payload",
+                )
+            })
     }
 
     /// Send the merged reconnect-timeout primitive to the worker process.
@@ -1222,7 +1218,7 @@ impl WorkerProcessRuntime {
             },
             output: receiver,
             overflow: Arc::new(AtomicUsize::new(0)),
-            pong_count: Arc::new(AtomicUsize::new(0)),
+            pong_count: Arc::new(PongCounter::default()),
             last_health: Arc::new(Mutex::new(None)),
             completion: Arc::new(Mutex::new(WorkerCompletion {
                 process_exited: None,
@@ -1501,7 +1497,7 @@ impl WorkerProcessRuntime {
     ) -> Result<(), SessionRuntimeError> {
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
         let overflow = Arc::new(AtomicUsize::new(0));
-        let pong_count = Arc::new(AtomicUsize::new(0));
+        let pong_count = Arc::new(PongCounter::default());
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
         let stall = Arc::new(EgressStall::new());
@@ -2191,7 +2187,7 @@ struct WorkerProcessSession {
     metadata: SessionMetadata,
     output: Receiver<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
-    pong_count: Arc<AtomicUsize>,
+    pong_count: Arc<PongCounter>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
     latest_modes: Option<ModesBody>,
@@ -2272,15 +2268,15 @@ impl WorkerProcessSession {
     }
 
     fn join_writer(&mut self) {
-        let deadline = Instant::now() + WORKER_CONTROL_WRITER_JOIN_BOUND;
-        while Instant::now() < deadline {
-            if !matches!(self.writer_slot.get(), ControlWriterOutcome::Running) {
-                if let Some(handle) = self.writer.take() {
-                    let _ = handle.join();
-                }
-                return;
+        // timer: deadline — writer thread exit; expiry detaches the writer thread instead of joining it
+        if self
+            .writer_slot
+            .wait_stopped(WORKER_CONTROL_WRITER_JOIN_BOUND)
+        {
+            if let Some(handle) = self.writer.take() {
+                let _ = handle.join();
             }
-            thread::sleep(Duration::from_millis(5));
+            return;
         }
         self.writer.take();
     }
@@ -2539,6 +2535,37 @@ fn remove_socket_if_unchanged(
     Ok(true)
 }
 
+/// Pongs received from one worker. The parent reader bumps it; `ping`
+/// waits on it for the pong that answers its request.
+#[derive(Default)]
+struct PongCounter {
+    count: Mutex<usize>,
+    changed: Condvar,
+}
+
+impl PongCounter {
+    fn bump(&self) {
+        if let Ok(mut count) = self.count.lock() {
+            *count += 1;
+            self.changed.notify_all();
+        }
+    }
+
+    fn get(&self) -> Result<usize, SessionRuntimeError> {
+        self.count.lock().map(|count| *count).map_err(lock_error)
+    }
+
+    /// Wait until the count passes `before`. Returns `false` at the deadline.
+    fn wait_past(&self, before: usize, timeout: Duration) -> Result<bool, SessionRuntimeError> {
+        let count = self.count.lock().map_err(lock_error)?;
+        let (count, _) = self
+            .changed
+            .wait_timeout_while(count, timeout, |count| *count <= before)
+            .map_err(lock_error)?;
+        Ok(*count > before)
+    }
+}
+
 struct PendingWorker {
     child: Option<Child>,
     graceful_shutdown: bool,
@@ -2785,7 +2812,7 @@ fn spawn_stdout_reader(
     mut stdout: impl Read + Send + 'static,
     sender: SyncSender<WorkerChannelEvent>,
     overflow: Arc<AtomicUsize>,
-    pong_count: Arc<AtomicUsize>,
+    pong_count: Arc<PongCounter>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
     stall: Arc<EgressStall>,
@@ -2975,7 +3002,7 @@ fn spawn_stdout_reader(
                             *slot = Some(health);
                         }
                     }
-                    pong_count.fetch_add(1, Ordering::AcqRel);
+                    pong_count.bump();
                 }
                 _ => {}
             }
