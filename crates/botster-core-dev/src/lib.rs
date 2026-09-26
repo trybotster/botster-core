@@ -3,7 +3,6 @@
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -264,6 +263,13 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
         },
         payload: BoundaryJson(serde_json::json!({ "op": "slow" })),
     };
+    // Published completions notify this channel; the wait below needs no poll.
+    let (notified_sender, notified) = std::sync::mpsc::channel();
+    engine
+        .plugin_workers()
+        .install_completion_notifier(Arc::new(move || {
+            let _ = notified_sender.send(());
+        }));
     let admitted = matches!(
         engine.admit_plugin(
             PluginInvocationClass::Background,
@@ -273,16 +279,18 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
         PluginAdmissionResult::Queued { .. }
     );
 
-    let started = Instant::now();
-    let mut completion = None;
-    while started.elapsed() < Duration::from_secs(1) {
+    // timer: deadline — the Background completion must publish; expiry fails the smoke
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let completion = loop {
         let drain = engine.drain_plugin_completions(8, usize::MAX);
         if let Some(item) = drain.completions.into_iter().next() {
-            completion = Some(item.completion);
-            break;
+            break Some(item.completion);
         }
-        thread::sleep(Duration::from_millis(2));
-    }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break None;
+        };
+        let _ = notified.recv_timeout(remaining);
+    };
     let snapshot = engine.plugin_workers().debug_snapshot();
     let completion = completion.ok_or_else(|| {
         EngineSmokeError::new("did not drain a Background completion through the public facade")
@@ -555,10 +563,11 @@ fn drain_until_text(
     needle: &[u8],
     logical_clock: &mut u64,
 ) -> Result<String, EngineSmokeError> {
+    // timer: deadline — the text must arrive through engine wakes; expiry fails the smoke
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut observed = Vec::new();
 
-    while Instant::now() < deadline {
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         let output = engine
             .drain_runtime_once(session_id, *logical_clock)
             .map_err(|error| EngineSmokeError::new(format!("drain failed: {error}")))?;
@@ -578,7 +587,7 @@ fn drain_until_text(
                 .map_err(|error| EngineSmokeError::new(format!("output was not utf-8: {error}")));
         }
 
-        thread::sleep(Duration::from_millis(20));
+        let _ = engine.wait_wakes(remaining);
     }
 
     Err(EngineSmokeError::new(format!(
