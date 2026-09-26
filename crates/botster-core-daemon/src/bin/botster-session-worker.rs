@@ -109,8 +109,6 @@ fn run() -> Result<(), String> {
         poll_interval: Duration::from_millis(args.poll_interval_ms),
         pty_reader_chunk_capacity: args.pty_reader_chunk_capacity,
         test_hold_after_read_ms: args.test_hold_after_read_ms,
-        test_write_block_until_unix_ms: args.test_write_block_until_unix_ms,
-        test_write_max_chunk: args.test_write_max_chunk,
         test_pending_capacity: args.test_pending_capacity,
         test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
     };
@@ -2049,8 +2047,6 @@ struct WorkerArgs {
     control_socket: Option<PathBuf>,
     test_fail_after_spawn: bool,
     test_hold_after_read_ms: Option<u64>,
-    test_write_block_until_unix_ms: Option<u64>,
-    test_write_max_chunk: Option<usize>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
     test_hold_before_exit_ms: Option<u64>,
@@ -2068,8 +2064,6 @@ impl WorkerArgs {
         let mut control_socket = None;
         let mut test_fail_after_spawn = false;
         let mut test_hold_after_read_ms = None;
-        let mut test_write_block_until_unix_ms = None;
-        let mut test_write_max_chunk = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
         let mut test_hold_before_exit_ms = None;
@@ -2111,15 +2105,6 @@ impl WorkerArgs {
                     index += 1;
                     test_hold_after_read_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-read-ms")?);
-                }
-                "--test-write-block-until-unix-ms" => {
-                    index += 1;
-                    test_write_block_until_unix_ms =
-                        Some(parse_arg(&args, index, "--test-write-block-until-unix-ms")?);
-                }
-                "--test-write-max-chunk" => {
-                    index += 1;
-                    test_write_max_chunk = Some(parse_arg(&args, index, "--test-write-max-chunk")?);
                 }
                 "--test-pending-capacity" => {
                     index += 1;
@@ -2169,8 +2154,6 @@ impl WorkerArgs {
             control_socket,
             test_fail_after_spawn,
             test_hold_after_read_ms,
-            test_write_block_until_unix_ms,
-            test_write_max_chunk,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
             test_hold_before_exit_ms,
