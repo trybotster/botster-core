@@ -18,11 +18,16 @@ struct FakeWatchSource {
     registrations: Vec<FileWatchRegistration>,
     unregistered: Vec<PluginResourceRef>,
     events: Vec<FileWatchSourceEvent>,
+    notifier: Option<botster_core::CapabilityEventNotifier>,
 }
 
 impl FakeWatchSource {
+    /// Queue one backend event and notify, as a real OS backend would.
     fn emit(&mut self, event: FileWatchSourceEvent) {
         self.events.push(event);
+        if let Some(notifier) = &self.notifier {
+            notifier();
+        }
     }
 }
 
@@ -42,6 +47,10 @@ impl FileWatchEventSource for FakeWatchSource {
 
     fn drain_events(&mut self) -> Result<Vec<FileWatchSourceEvent>, FileWatchSourceError> {
         Ok(std::mem::take(&mut self.events))
+    }
+
+    fn set_event_notifier(&mut self, notifier: botster_core::CapabilityEventNotifier) {
+        self.notifier = Some(notifier);
     }
 }
 
@@ -191,6 +200,41 @@ fn invalid_paths_and_cross_plugin_callbacks_are_rejected_before_source_registrat
         .expect_err("cross-plugin callback rejected");
     assert_eq!(error.kind, CapabilityRuntimeErrorKind::InvalidRequest);
     assert!(runtime.source().registrations.is_empty());
+}
+
+#[test]
+fn file_watch_runtime_forwards_the_host_notifier_to_its_source() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = FileWatchRuntime::with_config(
+        FakeWatchSource::default(),
+        FileWatchRuntimeConfig {
+            registration_capacity: 4,
+            event_capacity: 8,
+            debounce_ms: 25,
+        },
+    )
+    .expect("runtime config");
+    runtime.grant_capability(plugin.clone(), filesystem_capability("workspace"));
+    let notified = Arc::new(Mutex::new(0_usize));
+    let count = Arc::clone(&notified);
+    runtime.set_event_notifier(Arc::new(move || {
+        *count.lock().expect("notify count") += 1;
+    }));
+    let resource = runtime
+        .submit(register_request(&plugin, "watch-op", "workspace", "src"))
+        .expect("watch registration accepted")
+        .resource
+        .expect("watch resource");
+
+    runtime.source_mut().emit(FileWatchSourceEvent::path(
+        resource,
+        ScopedRelativePath("src/lib.rs".to_string()),
+        WatchChangeKind::Created,
+        10,
+    ));
+
+    assert_eq!(*notified.lock().expect("notify count"), 1);
+    assert_eq!(runtime.next_deadline(), None);
 }
 
 #[test]
