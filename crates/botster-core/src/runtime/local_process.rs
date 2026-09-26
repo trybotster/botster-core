@@ -1606,6 +1606,17 @@ fn write_all_blocking(
     }
     let mut offset = 0;
     while offset < data.len() {
+        // Every attempt, a partial or interrupted one included, stays inside
+        // the deadline.
+        if deadline_reached(deadline_unix_ms) {
+            return Err(PtyWriteFailure::new(
+                format!(
+                    "write pty input failed: deadline_exceeded after {offset} of {} bytes",
+                    data.len()
+                ),
+                offset,
+            ));
+        }
         match writer.write(&data[offset..]) {
             Ok(0) => {
                 return Err(PtyWriteFailure::new(
@@ -1617,15 +1628,6 @@ fn write_all_blocking(
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 readiness.wait_writable(deadline_unix_ms);
-                if deadline_reached(deadline_unix_ms) {
-                    return Err(PtyWriteFailure::new(
-                        format!(
-                            "write pty input failed: deadline_exceeded after {offset} of {} bytes",
-                            data.len()
-                        ),
-                        offset,
-                    ));
-                }
             }
             Err(error) => {
                 return Err(PtyWriteFailure::new(
@@ -1636,16 +1638,16 @@ fn write_all_blocking(
         }
     }
     loop {
+        if deadline_reached(deadline_unix_ms) {
+            // All payload bytes were accepted by the kernel; a flush timeout
+            // is still a complete delivery of the payload.
+            return Ok(offset);
+        }
         match writer.flush() {
             Ok(()) => return Ok(offset),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 readiness.wait_writable(deadline_unix_ms);
-                if deadline_reached(deadline_unix_ms) {
-                    // All payload bytes were accepted by the kernel; a flush
-                    // timeout is still a complete delivery of the payload.
-                    return Ok(offset);
-                }
             }
             Err(error) => {
                 return Err(PtyWriteFailure::new(
@@ -2164,6 +2166,28 @@ mod tests {
         {
         }
         (write_end, read_end)
+    }
+
+    #[test]
+    fn write_all_blocking_stops_interrupted_retries_at_the_deadline() {
+        struct InterruptedWriter;
+        impl Write for InterruptedWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::Interrupted))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer: Box<dyn Write + Send> = Box::new(InterruptedWriter);
+        let readiness = PtyReadiness { fd: None };
+        let deadline = unix_now_ms() + 30;
+
+        let err = write_all_blocking(&mut writer, &readiness, b"abc", Some(deadline))
+            .expect_err("interrupted retries must end at the deadline");
+
+        assert_eq!(err.bytes_written, 0);
+        assert!(err.message.contains("deadline"), "{}", err.message);
     }
 
     #[test]
