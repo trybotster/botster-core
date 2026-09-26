@@ -33,9 +33,10 @@ use std::sync::Arc;
 
 use botster_core::runtime::plugin_process::worker::{run_worker, LoadedPlugin, WorkerHooks};
 use botster_core::runtime::plugin_process::{LoadFrame, PluginRegistration, SandboxProfile};
+use botster_core::session::RequestId;
 use botster_core::{
     BoundaryJson, PluginCancellationToken, PluginInvocationFailure, PluginInvocationFailureKind,
-    PluginInvocationRequest, PluginInvocationResult, PluginRuntime,
+    PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginRuntime,
 };
 use serde_json::{json, Value};
 
@@ -174,6 +175,14 @@ fn report() -> Value {
     })
 }
 
+/// Handlers, chosen by handler id:
+/// - `echo`: complete with the request payload;
+/// - `block`: never return, ignoring cancellation, until killed;
+/// - `block_after_signal`: write to `PLUGIN_TEST_STARTED_FIFO`, then block;
+/// - `abort` / `panic`: die inside the handler;
+/// - `fatal_then_violation`: publish a panic cause, then break the protocol;
+/// - `garbage`: write a frame of an unknown type to the parent;
+/// - `foreign_result`: write a result for a request that is not in flight.
 struct TestRuntime;
 
 impl PluginRuntime for TestRuntime {
@@ -182,12 +191,69 @@ impl PluginRuntime for TestRuntime {
         request: PluginInvocationRequest,
         _cancellation: PluginCancellationToken,
     ) -> PluginInvocationResult {
-        PluginInvocationResult::Failed(PluginInvocationFailure {
-            request_id: request.request_id,
-            handler: request.handler,
-            kind: PluginInvocationFailureKind::HandlerFailed,
-            timeout_ms: None,
-            reason: "the test worker has no handlers yet".to_string(),
-        })
+        let handler_id = request.handler.handler_id.clone();
+        match handler_id.as_str() {
+            "echo" => PluginInvocationResult::Completed(PluginInvocationSuccess {
+                request_id: request.request_id,
+                handler: request.handler,
+                payload: Some(request.payload),
+            }),
+            "block" => wait_for_kill(),
+            "block_after_signal" => {
+                // Tell the test that this handler is running, then block.
+                let started =
+                    std::env::var_os("PLUGIN_TEST_STARTED_FIFO").expect("PLUGIN_TEST_STARTED_FIFO");
+                let mut started = OpenOptions::new()
+                    .write(true)
+                    .open(started)
+                    .expect("open the started FIFO");
+                writeln!(started, "started").expect("signal the start");
+                drop(started);
+                wait_for_kill()
+            }
+            "abort" => std::process::abort(),
+            "panic" => panic!("scripted panic in a handler"),
+            "fatal_then_violation" => {
+                // Publish a panic cause, then break the protocol and stay
+                // alive: the host's violation kill lands after the cause.
+                let fatal = b"\x02scripted fatal cause before a violation kill";
+                // SAFETY: a write from a live buffer to the fatal pipe.
+                unsafe { libc::write(4, fatal.as_ptr().cast(), fatal.len()) };
+                write_raw_frame(0x7f, b"a frame the parent does not know");
+                wait_for_kill()
+            }
+            "garbage" => {
+                write_raw_frame(0x7f, b"not a frame the parent knows");
+                wait_for_kill()
+            }
+            "foreign_result" => {
+                let foreign = PluginInvocationResult::Completed(PluginInvocationSuccess {
+                    request_id: RequestId("not-in-flight".to_string()),
+                    handler: request.handler,
+                    payload: None,
+                });
+                let payload = serde_json::to_vec(&foreign).expect("encode");
+                write_raw_frame(0x85, &payload);
+                wait_for_kill()
+            }
+            other => PluginInvocationResult::Failed(PluginInvocationFailure {
+                request_id: request.request_id,
+                handler: request.handler,
+                kind: PluginInvocationFailureKind::HandlerFailed,
+                timeout_ms: None,
+                reason: format!("unknown test handler {other}"),
+            }),
+        }
     }
+}
+
+/// Write one frame straight to the IPC descriptor, around the library.
+fn write_raw_frame(frame_type: u8, payload: &[u8]) {
+    let mut frame = Vec::with_capacity(5 + payload.len());
+    frame.extend_from_slice(&((payload.len() + 1) as u32).to_le_bytes());
+    frame.push(frame_type);
+    frame.extend_from_slice(payload);
+    // SAFETY: a write from a live buffer to the worker's IPC descriptor.
+    let written = unsafe { libc::write(3, frame.as_ptr().cast(), frame.len()) };
+    assert_eq!(written, frame.len() as isize, "raw frame write");
 }

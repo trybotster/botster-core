@@ -425,13 +425,6 @@ struct CancellationInner {
 
 #[derive(Default)]
 struct CancellationWakers {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first caller is the plugin process host invoke path (slice 2)"
-        )
-    )]
     next_id: u64,
     pending: Vec<(u64, CancelWake)>,
 }
@@ -484,13 +477,6 @@ impl PluginCancellationToken {
     /// on the calling thread. `target` never runs while the token's lock is
     /// held. Dropping the returned subscription before cancellation removes
     /// `target` without notifying it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first caller is the plugin process host invoke path (slice 2)"
-        )
-    )]
     pub(crate) fn subscribe(&self, target: Arc<dyn CancelTarget>) -> CancelSubscription {
         let mut wakers = self.inner.lock_wakers();
         if !self.inner.cancelled.load(Ordering::SeqCst) {
@@ -525,13 +511,6 @@ impl CancellationInner {
 ///
 /// Dropping it before cancellation removes the wake without running it.
 #[must_use = "dropping the subscription removes the wake"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "first caller is the plugin process host invoke path (slice 2)"
-    )
-)]
 pub(crate) struct CancelSubscription {
     inner: std::sync::Weak<CancellationInner>,
     id: Option<u64>,

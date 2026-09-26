@@ -1,7 +1,7 @@
-//! Parent side of one plugin process: startup through `Loaded`, stop, kill,
-//! and the exit watch that is the only reaper.
+//! Parent side of one plugin process: startup through `Loaded`, the invoke
+//! path, stop, kill, and the exit watch that is the only reaper.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Read};
 use std::net::Shutdown;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
@@ -11,17 +11,25 @@ use std::process::{Child, ChildStderr, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use crate::actor::{
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginKey,
+};
 use crate::contract::session_protocol::{Frame, FrameDecoder, MAX_FRAME_LEN};
 use crate::runtime::process_exit::ExitWatch;
+use crate::runtime::{CancelTarget, PluginCancellationToken, PluginRuntime};
+use crate::session::RequestId;
 
 use super::launch::{launch, Launched};
+use super::outbound::{Lane, LaneBounds, Outbound, Refused};
 use super::protocol::{
-    decode_json, encode_bounded, encode_json_bounded, send_all, BootstrapFrame, FailedFrame,
-    LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP, CAUSE_PANIC,
-    FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED,
-    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    decode_json, encode_bounded, encode_json_bounded, send_all, BootstrapFrame, CancelFrame,
+    FailedFrame, LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP,
+    CAUSE_PANIC, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_CANCEL,
+    FRAME_INVOCATION_RESULT, FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED,
+    FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 use super::supervisor::{KillState, ProcessKiller, Supervisor};
 use super::{
@@ -42,13 +50,77 @@ struct Shared {
     killer: Arc<ProcessKiller>,
     supervisor: Supervisor,
     ipc: UnixStream,
+    outbound: Outbound,
     max_frame_bytes: usize,
-    shutdown_deadline: std::time::Duration,
+    max_in_flight_invokes: usize,
+    shutdown_deadline: Duration,
+    cancel_grace: Duration,
     shutdown_sent: AtomicBool,
     state: Mutex<State>,
     changed: Condvar,
     inbound: Mutex<Inbound>,
+    invokes: Mutex<Invokes>,
     stderr: Arc<Mutex<StderrTail>>,
+    #[cfg(test)]
+    order: Option<Arc<OrderSeam>>,
+}
+
+/// Invocations in flight to the child. Lock order: `inbound`, then `state`,
+/// then `invokes`; a wait's own lock is a leaf.
+#[derive(Default)]
+struct Invokes {
+    waits: HashMap<RequestId, Arc<InvokeWait>>,
+    /// Set by `stop` and by the exit: no new invocation is admitted.
+    closed: bool,
+}
+
+/// One caller waiting for its invocation's outcome. It is also the Core
+/// cancel target of the invocation's token: a cancel only records itself
+/// and wakes the caller.
+#[derive(Default)]
+struct InvokeWait {
+    state: Mutex<WaitState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct WaitState {
+    outcome: Option<Outcome>,
+    cancelled: bool,
+    /// `stop` failed the caller early; the child's late result is dropped.
+    abandoned: bool,
+}
+
+impl InvokeWait {
+    fn lock(&self) -> MutexGuard<'_, WaitState> {
+        // Only this module's bookkeeping runs under the lock.
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Settle the caller's outcome once; later settlements are ignored.
+    fn settle(&self, outcome: Outcome) {
+        let mut state = self.lock();
+        if state.outcome.is_none() && !state.abandoned {
+            state.outcome = Some(outcome);
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+}
+
+/// How an invocation ended, before the caller attaches its own ids.
+enum Outcome {
+    /// The child's result.
+    Result(PluginInvocationResult),
+    /// A host-side failure: the exit, or `stop`.
+    Failed(PluginInvocationFailureKind, String),
+}
+
+impl CancelTarget for InvokeWait {
+    fn cancelled(&self) {
+        self.lock().cancelled = true;
+        self.changed.notify_all();
+    }
 }
 
 struct State {
@@ -91,6 +163,11 @@ impl PluginProcess {
                 "max_frame_bytes must be between 1 and {MAX_FRAME_LEN}"
             )));
         }
+        if config.max_in_flight_invokes == 0 {
+            return Err(PluginProcessError::InvalidConfig(
+                "max_in_flight_invokes must be positive".to_string(),
+            ));
+        }
         // Encode before starting anything, so an oversize frame starts no process.
         let bootstrap = encode_json_bounded(
             FRAME_BOOTSTRAP,
@@ -111,11 +188,11 @@ impl PluginProcess {
             Instant::now() + config.startup_deadline,
             PluginKillReason::StartupDeadline,
         );
-        shared.send(&bootstrap);
+        shared.send(Lane::Startup, bootstrap);
         let phase = shared.wait_startup(|startup| !matches!(startup, Startup::AwaitReady));
         let phase = match phase {
             Phase::Advanced => {
-                shared.send(&load);
+                shared.send(Lane::Startup, load);
                 shared.wait_startup(|startup| !matches!(startup, Startup::AwaitLoaded))
             }
             other => other,
@@ -194,6 +271,64 @@ impl Drop for PluginProcess {
     }
 }
 
+/// The process host is a [`PluginRuntime`]: `PluginWorkerEngine` keeps its
+/// admission, deadlines, and completions, and each executor's invocation is
+/// forwarded to the child.
+impl PluginRuntime for PluginProcess {
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        cancellation: PluginCancellationToken,
+    ) -> PluginInvocationResult {
+        self.shared.invoke(request, &cancellation)
+    }
+
+    fn stop(&self, _plugin_key: &PluginKey) {
+        self.shared.stop();
+    }
+}
+
+/// The failure an exit gives to every invocation still in flight.
+fn exit_failure(exit: &PluginProcessExited) -> (PluginInvocationFailureKind, String) {
+    match &exit.cause {
+        PluginExitCause::Stopped => (
+            PluginInvocationFailureKind::WorkerStopped,
+            "the plugin process stopped".to_string(),
+        ),
+        PluginExitCause::Killed(reason) => (
+            PluginInvocationFailureKind::WorkerKilled,
+            format!("the plugin process was killed: {reason:?}"),
+        ),
+        PluginExitCause::MemoryCap => (
+            PluginInvocationFailureKind::WorkerKilled,
+            "the plugin process exceeded its memory cap".to_string(),
+        ),
+        PluginExitCause::Panic => (
+            PluginInvocationFailureKind::WorkerCrashed,
+            format!("the plugin process panicked: {}", exit.fatal_message),
+        ),
+        PluginExitCause::Crashed { signal, code } => (
+            PluginInvocationFailureKind::WorkerCrashed,
+            format!("the plugin process crashed (signal {signal:?}, exit code {code:?})"),
+        ),
+    }
+}
+
+/// Send queued frames in order. A failed send kills the group: the process
+/// cannot be driven any further. The exit closes the queue, which ends this
+/// thread.
+fn run_writer(shared: &Shared, ipc: &UnixStream) {
+    while let Some((lane, frame)) = shared.outbound.next() {
+        let sent = send_all(ipc.as_fd(), &frame);
+        shared.outbound.written(lane, frame.len());
+        if sent.is_err() {
+            shared.killer.kill(PluginKillReason::TransportClosed);
+            shared.outbound.close();
+            return;
+        }
+    }
+}
+
 enum Failure {
     Bootstrap(String),
     Load(String),
@@ -248,30 +383,172 @@ impl Shared {
         }
     }
 
-    /// Send one encoded frame. A closed or failed channel kills the group:
-    /// the process cannot be driven any further.
-    fn send(&self, frame: &[u8]) {
-        if send_all(self.ipc.as_fd(), frame).is_err() {
-            self.killer.kill(PluginKillReason::TransportClosed);
+    /// Queue one encoded frame for the writer thread. Never blocks. A closed
+    /// queue means the process is gone or going; the exit reports the rest.
+    fn send(&self, lane: Lane, frame: Vec<u8>) {
+        match self.outbound.push(lane, frame) {
+            Ok(()) | Err(Refused::Closed) => {}
+            // Every lane bound is derived, so this is a Core bug; the process
+            // cannot be driven correctly any further.
+            Err(Refused::Full) => self
+                .killer
+                .kill(PluginKillReason::ProtocolViolation(format!(
+                    "the {lane:?} lane overflowed its derived bound"
+                ))),
         }
+    }
+
+    fn lock_invokes(&self) -> MutexGuard<'_, Invokes> {
+        self.invokes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn stop(&self) {
         if self.shutdown_sent.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Fail every waiting caller at once, so the engine's executor join
+        // returns promptly; their late results are dropped, not violations.
+        {
+            let mut invokes = self.lock_invokes();
+            invokes.closed = true;
+            for wait in invokes.waits.values() {
+                let mut state = wait.lock();
+                if state.outcome.is_none() {
+                    state.outcome = Some(Outcome::Failed(
+                        PluginInvocationFailureKind::WorkerStopped,
+                        "the plugin process was stopped".to_string(),
+                    ));
+                }
+                state.abandoned = true;
+                drop(state);
+                wait.changed.notify_all();
+            }
+        }
         if self.lock_state().exit.is_some() {
             return;
         }
-        // Arm first: the send below can block on a child that does not read,
-        // and the deadline kill is what ends that send.
         self.supervisor.arm(
             Instant::now() + self.shutdown_deadline,
             PluginKillReason::ShutdownDeadline,
         );
         match encode_bounded(FRAME_SHUTDOWN, &[], self.max_frame_bytes) {
-            Ok(frame) => self.send(&frame),
+            Ok(frame) => self.send(Lane::Shutdown, frame),
             Err(_) => self.killer.kill(PluginKillReason::ShutdownDeadline),
+        }
+    }
+
+    /// Forward one invocation and wait for its outcome as an event: the
+    /// child's result, the exit, or `stop`. A cancel sends `Cancel` and arms
+    /// the cancel grace; its expiry kills the group, and the exit then
+    /// settles the caller.
+    fn invoke(
+        &self,
+        request: PluginInvocationRequest,
+        cancellation: &PluginCancellationToken,
+    ) -> PluginInvocationResult {
+        let failed = |kind, reason: String| {
+            PluginInvocationResult::Failed(PluginInvocationFailure {
+                request_id: request.request_id.clone(),
+                handler: request.handler.clone(),
+                kind,
+                timeout_ms: None,
+                reason,
+            })
+        };
+        if let Some(exit) = self.lock_state().exit.clone() {
+            let (kind, reason) = exit_failure(&exit);
+            return failed(kind, reason);
+        }
+        let frame = match encode_json_bounded(FRAME_INVOKE, &request, self.max_frame_bytes) {
+            Ok(frame) => frame,
+            Err(error) => {
+                return failed(
+                    PluginInvocationFailureKind::HandlerFailed,
+                    format!("the invocation does not fit the frame bound: {error}"),
+                )
+            }
+        };
+        let wait = Arc::new(InvokeWait::default());
+        {
+            let mut invokes = self.lock_invokes();
+            if invokes.closed {
+                drop(invokes);
+                let (kind, reason) = match self.lock_state().exit.clone() {
+                    Some(exit) => exit_failure(&exit),
+                    None => (
+                        PluginInvocationFailureKind::WorkerStopped,
+                        "the plugin process is stopping".to_string(),
+                    ),
+                };
+                return failed(kind, reason);
+            }
+            if invokes.waits.len() >= self.max_in_flight_invokes {
+                return failed(
+                    PluginInvocationFailureKind::Backpressured,
+                    "the plugin process has no invocation room".to_string(),
+                );
+            }
+            if invokes.waits.contains_key(&request.request_id) {
+                return failed(
+                    PluginInvocationFailureKind::HandlerFailed,
+                    "an invocation with this request id is already in flight".to_string(),
+                );
+            }
+            invokes
+                .waits
+                .insert(request.request_id.clone(), wait.clone());
+        }
+        self.send(Lane::Invoke, frame);
+        let _subscription = cancellation.subscribe(wait.clone());
+
+        let mut grace = None;
+        let mut state = wait.lock();
+        let outcome = loop {
+            if let Some(outcome) = state.outcome.take() {
+                break outcome;
+            }
+            if state.cancelled && grace.is_none() {
+                drop(state);
+                grace = Some(self.supervisor.arm(
+                    Instant::now() + self.cancel_grace,
+                    PluginKillReason::Deadline,
+                ));
+                let cancel = CancelFrame {
+                    request_id: request.request_id.clone(),
+                };
+                if let Ok(frame) = encode_json_bounded(FRAME_CANCEL, &cancel, self.max_frame_bytes)
+                {
+                    self.send(Lane::Cancel, frame);
+                }
+                state = wait.lock();
+                continue;
+            }
+            state = wait
+                .changed
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        };
+        drop(state);
+        if let Some(grace) = grace {
+            self.supervisor.disarm(grace);
+        }
+        match outcome {
+            Outcome::Result(result) => result,
+            Outcome::Failed(kind, reason) => failed(kind, reason),
+        }
+    }
+
+    /// Settle every waiting caller with the exit's failure and admit nothing
+    /// more. Runs once, from the exit watch.
+    fn fail_invocations(&self, exit: &PluginProcessExited) {
+        let waits: Vec<_> = {
+            let mut invokes = self.lock_invokes();
+            invokes.closed = true;
+            invokes.waits.drain().map(|(_, wait)| wait).collect()
+        };
+        let (kind, reason) = exit_failure(exit);
+        for wait in waits {
+            wait.settle(Outcome::Failed(kind.clone(), reason.clone()));
         }
     }
 }
@@ -304,8 +581,11 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
         Ok(supervisor) => supervisor,
         Err(error) => return Err(abort(child, error)),
     };
-    let reader_ipc = match ipc.try_clone() {
-        Ok(stream) => stream,
+    let (reader_ipc, writer_ipc) = match ipc.try_clone().and_then(|reader| {
+        let writer = ipc.try_clone()?;
+        Ok((reader, writer))
+    }) {
+        Ok(streams) => streams,
         Err(error) => {
             supervisor.stop();
             return Err(abort(child, error));
@@ -324,8 +604,11 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
         killer,
         supervisor,
         ipc,
+        outbound: Outbound::new(LaneBounds::derived(config.max_in_flight_invokes)),
         max_frame_bytes: config.max_frame_bytes,
+        max_in_flight_invokes: config.max_in_flight_invokes,
         shutdown_deadline: config.shutdown_deadline,
+        cancel_grace: config.cancel_grace,
         shutdown_sent: AtomicBool::new(false),
         state: Mutex::new(State {
             startup: Startup::AwaitReady,
@@ -338,7 +621,10 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
             decoder: FrameDecoder::with_max_len(config.max_frame_bytes),
             done: false,
         }),
+        invokes: Mutex::new(Invokes::default()),
         stderr: tail.clone(),
+        #[cfg(test)]
+        order: ORDER_SEAM.with(|slot| slot.borrow_mut().take()),
     });
 
     // The child stays here until the exit watch is running and has taken it,
@@ -366,9 +652,15 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
     }
     // From here the exit watch owns the child; failures kill and wait for it.
     let reader_shared = shared.clone();
+    let writer_shared = shared.clone();
     let started = thread::Builder::new()
         .name(format!("plugin-reader-{pid}"))
         .spawn(move || run_reader(&reader_shared))
+        .and_then(|_| {
+            thread::Builder::new()
+                .name(format!("plugin-writer-{pid}"))
+                .spawn(move || run_writer(&writer_shared, &writer_ipc))
+        })
         .and_then(|_| {
             thread::Builder::new()
                 .name(format!("plugin-stderr-{pid}"))
@@ -417,6 +709,66 @@ pub(super) struct StartFault {
 #[cfg(test)]
 thread_local! {
     pub(super) static START_FAULT: std::cell::RefCell<Option<StartFault>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Test seam: forces one order between the reader's EOF handling and the
+/// exit watch's reap (plan section 7.5 requires both orders).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Order {
+    /// The reader handles EOF (and its kill) before the exit watch reaps.
+    EofFirst,
+    /// The exit is published before the reader handles EOF.
+    ExitFirst,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub(super) struct Stage {
+    pub eof_handled: bool,
+    pub exit_published: bool,
+}
+
+#[cfg(test)]
+pub(super) struct OrderSeam {
+    pub mode: Order,
+    stage: Mutex<Stage>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl OrderSeam {
+    pub(super) fn new(mode: Order) -> Arc<Self> {
+        Arc::new(Self {
+            mode,
+            stage: Mutex::new(Stage::default()),
+            changed: Condvar::new(),
+        })
+    }
+
+    fn mark(&self, update: impl FnOnce(&mut Stage)) {
+        update(&mut self.stage.lock().expect("order seam"));
+        self.changed.notify_all();
+    }
+
+    fn wait_until(&self, done: impl Fn(&Stage) -> bool) {
+        let mut stage = self.stage.lock().expect("order seam");
+        while !done(&stage) {
+            stage = self.changed.wait(stage).expect("order seam");
+        }
+    }
+
+    fn before_eof(&self, wait_for_exit: bool) {
+        if wait_for_exit {
+            self.wait_until(|stage| stage.exit_published);
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static ORDER_SEAM: std::cell::RefCell<Option<Arc<OrderSeam>>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -542,13 +894,25 @@ fn run_reader(shared: &Shared) {
             }
         }
     }
+    #[cfg(test)]
+    if let Some(order) = &shared.order {
+        order.before_eof(order.mode == Order::ExitFirst);
+    }
     // The channel is gone. That is not an exit: kill, and let the exit watch
     // record how the process ended.
     shared.killer.kill(PluginKillReason::TransportClosed);
+    #[cfg(test)]
+    if let Some(order) = &shared.order {
+        order.mark(|stage| stage.eof_handled = true);
+    }
 }
 
 fn handle_frame(shared: &Shared, frame: &Frame) -> Result<(), String> {
     let mut state = shared.lock_state();
+    if matches!(state.startup, Startup::Loaded(_)) && frame.frame_type == FRAME_INVOCATION_RESULT {
+        drop(state);
+        return handle_result(shared, frame);
+    }
     let next = match (&state.startup, frame.frame_type) {
         (Startup::AwaitReady, FRAME_READY) => {
             let ready: ReadyFrame = decode_json(frame).map_err(|error| error.to_string())?;
@@ -587,9 +951,34 @@ fn handle_frame(shared: &Shared, frame: &Frame) -> Result<(), String> {
     Ok(())
 }
 
+/// Settle the caller of one result. Only in-flight ids of this process are
+/// accepted, so stale or foreign ids need no history: an id that is not in
+/// flight is a protocol violation. A late result for an invocation that
+/// `stop` already failed is dropped.
+fn handle_result(shared: &Shared, frame: &Frame) -> Result<(), String> {
+    let result: PluginInvocationResult = decode_json(frame).map_err(|error| error.to_string())?;
+    let request_id = match &result {
+        PluginInvocationResult::Completed(success) => &success.request_id,
+        PluginInvocationResult::Failed(failure) => &failure.request_id,
+    };
+    let Some(wait) = shared.lock_invokes().waits.remove(request_id) else {
+        return Err(format!(
+            "result for request {request_id:?}, which is not in flight"
+        ));
+    };
+    wait.settle(Outcome::Result(result));
+    Ok(())
+}
+
 fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &OwnedFd) {
     // The exit is an OS event; a failed wait falls back to the blocking reap.
     let _ = watch.wait(None);
+    #[cfg(test)]
+    if let Some(order) = &shared.order {
+        if order.mode == Order::EofFirst {
+            order.wait_until(|stage| stage.eof_handled);
+        }
+    }
     let shutdown_sent = shared.shutdown_sent.load(Ordering::SeqCst);
     let (cause, fatal_message) = shared.killer.reap_with(|kills| {
         let (fatal_byte, fatal_message) = read_fatal(fatal);
@@ -619,13 +1008,19 @@ fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &O
     // LoadFailed report), before the exit becomes visible. Violations no
     // longer matter: the process is gone.
     let _ = shared.lock_inbound().drain(shared);
+    shared.outbound.close();
     let _ = shared.ipc.shutdown(Shutdown::Both);
     let notifier = {
         let mut state = shared.lock_state();
-        state.exit = Some(exit);
+        state.exit = Some(exit.clone());
         state.notifier.take()
     };
     shared.changed.notify_all();
+    shared.fail_invocations(&exit);
+    #[cfg(test)]
+    if let Some(order) = &shared.order {
+        order.mark(|stage| stage.exit_published = true);
+    }
     if let Some(notifier) = notifier {
         notifier();
     }

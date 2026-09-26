@@ -14,16 +14,22 @@ use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::os::fd::{AsFd, FromRawFd};
 use std::os::unix::net::UnixStream;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
+use crate::actor::{
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult,
+};
 use crate::contract::session_protocol::{Frame, FrameDecoder, ProtocolError, MAX_FRAME_LEN};
-use crate::runtime::PluginRuntime;
+use crate::runtime::{PluginCancellationToken, PluginRuntime};
+use crate::session::RequestId;
 
 use super::protocol::{
-    decode_json, encode_json_bounded, send_all, BootstrapFrame, FailedFrame, LoadFrame,
-    LoadedFrame, PluginRegistration, ReadyFrame, SandboxProfile, CAUSE_PANIC, CHILD_FATAL_FD,
-    CHILD_IPC_FD, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD,
-    FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, MAX_FRAME_ARG, PROTOCOL_MAGIC,
+    decode_json, encode_json_bounded, send_all, BootstrapFrame, CancelFrame, FailedFrame,
+    LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, SandboxProfile, CAUSE_PANIC,
+    CHILD_FATAL_FD, CHILD_IPC_FD, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED,
+    FRAME_CANCEL, FRAME_INVOCATION_RESULT, FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED,
+    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, MAX_FRAME_ARG, PROTOCOL_MAGIC,
     PROTOCOL_VERSION,
 };
 
@@ -103,17 +109,166 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
             format!("registration does not fit the frame bound: {error}"),
         ),
     }
-    let _runtime = loaded.runtime;
+    serve(channel, &loaded.runtime)
+}
 
-    // After Loaded, this slice accepts only Shutdown; invocations come later.
-    match channel.next() {
-        None => std::process::exit(0),
-        Some(frame) if frame.frame_type == FRAME_SHUTDOWN => std::process::exit(0),
-        Some(frame) => {
-            eprintln!(
-                "botster plugin worker: unexpected frame type {:#04x}",
-                frame.frame_type
-            );
+/// Run invocations one at a time, in arrival order, on this thread, while a
+/// reader thread takes frames from the parent.
+fn serve(channel: Channel, runtime: &Arc<dyn PluginRuntime>) -> ! {
+    let sender = match channel.ipc.try_clone() {
+        Ok(ipc) => Arc::new(Sender {
+            ipc: Mutex::new(ipc),
+            max_frame_bytes: channel.max_frame_bytes,
+        }),
+        Err(_) => std::process::exit(EXIT_PROTOCOL),
+    };
+    let queue = Arc::new(InvokeQueue::default());
+    let reader_queue = queue.clone();
+    let reader_sender = sender.clone();
+    if std::thread::Builder::new()
+        .name("plugin-worker-reader".to_string())
+        .spawn(move || read_parent(channel, &reader_queue, &reader_sender))
+        .is_err()
+    {
+        std::process::exit(EXIT_PROTOCOL);
+    }
+    loop {
+        let (request, cancellation) = queue.next();
+        let result = runtime.invoke(request, cancellation);
+        queue.finished();
+        sender.send(FRAME_INVOCATION_RESULT, &result);
+    }
+}
+
+/// Take frames from the parent until Shutdown or EOF, which end the worker.
+fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender) {
+    loop {
+        match channel.next() {
+            None => std::process::exit(0),
+            Some(frame) => match frame.frame_type {
+                FRAME_SHUTDOWN => std::process::exit(0),
+                FRAME_INVOKE => match decode_json::<PluginInvocationRequest>(&frame) {
+                    Ok(request) => queue.push(request),
+                    Err(error) => {
+                        eprintln!("botster plugin worker: bad Invoke frame: {error}");
+                        std::process::exit(EXIT_PROTOCOL);
+                    }
+                },
+                FRAME_CANCEL => match decode_json::<CancelFrame>(&frame) {
+                    Ok(cancel) => {
+                        if let Some(request) = queue.cancel(&cancel.request_id) {
+                            sender.send(FRAME_INVOCATION_RESULT, &cancelled(request));
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("botster plugin worker: bad Cancel frame: {error}");
+                        std::process::exit(EXIT_PROTOCOL);
+                    }
+                },
+                other => {
+                    eprintln!("botster plugin worker: unexpected frame type {other:#04x}");
+                    std::process::exit(EXIT_PROTOCOL);
+                }
+            },
+        }
+    }
+}
+
+fn cancelled(request: PluginInvocationRequest) -> PluginInvocationResult {
+    PluginInvocationResult::Failed(PluginInvocationFailure {
+        request_id: request.request_id,
+        handler: request.handler,
+        kind: PluginInvocationFailureKind::Cancelled,
+        timeout_ms: None,
+        reason: "cancelled before it started".to_string(),
+    })
+}
+
+/// Invocations waiting to run, and the one running now.
+#[derive(Default)]
+struct InvokeQueue {
+    state: Mutex<QueueState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct QueueState {
+    waiting: VecDeque<PluginInvocationRequest>,
+    running: Option<(RequestId, PluginCancellationToken)>,
+}
+
+impl InvokeQueue {
+    fn lock(&self) -> MutexGuard<'_, QueueState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn push(&self, request: PluginInvocationRequest) {
+        self.lock().waiting.push_back(request);
+        self.ready.notify_one();
+    }
+
+    /// The next invocation to run, marked running with a fresh token.
+    fn next(&self) -> (PluginInvocationRequest, PluginCancellationToken) {
+        let mut state = self.lock();
+        loop {
+            if let Some(request) = state.waiting.pop_front() {
+                let cancellation = PluginCancellationToken::new();
+                state.running = Some((request.request_id.clone(), cancellation.clone()));
+                return (request, cancellation);
+            }
+            state = self
+                .ready
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    fn finished(&self) {
+        self.lock().running = None;
+    }
+
+    /// Cancel `request_id`: a waiting invocation is removed and returned, to
+    /// be answered at once; a running one has its token cancelled. An id
+    /// that is neither has already finished.
+    fn cancel(&self, request_id: &RequestId) -> Option<PluginInvocationRequest> {
+        let mut state = self.lock();
+        if let Some(index) = state
+            .waiting
+            .iter()
+            .position(|request| &request.request_id == request_id)
+        {
+            return state.waiting.remove(index);
+        }
+        let running = state
+            .running
+            .as_ref()
+            .filter(|(running, _)| running == request_id)
+            .map(|(_, cancellation)| cancellation.clone());
+        drop(state);
+        if let Some(cancellation) = running {
+            cancellation.cancel();
+        }
+        None
+    }
+}
+
+/// The child's sending half, shared by the executor and the reader.
+struct Sender {
+    ipc: Mutex<UnixStream>,
+    max_frame_bytes: usize,
+}
+
+impl Sender {
+    fn send<T: serde::Serialize>(&self, frame_type: u8, value: &T) {
+        let frame = match encode_json_bounded(frame_type, value, self.max_frame_bytes) {
+            Ok(frame) => frame,
+            Err(error) => {
+                eprintln!("botster plugin worker: cannot encode frame: {error}");
+                std::process::exit(EXIT_PROTOCOL);
+            }
+        };
+        let ipc = self.ipc.lock().unwrap_or_else(PoisonError::into_inner);
+        if send_all(ipc.as_fd(), &frame).is_err() {
             std::process::exit(EXIT_PROTOCOL);
         }
     }
