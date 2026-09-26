@@ -362,6 +362,14 @@ impl FakePluginStoreCapabilityRuntime {
 }
 
 impl PluginCapabilityRuntime for FakePluginStoreCapabilityRuntime {
+    /// Events are queued inside host calls, so the notifier is never needed.
+    fn set_event_notifier(&mut self, _notifier: botster_core::CapabilityEventNotifier) {}
+
+    /// Operations finish inside the host call that submits them.
+    fn next_deadline(&self) -> Option<std::time::Instant> {
+        None
+    }
+
     fn submit(
         &mut self,
         request: CapabilityRuntimeRequest,
