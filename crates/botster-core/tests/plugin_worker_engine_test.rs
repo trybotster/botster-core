@@ -422,32 +422,21 @@ fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
     assert!(predicate(), "condition did not become true before deadline");
 }
 
-fn try_admit_retrying_lock_busy(
+fn admit(
     engine: &PluginWorkerEngine,
     class: PluginInvocationClass,
     request: PluginInvocationRequest,
 ) -> PluginAdmissionResult {
-    try_admit_with_completion_reservation_retrying_lock_busy(engine, class, request, 1)
+    engine.admit(class, request, 1)
 }
 
-fn try_admit_with_completion_reservation_retrying_lock_busy(
+fn engine_admit_with_reservation(
     engine: &PluginWorkerEngine,
     class: PluginInvocationClass,
     request: PluginInvocationRequest,
     completion_reservation_bytes: usize,
 ) -> PluginAdmissionResult {
-    let started = std::time::Instant::now();
-    loop {
-        match engine.try_admit(class, request.clone(), completion_reservation_bytes) {
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == ADMISSION_LOCK_BUSY
-                    && started.elapsed() < Duration::from_millis(100) =>
-            {
-                std::thread::yield_now();
-            }
-            other => return other,
-        }
-    }
+    engine.admit(class, request, completion_reservation_bytes)
 }
 
 #[test]
@@ -1763,7 +1752,7 @@ fn saturated_background_cannot_occupy_reserved_request_response_executor() {
 
     for index in 0..2 {
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 invocation(&format!("bg-{index}"), command.clone(), 2_000),
@@ -1813,7 +1802,7 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("slow", command.clone(), 1_000),
@@ -1861,7 +1850,7 @@ fn drain_completions_honors_item_and_byte_caps() {
     ));
     for index in 0..3 {
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 invocation(&format!("drain-{index}"), command.clone(), 1_000),
@@ -1916,7 +1905,7 @@ fn admitted_slow_job_times_out_through_engine_deadline_waiter() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("engine-timeout", command, 10),
@@ -1953,7 +1942,7 @@ fn completion_reservation_is_one_slot_until_drained() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("first", command.clone(), 2_000),
@@ -1961,7 +1950,7 @@ fn completion_reservation_is_one_slot_until_drained() {
         PluginAdmissionResult::Queued { .. }
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("second", command.clone(), 2_000),
@@ -1971,7 +1960,7 @@ fn completion_reservation_is_one_slot_until_drained() {
     runtime.release();
     let _ = wait_for_completion(&engine, "first");
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("after-drain", command, 1_000),
@@ -1994,7 +1983,7 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("open-job", command.clone(), 5_000),
@@ -2035,7 +2024,7 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("timeout-then-unload", command, 10),
@@ -2068,7 +2057,7 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("same", command.clone(), 40),
@@ -2084,7 +2073,7 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("same", command, 5_000),
@@ -2130,7 +2119,7 @@ fn large_context_metadata_is_counted_in_class_byte_budget() {
         "blob": "m".repeat(512)
     })));
     assert!(matches!(
-        try_admit_retrying_lock_busy(&engine, PluginInvocationClass::Background, huge),
+        admit(&engine, PluginInvocationClass::Background, huge),
         PluginAdmissionResult::RejectedBudget { .. }
     ));
 }
@@ -2166,12 +2155,12 @@ fn short_and_long_correlation_fields_reserve_fitting_fallbacks() {
         )
     });
 
-    let short = try_admit_retrying_lock_busy(
+    let short = admit(
         &engine,
         PluginInvocationClass::Background,
         invocation("a", short_handler, 1_000),
     );
-    let long = try_admit_retrying_lock_busy(
+    let long = admit(
         &engine,
         PluginInvocationClass::Background,
         invocation(&"r".repeat(128), long_handler, 1_000),
@@ -2216,7 +2205,7 @@ fn oversize_handler_result_uses_prebuilt_compact_failure() {
     let mut request = invocation("oversize-result", command, 1_000);
     request.payload = BoundaryJson(serde_json::json!({ "tiny": true }));
     assert!(matches!(
-        try_admit_retrying_lock_busy(&engine, PluginInvocationClass::Background, request),
+        admit(&engine, PluginInvocationClass::Background, request),
         PluginAdmissionResult::Queued { .. }
     ));
     let completion = wait_for_completion(&engine, "oversize-result");
@@ -2246,7 +2235,7 @@ fn explicit_completion_reservation_allows_a_larger_bounded_result() {
         None,
     ));
 
-    let admitted = try_admit_with_completion_reservation_retrying_lock_busy(
+    let admitted = engine_admit_with_reservation(
         &engine,
         PluginInvocationClass::Background,
         invocation("explicit-reservation", command, 1_000),
@@ -2298,7 +2287,7 @@ fn completion_metadata_charge_does_not_enlarge_the_payload_allowance() {
         None,
     ));
     assert!(
-        matches!(try_admit_with_completion_reservation_retrying_lock_busy(&engine, PluginInvocationClass::Background,
+        matches!(engine_admit_with_reservation(&engine, PluginInvocationClass::Background,
         invocation("payload-limit", command, 1000), payload_bytes), PluginAdmissionResult::Queued { reservation_bytes, .. } if reservation_bytes == charged_bytes)
     );
     assert!(
@@ -2331,7 +2320,7 @@ fn completion_reservation_requires_a_positive_allowance_and_fits_fallback_overhe
         PluginAdmissionResult::RejectedBudget { reason, .. }
             if reason == "completion reservation must be positive"
     ));
-    let admitted = try_admit_with_completion_reservation_retrying_lock_busy(
+    let admitted = engine_admit_with_reservation(
         &engine,
         PluginInvocationClass::Background,
         invocation("fallback-overhead", command, 0),
@@ -2371,7 +2360,7 @@ fn per_completion_ceiling_checks_both_admission_paths() {
     ));
 
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("exact-ceiling", command.clone(), 1_000),
@@ -2384,7 +2373,7 @@ fn per_completion_ceiling_checks_both_admission_paths() {
     ));
     let _ = wait_for_completion(&engine, "exact-ceiling");
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("above-ceiling", command, 1_000),
@@ -2400,7 +2389,7 @@ fn per_completion_ceiling_checks_both_admission_paths() {
         handler_id: "missing".to_string(),
     };
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("immediate-above-ceiling", missing, 1_000),
@@ -2438,7 +2427,7 @@ fn immediate_failure_rejects_a_request_above_the_class_byte_capacity() {
     request.payload = BoundaryJson(serde_json::json!({ "blob": "x".repeat(512) }));
 
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             request,
@@ -2473,7 +2462,7 @@ fn request_overhead_above_per_completion_capacity_is_permanently_rejected() {
     request.payload = BoundaryJson(serde_json::json!({ "blob": "x".repeat(512) }));
 
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             request,
@@ -2510,7 +2499,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
     ));
 
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("too-large", command.clone(), 1_000),
@@ -2520,7 +2509,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
             if reason == "completion reservation exceeds engine completion pool byte capacity"
     ));
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("first", command.clone(), 1_000),
@@ -2529,7 +2518,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
         PluginAdmissionResult::Queued { .. }
     ));
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("second", command.clone(), 1_000),
@@ -2543,7 +2532,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
         engine.debug_snapshot().undrained_completions == 1
     });
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("before-drain", command.clone(), 1_000),
@@ -2553,7 +2542,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
     ));
     let _ = wait_for_completion(&engine, "first");
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("after-drain", command, 1_000),
@@ -2581,7 +2570,7 @@ fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
         None,
     ));
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("retired-count", command.clone(), 1_000),
@@ -2614,7 +2603,7 @@ fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
             ),
         );
         assert!(matches!(
-            try_admit_with_completion_reservation_retrying_lock_busy(
+            engine_admit_with_reservation(
                 &engine,
                 PluginInvocationClass::Background,
                 invocation(
@@ -2634,7 +2623,7 @@ fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
     assert_eq!(drained.reserved_completion_count, 0);
     assert_eq!(drained.reserved_completion_bytes, 0);
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("released-count", command, 1_000),
@@ -2663,7 +2652,7 @@ fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
         None,
     ));
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("retired-bytes", command.clone(), 1_000),
@@ -2699,7 +2688,7 @@ fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
             ),
         );
         assert!(matches!(
-            try_admit_with_completion_reservation_retrying_lock_busy(
+            engine_admit_with_reservation(
                 &engine,
                 PluginInvocationClass::Background,
                 invocation(
@@ -2718,7 +2707,7 @@ fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
     assert_eq!(drained.reserved_completion_count, 0);
     assert_eq!(drained.reserved_completion_bytes, 0);
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("released-bytes", command, 1_000),
@@ -2757,7 +2746,7 @@ fn active_plugins_share_one_engine_wide_completion_reservation() {
     ));
 
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("shared-first", first_command, 1_000),
@@ -2766,7 +2755,7 @@ fn active_plugins_share_one_engine_wide_completion_reservation() {
         PluginAdmissionResult::Queued { .. }
     ));
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("shared-blocked", second_command.clone(), 1_000),
@@ -2780,7 +2769,7 @@ fn active_plugins_share_one_engine_wide_completion_reservation() {
     assert_eq!(drained.reserved_completion_count, 0);
     assert_eq!(drained.reserved_completion_bytes, 0);
     assert!(matches!(
-        try_admit_with_completion_reservation_retrying_lock_busy(
+        engine_admit_with_reservation(
             &engine,
             PluginInvocationClass::Background,
             invocation("shared-released", second_command, 1_000),
@@ -2878,7 +2867,7 @@ fn debug_snapshot_reports_live_class_fields() {
         None,
     ));
     assert!(matches!(
-        try_admit_retrying_lock_busy(
+        admit(
             &engine,
             PluginInvocationClass::Background,
             invocation("snap-bg", command, 2_000),
