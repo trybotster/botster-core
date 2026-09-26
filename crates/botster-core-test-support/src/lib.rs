@@ -5,6 +5,7 @@
 //! release.
 
 pub mod assertions;
+pub mod close_sites;
 #[cfg(feature = "local-runtime")]
 pub mod conformance;
 pub mod diagnostics;

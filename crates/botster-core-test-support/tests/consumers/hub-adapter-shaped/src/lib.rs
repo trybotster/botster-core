@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
-    MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
+    TerminalRouteCloseReason, MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_core::{TerminalWakeKind, TerminalWakeSink, WakingTerminalAdapter};
 use botster_core_test_support::terminal_adapter::TerminalAdapterHarnessDriver;
@@ -38,7 +38,7 @@ impl TerminalAdapter for HubShapedTerminalAdapter {
         Ok(())
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, _reason: TerminalRouteCloseReason) {
         self.closed = true;
         self.active = None;
         self.ingress.clear();
@@ -192,8 +192,8 @@ mod tests {
             result
         }
 
-        fn close(&mut self) {
-            self.inner.lock().expect("hub adapter lock").close();
+        fn close(&mut self, reason: TerminalRouteCloseReason) {
+            self.inner.lock().expect("hub adapter lock").close(reason);
         }
 
         fn pressure(&self) -> TerminalAdapterPressure {
@@ -393,8 +393,8 @@ mod tests {
                 .try_write(frame)
         }
 
-        fn close(&mut self) {
-            self.inner.lock().expect("hub adapter lock").close();
+        fn close(&mut self, reason: TerminalRouteCloseReason) {
+            self.inner.lock().expect("hub adapter lock").close(reason);
         }
 
         fn pressure(&self) -> TerminalAdapterPressure {

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    TerminalRouteCloseReason,
 };
 use botster_core::contract::terminal_wake::{TerminalWakeSink, WakingTerminalAdapter};
 use botster_terminal_protocol::RoutedTerminalFrame;
@@ -24,8 +25,8 @@ impl TerminalAdapter for FakeTerminalAdapter {
         self.inner.try_write(frame)
     }
 
-    fn close(&mut self) {
-        self.inner.close();
+    fn close(&mut self, reason: TerminalRouteCloseReason) {
+        self.inner.close_by_core(reason);
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -167,8 +168,8 @@ impl TerminalAdapter for SharedFakeTerminalAdapter {
         result
     }
 
-    fn close(&mut self) {
-        self.lock().close();
+    fn close(&mut self, reason: TerminalRouteCloseReason) {
+        self.lock().inner.close_by_core(reason);
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -257,6 +258,12 @@ impl SharedFakeTerminalAdapter {
     #[must_use]
     pub fn snapshot_pressure(&self) -> TerminalAdapterPressure {
         self.lock().pressure()
+    }
+
+    /// The first reason Core passed to [`TerminalAdapter::close`], if any.
+    #[must_use]
+    pub fn close_reason(&self) -> Option<TerminalRouteCloseReason> {
+        self.lock().inner.core_close_reason()
     }
 
     /// Complete the active write after bind without needing `&mut self`.
