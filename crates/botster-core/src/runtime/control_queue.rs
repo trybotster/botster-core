@@ -243,7 +243,7 @@ impl Default for ControlQueue {
 /// Shared writer outcome slot.
 #[derive(Clone)]
 pub struct ControlWriterSlot {
-    inner: Arc<Mutex<ControlWriterOutcome>>,
+    inner: Arc<(Mutex<ControlWriterOutcome>, Condvar)>,
 }
 
 impl ControlWriterSlot {
@@ -251,19 +251,36 @@ impl ControlWriterSlot {
     #[must_use]
     pub fn running() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(ControlWriterOutcome::Running)),
+            inner: Arc::new((Mutex::new(ControlWriterOutcome::Running), Condvar::new())),
         }
     }
 
     /// Record the writer exit.
     pub fn set(&self, outcome: ControlWriterOutcome) {
-        *self.inner.lock().unwrap_or_else(|error| error.into_inner()) = outcome;
+        let (slot, changed) = &*self.inner;
+        *slot.lock().unwrap_or_else(|error| error.into_inner()) = outcome;
+        changed.notify_all();
+    }
+
+    /// Wait until the writer leaves [`ControlWriterOutcome::Running`].
+    /// Returns `false` when `timeout` passes first.
+    #[must_use]
+    pub fn wait_stopped(&self, timeout: Duration) -> bool {
+        let (slot, changed) = &*self.inner;
+        let outcome = slot.lock().unwrap_or_else(|error| error.into_inner());
+        let (outcome, _) = changed
+            .wait_timeout_while(outcome, timeout, |outcome| {
+                matches!(outcome, ControlWriterOutcome::Running)
+            })
+            .unwrap_or_else(|error| error.into_inner());
+        !matches!(*outcome, ControlWriterOutcome::Running)
     }
 
     /// Snapshot the current outcome.
     #[must_use]
     pub fn get(&self) -> ControlWriterOutcome {
         self.inner
+            .0
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
@@ -271,7 +288,11 @@ impl ControlWriterSlot {
 
     /// Mark a failed outcome consumed. Returns the error on first consume.
     pub fn consume_failure(&self) -> Option<ControlWriterError> {
-        let mut outcome = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        let mut outcome = self
+            .inner
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         match &mut *outcome {
             ControlWriterOutcome::Failed {
                 error,
