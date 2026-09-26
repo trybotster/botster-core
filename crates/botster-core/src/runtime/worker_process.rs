@@ -1063,10 +1063,14 @@ impl WorkerProcessRuntime {
                 continue;
             }
             if frame.phase == Some(crate::WorkerSnapshotPhase::Ready) {
+                let events: Vec<_> = session
+                    .pending_output
+                    .drain(..boundary_len.min(session.pending_output.len()))
+                    .collect();
                 before_ready.extend(
-                    session
-                        .pending_output
-                        .drain(..boundary_len.min(session.pending_output.len()))
+                    events
+                        .into_iter()
+                        .filter_map(|event| session.state_order.admit(event))
                         .map(|event| event.into_runtime_output(session_id)),
                 );
             }
@@ -1327,7 +1331,8 @@ impl WorkerProcessRuntime {
                 recovery_identity: None,
             },
             output: receiver,
-            overflow: Arc::new(AtomicUsize::new(0)),
+            overflow: Arc::new(ReaderOverflow::default()),
+            state_order: StateOrder::default(),
             pong_count: Arc::new(AtomicUsize::new(0)),
             last_health: Arc::new(Mutex::new(None)),
             completion: Arc::new(Mutex::new(WorkerCompletion {
@@ -1606,7 +1611,7 @@ impl WorkerProcessRuntime {
         latest_modes: Option<ModesBody>,
     ) -> Result<(), SessionRuntimeError> {
         let (sender, receiver) = mpsc::sync_channel(self.options.egress_capacity.max(1));
-        let overflow = Arc::new(AtomicUsize::new(0));
+        let overflow = Arc::new(ReaderOverflow::default());
         let pong_count = Arc::new(AtomicUsize::new(0));
         let last_health = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(WorkerCompletion::default()));
@@ -1640,6 +1645,7 @@ impl WorkerProcessRuntime {
             metadata,
             output: receiver,
             overflow,
+            state_order: StateOrder::default(),
             pong_count,
             last_health,
             completion,
@@ -2025,40 +2031,22 @@ impl SessionRuntime for WorkerProcessRuntime {
         let mut output = Vec::new();
         let completed = {
             let session = self.session_mut(session_id)?;
-            let overflow = session.overflow.swap(0, Ordering::AcqRel);
-            if overflow > 0 {
-                output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
-                    source: QueueSource::SessionIo,
-                    capacity: session.egress_capacity,
-                    depth: session.egress_capacity,
-                    route: BackpressureRoute {
-                        session_id: Some(session_id.clone()),
-                        client_id: None,
-                        subscription_id: None,
-                        plugin_key: None,
-                    },
-                }));
-            }
-
-            while let Some(event) = session.pending_output.pop_front() {
-                output.push(event.into_runtime_output(session_id));
-            }
-
+            session.take_reader_output(session_id, &mut output);
+            #[cfg(test)]
+            before_completion_read(session);
             let completion = session.completion.lock().map_err(lock_error)?;
             completion.process_exited.clone()
         };
 
         if let Some(payload) = completed {
             // The reader stores FRAME_PROCESS_EXITED only after earlier frames
-            // were accepted into the channel. Re-pump once so a raced last
-            // PTY chunk is not dropped when the session is removed.
+            // were accepted into the channel and earlier drops were recorded.
+            // Re-pump and take the overflow once more, so a raced last PTY
+            // chunk or a drop recorded after the first take is not lost when
+            // the session is removed.
             self.pump_session_output(session_id)?;
-            {
-                let session = self.session_mut(session_id)?;
-                while let Some(event) = session.pending_output.pop_front() {
-                    output.push(event.into_runtime_output(session_id));
-                }
-            }
+            self.session_mut(session_id)?
+                .take_reader_output(session_id, &mut output);
             // Map removal transfers wake-retirement ownership to CoreDaemon.
             if let Some(mut removed) = self.sessions.remove(session_id) {
                 if let Some(admission) = &removed.admission {
@@ -2309,7 +2297,9 @@ struct WorkerProcessSession {
     wake_handle: Option<SessionWakeHandle>,
     metadata: SessionMetadata,
     output: Receiver<WorkerChannelEvent>,
-    overflow: Arc<AtomicUsize>,
+    overflow: Arc<ReaderOverflow>,
+    /// Newest title/cwd emitted, so a stale queued value never follows it.
+    state_order: StateOrder,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
@@ -2328,6 +2318,40 @@ struct WorkerProcessSession {
 }
 
 impl WorkerProcessSession {
+    /// Take what the reader queued or could not deliver, in order: the PTY
+    /// drop summary, the queued events, then the coalesced state values and
+    /// the lost-event summary, which are newer than the queued events.
+    fn take_reader_output(
+        &mut self,
+        session_id: &SessionId,
+        output: &mut Vec<SessionRuntimeOutput>,
+    ) {
+        let overflow = self.overflow.pty.swap(0, Ordering::AcqRel);
+        if overflow > 0 {
+            output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
+                source: QueueSource::SessionIo,
+                capacity: self.egress_capacity,
+                depth: self.egress_capacity,
+                route: BackpressureRoute {
+                    session_id: Some(session_id.clone()),
+                    client_id: None,
+                    subscription_id: None,
+                    plugin_key: None,
+                },
+            }));
+        }
+        while let Some(event) = self.pending_output.pop_front() {
+            if let Some(event) = self.state_order.admit(event) {
+                output.push(event.into_runtime_output(session_id));
+            }
+        }
+        output.extend(self.overflow.take_outputs(
+            session_id,
+            self.egress_capacity,
+            &mut self.state_order,
+        ));
+    }
+
     /// Wake stall waiters before child.wait() or other blocking close work.
     ///
     /// Attached capacity-one pressure can fill the worker pipe while the
@@ -2834,8 +2858,10 @@ impl Drop for PendingWorker {
 
 enum WorkerOutputEvent {
     PtyOutput(Vec<u8>),
-    TitleChanged(String),
-    CwdChanged(String),
+    /// A title, stamped with the reader's state sequence.
+    TitleChanged(u64, String),
+    /// A working directory, stamped with the reader's state sequence.
+    CwdChanged(u64, String),
     PromptMark(PromptMarkPayload),
     Bell,
     Notification(NotificationPayload),
@@ -2859,11 +2885,11 @@ impl WorkerOutputEvent {
                 session_id: session_id.clone(),
                 data,
             },
-            Self::TitleChanged(title) => SessionRuntimeOutput::TitleChanged {
+            Self::TitleChanged(_, title) => SessionRuntimeOutput::TitleChanged {
                 session_id: session_id.clone(),
                 title,
             },
-            Self::CwdChanged(cwd) => SessionRuntimeOutput::CwdChanged {
+            Self::CwdChanged(_, cwd) => SessionRuntimeOutput::CwdChanged {
                 session_id: session_id.clone(),
                 cwd,
             },
@@ -2915,7 +2941,7 @@ fn notify_session_wake(handle: &Option<SessionWakeHandle>) {
 fn spawn_stdout_reader(
     mut stdout: impl Read + Send + 'static,
     sender: SyncSender<WorkerChannelEvent>,
-    overflow: Arc<AtomicUsize>,
+    overflow: Arc<ReaderOverflow>,
     pong_count: Arc<AtomicUsize>,
     last_health: Arc<Mutex<Option<WorkerHealth>>>,
     completion: Arc<Mutex<WorkerCompletion>>,
@@ -2929,12 +2955,12 @@ fn spawn_stdout_reader(
         while let Ok(frame) = read_frame(&mut stdout) {
             match frame.frame_type {
                 FRAME_PTY_OUTPUT => {
-                    send_pty_output(
+                    route_worker_event(
                         &sender,
                         &overflow,
                         &stall,
                         &wake_handle,
-                        frame.payload,
+                        WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
                         |routing| {
                             if let Some(probe) = &route_probe {
                                 probe.report(WorkerRouteProbeEvent::PtyOutputRouted {
@@ -2964,21 +2990,25 @@ fn spawn_stdout_reader(
                 }
                 FRAME_TITLE_CHANGED => {
                     if let Ok(title) = String::from_utf8(frame.payload) {
+                        let seq = overflow.next_state_seq();
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &stall,
                             &wake_handle,
-                            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(seq, title)),
                         );
                     }
                 }
                 FRAME_CWD_CHANGED => {
                     if let Ok(cwd) = String::from_utf8(frame.payload) {
+                        let seq = overflow.next_state_seq();
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &stall,
                             &wake_handle,
-                            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
+                            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(seq, cwd)),
                         );
                     }
                 }
@@ -2987,6 +3017,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
@@ -2996,6 +3027,7 @@ fn spawn_stdout_reader(
                     send_worker_event(
                         &sender,
                         &overflow,
+                        &stall,
                         &wake_handle,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
@@ -3005,6 +3037,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
@@ -3015,6 +3048,7 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
+                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
@@ -3025,9 +3059,8 @@ fn spawn_stdout_reader(
                 FRAME_MODE_FLAGS => {
                     if let Ok(payload) = serde_json::from_slice::<ModeFlagsPayload>(&frame.payload)
                     {
-                        send_worker_event(
+                        send_correlated(
                             &sender,
-                            &overflow,
                             &wake_handle,
                             WorkerChannelEvent::ModeFlags(payload),
                         );
@@ -3035,12 +3068,7 @@ fn spawn_stdout_reader(
                 }
                 FRAME_SCREEN => {
                     if let Ok(payload) = serde_json::from_slice::<ScreenPayload>(&frame.payload) {
-                        send_worker_event(
-                            &sender,
-                            &overflow,
-                            &wake_handle,
-                            WorkerChannelEvent::Screen(payload),
-                        );
+                        send_correlated(&sender, &wake_handle, WorkerChannelEvent::Screen(payload));
                     }
                 }
                 FRAME_INPUT_RESULT => {
@@ -3121,66 +3149,213 @@ fn spawn_stdout_reader(
     });
 }
 
-/// Route one worker PTY output event and report each routing decision.
+/// The newest title and cwd a session has emitted, by reader stamp. A value
+/// older than the one already emitted is stale and is dropped, whether it
+/// arrives from the channel or from an overflow slot.
+#[derive(Default)]
+struct StateOrder {
+    title: u64,
+    cwd: u64,
+}
+
+impl StateOrder {
+    fn admit(&mut self, event: WorkerOutputEvent) -> Option<WorkerOutputEvent> {
+        let (newest, seq) = match &event {
+            WorkerOutputEvent::TitleChanged(seq, _) => (&mut self.title, *seq),
+            WorkerOutputEvent::CwdChanged(seq, _) => (&mut self.cwd, *seq),
+            _ => return Some(event),
+        };
+        if seq <= *newest {
+            return None;
+        }
+        *newest = seq;
+        Some(event)
+    }
+}
+
+/// What the worker reader could not deliver: the channel was full and no
+/// consumer could be stalled for.
 ///
-/// Live PTY bytes are not replayable. While a parent consumer is attached,
-/// stall instead of dropping them. Detach must stop the stall so cancel and
-/// detached workers can still make progress. Wait on the drain/detach
-/// condvar; a blocking send cannot observe detach.
-fn send_pty_output(
+/// Live PTY chunks are dropped and counted (the worker's terminal model
+/// already holds them). Title and cwd are state: the latest value waits in a
+/// slot, and a newer value the channel accepts supersedes it. Occurrence
+/// events are counted and reported as a `SessionEvents` summary, never
+/// silently lost.
+#[derive(Default)]
+struct ReaderOverflow {
+    pty: AtomicUsize,
+    events: AtomicUsize,
+    /// Orders title and cwd values as the reader read them. A queued value
+    /// and a slot value can reach a drain in either order; the stamp keeps
+    /// an older one from following a newer one.
+    state_seq: std::sync::atomic::AtomicU64,
+    title: Mutex<Option<(u64, String)>>,
+    cwd: Mutex<Option<(u64, String)>>,
+}
+
+impl ReaderOverflow {
+    /// The next title/cwd stamp, in the order the reader reads them.
+    fn next_state_seq(&self) -> u64 {
+        self.state_seq.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    fn record_drop(&self, event: WorkerChannelEvent) {
+        match event {
+            WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_)) => {
+                self.pty.fetch_add(1, Ordering::AcqRel);
+            }
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(seq, title)) => {
+                if let Ok(mut slot) = self.title.lock() {
+                    *slot = Some((seq, title));
+                }
+            }
+            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(seq, cwd)) => {
+                if let Ok(mut slot) = self.cwd.lock() {
+                    *slot = Some((seq, cwd));
+                }
+            }
+            _ => {
+                self.events.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
+    /// The slot a state event would supersede once the channel accepts it.
+    fn state_slot(&self, event: &WorkerChannelEvent) -> Option<&Mutex<Option<(u64, String)>>> {
+        match event {
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(..)) => Some(&self.title),
+            WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(..)) => Some(&self.cwd),
+            _ => None,
+        }
+    }
+
+    /// Coalesced state values and the lost-event summary, after the queued
+    /// output they are newer than.
+    fn take_outputs(
+        &self,
+        session_id: &SessionId,
+        capacity: usize,
+        order: &mut StateOrder,
+    ) -> Vec<SessionRuntimeOutput> {
+        let mut output = Vec::new();
+        if let Some((seq, title)) = self.title.lock().ok().and_then(|mut slot| slot.take()) {
+            if let Some(event) = order.admit(WorkerOutputEvent::TitleChanged(seq, title)) {
+                output.push(event.into_runtime_output(session_id));
+            }
+        }
+        if let Some((seq, cwd)) = self.cwd.lock().ok().and_then(|mut slot| slot.take()) {
+            if let Some(event) = order.admit(WorkerOutputEvent::CwdChanged(seq, cwd)) {
+                output.push(event.into_runtime_output(session_id));
+            }
+        }
+        let lost = self.events.swap(0, Ordering::AcqRel);
+        if lost > 0 {
+            output.push(SessionRuntimeOutput::Backpressure(BackpressureSummary {
+                source: QueueSource::SessionEvents,
+                capacity,
+                depth: lost,
+                route: BackpressureRoute {
+                    session_id: Some(session_id.clone()),
+                    client_id: None,
+                    subscription_id: None,
+                    plugin_key: None,
+                },
+            }));
+        }
+        output
+    }
+}
+
+/// Deliver a correlated reply. It answers one outstanding request, so it is
+/// bounded, and its caller waits for it: it blocks for space, never drops.
+fn send_correlated(
     sender: &SyncSender<WorkerChannelEvent>,
-    overflow: &AtomicUsize,
+    wake_handle: &Option<SessionWakeHandle>,
+    event: WorkerChannelEvent,
+) {
+    #[cfg(test)]
+    if let Some(attempt) = CORRELATED_ATTEMPT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        let _ = attempt.send(());
+    }
+    if sender.send(event).is_ok() {
+        notify_session_wake(wake_handle);
+    }
+}
+
+/// Test seam: reports each correlated reply just before its blocking send.
+#[cfg(test)]
+static CORRELATED_ATTEMPT: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
+
+fn send_worker_event(
+    sender: &SyncSender<WorkerChannelEvent>,
+    overflow: &ReaderOverflow,
     stall: &EgressStall,
     wake_handle: &Option<SessionWakeHandle>,
-    bytes: Vec<u8>,
+    event: WorkerChannelEvent,
+) {
+    route_worker_event(sender, overflow, stall, wake_handle, event, |_| {});
+}
+
+/// Route one worker event and report each routing decision from the branch
+/// that makes it.
+///
+/// Live PTY bytes and semantic events are not replayable. While a parent
+/// consumer is attached, stall instead of dropping them. Detach must stop the
+/// stall so cancel and detached workers can still make progress. Wait on the
+/// drain/detach condvar; a blocking send cannot observe detach.
+fn route_worker_event(
+    sender: &SyncSender<WorkerChannelEvent>,
+    overflow: &ReaderOverflow,
+    stall: &EgressStall,
+    wake_handle: &Option<SessionWakeHandle>,
+    event: WorkerChannelEvent,
     mut report: impl FnMut(PtyOutputRouting),
 ) {
-    let mut event = WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(bytes));
+    let superseded = overflow.state_slot(&event);
+    let mut event = event;
     let mut seen_seq = 0;
     let mut stalled = false;
     loop {
-        if !stall.owners_present() {
-            match sender.try_send(event) {
-                Ok(()) => {
-                    notify_session_wake(wake_handle);
-                    report(PtyOutputRouting::Enqueued);
-                    return;
-                }
-                Err(TrySendError::Full(_)) => {
-                    overflow.fetch_add(1, Ordering::AcqRel);
-                    report(PtyOutputRouting::Dropped);
-                    return;
-                }
-                Err(TrySendError::Disconnected(_)) => return,
-            }
-        }
+        // A state value holds its slot across the send and the clear. A drain
+        // takes the slot under the same lock, so it takes either the older
+        // value before the newer one is queued, or nothing: a stale value can
+        // never be published after the newer one. The lock is released before
+        // any wait, because the drain is what frees space.
+        let slot = superseded.map(|slot| {
+            slot.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
         match sender.try_send(event) {
             Ok(()) => {
+                // A newer state value is queued; an older waiting one is stale.
+                if let Some(mut slot) = slot {
+                    #[cfg(test)]
+                    pause_state_publication();
+                    *slot = None;
+                }
                 notify_session_wake(wake_handle);
                 report(PtyOutputRouting::Enqueued);
                 return;
             }
             Err(TrySendError::Full(returned)) => {
+                drop(slot);
+                if !stall.owners_present() {
+                    overflow.record_drop(returned);
+                    notify_session_wake(wake_handle);
+                    report(PtyOutputRouting::Dropped);
+                    return;
+                }
                 event = returned;
                 if !stalled {
                     stalled = true;
                     report(PtyOutputRouting::Stalled);
                 }
                 match stall.wait_for_space_or_detach(&mut seen_seq) {
-                    StallWait::Retry => {}
-                    StallWait::Detached => match sender.try_send(event) {
-                        Ok(()) => {
-                            notify_session_wake(wake_handle);
-                            report(PtyOutputRouting::Enqueued);
-                            return;
-                        }
-                        Err(TrySendError::Full(_)) => {
-                            overflow.fetch_add(1, Ordering::AcqRel);
-                            report(PtyOutputRouting::Dropped);
-                            return;
-                        }
-                        Err(TrySendError::Disconnected(_)) => return,
-                    },
+                    StallWait::Retry | StallWait::Detached => {}
                     StallWait::Closed => return,
                 }
             }
@@ -3189,18 +3364,39 @@ fn send_pty_output(
     }
 }
 
-fn send_worker_event(
-    sender: &SyncSender<WorkerChannelEvent>,
-    overflow: &AtomicUsize,
-    wake_handle: &Option<SessionWakeHandle>,
-    event: WorkerChannelEvent,
-) {
-    match sender.try_send(event) {
-        Ok(()) => notify_session_wake(wake_handle),
-        Err(TrySendError::Full(_)) => {
-            overflow.fetch_add(1, Ordering::AcqRel);
-        }
-        Err(TrySendError::Disconnected(_)) => {}
+/// Test seam: runs in `drain_output` after the first take of reader output
+/// and before the completion read.
+#[cfg(test)]
+#[allow(clippy::type_complexity)]
+static BEFORE_COMPLETION_READ: Mutex<Option<Box<dyn FnOnce(&WorkerProcessSession) + Send>>> =
+    Mutex::new(None);
+
+#[cfg(test)]
+fn before_completion_read(session: &WorkerProcessSession) {
+    let hook = BEFORE_COMPLETION_READ
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(hook) = hook {
+        hook(session);
+    }
+}
+
+/// Test seam: holds a state publication between its queued send and the
+/// clear of its superseded slot.
+#[cfg(test)]
+static STATE_PUBLICATION_PAUSE: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>> =
+    Mutex::new(None);
+
+#[cfg(test)]
+fn pause_state_publication() {
+    let pause = STATE_PUBLICATION_PAUSE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some((reached, release)) = pause {
+        let _ = reached.send(());
+        let _ = release.recv();
     }
 }
 
@@ -3518,6 +3714,423 @@ mod tests {
         SessionRuntimeErrorKind, SessionSpawnRequest, WorkerProcessRuntime, WorkerWriteHalf,
         FRAME_PTY_INPUT, FRAME_SHUTDOWN, UNIX_SOCKET_PATH_MAX_BYTES,
     };
+
+    mod lossless_events {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::mpsc;
+
+        use super::super::{
+            send_worker_event, EgressStall, QueueSource, ReaderOverflow, SessionId,
+            SessionRuntimeOutput, StateOrder, WorkerChannelEvent, WorkerOutputEvent,
+            STATE_PUBLICATION_PAUSE,
+        };
+
+        fn session() -> SessionId {
+            SessionId("lossless-events".into())
+        }
+
+        /// A title stamped in creation order, as the reader stamps them.
+        fn title(value: &str) -> WorkerChannelEvent {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(
+                NEXT.fetch_add(1, Ordering::Relaxed),
+                value.into(),
+            ))
+        }
+
+        fn bell() -> WorkerChannelEvent {
+            WorkerChannelEvent::Output(WorkerOutputEvent::Bell)
+        }
+
+        /// A one-slot channel that is already full.
+        fn full_channel() -> (
+            mpsc::SyncSender<WorkerChannelEvent>,
+            mpsc::Receiver<WorkerChannelEvent>,
+        ) {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            sender
+                .try_send(WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(
+                    b"fill".to_vec(),
+                )))
+                .expect("fill the slot");
+            (sender, receiver)
+        }
+
+        fn events_lost(outputs: &[SessionRuntimeOutput]) -> Option<usize> {
+            outputs.iter().find_map(|output| match output {
+                SessionRuntimeOutput::Backpressure(summary)
+                    if summary.source == QueueSource::SessionEvents =>
+                {
+                    Some(summary.depth)
+                }
+                _ => None,
+            })
+        }
+
+        /// Serializes tests that install the process-wide correlated seam.
+        static CORRELATED_SEAM: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+        /// Feed one encoded frame to the real stdout reader over a channel
+        /// that is already full, with no consumer attached, and wait until the
+        /// reader attempts the reply while the channel is still full.
+        fn reader_over_full_channel(frame: Vec<u8>) -> mpsc::Receiver<WorkerChannelEvent> {
+            let (sender, receiver) = full_channel();
+            let (attempt_sender, attempted) = mpsc::channel();
+            *super::super::CORRELATED_ATTEMPT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(attempt_sender);
+            super::super::spawn_stdout_reader(
+                std::io::Cursor::new(frame),
+                sender,
+                std::sync::Arc::new(ReaderOverflow::default()),
+                std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                std::sync::Arc::new(std::sync::Mutex::new(None)),
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    super::super::WorkerCompletion::default(),
+                )),
+                std::sync::Arc::new(EgressStall::new()),
+                None,
+                session(),
+                None,
+                None,
+            );
+            // timer: deadline — the reader must reach the reply; a drop never does
+            let reached = attempted.recv_timeout(std::time::Duration::from_secs(5));
+            *super::super::CORRELATED_ATTEMPT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            reached.expect("the reader reached the correlated reply on a full channel");
+            receiver
+        }
+
+        /// The reply behind the fill, once the fill is taken.
+        fn reply_after_fill(receiver: &mpsc::Receiver<WorkerChannelEvent>) -> WorkerChannelEvent {
+            // timer: deadline — the filled slot is already queued
+            let fill = receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the fill");
+            assert!(matches!(
+                fill,
+                WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
+            ));
+            // timer: deadline — the correlated reply must follow; a drop never sends it
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("a correlated reply is never dropped")
+        }
+
+        #[test]
+        fn a_screen_reply_on_a_full_channel_reaches_its_caller() {
+            let _seam = CORRELATED_SEAM
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let frame = crate::contract::session_protocol::encode_json(
+                super::super::FRAME_SCREEN,
+                &crate::contract::session_protocol::ScreenPayload {
+                    request_id: "screen-1".into(),
+                    text: "hello".into(),
+                    error_kind: None,
+                },
+            )
+            .expect("encode screen reply");
+            let receiver = reader_over_full_channel(frame);
+            assert!(matches!(
+                reply_after_fill(&receiver),
+                WorkerChannelEvent::Screen(payload) if payload.request_id == "screen-1"
+            ));
+        }
+
+        #[test]
+        fn a_mode_flags_reply_on_a_full_channel_reaches_its_caller() {
+            let _seam = CORRELATED_SEAM
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let frame = crate::contract::session_protocol::encode_json(
+                super::super::FRAME_MODE_FLAGS,
+                &crate::contract::session_protocol::ModeFlagsPayload {
+                    request_id: "modes-1".into(),
+                    mode_flags: Default::default(),
+                    rows: 24,
+                    cols: 80,
+                    error_kind: None,
+                },
+            )
+            .expect("encode mode-flags reply");
+            let receiver = reader_over_full_channel(frame);
+            assert!(matches!(
+                reply_after_fill(&receiver),
+                WorkerChannelEvent::ModeFlags(payload) if payload.request_id == "modes-1"
+            ));
+        }
+
+        #[test]
+        fn a_burst_of_bells_with_no_consumer_is_counted_never_silently_lost() {
+            let (sender, _receiver) = full_channel();
+            let stall = EgressStall::new();
+            let overflow = ReaderOverflow::default();
+            for _ in 0..5 {
+                send_worker_event(&sender, &overflow, &stall, &None, bell());
+            }
+            let outputs = overflow.take_outputs(&session(), 1, &mut StateOrder::default());
+            assert_eq!(events_lost(&outputs), Some(5), "{outputs:?}");
+            assert_eq!(
+                events_lost(&overflow.take_outputs(&session(), 1, &mut StateOrder::default())),
+                None
+            );
+        }
+
+        #[test]
+        fn a_burst_of_bells_with_a_consumer_reaches_it_in_full() {
+            let (sender, receiver) = full_channel();
+            let stall = std::sync::Arc::new(EgressStall::new());
+            stall.insert_direct().expect("attach a consumer");
+            let overflow = std::sync::Arc::new(ReaderOverflow::default());
+            let reader_stall = std::sync::Arc::clone(&stall);
+            let reader_overflow = std::sync::Arc::clone(&overflow);
+            let reader = std::thread::spawn(move || {
+                for _ in 0..5 {
+                    send_worker_event(&sender, &reader_overflow, &reader_stall, &None, bell());
+                }
+            });
+            let mut bells = 0;
+            while bells < 5 {
+                // timer: deadline — the stalled reader must deliver every bell
+                let event = receiver
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("the stalled reader delivers the next event");
+                stall.note_space();
+                if matches!(event, WorkerChannelEvent::Output(WorkerOutputEvent::Bell)) {
+                    bells += 1;
+                }
+            }
+            reader.join().expect("reader");
+            assert_eq!(
+                events_lost(&overflow.take_outputs(&session(), 1, &mut StateOrder::default())),
+                None
+            );
+        }
+
+        #[test]
+        fn a_title_change_under_a_full_channel_converges_to_the_latest_title() {
+            let (sender, receiver) = full_channel();
+            let stall = EgressStall::new();
+            let overflow = ReaderOverflow::default();
+            for value in ["a", "b", "c"] {
+                send_worker_event(&sender, &overflow, &stall, &None, title(value));
+            }
+            let _ = receiver.try_recv();
+            let outputs = overflow.take_outputs(&session(), 1, &mut StateOrder::default());
+            assert!(
+                matches!(
+                    outputs.as_slice(),
+                    [SessionRuntimeOutput::TitleChanged { title, .. }] if title == "c"
+                ),
+                "{outputs:?}"
+            );
+
+            // A dropped title is superseded by a newer one the channel takes.
+            send_worker_event(&sender, &overflow, &stall, &None, title("d"));
+            send_worker_event(&sender, &overflow, &stall, &None, title("e"));
+            let _ = receiver.try_recv();
+            send_worker_event(&sender, &overflow, &stall, &None, title("f"));
+            assert!(overflow
+                .take_outputs(&session(), 1, &mut StateOrder::default())
+                .is_empty());
+            assert!(matches!(
+                receiver.try_recv(),
+                Ok(WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(_, title))) if title == "f"
+            ));
+        }
+
+        /// A drain between a newer title's queued send and the clear of the
+        /// older slot must not publish the older title after the newer one:
+        /// the reader holds the slot across its send and its clear.
+        #[test]
+        fn a_drain_between_a_queued_title_and_its_slot_clear_cannot_regress_the_title() {
+            let (sender, receiver) = full_channel();
+            let stall = EgressStall::new();
+            let overflow = std::sync::Arc::new(ReaderOverflow::default());
+            // "old" is dropped into the slot; then the channel has room.
+            send_worker_event(&sender, &overflow, &stall, &None, title("old"));
+            let _ = receiver.try_recv();
+
+            let (reached_tx, reached_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            *STATE_PUBLICATION_PAUSE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some((reached_tx, release_rx));
+            let reader = {
+                let overflow = std::sync::Arc::clone(&overflow);
+                std::thread::spawn(move || {
+                    send_worker_event(&sender, &overflow, &stall, &None, title("new"));
+                })
+            };
+            // timer: deadline — the reader must reach its paused publication
+            reached_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the reader queued the newer title");
+
+            // "new" is queued and the reader has not cleared the slot yet. A
+            // drain takes the slot under its lock, so it must wait here.
+            assert!(
+                overflow.title.try_lock().is_err(),
+                "a drain could take the stale slot between the queued title and its clear"
+            );
+            release_tx.send(()).expect("release the reader");
+            reader.join().expect("reader");
+            assert!(matches!(
+                receiver.try_recv(),
+                Ok(WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(_, title))) if title == "new"
+            ));
+            assert!(
+                overflow
+                    .take_outputs(&session(), 1, &mut StateOrder::default())
+                    .is_empty(),
+                "the superseded title must not be published"
+            );
+        }
+
+        /// A drain pumps the channel, then takes overflow. Between the two,
+        /// the reader queues title A and then records the newer title B in
+        /// overflow (the one-slot channel is full). The drain emits B; the
+        /// next drain's pump finds A. A is older than B, so it is dropped:
+        /// the title never regresses. The same holds for cwd.
+        #[test]
+        fn a_queued_title_older_than_an_emitted_overflow_title_is_dropped() {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let stall = EgressStall::new();
+            let overflow = ReaderOverflow::default();
+            let mut order = StateOrder::default();
+            let mut emitted = Vec::new();
+            let mut pending = std::collections::VecDeque::new();
+            let take = |pending: &mut std::collections::VecDeque<WorkerOutputEvent>,
+                        order: &mut StateOrder,
+                        emitted: &mut Vec<String>| {
+                let mut output = Vec::new();
+                while let Some(event) = pending.pop_front() {
+                    if let Some(event) = order.admit(event) {
+                        output.push(event.into_runtime_output(&session()));
+                    }
+                }
+                output.extend(overflow.take_outputs(&session(), 1, order));
+                emitted.extend(output.into_iter().filter_map(|output| match output {
+                    SessionRuntimeOutput::TitleChanged { title, .. } => Some(title),
+                    _ => None,
+                }));
+            };
+
+            // The first drain's pump finds the channel empty.
+            while let Ok(WorkerChannelEvent::Output(event)) = receiver.try_recv() {
+                pending.push_back(event);
+            }
+            // The reader queues A, then B finds the channel full.
+            send_worker_event(&sender, &overflow, &stall, &None, title("A"));
+            send_worker_event(&sender, &overflow, &stall, &None, title("B"));
+            // The first drain takes overflow: B.
+            take(&mut pending, &mut order, &mut emitted);
+            // The next drain pumps A out of the channel.
+            while let Ok(WorkerChannelEvent::Output(event)) = receiver.try_recv() {
+                pending.push_back(event);
+            }
+            take(&mut pending, &mut order, &mut emitted);
+
+            assert_eq!(
+                emitted,
+                vec!["B".to_string()],
+                "the title must not regress to A"
+            );
+        }
+    }
+
+    /// A drop the reader records after `drain_output` took the overflow, but
+    /// before the exit it then reads, is reported before the session is
+    /// removed, never lost with it.
+    #[test]
+    fn overflow_recorded_just_before_the_exit_is_reported_before_removal() {
+        use crate::runtime::SessionRuntime;
+
+        let path = Path::new("/tmp").join(format!(
+            "botster-exit-overflow-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).expect("bind worker socket");
+        let (close_sender, close_receiver) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept parent");
+            crate::read_hello(&mut stream).expect("read parent hello");
+            let metadata = crate::SessionMetadata {
+                session_uuid: "exit-overflow".to_string(),
+                pid: std::process::id(),
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            };
+            let bytes = crate::encode_welcome(crate::PROTOCOL_VERSION, &metadata)
+                .expect("encode worker welcome");
+            stream.write_all(&bytes).expect("write worker welcome");
+            close_receiver.recv().expect("receive close signal");
+        });
+
+        let session_id = SessionId("exit-overflow".to_string());
+        let mut runtime = WorkerProcessRuntime::new("/missing/worker");
+        runtime
+            .adopt_session(
+                session_id.clone(),
+                ProcessIdentity {
+                    pid: Some(std::process::id()),
+                    runtime_id: Some("exit-overflow".to_string()),
+                },
+                &path,
+                false,
+            )
+            .expect("adopt the fake worker");
+
+        // Between the first take and the completion read, the reader records
+        // one PTY drop and then the exit, as its thread does in order.
+        *super::BEFORE_COMPLETION_READ
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(|session| {
+            session
+                .overflow
+                .record_drop(super::WorkerChannelEvent::Output(
+                    super::WorkerOutputEvent::PtyOutput(b"lost".to_vec()),
+                ));
+            session
+                .completion
+                .lock()
+                .expect("completion")
+                .process_exited = Some(crate::ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            });
+        }));
+        let output = runtime.drain_output(&session_id).expect("drain");
+        assert!(
+            output.iter().any(|event| matches!(
+                event,
+                super::SessionRuntimeOutput::Backpressure(summary)
+                    if summary.source == super::QueueSource::SessionIo
+            )),
+            "the final PTY drop must be reported: {output:?}"
+        );
+        assert!(output
+            .iter()
+            .any(|event| matches!(event, super::SessionRuntimeOutput::ProcessExited { .. })));
+
+        close_sender.send(()).expect("close worker server");
+        server.join().expect("worker server");
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn a_full_stdio_pipe_waits_for_the_reader_to_drain() {
