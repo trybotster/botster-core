@@ -221,6 +221,8 @@ pub struct PluginWorkerDebugSnapshot {
     pub background_pressure_events: usize,
     /// Times admission was refused because a completion pool was full.
     pub completion_pressure_events: usize,
+    /// Times try_admit reported `admission lock busy` after its one retry.
+    pub admission_lock_busy_events: usize,
     /// Currently registered per-plugin rows sorted by plugin key.
     pub plugins: Vec<PluginWorkerPluginDebugSnapshot>,
 }
@@ -297,6 +299,9 @@ struct EngineShared {
     /// Live delivery pools, by id, for returning drained units.
     pools: Mutex<HashMap<u64, std::sync::Weak<delivery_pool::PoolInner>>>,
     next_pool: AtomicU64,
+    /// A try_admit met a busy internal lock. The next non-owner thread that
+    /// releases admission state clears it and fires the completion notifier.
+    admission_retry_armed: AtomicBool,
     #[cfg(test)]
     publication_pause: Mutex<Option<Arc<PublicationPause>>>,
     #[cfg(test)]
@@ -528,6 +533,7 @@ impl PluginWorkerEngine {
             stopping: AtomicBool::new(false),
             pools: Mutex::new(HashMap::new()),
             next_pool: AtomicU64::new(1),
+            admission_retry_armed: AtomicBool::new(false),
             #[cfg(test)]
             publication_pause: Mutex::new(None),
             #[cfg(test)]
@@ -762,7 +768,40 @@ impl PluginWorkerEngine {
     ///
     /// Never blocks on job completion, `recv`, sleep, or a contended mutex.
     /// A busy registry or admission lock is [`PluginAdmissionResult::Backpressured`].
+    ///
+    /// A busy internal lock is retried once after the engine arms its
+    /// admission retry wake. If the result is still `admission lock busy`,
+    /// the completion notifier fires once a worker or the deadline waiter
+    /// releases admission state, so the host retries on that wake and never
+    /// on a timer.
     pub fn try_admit(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
+    ) -> PluginAdmissionResult {
+        let first = self.try_admit_once(class, request.clone(), completion_reservation_bytes);
+        if !is_admission_lock_busy(&first) {
+            return first;
+        }
+        // Arm before the retry: a holder that releases after this point
+        // wakes the host; one that released before it lets the retry through.
+        self.inner
+            .shared
+            .admission_retry_armed
+            .store(true, Ordering::SeqCst);
+        let second = self.try_admit_once(class, request, completion_reservation_bytes);
+        if is_admission_lock_busy(&second) {
+            self.inner
+                .shared
+                .metrics
+                .admission_lock_busy_events
+                .fetch_add(1, Ordering::SeqCst);
+        }
+        second
+    }
+
+    fn try_admit_once(
         &self,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
@@ -953,17 +992,6 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        let mut cancellations = match worker.executor.cancellations.try_lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
-            }
-        };
 
         let timeout_ms = request.timeout_ms;
         let Some(deadline) = Instant::now().checked_add(Duration::from_millis(timeout_ms)) else {
@@ -1029,7 +1057,6 @@ impl PluginWorkerEngine {
             );
             published
         } else {
-            cancellations.insert(request_id.clone(), cancellation.clone());
             admission.push_queued(class, job, &worker);
             deadlines.entries.push(DeadlineEntry {
                 at: deadline,
@@ -1042,7 +1069,6 @@ impl PluginWorkerEngine {
             false
         };
 
-        drop(cancellations);
         drop(deadlines);
         drop(completions);
         drop(admission);
@@ -1428,6 +1454,12 @@ impl PluginWorkerEngine {
                 .shared
                 .metrics
                 .completion_pressure_events
+                .load(Ordering::SeqCst),
+            admission_lock_busy_events: self
+                .inner
+                .shared
+                .metrics
+                .admission_lock_busy_events
                 .load(Ordering::SeqCst),
             plugins,
         }
@@ -1847,6 +1879,7 @@ impl WorkerState {
             let worker_cvar = work_cvar.clone();
             let worker_stopping = stopping.clone();
             let worker_config = shared.config.clone();
+            let worker_shared = shared.clone();
             let thread_name = match generation {
                 Some(generation) => format!("botster-plugin-worker-{generation}-{worker_index}"),
                 None => format!("botster-plugin-worker-exhausted-{worker_index}"),
@@ -1882,6 +1915,8 @@ impl WorkerState {
                                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 }
                             };
+                            // The dispatch pop released admission.
+                            wake_armed_admission(&worker_shared);
                             let Some(job) = job else {
                                 break;
                             };
@@ -1895,6 +1930,7 @@ impl WorkerState {
                                     &worker_admission,
                                 );
                                 worker_cvar.notify_one();
+                                wake_armed_admission(&worker_shared);
                                 continue;
                             }
                             let in_flight = InFlightGuard {
@@ -1906,10 +1942,17 @@ impl WorkerState {
                                 async_state: async_state_of(&job),
                                 admission: worker_admission.clone(),
                                 work_cvar: worker_cvar.clone(),
+                                shared: worker_shared.clone(),
                             };
                             let result = worker_runtime.invoke(job.request, job.cancellation);
-                            complete_job(job.completion, result);
+                            let published = complete_job(job.completion, result);
+                            // Release the executor slot, the admission row,
+                            // and the cancellation entry before the host is
+                            // told: nothing it retries on is still held here.
                             drop(in_flight);
+                            if published {
+                                notify_completion(&worker_shared);
+                            }
                         }
                     })
             })
@@ -1956,7 +1999,7 @@ impl WorkerState {
             return;
         }
 
-        let tokens = self
+        let mut tokens = self
             .executor
             .cancellations
             .lock()
@@ -1974,6 +2017,14 @@ impl WorkerState {
                 .lock()
                 .expect("plugin worker admission mutex poisoned");
             admission.stopping = true;
+            // Async jobs keep their token only in the tracked job; it is
+            // cancelled with the others, after WorkerStopped is sealed.
+            tokens.extend(
+                admission
+                    .jobs
+                    .values()
+                    .map(|tracked| tracked.cancellation.clone()),
+            );
             if let Some(generation) = self.generation {
                 let mut completions = self
                     .shared
@@ -2478,6 +2529,8 @@ impl Drop for WorkerExecutorHandle {
 
 #[derive(Default)]
 struct PluginWorkerEngineMetrics {
+    /// try_admit results that reported `admission lock busy`.
+    admission_lock_busy_events: AtomicUsize,
     live_plugin_executors: AtomicUsize,
     live_executor_workers: AtomicUsize,
     queued_jobs: AtomicUsize,
@@ -2538,6 +2591,7 @@ struct InFlightGuard {
     async_state: Option<Arc<AsyncJobState>>,
     admission: Arc<Mutex<WorkerAdmission>>,
     work_cvar: Arc<Condvar>,
+    shared: Arc<EngineShared>,
 }
 
 impl Drop for InFlightGuard {
@@ -2565,6 +2619,7 @@ impl Drop for InFlightGuard {
             }
         }
         self.work_cvar.notify_one();
+        wake_armed_admission(&self.shared);
     }
 }
 
@@ -2997,6 +3052,20 @@ fn publish_prepared_into(
     true
 }
 
+fn is_admission_lock_busy(result: &PluginAdmissionResult) -> bool {
+    matches!(result, PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY)
+}
+
+/// A non-owner thread released admission state. Fire the completion
+/// notifier once when a try_admit found a lock busy since the last release.
+/// The notifier means: completions may be ready, or admission state may
+/// have freed.
+fn wake_armed_admission(shared: &EngineShared) {
+    if shared.admission_retry_armed.swap(false, Ordering::SeqCst) {
+        notify_completion(shared);
+    }
+}
+
 fn notify_completion(shared: &EngineShared) {
     let notifier = shared
         .completion_notifier
@@ -3029,8 +3098,20 @@ fn seal_and_publish(
     result: PluginInvocationResult,
     prepared: Option<PreparedCompletion>,
 ) {
+    if seal_and_store(state, result, prepared) {
+        notify_completion(&state.shared);
+    }
+}
+
+/// Seal the job and store its completion. Returns whether it was stored;
+/// the caller fires the notifier once the locks it holds are released.
+fn seal_and_store(
+    state: &AsyncJobState,
+    result: PluginInvocationResult,
+    prepared: Option<PreparedCompletion>,
+) -> bool {
     if !state.terminal.try_seal() {
-        return;
+        return false;
     }
     #[cfg(test)]
     {
@@ -3085,21 +3166,25 @@ fn seal_and_publish(
             &state.shared.metrics,
         );
     }
-    notify_completion(&state.shared);
+    true
 }
 
-fn complete_job(completion: JobCompletion, result: PluginInvocationResult) {
+/// Deliver one job result. Returns whether an async completion was stored;
+/// the worker fires the notifier after it releases its in-flight state.
+fn complete_job(completion: JobCompletion, result: PluginInvocationResult) -> bool {
     match completion {
         JobCompletion::Blocking { result_sender } => {
             let _ = result_sender.send(result);
+            false
         }
         JobCompletion::Async(state) => {
             let request_id = match &result {
                 PluginInvocationResult::Completed(success) => success.request_id.clone(),
                 PluginInvocationResult::Failed(failure) => failure.request_id.clone(),
             };
-            seal_and_publish(&state, result, None);
+            let stored = seal_and_store(&state, result, None);
             remove_deadline_entry(&state.shared, state.reservation.generation, &request_id);
+            stored
         }
     }
 }
@@ -3282,6 +3367,8 @@ fn run_deadline_waiter(shared: Arc<EngineShared>) {
         for entry in expired {
             fire_deadline(&shared, entry);
         }
+        // The scan and any fired deadline released admission state.
+        wake_armed_admission(&shared);
     }
 }
 
@@ -3910,6 +3997,110 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_busy_admission_is_retried_on_the_armed_wake_without_a_completion() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("armed-admission".into());
+        let (entered, entered_rx) = mpsc::sync_channel(1);
+        let runtime = Arc::new(HeldRuntime {
+            entered,
+            released: Mutex::new(false),
+            wake: Condvar::new(),
+        });
+        engine.load_plugin(registration(&plugin, runtime.clone()));
+        let (wakes_sender, wakes) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let _ = wakes_sender.send(());
+        }));
+
+        // A blocking invocation occupies an executor. Its end publishes no
+        // completion, so only the armed wake can tell the host to retry.
+        let blocking_engine = engine.clone();
+        let blocking_handler = handler(&plugin);
+        let blocking = std::thread::spawn(move || {
+            blocking_engine.invoke(request("blocking", blocking_handler, 60_000))
+        });
+        // timer: deadline — the blocking job must start; expiry fails the test
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("blocking job runs");
+
+        // A second thread holds the worker admission lock, as a pop would.
+        let admission = engine
+            .worker_for(&plugin)
+            .expect("worker")
+            .admission
+            .clone();
+        let (held_sender, held) = mpsc::channel();
+        let (release_sender, release) = mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _guard = admission.lock().expect("admission");
+            held_sender.send(()).expect("held");
+            let _ = release.recv();
+        });
+        // timer: deadline — the holder must take the lock; expiry fails the test
+        held.recv_timeout(Duration::from_secs(5))
+            .expect("lock held");
+        let busy = engine.try_admit(
+            PluginInvocationClass::Background,
+            request("parked", handler(&plugin), 60_000),
+            1,
+        );
+        assert!(is_admission_lock_busy(&busy), "{busy:?}");
+        assert_eq!(engine.debug_snapshot().admission_lock_busy_events, 1);
+        release_sender.send(()).expect("release holder");
+        holder.join().expect("holder");
+        assert!(wakes.try_recv().is_err(), "no Core thread released yet");
+
+        *runtime.released.lock().expect("runtime gate") = true;
+        runtime.wake.notify_all();
+        // timer: deadline — the armed wake must arrive; expiry fails the test
+        wakes
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the executor release wakes the parked host");
+        blocking.join().expect("blocking caller");
+        assert!(wakes.try_recv().is_err(), "one wake, no self-wake loop");
+
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("parked", handler(&plugin), 60_000),
+                1,
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        assert_eq!(engine.debug_snapshot().admission_lock_busy_events, 1);
+    }
+
+    #[test]
+    fn the_completion_wake_fires_after_the_worker_released_its_executor_slot() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("notify-after-release".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let metrics = engine.inner.shared.metrics.clone();
+        let (in_flight_sender, in_flight_at_wake) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let _ = in_flight_sender.send(metrics.in_flight_jobs.load(Ordering::SeqCst));
+        }));
+
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("released-first", handler(&plugin), 60_000),
+                1,
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+        // timer: deadline — the completion wake must arrive; expiry fails the test
+        let in_flight = in_flight_at_wake
+            .recv_timeout(Duration::from_secs(5))
+            .expect("completion wake");
+        assert_eq!(
+            in_flight, 0,
+            "the host must not be woken while the worker still holds its slot"
+        );
+    }
+
     fn deadline_publication_crosses_reload(publish_before_retire: bool) {
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("paused-deadline".into());
@@ -4464,12 +4655,14 @@ mod tests {
             ),
             PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
         ));
+        // Async admission keeps its token in the tracked job, so the
+        // cancellation map is not an admission lock.
         assert!(matches!(
             engine.try_admit_while_holding_cancellation_lock(
                 PluginInvocationClass::Background,
                 request("cancel", handler(&plugin), 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::Queued { .. }
         ));
         assert!(matches!(
             engine.try_admit_while_holding_admission_lock(
@@ -4590,7 +4783,8 @@ mod tests {
         }
         assert_eq!(timed_out, 8);
         assert_eq!(engine.tracked_job_count(&plugin), 1);
-        assert_eq!(engine.tracked_cancellation_count(&plugin), 1);
+        // The running async job keeps its token in the tracked job only.
+        assert_eq!(engine.tracked_cancellation_count(&plugin), 0);
         assert_eq!(engine.tracked_deadline_count(), 1);
 
         let fast = PluginKey("fast".into());
