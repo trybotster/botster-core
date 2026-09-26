@@ -463,7 +463,8 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
             env_var("CHILD_PID_FILE", child_pid_file.display().to_string()),
         ],
     };
-    let script = "sh -c 'trap \"\" TERM; printf ready > \"$READY_FILE\"; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; while [ ! -s \"$READY_FILE\" ]; do :; done; printf 'final-reader-marker\\n'; exit 7";
+    // The pid file appears only after the descendant confirmed readiness.
+    let script = "sh -c 'trap \"\" TERM; printf ready > \"$READY_FILE\"; while true; do sleep 1; done' & child=$!; while [ ! -s \"$READY_FILE\" ]; do :; done; echo $child > \"$CHILD_PID_FILE\"; printf 'final-reader-marker\\n'; exit 7";
 
     runtime
         .spawn_session(shell_request_with_env(session.clone(), script, environment))
