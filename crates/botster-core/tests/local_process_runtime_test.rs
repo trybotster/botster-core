@@ -41,7 +41,7 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
 }
 
 fn term_ignoring_process_group_script() -> &'static str {
-    "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!"
+    "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!"
 }
 
 fn session_id(value: &str) -> SessionId {
@@ -399,7 +399,7 @@ fn local_process_runtime_wakes_the_session_when_the_child_exits_without_pty_eof(
     runtime
         .spawn_session(shell_request_with_env(
             session.clone(),
-            "(trap '' HUP; read line < \"$HOLD_FIFO\") & exit 0",
+            "(trap '' HUP; exec /bin/cat \"$HOLD_FIFO\") & exit 0",
             SpawnEnvironment {
                 variables: vec![env_var("HOLD_FIFO", hold.display().to_string())],
             },
@@ -455,7 +455,7 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
     // The descendant reports readiness through the ready FIFO, then holds the
     // PTY open while it blocks on the hold FIFO, which nothing ever writes.
     // The leader blocks on the ready FIFO, so the pid file implies readiness.
-    let script = "sh -c 'trap \"\" TERM; printf \"ready\\n\" > \"$READY_FIFO\"; read hold < \"$HOLD_FIFO\"' & child=$!; read ready < \"$READY_FIFO\"; echo $child > \"$CHILD_PID_FILE\"; printf 'final-reader-marker\\n'; exit 7";
+    let script = "sh -c 'trap \"\" TERM; /bin/echo ready > \"$READY_FIFO\"; /bin/cat \"$HOLD_FIFO\" >/dev/null' & child=$!; /bin/cat \"$READY_FIFO\" >/dev/null; /bin/echo $child > \"$CHILD_PID_FILE\"; printf 'final-reader-marker\\n'; exit 7";
 
     runtime
         .spawn_session(shell_request_with_env(session.clone(), script, environment))
@@ -677,7 +677,7 @@ fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group()
     runtime
         .spawn_session(shell_request_with_env(
             session.clone(),
-            "trap 'exit 0' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+            "trap 'exit 0' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
@@ -717,7 +717,7 @@ fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
     let handle = runtime
         .spawn_session(shell_request_with_env(
             session.clone(),
-            "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+            "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
@@ -947,7 +947,7 @@ fn local_process_runtime_drop_cleans_live_child_group() {
         runtime
             .spawn_session(shell_request_with_env(
                 session_id("local-drop"),
-                "sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+                "sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
                 SpawnEnvironment {
                     variables: vec![env_var(
                         "CHILD_PID_FILE",
