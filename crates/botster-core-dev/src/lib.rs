@@ -287,7 +287,7 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
     while started.elapsed() < Duration::from_secs(1) {
         let drain = engine.drain_plugin_completions(8, usize::MAX);
         if let Some(item) = drain.completions.into_iter().next() {
-            completion = Some(item);
+            completion = Some(item.completion);
             break;
         }
         thread::sleep(Duration::from_millis(2));
