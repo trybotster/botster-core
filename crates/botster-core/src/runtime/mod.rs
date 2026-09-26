@@ -378,15 +378,34 @@ impl Error for SessionRuntimeError {}
 /// executing long-running handlers and return promptly once cancellation is
 /// requested.
 ///
-/// A runtime that waits on something other than its own code can
-/// [`subscribe`](Self::subscribe) to be woken on cancellation instead of
-/// checking the flag in a loop.
+/// Core runtimes that wait on something other than their own code (the plugin
+/// process host) subscribe a Core-owned [`CancelTarget`] instead of checking
+/// the flag in a loop. Subscription is crate-private, so `cancel` never runs
+/// host code, whatever locks its caller holds.
 #[derive(Clone, Default)]
 pub struct PluginCancellationToken {
     inner: Arc<CancellationInner>,
 }
 
-type CancelWake = Box<dyn FnOnce() + Send + 'static>;
+/// Core-owned receiver of a cancellation.
+///
+/// `cancel` may run on any thread that cancels, including the engine's shared
+/// deadline waiter and callers that hold engine or capability-runtime locks.
+/// An implementation must therefore only record the cancellation and notify
+/// its own waiter: it may take only a leaf lock of its own, must not block on
+/// anything else, and must not call into the engine or a capability runtime.
+/// A panic is contained and does not stop other targets.
+pub(crate) trait CancelTarget: Send + Sync + 'static {
+    fn cancelled(&self);
+}
+
+type CancelWake = Arc<dyn CancelTarget>;
+
+fn run_cancel_target(target: &dyn CancelTarget) {
+    // A buggy target must not skip the other targets or unwind the thread
+    // that cancelled, which can be the engine's only deadline waiter.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| target.cancelled()));
+}
 
 #[derive(Default)]
 struct CancellationInner {
@@ -398,6 +417,13 @@ struct CancellationInner {
 
 #[derive(Default)]
 struct CancellationWakers {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first caller is the plugin process host (slice 1b)"
+        )
+    )]
     next_id: u64,
     pending: Vec<(u64, CancelWake)>,
 }
@@ -417,10 +443,12 @@ impl PluginCancellationToken {
         Self::default()
     }
 
-    /// Mark this invocation as cancelled and run every subscribed wake once.
+    /// Mark this invocation as cancelled and notify every subscribed target
+    /// once.
     ///
-    /// Wakes run on the calling thread after the token's lock is released.
-    /// A second call does nothing.
+    /// Targets are Core-owned and run on the calling thread after the token's
+    /// lock is released; each one is isolated from the others' panics. A
+    /// second call does nothing.
     pub fn cancel(&self) {
         let wakes = {
             let mut wakers = self.inner.lock_wakers();
@@ -430,8 +458,8 @@ impl PluginCancellationToken {
             self.inner.cancelled.store(true, Ordering::SeqCst);
             std::mem::take(&mut wakers.pending)
         };
-        for (_, wake) in wakes {
-            wake();
+        for (_, wake) in &wakes {
+            run_cancel_target(wake.as_ref());
         }
     }
 
@@ -441,26 +469,33 @@ impl PluginCancellationToken {
         self.inner.cancelled.load(Ordering::SeqCst)
     }
 
-    /// Run `wake` once when this token is cancelled.
+    /// Notify `target` once when this token is cancelled.
     ///
     /// Registration and [`cancel`](Self::cancel) are serialized, so no wake is
-    /// lost: if the token is already cancelled, `wake` runs at once on the
-    /// calling thread. `wake` never runs while the token's lock is held.
-    /// Dropping the returned subscription before cancellation removes `wake`
-    /// without running it.
-    pub fn subscribe(&self, wake: Box<dyn FnOnce() + Send + 'static>) -> CancelSubscription {
+    /// lost: if the token is already cancelled, `target` is notified at once
+    /// on the calling thread. `target` never runs while the token's lock is
+    /// held. Dropping the returned subscription before cancellation removes
+    /// `target` without notifying it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first caller is the plugin process host (slice 1b)"
+        )
+    )]
+    pub(crate) fn subscribe(&self, target: Arc<dyn CancelTarget>) -> CancelSubscription {
         let mut wakers = self.inner.lock_wakers();
         if !self.inner.cancelled.load(Ordering::SeqCst) {
             let id = wakers.next_id;
             wakers.next_id += 1;
-            wakers.pending.push((id, wake));
+            wakers.pending.push((id, target));
             return CancelSubscription {
                 inner: Arc::downgrade(&self.inner),
                 id: Some(id),
             };
         }
         drop(wakers);
-        wake();
+        run_cancel_target(target.as_ref());
         CancelSubscription {
             inner: std::sync::Weak::new(),
             id: None,
@@ -482,7 +517,14 @@ impl CancellationInner {
 ///
 /// Dropping it before cancellation removes the wake without running it.
 #[must_use = "dropping the subscription removes the wake"]
-pub struct CancelSubscription {
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "first caller is the plugin process host (slice 1b)"
+    )
+)]
+pub(crate) struct CancelSubscription {
     inner: std::sync::Weak<CancellationInner>,
     id: Option<u64>,
 }
@@ -508,10 +550,14 @@ impl Drop for CancelSubscription {
                 .position(|(pending, _)| *pending == id)
                 .map(|index| wakers.pending.swap_remove(index))
         };
-        // Drop the removed wake outside the lock: its captures may run code.
+        // Drop the removed target outside the lock: dropping it can run code.
         drop(removed);
     }
 }
+
+#[cfg(test)]
+#[path = "plugin_cancellation_token_test.rs"]
+mod plugin_cancellation_token_test;
 
 /// Host-provided executable runtime for one or more plugin workers.
 ///
