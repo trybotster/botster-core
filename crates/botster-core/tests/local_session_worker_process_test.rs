@@ -107,8 +107,6 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         control_socket_dir: None,
         worker_reply_timeout: botster_core::DEFAULT_WORKER_REPLY_TIMEOUT,
         test_hold_after_read_ms: None,
-        test_write_block_until_unix_ms: None,
-        test_write_max_chunk: None,
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
         test_resize_ack_hold: None,
