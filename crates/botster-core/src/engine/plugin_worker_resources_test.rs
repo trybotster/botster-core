@@ -246,7 +246,7 @@ fn registration_failure_retains_unjoined_resources() {
         Some(resources(&drops, width)),
     );
     let admission = worker.admission.clone();
-    let wake = worker.work_cvar.clone();
+    let wake = worker.work_signal.clone();
     assert!(catch_unwind(AssertUnwindSafe(|| {
         let _guard = engine
             .inner
@@ -295,7 +295,7 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
             .worker_for(&plugin)
             .expect("find the worker before cleanup");
         let admission = worker.admission.clone();
-        let wake = worker.work_cvar.clone();
+        let wake = worker.work_signal.clone();
         drop(worker);
         let result = catch_unwind(AssertUnwindSafe(|| {
             engine.cleanup_plugin(
@@ -610,7 +610,7 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
         );
         let survivor = worker.clone();
         let admission = worker.admission.clone();
-        let wake = worker.work_cvar.clone();
+        let wake = worker.work_signal.clone();
         if registration_fails {
             assert!(catch_unwind(AssertUnwindSafe(|| {
                 let _guard = engine
