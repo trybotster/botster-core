@@ -49,6 +49,23 @@ const DEFAULT_QUEUE_BYTE_CAPACITY: usize = 1024 * 1024;
 const OVERSIZE_COMPLETION_REASON: &str = "completion exceeded reserved byte budget";
 const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
 
+/// How admission takes the engine's internal locks.
+#[derive(Clone, Copy)]
+enum LockMode {
+    /// Owner loops: a contended lock is `admission lock busy`.
+    Try,
+    /// Non-owner callers: wait for the short critical section.
+    Block,
+}
+
+/// Take `mutex` as `mode` asks. A poisoned lock is reported like a busy one.
+fn acquire<T>(mutex: &Mutex<T>, mode: LockMode) -> Result<std::sync::MutexGuard<'_, T>, ()> {
+    match mode {
+        LockMode::Try => mutex.try_lock().map_err(|_| ()),
+        LockMode::Block => mutex.lock().map_err(|_| ()),
+    }
+}
+
 /// Host callback invoked after Core publishes an async plugin completion.
 pub type PluginCompletionNotifier = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -692,6 +709,37 @@ impl PluginWorkerEngine {
         request: PluginInvocationRequest,
         completion_reservation_bytes: usize,
     ) -> PluginAdmissionResult {
+        self.admit_with(LockMode::Try, class, request, completion_reservation_bytes)
+    }
+
+    /// Admit one invocation, waiting for the engine's short internal locks.
+    ///
+    /// For callers outside an owner loop, such as tests and tools. The locks
+    /// are held only for short critical sections, never across I/O or waits,
+    /// so this never reports `admission lock busy`; every other outcome is
+    /// the same as [`Self::try_admit`]. An owner loop must call
+    /// [`Self::try_admit`] instead: an owner never waits.
+    pub fn admit(
+        &self,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
+    ) -> PluginAdmissionResult {
+        self.admit_with(
+            LockMode::Block,
+            class,
+            request,
+            completion_reservation_bytes,
+        )
+    }
+
+    fn admit_with(
+        &self,
+        mode: LockMode,
+        class: PluginInvocationClass,
+        request: PluginInvocationRequest,
+        completion_reservation_bytes: usize,
+    ) -> PluginAdmissionResult {
         if completion_reservation_bytes == 0 {
             return PluginAdmissionResult::RejectedBudget {
                 request_id: request.request_id,
@@ -708,7 +756,7 @@ impl PluginWorkerEngine {
             };
         }
 
-        let worker = match self.try_worker_for(&request.handler.plugin_key) {
+        let worker = match self.admission_worker_for(&request.handler.plugin_key, mode) {
             Err(()) => {
                 return self.admission_backpressured(class, request, ADMISSION_LOCK_BUSY, None);
             }
@@ -735,6 +783,7 @@ impl PluginWorkerEngine {
             if let Some(required_capability) = &handler.required_capability {
                 if !worker.manifest.capabilities.contains(required_capability) {
                     return self.admit_immediate_failure(
+                        mode,
                         &worker,
                         class,
                         request,
@@ -745,6 +794,7 @@ impl PluginWorkerEngine {
             }
         } else {
             return self.admit_immediate_failure(
+                mode,
                 &worker,
                 class,
                 request,
@@ -824,7 +874,7 @@ impl PluginWorkerEngine {
         }
 
         let plugin_key = request.handler.plugin_key.clone();
-        let mut admission = match worker.admission.try_lock() {
+        let mut admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -854,7 +904,7 @@ impl PluginWorkerEngine {
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
         }
-        let mut completions = match self.inner.shared.completions.try_lock() {
+        let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -865,7 +915,7 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        let mut deadlines = match self.inner.shared.deadlines.try_lock() {
+        let mut deadlines = match acquire(&self.inner.shared.deadlines, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -876,7 +926,7 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        let mut cancellations = match worker.executor.cancellations.try_lock() {
+        let mut cancellations = match acquire(&worker.executor.cancellations, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -1297,8 +1347,12 @@ impl PluginWorkerEngine {
             .cloned()
     }
 
-    fn try_worker_for(&self, plugin_key: &PluginKey) -> Result<Option<WorkerState>, ()> {
-        let workers = self.inner.shared.workers.try_lock().map_err(|_| ())?;
+    fn admission_worker_for(
+        &self,
+        plugin_key: &PluginKey,
+        mode: LockMode,
+    ) -> Result<Option<WorkerState>, ()> {
+        let workers = acquire(&self.inner.shared.workers, mode)?;
         Ok(workers.get(plugin_key).cloned())
     }
 
@@ -1376,6 +1430,7 @@ impl PluginWorkerEngine {
 
     fn admit_immediate_failure(
         &self,
+        mode: LockMode,
         worker: &WorkerState,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
@@ -1458,7 +1513,7 @@ impl PluginWorkerEngine {
             };
         }
         let plugin_key = request.handler.plugin_key.clone();
-        let admission = match worker.admission.try_lock() {
+        let admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -1476,7 +1531,7 @@ impl PluginWorkerEngine {
                 reason: "plugin worker stopped before accepting invocation".to_string(),
             };
         }
-        let mut completions = match self.inner.shared.completions.try_lock() {
+        let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
             Err(_) => {
                 return self.admission_backpressured(
@@ -3065,23 +3120,12 @@ mod tests {
         }
     }
 
-    fn try_admit_retrying_lock_busy(
+    fn admit(
         engine: &PluginWorkerEngine,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
     ) -> PluginAdmissionResult {
-        let started = Instant::now();
-        loop {
-            match engine.try_admit(class, request.clone(), 1) {
-                PluginAdmissionResult::Backpressured { reason, .. }
-                    if reason == ADMISSION_LOCK_BUSY
-                        && started.elapsed() < Duration::from_millis(100) =>
-                {
-                    std::thread::yield_now();
-                }
-                other => return other,
-            }
-        }
+        engine.admit(class, request, 1)
     }
 
     fn load(engine: &PluginWorkerEngine, plugin: &PluginKey, delay: Duration) {
@@ -3121,7 +3165,7 @@ mod tests {
             handler_id: "missing".into(),
         };
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 engine,
                 PluginInvocationClass::Background,
                 request(request_id, missing, 1_000),
@@ -3362,7 +3406,7 @@ mod tests {
             notified.send(()).expect("notification observed");
         }));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("same", handler(&plugin), 60_000)
@@ -3641,7 +3685,7 @@ mod tests {
         };
 
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("immediate", missing, 1_000),
@@ -3677,7 +3721,7 @@ mod tests {
         }));
 
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("executed", handler(&plugin), 1_000),
@@ -3703,7 +3747,7 @@ mod tests {
             handler_id: "missing".into(),
         };
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("already-published", missing, 1_000),
@@ -3729,7 +3773,7 @@ mod tests {
         let plugin = PluginKey("deadline-first".into());
         load(&engine, &plugin, Duration::from_millis(200));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 10),
@@ -3775,7 +3819,7 @@ mod tests {
         let plugin = PluginKey("unload-first".into());
         load(&engine, &plugin, Duration::from_secs(2));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 5_000),
@@ -3811,7 +3855,7 @@ mod tests {
         let plugin = PluginKey("late".into());
         load(&engine, &plugin, Duration::from_millis(80));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 5),
@@ -3847,7 +3891,7 @@ mod tests {
         let plugin = PluginKey("future-drop".into());
         load(&engine, &plugin, Duration::from_secs(30));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("job", handler(&plugin), 30_000),
@@ -3931,7 +3975,7 @@ mod tests {
         let plugin = PluginKey("reload-deadline".into());
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("same", handler(&plugin), 40),
@@ -3940,7 +3984,7 @@ mod tests {
         ));
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("same", handler(&plugin), 5_000),
@@ -3975,7 +4019,7 @@ mod tests {
         let plugin = PluginKey("bounded".into());
         load(&engine, &plugin, Duration::from_secs(5));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("occupy", handler(&plugin), 5_000),
@@ -3984,7 +4028,7 @@ mod tests {
         ));
         for index in 0..8 {
             assert!(matches!(
-                try_admit_retrying_lock_busy(
+                admit(
                     &engine,
                     PluginInvocationClass::Background,
                     request(&format!("expire-{index}"), handler(&plugin), 20),
@@ -4017,7 +4061,7 @@ mod tests {
         let fast = PluginKey("fast".into());
         load(&engine, &fast, Duration::from_millis(1));
         assert!(matches!(
-            try_admit_retrying_lock_busy(
+            admit(
                 &engine,
                 PluginInvocationClass::Background,
                 request("fast", handler(&fast), 30_000),

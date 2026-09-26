@@ -270,23 +270,14 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
         .install_completion_notifier(Arc::new(move || {
             let _ = notified_sender.send(());
         }));
-    let admit_started = Instant::now();
-    let admitted = loop {
-        match engine.try_admit_plugin(
+    let admitted = matches!(
+        engine.admit_plugin(
             PluginInvocationClass::Background,
             request.clone(),
             PLUGIN_ADMISSION_PROOF_COMPLETION_ALLOWANCE_BYTES,
-        ) {
-            PluginAdmissionResult::Queued { .. } => break true,
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == "admission lock busy"
-                    && admit_started.elapsed() < Duration::from_millis(100) =>
-            {
-                std::thread::yield_now();
-            }
-            _ => break false,
-        }
-    };
+        ),
+        PluginAdmissionResult::Queued { .. }
+    );
 
     // timer: deadline — the Background completion must publish; expiry fails the smoke
     let deadline = Instant::now() + Duration::from_secs(1);
