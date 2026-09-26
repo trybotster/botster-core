@@ -9,6 +9,7 @@
 //! See `docs/plans/plugin-process-host.md` for the accepted design.
 
 mod host;
+mod invocations;
 mod launch;
 mod outbound;
 mod protocol;

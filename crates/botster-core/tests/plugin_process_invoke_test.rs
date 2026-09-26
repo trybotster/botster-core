@@ -416,6 +416,27 @@ fn a_result_for_a_request_not_in_flight_is_a_violation_kill() {
     ));
 }
 
+/// A result must match the whole identity of the invocation it settles; a
+/// live request id with another plugin's handler is a violation, and the
+/// forged result is never returned.
+#[test]
+fn a_result_with_a_forged_handler_identity_is_a_violation_kill() {
+    let process = start(config());
+    let result = outcome(&invoke(
+        &process,
+        request("forged", "forged_identity", 1_000),
+        &PluginCancellationToken::new(),
+    ));
+    assert_eq!(
+        failure_kind(&result),
+        PluginInvocationFailureKind::WorkerKilled
+    );
+    assert!(matches!(
+        await_exit(&process).cause,
+        PluginExitCause::Killed(PluginKillReason::ProtocolViolation(_))
+    ));
+}
+
 fn mkfifo(path: &Path) {
     let path = CString::new(path.as_os_str().as_bytes()).expect("fifo path");
     // SAFETY: mkfifo with a valid NUL-terminated path.

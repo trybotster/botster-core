@@ -58,6 +58,12 @@ impl ProcessKiller {
         result
     }
 
+    /// The first kill reason the kernel accepted, if any.
+    #[cfg(test)]
+    pub(super) fn state_for_test(&self) -> Option<PluginKillReason> {
+        self.lock().first_delivered.clone()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, KillState> {
         // Only this module's bookkeeping runs under the lock.
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
@@ -73,10 +79,28 @@ fn signal_group(pgid: libc::pid_t) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct DeadlineId(u64);
 
+/// What an expired deadline does.
+pub(super) enum Expiry {
+    /// Kill the group for this reason.
+    Kill(PluginKillReason),
+    /// Ask the guard, which decides under its own lock whether a kill is
+    /// still needed. An expiry taken from the book but not yet acted on is
+    /// therefore still arbitrated against a concurrent settlement.
+    Guarded(Arc<dyn ExpiryGuard>),
+    /// Test seam: report that the supervisor processed this instant.
+    #[cfg(test)]
+    Probe(std::sync::mpsc::Sender<()>),
+}
+
+/// A deadline whose kill depends on state that can change until the kill.
+pub(super) trait ExpiryGuard: Send + Sync {
+    fn expire(&self, killer: &ProcessKiller);
+}
+
 #[derive(Default)]
 struct Book {
     next_id: u64,
-    entries: Vec<(DeadlineId, Instant, PluginKillReason)>,
+    entries: Vec<(DeadlineId, Instant, Expiry)>,
     stopped: bool,
 }
 
@@ -97,11 +121,16 @@ impl Supervisor {
 
     /// Kill the group for `reason` at `at`, unless disarmed first.
     pub(super) fn arm(&self, at: Instant, reason: PluginKillReason) -> DeadlineId {
+        self.arm_expiry(at, Expiry::Kill(reason))
+    }
+
+    /// Run `expiry` at `at`, unless disarmed first.
+    pub(super) fn arm_expiry(&self, at: Instant, expiry: Expiry) -> DeadlineId {
         let (lock, cvar) = &*self.book;
         let mut book = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let id = DeadlineId(book.next_id);
         book.next_id += 1;
-        book.entries.push((id, at, reason));
+        book.entries.push((id, at, expiry));
         cvar.notify_one();
         id
     }
@@ -128,19 +157,23 @@ fn run(book: &(Mutex<Book>, Condvar), killer: &ProcessKiller) {
             return;
         }
         let now = Instant::now();
-        let mut due = Vec::new();
-        guard.entries.retain(|(_, at, reason)| {
-            if *at <= now {
-                due.push(reason.clone());
-                false
-            } else {
-                true
-            }
-        });
+        let (due, pending): (Vec<_>, Vec<_>) = std::mem::take(&mut guard.entries)
+            .into_iter()
+            .partition(|(_, at, _)| *at <= now);
+        guard.entries = pending;
         if !due.is_empty() {
+            // Act outside the book lock: a guard takes its own lock, and the
+            // book lock is always taken after it, never before.
             drop(guard);
-            for reason in due {
-                killer.kill(reason);
+            for (_, _, expiry) in due {
+                match expiry {
+                    Expiry::Kill(reason) => killer.kill(reason),
+                    Expiry::Guarded(expiry) => expiry.expire(killer),
+                    #[cfg(test)]
+                    Expiry::Probe(reached) => {
+                        let _ = reached.send(());
+                    }
+                }
             }
             guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             continue;

@@ -8,6 +8,8 @@
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex, PoisonError};
 
+use crate::session::RequestId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {
     /// `Bootstrap` and `Load`: one each, before anything else.
@@ -61,8 +63,15 @@ impl LaneBounds {
     }
 }
 
+/// A queued frame and the invocation that owns it, if any.
+pub(super) struct Queued {
+    pub lane: Lane,
+    pub frame: Vec<u8>,
+    pub owner: Option<RequestId>,
+}
+
 struct Queue {
-    frames: VecDeque<(Lane, Vec<u8>)>,
+    frames: VecDeque<Queued>,
     /// Frames per lane that are queued or being written.
     held: [usize; LANES],
     /// Bytes per lane that are queued or being written.
@@ -95,8 +104,13 @@ impl Outbound {
         self.queue.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Admit one encoded frame on `lane`. Never blocks.
-    pub(super) fn push(&self, lane: Lane, frame: Vec<u8>) -> Result<(), Refused> {
+    /// Admit one encoded frame on `lane`, owned by `owner`. Never blocks.
+    pub(super) fn push(
+        &self,
+        lane: Lane,
+        frame: Vec<u8>,
+        owner: Option<RequestId>,
+    ) -> Result<(), Refused> {
         let mut queue = self.lock();
         if queue.closed {
             return Err(Refused::Closed);
@@ -107,7 +121,7 @@ impl Outbound {
         }
         queue.held[index] += 1;
         queue.held_bytes[index] += frame.len();
-        queue.frames.push_back((lane, frame));
+        queue.frames.push_back(Queued { lane, frame, owner });
         drop(queue);
         self.ready.notify_one();
         Ok(())
@@ -115,7 +129,7 @@ impl Outbound {
 
     /// The next frame for the writer, or `None` once closed and empty. The
     /// frame stays counted until [`Self::written`].
-    pub(super) fn next(&self) -> Option<(Lane, Vec<u8>)> {
+    pub(super) fn next(&self) -> Option<Queued> {
         let mut queue = self.lock();
         loop {
             if let Some(frame) = queue.frames.pop_front() {
