@@ -1174,6 +1174,9 @@ where
         {
             extra_teardowns.extend(self.client_worker.detach_live(session_id, subscription_id));
         }
+        if let TransportIngress::Resize { session_id, .. } = &ingress {
+            extra_teardowns.extend(self.publish_local_modes_if_changed(session_id));
+        }
         self.flush_runtime_inputs()?;
         self.apply_client_worker_with(&mut outcome, extra_teardowns)?;
         Ok(outcome)
@@ -1196,6 +1199,7 @@ where
             }
         };
         let backend_operation = terminal_backend_ingress_operation(&ingress);
+        let resize = matches!(ingress, TransportIngress::Resize { .. });
         let outcome = match self
             .engine
             .handle_client_ingress(client_id, ingress, now_seconds)
@@ -1213,7 +1217,35 @@ where
                 return Err(error.into());
             }
         }
+        if resize {
+            let teardowns = self.publish_local_modes_if_changed(&session_id);
+            self.pending_input_teardowns.extend(teardowns);
+        }
         Ok(outcome)
+    }
+
+    /// Publish MODES for an in-process engine worker when its mode bits or
+    /// screen size differ from the last published MODES.
+    fn publish_local_modes_if_changed(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Vec<ClientWorkerTeardown> {
+        let Some(worker) = self.engine_worker(session_id) else {
+            return Vec::new();
+        };
+        let Some(mode_bits) = worker.mode_bits() else {
+            return Vec::new();
+        };
+        let size = worker.size();
+        let modes = botster_terminal_protocol::ModesBody {
+            mode_bits,
+            rows: size.rows,
+            cols: size.cols,
+        };
+        if self.client_worker.session_modes(session_id) == Some(modes) {
+            return Vec::new();
+        }
+        self.client_worker.push_session_modes(session_id, modes)
     }
 
     pub(crate) fn begin_snapshot_attach(
@@ -1633,28 +1665,13 @@ where
         for output in outputs {
             let runtime_event = match output {
                 SessionRuntimeOutput::PtyOutput { session_id, data } => {
-                    let local_mode_bits = self.engine_worker(&session_id).and_then(|worker| {
+                    if let Some(worker) = self.engine_worker(&session_id) {
                         worker.record_output(&session_id, &data);
-                        worker.mode_bits()
-                    });
-                    teardowns.extend(self.client_worker.push_session_output(&session_id, &data));
-                    if let Some(mode_bits) = local_mode_bits {
-                        let previous = self.client_worker.session_modes(&session_id);
-                        if previous.map(|modes| modes.mode_bits) != Some(mode_bits) {
-                            let size = self
-                                .engine_worker(&session_id)
-                                .map(|worker| worker.size())
-                                .unwrap_or_default();
-                            teardowns.extend(self.client_worker.push_session_modes(
-                                &session_id,
-                                botster_terminal_protocol::ModesBody {
-                                    mode_bits,
-                                    rows: size.rows,
-                                    cols: size.cols,
-                                },
-                            ));
-                        }
                     }
+                    // Like the session worker: a mode change caused by these
+                    // bytes reaches the route before the bytes themselves.
+                    teardowns.extend(self.publish_local_modes_if_changed(&session_id));
+                    teardowns.extend(self.client_worker.push_session_output(&session_id, &data));
                     crate::SessionWorkerRuntimeEvent::TerminalBytes {
                         session_id,
                         data,
