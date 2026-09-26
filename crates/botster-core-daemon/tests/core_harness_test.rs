@@ -10,6 +10,7 @@ use botster_core::{
 };
 use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, SpawnSessionRequest};
 use botster_core_test_support::diagnostics::StepFailure;
+use botster_core_test_support::fixture_gate::Fifo;
 use botster_core_test_support::fixtures::paste::{
     control_byte_payload, encode_unbracketed_paste_for_pty, printable_payload,
 };
@@ -113,10 +114,10 @@ impl Drop for WorkerHarness {
 #[test]
 fn c_s1_real_worker_raw_echo_and_natural_exit_end_with_process_exit() {
     let mut harness = WorkerHarness::new("c-s1");
-    let gate = harness.data_dir.join("input-gate");
+    let gate = Fifo::new("c-s1-input-gate");
     let script = format!(
-        "while [ ! -f '{}' ]; do sleep 0.01; done; stty -echo; printf C-S1-INPUT-READY; IFS= read -r line; printf 'C-S1-ECHO:%s\\n' \"$line\"; exit 0",
-        gate.display()
+        "/bin/cat '{}' >/dev/null; stty -echo; printf C-S1-INPUT-READY; IFS= read -r line; printf 'C-S1-ECHO:%s\\n' \"$line\"; exit 0",
+        gate.path().display()
     );
     let (session_id, subscription_id, adapter, mut observer) =
         harness.spawn_and_attach("c-s1", script);
@@ -133,7 +134,7 @@ fn c_s1_real_worker_raw_echo_and_natural_exit_end_with_process_exit() {
     .unwrap_or_else(|failure| panic!("{failure}"));
 
     observer.set_marker(b"C-S1-INPUT-READY");
-    fs::write(&gate, b"go").expect("release the shell input gate");
+    gate.release(Duration::from_secs(5));
     wait_for_state(
         &mut harness.daemon,
         &adapter,
@@ -227,11 +228,11 @@ fn c_s2_real_worker_paste_table_uses_production_ghostty_encoding() {
 
     for (row_index, row) in rows.into_iter().enumerate() {
         let mut harness = WorkerHarness::new(row.name);
-        let gate = harness.data_dir.join("paste-gate");
+        let gate = Fifo::new("paste-gate");
         let sink = harness.data_dir.join("paste-sink");
         let script = format!(
-            "while [ ! -f '{}' ]; do sleep 0.01; done; stty raw -echo; printf C-S2-SINK-READY; dd of='{}' bs=1 count={} 2>/dev/null; exit 0",
-            gate.display(),
+            "/bin/cat '{}' >/dev/null; stty raw -echo; printf C-S2-SINK-READY; dd of='{}' bs=1 count={} 2>/dev/null; exit 0",
+            gate.path().display(),
             sink.display(),
             PASTE_LEN
         );
@@ -249,7 +250,7 @@ fn c_s2_real_worker_paste_table_uses_production_ghostty_encoding() {
         )
         .unwrap_or_else(|failure| panic!("row={} {failure}", row.name));
         observer.set_marker(b"C-S2-SINK-READY");
-        fs::write(&gate, b"go").expect("release the paste sink gate");
+        gate.release(Duration::from_secs(5));
         wait_for_state(
             &mut harness.daemon,
             &adapter,
