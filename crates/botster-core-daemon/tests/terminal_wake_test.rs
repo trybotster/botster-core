@@ -2975,7 +2975,7 @@ fn ingress_only_wake_does_not_apply_sibling_route_input() {
 }
 
 #[test]
-fn spurious_writable_wakes_hard_stop_one_route() {
+fn spurious_writable_wakes_resync_then_hard_stop_one_route() {
     let data_dir = temp_data_dir("spurious");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let mut blocked = SharedFakeTerminalAdapter::new();
@@ -2996,8 +2996,18 @@ fn spurious_writable_wakes_hard_stop_one_route() {
         sibling.clone(),
     );
     let _ = daemon.wait_wakes(Duration::from_millis(0));
+    let blocked_listed = |daemon: &CoreDaemon| {
+        daemon
+            .list_terminal_subscriptions(1024 * 1024)
+            .expect("test inventory allowance")
+            .records
+            .iter()
+            .any(|row| row.session_id == session && row.subscription_id == sub)
+    };
     let mut inventory_changes = 0;
-    for tick in 0..512 {
+    // The first exhausted write budget resyncs the route; the second, with
+    // no successful write since that resync, ends it.
+    for tick in 0..1024 {
         let _ = blocked.wake(TerminalWakeKind::Writable);
         let batch = daemon.wait_wakes(Duration::from_millis(0));
         let outcome = daemon
@@ -3005,16 +3015,17 @@ fn spurious_writable_wakes_hard_stop_one_route() {
             .expect("pump blocked route");
         assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
         inventory_changes += usize::from(outcome.terminal_inventory_changed);
+        if tick == 511 {
+            assert!(
+                blocked_listed(&daemon),
+                "the first exhausted budget must resync, not end, the blocked route"
+            );
+        }
     }
     assert_eq!(inventory_changes, 1);
     assert!(
-        !daemon
-            .list_terminal_subscriptions(1024 * 1024)
-            .expect("test inventory allowance")
-            .records
-            .iter()
-            .any(|row| row.session_id == session && row.subscription_id == sub),
-        "512 rejected Writable pumps must UnsubscribeSession the blocked route"
+        !blocked_listed(&daemon),
+        "1024 rejected Writable pumps must UnsubscribeSession the blocked route"
     );
     assert!(
         daemon
