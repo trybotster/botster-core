@@ -16,6 +16,7 @@ use botster_core_daemon::{
     ResizeAckHold, SessionLifecycleChangeKind, SessionLifecycleLookup, SessionRegistryStateLookup,
     SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
+use botster_core_test_support::fixture_gate::Fifo;
 use botster_core_test_support::terminal_adapter::{
     DeliveredFrame, SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
 };
@@ -491,13 +492,13 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let session_id = SessionId("interrupt-shutdown-session".into());
     let client_id = ClientId("interrupt-shutdown-client".into());
     let subscription_id = SubscriptionId("interrupt-shutdown-sub".into());
-    let ready_path = data_dir.join("shutdown-ready");
-    let release_path = data_dir.join("shutdown-release");
+    let ready = Fifo::new("shutdown-ready");
+    let release = std::sync::Arc::new(Fifo::new("shutdown-release"));
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "trap '' TERM; : > {}; while [ ! -f {} ]; do sleep 0.01; done; printf final",
-        ready_path.display(),
-        release_path.display()
+        "trap '' TERM; printf ready > '{}'; read _ < '{}'; printf final",
+        ready.path().display(),
+        release.path().display()
     );
     daemon.spawn(request, 1).expect("spawn shutdown fixture");
     daemon
@@ -529,14 +530,7 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
             Box::new(adapter.clone()),
         )
         .expect("bind");
-    let ready_deadline = Instant::now() + Duration::from_secs(15);
-    while !ready_path.exists() {
-        assert!(
-            Instant::now() < ready_deadline,
-            "shutdown fixture did not publish readiness"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let _ = ready.read_signal(Duration::from_secs(15));
 
     let control = daemon.wake_pump_control();
     control.request_stop();
@@ -559,7 +553,7 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let interrupt_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = std::sync::Arc::clone(&interrupt_count);
     let interrupt_control = control.clone();
-    let release = release_path.clone();
+    let release = std::sync::Arc::clone(&release);
     let interrupter = std::thread::spawn(move || {
         let release_at = Instant::now() + Duration::from_millis(50);
         let mut released = false;
@@ -567,7 +561,7 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
             interrupt_control.interrupt();
             count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if !released && Instant::now() >= release_at {
-                fs::write(&release, b"release").expect("release shutdown fixture");
+                release.release(Duration::from_secs(5));
                 released = true;
             }
             std::thread::yield_now();
@@ -2160,28 +2154,18 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
-fn short_lived_spawn_request(
-    session_id: &SessionId,
-    done: &std::path::Path,
-) -> SpawnSessionRequest {
+fn short_lived_spawn_request(session_id: &SessionId, done: &Fifo) -> SpawnSessionRequest {
     let mut request = spawn_request(session_id);
-    request.request.arguments[1] = format!("printf ready; : > '{}'; exit 0", done.display());
+    request.request.arguments[1] = format!(
+        "printf ready; printf done > '{}'; exit 0",
+        done.path().display()
+    );
     request
 }
 
-fn wait_for_done_file(done: &std::path::Path) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if done.exists() {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "child did not write done file {}",
-            done.display()
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+/// Wait for the child to signal that it reached its marker.
+fn wait_for_done_signal(done: &Fifo) {
+    let _ = done.read_signal(Duration::from_secs(5));
 }
 
 fn drain_follow_up_wakes(daemon: &mut CoreDaemon) {
@@ -2230,12 +2214,8 @@ fn consume_runtime_ingress_wakes(daemon: &mut CoreDaemon, session_id: &SessionId
     drain_follow_up_wakes(daemon);
 }
 
-fn finish_short_lived_runtime_setup(
-    daemon: &mut CoreDaemon,
-    session_id: &SessionId,
-    done: &std::path::Path,
-) {
-    wait_for_done_file(done);
+fn finish_short_lived_runtime_setup(daemon: &mut CoreDaemon, session_id: &SessionId, done: &Fifo) {
+    wait_for_done_signal(done);
     consume_runtime_ingress_wakes(daemon, session_id);
 }
 
@@ -2288,8 +2268,7 @@ fn bind_short_lived_session(
     let session_id = SessionId(format!("{label}-session"));
     let client_id = ClientId(format!("{label}-client"));
     let subscription_id = SubscriptionId(format!("{label}-sub"));
-    let done = std::env::temp_dir().join(format!("botster-core-wake-done-{}", session_id.0));
-    let _ = fs::remove_file(&done);
+    let done = Fifo::new("wake-done");
     daemon
         .spawn(short_lived_spawn_request(&session_id, &done), 1)
         .expect("spawn");
@@ -2322,7 +2301,6 @@ fn bind_short_lived_session(
         )
         .expect("bind");
     finish_short_lived_runtime_setup(daemon, &session_id, &done);
-    let _ = fs::remove_file(&done);
     (session_id, client_id, subscription_id)
 }
 
@@ -2419,12 +2397,10 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
     let session_id = SessionId("observe-exit-wake-worker-session".into());
     let client_id = ClientId("observe-exit-wake-worker-client".into());
     let subscription_id = SubscriptionId("observe-exit-wake-worker-sub".into());
-    let go = data_dir.join("go");
+    let go = Fifo::new("go");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = format!(
-        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; exit 0",
-        go.display()
-    );
+    request.request.arguments[1] =
+        format!("printf ready; read _ < '{}'; exit 0", go.path().display());
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -2465,7 +2441,7 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
         std::thread::sleep(Duration::from_millis(10));
     }
     pump_available_wakes_until_quiet(&mut daemon, 3);
-    fs::write(&go, b"go").expect("release child");
+    go.release(Duration::from_secs(5));
     consume_runtime_ingress_wakes(&mut daemon, &session_id);
     assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
     let _ = fs::remove_dir_all(data_dir);
@@ -2478,7 +2454,7 @@ fn declared_unbound_exit_keeps_session_wake_until_bind_and_pump() {
     let session_id = SessionId("declared-unbound-session".into());
     let client_id = ClientId("declared-unbound-client".into());
     let subscription_id = SubscriptionId("declared-unbound-sub".into());
-    let done = data_dir.join("child-done");
+    let done = Fifo::new("child-done");
     let after_spawn = {
         daemon
             .spawn(short_lived_spawn_request(&session_id, &done), 1)
@@ -2590,15 +2566,15 @@ fn observe_then_force_closed_adapter_still_retires_session_wake() {
 #[test]
 fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
     let data_dir = temp_data_dir("natural-exit-siblings");
-    let done = data_dir.join("done");
-    let go = data_dir.join("go");
+    let done = Fifo::new("done");
+    let go = Fifo::new("go");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("natural-exit-siblings-session".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "printf ready; while [ ! -f '{}' ]; do sleep 0.01; done; : > '{}'; exit 0",
-        go.display(),
-        done.display()
+        "printf ready; read _ < '{}'; printf done > '{}'; exit 0",
+        go.path().display(),
+        done.path().display()
     );
     daemon.spawn(request, 1).expect("spawn gated session");
 
@@ -2646,8 +2622,8 @@ fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
     }
     pump_available_wakes_until_quiet(&mut daemon, 2);
 
-    fs::write(&go, b"go").expect("release child");
-    wait_for_done_file(&done);
+    go.release(Duration::from_secs(5));
+    wait_for_done_signal(&done);
     consume_runtime_ingress_wakes(&mut daemon, &session_id);
     observe_until_exited_without_pump(&mut daemon, &session_id, 3);
     let batch = daemon.wait_wakes(Duration::from_secs(2));
@@ -2672,15 +2648,15 @@ fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
 #[test]
 fn ordinary_pty_output_does_not_report_inventory_change() {
     let data_dir = temp_data_dir("ordinary-output-inventory");
-    let go = data_dir.join("go");
+    let go = Fifo::new("go");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("ordinary-output-inventory-session".into());
     let client_id = ClientId("ordinary-output-inventory-client".into());
     let subscription_id = SubscriptionId("ordinary-output-inventory-sub".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "while [ ! -f '{}' ]; do sleep 0.01; done; printf ordinary-output; sleep 30",
-        go.display()
+        "read _ < '{}'; printf ordinary-output; exec cat >/dev/null",
+        go.path().display()
     );
     daemon.spawn(request, 1).expect("spawn gated session");
     daemon
@@ -2714,7 +2690,7 @@ fn ordinary_pty_output_does_not_report_inventory_change() {
         .expect("bind adapter");
     pump_available_wakes_until_quiet(&mut daemon, 2);
 
-    fs::write(&go, b"go").expect("release child");
+    go.release(Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         assert!(Instant::now() < deadline, "ordinary output did not arrive");
@@ -2736,7 +2712,7 @@ fn abandoned_declaration_observe_retires_session_wake() {
     let session_id = SessionId("abandoned-session".into());
     let client_id = ClientId("abandoned-client".into());
     let subscription_id = SubscriptionId("abandoned-sub".into());
-    let done = data_dir.join("child-done");
+    let done = Fifo::new("child-done");
     daemon
         .spawn(short_lived_spawn_request(&session_id, &done), 1)
         .expect("spawn");
@@ -3116,17 +3092,17 @@ fn outside_pump_replacement_wakes_and_failed_pump_does_not_acknowledge() {
 #[test]
 fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
     let data_dir = temp_data_dir("outside-pump-observe-hard-stop");
-    let go = data_dir.join("go");
-    let produced = data_dir.join("produced");
+    let go = Fifo::new("go");
+    let produced = Fifo::new("produced");
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
     let session_id = SessionId("outside-pump-observe-session".into());
     let client_id = ClientId("outside-pump-observe-client".into());
     let subscription_id = SubscriptionId("outside-pump-observe-sub".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "while [ ! -f '{}' ]; do sleep 0.01; done; : > '{}'; dd if=/dev/zero bs=5242880 count=1 2>/dev/null; sleep 30",
-        go.display(),
-        produced.display()
+        "read _ < '{}'; printf produced > '{}'; dd if=/dev/zero bs=5242880 count=1 2>/dev/null; exec cat >/dev/null",
+        go.path().display(),
+        produced.path().display()
     );
     daemon.spawn(request, 1).expect("spawn output producer");
     let mut cleanup = ShutdownSessionOnDrop::new(&mut daemon, session_id.clone());
@@ -3144,8 +3120,8 @@ fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
         .expect("attach held route");
     drain_follow_up_wakes(cleanup.daemon());
 
-    fs::write(&go, b"go").expect("release output producer");
-    wait_for_done_file(&produced);
+    go.release(Duration::from_secs(5));
+    wait_for_done_signal(&produced);
     let _ = cleanup.daemon().wait_wakes(Duration::from_secs(1));
     drain_follow_up_wakes(cleanup.daemon());
     let deadline = Instant::now() + Duration::from_secs(8);
@@ -3469,12 +3445,10 @@ fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_
     let session_id = SessionId("stale-live-worker-exit-session".into());
     let client_id = ClientId("stale-live-worker-exit-client".into());
     let subscription_id = SubscriptionId("stale-live-worker-exit-sub".into());
-    let go = data_dir.join("go");
+    let go = Fifo::new("go");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = format!(
-        "printf ready; while [ ! -f '{}' ]; do sleep 0.05; done; exit 0",
-        go.display()
-    );
+    request.request.arguments[1] =
+        format!("printf ready; read _ < '{}'; exit 0", go.path().display());
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -3528,7 +3502,7 @@ fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_
         SessionRegistryStateLookup::Found(RegistrySessionState::Stale)
     ));
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
-    fs::write(&go, b"go").expect("release child");
+    go.release(Duration::from_secs(5));
     consume_runtime_ingress_wakes(&mut daemon, &session_id);
     assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
     let _ = fs::remove_dir_all(data_dir);
