@@ -55,11 +55,6 @@ use botster_terminal_protocol_client::{
     decode_input_body, TerminalInputCommand, TerminalInputKind,
 };
 
-/// Longest idle wait when no PTY write is pending. Wakes end it early.
-const IDLE_WAIT: Duration = Duration::from_secs(5);
-/// Retry interval while the PTY would block on a pending write.
-const BLOCKED_WRITE_WAIT: Duration = Duration::from_millis(2);
-
 fn main() {
     if let Err(error) = run() {
         let _ = writeln!(
@@ -227,8 +222,13 @@ fn run() -> Result<(), String> {
     };
     write_welcome(&mut initial_control, &metadata).map_err(|error| error.to_string())?;
 
+    let (egress, protected_receiver, metadata_receiver) =
+        WorkerEgress::new(args.egress_capacity.max(1));
     let (frame_sender, frame_receiver) = mpsc::channel();
-    let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
+    let snapshot_barrier = Arc::new(SnapshotBarrierControl {
+        egress_space: Arc::clone(&egress.space),
+        ..SnapshotBarrierControl::default()
+    });
     let control_connections = Arc::new(AtomicUsize::new(0));
     control.spawn_readers(
         initial_control,
@@ -240,9 +240,11 @@ fn run() -> Result<(), String> {
         Arc::clone(&control_connections),
     );
 
-    let (egress, protected_receiver, metadata_receiver) =
-        WorkerEgress::new(args.egress_capacity.max(1));
-    let writer = control.spawn_writer(protected_receiver, metadata_receiver);
+    let writer = control.spawn_writer(
+        protected_receiver,
+        metadata_receiver,
+        Arc::clone(&egress.space),
+    );
     let mut state = WorkerState {
         session_id: handle.session_id.clone(),
         ghostty,
@@ -406,13 +408,14 @@ fn run() -> Result<(), String> {
             let _ = wakes.wait_wakes_untimed();
             continue;
         }
-        let write_blocked = state.progress_pending_writes(&runtime);
-        let timeout = if write_blocked {
-            BLOCKED_WRITE_WAIT
-        } else {
-            IDLE_WAIT
-        };
-        let _ = wakes.wait_wakes(timeout);
+        if state.progress_pending_writes(&runtime) {
+            runtime
+                .wake_when_writable(&state.session_id)
+                .map_err(|error| error.to_string())?;
+        }
+        // Control frames, PTY output, child exit, and PTY writability all
+        // post session wakes, so the loop needs no timer.
+        let _ = wakes.wait_wakes_untimed();
     }
 
     if let Some(hold_ms) = args.test_hold_before_exit_ms {
@@ -1227,6 +1230,9 @@ enum SnapshotBarrierRelease {
 struct SnapshotBarrierControl {
     state: Mutex<SnapshotBarrierState>,
     wake: Condvar,
+    /// Notified after a cancel so a snapshot send blocked on a full egress
+    /// lane rechecks its cancellation.
+    egress_space: Arc<EgressSpace>,
 }
 
 impl SnapshotBarrierControl {
@@ -1237,6 +1243,9 @@ impl SnapshotBarrierControl {
             state.release = None;
             self.wake.notify_all();
         }
+        // After the state lock is released: a blocked sender holds the egress
+        // lock while it checks cancellation under the state lock.
+        self.egress_space.notify();
     }
 
     fn cancel_active(&self) {
@@ -1246,6 +1255,7 @@ impl SnapshotBarrierControl {
                 self.wake.notify_all();
             }
         }
+        self.egress_space.notify();
     }
 
     fn stage_resize(&self, size: ResizePayload) -> bool {
@@ -1266,6 +1276,7 @@ impl SnapshotBarrierControl {
                 self.wake.notify_all();
             }
         }
+        self.egress_space.notify();
     }
 
     fn request_complete(&self, request_id: String) {
@@ -1474,10 +1485,13 @@ fn write_egress_lanes(
     mut write_frame: impl FnMut(&[u8]) -> Result<(), String>,
     protected: Receiver<Vec<u8>>,
     metadata: Receiver<Vec<u8>>,
+    space: &EgressSpace,
 ) -> Result<(), String> {
     while let Ok(frame) = protected.recv() {
+        space.record_taken();
         write_one_protected_frame(&mut write_frame, &metadata, frame)?;
         while let Ok(frame) = protected.try_recv() {
+            space.record_taken();
             write_one_protected_frame(&mut write_frame, &metadata, frame)?;
         }
     }
@@ -1501,6 +1515,7 @@ fn write_egress(
     mut stdout: impl Write,
     protected: Receiver<Vec<u8>>,
     metadata: Receiver<Vec<u8>>,
+    space: &EgressSpace,
 ) -> Result<(), String> {
     write_egress_lanes(
         |frame| {
@@ -1511,6 +1526,7 @@ fn write_egress(
         },
         protected,
         metadata,
+        space,
     )
 }
 
@@ -1647,9 +1663,12 @@ impl WorkerControl {
         &self,
         protected: Receiver<Vec<u8>>,
         metadata: Receiver<Vec<u8>>,
+        space: Arc<EgressSpace>,
     ) -> thread::JoinHandle<Result<(), String>> {
         match self {
-            Self::Stdio => thread::spawn(move || write_egress(io::stdout(), protected, metadata)),
+            Self::Stdio => {
+                thread::spawn(move || write_egress(io::stdout(), protected, metadata, &space))
+            }
             #[cfg(unix)]
             Self::Socket { writer, .. } => {
                 let writer = Arc::clone(writer);
@@ -1671,6 +1690,7 @@ impl WorkerControl {
                         },
                         protected,
                         metadata,
+                        &space,
                     )
                 })
             }
@@ -1838,6 +1858,44 @@ impl Drop for WorkerSocketEndpoint {
 struct WorkerEgress {
     protected_sender: SyncSender<Vec<u8>>,
     metadata_sender: SyncSender<Vec<u8>>,
+    space: Arc<EgressSpace>,
+}
+
+/// Protected egress frames the writer has taken off its lane. A sender
+/// blocked on a full lane waits here for the writer or for a cancel.
+#[derive(Default)]
+struct EgressSpace {
+    taken: Mutex<u64>,
+    changed: Condvar,
+}
+
+impl EgressSpace {
+    fn taken(&self) -> u64 {
+        *self.taken.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn record_taken(&self) {
+        let mut taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
+        *taken += 1;
+        self.changed.notify_all();
+    }
+
+    /// Wake blocked senders so they recheck cancellation.
+    fn notify(&self) {
+        let _taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
+        self.changed.notify_all();
+    }
+
+    /// Wait until the writer takes a frame after `seen`, or `cancelled`.
+    fn wait_after(&self, seen: u64, cancelled: &mut impl FnMut() -> bool) {
+        let mut taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
+        while *taken == seen && !cancelled() {
+            taken = self
+                .changed
+                .wait(taken)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1875,6 +1933,7 @@ impl WorkerEgress {
             Self {
                 protected_sender,
                 metadata_sender,
+                space: Arc::new(EgressSpace::default()),
             },
             protected_receiver,
             metadata_receiver,
@@ -1912,11 +1971,12 @@ impl WorkerEgress {
             if cancelled() {
                 return false;
             }
+            let seen = self.space.taken();
             match self.protected_sender.try_send(frame) {
                 Ok(()) => return true,
                 Err(TrySendError::Full(returned)) => {
                     frame = returned;
-                    thread::sleep(Duration::from_millis(1));
+                    self.space.wait_after(seen, &mut cancelled);
                 }
                 Err(TrySendError::Disconnected(_)) => return false,
             }
@@ -2220,7 +2280,13 @@ mod tests {
         drop(metadata_tx);
 
         let mut stdout = Vec::new();
-        super::write_egress(&mut stdout, protected_rx, metadata_rx).expect("stdio writer");
+        super::write_egress(
+            &mut stdout,
+            protected_rx,
+            metadata_rx,
+            &super::EgressSpace::default(),
+        )
+        .expect("stdio writer");
         assert_eq!(
             decode_frame_types(&stdout),
             vec![super::FRAME_TITLE_CHANGED, super::FRAME_PROCESS_EXITED]
@@ -2250,7 +2316,13 @@ mod tests {
         drop(metadata_tx);
 
         let mut stdout = Vec::new();
-        super::write_egress(&mut stdout, protected_rx, metadata_rx).expect("stdio writer");
+        super::write_egress(
+            &mut stdout,
+            protected_rx,
+            metadata_rx,
+            &super::EgressSpace::default(),
+        )
+        .expect("stdio writer");
         assert_eq!(
             decode_frame_types(&stdout),
             vec![
@@ -2284,6 +2356,7 @@ mod tests {
             },
             protected_rx,
             metadata_rx,
+            &super::EgressSpace::default(),
         )
         .expect("socket-style writer");
         assert_eq!(
