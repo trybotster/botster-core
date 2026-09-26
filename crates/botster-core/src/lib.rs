@@ -143,9 +143,10 @@ pub use runtime::{
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
     ControlPlaneState, ControlWriterError, ControlWriterOutcome, LocalProcessRuntime,
-    LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier, ResizeAckHold,
-    RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
-    WorkerSpawnPoll, DEFAULT_PTY_READER_CHUNK_CAPACITY, DEFAULT_WORKER_EGRESS_CAPACITY,
+    LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier, PtyOutputRouting,
+    ResizeAckHold, RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime,
+    WorkerProcessRuntimeOptions, WorkerRouteProbe, WorkerRouteProbeEvent, WorkerSpawnPoll,
+    DEFAULT_PTY_READER_CHUNK_CAPACITY, DEFAULT_WORKER_EGRESS_CAPACITY,
     DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 

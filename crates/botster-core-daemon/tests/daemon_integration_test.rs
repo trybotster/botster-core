@@ -7,6 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -23,6 +24,7 @@ use botster_core::{
     SpawnWorkingDirectory, SubscriptionId, SubscriptionMultiplexerObservation, TerminalAttachState,
     TerminalCapabilitySet, TransportEgress, MAX_CORE_SESSION_METADATA_LEN,
 };
+use botster_core::{PtyOutputRouting, TerminalWakeKind, WorkerRouteProbe, WorkerRouteProbeEvent};
 use botster_core_daemon::{
     reserved_observe_slice_error, sanitize_observe_slice_error_message,
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CoreDaemon, CoreDaemonConfig,
@@ -40,6 +42,8 @@ use botster_core_daemon::{
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
+use botster_core_test_support::bounded_wait::wait_for;
+use botster_core_test_support::fixture_gate::Fifo;
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
@@ -1713,33 +1717,37 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
 #[test]
 fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attach() {
     let data_dir = temp_data_dir("bound-exit-during-attach");
+    let (probe, probe_events) = WorkerRouteProbe::channel();
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_test_worker_egress_capacity(Some(1))
-            .with_test_hold_before_exit_ms(Some(2_000)),
+            .with_test_hold_before_exit_ms(Some(2_000))
+            .with_test_route_probe(Some(probe)),
     );
     let session_id = SessionId("bound-exit-during-attach".to_string());
     let client_id = ClientId("bound-exit-during-attach-client".to_string());
     let subscription_id = SubscriptionId("bound-exit-during-attach-sub".to_string());
-    let ready_path = data_dir.join("history-ready");
-    let release_path = data_dir.join("go");
+    // The child signals the test and waits for its release on named pipes,
+    // opened by external commands, which a signal the shell handles cannot
+    // interrupt. It prints LIVE and exits the moment the test releases it.
+    let ready = Fifo::new("history-ready");
+    let release = Fifo::new("live-release");
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
         concat!(
             "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
-            "printf 'PRE-BARRIER-MARKER'; : > '{}'; ",
-            "while [ ! -f '{}' ]; do sleep 0.05; done; ",
+            "printf 'PRE-BARRIER-MARKER'; /bin/echo ready > '{}'; ",
+            "/bin/cat '{}' >/dev/null; ",
             "printf LIVE; exit 0"
         ),
-        ready_path.display(),
-        release_path.display()
+        ready.path().display(),
+        release.path().display()
     );
 
     daemon.spawn(request, 10).expect("spawn history then wait");
-    wait_for_file(&ready_path);
+    let _ = ready.read_signal(REAL_WORKER_COMPLETION_TIMEOUT);
     drain_pre_attach_producer_output(&mut daemon, &session_id, 11);
-    let (_worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
     daemon
         .attach(
             client_id.clone(),
@@ -1768,21 +1776,21 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         )
         .expect("bind during incremental attach");
 
-    let first_wake_deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        assert!(
-            Instant::now() < first_wake_deadline,
-            "incremental attach did not wake"
-        );
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
-        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
-            continue;
-        }
-        let _ = daemon
-            .pump_woken(&batch, 13)
-            .expect("pace unfinished attach through a wake");
-        break;
-    }
+    wait_for(
+        "the incremental attach's first wake",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+                return None;
+            }
+            let _ = daemon
+                .pump_woken(&batch, 13)
+                .expect("pace unfinished attach through a wake");
+            Some(())
+        },
+    );
     assert!(
         !adapter
             .snapshot_delivered_frame_bytes()
@@ -1791,33 +1799,117 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         "bind must happen before incremental attach finishes"
     );
 
-    fs::write(&release_path, b"go").expect("release live exit");
+    // Pump until Core queues the capture's barrier release, and stop there:
+    // the capture stays registered, and the worker's release reply fills the
+    // one-event parent queue.
+    let release_sent = |events: &mpsc::Receiver<WorkerRouteProbeEvent>| {
+        events.try_iter().any(|event| {
+            matches!(
+                event,
+                WorkerRouteProbeEvent::CaptureReleaseSent { session_id: ref released }
+                    if *released == session_id
+            )
+        })
+    };
+    let mut now = 14;
+    wait_for(
+        "the capture's barrier release",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            if release_sent(&probe_events) {
+                return Some(());
+            }
+            complete_one_slot_and_wake(&adapter);
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump incremental attach wake");
+            }
+            release_sent(&probe_events).then_some(())
+        },
+    );
+    // Only now does the child print LIVE: after the fence, and while Core
+    // does not pump. The parent reader meets LIVE behind the full queue with
+    // the capture still registered; the bound route is a consumer, so the
+    // reader stalls. Without it, the reader drops LIVE.
+    release.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    let live_routing = loop {
+        // timer: deadline — LIVE's routing decision must arrive; expiry fails the test
+        match probe_events
+            .recv_timeout(REAL_WORKER_COMPLETION_TIMEOUT)
+            .expect("the parent reader routes LIVE")
+        {
+            WorkerRouteProbeEvent::PtyOutputRouted {
+                session_id: ref routed,
+                routing,
+            } if *routed == session_id => break routing,
+            _ => {}
+        }
+    };
+    assert_eq!(
+        live_routing,
+        PtyOutputRouting::Stalled,
+        "LIVE after the capture fence must stall the reader, not be dropped"
+    );
 
-    let mut saw_live = false;
-    for tick in 0..400 {
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
-        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
-            let _ = daemon
-                .pump_woken(&batch, 14 + tick)
-                .expect("pump incremental attach wake");
-        }
-        complete_one_slot_if_full(&adapter);
-        if adapter_has_live(&adapter) {
-            saw_live = true;
-            break;
-        }
-        if !process_exists(pty_child_pid) {
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
+    wait_for(
+        "process_exit at the one-slot adapter",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            complete_one_slot_and_wake(&adapter);
+            if adapter_has_process_exit(&adapter) {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump incremental attach wake");
+            }
+            None
+        },
+    );
+    let frames = adapter.snapshot_delivered_frame_bytes();
+    let described: Vec<String> = frames
+        .iter()
+        .map(|bytes| {
+            let frame = adapter_terminal_frame(bytes);
+            format!(
+                "{:?}:{}:live={}",
+                frame.kind(),
+                frame.body().len(),
+                frame.body().windows(4).any(|window| window == b"LIVE")
+            )
+        })
+        .collect();
+    // Bytes before the capture fence are in the snapshot only; bytes after
+    // it are output after FINISH. LIVE is in exactly one of the two.
+    let snapshot_live = frames.iter().any(|bytes| {
+        let frame = adapter_terminal_frame(bytes);
+        matches!(
+            frame.kind(),
+            TerminalKind::SnapshotReady | TerminalKind::SnapshotHistory
+        ) && frame.body().windows(4).any(|window| window == b"LIVE")
+    });
+    let output_text: String = frames
+        .iter()
+        .filter(|bytes| adapter_frame_type(bytes) == "terminal_output")
+        .map(|bytes| adapter_payload_text(bytes))
+        .collect();
+    let output_live = output_text.matches("LIVE").count();
+    assert_eq!(
+        usize::from(snapshot_live) + output_live,
+        1,
+        "LIVE must reach the route exactly once, in the snapshot or as output: {described:?}"
+    );
     assert!(
-        saw_live,
-        "LIVE bytes must reach the bound adapter when ProcessExited arrives during incremental attach: payloads={:?}",
-        adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .map(|bytes| adapter_payload_text(bytes))
-            .collect::<Vec<_>>()
+        !output_text.contains("history-") && !output_text.contains("PRE-BARRIER-MARKER"),
+        "pre-fence bytes must not be repeated as output: {output_text:?}"
     );
 
     let _ = fs::remove_dir_all(data_dir);
@@ -1826,6 +1918,15 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
 fn complete_one_slot_if_full(adapter: &SharedFakeTerminalAdapter) {
     if adapter.snapshot_pressure() == TerminalAdapterPressure::Full {
         adapter.complete_write();
+    }
+}
+
+/// Complete the adapter's one in-flight write and wake Core, as a real
+/// transport does when its write finishes and capacity returns.
+fn complete_one_slot_and_wake(adapter: &SharedFakeTerminalAdapter) {
+    if adapter.snapshot_pressure() == TerminalAdapterPressure::Full {
+        adapter.complete_write();
+        let _ = adapter.wake(TerminalWakeKind::Writable);
     }
 }
 
@@ -5676,17 +5777,6 @@ fn drain_pre_attach_producer_output(
             idle = 0;
         }
     }
-}
-
-fn wait_for_file(path: &std::path::Path) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if path.exists() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    panic!("child readiness file did not appear: {}", path.display());
 }
 
 fn client_attached(drained: &botster_core_daemon::DrainResult, client_id: &ClientId) -> bool {

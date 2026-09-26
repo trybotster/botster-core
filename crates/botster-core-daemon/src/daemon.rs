@@ -32,7 +32,7 @@ use botster_core::{
     SessionWorkerHealthReason, SessionWorkerStaleReason, SubscriptionId, TerminalBackendError,
     TerminalCapabilitySet, TerminalColorProfile, TerminalSubscriptionGeneration,
     TerminalSubscriptionInventory, TerminalSubscriptionInventoryError, TransportEgress,
-    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions,
+    WorkerBackedBotsterEngine, WorkerProcessRuntimeOptions, WorkerRouteProbe,
 };
 use botster_terminal_ghostty::{GhosttyAdapterConfig, GhosttyTerminal, GhosttyTerminalError};
 use botster_terminal_protocol::HistoryUnavailableReason;
@@ -139,6 +139,8 @@ pub struct CoreDaemonConfig {
     pub test_worker_egress_capacity: Option<usize>,
     /// Test-only: hold parent-side resize acknowledgements for one worker session.
     pub test_resize_ack_hold: Option<ResizeAckHold>,
+    /// Test-only: report capture releases and PTY output routing decisions.
+    pub test_route_probe: Option<WorkerRouteProbe>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -170,6 +172,7 @@ impl CoreDaemonConfig {
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
             test_resize_ack_hold: None,
+            test_route_probe: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             #[cfg(test)]
@@ -223,6 +226,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_worker_egress_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_worker_egress_capacity = capacity;
+        self
+    }
+
+    /// Report capture releases and PTY output routing decisions to a test.
+    #[must_use]
+    pub fn with_test_route_probe(mut self, probe: Option<WorkerRouteProbe>) -> Self {
+        self.test_route_probe = probe;
         self
     }
 
@@ -583,6 +593,7 @@ impl CoreDaemon {
                 options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
                 options.terminal_color_profile = terminal_color_profile.clone();
                 options.test_resize_ack_hold = config.test_resize_ack_hold.clone();
+                options.test_route_probe = config.test_route_probe.clone();
                 options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
                 options.test_exit_code = config.test_exit_code;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
