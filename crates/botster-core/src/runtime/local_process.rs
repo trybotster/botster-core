@@ -1895,7 +1895,7 @@ mod tests {
         let source = TerminalWakeSource::new();
         let session_id = SessionId("local-abandoned-wake".to_string());
         let mut request = immediate_exit_request(&session_id);
-        request.arguments = vec!["-c".to_string(), "sleep 30".to_string()];
+        request.arguments = vec!["-c".to_string(), "exec cat >/dev/null".to_string()];
         let mut runtime = LocalProcessRuntime::new().with_wake_source(source.clone());
         runtime
             .spawn_session(request)
