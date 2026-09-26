@@ -110,13 +110,13 @@ fn owner_lookup_distinguishes_sessions_and_sibling_routes() {
     let sibling = SubscriptionId("sibling".into());
     let (first_generation, _) = worker
         .record_attach(first.clone(), session.clone(), route.clone())
-        .unwrap();
+        .expect("valid attach");
     let (second_generation, _) = worker
         .record_attach(second.clone(), session.clone(), sibling.clone())
-        .unwrap();
+        .expect("valid attach");
     let (other_generation, _) = worker
         .record_attach(first.clone(), other_session.clone(), route.clone())
-        .unwrap();
+        .expect("valid attach");
     assert_eq!(
         worker.terminal_subscription_owner(&session, &route),
         Some((&first, first_generation))
@@ -132,7 +132,7 @@ fn owner_lookup_distinguishes_sessions_and_sibling_routes() {
     let replacement_route = SubscriptionId("replacement-route".into());
     let (replacement_generation, _) = worker
         .record_attach(first.clone(), session.clone(), replacement_route.clone())
-        .unwrap();
+        .expect("valid attach");
     assert_eq!(worker.terminal_subscription_owner(&session, &route), None);
     assert_eq!(
         worker.terminal_subscription_owner(&session, &replacement_route),
@@ -157,7 +157,7 @@ fn owner_lookup_first_and_repeated_populated_queries_allocate_nothing() {
     let missing = SubscriptionId("missing".into());
     let (generation, _) = worker
         .record_attach(client.clone(), session.clone(), route.clone())
-        .unwrap();
+        .expect("valid attach");
     for index in 0..64 {
         worker
             .record_attach(
@@ -165,7 +165,7 @@ fn owner_lookup_first_and_repeated_populated_queries_allocate_nothing() {
                 SessionId(format!("session-{index}")),
                 SubscriptionId(format!("route-{index}")),
             )
-            .unwrap();
+            .expect("valid attach");
     }
     for _ in 0..3 {
         let (owner, allocations) =

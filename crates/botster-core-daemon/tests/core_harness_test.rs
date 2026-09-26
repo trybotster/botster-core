@@ -328,6 +328,10 @@ fn c_s2_real_worker_paste_table_uses_production_ghostty_encoding() {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "Route failures deliberately retain rich harness diagnostics by value"
+)]
 fn wait_for_state(
     daemon: &mut CoreDaemon,
     adapter: &SharedFakeTerminalAdapter,
@@ -355,6 +359,10 @@ fn wait_for_state(
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "Route failures deliberately retain rich harness diagnostics by value"
+)]
 fn observe_new_frames(
     adapter: &SharedFakeTerminalAdapter,
     subscription_id: &SubscriptionId,
