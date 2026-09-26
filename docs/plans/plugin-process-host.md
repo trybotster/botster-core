@@ -237,9 +237,10 @@ child writes a preallocated `MemoryCapExceeded` frame and aborts. The parent
 reports `WorkerKilled(MemoryCap)`. This covers all Rust allocations and the
 vendored Lua heap, because mlua allocates through the Rust allocator. It does
 not cover native C code that calls `malloc` directly. On Linux, `RLIMIT_AS` is
-also available as a hard kernel bound. **This is a product decision for the
-user:** is the allocator cap (with the C-malloc gap on macOS) acceptable as the
-"real" memory cap?
+also available as a hard kernel bound. **Decision (orchestrator, 2026-09-26):**
+the counting allocator is accepted as the memory-cap mechanism. Plugins cannot
+run native C, so the C-malloc gap does not apply to plugin code. The cap value
+is Hub-supplied.
 
 ## 9. Hook interface (Core API sketch)
 
@@ -320,7 +321,8 @@ host.
 
 For the user (through the orchestrator):
 1. The cancel grace value (the Hub writer is escalating it).
-2. The memory-cap mechanism on macOS (section 8).
+2. The memory-cap mechanism on macOS: decided (section 8). The cap value is
+   still open.
 3. Every other number in `PluginProcessConfig` is a new limit. The Hub proposes
    them from its existing per-plugin accounting; Core adds none.
 
