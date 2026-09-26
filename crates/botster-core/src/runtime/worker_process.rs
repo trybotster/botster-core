@@ -750,19 +750,6 @@ impl WorkerProcessRuntime {
             .collect())
     }
 
-    /// Take worker mode transitions in FIFO order.
-    pub fn take_mode_changes(
-        &mut self,
-        session_id: &SessionId,
-    ) -> Result<Vec<ModesBody>, SessionRuntimeError> {
-        self.pump_session_output(session_id)?;
-        Ok(self
-            .session_mut(session_id)?
-            .mode_changes
-            .drain(..)
-            .collect())
-    }
-
     /// Latest worker-reported modes, or `None` before the worker reported any
     /// in this daemon incarnation.
     #[must_use]
@@ -1335,7 +1322,6 @@ impl WorkerProcessRuntime {
             })),
             latest_modes: None,
             input_results: VecDeque::new(),
-            mode_changes: VecDeque::new(),
             mode_flags_replies: VecDeque::new(),
             screen_replies: VecDeque::new(),
             pending_output: VecDeque::new(),
@@ -1374,7 +1360,10 @@ impl WorkerProcessRuntime {
                 }
                 WorkerChannelEvent::ModesChanged(modes) => {
                     session.latest_modes = Some(modes);
-                    session.mode_changes.push_back(modes);
+                    // One ordered stream with the output around it.
+                    session
+                        .pending_output
+                        .push_back(WorkerOutputEvent::ModesChanged(modes));
                 }
                 WorkerChannelEvent::Snapshot(result) => {
                     if session.outstanding_snapshot_request.as_ref() == Some(&result.request_id) {
@@ -1645,7 +1634,6 @@ impl WorkerProcessRuntime {
             completion,
             latest_modes,
             input_results: VecDeque::new(),
-            mode_changes: VecDeque::new(),
             mode_flags_replies: VecDeque::new(),
             screen_replies: VecDeque::new(),
             pending_output: VecDeque::new(),
@@ -2294,7 +2282,6 @@ struct WorkerProcessSession {
     completion: Arc<Mutex<WorkerCompletion>>,
     latest_modes: Option<ModesBody>,
     input_results: VecDeque<(u64, InputResultBody)>,
-    mode_changes: VecDeque<ModesBody>,
     mode_flags_replies: VecDeque<ModeFlagsPayload>,
     screen_replies: VecDeque<ScreenPayload>,
     pending_output: VecDeque<WorkerOutputEvent>,
@@ -2874,6 +2861,7 @@ impl Drop for PendingWorker {
 
 enum WorkerOutputEvent {
     PtyOutput(Vec<u8>),
+    ModesChanged(ModesBody),
     TitleChanged(String),
     CwdChanged(String),
     PromptMark(PromptMarkPayload),
@@ -2898,6 +2886,10 @@ impl WorkerOutputEvent {
             Self::PtyOutput(data) => SessionRuntimeOutput::PtyOutput {
                 session_id: session_id.clone(),
                 data,
+            },
+            Self::ModesChanged(modes) => SessionRuntimeOutput::ModesChanged {
+                session_id: session_id.clone(),
+                modes,
             },
             Self::TitleChanged(title) => SessionRuntimeOutput::TitleChanged {
                 session_id: session_id.clone(),

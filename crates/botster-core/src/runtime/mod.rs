@@ -330,6 +330,14 @@ pub enum SessionRuntimeOutput {
     Backpressure(BackpressureSummary),
     /// Runtime-originated terminal metadata lane shaping observation.
     MetadataShaping(TerminalMetadataShapingObservation),
+    /// Terminal modes or size changed. Ordered with the PTY output around
+    /// it: a change caused by output comes before that output.
+    ModesChanged {
+        /// Source session identifier.
+        session_id: SessionId,
+        /// Complete modes after the change.
+        modes: botster_terminal_protocol::ModesBody,
+    },
 }
 
 /// Stable category for a session runtime error.
