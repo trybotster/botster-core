@@ -2,9 +2,16 @@
 //!
 //! A fixture child that waits for the test, or tells the test it reached a
 //! point, uses a named pipe instead of polling a file: the child blocks in
-//! `read _ < "$GATE"` until the test releases it, or writes into a pipe the
-//! test is reading. A test that waits for a process to end uses the OS exit
+//! `/bin/cat "$GATE" >/dev/null` until the test releases it, or writes into a
+//! pipe the test is reading. A test that waits for a process to end uses the OS exit
 //! event. Every wait is bounded by one deadline whose expiry fails the test.
+//!
+//! In fixture scripts, open a pipe in an external command, for example
+//! `/bin/cat "$GATE" >/dev/null` or `/bin/echo ready > "$READY"`, never in a
+//! shell builtin such as `read _ < "$GATE"` or `printf ready > "$READY"`. A
+//! builtin's redirection opens the pipe in the shell itself, and a signal the
+//! shell handles interrupts that blocking open, so the gate passes without
+//! the release. An external command's redirection runs in the forked child.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -54,22 +61,30 @@ impl Fifo {
         &self.path
     }
 
-    /// Release a child blocked in `read _ < fifo` by writing one line.
+    /// Release a child blocked in `/bin/cat fifo` by writing one line and
+    /// closing the pipe.
     ///
     /// Opening the write end blocks until the child opens the read end, so
-    /// the release happens exactly when the child is waiting for it.
+    /// the release happens exactly when the child is waiting for it. A
+    /// signal can make the child's shell drop the pipe after opening it and
+    /// open it again; the write then fails with a broken pipe, and the
+    /// release opens the pipe again and blocks for the next reader.
     ///
     /// # Panics
     ///
-    /// Panics when the child does not open the pipe within `bound`.
+    /// Panics when the child does not read the release within `bound`.
     pub fn release(&self, bound: Duration) {
         let path = self.path.clone();
-        run_bounded("fifo release", bound, move || {
+        run_bounded("fifo release", bound, move || loop {
             let mut writer = fs::OpenOptions::new()
                 .write(true)
                 .open(&path)
                 .expect("open fifo for writing");
-            writer.write_all(b"go\n").expect("write fifo release");
+            match writer.write_all(b"go\n") {
+                Ok(()) => return,
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+                Err(error) => panic!("write fifo release: {error}"),
+            }
         });
     }
 
@@ -253,7 +268,7 @@ mod tests {
         let gate = Fifo::new("gate-test");
         let mut child = Command::new("sh")
             .arg("-c")
-            .arg(format!("read _ < '{}'", gate.path().display()))
+            .arg(format!("/bin/cat '{}' >/dev/null", gate.path().display()))
             .spawn()
             .expect("spawn gated child");
         gate.release(Duration::from_secs(5));
@@ -265,10 +280,10 @@ mod tests {
         let signal = Fifo::new("signal-test");
         let mut child = Command::new("sh")
             .arg("-c")
-            .arg(format!("printf ready > '{}'", signal.path().display()))
+            .arg(format!("/bin/echo ready > '{}'", signal.path().display()))
             .spawn()
             .expect("spawn signalling child");
-        assert_eq!(signal.read_signal(Duration::from_secs(5)), b"ready");
+        assert_eq!(signal.read_signal(Duration::from_secs(5)), b"ready\n");
         assert!(child.wait().expect("child").success());
     }
 
