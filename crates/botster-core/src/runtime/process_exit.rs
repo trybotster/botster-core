@@ -40,7 +40,7 @@ impl ExitWatch {
 mod platform {
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// A kqueue with `NOTE_EXIT` registered, or `None` when the process had
     /// already exited at registration.
@@ -94,16 +94,21 @@ mod platform {
             let Some(kq) = &self.kq else {
                 return Ok(true);
             };
-            let timespec = timeout.map(|timeout| libc::timespec {
-                tv_sec: libc::time_t::try_from(timeout.as_secs()).unwrap_or(libc::time_t::MAX),
-                tv_nsec: libc::c_long::from(timeout.subsec_nanos()),
-            });
-            let timespec_ptr = timespec.as_ref().map_or(std::ptr::null(), |timespec| {
-                timespec as *const libc::timespec
-            });
+            let deadline = timeout.map(|timeout| Instant::now() + timeout);
             // SAFETY: a zeroed kevent is a valid output record.
             let mut event: libc::kevent = unsafe { std::mem::zeroed() };
             loop {
+                // An interrupted wait resumes with the time that is left.
+                let timespec = deadline.map(|deadline| {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    libc::timespec {
+                        tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX),
+                        tv_nsec: libc::c_long::from(left.subsec_nanos()),
+                    }
+                });
+                let timespec_ptr = timespec.as_ref().map_or(std::ptr::null(), |timespec| {
+                    timespec as *const libc::timespec
+                });
                 // SAFETY: event is a valid output record, and timespec_ptr is
                 // null or points at a live timespec.
                 let count = unsafe {
@@ -133,7 +138,7 @@ mod platform {
 mod platform {
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// A pidfd, or `None` when the process had already exited at registration.
     pub(super) struct Watch {
@@ -161,15 +166,20 @@ mod platform {
             let Some(pidfd) = &self.pidfd else {
                 return Ok(true);
             };
-            let timeout_ms = timeout.map_or(-1, |timeout| {
-                libc::c_int::try_from(timeout.as_millis()).unwrap_or(libc::c_int::MAX)
-            });
+            let deadline = timeout.map(|timeout| Instant::now() + timeout);
             let mut poll_fd = libc::pollfd {
                 fd: pidfd.as_raw_fd(),
                 events: libc::POLLIN,
                 revents: 0,
             };
             loop {
+                // An interrupted wait resumes with the time that is left,
+                // rounded up so a sub-millisecond rest cannot become 0.
+                let timeout_ms = deadline.map_or(-1, |deadline| {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    libc::c_int::try_from(left.as_nanos().div_ceil(1_000_000))
+                        .unwrap_or(libc::c_int::MAX)
+                });
                 // SAFETY: poll_fd points at one valid pollfd for the call.
                 let count = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
                 if count < 0 {
