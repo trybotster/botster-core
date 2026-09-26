@@ -103,7 +103,6 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         egress_capacity: 64,
         pty_reader_chunk_capacity: 8,
         shutdown_grace_ms: 80,
-        poll_interval_ms: 5,
         control_socket_dir: None,
         worker_reply_timeout: botster_core::DEFAULT_WORKER_REPLY_TIMEOUT,
         test_hold_after_read_ms: None,
@@ -1956,8 +1955,6 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
         .arg("2")
         .arg("--shutdown-grace-ms")
         .arg("80")
-        .arg("--poll-interval-ms")
-        .arg("5")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
