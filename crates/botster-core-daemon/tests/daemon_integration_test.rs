@@ -47,7 +47,8 @@ use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
 };
 use botster_terminal_protocol::{
-    decode_attach_state, AttachStateCode, TerminalFrame, TerminalKind,
+    decode_attach_state, decode_modes, mode_bits, AttachStateCode, ModesBody, TerminalFrame,
+    TerminalKind,
 };
 use botster_terminal_protocol_client::{encode_terminal_input, TerminalInputCommand};
 
@@ -6362,6 +6363,168 @@ fn bind_echo_worker(
         .expect("bind echo worker");
     wait_until_bound_attached(daemon, &session_id, &adapter);
     adapter
+}
+
+/// Pump daemon wakes until `done` holds. Every step waits on the wake source.
+fn pump_wakes_until(daemon: &mut CoreDaemon, mut done: impl FnMut() -> bool) -> bool {
+    // timer: deadline — the condition must arrive through daemon wakes; expiry fails the caller
+    let deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
+    while !done() {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        let batch = daemon.wait_wakes(remaining);
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            daemon.pump_woken(&batch, 30).expect("pump woken");
+        }
+    }
+    true
+}
+
+/// Delivered frame kinds with the MODES body where there is one.
+fn adapter_frames(
+    adapter: &SharedFakeTerminalAdapter,
+) -> Vec<(TerminalKind, Option<ModesBody>, String)> {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .map(|bytes| {
+            let frame = adapter_terminal_frame(bytes);
+            let modes = (frame.kind() == TerminalKind::Modes)
+                .then(|| decode_modes(&frame).expect("modes body"));
+            (frame.kind(), modes, adapter_payload_text(bytes))
+        })
+        .collect()
+}
+
+/// Spawn a line-echo session whose echo enables bracketed paste, declare and
+/// bind one auto-completing adapter, and pump until the route is attached.
+fn bind_declared_mode_echo(
+    daemon: &mut CoreDaemon,
+    label: &str,
+) -> (SessionId, ClientId, SharedFakeTerminalAdapter) {
+    let session_id = SessionId(format!("{label}-session"));
+    let client_id = ClientId(format!("{label}-client"));
+    let subscription_id = SubscriptionId(format!("{label}-sub"));
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] =
+        "while IFS= read -r line; do printf '\\033[?2004hMODE:%s\\n' \"$line\"; done".to_string();
+    daemon.spawn(request, 10).expect("spawn mode echo");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach mode echo");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind mode echo");
+    assert!(
+        pump_wakes_until(daemon, || adapter
+            .snapshot_delivered_frame_bytes()
+            .iter()
+            .any(|bytes| adapter_phase(bytes) == Some("attached"))),
+        "route must attach"
+    );
+    (session_id, client_id, adapter)
+}
+
+fn modes_daemon(worker: bool, label: &str) -> (CoreDaemon, PathBuf) {
+    let data_dir = temp_data_dir(label);
+    let config = CoreDaemonConfig::new(&data_dir).with_ghostty_max_scrollback_bytes(0);
+    let config = if worker {
+        config.with_worker_path(worker_path())
+    } else {
+        config
+    };
+    (CoreDaemon::new(config), data_dir)
+}
+
+/// A resize that changes only rows and cols publishes MODES.
+fn assert_resize_only_publishes_modes(worker: bool, label: &str) {
+    let (mut daemon, data_dir) = modes_daemon(worker, label);
+    let (session_id, client_id, adapter) = bind_declared_mode_echo(&mut daemon, label);
+    daemon
+        .resize(client_id, session_id, 31, 101, 20)
+        .expect("resize only");
+    assert!(
+        pump_wakes_until(&mut daemon, || {
+            adapter_frames(&adapter)
+                .iter()
+                .any(|(_, modes, _)| modes.is_some_and(|m| (m.rows, m.cols) == (31, 101)))
+        }),
+        "a resize-only change must publish MODES: {:?}",
+        adapter_frames(&adapter)
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A mode change carried by PTY output reaches the route before that output.
+fn assert_modes_precede_mode_changing_output(worker: bool, label: &str) {
+    let (mut daemon, data_dir) = modes_daemon(worker, label);
+    let (_, _, adapter) = bind_declared_mode_echo(&mut daemon, label);
+    adapter.inject_ingress_frame(compact_input_frame(b"on\n"));
+    assert!(
+        pump_wakes_until(&mut daemon, || adapter_frames(&adapter).iter().any(
+            |(kind, _, text)| *kind == TerminalKind::Output && text.contains("MODE:on")
+        )),
+        "the mode-changing output must arrive: {:?}",
+        adapter_frames(&adapter)
+    );
+    let frames = adapter_frames(&adapter);
+    let modes_at = frames
+        .iter()
+        .position(|(_, modes, _)| {
+            modes.is_some_and(|m| m.mode_bits & mode_bits::BRACKETED_PASTE != 0)
+        })
+        .unwrap_or(usize::MAX);
+    let output_at = frames
+        .iter()
+        .position(|(kind, _, text)| *kind == TerminalKind::Output && text.contains("\u{1b}[?2004h"))
+        .expect("output carrying the mode change");
+    assert!(
+        modes_at < output_at,
+        "MODES must precede the output that changed the mode: {frames:?}"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn in_process_resize_only_publishes_modes() {
+    assert_resize_only_publishes_modes(false, "modes-resize-in-process");
+}
+
+#[cfg(unix)]
+#[test]
+fn in_process_modes_precede_mode_changing_output() {
+    assert_modes_precede_mode_changing_output(false, "modes-order-in-process");
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_resize_only_publishes_modes() {
+    assert_resize_only_publishes_modes(true, "modes-resize-worker");
 }
 
 #[cfg(unix)]
