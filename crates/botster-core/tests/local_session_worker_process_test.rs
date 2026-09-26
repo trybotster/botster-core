@@ -1025,10 +1025,12 @@ fn attached_pty_stall_waits_on_drain_or_detach_not_fixed_sleep() {
     let start = source
         .find("fn send_worker_event(")
         .expect("send_worker_event must exist");
-    let body = source[start..]
-        .split("fn next_gated_request_id")
-        .next()
-        .expect("send_worker_event body");
+    // Bound the scan at the function that follows send_worker_event, and
+    // fail if that boundary moves, so the scan cannot widen silently.
+    let end = source[start..]
+        .find("fn next_request_id(")
+        .expect("next_request_id must follow send_worker_event");
+    let body = &source[start..start + end];
     assert!(
         !body.contains("thread::sleep"),
         "attached PtyOutput stall must not poll with a fixed sleep"
