@@ -3227,7 +3227,10 @@ mod tests {
                         request_id: RequestId("guard-exited-pending-resize-spawn".into()),
                         session_id: session_id.clone(),
                         executable: "sh".to_string(),
-                        arguments: vec!["-c".to_string(), "printf ready; sleep 30".to_string()],
+                        arguments: vec![
+                            "-c".to_string(),
+                            "printf ready; exec cat >/dev/null".to_string(),
+                        ],
                         working_directory: SpawnWorkingDirectory {
                             path: ".".to_string(),
                         },

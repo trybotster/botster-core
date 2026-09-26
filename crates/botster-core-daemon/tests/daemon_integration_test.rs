@@ -6679,7 +6679,7 @@ fn pump_woken_teardown_session_clears_ingress_and_inventory() {
         session_id.clone(),
         ClientId("duplex-teardown-client".to_string()),
         subscription_id.clone(),
-        "sleep 30",
+        "exec cat >/dev/null",
         10,
     );
     adapter.inject_ingress_frame(compact_input_frame(b"gone\n"));
@@ -6716,7 +6716,7 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         failed.clone(),
         ClientId("duplex-writer-idle-client".to_string()),
         idle_sub.clone(),
-        "sleep 30",
+        "exec cat >/dev/null",
         10,
     );
     daemon
@@ -6990,7 +6990,7 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
     let client_id = ClientId("hold-order-client".to_string());
     let subscription_id = SubscriptionId("hold-order-sub".to_string());
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = "printf 'hold-order-live\\n'; sleep 30".to_string();
+    request.request.arguments[1] = "printf 'hold-order-live\\n'; exec cat >/dev/null".to_string();
     daemon.spawn(request, 10).expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -7265,7 +7265,7 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         session_id.clone(),
         sibling.clone(),
         sibling_sub.clone(),
-        "printf sibling-live\\n; sleep 30",
+        "printf sibling-live\\n; exec cat >/dev/null",
         10,
     );
     daemon
@@ -7395,7 +7395,7 @@ fn foreign_route_drains_while_another_route_holds() {
     let holder_sub = SubscriptionId("hold-foreign-holder-sub".to_string());
     let other_sub = SubscriptionId("hold-foreign-other-sub".to_string());
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] = "printf 'foreign-live\\n'; sleep 30".to_string();
+    request.request.arguments[1] = "printf 'foreign-live\\n'; exec cat >/dev/null".to_string();
     daemon.spawn(request, 10).expect("spawn");
     daemon
         .expect_terminal_adapter(holder.clone(), session_id.clone(), holder_sub.clone())
