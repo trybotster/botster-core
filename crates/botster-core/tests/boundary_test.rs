@@ -261,6 +261,10 @@ fn source_boundary_json_uses_are_limited_to_classified_escape_hatches() {
         "pub metadata: Option<BoundaryJson>,",
         "pub payload: Option<BoundaryJson>,",
         "pub extension: Option<BoundaryJson>,",
+        "pub struct SandboxProfile(pub BoundaryJson);",
+        "pub struct PluginSources(pub BoundaryJson);",
+        "pub struct PluginConfig(pub BoundaryJson);",
+        "pub struct PluginRegistration(pub BoundaryJson);",
     ];
 
     let mut boundary_uses = Vec::new();

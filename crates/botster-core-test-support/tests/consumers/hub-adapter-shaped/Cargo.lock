@@ -105,6 +105,7 @@ dependencies = [
  "botster-core",
  "botster-terminal-protocol",
  "botster-terminal-protocol-client",
+ "libc",
  "serde",
  "serde_json",
  "sha2",
