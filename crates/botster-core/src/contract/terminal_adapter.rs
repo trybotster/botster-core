@@ -75,13 +75,76 @@ pub trait TerminalAdapter {
     /// An already-started transport envelope follows the framing rule above.
     /// Return without waiting for transport I/O or for a lock held by the
     /// transport writer, including completion of a partial envelope.
-    fn close(&mut self);
+    ///
+    /// `reason` says why Core ended the route. Only the first close carries
+    /// the route's reason; a later close must not replace it.
+    fn close(&mut self, reason: TerminalRouteCloseReason);
 
     /// Current transport pressure.
     fn pressure(&self) -> TerminalAdapterPressure;
 
     /// Take the next ingress event. Never blocks.
     fn try_read(&mut self) -> TerminalIngress;
+}
+
+/// Why Core closed a terminal adapter.
+///
+/// Passed to [`TerminalAdapter::close`] and carried on the matching route
+/// teardown, so a host can log the cause of every Core close.
+///
+/// Not `#[non_exhaustive]`. Adding a variant at `0.1.0` is breaking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TerminalRouteCloseReason {
+    /// A newer attach replaced the route: the same client attached another
+    /// subscription on the session, or another client took this subscription.
+    Replaced,
+    /// The client or the host detached the route.
+    Detached,
+    /// The session ended or was forgotten.
+    SessionEnded,
+    /// The session worker's control link failed, was sealed, or stopped
+    /// acknowledging control frames.
+    WorkerLinkFailed,
+    /// The adapter reported that it is closed.
+    AdapterClosed,
+    /// The route delivered its final frame: a process exit or an attach
+    /// failure.
+    TerminalDelivered,
+    /// The reader refused writes for two full write-attempt budgets.
+    Stalled,
+    /// The route's egress could not stay inside its bounds.
+    Overflowed,
+    /// The route's input failed: the adapter lost ingress frames, a frame
+    /// broke the input protocol, or an input result could not be queued.
+    InputFailed,
+    /// The route failed before it bound, or Core could not encode a frame
+    /// for it.
+    Failed,
+    /// The client worker ended every route.
+    Shutdown,
+    /// Core rejected the bind; the adapter never carried the route.
+    BindRejected,
+}
+
+impl TerminalRouteCloseReason {
+    /// Stable lowercase name for logs.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Replaced => "replaced",
+            Self::Detached => "detached",
+            Self::SessionEnded => "session_ended",
+            Self::WorkerLinkFailed => "worker_link_failed",
+            Self::AdapterClosed => "adapter_closed",
+            Self::TerminalDelivered => "terminal_delivered",
+            Self::Stalled => "stalled",
+            Self::Overflowed => "overflowed",
+            Self::InputFailed => "input_failed",
+            Self::Failed => "failed",
+            Self::Shutdown => "shutdown",
+            Self::BindRejected => "bind_rejected",
+        }
+    }
 }
 
 /// Typed ingress outcome from [`TerminalAdapter::try_read`].

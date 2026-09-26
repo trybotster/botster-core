@@ -20,7 +20,7 @@ pub use webrtc_shaped::WebRtcShapedTerminalAdapter;
 
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
-    MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
+    TerminalRouteCloseReason, MIN_ADAPTER_INGRESS_BUFFER_FRAMES,
 };
 use botster_terminal_protocol::{encode_output, RouteId, RoutedTerminalFrame};
 
@@ -277,7 +277,7 @@ fn assert_close_during_active_write<D: TerminalAdapterHarnessDriver>(
     assert_eq!(driver.adapter().pressure(), TerminalAdapterPressure::Full);
 
     match path {
-        ClosePath::Local => driver.adapter().close(),
+        ClosePath::Local => driver.adapter().close(TerminalRouteCloseReason::Detached),
         ClosePath::Transport => driver.force_closed(),
     }
 
@@ -304,7 +304,7 @@ fn assert_close_during_active_write<D: TerminalAdapterHarnessDriver>(
 }
 
 fn assert_close_propagation<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
-    driver.adapter().close();
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
     driver.force_closed();
     assert_eq!(
         driver.adapter().pressure(),
@@ -354,7 +354,7 @@ fn assert_ingress_whole_frames<D: TerminalAdapterHarnessDriver>(driver: &mut D) 
 
 fn assert_ingress_closed_local<D: TerminalAdapterHarnessDriver>(driver: &mut D) {
     driver.inject_ingress_frame(b"drop-on-close".to_vec());
-    driver.adapter().close();
+    driver.adapter().close(TerminalRouteCloseReason::Detached);
     assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
     assert_eq!(driver.adapter().try_read(), TerminalIngress::Closed);
 }

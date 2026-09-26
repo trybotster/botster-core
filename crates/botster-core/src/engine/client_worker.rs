@@ -28,6 +28,7 @@ use botster_terminal_protocol_client::{decode_terminal_input, TerminalInputComma
 use crate::client::ClientId;
 use crate::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
+    TerminalRouteCloseReason,
 };
 use crate::contract::terminal_subscription::{
     AttachTerminalRouteError, BindTerminalAdapterError, DetachTerminalSubscriptionResult,
@@ -113,6 +114,8 @@ pub struct ClientWorkerTeardown {
     /// Worker operation keys still in flight for this route. The host asks
     /// the worker to cancel them; their results are dropped.
     pub in_flight_keys: Vec<u64>,
+    /// Why Core ended the route; the same value reached the adapter's close.
+    pub reason: TerminalRouteCloseReason,
 }
 
 /// Identity a capture is bound to: the attachment generation and the
@@ -379,7 +382,7 @@ impl ClientWorker {
             return Ok((generation, replacements));
         }
         if self.live.contains_key(&key) {
-            if let Some(stolen) = self.hard_stop_key(&key) {
+            if let Some(stolen) = self.hard_stop_key(&key, TerminalRouteCloseReason::Replaced) {
                 replacements.push(stolen);
             }
         }
@@ -473,11 +476,15 @@ impl ClientWorker {
             .map(|(key, _)| key.clone())
             .collect();
         keys.into_iter()
-            .filter_map(|key| self.hard_stop_key(&key))
+            .filter_map(|key| self.hard_stop_key(&key, TerminalRouteCloseReason::Replaced))
             .collect()
     }
 
-    fn hard_stop_key(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+    fn hard_stop_key(
+        &mut self,
+        key: &OwnerKey,
+        reason: TerminalRouteCloseReason,
+    ) -> Option<ClientWorkerTeardown> {
         self.wake_source
             .retire_route(&key.session_id, &key.subscription_id);
         self.capacity_parked.remove(key);
@@ -496,7 +503,7 @@ impl ClientWorker {
         for operation_key in &in_flight_keys {
             self.in_flight.remove(operation_key);
         }
-        Some(hard_stop(owner, key, in_flight_keys))
+        Some(hard_stop(owner, key, in_flight_keys, reason))
     }
 
     /// Replace the wake source. Construction-only; do not call after a waking bind.
@@ -529,7 +536,7 @@ impl ClientWorker {
         };
         let live_generation = {
             let Some(owner) = self.live.get_mut(&key) else {
-                adapter.close();
+                adapter.close(TerminalRouteCloseReason::BindRejected);
                 drop(adapter);
                 return Err(if self.known.contains(&key) {
                     BindTerminalAdapterError::UnknownSubscription {
@@ -545,7 +552,7 @@ impl ClientWorker {
             };
             if &owner.client_id != client_id || owner.generation != generation {
                 let live = Some(owner.generation);
-                adapter.close();
+                adapter.close(TerminalRouteCloseReason::BindRejected);
                 drop(adapter);
                 return Err(BindTerminalAdapterError::StaleGeneration {
                     live,
@@ -553,7 +560,7 @@ impl ClientWorker {
                 });
             }
             if owner.adapter.is_some() {
-                adapter.close();
+                adapter.close(TerminalRouteCloseReason::BindRejected);
                 drop(adapter);
                 return Err(BindTerminalAdapterError::AlreadyBound {
                     session_id,
@@ -568,7 +575,7 @@ impl ClientWorker {
             .bind_route(session_id, subscription_id, live_generation);
         adapter.set_wake_sink(sink);
         let Some(owner) = self.live.get_mut(&key) else {
-            adapter.close();
+            adapter.close(TerminalRouteCloseReason::BindRejected);
             drop(adapter);
             self.wake_source
                 .retire_route(&key.session_id, &key.subscription_id);
@@ -828,7 +835,7 @@ impl ClientWorker {
         *egress = retained;
         unbound_process_exits
             .into_iter()
-            .filter_map(|key| self.hard_stop_key(&key))
+            .filter_map(|key| self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded))
             .collect()
     }
 
@@ -865,7 +872,7 @@ impl ClientWorker {
         }
         match encode_output(data) {
             Ok(frame) => self.push_session_frame(session_id, &frame),
-            Err(_) => self.teardown_session(session_id),
+            Err(_) => self.teardown_session(session_id, TerminalRouteCloseReason::Failed),
         }
     }
 
@@ -881,7 +888,7 @@ impl ClientWorker {
         }
         match encode_modes(modes) {
             Ok(frame) => self.push_session_frame(session_id, &frame),
-            Err(_) => self.teardown_session(session_id),
+            Err(_) => self.teardown_session(session_id, TerminalRouteCloseReason::Failed),
         }
     }
 
@@ -901,11 +908,11 @@ impl ClientWorker {
             .get(&key)
             .is_some_and(|owner| owner.adapter.is_some() || owner.hold_until_bound);
         if !bound {
-            return self.hard_stop_key(&key);
+            return self.hard_stop_key(&key, TerminalRouteCloseReason::Failed);
         }
         match encode_attach_state(AttachStateCode::Failed) {
             Ok(frame) => self.enqueue_owner_frame(&key, frame, QueuedKind::Terminal),
-            Err(_) => self.hard_stop_key(&key),
+            Err(_) => self.hard_stop_key(&key, TerminalRouteCloseReason::Failed),
         }
     }
 
@@ -924,7 +931,8 @@ impl ClientWorker {
         let frame = match encode_process_exit(code) {
             Ok(frame) => frame,
             Err(_) => {
-                teardowns.extend(self.teardown_session(session_id));
+                teardowns
+                    .extend(self.teardown_session(session_id, TerminalRouteCloseReason::Failed));
                 return teardowns;
             }
         };
@@ -1153,7 +1161,7 @@ impl ClientWorker {
                 if queued_rejections >= MAX_QUEUED_REJECTIONS_PER_ROUTE {
                     // Rejection traffic has no lane reservation; end the
                     // route explicitly instead of retaining it unbounded.
-                    return self.hard_stop_key(key);
+                    return self.hard_stop_key(key, TerminalRouteCloseReason::Overflowed);
                 }
             }
             owner.queue.len() >= MAX_ROUTE_EGRESS_FRAMES
@@ -1207,7 +1215,7 @@ impl ClientWorker {
             .get(key)
             .is_some_and(|owner| owner.adapter.is_none() && owner.hold_until_bound)
         {
-            return self.hard_stop_key(key);
+            return self.hard_stop_key(key, TerminalRouteCloseReason::Overflowed);
         }
         let mut lost_visual = matches!(overflowing, Some((_, QueuedKind::Visual)));
         let (needs_transition, epoch_exhausted, ready) = {
@@ -1279,7 +1287,7 @@ impl ClientWorker {
         });
         if still_over {
             // Bounded retention is impossible: end the route explicitly.
-            return self.hard_stop_key(key);
+            return self.hard_stop_key(key, TerminalRouteCloseReason::Overflowed);
         }
         if ready {
             self.bound_queue_wake_sessions
@@ -1350,7 +1358,7 @@ impl ClientWorker {
             let owner = self.live.get_mut(key)?;
             let adapter = owner.adapter.as_mut()?;
             if adapter.pressure() == TerminalAdapterPressure::Closed {
-                return self.hard_stop_key(key);
+                return self.hard_stop_key(key, TerminalRouteCloseReason::AdapterClosed);
             }
             if owner.in_flight {
                 match adapter.pressure() {
@@ -1358,14 +1366,16 @@ impl ClientWorker {
                         self.complete_head(key);
                         continue;
                     }
-                    TerminalAdapterPressure::Closed => return self.hard_stop_key(key),
+                    TerminalAdapterPressure::Closed => {
+                        return self.hard_stop_key(key, TerminalRouteCloseReason::AdapterClosed)
+                    }
                     TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
                         return self.head_refused(key, origin);
                     }
                 }
             }
             if owner.terminal_delivered {
-                return self.hard_stop_key(key);
+                return self.hard_stop_key(key, TerminalRouteCloseReason::TerminalDelivered);
             }
             let Some(head) = owner.queue.front() else {
                 // Nothing is pending, so the reader is not blocked.
@@ -1403,7 +1413,9 @@ impl ClientWorker {
                 Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
                     return self.head_refused(key, origin);
                 }
-                Err(TerminalAdapterWriteError::Closed) => return self.hard_stop_key(key),
+                Err(TerminalAdapterWriteError::Closed) => {
+                    return self.hard_stop_key(key, TerminalRouteCloseReason::AdapterClosed)
+                }
             }
         }
     }
@@ -1419,7 +1431,7 @@ impl ClientWorker {
         let owner = self.live.get_mut(key)?;
         let since = *owner.blocked_since.get_or_insert_with(Instant::now);
         if since.elapsed() >= READER_PROGRESS_DEADLINE {
-            return self.hard_stop_key(key);
+            return self.hard_stop_key(key, TerminalRouteCloseReason::Stalled);
         }
         if origin == PumpOrigin::SessionOutput {
             return None;
@@ -1440,7 +1452,7 @@ impl ClientWorker {
     fn stall_route(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
         let owner = self.live.get_mut(key)?;
         if owner.stall_resynced {
-            return self.hard_stop_key(key);
+            return self.hard_stop_key(key, TerminalRouteCloseReason::Stalled);
         }
         owner.stall_resynced = true;
         owner.unsuccessful_writes = 0;
@@ -1548,8 +1560,12 @@ impl ClientWorker {
     }
 
     /// Hard-stop one exact owner selected by the targeted apply path.
-    pub(crate) fn hard_stop_owner(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
-        self.hard_stop_key(key)
+    pub(crate) fn hard_stop_owner(
+        &mut self,
+        key: &OwnerKey,
+        reason: TerminalRouteCloseReason,
+    ) -> Option<ClientWorkerTeardown> {
+        self.hard_stop_key(key, reason)
     }
 
     fn intake_terminal_input_keys(&mut self, keys: Vec<OwnerKey>) -> Vec<ClientWorkerTeardown> {
@@ -1600,7 +1616,9 @@ impl ClientWorker {
                 }
             }
             if fail {
-                if let Some(teardown) = self.hard_stop_key(&key) {
+                if let Some(teardown) =
+                    self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed)
+                {
                     teardowns.push(teardown);
                 }
             }
@@ -1973,7 +1991,9 @@ impl ClientWorker {
                 )
                 .is_err()
             {
-                if let Some(teardown) = self.hard_stop_key(&key) {
+                if let Some(teardown) =
+                    self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed)
+                {
                     teardowns.push(teardown);
                 }
             }
@@ -2143,7 +2163,7 @@ impl ClientWorker {
         // and is released when the adapter completes the write.
         match self.enqueue_result_with_reservation(&operation.key, &result, usage) {
             Ok(()) => None,
-            Err(()) => self.hard_stop_key(&operation.key),
+            Err(()) => self.hard_stop_key(&operation.key, TerminalRouteCloseReason::InputFailed),
         }
     }
 
@@ -2220,7 +2240,9 @@ impl ClientWorker {
                     )
                     .is_err()
                 {
-                    if let Some(teardown) = self.hard_stop_key(&key) {
+                    if let Some(teardown) =
+                        self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded)
+                    {
                         teardowns.push(teardown);
                     }
                     break;
@@ -2277,10 +2299,13 @@ impl ClientWorker {
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
     ) -> Option<ClientWorkerTeardown> {
-        self.hard_stop_key(&OwnerKey {
-            session_id: session_id.clone(),
-            subscription_id: subscription_id.clone(),
-        })
+        self.hard_stop_key(
+            &OwnerKey {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            },
+            TerminalRouteCloseReason::Detached,
+        )
     }
 
     /// Generation-aware detach. Mismatch does not delete a newer owner.
@@ -2303,14 +2328,18 @@ impl ClientWorker {
                 }
             }
             Some(_) => {
-                let _ = self.hard_stop_key(&key);
+                let _ = self.hard_stop_key(&key, TerminalRouteCloseReason::Detached);
                 DetachTerminalSubscriptionResult::Detached { generation }
             }
         }
     }
 
     /// Ownership hard-stop for every live subscription on `session_id`.
-    pub fn teardown_session(&mut self, session_id: &SessionId) -> Vec<ClientWorkerTeardown> {
+    pub fn teardown_session(
+        &mut self,
+        session_id: &SessionId,
+        reason: TerminalRouteCloseReason,
+    ) -> Vec<ClientWorkerTeardown> {
         let keys: Vec<_> = self
             .live
             .keys()
@@ -2319,7 +2348,7 @@ impl ClientWorker {
             .collect();
         self.session_modes.remove(session_id);
         keys.into_iter()
-            .filter_map(|key| self.hard_stop_key(&key))
+            .filter_map(|key| self.hard_stop_key(&key, reason))
             .collect()
     }
 
@@ -2327,7 +2356,7 @@ impl ClientWorker {
     pub fn teardown_all(&mut self) -> Vec<ClientWorkerTeardown> {
         let keys: Vec<_> = self.live.keys().cloned().collect();
         keys.into_iter()
-            .filter_map(|key| self.hard_stop_key(&key))
+            .filter_map(|key| self.hard_stop_key(&key, TerminalRouteCloseReason::Shutdown))
             .collect()
     }
 
@@ -2356,8 +2385,8 @@ impl TerminalAdapter for WakingAdapterHolder {
         self.inner.try_write(frame)
     }
 
-    fn close(&mut self) {
-        self.inner.close();
+    fn close(&mut self, reason: TerminalRouteCloseReason) {
+        self.inner.close(reason);
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -2373,11 +2402,12 @@ fn hard_stop(
     mut owner: SubscriptionOwner,
     key: &OwnerKey,
     in_flight_keys: Vec<u64>,
+    reason: TerminalRouteCloseReason,
 ) -> ClientWorkerTeardown {
     owner.queue.clear();
     owner.input_queue.clear();
     if let Some(mut adapter) = owner.adapter.take() {
-        adapter.close();
+        adapter.close(reason);
         drop(adapter);
     }
     ClientWorkerTeardown {
@@ -2386,6 +2416,7 @@ fn hard_stop(
         subscription_id: key.subscription_id.clone(),
         generation: owner.generation,
         in_flight_keys,
+        reason,
     }
 }
 
@@ -2490,7 +2521,7 @@ mod tests {
             Err(TerminalAdapterWriteError::WouldBlock)
         }
 
-        fn close(&mut self) {}
+        fn close(&mut self, _reason: TerminalRouteCloseReason) {}
 
         fn pressure(&self) -> TerminalAdapterPressure {
             TerminalAdapterPressure::WouldBlock
@@ -3072,7 +3103,7 @@ mod tests {
             Ok(())
         }
 
-        fn close(&mut self) {}
+        fn close(&mut self, _reason: TerminalRouteCloseReason) {}
 
         fn pressure(&self) -> TerminalAdapterPressure {
             if self.0.lock().expect("adapter state").credits > 0 {
@@ -3394,6 +3425,7 @@ mod tests {
         assert_eq!(expired.len(), 1, "the host wait names the dead route");
         let teardowns = worker.pump_woken(&adapter_wake(&key));
         assert_eq!(teardowns.len(), 1, "the dead reader is closed");
+        assert_eq!(teardowns[0].reason, TerminalRouteCloseReason::Stalled);
         assert!(!worker.has_subscription(&key.session_id, &key.subscription_id));
         assert_eq!(worker.next_reader_deadline(), None);
     }
@@ -3453,6 +3485,415 @@ mod tests {
         assert!(worker.has_subscription(&key.session_id, &key.subscription_id));
         assert_eq!(worker.live[&key].blocked_since, None);
         assert!(worker.expired_reader_routes(Instant::now()).is_empty());
+    }
+
+    /// Every Core route close names its reason. A new or changed call site
+    /// fails here until this table lists it.
+    #[test]
+    fn every_route_close_site_passes_its_expected_reason() {
+        use botster_core_test_support::close_sites::{route_close_sites, CloseSite};
+        let expected = |sites: &[(&str, &str)]| {
+            let mut sites: Vec<_> = sites
+                .iter()
+                .map(|(function, reason)| CloseSite::new(function, reason))
+                .collect();
+            sites.sort();
+            sites
+        };
+        assert_eq!(
+            route_close_sites(include_str!("client_worker.rs")),
+            expected(&[
+                ("bind_waking_terminal_adapter", "BindRejected"),
+                ("bind_waking_terminal_adapter", "BindRejected"),
+                ("bind_waking_terminal_adapter", "BindRejected"),
+                ("bind_waking_terminal_adapter", "BindRejected"),
+                ("close", "reason"),
+                ("complete_operation", "InputFailed"),
+                ("detach_generation", "Detached"),
+                ("detach_live", "Detached"),
+                ("enqueue_owner_frame", "Overflowed"),
+                ("expire_pastes_keys", "InputFailed"),
+                ("fail_queued_input_for_session", "SessionEnded"),
+                ("fail_route", "Failed"),
+                ("fail_route", "Failed"),
+                ("filter_bound_terminal_frames", "SessionEnded"),
+                ("hard_stop", "reason"),
+                ("head_refused", "Stalled"),
+                ("hard_stop_key", "reason"),
+                ("hard_stop_owner", "reason"),
+                ("intake_terminal_input_keys", "InputFailed"),
+                ("overflow_route", "Overflowed"),
+                ("overflow_route", "Overflowed"),
+                ("pump_one", "AdapterClosed"),
+                ("pump_one", "AdapterClosed"),
+                ("pump_one", "AdapterClosed"),
+                ("pump_one", "TerminalDelivered"),
+                ("push_session_modes", "Failed"),
+                ("push_session_output", "Failed"),
+                ("push_session_process_exit", "Failed"),
+                ("record_attach", "Replaced"),
+                ("stall_route", "Stalled"),
+                ("teardown_all", "Shutdown"),
+                ("teardown_replaced_client_session", "Replaced"),
+                ("teardown_session", "reason"),
+            ])
+        );
+        assert_eq!(
+            route_close_sites(include_str!("managed_session_runtime.rs")),
+            expected(&[
+                ("apply_woken_terminal_input", "WorkerLinkFailed"),
+                ("apply_woken_terminal_input", "WorkerLinkFailed"),
+                ("fail_expired_pending_resize", "WorkerLinkFailed"),
+                ("forget_terminal_session", "SessionEnded"),
+                ("shutdown_session", "SessionEnded"),
+                ("submit_staged_input", "WorkerLinkFailed"),
+            ])
+        );
+        assert_eq!(
+            route_close_sites(include_str!("botster.rs")),
+            expected(&[("bind_waking_terminal_adapter", "BindRejected")])
+        );
+    }
+
+    #[derive(Default)]
+    struct ProbeState {
+        pressure: Option<TerminalAdapterPressure>,
+        ingress: VecDeque<TerminalIngress>,
+        closes: Vec<TerminalRouteCloseReason>,
+    }
+
+    /// Adapter that records each reason Core passes to `close`. Its
+    /// pressure is Ready unless set; a Ready write completes at once.
+    #[derive(Clone, Default)]
+    struct ReasonProbe(std::sync::Arc<std::sync::Mutex<ProbeState>>);
+
+    impl ReasonProbe {
+        fn closes(&self) -> Vec<TerminalRouteCloseReason> {
+            self.0.lock().expect("probe").closes.clone()
+        }
+
+        fn set_pressure(&self, pressure: TerminalAdapterPressure) {
+            self.0.lock().expect("probe").pressure = Some(pressure);
+        }
+
+        fn push_ingress(&self, ingress: TerminalIngress) {
+            self.0.lock().expect("probe").ingress.push_back(ingress);
+        }
+    }
+
+    impl TerminalAdapter for ReasonProbe {
+        fn try_write(
+            &mut self,
+            _frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
+            match self.pressure() {
+                TerminalAdapterPressure::Ready => Ok(()),
+                TerminalAdapterPressure::WouldBlock => Err(TerminalAdapterWriteError::WouldBlock),
+                TerminalAdapterPressure::Full => Err(TerminalAdapterWriteError::Full),
+                TerminalAdapterPressure::Closed => Err(TerminalAdapterWriteError::Closed),
+            }
+        }
+
+        fn close(&mut self, reason: TerminalRouteCloseReason) {
+            self.0.lock().expect("probe").closes.push(reason);
+        }
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            self.0
+                .lock()
+                .expect("probe")
+                .pressure
+                .unwrap_or(TerminalAdapterPressure::Ready)
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            self.0
+                .lock()
+                .expect("probe")
+                .ingress
+                .pop_front()
+                .unwrap_or(TerminalIngress::Empty)
+        }
+    }
+
+    impl WakingTerminalAdapter for ReasonProbe {
+        fn set_wake_sink(&mut self, _sink: TerminalWakeSink) {}
+    }
+
+    /// Attach and bind one probed route that has its capture.
+    fn probe_route(
+        worker: &mut ClientWorker,
+        client: &str,
+        subscription: &str,
+    ) -> (OwnerKey, ReasonProbe) {
+        let client = ClientId(client.into());
+        let session = SessionId("session".into());
+        let subscription = SubscriptionId(subscription.into());
+        let (generation, _) = worker
+            .record_attach(client.clone(), session.clone(), subscription.clone())
+            .expect("valid route");
+        let probe = ReasonProbe::default();
+        worker
+            .bind_waking_terminal_adapter(
+                &client,
+                session.clone(),
+                subscription.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(probe.clone()),
+            )
+            .expect("bind");
+        worker
+            .push_route_frame(
+                &session,
+                &subscription,
+                encode_snapshot_ready(b"GHOSTSNP").expect("ready"),
+            )
+            .expect("ready enqueue");
+        assert!(worker
+            .pump_woken(&output_wake(&OwnerKey {
+                session_id: session.clone(),
+                subscription_id: subscription.clone(),
+            }))
+            .is_empty());
+        (
+            OwnerKey {
+                session_id: session,
+                subscription_id: subscription,
+            },
+            probe,
+        )
+    }
+
+    /// The adapter saw exactly one close, and the teardown carries the same reason.
+    fn assert_closed_for(
+        probe: &ReasonProbe,
+        teardown: Option<ClientWorkerTeardown>,
+        reason: TerminalRouteCloseReason,
+    ) {
+        assert_eq!(probe.closes(), vec![reason]);
+        assert_eq!(teardown.expect("the route ended").reason, reason);
+    }
+
+    #[test]
+    fn a_newer_attach_by_the_same_client_closes_the_older_route_as_replaced() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "old");
+        let (_, mut replacements) = worker
+            .record_attach(
+                ClientId("client".into()),
+                key.session_id.clone(),
+                SubscriptionId("new".into()),
+            )
+            .expect("attach");
+        assert_closed_for(
+            &probe,
+            replacements.pop(),
+            TerminalRouteCloseReason::Replaced,
+        );
+    }
+
+    #[test]
+    fn another_client_taking_the_subscription_closes_it_as_replaced() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "first", "route");
+        let (_, mut replacements) = worker
+            .record_attach(
+                ClientId("second".into()),
+                key.session_id.clone(),
+                key.subscription_id.clone(),
+            )
+            .expect("attach");
+        assert_closed_for(
+            &probe,
+            replacements.pop(),
+            TerminalRouteCloseReason::Replaced,
+        );
+    }
+
+    #[test]
+    fn a_detach_closes_the_route_as_detached() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "live");
+        let teardown = worker.detach_live(&key.session_id, &key.subscription_id);
+        assert_closed_for(&probe, teardown, TerminalRouteCloseReason::Detached);
+
+        let (key, probe) = probe_route(&mut worker, "client", "generation");
+        let generation = worker.live[&key].generation;
+        assert!(matches!(
+            worker.detach_generation(&key.session_id, &key.subscription_id, generation),
+            DetachTerminalSubscriptionResult::Detached { .. }
+        ));
+        assert_eq!(probe.closes(), vec![TerminalRouteCloseReason::Detached]);
+    }
+
+    #[test]
+    fn a_closed_adapter_ends_the_route_as_adapter_closed() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        probe.set_pressure(TerminalAdapterPressure::Closed);
+        let mut teardowns = worker.pump_woken(&adapter_wake(&key));
+        assert_closed_for(
+            &probe,
+            teardowns.pop(),
+            TerminalRouteCloseReason::AdapterClosed,
+        );
+    }
+
+    #[test]
+    fn a_delivered_process_exit_ends_the_route_as_terminal_delivered() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        assert!(worker
+            .push_session_process_exit(&key.session_id, Some(0))
+            .is_empty());
+        let mut teardowns = worker.pump_woken(&adapter_wake(&key));
+        assert_closed_for(
+            &probe,
+            teardowns.pop(),
+            TerminalRouteCloseReason::TerminalDelivered,
+        );
+    }
+
+    #[test]
+    fn a_reader_that_never_accepts_a_write_is_closed_as_stalled() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        probe.set_pressure(TerminalAdapterPressure::WouldBlock);
+        assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        let teardown = (0..2 * WRITE_ATTEMPT_BUDGET)
+            .find_map(|_| worker.pump_one(&key, PumpOrigin::AdapterWake));
+        assert_closed_for(&probe, teardown, TerminalRouteCloseReason::Stalled);
+    }
+
+    #[test]
+    fn lost_or_malformed_input_closes_the_route_as_input_failed() {
+        for ingress in [TerminalIngress::Lost, TerminalIngress::Frame(vec![0xff])] {
+            let mut worker = ClientWorker::new();
+            let (key, probe) = probe_route(&mut worker, "client", "route");
+            probe.push_ingress(ingress);
+            let mut teardowns = worker.intake_woken(&adapter_wake(&key));
+            assert_closed_for(
+                &probe,
+                teardowns.pop(),
+                TerminalRouteCloseReason::InputFailed,
+            );
+        }
+    }
+
+    #[test]
+    fn capped_rejections_close_the_route_as_overflowed() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        probe.set_pressure(TerminalAdapterPressure::WouldBlock);
+        for operation_id in 1..=MAX_QUEUED_REJECTIONS_PER_ROUTE as u64 {
+            worker
+                .reject(&key, operation_id, InputOutcome::RejectedProtocol, "")
+                .expect("rejection fits");
+        }
+        assert!(worker
+            .reject(&key, 99, InputOutcome::RejectedProtocol, "")
+            .is_err());
+        assert_eq!(probe.closes(), vec![TerminalRouteCloseReason::Overflowed]);
+    }
+
+    #[test]
+    fn session_and_worker_teardowns_carry_the_reason_they_were_given() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        let mut teardowns =
+            worker.teardown_session(&key.session_id, TerminalRouteCloseReason::WorkerLinkFailed);
+        assert_closed_for(
+            &probe,
+            teardowns.pop(),
+            TerminalRouteCloseReason::WorkerLinkFailed,
+        );
+
+        let (key, probe) = probe_route(&mut worker, "client", "owner");
+        let teardown = worker.hard_stop_owner(&key, TerminalRouteCloseReason::WorkerLinkFailed);
+        assert_closed_for(&probe, teardown, TerminalRouteCloseReason::WorkerLinkFailed);
+
+        let (_, probe) = probe_route(&mut worker, "client", "all");
+        let mut teardowns = worker.teardown_all();
+        assert_closed_for(&probe, teardowns.pop(), TerminalRouteCloseReason::Shutdown);
+    }
+
+    #[test]
+    fn unbound_routes_end_with_session_ended_or_failed() {
+        let mut worker = ClientWorker::new();
+        let client = ClientId("client".into());
+        let session = SessionId("session".into());
+        for (subscription, reason) in [
+            ("exit", TerminalRouteCloseReason::SessionEnded),
+            ("fail", TerminalRouteCloseReason::Failed),
+        ] {
+            let subscription = SubscriptionId(subscription.into());
+            worker
+                .record_attach(client.clone(), session.clone(), subscription.clone())
+                .expect("attach");
+            let teardown = if reason == TerminalRouteCloseReason::Failed {
+                worker.fail_route(&session, &subscription)
+            } else {
+                let mut egress = vec![(
+                    client.clone(),
+                    TransportEgress::ProcessExit {
+                        session_id: session.clone(),
+                        subscription_id: subscription.clone(),
+                        code: Some(0),
+                    },
+                )];
+                worker.filter_bound_terminal_frames(&mut egress).pop()
+            };
+            assert_eq!(teardown.expect("unbound route ended").reason, reason);
+        }
+    }
+
+    #[test]
+    fn a_declared_route_that_overflows_before_binding_ends_as_overflowed() {
+        let mut worker = ClientWorker::new();
+        let client = ClientId("client".into());
+        let session = SessionId("session".into());
+        let subscription = SubscriptionId("route".into());
+        worker.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+        worker
+            .record_attach(client, session.clone(), subscription.clone())
+            .expect("declared attach");
+        let teardown = (0..=MAX_ROUTE_EGRESS_FRAMES).find_map(|_| {
+            worker
+                .push_route_frame(
+                    &session,
+                    &subscription,
+                    encode_modes(ModesBody::default()).expect("modes"),
+                )
+                .expect("hold accepts frames")
+        });
+        assert_eq!(
+            teardown.expect("the overflow ends the route").reason,
+            TerminalRouteCloseReason::Overflowed
+        );
+    }
+
+    #[test]
+    fn a_rejected_bind_closes_the_offered_adapter_as_bind_rejected() {
+        let mut worker = ClientWorker::new();
+        let (key, _) = probe_route(&mut worker, "client", "route");
+        let generation = worker.live[&key].generation;
+        let offered = ReasonProbe::default();
+        assert!(matches!(
+            worker.bind_waking_terminal_adapter(
+                &ClientId("client".into()),
+                key.session_id.clone(),
+                key.subscription_id.clone(),
+                generation,
+                TerminalCapabilitySet::empty(),
+                Box::new(offered.clone()),
+            ),
+            Err(BindTerminalAdapterError::AlreadyBound { .. })
+        ));
+        assert_eq!(
+            offered.closes(),
+            vec![TerminalRouteCloseReason::BindRejected]
+        );
     }
 
     fn decode_route_resync_frame(
