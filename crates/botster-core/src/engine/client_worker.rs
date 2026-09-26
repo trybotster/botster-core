@@ -118,6 +118,12 @@ pub struct ClientWorkerTeardown {
     pub reason: TerminalRouteCloseReason,
 }
 
+/// Why an input step failed. `Some` holds the teardown of a route that the
+/// step already ended, such as a result that overflowed the route's egress,
+/// so the caller reports that teardown instead of losing it. `None` means
+/// the route is still live and the caller ends it.
+type RouteEnded = Option<ClientWorkerTeardown>;
+
 /// Identity a capture is bound to: the attachment generation and the
 /// route's capture fence at request time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1597,6 +1603,7 @@ impl ClientWorker {
                 continue;
             };
             let mut fail = lost;
+            let mut ended = None;
             for bytes in frames {
                 if fail {
                     break;
@@ -1610,14 +1617,15 @@ impl ClientWorker {
                     break;
                 };
                 let body = frame.as_bytes()[INPUT_HEADER_BYTES..].to_vec();
-                if self.intake_terminal_command(&key, command, body).is_err() {
+                if let Err(route_ended) = self.intake_terminal_command(&key, command, body) {
                     fail = true;
+                    ended = route_ended;
                     break;
                 }
             }
             if fail {
-                if let Some(teardown) =
-                    self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed)
+                if let Some(teardown) = ended
+                    .or_else(|| self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed))
                 {
                     teardowns.push(teardown);
                 }
@@ -1626,13 +1634,14 @@ impl ClientWorker {
         teardowns
     }
 
-    /// Admit one decoded command. `Err` means the route must hard-stop.
+    /// Admit one decoded command. `Err` means the route must hard-stop;
+    /// see [`RouteEnded`].
     fn intake_terminal_command(
         &mut self,
         key: &OwnerKey,
         command: TerminalInputCommand,
         body: Vec<u8>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), RouteEnded> {
         let operation_id = command_operation_id(&command);
         let continues_paste = matches!(
             command,
@@ -1641,7 +1650,7 @@ impl ClientWorker {
                 | TerminalInputCommand::PasteAbort { .. }
         );
         {
-            let owner = self.live.get_mut(key).ok_or(())?;
+            let owner = self.live.get_mut(key).ok_or(None)?;
             if continues_paste {
                 let matches_active = owner
                     .paste
@@ -1695,7 +1704,7 @@ impl ClientWorker {
                 allow_unsafe,
                 ..
             } => {
-                let owner = self.live.get_mut(key).ok_or(())?;
+                let owner = self.live.get_mut(key).ok_or(None)?;
                 if owner.paste.is_some() {
                     // The protocol allows one assembling paste per route.
                     const { assert!(MAX_ASSEMBLING_PASTES_PER_SUBSCRIPTION >= 1) };
@@ -1727,7 +1736,7 @@ impl ClientWorker {
                 Ok(())
             }
             TerminalInputCommand::PasteChunk { index, data, .. } => {
-                let owner = self.live.get_mut(key).ok_or(())?;
+                let owner = self.live.get_mut(key).ok_or(None)?;
                 let Some(assembly) = owner.paste.as_mut() else {
                     return Ok(());
                 };
@@ -1753,7 +1762,7 @@ impl ClientWorker {
                 Ok(())
             }
             TerminalInputCommand::PasteCommit { .. } => {
-                let owner = self.live.get_mut(key).ok_or(())?;
+                let owner = self.live.get_mut(key).ok_or(None)?;
                 let Some(assembly) = owner.paste.take() else {
                     return Ok(());
                 };
@@ -1780,7 +1789,7 @@ impl ClientWorker {
                 )
             }
             TerminalInputCommand::PasteAbort { .. } => {
-                let owner = self.live.get_mut(key).ok_or(())?;
+                let owner = self.live.get_mut(key).ok_or(None)?;
                 if owner
                     .paste
                     .as_ref()
@@ -1794,7 +1803,7 @@ impl ClientWorker {
                     .iter()
                     .position(|input| input.operation_id == operation_id)
                 {
-                    let removed = owner.input_queue.remove(position).ok_or(())?;
+                    let removed = owner.input_queue.remove(position).ok_or(None)?;
                     let usage = LaneUsage {
                         operations: 1,
                         bytes: removed.body.len(),
@@ -1834,8 +1843,8 @@ impl ClientWorker {
         kind: WorkerInputKind,
         body: Vec<u8>,
         accepted_payload_bytes: u64,
-    ) -> Result<(), ()> {
-        let client_id = self.live.get(key).ok_or(())?.client_id.clone();
+    ) -> Result<(), RouteEnded> {
+        let client_id = self.live.get(key).ok_or(None)?.client_id.clone();
         let session_lane = self
             .session_lanes
             .get(&key.session_id)
@@ -1868,7 +1877,7 @@ impl ClientWorker {
             bytes,
         };
         self.reserve_lane(&key.session_id, &client_id, usage);
-        let owner = self.live.get_mut(key).ok_or(())?;
+        let owner = self.live.get_mut(key).ok_or(None)?;
         owner.lane.operations += 1;
         owner.lane.bytes += bytes;
         owner.input_queue.push_back(AdmittedInput {
@@ -1913,7 +1922,7 @@ impl ClientWorker {
         operation_id: u64,
         outcome: InputOutcome,
         detail: &str,
-    ) -> Result<(), ()> {
+    ) -> Result<(), RouteEnded> {
         let mode_bits = self
             .session_modes
             .get(&key.session_id)
@@ -1930,7 +1939,11 @@ impl ClientWorker {
         self.enqueue_result(key, &result)
     }
 
-    fn enqueue_result(&mut self, key: &OwnerKey, result: &InputResultBody) -> Result<(), ()> {
+    fn enqueue_result(
+        &mut self,
+        key: &OwnerKey,
+        result: &InputResultBody,
+    ) -> Result<(), RouteEnded> {
         self.enqueue_result_with_reservation(key, result, LaneUsage::default())
     }
 
@@ -1940,10 +1953,10 @@ impl ClientWorker {
         key: &OwnerKey,
         result: &InputResultBody,
         reservation: LaneUsage,
-    ) -> Result<(), ()> {
-        let frame = encode_input_result(result).map_err(|_| ())?;
+    ) -> Result<(), RouteEnded> {
+        let frame = encode_input_result(result).map_err(|_| None)?;
         let Some(owner) = self.live.get(key) else {
-            return Err(());
+            return Err(None);
         };
         if owner.adapter.is_none() && !owner.hold_until_bound {
             // Unbound owners never receive results; the reservation ends now.
@@ -1960,7 +1973,7 @@ impl ClientWorker {
         }
         match self.enqueue_owner_frame(key, frame, QueuedKind::InputResult(reservation)) {
             None => Ok(()),
-            Some(_) => Err(()),
+            Some(teardown) => Err(Some(teardown)),
         }
     }
 
@@ -1982,17 +1995,14 @@ impl ClientWorker {
             if let Some(owner) = self.live.get_mut(&key) {
                 owner.paste = None;
             }
-            if self
-                .reject(
-                    &key,
-                    operation_id,
-                    InputOutcome::RejectedProtocol,
-                    "paste assembly timed out",
-                )
-                .is_err()
-            {
-                if let Some(teardown) =
-                    self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed)
+            if let Err(ended) = self.reject(
+                &key,
+                operation_id,
+                InputOutcome::RejectedProtocol,
+                "paste assembly timed out",
+            ) {
+                if let Some(teardown) = ended
+                    .or_else(|| self.hard_stop_key(&key, TerminalRouteCloseReason::InputFailed))
                 {
                     teardowns.push(teardown);
                 }
@@ -2163,7 +2173,9 @@ impl ClientWorker {
         // and is released when the adapter completes the write.
         match self.enqueue_result_with_reservation(&operation.key, &result, usage) {
             Ok(()) => None,
-            Err(()) => self.hard_stop_key(&operation.key, TerminalRouteCloseReason::InputFailed),
+            Err(ended) => ended.or_else(|| {
+                self.hard_stop_key(&operation.key, TerminalRouteCloseReason::InputFailed)
+            }),
         }
     }
 
@@ -2231,18 +2243,15 @@ impl ClientWorker {
             owner.paste = None;
             self.release_lane(session_id, &client_id, released);
             for input in drained {
-                if self
-                    .reject(
-                        &key,
-                        input.operation_id,
-                        InputOutcome::SessionEnded,
-                        "session ended before the operation ran",
-                    )
-                    .is_err()
-                {
-                    if let Some(teardown) =
+                if let Err(ended) = self.reject(
+                    &key,
+                    input.operation_id,
+                    InputOutcome::SessionEnded,
+                    "session ended before the operation ran",
+                ) {
+                    if let Some(teardown) = ended.or_else(|| {
                         self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded)
-                    {
+                    }) {
                         teardowns.push(teardown);
                     }
                     break;
@@ -3781,20 +3790,41 @@ mod tests {
         }
     }
 
+    /// Fill the route's rejection allowance so the next rejection overflows.
+    fn fill_rejections(worker: &mut ClientWorker, key: &OwnerKey) {
+        for operation_id in 1..=MAX_QUEUED_REJECTIONS_PER_ROUTE as u64 {
+            worker
+                .reject(key, operation_id, InputOutcome::RejectedProtocol, "")
+                .expect("rejection fits");
+        }
+    }
+
     #[test]
-    fn capped_rejections_close_the_route_as_overflowed() {
+    fn capped_rejections_close_the_route_as_overflowed_and_return_its_teardown() {
         let mut worker = ClientWorker::new();
         let (key, probe) = probe_route(&mut worker, "client", "route");
         probe.set_pressure(TerminalAdapterPressure::WouldBlock);
-        for operation_id in 1..=MAX_QUEUED_REJECTIONS_PER_ROUTE as u64 {
-            worker
-                .reject(&key, operation_id, InputOutcome::RejectedProtocol, "")
-                .expect("rejection fits");
-        }
-        assert!(worker
+        fill_rejections(&mut worker, &key);
+        let ended = worker
             .reject(&key, 99, InputOutcome::RejectedProtocol, "")
-            .is_err());
-        assert_eq!(probe.closes(), vec![TerminalRouteCloseReason::Overflowed]);
+            .expect_err("the overflowing rejection ends the route");
+        assert_closed_for(&probe, ended, TerminalRouteCloseReason::Overflowed);
+    }
+
+    #[test]
+    fn an_input_rejection_that_overflows_reports_the_route_teardown() {
+        let mut worker = ClientWorker::new();
+        let (key, probe) = probe_route(&mut worker, "client", "route");
+        probe.set_pressure(TerminalAdapterPressure::WouldBlock);
+        fill_rejections(&mut worker, &key);
+        let ended = worker
+            .intake_terminal_command(
+                &key,
+                TerminalInputCommand::PasteAbort { operation_id: 99 },
+                Vec::new(),
+            )
+            .expect_err("the unmatched abort's rejection overflows");
+        assert_closed_for(&probe, ended, TerminalRouteCloseReason::Overflowed);
     }
 
     #[test]
