@@ -42,6 +42,7 @@ use botster_core_daemon::{
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
+use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
@@ -1647,9 +1648,10 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
                 12 + round,
             )
             .unwrap_or_else(|error| panic!("round {round} release: {error:?}"));
-        wait_for_condition(&format!("round {round} PTY child exit"), || {
-            !process_exists(pty_child_pid)
-        });
+        assert!(
+            wait_pid_exit(pty_child_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "round {round} PTY child exit"
+        );
         // Worker writer emits FRAME_PROCESS_EXITED before the hold starts.
         thread::sleep(Duration::from_millis(150));
 
@@ -1725,7 +1727,7 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     let session_id = SessionId("bound-exit-during-attach".to_string());
     let client_id = ClientId("bound-exit-during-attach-client".to_string());
     let subscription_id = SubscriptionId("bound-exit-during-attach-sub".to_string());
-    let ready_path = data_dir.join("history-ready");
+    let ready = Fifo::new("history-ready");
     // The release is a named pipe: the child prints LIVE and exits the
     // moment the test opens it, with no poll delay to let the capture finish
     // first. The pipe is opened by an external command, which a signal the
@@ -1741,16 +1743,16 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     request.request.arguments[1] = format!(
         concat!(
             "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
-            "printf 'PRE-BARRIER-MARKER'; : > '{}'; ",
+            "printf 'PRE-BARRIER-MARKER'; /bin/echo ready > '{}'; ",
             "/bin/cat '{}' >/dev/null; ",
             "printf LIVE; exit 0"
         ),
-        ready_path.display(),
+        ready.path().display(),
         release_path.display()
     );
 
     daemon.spawn(request, 10).expect("spawn history then wait");
-    wait_for_file(&ready_path);
+    let _ = ready.read_signal(Duration::from_secs(10));
     drain_pre_attach_producer_output(&mut daemon, &session_id, 11);
     let (_worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
     daemon
@@ -2912,9 +2914,12 @@ fn adoption_of_live_process_with_reaped_socket_fails_without_rebinding() {
     original
         .shutdown(Some(session_id.clone()), 20)
         .expect("the connected owner should still shut down the reaped worker");
-    wait_for_condition("bounded reap after owner shutdown", || {
-        !process_exists(worker_pid) && !process_exists(pty_pid)
-    });
+    for pid in [worker_pid, pty_pid] {
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "bounded reap after owner shutdown: {pid}"
+        );
+    }
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4222,9 +4227,11 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
         .expect("W1 session should spawn");
     let after_spawn = daemon.lifecycle_baseline().expect("W1 baseline").cursor;
     let (worker_pid, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
-    wait_for_condition("W1 session process exit with worker still alive", || {
-        !process_exists(pty_child_pid) && process_exists(worker_pid)
-    });
+    assert!(
+        wait_pid_exit(pty_child_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "W1 session process exit"
+    );
+    assert!(process_exists(worker_pid), "W1 worker still alive");
     // Worker loop + writer need a short beat after the PTY child exits to
     // queue FRAME_PROCESS_EXITED before the hold starts.
     thread::sleep(Duration::from_millis(150));
@@ -4281,7 +4288,10 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
             .count(),
         1
     );
-    wait_for_condition("W1 bounded reaper", || !process_exists(worker_pid));
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "W1 bounded reaper"
+    );
 
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -4518,7 +4528,10 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         .lifecycle_baseline()
         .expect("watermark after spawn")
         .cursor;
-    wait_for_condition("OS-level finite-producer exit", || process_has_exited(pid));
+    assert!(
+        wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "OS-level finite-producer exit"
+    );
     let looked_up = daemon
         .session_registry_state(&session_id)
         .expect("non-mutating query");
@@ -5089,9 +5102,12 @@ fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
 
     daemon.release_for_restart();
     drop(daemon);
-    wait_for_condition("bounded reap after timeout resume", || {
-        !process_exists(worker_pid) && !process_exists(pty_child_pid)
-    });
+    for pid in [worker_pid, pty_child_pid] {
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "bounded reap after timeout resume: {pid}"
+        );
+    }
     assert!(!socket_path.exists());
     let _ = fs::remove_dir_all(data_dir);
 }
@@ -5738,17 +5754,6 @@ fn drain_pre_attach_producer_output(
             idle = 0;
         }
     }
-}
-
-fn wait_for_file(path: &std::path::Path) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if path.exists() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    panic!("child readiness file did not appear: {}", path.display());
 }
 
 fn client_attached(drained: &botster_core_daemon::DrainResult, client_id: &ClientId) -> bool {
@@ -6759,7 +6764,10 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         .args(["-9", &worker_pid.to_string()])
         .status()
         .expect("kill worker");
-    wait_for_condition("failed worker exits", || process_has_exited(worker_pid));
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "failed worker exits"
+    );
     let started = Instant::now();
     let mut saw_inventory_change = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
