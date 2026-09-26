@@ -193,7 +193,7 @@ impl InputOutcome {
 }
 
 /// Decoded `MODES` body.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct ModesBody {
     /// Bit set from [`mode_bits`].
     pub mode_bits: u32,

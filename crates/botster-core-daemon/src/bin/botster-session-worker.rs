@@ -1005,7 +1005,9 @@ impl WorkerState {
                 | SessionRuntimeOutput::PromptMark { .. }
                 | SessionRuntimeOutput::Bell { .. }
                 | SessionRuntimeOutput::Notification { .. }
-                | SessionRuntimeOutput::MetadataShaping(_) => {}
+                | SessionRuntimeOutput::MetadataShaping(_)
+                // The worker's own Ghostty is the mode source here.
+                | SessionRuntimeOutput::ModesChanged { .. } => {}
             }
         }
     }
