@@ -910,7 +910,7 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
         executable: "/bin/sh".to_string(),
         arguments: vec![
             "-c".to_string(),
-            "printf 'FINAL\\n'; exec sleep 30".to_string(),
+            "printf 'FINAL\\n'; exec cat >/dev/null".to_string(),
         ],
         working_directory: SpawnWorkingDirectory {
             path: std::env::current_dir()
