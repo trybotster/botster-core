@@ -311,7 +311,7 @@ struct EngineShared {
     completion_notifier: Mutex<Option<PluginCompletionNotifier>>,
     metrics: Arc<PluginWorkerEngineMetrics>,
     deadlines: Mutex<DeadlineBook>,
-    deadline_cvar: Condvar,
+    deadline_signal: WaitSignal,
     stopping: AtomicBool,
     /// Live delivery pools, by id, for returning drained units.
     pools: Mutex<HashMap<u64, std::sync::Weak<delivery_pool::PoolInner>>>,
@@ -330,6 +330,8 @@ struct EngineShared {
     /// engine lock and before it returns.
     #[cfg(test)]
     pool_admit_pause: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
+    #[cfg(test)]
+    idle_pause: Mutex<Option<Arc<IdlePause>>>,
 }
 
 /// Test seam: when installed, the deadline waiter takes the permit of a
@@ -359,6 +361,21 @@ impl DeadlinePermits {
             granted = self.changed.wait(granted).expect("deadline permits");
         }
     }
+}
+
+/// A thread about to wait with no work, still holding its state lock.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdleSite {
+    Worker,
+    DeadlineWaiter,
+}
+
+#[cfg(test)]
+struct IdlePause {
+    site: IdleSite,
+    holding: mpsc::SyncSender<()>,
+    resume: Mutex<mpsc::Receiver<()>>,
 }
 
 #[cfg(test)]
@@ -443,15 +460,8 @@ struct DeadlineEntry {
 
 impl Drop for PluginWorkerEngineInner {
     fn drop(&mut self) {
-        {
-            let _book = self
-                .shared
-                .deadlines
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            self.shared.stopping.store(true, Ordering::SeqCst);
-            self.shared.deadline_cvar.notify_all();
-        }
+        self.shared.stopping.store(true, Ordering::SeqCst);
+        self.shared.deadline_signal.notify_all();
         if let Some(handle) = self
             .waiter
             .lock()
@@ -546,7 +556,7 @@ impl PluginWorkerEngine {
             completion_notifier: Mutex::new(None),
             metrics: Arc::new(PluginWorkerEngineMetrics::default()),
             deadlines: Mutex::new(DeadlineBook::default()),
-            deadline_cvar: Condvar::new(),
+            deadline_signal: WaitSignal::default(),
             stopping: AtomicBool::new(false),
             pools: Mutex::new(HashMap::new()),
             next_pool: AtomicU64::new(1),
@@ -559,6 +569,8 @@ impl PluginWorkerEngine {
             shutdown_pause: Mutex::new(None),
             #[cfg(test)]
             pool_admit_pause: Mutex::new(None),
+            #[cfg(test)]
+            idle_pause: Mutex::new(None),
         });
         let waiter_shared = shared.clone();
         let waiter = std::thread::Builder::new()
@@ -744,8 +756,8 @@ impl PluginWorkerEngine {
             pooled: false,
         };
         admission.push_queued(PluginInvocationClass::RequestResponse, job, &worker);
-        worker.work_cvar.notify_one();
         drop(admission);
+        worker.work_signal.notify_one();
 
         match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
             Ok(result) => PluginInvocationOutcome::new(result),
@@ -1110,8 +1122,8 @@ impl PluginWorkerEngine {
                 generation,
                 request_id: request_id.clone(),
             });
-            worker.work_cvar.notify_one();
-            self.inner.shared.deadline_cvar.notify_one();
+            worker.work_signal.notify_one();
+            self.inner.shared.deadline_signal.notify_all();
             false
         };
 
@@ -1867,7 +1879,7 @@ struct WorkerState {
     descriptors: Vec<PluginDescriptorRef>,
     resources: Arc<Mutex<Vec<PluginResourceRef>>>,
     admission: Arc<Mutex<WorkerAdmission>>,
-    work_cvar: Arc<Condvar>,
+    work_signal: Arc<WaitSignal>,
     executor: WorkerExecutorHandle,
     metrics: Arc<WorkerMetrics>,
     shared: Arc<EngineShared>,
@@ -1905,7 +1917,7 @@ impl WorkerState {
         let cancellations = Arc::new(Mutex::new(HashMap::new()));
         let metrics = Arc::new(WorkerMetrics::default());
         let admission = Arc::new(Mutex::new(WorkerAdmission::default()));
-        let work_cvar = Arc::new(Condvar::new());
+        let work_signal = Arc::new(WaitSignal::default());
         let executor_concurrency = shared.config.per_plugin_executor_concurrency;
         let mut construction = WorkerResourceConstruction::new(resources, executor_concurrency);
         shared
@@ -1927,7 +1939,7 @@ impl WorkerState {
             let worker_metrics = metrics.clone();
             let worker_engine_metrics = shared.metrics.clone();
             let worker_admission = admission.clone();
-            let worker_cvar = work_cvar.clone();
+            let worker_signal = work_signal.clone();
             let worker_stopping = stopping.clone();
             let worker_config = shared.config.clone();
             let worker_shared = shared.clone();
@@ -1945,26 +1957,28 @@ impl WorkerState {
                             engine_metrics: worker_engine_metrics.clone(),
                         };
                         loop {
-                            let job = {
+                            let job = loop {
+                                let seen = worker_signal.epoch();
                                 let mut admission = worker_admission
                                     .lock()
                                     .expect("plugin worker admission mutex poisoned");
-                                loop {
-                                    if let Some(job) = admission.take_dispatchable(
-                                        &worker_config,
-                                        &worker_metrics,
-                                        &worker_engine_metrics,
-                                    ) {
-                                        break Some(job);
-                                    }
-                                    if worker_stopping.load(Ordering::SeqCst) || admission.stopping
-                                    {
-                                        break None;
-                                    }
-                                    admission = worker_cvar
-                                        .wait(admission)
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                if let Some(job) = admission.take_dispatchable(
+                                    &worker_config,
+                                    &worker_metrics,
+                                    &worker_engine_metrics,
+                                ) {
+                                    break Some(job);
                                 }
+                                if worker_stopping.load(Ordering::SeqCst) || admission.stopping {
+                                    break None;
+                                }
+                                #[cfg(test)]
+                                pause_idle(&worker_shared, IdleSite::Worker);
+                                // Release admission before waiting, then fire
+                                // the armed retry wake: never wait holding it.
+                                drop(admission);
+                                wake_armed_admission(&worker_shared);
+                                worker_signal.wait_past(seen, None);
                             };
                             // The dispatch pop released admission.
                             wake_armed_admission(&worker_shared);
@@ -1980,7 +1994,7 @@ impl WorkerState {
                                     &worker_cancellations,
                                     &worker_admission,
                                 );
-                                worker_cvar.notify_one();
+                                worker_signal.notify_one();
                                 wake_armed_admission(&worker_shared);
                                 continue;
                             }
@@ -1992,7 +2006,7 @@ impl WorkerState {
                                 class: job_class(&job),
                                 async_state: async_state_of(&job),
                                 admission: worker_admission.clone(),
-                                work_cvar: worker_cvar.clone(),
+                                work_signal: worker_signal.clone(),
                                 shared: worker_shared.clone(),
                             };
                             let result = worker_runtime.invoke(job.request, job.cancellation);
@@ -2022,7 +2036,7 @@ impl WorkerState {
             descriptors,
             resources: Arc::new(Mutex::new(registration.resources)),
             admission,
-            work_cvar,
+            work_signal,
             executor,
             metrics,
             shared,
@@ -2133,7 +2147,7 @@ impl WorkerState {
             }
         }
 
-        self.work_cvar.notify_all();
+        self.work_signal.notify_all();
         self.runtime.stop(&self.plugin_key);
 
         let join_handles = self
@@ -2637,7 +2651,7 @@ struct InFlightGuard {
     class: PluginInvocationClass,
     async_state: Option<Arc<AsyncJobState>>,
     admission: Arc<Mutex<WorkerAdmission>>,
-    work_cvar: Arc<Condvar>,
+    work_signal: Arc<WaitSignal>,
     shared: Arc<EngineShared>,
 }
 
@@ -2665,7 +2679,7 @@ impl Drop for InFlightGuard {
                 admission.jobs.remove(&self.request_id);
             }
         }
-        self.work_cvar.notify_one();
+        self.work_signal.notify_one();
         wake_armed_admission(&self.shared);
     }
 }
@@ -2964,14 +2978,17 @@ fn admit_pool_result(
             generation: pool.generation,
             request_id: request_id.clone(),
         });
-        worker.work_cvar.notify_one();
-        shared.deadline_cvar.notify_one();
         false
     };
+    let queued = timeout_ms != 0;
     drop(cancellations);
     drop(deadlines);
     drop(completions);
     drop(admission);
+    if queued {
+        worker.work_signal.notify_one();
+        shared.deadline_signal.notify_one();
+    }
     #[cfg(test)]
     {
         let pause = shared
@@ -3113,6 +3130,93 @@ fn wake_armed_admission(shared: &EngineShared) {
     }
 }
 
+/// A wait that holds no engine state lock.
+///
+/// `try_admit` only try-locks engine state and arms a retry wake when a lock
+/// is busy. A thread that waits on a `Condvar` of that state releases it
+/// inside `Condvar::wait` and fires no wake, which strands the armed host.
+/// Idle workers and the deadline waiter instead read the epoch, check their
+/// state, drop the lock, fire the armed wake, and wait here until a producer
+/// moves the epoch.
+#[derive(Default)]
+struct WaitSignal {
+    epoch: Mutex<u64>,
+    cvar: Condvar,
+}
+
+impl WaitSignal {
+    fn epoch(&self) -> u64 {
+        *self
+            .epoch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn notify_one(&self) {
+        self.bump();
+        self.cvar.notify_one();
+    }
+
+    fn notify_all(&self) {
+        self.bump();
+        self.cvar.notify_all();
+    }
+
+    fn bump(&self) {
+        let mut epoch = self
+            .epoch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *epoch = epoch.wrapping_add(1);
+    }
+
+    /// Wait until the epoch moves past `seen`, or until `timeout` passes.
+    fn wait_past(&self, seen: u64, timeout: Option<Duration>) {
+        let epoch = self
+            .epoch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match timeout {
+            None => drop(
+                self.cvar
+                    .wait_while(epoch, |epoch| *epoch == seen)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+            // timer: deadline — the deadline waiter wakes at the earliest invocation deadline
+            Some(timeout) => drop(
+                self.cvar
+                    .wait_timeout_while(epoch, timeout, |epoch| *epoch == seen)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+        }
+    }
+}
+
+/// Hold the caller's state lock at an idle wait until the test resumes it.
+#[cfg(test)]
+fn pause_idle(shared: &EngineShared, site: IdleSite) {
+    let pause = {
+        let mut slot = shared.idle_pause.lock().expect("idle pause");
+        if slot.as_ref().is_some_and(|pause| pause.site == site) {
+            slot.take()
+        } else {
+            None
+        }
+    };
+    if let Some(pause) = pause {
+        pause
+            .holding
+            .send(())
+            .expect("test observes the idle holder");
+        pause
+            .resume
+            .lock()
+            .expect("idle resume")
+            .recv()
+            .expect("test resumes the idle holder");
+    }
+}
+
 fn notify_completion(shared: &EngineShared) {
     let notifier = shared
         .completion_notifier
@@ -3136,7 +3240,7 @@ fn remove_deadlines_for_generation(shared: &EngineShared, plugin_key: &PluginKey
     if let Ok(mut book) = shared.deadlines.lock() {
         book.entries
             .retain(|entry| !(entry.plugin_key == *plugin_key && entry.generation == generation));
-        shared.deadline_cvar.notify_all();
+        shared.deadline_signal.notify_all();
     }
 }
 
@@ -3368,6 +3472,7 @@ fn cancel_queued_job(
 
 fn run_deadline_waiter(shared: Arc<EngineShared>) {
     loop {
+        let seen = shared.deadline_signal.epoch();
         if shared.stopping.load(Ordering::SeqCst) {
             break;
         }
@@ -3375,47 +3480,35 @@ fn run_deadline_waiter(shared: Arc<EngineShared>) {
             .deadlines
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if shared.stopping.load(Ordering::SeqCst) {
-            break;
-        }
         let now = Instant::now();
-        let next = book
-            .entries
-            .iter()
-            .map(|entry| entry.at)
-            .min()
-            .filter(|at| *at > now)
-            .map(|at| at.saturating_duration_since(now));
-        book = match next {
-            Some(timeout) => match shared.deadline_cvar.wait_timeout(book, timeout) {
-                Ok((guard, _)) => guard,
-                Err(poisoned) => poisoned.into_inner().0,
-            },
-            None if book.entries.iter().any(|entry| entry.at <= now) => book,
-            None => shared
-                .deadline_cvar
-                .wait(book)
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        };
-        if shared.stopping.load(Ordering::SeqCst) {
-            break;
-        }
-        let fired_at = Instant::now();
         let mut expired = Vec::new();
         book.entries.retain(|entry| {
-            if entry.at <= fired_at {
+            if entry.at <= now {
                 expired.push(entry.clone());
                 false
             } else {
                 true
             }
         });
+        let next = book
+            .entries
+            .iter()
+            .map(|entry| entry.at.saturating_duration_since(now))
+            .min();
+        #[cfg(test)]
+        if expired.is_empty() {
+            pause_idle(&shared, IdleSite::DeadlineWaiter);
+        }
+        // Release the book before any wait, then fire the armed retry wake.
         drop(book);
+        let fired = !expired.is_empty();
         for entry in expired {
             fire_deadline(&shared, entry);
         }
-        // The scan and any fired deadline released admission state.
         wake_armed_admission(&shared);
+        if !fired {
+            shared.deadline_signal.wait_past(seen, next);
+        }
     }
 }
 
@@ -4033,6 +4126,81 @@ mod tests {
         }
     }
 
+    fn install_idle_pause(
+        engine: &PluginWorkerEngine,
+        site: IdleSite,
+    ) -> (mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (holding, holding_rx) = mpsc::sync_channel(1);
+        let (resume_tx, resume) = mpsc::channel();
+        *engine.inner.shared.idle_pause.lock().expect("idle pause") = Some(Arc::new(IdlePause {
+            site,
+            holding,
+            resume: Mutex::new(resume),
+        }));
+        (holding_rx, resume_tx)
+    }
+
+    /// Park the host on an admission lock that `site` holds on its way into
+    /// an idle wait, then let `site` release it into that wait.
+    fn assert_idle_release_wakes_the_armed_host(
+        site: IdleSite,
+        nudge: impl FnOnce(&PluginWorkerEngine, &PluginKey),
+    ) {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey(format!("idle-release-{site:?}"));
+        load(&engine, &plugin, Duration::ZERO);
+        let (wakes_sender, wakes) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let _ = wakes_sender.send(());
+        }));
+        let (holding, resume) = install_idle_pause(&engine, site);
+        nudge(&engine, &plugin);
+        // timer: deadline — the idle thread must reach its wait; expiry fails the test
+        holding
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the idle thread holds its lock");
+
+        let busy = engine.try_admit(
+            PluginInvocationClass::Background,
+            request("parked", handler(&plugin), 1_000),
+            1,
+        );
+        assert!(is_admission_lock_busy(&busy), "{busy:?}");
+        assert!(wakes.try_recv().is_err(), "nothing released yet");
+
+        resume.send(()).expect("resume the idle thread");
+        // timer: deadline — the armed wake must arrive; expiry fails the test
+        wakes
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the release into the idle wait wakes the parked host");
+        assert!(matches!(
+            engine.try_admit(
+                PluginInvocationClass::Background,
+                request("parked", handler(&plugin), 1_000),
+                1,
+            ),
+            PluginAdmissionResult::Queued { .. }
+        ));
+    }
+
+    #[test]
+    fn an_idle_worker_releasing_admission_into_its_wait_wakes_the_armed_host() {
+        assert_idle_release_wakes_the_armed_host(IdleSite::Worker, |engine, plugin| {
+            engine
+                .worker_for(plugin)
+                .expect("worker")
+                .work_signal
+                .notify_all();
+        });
+    }
+
+    #[test]
+    fn the_idle_deadline_waiter_releasing_its_book_into_its_wait_wakes_the_armed_host() {
+        assert_idle_release_wakes_the_armed_host(IdleSite::DeadlineWaiter, |engine, _| {
+            engine.inner.shared.deadline_signal.notify_all();
+        });
+    }
+
     #[test]
     fn a_busy_admission_is_retried_on_the_armed_wake_without_a_completion() {
         let engine = PluginWorkerEngine::new();
@@ -4187,7 +4355,7 @@ mod tests {
                 .expect("admitted deadline")
                 .at = Instant::now();
         }
-        engine.inner.shared.deadline_cvar.notify_all();
+        engine.inner.shared.deadline_signal.notify_all();
         sealed_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("real deadline waiter sealed before publication");
