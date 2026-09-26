@@ -126,10 +126,6 @@ pub struct CoreDaemonConfig {
     pub retention: RetentionPolicy,
     /// Test-only: hold after PTY read while still in the reader critical section.
     pub test_hold_after_read_ms: Option<u64>,
-    /// Test-only: force write WouldBlock until this Unix ms.
-    pub test_write_block_until_unix_ms: Option<u64>,
-    /// Test-only: cap each write() to this many bytes (partial-write proofs).
-    pub test_write_max_chunk: Option<usize>,
     /// Test-only: single-queue fence capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
     /// Test-only: hold after fence enqueue while still under the critical fence.
@@ -164,8 +160,6 @@ impl CoreDaemonConfig {
             worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
             retention: DEFAULT_RETENTION_POLICY,
             test_hold_after_read_ms: None,
-            test_write_block_until_unix_ms: None,
-            test_write_max_chunk: None,
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
@@ -196,20 +190,6 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
         self.test_hold_after_read_ms = hold_ms;
-        self
-    }
-
-    /// Set the test-only write backpressure bound for deadline proofs.
-    #[must_use]
-    pub const fn with_test_write_block_until_unix_ms(mut self, until: Option<u64>) -> Self {
-        self.test_write_block_until_unix_ms = until;
-        self
-    }
-
-    /// Set the test-only per-call write cap for partial-write proofs.
-    #[must_use]
-    pub const fn with_test_write_max_chunk(mut self, max_chunk: Option<usize>) -> Self {
-        self.test_write_max_chunk = max_chunk;
         self
     }
 
@@ -572,8 +552,6 @@ impl CoreDaemon {
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
                 options.worker_reply_timeout = config.worker_reply_timeout;
                 options.test_hold_after_read_ms = config.test_hold_after_read_ms;
-                options.test_write_block_until_unix_ms = config.test_write_block_until_unix_ms;
-                options.test_write_max_chunk = config.test_write_max_chunk;
                 options.test_pending_capacity = config.test_pending_capacity;
                 options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
                 options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
