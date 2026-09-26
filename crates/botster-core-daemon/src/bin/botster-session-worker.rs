@@ -106,7 +106,6 @@ fn run() -> Result<(), String> {
     let wakes = TerminalWakeSource::new();
     let runtime_options = LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(args.shutdown_grace_ms),
-        poll_interval: Duration::from_millis(args.poll_interval_ms),
         pty_reader_chunk_capacity: args.pty_reader_chunk_capacity,
         test_hold_after_read_ms: args.test_hold_after_read_ms,
         test_pending_capacity: args.test_pending_capacity,
@@ -2046,7 +2045,6 @@ struct WorkerArgs {
     egress_capacity: usize,
     pty_reader_chunk_capacity: usize,
     shutdown_grace_ms: u64,
-    poll_interval_ms: u64,
     control_socket: Option<PathBuf>,
     test_fail_after_spawn: bool,
     test_hold_after_read_ms: Option<u64>,
@@ -2063,7 +2061,6 @@ impl WorkerArgs {
         let mut egress_capacity = 64;
         let mut pty_reader_chunk_capacity = botster_core::DEFAULT_PTY_READER_CHUNK_CAPACITY;
         let mut shutdown_grace_ms = 500;
-        let mut poll_interval_ms = 10;
         let mut control_socket = None;
         let mut test_fail_after_spawn = false;
         let mut test_hold_after_read_ms = None;
@@ -2088,10 +2085,6 @@ impl WorkerArgs {
                 "--shutdown-grace-ms" => {
                     index += 1;
                     shutdown_grace_ms = parse_arg(&args, index, "--shutdown-grace-ms")?;
-                }
-                "--poll-interval-ms" => {
-                    index += 1;
-                    poll_interval_ms = parse_arg(&args, index, "--poll-interval-ms")?;
                 }
                 "--control-socket" => {
                     index += 1;
@@ -2153,7 +2146,6 @@ impl WorkerArgs {
             egress_capacity,
             pty_reader_chunk_capacity,
             shutdown_grace_ms,
-            poll_interval_ms,
             control_socket,
             test_fail_after_spawn,
             test_hold_after_read_ms,
