@@ -110,7 +110,7 @@ Parent to child:
 | `Load` | `sources: BoundaryJson` (the package module set as in-memory text, because the sandboxed child has no filesystem); `config: BoundaryJson`; the initial credit grants (section 5.1) |
 | `Invoke` | `PluginInvocationRequest` |
 | `Cancel` | `request_id` |
-| `Credit` | one of `Delivery{call_id}`, `IngressBytes{bytes}`, `Log{count, bytes}` |
+| `Credit` | one of `Delivery{call_id}`, `Reply{call_id}`, `IngressBytes{bytes}`, `Log{count, bytes}` |
 | `Shutdown` | none |
 
 Child to parent:
@@ -121,7 +121,7 @@ Child to parent:
 | `BootstrapFailed` / `LoadFailed` | typed reason |
 | `Loaded` | `registration: BoundaryJson` (Hub turns it into `PluginWorkerRegistration`) |
 | `InvocationResult` | `PluginInvocationResult` |
-| `HostCall` | `call_id` (unique within the generation), `invocation_request_id`, `max_result_bytes`, `body: BoundaryJson` |
+| `HostCall` | `kind` (`Call` or `Reply`), `call_id` (unique within the generation), `invocation_request_id`, `max_result_bytes` (`Call` only), `body` |
 | `Log` | `dropped_since_last: u64`, `body: BoundaryJson` |
 
 **Every delivery into the plugin is an engine-admitted `Invoke`.** Host-call
@@ -164,7 +164,8 @@ refused.
 
 ### 5.1 Delivery pool and credits (R1)
 
-Engine API, used by both hosts:
+Engine API, used by both hosts (the reservation call itself is the atomic
+multi-spec `try_reserve_delivery` described at the end of this section):
 
 ```rust
 pub fn try_reserve_delivery_pool(
@@ -227,6 +228,28 @@ impl DeliveryPool {
 - **Local refusal.** When the child lacks delivery or ingress credit, the child
   library returns a typed `Backpressured` result to the Lua caller at once. The
   handler does not suspend. No parent refusal frame exists.
+- **Reply (user decision, 2026-09-26).** A suspended request-response chain
+  delivers its final result as a `Reply`: a `HostCall` with `kind: Reply`,
+  fire-and-forget, with no result `Invoke`. It has its own conserved ingress
+  credit class, `Reply{count, bytes}` (the Hub sets 2 credits of 1 MiB body
+  each per plugin). The child debits one Reply credit and the body's encoded
+  size before it sends. The Hub's only terminal for a Reply is
+  `release_call(call_id)`, which returns the credit as
+  `Credit{Reply{call_id}}` exactly once. A Reply takes no delivery-pool unit.
+  A Reply without Reply credit is a protocol violation.
+- **Frame bound versus Reply size.** `max_frame_bytes` must be at least the
+  Reply body allowance plus the envelope overhead, or a full-size Reply cannot
+  be framed. `spawn` validates this and returns `InvalidConfig` otherwise.
+- **Completion markers only.** Every invocation (root, resume, or ordinary)
+  completes with a small marker; payloads travel as credited messages. The
+  marker bound is the pool's `completion_bytes_per_slot` for results, and the
+  Hub's ordinary completion reservation otherwise. Core adds no number.
+- **One atomic reservation at load.** The Hub reserves the delivery pool and
+  its ordinary completion share together:
+  `try_reserve_delivery(plugin_key, specs) -> Result<Reservations, DeliveryRefusal>`
+  is all-or-nothing across every spec, so a load either gets its whole quota
+  or fails with a typed refusal (the Hub reports `quota_exceeded`).
+- There is no chain pool (user decision, 2026-09-26).
 
 ### 5.2 Parent-to-child lanes (R2)
 
@@ -239,7 +262,7 @@ consume another class's room. All bounds are derived; none is a new number.
 | `Shutdown` | 1 | fixed | sent at most once per process |
 | `Cancel` | executor concurrency | fixed per frame | at most one Cancel per in-flight invoke |
 | `Invoke` | executor concurrency | engine class byte caps | each executor thread has at most one invoke in flight, and the request was already admitted |
-| `Credit` | pool slots + 1 ingress + 1 log | fixed per frame | ingress and log credits coalesce into one pending frame each |
+| `Credit` | pool slots + Reply credits + 1 ingress + 1 log | fixed per frame | ingress and log credits coalesce into one pending frame each |
 | `Bootstrap`, `Load` | 1 each | max frame length | startup only |
 
 Frames stay counted until the writer has written them completely
