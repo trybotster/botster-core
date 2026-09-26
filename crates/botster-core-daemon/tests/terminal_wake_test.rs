@@ -8,8 +8,8 @@ use botster_core::engine::managed_session_runtime::PENDING_INGRESS_RESIZE_CAP;
 use botster_core::terminal_adapter::TerminalAdapterPressure;
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
-    SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
-    TerminalWakeBatch, TerminalWakeKind, WAKE_QUEUE_CAPACITY,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId,
+    TerminalCapabilitySet, TerminalWakeBatch, TerminalWakeKind, WAKE_QUEUE_CAPACITY,
 };
 use botster_core_daemon::{
     CoreDaemon, CoreDaemonConfig, CoreDaemonError, ObserveLifecycleBudget, RegistrySessionState,
@@ -493,13 +493,36 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let client_id = ClientId("interrupt-shutdown-client".into());
     let subscription_id = SubscriptionId("interrupt-shutdown-sub".into());
     let ready = Fifo::new("shutdown-ready");
-    let release = std::sync::Arc::new(Fifo::new("shutdown-release"));
+    let hold = Fifo::new("shutdown-hold");
+    let terminated = Fifo::new("shutdown-term");
+    let gate = Fifo::new("shutdown-gate");
     let mut request = spawn_request(&session_id);
+    // Shutdown's own TERM runs the trap, which reports it and then waits on
+    // the gate: shutdown is provably in progress until the test releases the
+    // fixture to print its final output and exit. `wait` returns for a
+    // trapped signal. The holder ignores TERM, so only the trap can end the
+    // wait; the hold pipe is never written, and the group kill after the
+    // leader's exit ends the holder. FIFO opens run in external commands,
+    // whose redirections happen in the forked child: a signal the shell
+    // handles cannot interrupt them.
     request.request.arguments[1] = format!(
-        "trap '' TERM; printf ready > '{}'; read _ < '{}'; printf final",
+        "trap '/bin/echo term > \"$TERMINATED\"; /bin/cat \"$GATE\" >/dev/null; printf final; exit 0' TERM; \
+         /bin/echo ready > '{}'; (trap '' TERM; exec cat '{}') & wait $!",
         ready.path().display(),
-        release.path().display()
+        hold.path().display()
     );
+    request.request.environment = SpawnEnvironment {
+        variables: vec![
+            SpawnEnvironmentVariable {
+                name: "TERMINATED".into(),
+                value: terminated.path().display().to_string(),
+            },
+            SpawnEnvironmentVariable {
+                name: "GATE".into(),
+                value: gate.path().display().to_string(),
+            },
+        ],
+    };
     daemon.spawn(request, 1).expect("spawn shutdown fixture");
     daemon
         .expect_terminal_adapter(
@@ -553,29 +576,45 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let interrupt_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = std::sync::Arc::clone(&interrupt_count);
     let interrupt_control = control.clone();
-    let release = std::sync::Arc::clone(&release);
+    let (first_sender, first_interrupt) = std::sync::mpsc::channel();
+    // The adversary: interrupts keep arriving for as long as shutdown runs.
     let interrupter = std::thread::spawn(move || {
-        let release_at = Instant::now() + Duration::from_millis(50);
-        let mut released = false;
+        let mut first = Some(first_sender);
         while active.load(std::sync::atomic::Ordering::Acquire) {
             interrupt_control.interrupt();
             count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if !released && Instant::now() >= release_at {
-                release.release(Duration::from_secs(5));
-                released = true;
+            if let Some(sender) = first.take() {
+                let _ = sender.send(());
             }
             std::thread::yield_now();
         }
     });
-    while interrupt_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
-        std::thread::yield_now();
-    }
+    // timer: deadline — the interrupter must start; expiry fails the test
+    first_interrupt
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the interrupter raised its first interrupt");
     let before_shutdown = interrupt_count.load(std::sync::atomic::Ordering::Acquire);
-    let started = Instant::now();
+    // While the fixture holds shutdown open, raise one interrupt, then
+    // release the fixture.
+    let releaser_control = control.clone();
+    let during = std::sync::Arc::clone(&interrupt_count);
+    let releaser = std::thread::spawn(move || {
+        let _ = terminated.read_signal(Duration::from_secs(5));
+        releaser_control.interrupt();
+        during.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        gate.release(Duration::from_secs(5));
+    });
+    let (returned_sender, returned) = std::sync::mpsc::channel::<()>();
+    let watchdog = std::thread::spawn(move || {
+        // timer: deadline — shutdown must return within its bound while interrupted
+        returned.recv_timeout(Duration::from_secs(2))
+    });
     let shutdown_result = daemon.shutdown(Some(session_id), 4);
-    let elapsed = started.elapsed();
+    let _ = returned_sender.send(());
     shutdown_active.store(false, std::sync::atomic::Ordering::Release);
     let interrupter_result = interrupter.join();
+    releaser.join().expect("releaser");
+    let bounded = watchdog.join().expect("watchdog");
 
     interrupter_result.expect("interrupter");
     shutdown_result.expect("bounded shutdown while interrupted");
@@ -584,8 +623,8 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
         "the control thread must raise an interrupt during shutdown"
     );
     assert!(
-        elapsed < Duration::from_secs(2),
-        "shutdown spun: {elapsed:?}"
+        bounded.is_ok(),
+        "shutdown spun past its bound while interrupted"
     );
     let frames = adapter.snapshot_delivered_frame_bytes();
     let decoded: Vec<_> = frames
@@ -2157,7 +2196,7 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
 fn short_lived_spawn_request(session_id: &SessionId, done: &Fifo) -> SpawnSessionRequest {
     let mut request = spawn_request(session_id);
     request.request.arguments[1] = format!(
-        "printf ready; printf done > '{}'; exit 0",
+        "printf ready; /bin/echo done > '{}'; exit 0",
         done.path().display()
     );
     request
@@ -2399,8 +2438,10 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
     let subscription_id = SubscriptionId("observe-exit-wake-worker-sub".into());
     let go = Fifo::new("go");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] =
-        format!("printf ready; read _ < '{}'; exit 0", go.path().display());
+    request.request.arguments[1] = format!(
+        "printf ready; /bin/cat '{}' >/dev/null; exit 0",
+        go.path().display()
+    );
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .expect_terminal_adapter(
@@ -2572,7 +2613,7 @@ fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
     let session_id = SessionId("natural-exit-siblings-session".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "printf ready; read _ < '{}'; printf done > '{}'; exit 0",
+        "printf ready; /bin/cat '{}' >/dev/null; /bin/echo done > '{}'; exit 0",
         go.path().display(),
         done.path().display()
     );
@@ -2655,7 +2696,7 @@ fn ordinary_pty_output_does_not_report_inventory_change() {
     let subscription_id = SubscriptionId("ordinary-output-inventory-sub".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "read _ < '{}'; printf ordinary-output; exec cat >/dev/null",
+        "/bin/cat '{}' >/dev/null; printf ordinary-output; exec cat >/dev/null",
         go.path().display()
     );
     daemon.spawn(request, 1).expect("spawn gated session");
@@ -3100,7 +3141,7 @@ fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
     let subscription_id = SubscriptionId("outside-pump-observe-sub".into());
     let mut request = spawn_request(&session_id);
     request.request.arguments[1] = format!(
-        "read _ < '{}'; printf produced > '{}'; dd if=/dev/zero bs=5242880 count=1 2>/dev/null; exec cat >/dev/null",
+        "/bin/cat '{}' >/dev/null; /bin/echo produced > '{}'; dd if=/dev/zero bs=5242880 count=1 2>/dev/null; exec cat >/dev/null",
         go.path().display(),
         produced.path().display()
     );
@@ -3447,8 +3488,10 @@ fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_
     let subscription_id = SubscriptionId("stale-live-worker-exit-sub".into());
     let go = Fifo::new("go");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] =
-        format!("printf ready; read _ < '{}'; exit 0", go.path().display());
+    request.request.arguments[1] = format!(
+        "printf ready; /bin/cat '{}' >/dev/null; exit 0",
+        go.path().display()
+    );
     daemon.spawn(request, 1).expect("spawn");
     daemon
         .expect_terminal_adapter(
