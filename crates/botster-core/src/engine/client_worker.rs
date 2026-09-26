@@ -227,6 +227,9 @@ struct SubscriptionOwner {
     queued_bytes: usize,
     hold_until_bound: bool,
     unsuccessful_writes: usize,
+    /// A stall resync ran and no write succeeded after it. The next
+    /// exhausted attempt budget ends the route.
+    stall_resynced: bool,
     in_flight: bool,
     /// A terminal frame (`PROCESS_EXIT` or `ATTACH_STATE failed`) is queued;
     /// nothing may follow it and the route hard-stops after delivery.
@@ -363,6 +366,7 @@ impl ClientWorker {
                 queued_bytes: 0,
                 hold_until_bound,
                 unsuccessful_writes: 0,
+                stall_resynced: false,
                 in_flight: false,
                 terminal_enqueued: false,
                 terminal_delivered: false,
@@ -1117,7 +1121,7 @@ impl ClientWorker {
                 || owner.queued_bytes.saturating_add(frame.len()) > MAX_ROUTE_EGRESS_BYTES
         };
         if over {
-            return self.overflow_route(key, frame, kind);
+            return self.overflow_route(key, Some((frame, kind)));
         }
         let ready = {
             let owner = self.live.get_mut(key)?;
@@ -1150,12 +1154,11 @@ impl ClientWorker {
     /// still names the receiver's epoch), otherwise the route enters the next
     /// epoch and queues `ROUTE_RESYNC` first. Preserved results are re-stamped
     /// with the route epoch. If the preserved frames still exceed the ceiling
-    /// the route ends explicitly.
+    /// the route ends explicitly. A stall resync has no overflowing frame.
     fn overflow_route(
         &mut self,
         key: &OwnerKey,
-        overflowing: TerminalFrame,
-        overflowing_kind: QueuedKind,
+        overflowing: Option<(TerminalFrame, QueuedKind)>,
     ) -> Option<ClientWorkerTeardown> {
         // A declared route that has never bound cannot drain, so resync
         // recovery would only start another capture it cannot receive. Its
@@ -1167,7 +1170,7 @@ impl ClientWorker {
         {
             return self.hard_stop_key(key);
         }
-        let mut lost_visual = matches!(overflowing_kind, QueuedKind::Visual);
+        let mut lost_visual = matches!(overflowing, Some((_, QueuedKind::Visual)));
         let (needs_transition, epoch_exhausted, ready) = {
             let owner = self.live.get_mut(key)?;
             let keep = usize::from(owner.in_flight);
@@ -1180,11 +1183,12 @@ impl ClientWorker {
                     QueuedKind::Terminal | QueuedKind::InputResult(_) => kept.push_back(queued),
                 }
             }
-            let terminal_incoming = matches!(overflowing_kind, QueuedKind::Terminal);
-            if !matches!(overflowing_kind, QueuedKind::Visual) {
+            let terminal_incoming = matches!(overflowing, Some((_, QueuedKind::Terminal)));
+            if let Some((frame, kind)) = overflowing.filter(|(_, kind)| *kind != QueuedKind::Visual)
+            {
                 kept.push_back(QueuedFrame {
-                    frame: overflowing,
-                    kind: overflowing_kind,
+                    frame,
+                    kind,
                     stream_epoch: owner.stream_epoch,
                 });
                 if terminal_incoming {
@@ -1316,7 +1320,7 @@ impl ClientWorker {
                     TerminalAdapterPressure::Full | TerminalAdapterPressure::WouldBlock => {
                         owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                         if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                            return self.hard_stop_key(key);
+                            return self.stall_route(key);
                         }
                         return None;
                     }
@@ -1337,6 +1341,7 @@ impl ClientWorker {
                 Ok(()) => {
                     owner.in_flight = true;
                     owner.unsuccessful_writes = 0;
+                    owner.stall_resynced = false;
                     if adapter.pressure() == TerminalAdapterPressure::Ready {
                         self.complete_head(key);
                         continue;
@@ -1346,13 +1351,29 @@ impl ClientWorker {
                 Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
                     owner.unsuccessful_writes = owner.unsuccessful_writes.saturating_add(1);
                     if owner.unsuccessful_writes >= WRITE_ATTEMPT_BUDGET {
-                        return self.hard_stop_key(key);
+                        return self.stall_route(key);
                     }
                     return None;
                 }
                 Err(TerminalAdapterWriteError::Closed) => return self.hard_stop_key(key),
             }
         }
+    }
+
+    /// The bound adapter refused writes for a full attempt budget.
+    ///
+    /// A reader that falls behind a sustained producer recovers like an
+    /// overflow: unsent visual frames are dropped and the route resyncs to a
+    /// fresh capture. A reader with no successful write across a full budget
+    /// after that resync is dead, and the route ends.
+    fn stall_route(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
+        let owner = self.live.get_mut(key)?;
+        if owner.stall_resynced {
+            return self.hard_stop_key(key);
+        }
+        owner.stall_resynced = true;
+        owner.unsuccessful_writes = 0;
+        self.overflow_route(key, None)
     }
 
     /// The adapter finished the head frame. Input lane reservations held by
@@ -1376,6 +1397,7 @@ impl ClientWorker {
         }
         owner.in_flight = false;
         owner.unsuccessful_writes = 0;
+        owner.stall_resynced = false;
         if let Some((client_id, usage)) = released {
             self.release_lane(&key.session_id, &client_id, usage);
         }
@@ -2857,6 +2879,235 @@ mod tests {
 
         assert_eq!(worker.session_in_flight_operations(&key.session_id), 0);
         assert_eq!(worker.live[&key].lane.operations, 0);
+    }
+
+    /// Adapter that accepts one write per granted credit and records the
+    /// kind of every accepted frame.
+    #[derive(Default)]
+    struct MeteredState {
+        credits: usize,
+        written: Vec<TerminalKind>,
+    }
+
+    struct MeteredAdapter(std::sync::Arc<std::sync::Mutex<MeteredState>>);
+
+    impl TerminalAdapter for MeteredAdapter {
+        fn try_write(
+            &mut self,
+            frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
+            let mut state = self.0.lock().expect("adapter state");
+            if state.credits == 0 {
+                return Err(TerminalAdapterWriteError::Full);
+            }
+            state.credits -= 1;
+            state.written.push(frame.frame.kind());
+            Ok(())
+        }
+
+        fn close(&mut self) {}
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            if self.0.lock().expect("adapter state").credits > 0 {
+                TerminalAdapterPressure::Ready
+            } else {
+                TerminalAdapterPressure::Full
+            }
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            TerminalIngress::Empty
+        }
+    }
+
+    impl WakingTerminalAdapter for MeteredAdapter {
+        fn set_wake_sink(&mut self, _sink: TerminalWakeSink) {}
+    }
+
+    fn metered_route() -> (
+        ClientWorker,
+        OwnerKey,
+        std::sync::Arc<std::sync::Mutex<MeteredState>>,
+    ) {
+        let (mut worker, key) = bound_route();
+        let state = std::sync::Arc::new(std::sync::Mutex::new(MeteredState::default()));
+        let owner = worker.live.get_mut(&key).expect("route");
+        owner.adapter = Some(Box::new(MeteredAdapter(state.clone())));
+        (worker, key, state)
+    }
+
+    /// Pump one route until one attempt short of the write budget.
+    fn exhaust_all_but_one(worker: &mut ClientWorker, key: &OwnerKey) {
+        for _ in 1..WRITE_ATTEMPT_BUDGET {
+            assert!(worker.pump_one(key).is_none());
+        }
+        assert_eq!(
+            worker.live[key].unsuccessful_writes,
+            WRITE_ATTEMPT_BUDGET - 1
+        );
+    }
+
+    struct SlowReaderRun {
+        stall_resyncs: usize,
+        capture_requests: usize,
+        written: Vec<TerminalKind>,
+    }
+
+    /// Drive one bound route with a producer and a reader that drains a
+    /// burst of frames once per period. The period is longer than the write
+    /// budget, so the budget runs out between drains. The host serves every
+    /// resync request with a fresh capture.
+    fn run_slow_reader(output_every: usize, burst: usize, periods: usize) -> SlowReaderRun {
+        let (mut worker, key, adapter) = metered_route();
+        let drain_period = WRITE_ATTEMPT_BUDGET + WRITE_ATTEMPT_BUDGET / 4;
+        let mut run = SlowReaderRun {
+            stall_resyncs: 0,
+            capture_requests: 0,
+            written: Vec::new(),
+        };
+        for tick in 1..=drain_period * periods {
+            if tick % output_every == 0 {
+                assert!(
+                    worker
+                        .push_session_output(&key.session_id, b"y\n")
+                        .is_empty(),
+                    "producer output must not end the route"
+                );
+            }
+            for request in worker.take_resync_requests() {
+                run.capture_requests += 1;
+                let identity = CaptureIdentity {
+                    generation: request.generation,
+                    capture_fence: request.capture_fence,
+                };
+                for frame in [
+                    encode_snapshot_history(b"page").expect("page"),
+                    encode_snapshot_ready(b"GHOSTSNP").expect("ready"),
+                ] {
+                    let teardown = worker
+                        .push_capture_frame(&key.session_id, &key.subscription_id, identity, frame)
+                        .expect("capture page for the live fence");
+                    assert!(teardown.is_none());
+                }
+            }
+            let drain = tick % drain_period == 0;
+            if drain {
+                adapter.lock().expect("adapter state").credits = burst;
+            }
+            let before = worker.live[&key].unsuccessful_writes;
+            assert!(
+                worker.pump_one(&key).is_none(),
+                "a reader that keeps writing must never be stopped"
+            );
+            if drain {
+                adapter.lock().expect("adapter state").credits = 0;
+                assert!(
+                    !worker.live[&key].stall_resynced,
+                    "a successful write clears the stall"
+                );
+            }
+            let owner = &worker.live[&key];
+            if before == WRITE_ATTEMPT_BUDGET - 1 {
+                assert_eq!(
+                    owner.unsuccessful_writes, 0,
+                    "the stall resync resets the counter"
+                );
+                assert!(owner.stall_resynced);
+                run.stall_resyncs += 1;
+            }
+        }
+        assert!(worker.has_subscription(&key.session_id, &key.subscription_id));
+        run.written = adapter.lock().expect("adapter state").written.clone();
+        run
+    }
+
+    fn count_kind(written: &[TerminalKind], kind: TerminalKind) -> usize {
+        written.iter().filter(|written| **written == kind).count()
+    }
+
+    #[test]
+    fn a_slow_steady_reader_resyncs_on_each_stall_and_receives_each_snapshot() {
+        // The producer stays under the frame ceiling, so every resync is a
+        // stall resync, never an overflow resync.
+        let periods = 8;
+        let run = run_slow_reader(16, MAX_ROUTE_EGRESS_FRAMES, periods);
+
+        assert_eq!(run.stall_resyncs, periods);
+        assert_eq!(run.capture_requests, run.stall_resyncs);
+        assert_eq!(count_kind(&run.written, TerminalKind::RouteResync), periods);
+        assert_eq!(
+            count_kind(&run.written, TerminalKind::SnapshotReady),
+            periods
+        );
+        assert!(count_kind(&run.written, TerminalKind::Output) > 0);
+    }
+
+    #[test]
+    fn a_slow_steady_reader_under_a_continuous_producer_never_stops() {
+        let run = run_slow_reader(1, 8, 8);
+
+        assert!(run.stall_resyncs >= 2, "stalls: {}", run.stall_resyncs);
+        assert!(count_kind(&run.written, TerminalKind::RouteResync) > 0);
+        assert!(count_kind(&run.written, TerminalKind::SnapshotReady) > 0);
+    }
+
+    #[test]
+    fn a_stall_resync_drops_visual_frames_and_asks_for_a_fresh_capture() {
+        let (mut worker, key) = bound_route();
+        for _ in 0..3 {
+            assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        }
+        exhaust_all_but_one(&mut worker, &key);
+        let fence = worker.live[&key].capture_fence;
+
+        assert!(worker.pump_one(&key).is_none(), "the first stall resyncs");
+
+        let owner = &worker.live[&key];
+        assert_eq!(kinds(&worker, &key), vec!["resync"]);
+        assert_eq!(owner.stream_epoch, 1);
+        assert_eq!(owner.capture_fence, fence + 1);
+        assert!(owner.awaiting_capture);
+        assert_eq!(owner.unsuccessful_writes, 0);
+        let requests = worker.take_resync_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].stream_epoch, 1);
+        assert_eq!(requests[0].capture_fence, fence + 1);
+    }
+
+    #[test]
+    fn a_reader_with_no_write_after_a_stall_resync_is_stopped_at_the_next_budget() {
+        let (mut worker, key) = bound_route();
+        assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        exhaust_all_but_one(&mut worker, &key);
+        assert!(worker.pump_one(&key).is_none(), "the first stall resyncs");
+        exhaust_all_but_one(&mut worker, &key);
+
+        let teardown = worker
+            .pump_one(&key)
+            .expect("no write across a full budget after the resync ends the route");
+
+        assert_eq!(teardown.subscription_id, key.subscription_id);
+        assert!(!worker.has_subscription(&key.session_id, &key.subscription_id));
+        assert!(worker.take_resync_requests().is_empty());
+    }
+
+    #[test]
+    fn a_successful_write_resets_the_attempt_budget() {
+        let (mut worker, key, adapter) = metered_route();
+        for _ in 0..3 {
+            assert!(worker.push_session_output(&key.session_id, b"x").is_empty());
+        }
+        exhaust_all_but_one(&mut worker, &key);
+        adapter.lock().expect("adapter state").credits = 1;
+        assert!(worker.pump_one(&key).is_none());
+        assert_eq!(worker.live[&key].unsuccessful_writes, 0);
+
+        exhaust_all_but_one(&mut worker, &key);
+
+        let owner = &worker.live[&key];
+        assert!(!owner.stall_resynced);
+        assert_eq!(owner.stream_epoch, 0, "no stall resync ran");
+        assert!(worker.take_resync_requests().is_empty());
     }
 
     fn decode_route_resync_frame(
