@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Build the session worker once, in the dev profile, and write a candidate
-# manifest that tests verify before they start it. Tests never build.
+# Build the session worker and the plugin test worker once, in the dev
+# profile, and write a candidate manifest that tests verify before they start
+# either binary. Tests never build.
 #
 # Usage: script/prebuild-worker [out-dir]
-# Prints the two environment assignments that Core-only tests need.
+# Prints the environment assignments that Core-only tests need.
 # Cross-layer runs must use Hub's script/build-dev-artifacts manifest.
 set -euo pipefail
 
@@ -15,7 +16,15 @@ out_dir="$(cd "$out_dir" && pwd)"
 CARGO_INCREMENTAL=0 cargo build --locked --jobs 2 \
   -p botster-core-daemon --bin botster-session-worker \
   --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
+# Replace, never overwrite in place: macOS kills a re-signed binary written
+# over the vnode of one that already ran.
+rm -f "$out_dir/botster-session-worker"
 cp "$root/target/debug/botster-session-worker" "$out_dir/botster-session-worker"
+CARGO_INCREMENTAL=0 cargo build --locked --jobs 2 \
+  -p botster-core-test-support --bin botster-plugin-test-worker \
+  --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
+rm -f "$out_dir/botster-plugin-test-worker"
+cp "$root/target/debug/botster-plugin-test-worker" "$out_dir/botster-plugin-test-worker"
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -35,6 +44,9 @@ size_of() {
 worker="$out_dir/botster-session-worker"
 worker_sha="$(sha256_of "$worker")"
 worker_size="$(size_of "$worker")"
+plugin_worker="$out_dir/botster-plugin-test-worker"
+plugin_worker_sha="$(sha256_of "$plugin_worker")"
+plugin_worker_size="$(size_of "$plugin_worker")"
 core_rev="$(git -C "$root" rev-parse HEAD)"
 if [ -n "$(git -C "$root" status --porcelain)" ]; then
   core_rev="$core_rev-dirty"
@@ -51,6 +63,11 @@ cat > "$manifest" <<MANIFEST
       "name": "botster-session-worker",
       "size": $worker_size,
       "sha256": "$worker_sha"
+    },
+    {
+      "name": "botster-plugin-test-worker",
+      "size": $plugin_worker_size,
+      "sha256": "$plugin_worker_sha"
     }
   ]
 }
@@ -58,3 +75,4 @@ MANIFEST
 
 echo "export BOTSTER_SESSION_WORKER_BIN=$worker"
 echo "export BOTSTER_CANDIDATE_MANIFEST=$manifest"
+echo "export BOTSTER_PLUGIN_TEST_WORKER_BIN=$plugin_worker"

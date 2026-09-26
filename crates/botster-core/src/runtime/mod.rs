@@ -13,6 +13,8 @@ mod file_watch;
 #[cfg(feature = "local-runtime")]
 mod local_process;
 #[cfg(all(feature = "local-runtime", unix))]
+pub mod plugin_process;
+#[cfg(all(feature = "local-runtime", unix))]
 #[allow(
     dead_code,
     reason = "the plugin process host and local shutdown are its first callers"
@@ -427,7 +429,7 @@ struct CancellationWakers {
         not(test),
         expect(
             dead_code,
-            reason = "first caller is the plugin process host (slice 1b)"
+            reason = "first caller is the plugin process host invoke path (slice 2)"
         )
     )]
     next_id: u64,
@@ -486,7 +488,7 @@ impl PluginCancellationToken {
         not(test),
         expect(
             dead_code,
-            reason = "first caller is the plugin process host (slice 1b)"
+            reason = "first caller is the plugin process host invoke path (slice 2)"
         )
     )]
     pub(crate) fn subscribe(&self, target: Arc<dyn CancelTarget>) -> CancelSubscription {
@@ -527,7 +529,7 @@ impl CancellationInner {
     not(test),
     expect(
         dead_code,
-        reason = "first caller is the plugin process host (slice 1b)"
+        reason = "first caller is the plugin process host invoke path (slice 2)"
     )
 )]
 pub(crate) struct CancelSubscription {

@@ -18,6 +18,10 @@ pub const WORKER_BIN_ENV: &str = "BOTSTER_SESSION_WORKER_BIN";
 pub const MANIFEST_ENV: &str = "BOTSTER_CANDIDATE_MANIFEST";
 /// Artifact name of the worker inside the manifest.
 pub const WORKER_ARTIFACT_NAME: &str = "botster-session-worker";
+/// Environment variable naming the scripted plugin test worker.
+pub const PLUGIN_TEST_WORKER_BIN_ENV: &str = "BOTSTER_PLUGIN_TEST_WORKER_BIN";
+/// Artifact name of the scripted plugin test worker inside the manifest.
+pub const PLUGIN_TEST_WORKER_ARTIFACT_NAME: &str = "botster-plugin-test-worker";
 
 /// A verified worker executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +45,25 @@ impl WorkerBinary {
         reason = "Provenance failures deliberately retain rich harness diagnostics by value"
     )]
     pub fn from_env() -> Result<Self, StepFailure> {
-        let path = PathBuf::from(env_var(WORKER_BIN_ENV)?);
+        Self::artifact_from_env(WORKER_BIN_ENV, WORKER_ARTIFACT_NAME)
+    }
+
+    /// Read `BOTSTER_PLUGIN_TEST_WORKER_BIN` and verify it against the
+    /// manifest's `botster-plugin-test-worker` artifact entry.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Provenance failures deliberately retain rich harness diagnostics by value"
+    )]
+    pub fn plugin_test_worker_from_env() -> Result<Self, StepFailure> {
+        Self::artifact_from_env(PLUGIN_TEST_WORKER_BIN_ENV, PLUGIN_TEST_WORKER_ARTIFACT_NAME)
+    }
+
+    #[expect(
+        clippy::result_large_err,
+        reason = "Provenance failures deliberately retain rich harness diagnostics by value"
+    )]
+    fn artifact_from_env(bin_env: &str, artifact_name: &str) -> Result<Self, StepFailure> {
+        let path = PathBuf::from(env_var(bin_env)?);
         let manifest_path = PathBuf::from(env_var(MANIFEST_ENV)?);
         let manifest_text = std::fs::read_to_string(&manifest_path).map_err(|error| {
             provenance(format!(
@@ -58,16 +80,16 @@ impl WorkerBinary {
         let mut matching_entries = manifest
             .artifacts
             .iter()
-            .filter(|artifact| artifact.name == WORKER_ARTIFACT_NAME);
+            .filter(|artifact| artifact.name == artifact_name);
         let entry = matching_entries.next().ok_or_else(|| {
             provenance(format!(
-                "manifest {} has no artifact named {WORKER_ARTIFACT_NAME}",
+                "manifest {} has no artifact named {artifact_name}",
                 manifest_path.display()
             ))
         })?;
         if matching_entries.next().is_some() {
             return Err(provenance(format!(
-                "manifest {} has more than one artifact named {WORKER_ARTIFACT_NAME}",
+                "manifest {} has more than one artifact named {artifact_name}",
                 manifest_path.display()
             )));
         }
