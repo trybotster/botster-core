@@ -724,18 +724,35 @@ pub fn encode_json<T: Serialize>(frame_type: u8, value: &T) -> Result<Vec<u8>, P
 }
 
 /// Incremental frame decoder.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FrameDecoder {
     buf: Vec<u8>,
     discarded_headers: u32,
+    max_len: usize,
+}
+
+impl Default for FrameDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FrameDecoder {
-    /// Create a new frame decoder.
+    /// Create a new frame decoder with the protocol frame cap.
     pub fn new() -> Self {
+        Self::with_max_len(MAX_FRAME_LEN)
+    }
+
+    /// Create a decoder that refuses any frame whose length header (type byte
+    /// plus payload) exceeds `max_len`, capped at [`MAX_FRAME_LEN`]. The
+    /// buffer therefore never holds more than one header plus `max_len` bytes
+    /// of an incomplete frame, plus the caller's current read.
+    pub fn with_max_len(max_len: usize) -> Self {
+        let max_len = max_len.min(MAX_FRAME_LEN);
         Self {
-            buf: Vec::with_capacity(8192),
+            buf: Vec::with_capacity(8192.min(4 + max_len)),
             discarded_headers: 0,
+            max_len,
         }
     }
 
@@ -754,10 +771,10 @@ impl FrameDecoder {
             if len == 0 {
                 return Err(ProtocolError::FrameLengthZero);
             }
-            if len > MAX_FRAME_LEN {
+            if len > self.max_len {
                 return Err(ProtocolError::FrameLengthTooLarge {
                     len,
-                    max: MAX_FRAME_LEN,
+                    max: self.max_len,
                 });
             }
             if self.buf.len() < 4 + len {

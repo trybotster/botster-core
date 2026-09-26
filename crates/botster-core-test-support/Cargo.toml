@@ -17,8 +17,13 @@ default = ["local-runtime", "ghostty-terminal"]
 local-runtime = ["botster-core/local-runtime"]
 ghostty-terminal = ["dep:botster-terminal-ghostty", "botster-terminal-ghostty/libghostty-vt"]
 
+[[bin]]
+name = "botster-plugin-test-worker"
+required-features = ["local-runtime"]
+
 [dependencies]
 botster-core = { path = "../botster-core", version = "0.1.0", default-features = false }
+libc = "0.2"
 botster-terminal-ghostty = { path = "../botster-terminal-ghostty", optional = true, default-features = false }
 botster-terminal-protocol = { path = "../botster-terminal-protocol", version = "0.4.0" }
 botster-terminal-protocol-client = { path = "../botster-terminal-protocol-client", version = "0.5.0" }
