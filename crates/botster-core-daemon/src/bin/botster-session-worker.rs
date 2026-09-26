@@ -1668,13 +1668,15 @@ impl WorkerControl {
         space: Arc<EgressSpace>,
     ) -> thread::JoinHandle<Result<(), String>> {
         match self {
-            Self::Stdio => {
-                thread::spawn(move || write_egress(io::stdout(), protected, metadata, &space))
-            }
+            Self::Stdio => thread::spawn(move || {
+                let _close = CloseEgressOnExit(Arc::clone(&space));
+                write_egress(io::stdout(), protected, metadata, &space)
+            }),
             #[cfg(unix)]
             Self::Socket { writer, .. } => {
                 let writer = Arc::clone(writer);
                 thread::spawn(move || {
+                    let _close = CloseEgressOnExit(Arc::clone(&space));
                     write_egress_lanes(
                         |frame| {
                             if let Ok(mut slot) = writer.lock() {
@@ -1864,37 +1866,68 @@ struct WorkerEgress {
 }
 
 /// Protected egress frames the writer has taken off its lane. A sender
-/// blocked on a full lane waits here for the writer or for a cancel.
+/// blocked on a full lane waits here for the writer, a cancel, or the writer
+/// exit.
 #[derive(Default)]
 struct EgressSpace {
-    taken: Mutex<u64>,
+    state: Mutex<EgressSpaceState>,
     changed: Condvar,
 }
 
+#[derive(Default)]
+struct EgressSpaceState {
+    taken: u64,
+    /// The writer thread exited; nothing will take another frame.
+    closed: bool,
+}
+
+/// Closes the egress space when the writer thread ends, a panic included.
+struct CloseEgressOnExit(Arc<EgressSpace>);
+
+impl Drop for CloseEgressOnExit {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
+
 impl EgressSpace {
+    fn lock(&self) -> std::sync::MutexGuard<'_, EgressSpaceState> {
+        self.state.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
     fn taken(&self) -> u64 {
-        *self.taken.lock().unwrap_or_else(|error| error.into_inner())
+        self.lock().taken
+    }
+
+    fn is_closed(&self) -> bool {
+        self.lock().closed
     }
 
     fn record_taken(&self) {
-        let mut taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
-        *taken += 1;
+        self.lock().taken += 1;
+        self.changed.notify_all();
+    }
+
+    /// The writer exited. Wake blocked senders so they give up.
+    fn close(&self) {
+        self.lock().closed = true;
         self.changed.notify_all();
     }
 
     /// Wake blocked senders so they recheck cancellation.
     fn notify(&self) {
-        let _taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
+        let _state = self.lock();
         self.changed.notify_all();
     }
 
-    /// Wait until the writer takes a frame after `seen`, or `cancelled`.
+    /// Wait until the writer takes a frame after `seen`, the writer exits,
+    /// or `cancelled`.
     fn wait_after(&self, seen: u64, cancelled: &mut impl FnMut() -> bool) {
-        let mut taken = self.taken.lock().unwrap_or_else(|error| error.into_inner());
-        while *taken == seen && !cancelled() {
-            taken = self
+        let mut state = self.lock();
+        while state.taken == seen && !state.closed && !cancelled() {
+            state = self
                 .changed
-                .wait(taken)
+                .wait(state)
                 .unwrap_or_else(|error| error.into_inner());
         }
     }
@@ -1970,7 +2003,7 @@ impl WorkerEgress {
             return false;
         };
         loop {
-            if cancelled() {
+            if cancelled() || self.space.is_closed() {
                 return false;
             }
             let seen = self.space.taken();
@@ -2333,6 +2366,29 @@ mod tests {
                 super::FRAME_SNAPSHOT
             ]
         );
+    }
+
+    #[test]
+    fn a_snapshot_send_blocked_on_a_full_lane_ends_when_the_writer_exits() {
+        let (egress, protected_rx, _metadata_rx) = super::WorkerEgress::new(1);
+        assert!(egress.send_protected_frame(super::FRAME_PTY_OUTPUT, b"fills the lane".to_vec()));
+        let space = std::sync::Arc::clone(&egress.space);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let sender = std::thread::spawn(move || {
+            let sent =
+                egress
+                    .send_protected_json_cancellable(super::FRAME_PTY_OUTPUT, &"blocked", || false);
+            let _ = done_tx.send(sent);
+        });
+        // The writer exits without taking the frame.
+        drop(protected_rx);
+        drop(super::CloseEgressOnExit(space));
+        // timer: deadline — the writer exit must release the blocked sender; expiry fails the test
+        let sent = done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("blocked sender released by the writer exit");
+        assert!(!sent);
+        sender.join().expect("sender thread");
     }
 
     #[test]
