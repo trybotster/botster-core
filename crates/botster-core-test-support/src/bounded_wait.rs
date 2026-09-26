@@ -37,6 +37,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let producer = std::thread::spawn(move || sender.send(7).expect("send"));
         let value = wait_for("channel value", Duration::from_secs(5), |remaining| {
+            // timer: deadline — wait_for's deadline bounds this receive
             receiver.recv_timeout(remaining).ok()
         });
         assert_eq!(value, 7);
@@ -48,6 +49,7 @@ mod tests {
     fn fails_at_the_deadline_without_the_event() {
         let (_sender, receiver) = mpsc::channel::<()>();
         wait_for("never", Duration::from_millis(10), |remaining| {
+            // timer: deadline — wait_for's deadline bounds this receive
             receiver.recv_timeout(remaining).ok()
         });
     }

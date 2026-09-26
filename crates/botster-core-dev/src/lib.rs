@@ -289,6 +289,7 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             break None;
         };
+        // timer: deadline — wait for the completion notifier up to the smoke deadline
         let _ = notified.recv_timeout(remaining);
     };
     let snapshot = engine.plugin_workers().debug_snapshot();
@@ -587,6 +588,7 @@ fn drain_until_text(
                 .map_err(|error| EngineSmokeError::new(format!("output was not utf-8: {error}")));
         }
 
+        // timer: deadline — wait for engine wakes up to the smoke deadline
         let _ = engine.wait_wakes(remaining);
     }
 
