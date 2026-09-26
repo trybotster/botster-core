@@ -9,19 +9,19 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Instant;
 
-use crate::contract::session_protocol::{Frame, FrameDecoder};
+use crate::contract::session_protocol::{Frame, FrameDecoder, MAX_FRAME_LEN};
 use crate::runtime::process_exit::ExitWatch;
 
 use super::launch::{launch, Launched};
 use super::protocol::{
     decode_json, encode_bounded, encode_json_bounded, send_all, BootstrapFrame, FailedFrame,
     LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP, CAUSE_PANIC,
-    FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED,
-    FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED,
+    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 use super::supervisor::{KillState, ProcessKiller, Supervisor};
 use super::{
@@ -84,10 +84,12 @@ impl PluginProcess {
         config: &PluginProcessConfig,
         load: &LoadFrame,
     ) -> Result<(Self, PluginRegistration), PluginProcessError> {
-        if config.max_frame_bytes == 0 {
-            return Err(PluginProcessError::InvalidConfig(
-                "max_frame_bytes must be positive".to_string(),
-            ));
+        if config.max_frame_bytes == 0 || config.max_frame_bytes > MAX_FRAME_LEN {
+            // The codec cannot represent a larger frame; refuse rather than
+            // silently advertise a bound that would not hold.
+            return Err(PluginProcessError::InvalidConfig(format!(
+                "max_frame_bytes must be between 1 and {MAX_FRAME_LEN}"
+            )));
         }
         // Encode before starting anything, so an oversize frame starts no process.
         let bootstrap = encode_json_bounded(
@@ -97,7 +99,6 @@ impl PluginProcess {
                 version: PROTOCOL_VERSION,
                 sandbox: config.sandbox.clone(),
                 memory_cap_bytes: config.memory_cap_bytes,
-                max_frame_bytes: config.max_frame_bytes,
             },
             config.max_frame_bytes,
         )
@@ -285,16 +286,16 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
         stderr,
     } = launch(config).map_err(PluginProcessError::Launch)?;
     let pid = child.id();
-    let abort = |mut child: Child, error: io::Error| {
-        let _ = child.kill();
-        let _ = child.wait();
-        PluginProcessError::Launch(error)
-    };
     let Ok(pgid) = libc::pid_t::try_from(pid) else {
-        return Err(abort(child, io::Error::other("pid out of range")));
+        return Err(rollback(child, None, io::Error::other("pid out of range")));
     };
+    let abort = |child: Child, error: io::Error| rollback(child, Some(pgid), error);
     // Register while the child is unreaped, so its pid cannot be reused first.
-    let watch = match ExitWatch::register(pid) {
+    let registered = match start_fault(FaultPoint::RegisterWatch, pid) {
+        Some(error) => Err(error),
+        None => ExitWatch::register(pid),
+    };
+    let watch = match registered {
         Ok(watch) => watch,
         Err(error) => return Err(abort(child, error)),
     };
@@ -340,16 +341,28 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
         stderr: tail.clone(),
     });
 
+    // The child stays here until the exit watch is running and has taken it,
+    // so a failed thread start still leaves an owner that can reap it.
+    let (handoff, taken) = mpsc::sync_channel::<(ExitWatch, Child, OwnedFd)>(1);
     let watch_shared = shared.clone();
-    if let Err(error) = thread::Builder::new()
-        .name(format!("plugin-exit-watch-{pid}"))
-        .spawn(move || run_exit_watch(&watch_shared, watch, child, &fatal))
-    {
-        // The closure (and the child) was dropped unrun; the process group
-        // is still unreaped, and nothing else can reap it now.
-        shared.killer.kill(PluginKillReason::Requested);
+    let spawned = match start_fault(FaultPoint::SpawnExitWatch, pid) {
+        Some(error) => Err(error),
+        None => thread::Builder::new()
+            .name(format!("plugin-exit-watch-{pid}"))
+            .spawn(move || {
+                if let Ok((watch, child, fatal)) = taken.recv() {
+                    run_exit_watch(&watch_shared, watch, child, &fatal);
+                }
+            }),
+    };
+    if let Err(error) = spawned {
         shared.supervisor.stop();
-        return Err(PluginProcessError::Launch(error));
+        return Err(abort(child, error));
+    }
+    if let Err(mpsc::SendError((_, child, _))) = handoff.send((watch, child, fatal)) {
+        // The exit watch ended before it took the child; reap it here.
+        shared.supervisor.stop();
+        return Err(abort(child, io::Error::other("the exit watch ended early")));
     }
     // From here the exit watch owns the child; failures kill and wait for it.
     let reader_shared = shared.clone();
@@ -367,6 +380,65 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
         return Err(PluginProcessError::Launch(error));
     }
     Ok(shared)
+}
+
+/// Roll back a start that failed before the exit watch owned the child: kill
+/// the whole group while the leader is unreaped, then reap the leader. The
+/// blocking wait is the exit event itself; SIGKILL guarantees it.
+fn rollback(mut child: Child, pgid: Option<libc::pid_t>, error: io::Error) -> PluginProcessError {
+    match pgid {
+        // SAFETY: killpg only sends a signal; the leader is unreaped, so its
+        // group id is still ours.
+        Some(pgid) => unsafe {
+            libc::killpg(pgid, libc::SIGKILL);
+        },
+        None => {
+            let _ = child.kill();
+        }
+    }
+    let _ = child.wait();
+    PluginProcessError::Launch(error)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FaultPoint {
+    RegisterWatch,
+    SpawnExitWatch,
+}
+
+/// Test seam: a fault armed on the spawning thread fails the start at
+/// `point`, after running its hook with the child's pid.
+#[cfg(test)]
+pub(super) struct StartFault {
+    pub point: FaultPoint,
+    pub before: Box<dyn FnOnce(u32)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static START_FAULT: std::cell::RefCell<Option<StartFault>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn start_fault(point: FaultPoint, pid: u32) -> Option<io::Error> {
+    let fault = START_FAULT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.as_ref().is_some_and(|fault| fault.point == point) {
+            slot.take()
+        } else {
+            None
+        }
+    })?;
+    (fault.before)(pid);
+    Some(io::Error::other(format!(
+        "injected start fault at {point:?}"
+    )))
+}
+
+#[cfg(not(test))]
+fn start_fault(_point: FaultPoint, _pid: u32) -> Option<io::Error> {
+    None
 }
 
 /// The parent's receiving end. Frames are consumed only under this lock: the
@@ -519,13 +591,16 @@ fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &O
     // The exit is an OS event; a failed wait falls back to the blocking reap.
     let _ = watch.wait(None);
     let shutdown_sent = shared.shutdown_sent.load(Ordering::SeqCst);
-    let cause = shared.killer.reap_with(|kills| {
-        let fatal_byte = read_fatal_byte(fatal);
+    let (cause, fatal_message) = shared.killer.reap_with(|kills| {
+        let (fatal_byte, fatal_message) = read_fatal(fatal);
         let status = match child.try_wait() {
             Ok(Some(status)) => Some(status),
             _ => child.wait().ok(),
         };
-        classify(kills, fatal_byte, status, shutdown_sent)
+        (
+            classify(kills, fatal_byte, status, shutdown_sent),
+            fatal_message,
+        )
     });
     let (stderr_tail, stderr_dropped_bytes) = {
         let mut tail = shared.stderr.lock().unwrap_or_else(PoisonError::into_inner);
@@ -535,6 +610,7 @@ fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &O
     let exit = PluginProcessExited {
         pid: shared.pid,
         cause,
+        fatal_message,
         stderr_tail,
         stderr_dropped_bytes,
     };
@@ -555,11 +631,21 @@ fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &O
     }
 }
 
-fn read_fatal_byte(fatal: &OwnedFd) -> Option<u8> {
-    let mut byte = 0u8;
-    // SAFETY: a one-byte read into a live local from a descriptor we own.
-    let read = unsafe { libc::read(fatal.as_raw_fd(), (&mut byte as *mut u8).cast(), 1) };
-    (read == 1).then_some(byte)
+/// Read the fatal cause byte and its message without blocking. The child
+/// writes them with one write of at most `1 + FATAL_MESSAGE_BYTES` bytes; the
+/// parent reads no more than that.
+fn read_fatal(fatal: &OwnedFd) -> (Option<u8>, String) {
+    let mut buf = [0u8; 1 + FATAL_MESSAGE_BYTES];
+    // SAFETY: a bounded read into a live local from a non-blocking
+    // descriptor that this process owns.
+    let read = unsafe { libc::read(fatal.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+    let Ok(read) = usize::try_from(read) else {
+        return (None, String::new());
+    };
+    match buf[..read].split_first() {
+        Some((cause, message)) => (Some(*cause), String::from_utf8_lossy(message).into_owned()),
+        None => (None, String::new()),
+    }
 }
 
 /// Classify from exit evidence (plan section 7.5). A kill reason counts only
@@ -668,3 +754,7 @@ impl StderrTail {
         (self.bytes.iter().copied().collect(), self.dropped)
     }
 }
+
+#[cfg(test)]
+#[path = "host_test.rs"]
+mod host_test;

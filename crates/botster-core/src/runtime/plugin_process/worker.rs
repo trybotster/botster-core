@@ -5,21 +5,26 @@
 //! plugin byte is read, the library closes every inherited descriptor except
 //! 0-4, installs the fatal panic hook, installs the memory cap, and applies
 //! the Hub's sandbox profile.
+//!
+//! The worker takes one argument, `--botster-plugin-max-frame-bytes <n>`,
+//! which the parent launcher passes; the binary must not use other arguments.
 
 use std::collections::VecDeque;
+use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::os::fd::{AsFd, FromRawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
-use crate::contract::session_protocol::{Frame, FrameDecoder};
+use crate::contract::session_protocol::{Frame, FrameDecoder, ProtocolError, MAX_FRAME_LEN};
 use crate::runtime::PluginRuntime;
 
 use super::protocol::{
     decode_json, encode_json_bounded, send_all, BootstrapFrame, FailedFrame, LoadFrame,
     LoadedFrame, PluginRegistration, ReadyFrame, SandboxProfile, CAUSE_PANIC, CHILD_FATAL_FD,
-    CHILD_IPC_FD, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED,
-    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    CHILD_IPC_FD, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD,
+    FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, MAX_FRAME_ARG, PROTOCOL_MAGIC,
+    PROTOCOL_VERSION,
 };
 
 /// Worker-binary hooks: the policy and the runtime that the Hub supplies.
@@ -48,6 +53,10 @@ const EXIT_PROTOCOL: i32 = 2;
 pub fn run_worker(hooks: WorkerHooks) -> ! {
     close_inherited_descriptors();
     install_fatal_panic_hook();
+    let max_frame_bytes = max_frame_bytes_from_args().unwrap_or_else(|reason| {
+        eprintln!("botster plugin worker: {reason}");
+        std::process::exit(EXIT_PROTOCOL);
+    });
     if !descriptor_is_open(CHILD_IPC_FD) {
         eprintln!("botster plugin worker: no IPC channel at fd {CHILD_IPC_FD}");
         std::process::exit(EXIT_PROTOCOL);
@@ -55,7 +64,7 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
     // SAFETY: fd 3 is open, was placed by the parent launcher, and nothing
     // else in this process owns it.
     let ipc = unsafe { UnixStream::from_raw_fd(CHILD_IPC_FD) };
-    let mut channel = Channel::new(ipc);
+    let mut channel = Channel::new(ipc, max_frame_bytes);
 
     let bootstrap: BootstrapFrame = channel.expect(FRAME_BOOTSTRAP, "Bootstrap");
     if bootstrap.magic != PROTOCOL_MAGIC || bootstrap.version != PROTOCOL_VERSION {
@@ -65,7 +74,6 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
         );
         std::process::exit(EXIT_PROTOCOL);
     }
-    channel.max_frame_bytes = bootstrap.max_frame_bytes;
     if let Err(reason) = install_memory_cap(bootstrap.memory_cap_bytes)
         .and_then(|()| (hooks.apply_sandbox)(&bootstrap.sandbox))
     {
@@ -111,8 +119,23 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
     }
 }
 
-/// The child's end of the IPC channel.
-struct Channel {
+/// Read `--botster-plugin-max-frame-bytes <n>` from argv.
+fn max_frame_bytes_from_args() -> Result<usize, String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [flag, value] if flag == MAX_FRAME_ARG => match value.parse::<usize>() {
+            Ok(bytes) if (1..=MAX_FRAME_LEN).contains(&bytes) => Ok(bytes),
+            _ => Err(format!(
+                "{MAX_FRAME_ARG} must be between 1 and {MAX_FRAME_LEN}, got {value:?}"
+            )),
+        },
+        _ => Err(format!("expected exactly `{MAX_FRAME_ARG} <bytes>`")),
+    }
+}
+
+/// The child's end of the IPC channel, bounded by the negotiated frame size
+/// in both directions from the first frame on.
+pub(super) struct Channel {
     ipc: UnixStream,
     decoder: FrameDecoder,
     pending: VecDeque<Frame>,
@@ -120,35 +143,41 @@ struct Channel {
 }
 
 impl Channel {
-    fn new(ipc: UnixStream) -> Self {
+    pub(super) fn new(ipc: UnixStream, max_frame_bytes: usize) -> Self {
         Self {
             ipc,
-            decoder: FrameDecoder::new(),
+            decoder: FrameDecoder::with_max_len(max_frame_bytes),
             pending: VecDeque::new(),
-            // Only Ready and failure frames go out before Bootstrap sets it.
-            max_frame_bytes: 64 * 1024,
+            max_frame_bytes,
+        }
+    }
+
+    /// The next frame, `Ok(None)` at EOF, or the decode error of a frame
+    /// that breaks the negotiated bound.
+    pub(super) fn recv(&mut self) -> Result<Option<Frame>, ProtocolError> {
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            if let Some(frame) = self.pending.pop_front() {
+                return Ok(Some(frame));
+            }
+            let read = match self.ipc.read(&mut buf) {
+                Ok(0) => return Ok(None),
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(ProtocolError::Io(error)),
+            };
+            self.pending.extend(self.decoder.feed(&buf[..read])?);
         }
     }
 
     /// The next frame, or `None` at EOF. A broken stream ends the worker.
     fn next(&mut self) -> Option<Frame> {
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            if let Some(frame) = self.pending.pop_front() {
-                return Some(frame);
-            }
-            let read = match self.ipc.read(&mut buf) {
-                Ok(0) => return None,
-                Ok(read) => read,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => return None,
-            };
-            match self.decoder.feed(&buf[..read]) {
-                Ok(frames) => self.pending.extend(frames),
-                Err(error) => {
-                    eprintln!("botster plugin worker: bad frame from parent: {error}");
-                    std::process::exit(EXIT_PROTOCOL);
-                }
+        match self.recv() {
+            Ok(frame) => frame,
+            Err(ProtocolError::Io(_)) => None,
+            Err(error) => {
+                eprintln!("botster plugin worker: bad frame from parent: {error}");
+                std::process::exit(EXIT_PROTOCOL);
             }
         }
     }
@@ -214,21 +243,53 @@ fn install_memory_cap(cap: Option<u64>) -> Result<(), String> {
     }
 }
 
-/// Report a panic through the fatal-cause pipe, then abort. The byte write
-/// is one non-blocking system call and never touches the IPC channel.
+/// On panic: publish the cause and a short message through the fatal pipe,
+/// then abort. The previous hook never runs: it is worker-host code, and even
+/// the standard hook can block on the stderr lock or a full stderr pipe
+/// before the cause is published. Formatting uses a stack buffer, and the one
+/// write is non-blocking, so nothing here can stall termination.
 fn install_fatal_panic_hook() {
-    let report = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        report(info);
-        write_fatal_cause(CAUSE_PANIC);
+    drop(std::panic::take_hook());
+    std::panic::set_hook(Box::new(|info| {
+        let mut message = FatalMessage::new();
+        message.bytes[0] = CAUSE_PANIC;
+        let _ = write!(message, "{info}");
+        write_fatal(&message.bytes[..message.len]);
         std::process::abort();
     }));
 }
 
-pub(crate) fn write_fatal_cause(cause: u8) {
-    // SAFETY: a one-byte write from a live local to the fatal-cause pipe;
-    // write is async-signal-safe and allocation-free.
-    let _ = unsafe { libc::write(CHILD_FATAL_FD, (&cause as *const u8).cast(), 1) };
+/// Publish a fatal cause byte (and optional message) with one non-blocking,
+/// allocation-free write to the fatal pipe.
+pub(crate) fn write_fatal(bytes: &[u8]) {
+    // SAFETY: one write from a live buffer to the fatal-cause pipe; write is
+    // async-signal-safe and allocation-free, and the pipe is non-blocking.
+    let _ = unsafe { libc::write(CHILD_FATAL_FD, bytes.as_ptr().cast(), bytes.len()) };
+}
+
+/// A fixed stack buffer: the cause byte, then a truncated message.
+struct FatalMessage {
+    bytes: [u8; 1 + FATAL_MESSAGE_BYTES],
+    len: usize,
+}
+
+impl FatalMessage {
+    fn new() -> Self {
+        Self {
+            bytes: [0; 1 + FATAL_MESSAGE_BYTES],
+            len: 1,
+        }
+    }
+}
+
+impl std::fmt::Write for FatalMessage {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let room = self.bytes.len() - self.len;
+        let take = text.len().min(room);
+        self.bytes[self.len..self.len + take].copy_from_slice(&text.as_bytes()[..take]);
+        self.len += take;
+        Ok(())
+    }
 }
 
 fn descriptor_is_open(fd: libc::c_int) -> bool {
@@ -260,3 +321,7 @@ fn close_inherited_descriptors() {
         unsafe { libc::close(fd) };
     }
 }
+
+#[cfg(test)]
+#[path = "worker_test.rs"]
+mod worker_test;

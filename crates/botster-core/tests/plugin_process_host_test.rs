@@ -17,7 +17,7 @@ use botster_core::runtime::plugin_process::{
     PluginProcessError, PluginProcessExited, PluginProcessRlimits, PluginRegistration,
     PluginSources, SandboxProfile,
 };
-use botster_core::BoundaryJson;
+use botster_core::{BoundaryJson, MAX_FRAME_LEN};
 use botster_core_test_support::real_worker::WorkerBinary;
 use serde_json::{json, Value};
 
@@ -183,11 +183,48 @@ fn a_child_that_closes_its_channel_but_stays_alive_is_killed() {
 fn a_panic_is_reported_through_the_fatal_cause_pipe() {
     let exit = startup_exit(spawn(config(json!({})), load("panic")));
     assert_eq!(exit.cause, PluginExitCause::Panic);
-    let stderr = String::from_utf8_lossy(&exit.stderr_tail);
     assert!(
-        stderr.contains("scripted panic during load"),
-        "stderr tail: {stderr}"
+        exit.fatal_message.contains("scripted panic during load"),
+        "fatal message: {}",
+        exit.fatal_message
     );
+}
+
+/// The worker library never chains to an earlier panic hook, so a hook that
+/// never returns cannot delay the fatal cause.
+#[test]
+fn a_blocking_prior_panic_hook_cannot_delay_the_fatal_cause() {
+    let mut config = config(json!({}));
+    config.env.push((
+        OsString::from("PLUGIN_TEST_BLOCKING_PRIOR_HOOK"),
+        OsString::from("1"),
+    ));
+    let exit = startup_exit(spawn(config, load("panic")));
+    assert_eq!(exit.cause, PluginExitCause::Panic);
+}
+
+/// The fatal path never writes to stderr, so a full, undrained stderr (on
+/// which the standard panic hook would block) cannot delay the fatal cause.
+#[test]
+fn a_full_stderr_cannot_delay_the_fatal_cause() {
+    let exit = startup_exit(spawn(config(json!({})), load("panic_with_full_stderr")));
+    assert_eq!(exit.cause, PluginExitCause::Panic);
+    assert!(
+        exit.fatal_message
+            .contains("scripted panic with a full stderr"),
+        "fatal message: {}",
+        exit.fatal_message
+    );
+}
+
+#[test]
+fn a_frame_bound_above_the_codec_cap_is_refused_before_starting() {
+    let mut config = config(json!({}));
+    config.max_frame_bytes = MAX_FRAME_LEN + 1;
+    assert!(matches!(
+        PluginProcess::spawn(&config, &load("report")),
+        Err(PluginProcessError::InvalidConfig(_))
+    ));
 }
 
 #[test]

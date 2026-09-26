@@ -7,7 +7,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, Command, Stdio};
 
-use super::protocol::{CHILD_FATAL_FD, CHILD_IPC_FD};
+use super::protocol::{CHILD_FATAL_FD, CHILD_IPC_FD, MAX_FRAME_ARG};
 use super::{PluginProcessConfig, PluginProcessRlimits};
 
 /// A started worker and the parent's ends of its channels.
@@ -31,6 +31,8 @@ pub(super) fn launch(config: &PluginProcessConfig) -> io::Result<Launched> {
 
     let mut command = Command::new(&config.worker_path);
     command
+        .arg(MAX_FRAME_ARG)
+        .arg(config.max_frame_bytes.to_string())
         .env_clear()
         .envs(config.env.iter().map(|(key, value)| (key, value)))
         .current_dir(&config.cwd)
