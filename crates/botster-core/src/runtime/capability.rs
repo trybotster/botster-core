@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -287,6 +287,8 @@ pub struct HttpCapabilityRuntime {
     pending_events: VecDeque<CapabilityRuntimeEvent>,
     completions_sender: mpsc::Sender<HttpWorkerCompletion>,
     completions_receiver: mpsc::Receiver<HttpWorkerCompletion>,
+    /// Shared with worker threads, which notify after queueing a completion.
+    notifier: Arc<Mutex<Option<CapabilityEventNotifier>>>,
 }
 
 impl HttpCapabilityRuntime {
@@ -308,6 +310,7 @@ impl HttpCapabilityRuntime {
             pending_events: VecDeque::new(),
             completions_sender,
             completions_receiver,
+            notifier: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -359,7 +362,7 @@ impl HttpCapabilityRuntime {
             .in_flight
             .iter()
             .filter_map(|(key, operation)| {
-                if operation.started_at.elapsed() >= operation.timeout {
+                if Instant::now() >= operation.deadline {
                     Some((key.clone(), operation.cancellation.clone()))
                 } else {
                     None
@@ -478,6 +481,20 @@ impl HttpCapabilityRuntime {
 }
 
 impl PluginCapabilityRuntime for HttpCapabilityRuntime {
+    fn set_event_notifier(&mut self, notifier: CapabilityEventNotifier) {
+        *self
+            .notifier
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(notifier);
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        self.in_flight
+            .values()
+            .map(|operation| operation.deadline)
+            .min()
+    }
+
     fn submit(
         &mut self,
         request: CapabilityRuntimeRequest,
@@ -515,24 +532,35 @@ impl PluginCapabilityRuntime for HttpCapabilityRuntime {
             HttpInFlightOperation {
                 resource: resource.clone(),
                 cancellation: cancellation.clone(),
-                started_at: Instant::now(),
-                timeout: Duration::from_millis(request.timeout_ms),
+                deadline: Instant::now() + Duration::from_millis(request.timeout_ms),
             },
         );
 
         let transport = self.transport.clone();
         let completions_sender = self.completions_sender.clone();
+        let notifier = Arc::clone(&self.notifier);
         let worker_plugin_key = plugin_key.clone();
         let worker_operation_id = operation_id.clone();
         std::thread::Builder::new()
             .name("botster-http-capability-runtime".to_string())
             .spawn(move || {
                 let result = transport.execute(transport_request, cancellation);
-                let _ = completions_sender.send(HttpWorkerCompletion {
-                    plugin_key: worker_plugin_key,
-                    operation_id: worker_operation_id,
-                    result,
-                });
+                let queued = completions_sender
+                    .send(HttpWorkerCompletion {
+                        plugin_key: worker_plugin_key,
+                        operation_id: worker_operation_id,
+                        result,
+                    })
+                    .is_ok();
+                if queued {
+                    let notifier = notifier
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .clone();
+                    if let Some(notifier) = notifier {
+                        notifier();
+                    }
+                }
             })
             .map_err(|error| {
                 self.in_flight
@@ -1405,7 +1433,23 @@ pub trait PluginCapabilityRuntime {
         &mut self,
         plugin_key: &PluginKey,
     ) -> Result<PluginCleanupResult, CapabilityRuntimeError>;
+
+    /// Install the host callback for events that arrive outside host calls.
+    ///
+    /// Every completion source that queues an event for a later
+    /// [`Self::drain_events`] calls it after queueing. It can run on any
+    /// thread and must not block; the host wakes its owner loop and drains.
+    fn set_event_notifier(&mut self, notifier: CapabilityEventNotifier);
+
+    /// Earliest deadline of an operation that is still pending.
+    ///
+    /// The host clamps its owner wait to it. A drain at or after the deadline
+    /// cancels the expired operation and returns its timeout event.
+    fn next_deadline(&self) -> Option<Instant>;
 }
+
+/// Host callback that a capability runtime calls after it queues an event.
+pub type CapabilityEventNotifier = Arc<dyn Fn() + Send + Sync>;
 
 /// Policy-free in-memory WebSocket capability runtime.
 ///
@@ -1793,6 +1837,15 @@ impl Default for InMemoryWebSocketCapabilityRuntime {
 }
 
 impl PluginCapabilityRuntime for InMemoryWebSocketCapabilityRuntime {
+    /// Every event of this runtime is queued inside a host call, so the
+    /// notifier is never needed.
+    fn set_event_notifier(&mut self, _notifier: CapabilityEventNotifier) {}
+
+    /// Operations complete or fail inside the host call that submits them.
+    fn next_deadline(&self) -> Option<Instant> {
+        None
+    }
+
     fn submit(
         &mut self,
         request: CapabilityRuntimeRequest,
@@ -2105,8 +2158,7 @@ struct HttpValidatedEndpoint {
 struct HttpInFlightOperation {
     resource: PluginResourceRef,
     cancellation: PluginCancellationToken,
-    started_at: Instant,
-    timeout: Duration,
+    deadline: Instant,
 }
 
 struct HttpWorkerCompletion {

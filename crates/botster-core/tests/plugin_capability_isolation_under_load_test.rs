@@ -356,6 +356,8 @@ impl FileWatchEventSource for FakeWatchSource {
     fn drain_events(&mut self) -> Result<Vec<FileWatchSourceEvent>, FileWatchSourceError> {
         Ok(std::mem::take(&mut self.events))
     }
+
+    fn set_event_notifier(&mut self, _notifier: botster_core::CapabilityEventNotifier) {}
 }
 
 #[derive(Debug, Clone)]
@@ -376,6 +378,12 @@ impl BoundedFakeCapabilityRuntime {
 }
 
 impl PluginCapabilityRuntime for BoundedFakeCapabilityRuntime {
+    fn set_event_notifier(&mut self, _notifier: botster_core::CapabilityEventNotifier) {}
+
+    fn next_deadline(&self) -> Option<std::time::Instant> {
+        None
+    }
+
     fn submit(
         &mut self,
         request: CapabilityRuntimeRequest,
