@@ -1167,7 +1167,25 @@ impl CoreDaemon {
     /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
-        self.engine.wait_wakes(timeout)
+        self.engine
+            .wait_wakes(self.clamp_pending_operation_wait(timeout))
+    }
+
+    /// Clamp a host wait to every Core deadline: engine paste, resize, and
+    /// barrier bounds, and pending-operation deadlines.
+    fn clamp_wait(&self, timeout: Duration) -> Duration {
+        self.clamp_pending_operation_wait(self.engine.clamp_paste_wait(timeout))
+    }
+
+    /// Clamp a host wait to the earliest pending-operation deadline, so an
+    /// expiry is reconciled by the next pump instead of the host's timeout.
+    fn clamp_pending_operation_wait(&self, timeout: Duration) -> Duration {
+        let now = Instant::now();
+        self.pending
+            .values()
+            .filter_map(|state| state.deadline)
+            .map(|deadline| deadline.saturating_duration_since(now))
+            .fold(timeout, Duration::min)
     }
 
     /// Number of accepted-but-unacknowledged ingress resizes for one session.
@@ -1237,7 +1255,7 @@ impl CoreDaemon {
         let waited = self
             .engine
             .wake_source()
-            .wait_wakes_interruptible(self.engine.clamp_paste_wait(timeout));
+            .wait_wakes_interruptible(self.clamp_wait(timeout));
         if state
             .stop_requested
             .load(std::sync::atomic::Ordering::Acquire)
@@ -5651,6 +5669,35 @@ mod pending_operation_tests {
             .collect();
         assert_eq!(cancelled, vec![pending]);
         assert_eq!(daemon.open_captures_for(&owner), 0);
+    }
+
+    #[test]
+    fn host_waits_end_at_the_earliest_pending_operation_deadline() {
+        let mut daemon = daemon("pending-deadline-clamp");
+        let long = Duration::from_secs(30);
+        assert_eq!(
+            daemon.clamp_wait(long),
+            long,
+            "no pending deadline, no clamp"
+        );
+        let id = daemon
+            .allocate_pending_id()
+            .expect("test operation identity");
+        let bound = Duration::from_millis(50);
+        daemon.pending.insert(
+            id,
+            PendingState {
+                kind: PendingKind::ReadScreen {
+                    session_id: SessionId("s".into()),
+                    probe_id: "probe".into(),
+                },
+                deadline: Some(Instant::now() + bound),
+                cancelled: false,
+            },
+        );
+
+        assert!(daemon.clamp_wait(long) <= bound);
+        assert!(daemon.clamp_pending_operation_wait(long) <= bound);
     }
 
     #[test]
