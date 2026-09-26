@@ -15,13 +15,10 @@ use botster_core::{
     SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId, TerminalWakeSource,
     TransportEgress, DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
+use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 
 const SIGKILL: i32 = 9;
 static LOCAL_PROCESS_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-extern "C" {
-    fn kill(pid: i32, signal: i32) -> i32;
-}
 
 fn runtime_options() -> LocalProcessRuntimeOptions {
     LocalProcessRuntimeOptions {
@@ -44,7 +41,7 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
 }
 
 fn term_ignoring_process_group_script() -> &'static str {
-    "trap '' TERM; sh -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; wait $!"
+    "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!"
 }
 
 fn session_id(value: &str) -> SessionId {
@@ -106,30 +103,9 @@ fn unique_temp_path(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("botster-core-{name}-{nanos}"))
 }
 
-fn process_exists(pid: u32) -> bool {
-    // SAFETY: signal 0 performs the POSIX existence check without delivering a
-    // signal to the target process.
-    unsafe { kill(pid as i32, 0) == 0 }
-}
-
-fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if condition() {
-            return true;
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-    false
-}
-
-fn wait_for_child_pid(path: &Path) -> u32 {
-    assert!(
-        wait_until(|| path.exists()),
-        "child pid file should be written"
-    );
-    fs::read_to_string(path)
-        .expect("read child pid")
+fn wait_for_child_pid(fifo: &Fifo) -> u32 {
+    String::from_utf8(fifo.read_signal(Duration::from_secs(5)))
+        .expect("child pid is utf-8")
         .trim()
         .parse()
         .expect("child pid is numeric")
@@ -458,7 +434,7 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
     let session = session_id("local-final-reader-egress");
     let ready_fifo = unique_temp_path("final-reader-ready");
     let hold_fifo = unique_temp_path("final-reader-hold");
-    let child_pid_file = unique_temp_path("final-reader-child-pid");
+    let child_pid_file = Fifo::new("final-reader-child-pid");
     for fifo in [&ready_fifo, &hold_fifo] {
         let made = std::process::Command::new("mkfifo")
             .arg(fifo)
@@ -470,7 +446,10 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
         variables: vec![
             env_var("READY_FIFO", ready_fifo.display().to_string()),
             env_var("HOLD_FIFO", hold_fifo.display().to_string()),
-            env_var("CHILD_PID_FILE", child_pid_file.display().to_string()),
+            env_var(
+                "CHILD_PID_FILE",
+                child_pid_file.path().display().to_string(),
+            ),
         ],
     };
     // The descendant reports readiness through the ready FIFO, then holds the
@@ -513,7 +492,7 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
                 },
             }
     }));
-    assert!(wait_until(|| !process_exists(descendant_pid)));
+    assert!(wait_pid_exit(descendant_pid, Duration::from_secs(5)));
     let error = runtime
         .drain_output(&session)
         .expect_err("session should be removed only after final egress");
@@ -521,7 +500,6 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
 
     let _ = fs::remove_file(ready_fifo);
     let _ = fs::remove_file(hold_fifo);
-    let _ = fs::remove_file(child_pid_file);
 }
 
 #[test]
@@ -668,7 +646,7 @@ fn local_process_runtime_graceful_shutdown_records_exit() {
     runtime
         .spawn_session(shell_request(
             session.clone(),
-            "trap 'exit 0' TERM; while true; do sleep 1; done",
+            "trap 'exit 0' TERM; cat </dev/tty >/dev/null & wait $!",
         ))
         .expect("spawn graceful local process");
 
@@ -694,16 +672,16 @@ fn local_process_runtime_graceful_shutdown_records_exit() {
 fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group() {
     let _guard = local_process_test_lock();
     let mut runtime = LocalProcessRuntime::with_options(runtime_options());
-    let child_pid_file = unique_temp_path("graceful-child-pid");
+    let child_pid_file = Fifo::new("graceful-child-pid");
     let session = session_id("local-graceful-child");
     runtime
         .spawn_session(shell_request_with_env(
             session.clone(),
-            "trap 'exit 0' TERM; sh -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+            "trap 'exit 0' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
-                    child_pid_file.display().to_string(),
+                    child_pid_file.path().display().to_string(),
                 )],
             },
         ))
@@ -727,24 +705,23 @@ fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group()
                 },
             }
     }));
-    assert!(wait_until(|| !process_exists(child_pid)));
-    let _ = fs::remove_file(child_pid_file);
+    assert!(wait_pid_exit(child_pid, Duration::from_secs(5)));
 }
 
 #[test]
 fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
     let _guard = local_process_test_lock();
     let mut runtime = LocalProcessRuntime::with_options(runtime_options());
-    let child_pid_file = unique_temp_path("child-pid");
+    let child_pid_file = Fifo::new("child-pid");
     let session = session_id("local-forced");
     let handle = runtime
         .spawn_session(shell_request_with_env(
             session.clone(),
-            "trap '' TERM; sh -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+            "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
-                    child_pid_file.display().to_string(),
+                    child_pid_file.path().display().to_string(),
                 )],
             },
         ))
@@ -771,9 +748,8 @@ fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
             }
         )
     }));
-    assert!(wait_until(|| !process_exists(parent_pid)));
-    assert!(wait_until(|| !process_exists(child_pid)));
-    let _ = fs::remove_file(child_pid_file);
+    assert!(wait_pid_exit(parent_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(child_pid, Duration::from_secs(5)));
 }
 
 #[test]
@@ -842,7 +818,7 @@ fn local_process_runtime_shutdown_is_idempotent() {
     runtime
         .spawn_session(shell_request(
             session.clone(),
-            "trap 'exit 0' TERM; while true; do sleep 1; done",
+            "trap 'exit 0' TERM; cat </dev/tty >/dev/null & wait $!",
         ))
         .expect("spawn process for idempotent shutdown");
 
@@ -872,7 +848,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
     let _guard = local_process_test_lock();
     let options = slow_shutdown_runtime_options();
     let mut runtime = LocalProcessRuntime::with_options(options);
-    let child_pid_file = unique_temp_path("nonblocking-child-pid");
+    let child_pid_file = Fifo::new("nonblocking-child-pid");
     let stubborn = session_id("local-nonblocking-stubborn");
     let peer = session_id("local-nonblocking-peer");
 
@@ -883,7 +859,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
             SpawnEnvironment {
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
-                    child_pid_file.display().to_string(),
+                    child_pid_file.path().display().to_string(),
                 )],
             },
         ))
@@ -960,23 +936,22 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
         1,
         "stubborn shutdown should queue exactly one process exit"
     );
-    let _ = fs::remove_file(child_pid_file);
 }
 
 #[test]
 fn local_process_runtime_drop_cleans_live_child_group() {
     let _guard = local_process_test_lock();
-    let child_pid_file = unique_temp_path("drop-child-pid");
+    let child_pid_file = Fifo::new("drop-child-pid");
     let child_pid = {
         let mut runtime = LocalProcessRuntime::with_options(runtime_options());
         runtime
             .spawn_session(shell_request_with_env(
                 session_id("local-drop"),
-                "sh -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
+                "sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & echo $! > \"$CHILD_PID_FILE\"; wait $!",
                 SpawnEnvironment {
                     variables: vec![env_var(
                         "CHILD_PID_FILE",
-                        child_pid_file.display().to_string(),
+                        child_pid_file.path().display().to_string(),
                     )],
                 },
             ))
@@ -984,8 +959,7 @@ fn local_process_runtime_drop_cleans_live_child_group() {
         wait_for_child_pid(&child_pid_file)
     };
 
-    assert!(wait_until(|| !process_exists(child_pid)));
-    let _ = fs::remove_file(child_pid_file);
+    assert!(wait_pid_exit(child_pid, Duration::from_secs(5)));
 }
 
 #[test]
@@ -1129,7 +1103,7 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         .spawn_session(
             shell_request(
                 session.clone(),
-                "trap 'printf \"shutdown-final-marker\\n\"; exit 0' TERM; printf 'shutdown-ready\\n'; while true; do sleep 1; done",
+                "trap 'printf \"shutdown-final-marker\\n\"; exit 0' TERM; printf 'shutdown-ready\\n'; cat </dev/tty >/dev/null & wait $!",
             ),
             CoreSessionMetadata::new(),
             worker_runtime,
@@ -1204,7 +1178,7 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         engine.session(&session).map(|session| &session.lifecycle),
         Some(SessionLifecycleState::Exited { .. })
     ));
-    assert!(wait_until(|| !process_exists(pid)));
+    assert!(wait_pid_exit(pid, Duration::from_secs(5)));
 }
 
 #[test]
@@ -1213,7 +1187,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     let options = slow_shutdown_runtime_options();
     let mut runtime = LocalProcessRuntime::with_options(options);
     let mut engine = MultiplexerEngine::new(runtime.clone());
-    let child_pid_file = unique_temp_path("engine-nonblocking-child-pid");
+    let child_pid_file = Fifo::new("engine-nonblocking-child-pid");
     let stubborn = session_id("engine-nonblocking-stubborn");
     let peer = session_id("engine-nonblocking-peer");
 
@@ -1225,7 +1199,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
                 SpawnEnvironment {
                     variables: vec![env_var(
                         "CHILD_PID_FILE",
-                        child_pid_file.display().to_string(),
+                        child_pid_file.path().display().to_string(),
                     )],
                 },
             ),
@@ -1298,7 +1272,6 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     );
     let output = collect_until(engine.session_runtime_mut(), &stubborn, has_exit);
     assert_eq!(exit_signal(&output, &stubborn), Some(SIGKILL));
-    let _ = fs::remove_file(child_pid_file);
 }
 
 #[test]
