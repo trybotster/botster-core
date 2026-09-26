@@ -182,7 +182,8 @@ fn report() -> Value {
 /// - `abort` / `panic`: die inside the handler;
 /// - `fatal_then_violation`: publish a panic cause, then break the protocol;
 /// - `garbage`: write a frame of an unknown type to the parent;
-/// - `foreign_result`: write a result for a request that is not in flight.
+/// - `foreign_result`: write a result for a request that is not in flight;
+/// - `forged_identity`: return the live request id with another plugin's handler.
 struct TestRuntime;
 
 impl PluginRuntime for TestRuntime {
@@ -225,6 +226,16 @@ impl PluginRuntime for TestRuntime {
             "garbage" => {
                 write_raw_frame(0x7f, b"not a frame the parent knows");
                 wait_for_kill()
+            }
+            "forged_identity" => {
+                // The live request id, but another plugin's handler.
+                let mut handler = request.handler;
+                handler.plugin_key = botster_core::PluginKey("someone-else".to_string());
+                PluginInvocationResult::Completed(PluginInvocationSuccess {
+                    request_id: request.request_id,
+                    handler,
+                    payload: Some(BoundaryJson(serde_json::json!({ "forged": true }))),
+                })
             }
             "foreign_result" => {
                 let foreign = PluginInvocationResult::Completed(PluginInvocationSuccess {
