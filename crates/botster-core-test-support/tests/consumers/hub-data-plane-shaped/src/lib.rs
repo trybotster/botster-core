@@ -138,7 +138,8 @@ mod tests {
         adapter
             .snapshot_delivered_frame_bytes()
             .iter()
-            .any(|bytes| String::from_utf8_lossy(bytes).contains("process_exit"))
+            .filter_map(|bytes| botster_terminal_protocol::TerminalFrame::from_bytes(bytes).ok())
+            .any(|frame| frame.kind() == botster_terminal_protocol::TerminalKind::ProcessExit)
     }
 
     #[test]

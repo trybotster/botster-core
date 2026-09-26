@@ -80,6 +80,7 @@ dependencies = [
  "botster-terminal-protocol-client",
  "libc",
  "portable-pty",
+ "redb",
  "serde",
  "serde_json",
  "sha2",
@@ -94,6 +95,8 @@ version = "0.1.0"
 dependencies = [
  "botster-core",
  "botster-terminal-ghostty",
+ "botster-terminal-protocol",
+ "botster-terminal-protocol-client",
  "serde",
  "serde_json",
  "sha2",
@@ -107,6 +110,7 @@ dependencies = [
  "botster-core",
  "botster-core-daemon",
  "botster-core-test-support",
+ "botster-terminal-protocol",
 ]
 
 [[package]]
@@ -115,8 +119,10 @@ version = "0.1.0"
 dependencies = [
  "botster-core",
  "botster-terminal-protocol",
+ "botster-terminal-protocol-client",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -124,11 +130,12 @@ name = "botster-terminal-ghostty"
 version = "0.1.0"
 dependencies = [
  "botster-core",
+ "botster-terminal-protocol",
 ]
 
 [[package]]
 name = "botster-terminal-protocol"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -137,12 +144,9 @@ dependencies = [
 
 [[package]]
 name = "botster-terminal-protocol-client"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
- "base64",
  "botster-terminal-protocol",
- "serde",
- "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -474,6 +478,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
+]
+
+[[package]]
+name = "redb"
+version = "2.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eca1e9d98d5a7e9002d0013e18d5a9b000aee942eb134883a82f06ebffb6c01"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
