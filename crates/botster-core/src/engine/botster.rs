@@ -2368,6 +2368,7 @@ fn suppress_capture_route_output(
 /// Drop live output for routes whose attach has not reached `Attached`: the
 /// capturing route, if any, and every route still queued for a capture.
 /// Their snapshots carry these bytes.
+#[cfg(feature = "local-runtime")]
 fn suppress_route_output(
     output: &mut BotsterEngineOutput,
     session_id: &SessionId,
