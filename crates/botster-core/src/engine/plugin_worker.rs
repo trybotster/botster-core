@@ -2956,6 +2956,24 @@ impl PluginWorkerEngine {
             .unwrap_or_default()
     }
 
+    /// Make the deadline of `request_id` due now and wake the deadline
+    /// waiter, so a test controls when the waiter fires it.
+    fn expire_deadline_now(&self, request_id: &RequestId) {
+        let mut book = self
+            .inner
+            .shared
+            .deadlines
+            .lock()
+            .expect("plugin deadline book mutex poisoned");
+        let now = Instant::now();
+        for entry in &mut book.entries {
+            if &entry.request_id == request_id {
+                entry.at = now;
+            }
+        }
+        self.inner.shared.deadline_cvar.notify_one();
+    }
+
     fn tracked_deadline_count(&self) -> usize {
         self.inner
             .shared
