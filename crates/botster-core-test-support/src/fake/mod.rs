@@ -186,7 +186,8 @@ impl SessionRuntime for FakeSessionRuntime {
                 | SessionRuntimeOutput::CwdChanged { session_id, .. }
                 | SessionRuntimeOutput::PromptMark { session_id, .. }
                 | SessionRuntimeOutput::Bell { session_id }
-                | SessionRuntimeOutput::Notification { session_id, .. } => session_id,
+                | SessionRuntimeOutput::Notification { session_id, .. }
+                | SessionRuntimeOutput::ModesChanged { session_id, .. } => session_id,
                 SessionRuntimeOutput::Backpressure(summary) => {
                     summary.route.session_id.as_ref().unwrap_or(session_id)
                 }

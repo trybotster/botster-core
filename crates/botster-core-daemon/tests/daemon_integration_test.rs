@@ -7195,6 +7195,12 @@ fn worker_resize_only_publishes_modes() {
 
 #[cfg(unix)]
 #[test]
+fn worker_modes_precede_mode_changing_output() {
+    assert_modes_precede_mode_changing_output(true, "modes-order-worker");
+}
+
+#[cfg(unix)]
+#[test]
 fn pump_woken_applies_injected_duplex_input_through_real_worker_pty() {
     let data_dir = temp_data_dir("duplex-byte-oracle");
     let mut daemon = CoreDaemon::new(
