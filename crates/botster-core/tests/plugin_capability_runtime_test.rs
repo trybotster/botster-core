@@ -1153,6 +1153,92 @@ fn http_runtime_submit_returns_while_transport_blocks_on_worker_thread() {
 }
 
 #[test]
+fn http_runtime_notifies_the_host_after_it_queues_a_completion() {
+    let plugin = plugin_key("project-pipelines");
+    let mut runtime = http_runtime(FakeHttpTransport::responding(b"ok"));
+    let (notified_sender, notified) = mpsc::channel();
+    runtime.set_event_notifier(Arc::new(move || {
+        let _ = notified_sender.send(());
+    }));
+
+    runtime
+        .submit(http_request(
+            &plugin,
+            "http-notify",
+            "https://api.example.test/status",
+        ))
+        .expect("allowed HTTP request is accepted");
+    // timer: deadline — the completion must notify the host; expiry fails the test
+    notified
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a queued completion notifies the host");
+
+    let events = runtime.drain_events(&plugin).expect("drain after notify");
+    assert!(matches!(
+        events.as_slice(),
+        [CapabilityRuntimeEvent::Completed(_)]
+    ));
+}
+
+#[test]
+fn http_runtime_reports_the_earliest_pending_deadline() {
+    let plugin = plugin_key("project-pipelines");
+    let (started_sender, started) = mpsc::channel();
+    let transport = FakeHttpTransport::blocking(started_sender);
+    let mut runtime = http_runtime(transport);
+    assert_eq!(runtime.next_deadline(), None);
+
+    let mut later = http_request(&plugin, "later", "https://api.example.test/status");
+    later.timeout_ms = 60_000;
+    let mut sooner = http_request(&plugin, "sooner", "https://api.example.test/status");
+    sooner.timeout_ms = 30_000;
+    let before = Instant::now();
+    runtime.submit(later).expect("later accepted");
+    runtime.submit(sooner).expect("sooner accepted");
+    let after = Instant::now();
+    // timer: deadline — the blocking transport must start; expiry fails the test
+    started
+        .recv_timeout(Duration::from_secs(5))
+        .expect("transport starts");
+
+    let deadline = runtime.next_deadline().expect("pending deadline");
+    assert!(deadline >= before + Duration::from_millis(30_000));
+    assert!(deadline <= after + Duration::from_millis(30_000));
+
+    for id in ["later", "sooner"] {
+        runtime
+            .cancel(&plugin, &operation_id(id))
+            .expect("cancel blocked request");
+    }
+    assert_eq!(runtime.next_deadline(), None);
+}
+
+#[test]
+fn http_runtime_drain_at_the_deadline_returns_the_timeout_event() {
+    let plugin = plugin_key("project-pipelines");
+    let (started_sender, started) = mpsc::channel();
+    let mut runtime = http_runtime(FakeHttpTransport::blocking(started_sender));
+    let mut request = http_request(&plugin, "http-expire", "https://api.example.test/status");
+    request.timeout_ms = 20;
+    runtime.submit(request).expect("HTTP request is accepted");
+    // timer: deadline — the blocking transport must start; expiry fails the test
+    started
+        .recv_timeout(Duration::from_secs(5))
+        .expect("transport starts");
+
+    let deadline = runtime.next_deadline().expect("pending deadline");
+    // timer: deadline — the operation deadline under test must pass before the drain
+    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+
+    let events = runtime.drain_events(&plugin).expect("drain at deadline");
+    assert!(matches!(
+        events.as_slice(),
+        [CapabilityRuntimeEvent::TimedOut(_)]
+    ));
+    assert_eq!(runtime.next_deadline(), None);
+}
+
+#[test]
 fn http_runtime_timeout_cancels_in_flight_transport_and_releases_capacity() {
     let plugin = plugin_key("project-pipelines");
     let (started_sender, started_receiver) = mpsc::channel();
