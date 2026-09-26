@@ -246,7 +246,7 @@ fn registration_failure_retains_unjoined_resources() {
         Some(resources(&drops, width)),
     );
     let admission = worker.admission.clone();
-    let wake = worker.work_cvar.clone();
+    let wake = worker.work_signal.clone();
     assert!(catch_unwind(AssertUnwindSafe(|| {
         let _guard = engine
             .inner
@@ -264,7 +264,7 @@ fn registration_failure_retains_unjoined_resources() {
         .lock()
         .expect("lock admission to stop the detached worker")
         .stopping = true;
-    wake.notify_all();
+    wake.notify();
     completion
         .recv_timeout(Duration::from_secs(5))
         .expect("receive the detached worker completion");
@@ -295,7 +295,7 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
             .worker_for(&plugin)
             .expect("find the worker before cleanup");
         let admission = worker.admission.clone();
-        let wake = worker.work_cvar.clone();
+        let wake = worker.work_signal.clone();
         drop(worker);
         let result = catch_unwind(AssertUnwindSafe(|| {
             engine.cleanup_plugin(
@@ -310,7 +310,7 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
             .lock()
             .expect("lock admission after cleanup")
             .stopping = true;
-        wake.notify_all();
+        wake.notify();
         completion
             .recv_timeout(Duration::from_secs(5))
             .expect("receive completion after cleanup");
@@ -610,7 +610,7 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
         );
         let survivor = worker.clone();
         let admission = worker.admission.clone();
-        let wake = worker.work_cvar.clone();
+        let wake = worker.work_signal.clone();
         if registration_fails {
             assert!(catch_unwind(AssertUnwindSafe(|| {
                 let _guard = engine
@@ -643,7 +643,7 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
             .lock()
             .expect("lock admission before final survivor drop")
             .stopping = true;
-        wake.notify_all();
+        wake.notify();
         drop(survivor);
         assert_eq!(metadata.load(Ordering::SeqCst), 1);
         completion
