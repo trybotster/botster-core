@@ -935,6 +935,8 @@ impl PluginWorkerEngine {
         };
 
         let published = if already_expired {
+            // Safe under the admission locks: this token was created above
+            // and never reached a runtime, so no target can be subscribed.
             cancellation.cancel();
             let published = publish_prepared_into(
                 &mut completions,
@@ -2762,9 +2764,11 @@ fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
     let Some(tracked) = admission.jobs.remove(&entry.request_id) else {
         return;
     };
+    // Cancel only after the admission lock is released: cancellation notifies
+    // runtime targets, which must never run under engine locks.
     let JobCompletion::Async(state) = tracked.completion else {
-        tracked.cancellation.cancel();
         drop(admission);
+        tracked.cancellation.cancel();
         worker.finish_invocation(&entry.request_id);
         return;
     };
@@ -2773,14 +2777,16 @@ fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
             cancel_queue_metrics_only(&job, &worker.metrics, &shared.metrics);
         }
     }
-    tracked.cancellation.cancel();
     drop(admission);
     worker.finish_invocation(&entry.request_id);
+    // Seal the timeout before cancelling: a runtime that reacts to the cancel
+    // at once must not win the first-commit race with its own result.
     seal_and_publish(
         &state,
         state.fallbacks.timed_out.result.clone(),
         Some(state.fallbacks.timed_out.clone()),
     );
+    tracked.cancellation.cancel();
 }
 
 fn cancel_queue_metrics_only(
@@ -2969,6 +2975,10 @@ mod tests {
 
     mod worker_resource_tests {
         include!("plugin_worker_resources_test.rs");
+    }
+
+    mod cancel_target_tests {
+        include!("plugin_worker_cancel_test.rs");
     }
 
     #[derive(Clone)]
