@@ -1182,12 +1182,16 @@ impl WorkerBackedBotsterEngine {
         }
         self.runtime.bind_waking_terminal_adapter(
             client_id,
-            session_id,
+            session_id.clone(),
             subscription_id,
             generation,
             capabilities,
             adapter,
-        )
+        )?;
+        // A route that binds while its capture streams now pumps live bytes
+        // itself, so it becomes a consumer the worker link must stall for.
+        let _ = self.sync_worker_consumers(&session_id);
+        Ok(())
     }
 
     /// Block until adapter or ingress wakes arrive.
@@ -2237,12 +2241,20 @@ impl WorkerBackedBotsterEngine {
         &mut self,
         session_id: &SessionId,
     ) -> Result<(), WorkerBackedBotsterEngineError> {
-        // Stall only after a route has its capture. A route whose capture is
-        // active or queued has an inventory row, but the parent may stop
-        // pumping at READY.
+        // Stall only for routes the parent keeps pumping. A route whose
+        // capture is queued, or active but not yet bound, has an inventory
+        // row, but the parent may stop pumping it at READY until it binds.
+        // A bound capturing route is pumped on every wake (its live bytes are
+        // pulled behind the boundary), and bytes after its capture fence are
+        // in no snapshot: dropping them would lose them, so it stalls.
         let mut excluded = HashSet::new();
         if let Some(capture) = self.captures.get(session_id) {
-            excluded.insert((capture.client_id.clone(), capture.subscription_id.clone()));
+            if !self
+                .runtime
+                .adapter_is_bound(session_id, &capture.subscription_id)
+            {
+                excluded.insert((capture.client_id.clone(), capture.subscription_id.clone()));
+            }
         }
         if let Some(queue) = self.capture_queue.get(session_id) {
             excluded.extend(

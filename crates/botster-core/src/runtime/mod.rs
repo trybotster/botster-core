@@ -81,9 +81,10 @@ pub use session_admission::{
 };
 #[cfg(feature = "local-runtime")]
 pub use worker_process::{
-    ResizeAckHold, RetainedWorkerFinalState, SnapshotCancelAdmission, WorkerHealth,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerSpawnPoll,
-    DEFAULT_WORKER_EGRESS_CAPACITY, DEFAULT_WORKER_REPLY_TIMEOUT,
+    PtyOutputRouting, ResizeAckHold, RetainedWorkerFinalState, SnapshotCancelAdmission,
+    WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerRouteProbe,
+    WorkerRouteProbeEvent, WorkerSpawnPoll, DEFAULT_WORKER_EGRESS_CAPACITY,
+    DEFAULT_WORKER_REPLY_TIMEOUT,
 };
 
 /// Host-implemented session runtime boundary.
