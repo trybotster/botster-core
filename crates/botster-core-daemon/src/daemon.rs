@@ -14,6 +14,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use botster_core::contract::terminal_adapter::TerminalRouteCloseReason;
 use botster_core::contract::terminal_wake::{
     TerminalWakeBatch, TerminalWakeSource, TerminalWakeWait, WakingTerminalAdapter,
 };
@@ -1139,17 +1140,17 @@ impl CoreDaemon {
         mut adapter: Box<dyn WakingTerminalAdapter + Send>,
     ) -> Result<(), CoreDaemonError> {
         if let Err(error) = self.ensure_running() {
-            adapter.close();
+            adapter.close(TerminalRouteCloseReason::BindRejected);
             drop(adapter);
             return Err(error);
         }
         if let Err(error) = self.ensure_session(&session_id) {
-            adapter.close();
+            adapter.close(TerminalRouteCloseReason::BindRejected);
             drop(adapter);
             return Err(error);
         }
         if self.engine.control_plane_failed(&session_id) {
-            adapter.close();
+            adapter.close(TerminalRouteCloseReason::BindRejected);
             drop(adapter);
             return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id }.into());
         }
@@ -5490,6 +5491,16 @@ fn stale_worker_reason(record: &RegistryRecord) -> SessionWorkerStaleReason {
 #[cfg(test)]
 mod pending_operation_tests {
     use super::*;
+
+    /// Every daemon adapter close names its reason.
+    #[test]
+    fn every_daemon_adapter_close_passes_bind_rejected() {
+        use botster_core_test_support::close_sites::{route_close_sites, CloseSite};
+        assert_eq!(
+            route_close_sites(include_str!("daemon.rs")),
+            vec![CloseSite::new("bind_waking_terminal_adapter", "BindRejected"); 3]
+        );
+    }
 
     fn daemon(label: &str) -> CoreDaemon {
         let data_dir = std::env::temp_dir().join(format!(

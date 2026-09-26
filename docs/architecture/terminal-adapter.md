@@ -10,7 +10,7 @@ It writes `RoutedTerminalFrame` envelopes and reads opaque
 ```rust
 pub trait TerminalAdapter {
     fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError>;
-    fn close(&mut self);
+    fn close(&mut self, reason: TerminalRouteCloseReason);
     fn pressure(&self) -> TerminalAdapterPressure;
     fn try_read(&mut self) -> TerminalIngress;
 }
@@ -25,9 +25,11 @@ pub trait TerminalAdapter {
   a private queue is not.
 - Rejected writes (`WouldBlock`, `Full`, `Closed`) retain nothing. Core
   retries from its own queue.
-- `close()` and `Drop` return without waiting for transport I/O. They set
-  `Closed` and abandon the slot. A transport may finish an envelope already
-  in progress; it never starts or retries a frame after close.
+- `close(reason)` and `Drop` return without waiting for transport I/O. They
+  set `Closed` and abandon the slot. A transport may finish an envelope
+  already in progress; it never starts or retries a frame after close.
+- `reason` says why Core ended the route. Only the first close carries the
+  route's reason; a host logs that one and ignores later closes.
 - `try_read` returns whole frames in arrival order, `Empty`, `Lost` when the
   transport dropped at least one frame, or `Closed`. A conforming adapter
   buffers at least 64 complete ingress frames before it may report `Lost`.
@@ -59,12 +61,29 @@ for the worker. Malformed frames and `Lost` hard-stop the route.
 
 `bind_waking_terminal_adapter(client, session, subscription, generation,
 capabilities, adapter)` succeeds only for the live attach generation of an
-existing owner that has no adapter. Rejections close and drop the adapter and
-allocate no wake state.
+existing owner that has no adapter. Rejections close the adapter with
+`BindRejected`, drop it, and allocate no wake state.
 
 A hard-stop closes the adapter, drops queued frames, releases input lanes,
 and reports the in-flight worker operation keys so the host cancels them at
-the worker. The client resolves outstanding operations as unknown.
+the worker. The client resolves outstanding operations as unknown. The
+adapter's close and the `ClientWorkerTeardown` carry the same
+`TerminalRouteCloseReason`:
+
+| Reason | Core ended the route because |
+|---|---|
+| `Replaced` | the same client attached another subscription on the session, or another client took this subscription |
+| `Detached` | the client or host detached it |
+| `SessionEnded` | the session ended or was forgotten |
+| `WorkerLinkFailed` | the session worker's control link failed, was sealed, or stopped acknowledging |
+| `AdapterClosed` | the adapter reported `Closed` |
+| `TerminalDelivered` | it delivered its final frame (process exit or attach failure) |
+| `Stalled` | the reader refused writes for two full attempt budgets |
+| `Overflowed` | its egress could not stay inside its bounds |
+| `InputFailed` | ingress was lost, an input frame broke the protocol, or a result could not be queued |
+| `Failed` | it failed before binding, or a frame could not be encoded |
+| `Shutdown` | the client worker ended every route |
+| `BindRejected` | Core rejected the bind; the adapter never carried the route |
 
 ## Conformance
 

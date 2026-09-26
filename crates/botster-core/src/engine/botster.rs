@@ -1176,7 +1176,8 @@ impl WorkerBackedBotsterEngine {
             self.runtime.control_plane_state(&session_id),
             crate::runtime::ControlPlaneState::Failed(_)
         ) {
-            adapter.close();
+            adapter
+                .close(crate::contract::terminal_adapter::TerminalRouteCloseReason::BindRejected);
             drop(adapter);
             return Err(BindTerminalAdapterError::ControlPlaneFailed { session_id });
         }

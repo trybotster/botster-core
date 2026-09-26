@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::contract::terminal_adapter::{
-    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError,
+    TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalRouteCloseReason,
 };
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineOutput, ClientId, ClientWorker, CoreSessionMetadata,
@@ -73,9 +73,9 @@ impl TerminalAdapter for DropProbeAdapter {
         self.inner.try_write(frame)
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, reason: TerminalRouteCloseReason) {
         self.closed.store(true, Ordering::SeqCst);
-        self.inner.close();
+        self.inner.close(reason);
     }
 
     fn pressure(&self) -> TerminalAdapterPressure {
@@ -222,8 +222,8 @@ fn close_is_observed_without_a_closer_thread() {
         ) -> Result<(), TerminalAdapterWriteError> {
             self.1.try_write(frame)
         }
-        fn close(&mut self) {
-            self.1.close();
+        fn close(&mut self, reason: TerminalRouteCloseReason) {
+            self.1.close(reason);
         }
         fn pressure(&self) -> TerminalAdapterPressure {
             self.1.pressure()
