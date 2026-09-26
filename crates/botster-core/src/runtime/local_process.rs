@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
@@ -24,7 +24,6 @@ use crate::{
 };
 
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const PTY_READER_BUFFER_BYTES: usize = 8192;
 /// Default retained PTY reader chunks per session.
 ///
@@ -55,8 +54,6 @@ pub struct LocalProcessRuntimeOptions {
     /// `2 * shutdown_grace`: once after graceful termination and once after
     /// forced cleanup.
     pub shutdown_grace: Duration,
-    /// Sleep interval used while polling for process exit.
-    pub poll_interval: Duration,
     /// Retained PTY reader chunks per session before the reader blocks.
     ///
     /// Values below one are clamped to one chunk when the reader starts.
@@ -78,7 +75,6 @@ impl Default for LocalProcessRuntimeOptions {
     fn default() -> Self {
         Self {
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
-            poll_interval: POLL_INTERVAL,
             pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
             test_hold_after_read_ms: None,
             test_pending_capacity: None,
@@ -1120,13 +1116,13 @@ fn terminate_session(
     }
 
     send_graceful_signal(session)?;
-    if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
+    if wait_for_exit(session, options.shutdown_grace)? {
         request_process_group_cleanup(session)?;
         return Ok(session.exit_payload.clone());
     }
 
     request_process_group_cleanup(session)?;
-    if wait_for_exit(session, options.shutdown_grace, options.poll_interval)? {
+    if wait_for_exit(session, options.shutdown_grace)? {
         return Ok(session.exit_payload.clone());
     }
 
@@ -1162,29 +1158,47 @@ fn harvest_session(session: &mut LocalSession) -> Result<(), SessionRuntimeError
         return Ok(());
     };
 
+    record_exit_status(session, &status);
+    Ok(())
+}
+
+fn record_exit_status(session: &mut LocalSession, status: &portable_pty::ExitStatus) {
     session.exit_payload = Some(ProcessExitedPayload {
         exit_code: i32::try_from(status.exit_code()).ok(),
         signal: signal_number(status.signal()),
     });
-    Ok(())
 }
 
-fn wait_for_exit(
-    session: &mut LocalSession,
-    grace: Duration,
-    poll_interval: Duration,
-) -> Result<bool, SessionRuntimeError> {
-    let deadline = Instant::now() + grace;
-    loop {
-        harvest_session(session)?;
-        if session.exit_payload.is_some() {
-            return Ok(true);
-        }
-        if Instant::now() >= deadline {
-            return Ok(false);
-        }
-        thread::sleep(poll_interval.min(deadline.saturating_duration_since(Instant::now())));
+fn wait_for_exit(session: &mut LocalSession, grace: Duration) -> Result<bool, SessionRuntimeError> {
+    harvest_session(session)?;
+    if session.exit_payload.is_some() {
+        return Ok(true);
     }
+    #[cfg(unix)]
+    if let Some(pid) = session.child.process_id() {
+        // timer: deadline — shutdown grace; expiry escalates to SIGKILL, then reports the child did not exit
+        let exited = super::process_exit::wait_for_pid_exit(pid, Some(grace)).map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::CleanupFailed,
+                format!("wait for process exit failed: {error}"),
+            )
+        })?;
+        if exited {
+            // The exit event can arrive before the child is reapable; this
+            // wait returns as soon as the kernel finishes the exit.
+            let status = session.child.wait().map_err(|error| {
+                SessionRuntimeError::new(
+                    SessionRuntimeErrorKind::OutputFailed,
+                    format!("failed to inspect local process status: {error}"),
+                )
+            })?;
+            record_exit_status(session, &status);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = grace;
+    harvest_session(session)?;
+    Ok(session.exit_payload.is_some())
 }
 
 fn queue_exit_output(
@@ -1719,6 +1733,14 @@ fn signal_process_group(
 
     let error = std::io::Error::last_os_error();
     if error.raw_os_error() == Some(3) {
+        return Ok(());
+    }
+    // macOS skips zombie and exiting members when it signals a group and
+    // reports EPERM when the group exists but no member was signaled. For a
+    // group this runtime spawned, that means only exiting members remain,
+    // which is the outcome this cleanup wants.
+    #[cfg(target_os = "macos")]
+    if error.raw_os_error() == Some(libc::EPERM) {
         return Ok(());
     }
 
