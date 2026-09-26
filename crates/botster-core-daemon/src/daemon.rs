@@ -493,11 +493,6 @@ enum PendingKind {
         owner: CaptureOwner,
         host_capture: u64,
     },
-    Resize {
-        session_id: SessionId,
-        rows: u16,
-        cols: u16,
-    },
 }
 
 struct OpenCapture {
@@ -1736,11 +1731,6 @@ impl CoreDaemon {
             CoreOperation::CaptureSnapshot { request, owner } => {
                 self.begin_capture_snapshot(id, request, owner)?;
             }
-            CoreOperation::Resize {
-                session_id,
-                rows,
-                cols,
-            } => self.begin_resize(id, session_id, rows, cols)?,
             CoreOperation::CancelInput {
                 route,
                 generation,
@@ -1831,10 +1821,6 @@ impl CoreDaemon {
                     result: Err(CoreDaemonError::Cancelled),
                 }
             }
-            PendingKind::Resize { .. } => CoreCompletion::Resize {
-                id,
-                result: Err(CoreDaemonError::Cancelled),
-            },
         };
         self.completions.push(completion);
         true
@@ -2383,42 +2369,6 @@ impl CoreDaemon {
         }
     }
 
-    fn begin_resize(
-        &mut self,
-        id: PendingOperationId,
-        session_id: SessionId,
-        rows: u16,
-        cols: u16,
-    ) -> Result<(), CoreDaemonError> {
-        let now_seconds = unix_now_seconds();
-        let host = ClientId("core-daemon-host".to_string());
-        if let DaemonEngine::Local(_) = &self.engine {
-            let result = self.resize(host, session_id, rows, cols, now_seconds);
-            self.completions.push(CoreCompletion::Resize { id, result });
-            return Ok(());
-        }
-        self.ensure_running()?;
-        self.ensure_session_mutable(&session_id)?;
-        if self.engine.has_pending_terminal_resizes(&session_id) {
-            return Err(CoreDaemonError::ExplicitResizeBusy(session_id));
-        }
-        self.engine
-            .resize(host, session_id.clone(), rows, cols, now_seconds)?;
-        self.pending.insert(
-            id,
-            PendingState {
-                kind: PendingKind::Resize {
-                    session_id,
-                    rows,
-                    cols,
-                },
-                deadline: Some(Instant::now() + self.config.worker_reply_timeout),
-                cancelled: false,
-            },
-        );
-        Ok(())
-    }
-
     fn open_capture(
         &mut self,
         owner: CaptureOwner,
@@ -2723,35 +2673,6 @@ impl CoreDaemon {
                             }
                         }
                         None => continue,
-                    }
-                }
-                PendingKind::Resize {
-                    session_id,
-                    rows,
-                    cols,
-                } => {
-                    let session_id = session_id.clone();
-                    let (rows, cols) = (*rows, *cols);
-                    let applied = self
-                        .registry
-                        .load(&session_id)
-                        .ok()
-                        .flatten()
-                        .is_some_and(|record| record.rows == rows && record.cols == cols);
-                    if applied {
-                        CoreCompletion::Resize { id, result: Ok(()) }
-                    } else if self.engine.session(&session_id).is_none() {
-                        CoreCompletion::Resize {
-                            id,
-                            result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
-                        }
-                    } else if expired {
-                        CoreCompletion::Resize {
-                            id,
-                            result: Err(CoreDaemonError::DeadlineExpired),
-                        }
-                    } else {
-                        continue;
                     }
                 }
             };
