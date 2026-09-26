@@ -290,6 +290,37 @@ struct EngineShared {
     stopping: AtomicBool,
     #[cfg(test)]
     publication_pause: Mutex<Option<Arc<PublicationPause>>>,
+    #[cfg(test)]
+    deadline_permits: Mutex<Option<Arc<DeadlinePermits>>>,
+}
+
+/// Test seam: when installed, the deadline waiter takes the permit of a
+/// request before it fires that request's due deadline, so a test can order a
+/// runtime's subscription before the deadline's delivery without changing
+/// the deadline value.
+#[cfg(test)]
+#[derive(Default)]
+struct DeadlinePermits {
+    granted: Mutex<std::collections::HashSet<RequestId>>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl DeadlinePermits {
+    fn grant(&self, request_id: RequestId) {
+        self.granted
+            .lock()
+            .expect("deadline permits")
+            .insert(request_id);
+        self.changed.notify_all();
+    }
+
+    fn take(&self, request_id: &RequestId) {
+        let mut granted = self.granted.lock().expect("deadline permits");
+        while !granted.remove(request_id) {
+            granted = self.changed.wait(granted).expect("deadline permits");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -461,6 +492,8 @@ impl PluginWorkerEngine {
             stopping: AtomicBool::new(false),
             #[cfg(test)]
             publication_pause: Mutex::new(None),
+            #[cfg(test)]
+            deadline_permits: Mutex::new(None),
         });
         let waiter_shared = shared.clone();
         let waiter = std::thread::Builder::new()
@@ -2744,6 +2777,17 @@ fn run_deadline_waiter(shared: Arc<EngineShared>) {
 }
 
 fn fire_deadline(shared: &EngineShared, entry: DeadlineEntry) {
+    #[cfg(test)]
+    {
+        let permits = shared
+            .deadline_permits
+            .lock()
+            .expect("deadline permits")
+            .clone();
+        if let Some(permits) = permits {
+            permits.take(&entry.request_id);
+        }
+    }
     let worker = {
         let workers = match shared.workers.lock() {
             Ok(guard) => guard,
@@ -2956,22 +3000,16 @@ impl PluginWorkerEngine {
             .unwrap_or_default()
     }
 
-    /// Make the deadline of `request_id` due now and wake the deadline
-    /// waiter, so a test controls when the waiter fires it.
-    fn expire_deadline_now(&self, request_id: &RequestId) {
-        let mut book = self
+    /// Gate every later deadline delivery on a permit (see `DeadlinePermits`).
+    fn gate_deadlines(&self) -> Arc<DeadlinePermits> {
+        let permits = Arc::new(DeadlinePermits::default());
+        *self
             .inner
             .shared
-            .deadlines
+            .deadline_permits
             .lock()
-            .expect("plugin deadline book mutex poisoned");
-        let now = Instant::now();
-        for entry in &mut book.entries {
-            if &entry.request_id == request_id {
-                entry.at = now;
-            }
-        }
-        self.inner.shared.deadline_cvar.notify_one();
+            .expect("deadline permits") = Some(permits.clone());
+        permits
     }
 
     fn tracked_deadline_count(&self) -> usize {
