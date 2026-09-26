@@ -83,15 +83,6 @@ pub enum CoreOperation {
         /// Owner counted against [`MAX_OPEN_CAPTURES_PER_CLIENT`].
         owner: CaptureOwner,
     },
-    /// Resize one session PTY.
-    Resize {
-        /// Session to resize.
-        session_id: SessionId,
-        /// Rows.
-        rows: u16,
-        /// Columns.
-        cols: u16,
-    },
     /// Cancel one in-flight input operation on one route.
     CancelInput {
         /// Route that submitted the operation.
@@ -281,13 +272,6 @@ pub enum CoreCompletion {
         /// Capture summary or failure.
         result: Result<SnapshotCapture, CoreDaemonError>,
     },
-    /// `Resize` was acknowledged by the worker.
-    Resize {
-        /// Operation identity.
-        id: PendingOperationId,
-        /// Success or failure.
-        result: Result<(), CoreDaemonError>,
-    },
     /// `CancelInput` was delivered. The route receives the `INPUT_RESULT`.
     CancelInput {
         /// Operation identity.
@@ -313,7 +297,6 @@ impl CoreCompletion {
             | Self::ReadScreen { id, .. }
             | Self::ReadModeFlags { id, .. }
             | Self::CaptureSnapshot { id, .. }
-            | Self::Resize { id, .. }
             | Self::CancelInput { id, .. } => *id,
         }
     }
