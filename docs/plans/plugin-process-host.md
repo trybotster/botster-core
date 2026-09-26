@@ -438,19 +438,34 @@ Consequences:
 
 ### 9.1 Cancel-wake
 
+As implemented and accepted (`ab1205c`):
+
 ```rust
+/// Core-owned receiver: records the cancel and notifies its own waiter.
+/// Only a leaf lock of its own; never blocks otherwise; never calls into the
+/// engine or a capability runtime.
+pub(crate) trait CancelTarget: Send + Sync + 'static {
+    fn cancelled(&self);
+}
+
 impl PluginCancellationToken {
-    /// Run `wake` once when the token is cancelled. If the token is already
-    /// cancelled, `wake` runs at once. Dropping the subscription removes it.
-    pub fn subscribe(&self, wake: Box<dyn FnOnce() + Send>) -> CancelSubscription;
+    /// Notify `target` once on cancel, or at once if already cancelled.
+    /// Dropping the subscription removes it.
+    pub(crate) fn subscribe(&self, target: Arc<dyn CancelTarget>) -> CancelSubscription;
 }
 ```
 
-The reviewer's conditions for this API:
+Properties:
+- Subscription is crate-private. No host code runs inside `cancel`, whatever
+  locks the cancelling caller holds.
 - Registration and `cancel` serialize on one mutex that also guards the flag,
-  so the API has no lost-wake race.
-- A late registration observes an earlier cancel.
-- Callbacks run after the mutex is released.
+  so no wake is lost. A late registration observes an earlier cancel.
+- Targets run after that mutex is released, each under `catch_unwind`, so a
+  panicking target cannot skip other targets or unwind the engine's deadline
+  waiter.
+- The engine's deadline waiter releases the admission lock and seals the
+  `TimedOut` completion before it cancels, so a runtime that returns at once
+  on the cancel cannot win the first-commit race.
 - A subscription retires when its invoke completes (drop).
 
 ### 9.2 Parent and child
