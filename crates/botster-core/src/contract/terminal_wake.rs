@@ -615,6 +615,7 @@ impl TerminalWakeSource {
             && !self.inner.overflow.load(Ordering::Acquire)
         {
             let received = match timeout {
+                // timer: deadline — the caller's wake wait bound; expiry returns an empty batch
                 Some(timeout) => rx.recv_timeout(timeout),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
