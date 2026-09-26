@@ -12,8 +12,8 @@ use botster_core::{
     LocalProcessRuntimeOptions, MultiplexerEngine, ProcessExitedPayload, QueueSource, RequestId,
     ResizePayload, SessionId, SessionLifecycleState, SessionRuntime, SessionRuntimeErrorKind,
     SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment,
-    SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId, TransportEgress,
-    DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId, TerminalWakeSource,
+    TransportEgress, DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 
 const SIGKILL: i32 = 9;
@@ -399,6 +399,54 @@ fn local_process_runtime_spawns_and_captures_process_exit_status() {
                 },
             }
     }));
+}
+
+#[test]
+fn local_process_runtime_wakes_the_session_when_the_child_exits_without_pty_eof() {
+    let _guard = local_process_test_lock();
+    let hold = unique_temp_path("exit-without-eof-hold");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&hold)
+        .status()
+        .expect("run mkfifo");
+    assert!(made.success(), "mkfifo");
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
+    let session = session_id("local-exit-without-eof");
+    // A descendant that ignores the hang-up keeps the PTY slave open on its
+    // stdout while it blocks on the hold FIFO. On Linux the reader then sees
+    // no EOF and only the exit watch wakes the session; macOS revokes the
+    // terminal when the leader exits, so there the EOF also wakes it.
+    runtime
+        .spawn_session(shell_request_with_env(
+            session.clone(),
+            "(trap '' HUP; read line < \"$HOLD_FIFO\") & exit 0",
+            SpawnEnvironment {
+                variables: vec![env_var("HOLD_FIFO", hold.display().to_string())],
+            },
+        ))
+        .expect("spawn leader with a descendant holding the PTY");
+
+    let mut output = Vec::new();
+    // timer: deadline — the leader's exit must wake the session; expiry fails the test
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !has_exit(&output) {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("the child exit must wake the session before the deadline");
+        let batch = wakes.wait_wakes(remaining);
+        if batch.ingress_sessions.contains(&session) {
+            output.extend(
+                runtime
+                    .drain_output(&session)
+                    .expect("drain after exit wake"),
+            );
+        }
+    }
+
+    // Session cleanup ended the descendant with the process-group kill.
+    let _ = fs::remove_file(&hold);
 }
 
 #[test]
