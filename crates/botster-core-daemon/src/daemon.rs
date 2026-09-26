@@ -1340,6 +1340,11 @@ impl CoreDaemon {
         let mut first_error = None;
         let mut pumped_results = Vec::with_capacity(session_ids.len());
         for session_id in session_ids {
+            // A launch that is still pending has no engine session to pump.
+            // Its wake exists so reconcile_pending below installs it.
+            if self.engine.spawn_pending(&session_id) {
+                continue;
+            }
             let sub_batch = TerminalWakeBatch {
                 adapter_routes: batch
                     .adapter_routes
@@ -4664,6 +4669,13 @@ fn unix_now_seconds() -> u64 {
 }
 
 impl DaemonEngine {
+    fn spawn_pending(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(_) => false,
+            Self::Worker(engine) => engine.spawn_pending(session_id),
+        }
+    }
+
     fn reserve_session_for_request(
         &self,
         session_id: SessionId,
