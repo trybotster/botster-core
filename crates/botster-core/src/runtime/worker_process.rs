@@ -180,6 +180,79 @@ impl ResizeAckHold {
     }
 }
 
+/// Test-only probe of two parent-side decisions a test cannot otherwise
+/// observe: the capture barrier release, and how the parent reader routed
+/// each worker PTY output event. Events come from the decision sites
+/// themselves. Unconfigured, each site costs one `Option` check.
+#[derive(Clone)]
+pub struct WorkerRouteProbe {
+    sender: mpsc::Sender<WorkerRouteProbeEvent>,
+    identity: Arc<()>,
+}
+
+/// One decision reported by a [`WorkerRouteProbe`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkerRouteProbeEvent {
+    /// The parent queued the release of a capture's worker barrier.
+    CaptureReleaseSent {
+        /// Session whose capture was released.
+        session_id: crate::SessionId,
+    },
+    /// The parent reader routed one worker PTY output event.
+    PtyOutputRouted {
+        /// Session the output belongs to.
+        session_id: crate::SessionId,
+        /// The routing decision.
+        routing: PtyOutputRouting,
+    },
+}
+
+/// How the parent reader routed one worker PTY output event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyOutputRouting {
+    /// Queued for the engine.
+    Enqueued,
+    /// The queue was full with a consumer attached: the reader waits for
+    /// space. `Enqueued` follows when the output is queued.
+    Stalled,
+    /// The queue was full with no consumer: the output was dropped and
+    /// counted as overflow.
+    Dropped,
+}
+
+impl WorkerRouteProbe {
+    /// Create a probe and the receiver its events arrive on.
+    #[must_use]
+    pub fn channel() -> (Self, Receiver<WorkerRouteProbeEvent>) {
+        let (sender, receiver) = mpsc::channel();
+        (
+            Self {
+                sender,
+                identity: Arc::new(()),
+            },
+            receiver,
+        )
+    }
+
+    fn report(&self, event: WorkerRouteProbeEvent) {
+        let _ = self.sender.send(event);
+    }
+}
+
+impl PartialEq for WorkerRouteProbe {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
+    }
+}
+
+impl Eq for WorkerRouteProbe {}
+
+impl std::fmt::Debug for WorkerRouteProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerRouteProbe").finish_non_exhaustive()
+    }
+}
+
 /// Options for the local worker process runtime adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerProcessRuntimeOptions {
@@ -209,6 +282,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_hold_after_enqueue_ms: Option<u64>,
     /// Test-only: hold `FRAME_RESIZE_APPLIED` in the parent reader for one session.
     pub test_resize_ack_hold: Option<ResizeAckHold>,
+    /// Test-only: report capture releases and PTY output routing decisions.
+    pub test_route_probe: Option<WorkerRouteProbe>,
     /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
@@ -237,6 +312,7 @@ impl WorkerProcessRuntimeOptions {
             test_pending_capacity: None,
             test_hold_after_enqueue_ms: None,
             test_resize_ack_hold: None,
+            test_route_probe: None,
             test_hold_before_exit_ms: None,
             test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
@@ -1084,7 +1160,13 @@ impl WorkerProcessRuntime {
                 cancel: false,
                 complete: true,
             },
-        )
+        )?;
+        if let Some(probe) = &self.options.test_route_probe {
+            probe.report(WorkerRouteProbeEvent::CaptureReleaseSent {
+                session_id: session_id.clone(),
+            });
+        }
+        Ok(())
     }
 
     /// Current durable control-plane state.
@@ -1544,6 +1626,7 @@ impl WorkerProcessRuntime {
             wake_handle.clone(),
             session_id.clone(),
             self.options.test_resize_ack_hold.clone(),
+            self.options.test_route_probe.clone(),
         );
         let mut session = WorkerProcessSession {
             admission,
@@ -2840,17 +2923,28 @@ fn spawn_stdout_reader(
     wake_handle: Option<SessionWakeHandle>,
     session_id: crate::SessionId,
     resize_ack_hold: Option<ResizeAckHold>,
+    route_probe: Option<WorkerRouteProbe>,
 ) {
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut stdout) {
             match frame.frame_type {
-                FRAME_PTY_OUTPUT => send_worker_event(
-                    &sender,
-                    &overflow,
-                    &stall,
-                    &wake_handle,
-                    WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(frame.payload)),
-                ),
+                FRAME_PTY_OUTPUT => {
+                    send_pty_output(
+                        &sender,
+                        &overflow,
+                        &stall,
+                        &wake_handle,
+                        frame.payload,
+                        |routing| {
+                            if let Some(probe) = &route_probe {
+                                probe.report(WorkerRouteProbeEvent::PtyOutputRouted {
+                                    session_id: session_id.clone(),
+                                    routing,
+                                });
+                            }
+                        },
+                    );
+                }
                 FRAME_PROCESS_EXITED => {
                     if let Ok(payload) = serde_json::from_slice(&frame.payload) {
                         if let Ok(mut state) = completion.lock() {
@@ -2873,7 +2967,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::TitleChanged(title)),
                         );
@@ -2884,7 +2977,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::CwdChanged(cwd)),
                         );
@@ -2895,7 +2987,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::PromptMark(payload)),
                         );
@@ -2905,7 +2996,6 @@ fn spawn_stdout_reader(
                     send_worker_event(
                         &sender,
                         &overflow,
-                        &stall,
                         &wake_handle,
                         WorkerChannelEvent::Output(WorkerOutputEvent::Bell),
                     );
@@ -2915,7 +3005,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::Notification(payload)),
                         );
@@ -2926,7 +3015,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Output(WorkerOutputEvent::MetadataShaping(
                                 observation,
@@ -2940,7 +3028,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::ModeFlags(payload),
                         );
@@ -2951,7 +3038,6 @@ fn spawn_stdout_reader(
                         send_worker_event(
                             &sender,
                             &overflow,
-                            &stall,
                             &wake_handle,
                             WorkerChannelEvent::Screen(payload),
                         );
@@ -3035,64 +3121,80 @@ fn spawn_stdout_reader(
     });
 }
 
-fn send_worker_event(
+/// Route one worker PTY output event and report each routing decision.
+///
+/// Live PTY bytes are not replayable. While a parent consumer is attached,
+/// stall instead of dropping them. Detach must stop the stall so cancel and
+/// detached workers can still make progress. Wait on the drain/detach
+/// condvar; a blocking send cannot observe detach.
+fn send_pty_output(
     sender: &SyncSender<WorkerChannelEvent>,
     overflow: &AtomicUsize,
     stall: &EgressStall,
     wake_handle: &Option<SessionWakeHandle>,
-    event: WorkerChannelEvent,
+    bytes: Vec<u8>,
+    mut report: impl FnMut(PtyOutputRouting),
 ) {
-    // Live PTY bytes are not replayable. While a parent consumer is attached,
-    // stall instead of dropping them. Detach must stop the stall so cancel and
-    // detached workers can still make progress. Wait on the drain/detach
-    // condvar; a blocking send cannot observe detach.
-    if matches!(
-        event,
-        WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
-    ) {
-        let mut event = event;
-        let mut seen_seq = 0;
-        loop {
-            if !stall.owners_present() {
-                match sender.try_send(event) {
-                    Ok(()) => {
-                        notify_session_wake(wake_handle);
-                        return;
-                    }
-                    Err(TrySendError::Full(_)) => {
-                        overflow.fetch_add(1, Ordering::AcqRel);
-                        return;
-                    }
-                    Err(TrySendError::Disconnected(_)) => return,
-                }
-            }
+    let mut event = WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(bytes));
+    let mut seen_seq = 0;
+    let mut stalled = false;
+    loop {
+        if !stall.owners_present() {
             match sender.try_send(event) {
                 Ok(()) => {
                     notify_session_wake(wake_handle);
+                    report(PtyOutputRouting::Enqueued);
                     return;
                 }
-                Err(TrySendError::Full(returned)) => {
-                    event = returned;
-                    match stall.wait_for_space_or_detach(&mut seen_seq) {
-                        StallWait::Retry => {}
-                        StallWait::Detached => match sender.try_send(event) {
-                            Ok(()) => {
-                                notify_session_wake(wake_handle);
-                                return;
-                            }
-                            Err(TrySendError::Full(_)) => {
-                                overflow.fetch_add(1, Ordering::AcqRel);
-                                return;
-                            }
-                            Err(TrySendError::Disconnected(_)) => return,
-                        },
-                        StallWait::Closed => return,
-                    }
+                Err(TrySendError::Full(_)) => {
+                    overflow.fetch_add(1, Ordering::AcqRel);
+                    report(PtyOutputRouting::Dropped);
+                    return;
                 }
                 Err(TrySendError::Disconnected(_)) => return,
             }
         }
+        match sender.try_send(event) {
+            Ok(()) => {
+                notify_session_wake(wake_handle);
+                report(PtyOutputRouting::Enqueued);
+                return;
+            }
+            Err(TrySendError::Full(returned)) => {
+                event = returned;
+                if !stalled {
+                    stalled = true;
+                    report(PtyOutputRouting::Stalled);
+                }
+                match stall.wait_for_space_or_detach(&mut seen_seq) {
+                    StallWait::Retry => {}
+                    StallWait::Detached => match sender.try_send(event) {
+                        Ok(()) => {
+                            notify_session_wake(wake_handle);
+                            report(PtyOutputRouting::Enqueued);
+                            return;
+                        }
+                        Err(TrySendError::Full(_)) => {
+                            overflow.fetch_add(1, Ordering::AcqRel);
+                            report(PtyOutputRouting::Dropped);
+                            return;
+                        }
+                        Err(TrySendError::Disconnected(_)) => return,
+                    },
+                    StallWait::Closed => return,
+                }
+            }
+            Err(TrySendError::Disconnected(_)) => return,
+        }
     }
+}
+
+fn send_worker_event(
+    sender: &SyncSender<WorkerChannelEvent>,
+    overflow: &AtomicUsize,
+    wake_handle: &Option<SessionWakeHandle>,
+    event: WorkerChannelEvent,
+) {
     match sender.try_send(event) {
         Ok(()) => notify_session_wake(wake_handle),
         Err(TrySendError::Full(_)) => {

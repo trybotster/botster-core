@@ -111,6 +111,7 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_pending_capacity: None,
         test_hold_after_enqueue_ms: None,
         test_resize_ack_hold: None,
+        test_route_probe: None,
         test_hold_before_exit_ms: None,
         test_exit_code: None,
         ghostty_max_scrollback_bytes: 10_000_000,
