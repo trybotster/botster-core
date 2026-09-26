@@ -5,6 +5,7 @@
 //! release.
 
 pub mod assertions;
+pub mod bounded_wait;
 #[cfg(feature = "local-runtime")]
 pub mod conformance;
 pub mod diagnostics;
