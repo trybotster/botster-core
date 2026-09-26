@@ -161,16 +161,18 @@ impl TerminalAdapterHarnessDriver for HubShapedTerminalAdapter {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::{Duration, Instant};
 
     use botster_core::{
         ClientId, CoreSessionMetadata, DefaultBotsterEngine, RequestId, ResizePayload, SessionId,
         SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-        TerminalCapabilitySet,
+        TerminalCapabilitySet, WorkerBackedBotsterEngine,
     };
+    use botster_core_test_support::real_worker::WorkerBinary;
     use botster_core_test_support::terminal_adapter::assert_terminal_adapter_conformance;
-    use botster_terminal_protocol::FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY;
+    use botster_terminal_protocol::{
+        TerminalFrame, TerminalKind, FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
+    };
 
     #[derive(Clone, Default)]
     struct SharedHubAdapter {
@@ -178,7 +180,10 @@ mod tests {
     }
 
     impl TerminalAdapter for SharedHubAdapter {
-        fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
+        fn try_write(
+            &mut self,
+            frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
             let mut inner = self.inner.lock().expect("hub adapter lock");
             let result = inner.try_write(frame);
             if result.is_ok() {
@@ -215,174 +220,159 @@ mod tests {
         assert_terminal_adapter_conformance(&mut driver);
     }
 
-    #[test]
-    fn hub_shaped_consumer_binds_through_public_core_api_without_decoding_snapshots() {
-        let mut engine = DefaultBotsterEngine::new();
-        let session = SessionId("hub-shaped-bind".to_string());
-        let client = ClientId("hub-shaped-client".to_string());
-        let subscription = SubscriptionId("hub-shaped-sub".to_string());
-        engine
-            .spawn_session(
-                SessionSpawnRequest {
-                    request_id: RequestId("hub-shaped-spawn".to_string()),
-                    session_id: session.clone(),
-                    executable: "sh".to_string(),
-                    arguments: vec![
-                        "-c".to_string(),
-                        "printf 'hub-shaped-live\\n'; sleep 30".to_string(),
-                    ],
-                    working_directory: SpawnWorkingDirectory {
-                        path: ".".to_string(),
-                    },
-                    environment: SpawnEnvironment::default(),
-                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
-                },
-                CoreSessionMetadata::new(),
-            )
-            .expect("spawn");
-        engine
-            .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
-            .expect("attach");
-        let generation = engine
-            .terminal_subscription_generation(&session, &subscription)
-            .expect("generation after attach");
-        let adapter = SharedHubAdapter::default();
-        engine
-            .bind_waking_terminal_adapter(
-                client,
-                session.clone(),
-                subscription.clone(),
-                generation,
-                TerminalCapabilitySet::empty(),
-                Box::new(adapter.clone()),
-            )
-            .expect("bind empty set through public Core API");
-        let empty_row = engine
-            .list_terminal_subscriptions(1024 * 1024)
-            .expect("test inventory allowance")
-            .records
-            .into_iter()
-            .find(|row| row.subscription_id == subscription)
-            .expect("empty-set inventory");
-        assert!(empty_row.adapter_bound);
-        let empty_caps = empty_row.capabilities.expect("bound empty is Some");
-        assert!(empty_caps.is_empty());
-        assert_eq!(empty_caps.iter().count(), 0);
+    /// A Hub-shaped session: a worker-owned PTY that echoes its input.
+    struct HubShapedSession {
+        engine: WorkerBackedBotsterEngine,
+        session: SessionId,
+        client: ClientId,
+        subscription: SubscriptionId,
+    }
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            let batch = engine.wait_wakes(Duration::from_secs(5));
-            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
-            let delivered = adapter
+    impl HubShapedSession {
+        /// Spawn one worker session and declare the Hub adapter route.
+        fn declared(name: &str) -> Self {
+            let worker = WorkerBinary::from_env().unwrap_or_else(|failure| panic!("{failure}"));
+            let mut engine = DefaultBotsterEngine::worker_backed(worker.path);
+            let session = SessionId(format!("{name}-session"));
+            let client = ClientId(format!("{name}-client"));
+            let subscription = SubscriptionId(format!("{name}-sub"));
+            engine
+                .spawn_session(
+                    SessionSpawnRequest {
+                        request_id: RequestId(format!("{name}-spawn")),
+                        session_id: session.clone(),
+                        executable: "cat".to_string(),
+                        arguments: Vec::new(),
+                        working_directory: SpawnWorkingDirectory {
+                            path: ".".to_string(),
+                        },
+                        environment: SpawnEnvironment::default(),
+                        initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
+                    },
+                    CoreSessionMetadata::new(),
+                )
+                .expect("spawn");
+            engine.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
+            let attached = engine
+                .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
+                .expect("attach");
+            assert!(
+                attached.client_egress.iter().all(|(routed, frame)| {
+                    routed != &client
+                        || !matches!(
+                            frame,
+                            botster_core::TransportEgress::TerminalOutput { .. }
+                                | botster_core::TransportEgress::Snapshot { .. }
+                                | botster_core::TransportEgress::AttachState { .. }
+                        )
+                }),
+                "declared attach must not extract route frames: {:?}",
+                attached.client_egress
+            );
+            Self {
+                engine,
+                session,
+                client,
+                subscription,
+            }
+        }
+
+        fn bind(
+            &mut self,
+            capabilities: TerminalCapabilitySet,
+            adapter: Box<dyn WakingTerminalAdapter + Send>,
+        ) {
+            let generation = self
+                .engine
+                .terminal_subscription_generation(&self.session, &self.subscription)
+                .expect("generation after attach");
+            self.engine
+                .bind_waking_terminal_adapter(
+                    self.client.clone(),
+                    self.session.clone(),
+                    self.subscription.clone(),
+                    generation,
+                    capabilities.clone(),
+                    adapter,
+                )
+                .expect("bind through public Core API");
+            let row = self
+                .engine
+                .list_terminal_subscriptions(1024 * 1024)
+                .expect("test inventory allowance")
+                .records
+                .into_iter()
+                .find(|row| row.subscription_id == self.subscription)
+                .expect("bound inventory row");
+            assert!(row.adapter_bound);
+            assert_eq!(row.capabilities, Some(capabilities));
+        }
+
+        fn type_line(&mut self, line: &[u8]) {
+            self.engine
+                .write_bytes(self.client.clone(), self.session.clone(), line.to_vec(), 2)
+                .expect("write input");
+        }
+
+        /// Pump engine wakes until `done` holds. `wait_wakes` blocks on the
+        /// engine's wake source; each adapter write completion wakes it.
+        fn pump_until(&mut self, mut done: impl FnMut() -> bool) -> bool {
+            // timer: deadline — the condition must arrive through engine wakes; expiry fails the test
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !done() {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return false;
+                };
+                let batch = self.engine.wait_wakes(remaining);
+                self.engine.pump_woken(&batch, 3).expect("targeted pump");
+            }
+            true
+        }
+    }
+
+    /// Opaque frame kinds, read from the scheme 2 header only.
+    fn frame_kinds(delivered: &[Vec<u8>]) -> Vec<TerminalKind> {
+        delivered
+            .iter()
+            .map(|bytes| {
+                TerminalFrame::from_bytes(bytes)
+                    .expect("scheme 2 frame")
+                    .kind()
+            })
+            .collect()
+    }
+
+    fn assert_live_output_reaches_the_adapter(capabilities: TerminalCapabilitySet, name: &str) {
+        let mut hub = HubShapedSession::declared(name);
+        let adapter = SharedHubAdapter::default();
+        hub.bind(capabilities, Box::new(adapter.clone()));
+        hub.type_line(b"hub-shaped-live\n");
+        let delivered = || {
+            adapter
                 .inner
                 .lock()
                 .expect("lock")
                 .delivered_frame_bytes()
-                .to_vec();
-            let saw_opaque_live = delivered.iter().any(|bytes| {
-                let text = String::from_utf8_lossy(bytes);
-                text.contains("terminal_output")
-            });
-            if saw_opaque_live {
-                for bytes in &delivered {
-                    let text = String::from_utf8_lossy(bytes);
-                    assert!(
-                        !text.contains("\"type\":\"snapshot\""),
-                        "empty set must not emit snapshot event tags"
-                    );
-                    assert!(
-                        !bytes.windows(b"GHOSTSNP".len()).any(|window| window == b"GHOSTSNP"),
-                        "hub-shaped consumer must not decode Snapshot bodies"
-                    );
-                }
-                return;
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-        panic!("hub-shaped consumer never observed opaque live frames");
+                .to_vec()
+        };
+        assert!(
+            hub.pump_until(|| frame_kinds(&delivered()).contains(&TerminalKind::Output)),
+            "hub-shaped consumer never observed opaque live frames: {:?}",
+            frame_kinds(&delivered())
+        );
+    }
+
+    #[test]
+    fn hub_shaped_consumer_binds_through_public_core_api_with_an_empty_set() {
+        assert_live_output_reaches_the_adapter(TerminalCapabilitySet::empty(), "hub-shaped-empty");
     }
 
     #[test]
     fn hub_shaped_consumer_binds_ready_then_history_and_reads_inventory_tokens() {
-        let mut engine = DefaultBotsterEngine::new();
-        let session = SessionId("hub-shaped-rth".to_string());
-        let client = ClientId("hub-shaped-rth-client".to_string());
-        let subscription = SubscriptionId("hub-shaped-rth-sub".to_string());
-        engine
-            .spawn_session(
-                SessionSpawnRequest {
-                    request_id: RequestId("hub-shaped-rth-spawn".to_string()),
-                    session_id: session.clone(),
-                    executable: "sh".to_string(),
-                    arguments: vec![
-                        "-c".to_string(),
-                        "printf 'hub-shaped-rth\\n'; sleep 30".to_string(),
-                    ],
-                    working_directory: SpawnWorkingDirectory {
-                        path: ".".to_string(),
-                    },
-                    environment: SpawnEnvironment::default(),
-                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
-                },
-                CoreSessionMetadata::new(),
-            )
-            .expect("spawn");
-        engine
-            .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
-            .expect("attach");
-        let generation = engine
-            .terminal_subscription_generation(&session, &subscription)
-            .expect("generation after attach");
-        let adapter = SharedHubAdapter::default();
-        let capabilities = TerminalCapabilitySet::from_tokens([
-            FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY,
-        ])
-        .expect("Hub constructs an opaque set from protocol tokens");
-        engine
-            .bind_waking_terminal_adapter(
-                client,
-                session.clone(),
-                subscription.clone(),
-                generation,
-                capabilities.clone(),
-                Box::new(adapter.clone()),
-            )
-            .expect("bind optional-token set");
-        let row = engine
-            .list_terminal_subscriptions(1024 * 1024)
-            .expect("test inventory allowance")
-            .records
-            .into_iter()
-            .find(|row| row.subscription_id == subscription)
-            .expect("optional-token inventory");
-        assert!(row.adapter_bound);
-        assert_eq!(row.capabilities, Some(capabilities));
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            let batch = engine.wait_wakes(Duration::from_secs(5));
-            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
-            let delivered = adapter
-                .inner
-                .lock()
-                .expect("lock")
-                .delivered_frame_bytes()
-                .to_vec();
-            let saw_live = delivered.iter().any(|bytes| {
-                String::from_utf8_lossy(bytes).contains("terminal_output")
-            });
-            if saw_live {
-                for bytes in &delivered {
-                    assert!(
-                        !bytes.windows(b"GHOSTSNP".len()).any(|window| window == b"GHOSTSNP"),
-                        "hub-shaped consumer must not decode Snapshot bodies"
-                    );
-                }
-                return;
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-        panic!("hub-shaped ready-then-history never observed opaque live frames");
+        let capabilities =
+            TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
+                .expect("Hub constructs an opaque set from protocol tokens");
+        assert_live_output_reaches_the_adapter(capabilities, "hub-shaped-rth");
     }
 
     #[derive(Clone, Default)]
@@ -391,8 +381,14 @@ mod tests {
     }
 
     impl TerminalAdapter for SharedOneSlotHubAdapter {
-        fn try_write(&mut self, frame: &RoutedTerminalFrame) -> Result<(), TerminalAdapterWriteError> {
-            self.inner.lock().expect("hub adapter lock").try_write(frame)
+        fn try_write(
+            &mut self,
+            frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
+            self.inner
+                .lock()
+                .expect("hub adapter lock")
+                .try_write(frame)
         }
 
         fn close(&mut self) {
@@ -438,106 +434,35 @@ mod tests {
         }
     }
 
-    fn frame_type(bytes: &[u8]) -> String {
-        let text = String::from_utf8_lossy(bytes);
-        for kind in ["terminal_output", "snapshot", "attach_state", "process_exit"] {
-            if text.contains(&format!("\"type\":\"{kind}\""))
-                || text.contains(&format!("\"type\": \"{kind}\""))
-            {
-                return kind.to_string();
-            }
-        }
-        String::new()
-    }
-
     #[test]
     fn held_dump_drains_one_frame_per_ready_then_live_output_follows() {
-        let mut engine = DefaultBotsterEngine::new();
-        let session = SessionId("hub-shaped-hold".to_string());
-        let client = ClientId("hub-shaped-hold-client".to_string());
-        let subscription = SubscriptionId("hub-shaped-hold-sub".to_string());
-        engine
-            .spawn_session(
-                SessionSpawnRequest {
-                    request_id: RequestId("hub-shaped-hold-spawn".to_string()),
-                    session_id: session.clone(),
-                    executable: "sh".to_string(),
-                    arguments: vec![
-                        "-c".to_string(),
-                        "printf 'hub-shaped-hold-live\\n'; sleep 30".to_string(),
-                    ],
-                    working_directory: SpawnWorkingDirectory {
-                        path: ".".to_string(),
-                    },
-                    environment: SpawnEnvironment::default(),
-                    initial_pty_size: Some(ResizePayload { rows: 24, cols: 80 }),
-                },
-                CoreSessionMetadata::new(),
-            )
-            .expect("spawn");
-        engine.expect_terminal_adapter(client.clone(), session.clone(), subscription.clone());
-        let attached = engine
-            .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
-            .expect("attach");
-        assert!(
-            attached.client_egress.iter().all(|(routed, frame)| {
-                routed != &client
-                    || !matches!(
-                        frame,
-                        botster_core::TransportEgress::TerminalOutput { .. }
-                            | botster_core::TransportEgress::Snapshot { .. }
-                            | botster_core::TransportEgress::AttachState { .. }
-                    )
-            }),
-            "declared attach must not extract route frames: {:?}",
-            attached.client_egress
-        );
-        let generation = engine
-            .terminal_subscription_generation(&session, &subscription)
-            .expect("generation after attach");
+        let mut hub = HubShapedSession::declared("hub-shaped-hold");
         let adapter = SharedOneSlotHubAdapter::default();
-        engine
-            .bind_waking_terminal_adapter(
-                client,
-                session.clone(),
-                subscription,
-                generation,
-                TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
-                    .expect("optional token"),
-                Box::new(adapter.clone()),
-            )
-            .expect("bind one-slot");
-
-        let deadline = Instant::now() + Duration::from_secs(8);
-        let mut saw_live_after_dump = false;
-        while Instant::now() < deadline {
-            let batch = engine.wait_wakes(Duration::from_secs(5));
-            let _ = engine.pump_woken(&batch, 2).expect("targeted pump");
+        hub.bind(
+            TerminalCapabilitySet::from_tokens([FEATURE_SNAPSHOT_DELIVERY_READY_THEN_HISTORY])
+                .expect("optional token"),
+            Box::new(adapter.clone()),
+        );
+        hub.type_line(b"hub-shaped-hold-live\n");
+        let saw_live = hub.pump_until(|| {
+            // Completing the one-slot write wakes the engine for the next frame.
             if adapter.pressure() == TerminalAdapterPressure::Full {
                 adapter.complete_write();
             }
-            let delivered = adapter.delivered();
-            let types: Vec<String> = delivered.iter().map(|bytes| frame_type(bytes)).collect();
-            if let Some(live_at) = types.iter().position(|kind| kind == "terminal_output") {
-                assert!(
-                    live_at >= 2,
-                    "live output must follow a held dump of at least two frames: {types:?}"
-                );
-                assert!(
-                    types[..live_at]
-                        .iter()
-                        .all(|kind| kind != "terminal_output"),
-                    "live output must not interleave the dump: {types:?}"
-                );
-                saw_live_after_dump = true;
-                break;
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
+            frame_kinds(&adapter.delivered()).contains(&TerminalKind::Output)
+        });
+        let kinds = frame_kinds(&adapter.delivered());
         assert!(
-            saw_live_after_dump,
-            "one-slot adapter must drain the held dump then live output: {:?}",
-            adapter.delivered().iter().map(|bytes| frame_type(bytes)).collect::<Vec<_>>()
+            saw_live,
+            "one-slot adapter must drain the held dump then live output: {kinds:?}"
+        );
+        let live_at = kinds
+            .iter()
+            .position(|kind| *kind == TerminalKind::Output)
+            .expect("live output");
+        assert!(
+            live_at >= 2,
+            "live output must follow a held dump of at least two frames: {kinds:?}"
         );
     }
 }
