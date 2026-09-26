@@ -12,22 +12,21 @@ use std::os::fd::{AsFd, FromRawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
-use crate::boundary::BoundaryJson;
 use crate::contract::session_protocol::{Frame, FrameDecoder};
 use crate::runtime::PluginRuntime;
 
 use super::protocol::{
     decode_json, encode_json_bounded, send_all, BootstrapFrame, FailedFrame, LoadFrame,
-    LoadedFrame, ReadyFrame, CAUSE_PANIC, CHILD_FATAL_FD, CHILD_IPC_FD, FRAME_BOOTSTRAP,
-    FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_READY,
-    FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    LoadedFrame, PluginRegistration, ReadyFrame, SandboxProfile, CAUSE_PANIC, CHILD_FATAL_FD,
+    CHILD_IPC_FD, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED,
+    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 
 /// Worker-binary hooks: the policy and the runtime that the Hub supplies.
 #[derive(Clone, Copy)]
 pub struct WorkerHooks {
     /// Apply the Hub's opaque sandbox profile. Runs before plugin code loads.
-    pub apply_sandbox: fn(&BoundaryJson) -> Result<(), String>,
+    pub apply_sandbox: fn(&SandboxProfile) -> Result<(), String>,
     /// Load the plugin from its in-memory sources.
     pub load: fn(LoadFrame) -> Result<LoadedPlugin, String>,
 }
@@ -37,7 +36,7 @@ pub struct LoadedPlugin {
     /// Runtime that executes the plugin's handlers.
     pub runtime: Arc<dyn PluginRuntime>,
     /// Hub-defined registration, returned to the parent in `Loaded`.
-    pub registration: BoundaryJson,
+    pub registration: PluginRegistration,
 }
 
 /// Exit code for a failure that the worker reported to the parent.

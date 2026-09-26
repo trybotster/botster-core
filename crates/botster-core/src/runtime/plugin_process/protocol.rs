@@ -37,11 +37,33 @@ pub(crate) const CHILD_FATAL_FD: i32 = 4;
 pub(crate) const CAUSE_MEMORY_CAP: u8 = 1;
 pub(crate) const CAUSE_PANIC: u8 = 2;
 
+/// The Hub's sandbox profile (for example Seatbelt, or Landlock with
+/// seccomp). Core carries it to the Hub's own `apply_sandbox` hook unread.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SandboxProfile(pub BoundaryJson);
+
+/// A plugin package's module set, as in-memory text, for the plugin runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PluginSources(pub BoundaryJson);
+
+/// A plugin's configuration, for the plugin runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PluginConfig(pub BoundaryJson);
+
+/// What a loaded plugin registers (handlers, descriptors), reported by the
+/// plugin runtime and interpreted by the Hub.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PluginRegistration(pub BoundaryJson);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct BootstrapFrame {
     pub magic: String,
     pub version: u8,
-    pub sandbox: BoundaryJson,
+    pub sandbox: SandboxProfile,
     pub memory_cap_bytes: Option<u64>,
     /// The parent's frame bound, so the child can refuse locally a frame
     /// that the parent would treat as a protocol violation.
@@ -62,7 +84,7 @@ pub(crate) struct FailedFrame {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct LoadedFrame {
-    pub registration: BoundaryJson,
+    pub registration: PluginRegistration,
 }
 
 /// The `Load` frame: the package sources and config the Hub sends.
@@ -72,9 +94,9 @@ pub(crate) struct LoadedFrame {
 pub struct LoadFrame {
     /// Package module set as in-memory text; the sandboxed child has no
     /// filesystem access to its package.
-    pub sources: BoundaryJson,
+    pub sources: PluginSources,
     /// Plugin configuration.
-    pub config: BoundaryJson,
+    pub config: PluginConfig,
 }
 
 /// Encode one frame, refusing a frame longer than `max_len` (type byte plus

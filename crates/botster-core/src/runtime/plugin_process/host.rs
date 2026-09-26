@@ -13,16 +13,15 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Instant;
 
-use crate::boundary::BoundaryJson;
 use crate::contract::session_protocol::{Frame, FrameDecoder};
 use crate::runtime::process_exit::ExitWatch;
 
 use super::launch::{launch, Launched};
 use super::protocol::{
     decode_json, encode_bounded, encode_json_bounded, send_all, BootstrapFrame, FailedFrame,
-    LoadFrame, LoadedFrame, ReadyFrame, CAUSE_MEMORY_CAP, CAUSE_PANIC, FRAME_BOOTSTRAP,
-    FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_READY,
-    FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP, CAUSE_PANIC,
+    FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED,
+    FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 use super::supervisor::{KillState, ProcessKiller, Supervisor};
 use super::{
@@ -61,7 +60,7 @@ struct State {
 enum Startup {
     AwaitReady,
     AwaitLoaded,
-    Loaded(Option<BoundaryJson>),
+    Loaded(Option<PluginRegistration>),
     BootstrapFailed(String),
     LoadFailed(String),
 }
@@ -84,7 +83,7 @@ impl PluginProcess {
     pub fn spawn(
         config: &PluginProcessConfig,
         load: &LoadFrame,
-    ) -> Result<(Self, BoundaryJson), PluginProcessError> {
+    ) -> Result<(Self, PluginRegistration), PluginProcessError> {
         if config.max_frame_bytes == 0 {
             return Err(PluginProcessError::InvalidConfig(
                 "max_frame_bytes must be positive".to_string(),

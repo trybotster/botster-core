@@ -13,8 +13,9 @@ use std::thread;
 use std::time::Duration;
 
 use botster_core::runtime::plugin_process::{
-    LoadFrame, PluginExitCause, PluginKillReason, PluginProcess, PluginProcessConfig,
-    PluginProcessError, PluginProcessExited, PluginProcessRlimits,
+    LoadFrame, PluginConfig, PluginExitCause, PluginKillReason, PluginProcess, PluginProcessConfig,
+    PluginProcessError, PluginProcessExited, PluginProcessRlimits, PluginRegistration,
+    PluginSources, SandboxProfile,
 };
 use botster_core::BoundaryJson;
 use botster_core_test_support::real_worker::WorkerBinary;
@@ -51,7 +52,7 @@ fn config(sandbox: Value) -> PluginProcessConfig {
             open_files: Some(OPEN_FILES),
             ..PluginProcessRlimits::default()
         },
-        sandbox: BoundaryJson(sandbox),
+        sandbox: SandboxProfile(BoundaryJson(sandbox)),
         memory_cap_bytes: None,
         max_frame_bytes: 1024 * 1024,
         startup_deadline: GENEROUS_STARTUP,
@@ -62,12 +63,12 @@ fn config(sandbox: Value) -> PluginProcessConfig {
 
 fn load(mode: &str) -> LoadFrame {
     LoadFrame {
-        sources: BoundaryJson(json!({})),
-        config: BoundaryJson(json!({ "mode": mode })),
+        sources: PluginSources(BoundaryJson(json!({}))),
+        config: PluginConfig(BoundaryJson(json!({ "mode": mode }))),
     }
 }
 
-type SpawnResult = Result<(PluginProcess, BoundaryJson), PluginProcessError>;
+type SpawnResult = Result<(PluginProcess, PluginRegistration), PluginProcessError>;
 
 /// Spawn on a helper thread, so a startup that never resolves fails the test
 /// at the event bound instead of hanging it.
@@ -119,7 +120,7 @@ fn a_worker_starts_with_only_the_allowlisted_environment_and_descriptors() {
     // SAFETY: closes the descriptor that this test duplicated above.
     unsafe { libc::close(leaked) };
 
-    let report = registration.0;
+    let report = registration.0 .0;
     let env: BTreeMap<String, String> =
         serde_json::from_value(report["env"].clone()).expect("env map");
     assert_eq!(

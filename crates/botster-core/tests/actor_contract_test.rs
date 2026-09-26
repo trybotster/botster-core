@@ -27,7 +27,7 @@ struct BoundaryJsonEscapeHatch {
 
 // Keep this owner/reason inventory in sync with the recursive source scan in
 // boundary_test.rs so new BoundaryJson fields are both classified and detected.
-const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 11] = [
+const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 15] = [
     BoundaryJsonEscapeHatch {
         path: "TransportSignal.payload",
         owner: "relay",
@@ -104,6 +104,35 @@ const BOUNDARY_JSON_ESCAPE_HATCHES: [BoundaryJsonEscapeHatch; 11] = [
         reason: "plugin notification content extension schema is opaque to core",
         file: "src/contract/notification.rs",
         source_marker: "pub struct NotificationContent",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "SandboxProfile.0",
+        owner: "host",
+        reason:
+            "the sandbox profile is Hub host-profile policy, applied only by the Hub's worker hook",
+        file: "src/runtime/plugin_process/protocol.rs",
+        source_marker: "pub struct SandboxProfile",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "PluginSources.0",
+        owner: "plugin",
+        reason: "the package module set is plugin content that only the plugin runtime reads",
+        file: "src/runtime/plugin_process/protocol.rs",
+        source_marker: "pub struct PluginSources",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "PluginConfig.0",
+        owner: "plugin",
+        reason: "plugin configuration schema is owned by the plugin and its runtime",
+        file: "src/runtime/plugin_process/protocol.rs",
+        source_marker: "pub struct PluginConfig",
+    },
+    BoundaryJsonEscapeHatch {
+        path: "PluginRegistration.0",
+        owner: "plugin",
+        reason: "the registration is produced by the plugin runtime and interpreted by the Hub",
+        file: "src/runtime/plugin_process/protocol.rs",
+        source_marker: "pub struct PluginRegistration",
     },
 ];
 
@@ -282,12 +311,12 @@ fn boundary_json_is_reserved_for_lua_plugin_or_relay_payloads() {
 
 #[test]
 fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
-    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 11);
+    assert_eq!(BOUNDARY_JSON_ESCAPE_HATCHES.len(), 15);
 
     for hatch in BOUNDARY_JSON_ESCAPE_HATCHES {
         assert!(!hatch.path.is_empty(), "{:?}", hatch.path);
         assert!(
-            ["relay", "plugin", "relay/plugin"].contains(&hatch.owner),
+            ["relay", "plugin", "relay/plugin", "host"].contains(&hatch.owner),
             "{} has unexpected owner {}",
             hatch.path,
             hatch.owner
@@ -335,6 +364,10 @@ fn boundary_json_escape_hatches_are_classified_with_owner_and_reason() {
             "TransportEgress::BoundaryPayload.payload",
             "NotificationAction.extension",
             "NotificationContent.extension",
+            "SandboxProfile.0",
+            "PluginSources.0",
+            "PluginConfig.0",
+            "PluginRegistration.0",
         ]
     );
 }
@@ -544,6 +577,7 @@ fn stable_botster_controls_do_not_use_boundary_json() {
         "src/contract/notification.rs",
         "src/lib.rs",
         "src/contract/boundary.rs",
+        "src/runtime/plugin_process/protocol.rs",
     ] {
         let source = std::fs::read_to_string(file).expect("read source");
         for line in source.lines() {
@@ -569,6 +603,7 @@ fn stable_botster_controls_do_not_use_boundary_json() {
         field.starts_with("src/contract/actor.rs:")
             || field.starts_with("src/contract/transport.rs:")
             || field.starts_with("src/contract/notification.rs:")
+            || field.starts_with("src/runtime/plugin_process/protocol.rs:")
     }));
 
     let actor_source = std::fs::read_to_string("src/contract/actor.rs").expect("read actor source");

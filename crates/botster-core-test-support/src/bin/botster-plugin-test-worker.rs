@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use botster_core::runtime::plugin_process::worker::{run_worker, LoadedPlugin, WorkerHooks};
-use botster_core::runtime::plugin_process::LoadFrame;
+use botster_core::runtime::plugin_process::{LoadFrame, PluginRegistration, SandboxProfile};
 use botster_core::{
     BoundaryJson, PluginCancellationToken, PluginInvocationFailure, PluginInvocationFailureKind,
     PluginInvocationRequest, PluginInvocationResult, PluginRuntime,
@@ -33,8 +33,8 @@ fn main() {
     });
 }
 
-fn apply_sandbox(profile: &BoundaryJson) -> Result<(), String> {
-    if let Some(reason) = profile.0.get("fail").and_then(Value::as_str) {
+fn apply_sandbox(profile: &SandboxProfile) -> Result<(), String> {
+    if let Some(reason) = profile.0 .0.get("fail").and_then(Value::as_str) {
         return Err(reason.to_string());
     }
     SANDBOX_APPLIED.store(true, Ordering::SeqCst);
@@ -42,11 +42,11 @@ fn apply_sandbox(profile: &BoundaryJson) -> Result<(), String> {
 }
 
 fn load(frame: LoadFrame) -> Result<LoadedPlugin, String> {
-    let mode = frame.config.0.get("mode").and_then(Value::as_str);
+    let mode = frame.config.0 .0.get("mode").and_then(Value::as_str);
     match mode {
         Some("report") => Ok(LoadedPlugin {
             runtime: Arc::new(TestRuntime),
-            registration: BoundaryJson(report()),
+            registration: PluginRegistration(BoundaryJson(report())),
         }),
         Some("fail") => Err("scripted load failure".to_string()),
         Some("spin") => loop {

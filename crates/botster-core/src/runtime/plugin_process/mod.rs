@@ -18,11 +18,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::boundary::BoundaryJson;
 use crate::contract::session_protocol::ProtocolError;
 
 pub use host::PluginProcess;
-pub use protocol::LoadFrame;
+pub use protocol::{LoadFrame, PluginConfig, PluginRegistration, PluginSources, SandboxProfile};
 
 /// Hub-supplied configuration for one plugin process. Core has no defaults.
 #[derive(Debug, Clone)]
@@ -36,7 +35,7 @@ pub struct PluginProcessConfig {
     /// Resource limits applied in the child before `exec`.
     pub rlimits: PluginProcessRlimits,
     /// Opaque sandbox profile, passed to the worker's `apply_sandbox` hook.
-    pub sandbox: BoundaryJson,
+    pub sandbox: SandboxProfile,
     /// Allocator cap installed in the child before plugin code loads.
     pub memory_cap_bytes: Option<u64>,
     /// Largest frame (type byte plus payload) accepted in either direction.
