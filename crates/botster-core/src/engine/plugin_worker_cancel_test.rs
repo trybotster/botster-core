@@ -2,9 +2,10 @@
 // targets: no engine lock is held while targets run, and a panicking target
 // cannot stop the shared deadline waiter.
 //
-// Each invocation arms a deadline far in the future. The runtime reports
-// when its targets are subscribed, and only then does the test make the
-// deadline due, so the deadline waiter always fires it after subscription.
+// The deadline waiter is gated: before it fires a due deadline it takes that
+// request's permit, and the request's runtime grants the permit only after it
+// has subscribed. So every deadline reaches the waiter's cancel path after
+// its own subscription, with the tests' original deadline values.
 
 use super::*;
 use crate::runtime::CancelTarget;
@@ -13,8 +14,6 @@ use std::sync::mpsc;
 
 /// Bound for each event these tests wait for; expiry fails the test.
 const EVENT_DEADLINE: Duration = Duration::from_secs(10);
-/// Invocation deadline that never fires on its own during a test.
-const FAR_DEADLINE_MS: u64 = 600_000;
 const DEADLINE_WAITER: &str = "botster-plugin-deadline-waiter";
 
 struct Latch {
@@ -30,11 +29,11 @@ impl CancelTarget for Latch {
 }
 
 /// A runtime that subscribes the extra targets the test installed plus its
-/// own latch, reports that, and waits for the cancellation as an event.
-#[derive(Default)]
+/// own latch, then grants one deadline permit, then waits for the
+/// cancellation as an event.
 struct CancelWaitRuntime {
     extras: Mutex<Vec<Arc<dyn CancelTarget>>>,
-    subscribed: Mutex<Option<mpsc::Sender<RequestId>>>,
+    permits: Arc<DeadlinePermits>,
 }
 
 impl PluginRuntime for CancelWaitRuntime {
@@ -53,9 +52,7 @@ impl PluginRuntime for CancelWaitRuntime {
             cvar: Condvar::new(),
         });
         let _latch = cancellation.subscribe(latch.clone());
-        if let Some(subscribed) = &*self.subscribed.lock().expect("subscribed") {
-            let _ = subscribed.send(request.request_id.clone());
-        }
+        self.permits.grant(request.request_id.clone());
         let mut cancelled = latch.cancelled.lock().expect("latch");
         while !*cancelled {
             cancelled = latch.cvar.wait(cancelled).expect("latch");
@@ -102,31 +99,25 @@ impl CancelTarget for PanickingTarget {
 fn load_cancel_wait(
     engine: &PluginWorkerEngine,
     plugin: &PluginKey,
-    subscribed: &mpsc::Sender<RequestId>,
-) -> Arc<CancelWaitRuntime> {
-    let runtime = Arc::new(CancelWaitRuntime::default());
-    *runtime.subscribed.lock().expect("subscribed") = Some(subscribed.clone());
-    engine.load_plugin(registration(plugin, runtime.clone()));
-    runtime
+    permits: &Arc<DeadlinePermits>,
+    extras: Vec<Arc<dyn CancelTarget>>,
+) {
+    let runtime = Arc::new(CancelWaitRuntime {
+        extras: Mutex::new(extras),
+        permits: permits.clone(),
+    });
+    engine.load_plugin(registration(plugin, runtime));
 }
 
-fn admit_far(engine: &PluginWorkerEngine, plugin: &PluginKey, id: &str) {
+fn admit(engine: &PluginWorkerEngine, plugin: &PluginKey, id: &str, timeout_ms: u64) {
     assert!(matches!(
         engine.try_admit(
             PluginInvocationClass::Background,
-            request(id, handler(plugin), FAR_DEADLINE_MS),
+            request(id, handler(plugin), timeout_ms),
             1,
         ),
         PluginAdmissionResult::Queued { .. }
     ));
-}
-
-fn await_subscribed(subscribed: &mpsc::Receiver<RequestId>, id: &str) {
-    // timer: deadline — the runtime reports its subscription; expiry means it never ran
-    let reported = subscribed
-        .recv_timeout(EVENT_DEADLINE)
-        .expect("the runtime subscribes before the test fires its deadline");
-    assert_eq!(reported.0, id);
 }
 
 #[test]
@@ -134,23 +125,17 @@ fn deadline_cancel_runs_targets_outside_the_admission_lock() {
     // Not dropped on the failure path: a deadlocked deadline waiter would make
     // the engine's drop join hang the harness.
     let engine = ManuallyDrop::new(PluginWorkerEngine::new());
+    let permits = engine.gate_deadlines();
     let plugin = PluginKey("cancel-outside-admission".into());
-    let (subscribed_tx, subscribed_rx) = mpsc::channel();
-    let runtime = load_cancel_wait(&engine, &plugin, &subscribed_tx);
     let (done_tx, done_rx) = mpsc::channel();
-    runtime
-        .extras
-        .lock()
-        .expect("extras")
-        .push(Arc::new(AdmissionProbe {
-            engine: PluginWorkerEngine::clone(&engine),
-            plugin: plugin.clone(),
-            done: Mutex::new(Some(done_tx)),
-        }));
+    let probe: Arc<dyn CancelTarget> = Arc::new(AdmissionProbe {
+        engine: PluginWorkerEngine::clone(&engine),
+        plugin: plugin.clone(),
+        done: Mutex::new(Some(done_tx)),
+    });
+    load_cancel_wait(&engine, &plugin, &permits, vec![probe]);
 
-    admit_far(&engine, &plugin, "deadline");
-    await_subscribed(&subscribed_rx, "deadline");
-    engine.expire_deadline_now(&RequestId("deadline".into()));
+    admit(&engine, &plugin, "deadline", 20);
 
     // timer: deadline — the probe reports from the deadline waiter; expiry means it deadlocked
     let (thread, jobs) = done_rx
@@ -164,30 +149,23 @@ fn deadline_cancel_runs_targets_outside_the_admission_lock() {
 #[test]
 fn a_panicking_target_does_not_stop_later_deadlines() {
     let engine = ManuallyDrop::new(PluginWorkerEngine::new());
+    let permits = engine.gate_deadlines();
     let (notify_tx, notify_rx) = mpsc::channel();
     engine.install_completion_notifier(Arc::new(move || {
         let _ = notify_tx.send(());
     }));
     let panicking = PluginKey("panicking-target".into());
     let unrelated = PluginKey("unrelated-plugin".into());
-    let (subscribed_tx, subscribed_rx) = mpsc::channel();
-    load_cancel_wait(&engine, &panicking, &subscribed_tx)
-        .extras
-        .lock()
-        .expect("extras")
-        .push(Arc::new(PanickingTarget));
-    load_cancel_wait(&engine, &unrelated, &subscribed_tx);
+    load_cancel_wait(&engine, &panicking, &permits, vec![Arc::new(PanickingTarget)]);
+    load_cancel_wait(&engine, &unrelated, &permits, Vec::new());
 
-    admit_far(&engine, &panicking, "first");
-    await_subscribed(&subscribed_rx, "first");
-    admit_far(&engine, &unrelated, "second");
-    await_subscribed(&subscribed_rx, "second");
+    // The panicking target runs on the waiter when "first" fires; the waiter
+    // must still be alive to fire "second" afterwards.
+    admit(&engine, &panicking, "first", 10);
+    admit(&engine, &unrelated, "second", 100);
 
     let mut timed_out = Vec::new();
-    for id in ["first", "second"] {
-        // The panicking target runs on the waiter when "first" fires; the
-        // waiter must still be alive to fire "second" afterwards.
-        engine.expire_deadline_now(&RequestId(id.into()));
+    while timed_out.len() < 2 {
         // timer: deadline — each fired deadline publishes a completion; expiry means the waiter died
         notify_rx
             .recv_timeout(EVENT_DEADLINE)
