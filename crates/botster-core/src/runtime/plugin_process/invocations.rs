@@ -153,6 +153,9 @@ pub(super) enum Admission {
     Waiting,
     /// No new invocation is accepted (stop or exit).
     Closed,
+    /// The waiting queue is at its bound: more callers than the engine's
+    /// executor width are invoking at once.
+    Full,
 }
 
 pub(super) struct Invocations {
@@ -172,24 +175,32 @@ impl Invocations {
         self.table.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Admit `invocation` now if there is room and no earlier record with its
-    /// id is still retiring; otherwise queue it behind the earlier waiters.
+    /// Queue `invocation` behind the earlier waiters and admit every waiter
+    /// that fits. The waiting queue holds at most `max_in_flight` callers:
+    /// each engine executor waits for at most one invocation, so more means
+    /// the caller exceeded the executor width, and it is refused at once.
+    /// Each waiter holds one encoded frame of at most the frame bound.
     pub(super) fn admit(&self, invocation: &Arc<Invocation>, sink: FrameSink<'_>) -> Admission {
         let mut table = self.lock();
         if table.closed {
             return Admission::Closed;
         }
-        if table.waiting.is_empty() && has_room(&table, invocation, self.max_in_flight) {
-            insert(&mut table, invocation, sink);
-            return Admission::Admitted;
+        if table.waiting.len() >= self.max_in_flight {
+            return Admission::Full;
         }
         table.waiting.push_back(invocation.clone());
-        Admission::Waiting
+        admit_waiting(&mut table, self.max_in_flight, sink);
+        if invocation.lock().admitted {
+            Admission::Admitted
+        } else {
+            Admission::Waiting
+        }
     }
 
-    /// Withdraw a waiting invocation (its token was cancelled). Returns
-    /// false if it was admitted meanwhile.
-    pub(super) fn withdraw(&self, invocation: &Arc<Invocation>) -> bool {
+    /// Withdraw a waiting invocation (its token was cancelled), then admit
+    /// any waiter it was holding back. Returns false if it was admitted
+    /// meanwhile.
+    pub(super) fn withdraw(&self, invocation: &Arc<Invocation>, sink: FrameSink<'_>) -> bool {
         let mut table = self.lock();
         let Some(index) = table
             .waiting
@@ -199,6 +210,7 @@ impl Invocations {
             return false;
         };
         table.waiting.remove(index);
+        admit_waiting(&mut table, self.max_in_flight, sink);
         true
     }
 
@@ -321,10 +333,6 @@ impl Invocations {
     }
 }
 
-fn has_room(table: &Table, invocation: &Invocation, max_in_flight: usize) -> bool {
-    table.records.len() < max_in_flight && !table.records.contains_key(&invocation.request_id)
-}
-
 /// Insert `invocation`'s record and queue its `Invoke`. The caller holds the
 /// table lock.
 fn insert(table: &mut Table, invocation: &Arc<Invocation>, sink: FrameSink<'_>) {
@@ -351,8 +359,24 @@ fn insert(table: &mut Table, invocation: &Arc<Invocation>, sink: FrameSink<'_>) 
     invocation.wake();
 }
 
+/// Admit waiting invocations in arrival order while there is room. A waiter
+/// whose id is still live is skipped, not allowed to hold back the waiters
+/// behind it.
+fn admit_waiting(table: &mut Table, max_in_flight: usize, sink: FrameSink<'_>) {
+    let mut index = 0;
+    while index < table.waiting.len() && table.records.len() < max_in_flight {
+        let next = table.waiting[index].clone();
+        if table.records.contains_key(&next.request_id) {
+            index += 1;
+            continue;
+        }
+        table.waiting.remove(index);
+        insert(table, &next, sink);
+    }
+}
+
 /// Remove a record once it is settled and all its frames are written, then
-/// admit waiting invocations into the freed room, in order.
+/// admit waiting invocations into the freed room.
 fn retire_if_done(
     table: &mut Table,
     request_id: &RequestId,
@@ -367,13 +391,7 @@ fn retire_if_done(
         return;
     }
     table.records.remove(request_id);
-    while let Some(next) = table.waiting.front().cloned() {
-        if !has_room(table, &next, max_in_flight) {
-            break;
-        }
-        table.waiting.pop_front();
-        insert(table, &next, sink);
-    }
+    admit_waiting(table, max_in_flight, sink);
 }
 
 #[cfg(test)]
