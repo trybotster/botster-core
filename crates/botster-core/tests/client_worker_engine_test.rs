@@ -4,7 +4,6 @@
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use botster_core::contract::terminal_adapter::{
@@ -376,7 +375,8 @@ fn unbound_process_exit_removes_inventory_and_keeps_the_session() {
             saw_exit = true;
             break;
         }
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the loop's bound; the next session wake ends the wait early
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
     assert!(saw_exit, "unbound ProcessExit must remain on drain");
     assert!(
