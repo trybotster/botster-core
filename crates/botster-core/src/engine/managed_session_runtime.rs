@@ -988,15 +988,19 @@ where
         }
     }
 
-    /// Fail a route whose owed capture ends unserved: a bound route receives
-    /// ATTACH_STATE failed as its terminal frame, and a teardown (an unbound
-    /// route, or a full queue) goes through the managed teardown path.
-    pub(crate) fn fail_route_capture(
+    /// End a route capture that will never be served
+    /// ([`ClientWorker::end_unserved_capture`]); a teardown goes through the
+    /// managed teardown path.
+    pub(crate) fn end_unserved_capture(
         &mut self,
         session_id: &SessionId,
         subscription_id: &SubscriptionId,
+        finished: Option<crate::engine::client_worker::CaptureIdentity>,
     ) {
-        if let Some(teardown) = self.client_worker.fail_route(session_id, subscription_id) {
+        if let Some(teardown) =
+            self.client_worker
+                .end_unserved_capture(session_id, subscription_id, finished)
+        {
             self.pending_input_teardowns.push(teardown);
         }
     }
