@@ -1186,6 +1186,14 @@ impl CoreDaemon {
         self.engine.pending_terminal_resize_len(session_id)
     }
 
+    /// Whether a worker capture (an attach snapshot barrier) is open for one
+    /// session. While it is open, the pump parks that session's route input.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn capture_active(&self, session_id: &SessionId) -> bool {
+        self.engine.capture_active(session_id)
+    }
+
     /// Durable control-plane state for one worker session.
     #[doc(hidden)]
     #[must_use]
