@@ -32,7 +32,10 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("botster-core-wake-{label}-{nanos}"))
+    std::env::temp_dir().join(format!(
+        "botster-core-wake-{label}-{}-{nanos}",
+        std::process::id()
+    ))
 }
 
 /// Pump real wakes until `done` holds, waiting for each wake with the time

@@ -28,7 +28,10 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("botster-core-progress-wake-{label}-{nanos}"))
+    std::env::temp_dir().join(format!(
+        "botster-core-progress-wake-{label}-{}-{nanos}",
+        std::process::id()
+    ))
 }
 
 fn spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
