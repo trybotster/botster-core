@@ -1348,6 +1348,13 @@ pub enum PluginAdmissionResult {
     /// the completion notifier fires once a worker or the deadline waiter
     /// releases admission state. The caller parks the request and retries
     /// it on that notification, never on a timer.
+    ///
+    /// Only worker and deadline-waiter releases fire that wake. A host
+    /// thread that holds an engine lock (for example inside another
+    /// admission or a completion drain) fires none when it releases, so
+    /// host code must not hold engine locks across its own admission
+    /// attempts. A poisoned engine lock is never `LockBusy`: it is
+    /// [`WorkerStopped`](Self::WorkerStopped).
     LockBusy {
         /// Request correlation id.
         request_id: RequestId,
@@ -1365,7 +1372,9 @@ pub enum PluginAdmissionResult {
         /// Human-readable rejection reason.
         reason: String,
     },
-    /// The target worker is missing or stopping.
+    /// The target worker is missing or stopping, or an engine lock that
+    /// admission needs is poisoned (a holder panicked). Terminal: no retry
+    /// wake follows.
     WorkerStopped {
         /// Request correlation id.
         request_id: RequestId,
