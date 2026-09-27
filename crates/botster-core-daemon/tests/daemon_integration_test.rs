@@ -2235,6 +2235,86 @@ fn an_exit_with_no_capture_leaves_no_worker_behind() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// Shutdown never hands a route that still waits for its attach snapshot a
+/// bare PROCESS_EXIT: the owed snapshot ends explicitly first (its FINISH,
+/// or the typed ATTACH_STATE failed), and is never lost silently.
+#[cfg(unix)]
+#[test]
+fn shutdown_ends_an_owed_attach_snapshot_before_any_exit() {
+    let data_dir = temp_data_dir("shutdown-owed-snapshot");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("shutdown-owed-snapshot".to_string());
+    let client_id = ClientId("shutdown-owed-snapshot-client".to_string());
+    let subscription_id = SubscriptionId("shutdown-owed-snapshot-sub".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("inventory")
+        .records
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory row")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind while the attach capture is owed");
+
+    // Nothing pumps, so the attach capture cannot progress: it is still
+    // owed when shutdown drops it.
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown with an owed attach capture");
+    assert!(
+        pump_wakes_until(&mut daemon, || adapter.close_reason().is_some()),
+        "the route ends after shutdown"
+    );
+
+    let frames: Vec<TerminalFrame> = adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .map(|bytes| adapter_terminal_frame(bytes))
+        .collect();
+    let ended_explicitly = |frame: &TerminalFrame| {
+        frame.kind() == TerminalKind::SnapshotFinish
+            || (frame.kind() == TerminalKind::AttachState
+                && decode_attach_state(frame).expect("attach state body")
+                    == AttachStateCode::Failed)
+    };
+    let kinds: Vec<TerminalKind> = frames.iter().map(TerminalFrame::kind).collect();
+    let snapshot_end = frames.iter().position(ended_explicitly);
+    assert!(
+        snapshot_end.is_some(),
+        "the owed snapshot must end with FINISH or ATTACH_STATE failed: {kinds:?}"
+    );
+    if let Some(exit) = kinds
+        .iter()
+        .position(|kind| *kind == TerminalKind::ProcessExit)
+    {
+        assert!(
+            snapshot_end.is_some_and(|end| end < exit),
+            "PROCESS_EXIT must not overtake the owed snapshot: {kinds:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// The production shutdown grace (500 ms) ends a process group that ignores
 /// TERM: shutdown waits the whole grace, then kills the group. Tests whose
 /// property is order or preservation may lengthen the grace; this test keeps
