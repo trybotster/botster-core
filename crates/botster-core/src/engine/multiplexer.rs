@@ -1115,6 +1115,12 @@ where
                     code: payload.exit_code,
                 },
             ),
+            SessionIoEvent::WorkerLost { session_id } => self.apply_lifecycle(
+                session_id.clone(),
+                SessionLifecycleState::Failed {
+                    reason: "worker_lost".to_string(),
+                },
+            ),
             SessionIoEvent::Shutdown { session_id, .. } => {
                 match self.session(session_id).map(|session| &session.lifecycle) {
                     Some(SessionLifecycleState::Exited { .. }) => Ok(()),
@@ -1241,7 +1247,8 @@ fn runtime_event_session_id(event: &SessionWorkerRuntimeEvent) -> SessionId {
         | SessionWorkerRuntimeEvent::PromptMark { session_id, .. }
         | SessionWorkerRuntimeEvent::Bell { session_id }
         | SessionWorkerRuntimeEvent::Notification { session_id, .. }
-        | SessionWorkerRuntimeEvent::ProcessExited { session_id, .. } => session_id.clone(),
+        | SessionWorkerRuntimeEvent::ProcessExited { session_id, .. }
+        | SessionWorkerRuntimeEvent::WorkerLost { session_id } => session_id.clone(),
         SessionWorkerRuntimeEvent::InitialSnapshotReady(snapshot) => snapshot.session_id.clone(),
     }
 }

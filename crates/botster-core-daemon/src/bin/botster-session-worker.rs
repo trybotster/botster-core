@@ -1001,6 +1001,8 @@ impl WorkerState {
                     }
                 }
                 SessionRuntimeOutput::Backpressure(_)
+                // The worker's own local runtime never loses a worker.
+                | SessionRuntimeOutput::WorkerLost { .. }
                 | SessionRuntimeOutput::TitleChanged { .. }
                 | SessionRuntimeOutput::CwdChanged { .. }
                 | SessionRuntimeOutput::PromptMark { .. }

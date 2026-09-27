@@ -200,7 +200,7 @@ where
             {
                 Ok(sizes) => sizes,
                 Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
-                    if self.session(session_id).is_none() || self.session_exited(session_id) {
+                    if self.session(session_id).is_none() || self.session_ended(session_id) {
                         self.pending_terminal_resizes.remove(session_id);
                         continue;
                     }
@@ -1582,7 +1582,7 @@ where
             Ok(outcome) => outcome,
             Err(ManagedSessionRuntimeError::Runtime(error))
                 if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                    && self.session_exited(session_id) =>
+                    && self.session_ended(session_id) =>
             {
                 MultiplexerEngineOutcome::empty()
             }
@@ -1611,7 +1611,7 @@ where
                 Ok(step) => append_outcome(&mut outcome, step),
                 Err(ManagedSessionRuntimeError::Runtime(error))
                     if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                        && self.session_exited(&session_id) =>
+                        && self.session_ended(&session_id) =>
                 {
                     continue;
                 }
@@ -1691,6 +1691,23 @@ where
                         payload,
                     }
                 }
+                SessionRuntimeOutput::WorkerLost { session_id } => {
+                    // The worker is gone without an exit report: in-flight
+                    // input has an unknown outcome, and every route ends with
+                    // the typed worker-link close.
+                    teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                        &session_id,
+                        InputOutcome::OutcomeUnknown,
+                        "session worker lost",
+                    ));
+                    teardowns.extend(
+                        self.client_worker.teardown_session(
+                            &session_id,
+                            TerminalRouteCloseReason::WorkerLinkFailed,
+                        ),
+                    );
+                    crate::SessionWorkerRuntimeEvent::WorkerLost { session_id }
+                }
                 SessionRuntimeOutput::TitleChanged { session_id, title } => {
                     crate::SessionWorkerRuntimeEvent::TitleChanged { session_id, title }
                 }
@@ -1731,7 +1748,14 @@ where
 
         // write_pty replies queued during record_output must reach the child
         // PTY even when no client-facing request mutator flushes inputs.
-        self.flush_runtime_inputs_for_session(session_id)?;
+        match self.flush_runtime_inputs_for_session(session_id) {
+            Ok(()) => {}
+            // A full control queue is backpressure, not a failure of the
+            // pump: the input stays buffered, and the queue's writer wakes
+            // the session when it has room again.
+            Err(error) if error.message.contains("control queue full") => {}
+            Err(error) => return Err(error.into()),
+        }
 
         Ok(outcome)
     }
@@ -1778,7 +1802,7 @@ where
                 Ok(step) => append_outcome(&mut outcome, step),
                 Err(ManagedSessionRuntimeError::Runtime(error))
                     if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                        && self.session_exited(session_id) => {}
+                        && self.session_ended(session_id) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -2146,6 +2170,15 @@ where
         let mut inputs = inputs.into_iter();
         while let Some(input) = inputs.next() {
             if let Err(error) = self.engine.session_runtime_mut().send_input(input.clone()) {
+                // A sealed control plane or a session already removed (its
+                // worker was lost) can never take this input. It is dropped
+                // for this session only: the session's end carries its own
+                // typed outcome, and the other sessions still flush.
+                if error.message.contains("control plane sealed")
+                    || error.kind == crate::SessionRuntimeErrorKind::SessionNotFound
+                {
+                    return Ok(());
+                }
                 if let Some(worker) = self.engine_worker(session_id) {
                     if error.message.contains("control queue full") {
                         worker.prepend_inputs(std::iter::once(input).chain(inputs));
@@ -2222,10 +2255,11 @@ where
         self.engine.session_worker_runtime_mut(session_id)
     }
 
-    fn session_exited(&self, session_id: &SessionId) -> bool {
+    /// The session is over: its child exited, or its worker was lost.
+    fn session_ended(&self, session_id: &SessionId) -> bool {
         matches!(
             self.session(session_id).map(|session| &session.lifecycle),
-            Some(SessionLifecycleState::Exited { .. })
+            Some(SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. })
         )
     }
 
@@ -2878,6 +2912,11 @@ mod tests {
             self.fail_next = Some(input);
             self.fail_message = Some("control queue full");
         }
+
+        fn fail_next_sealed(&mut self, input: SessionRuntimeInput) {
+            self.fail_next = Some(input);
+            self.fail_message = Some("control plane sealed");
+        }
     }
 
     impl SessionRuntime for FailingInputRuntime {
@@ -3110,6 +3149,46 @@ mod tests {
             runtime.session_runtime().delivered,
             vec![failed_input, remainder]
         );
+    }
+
+    /// Input a sealed control plane refuses is dropped for its own session
+    /// only: another session's input in the same flush is still delivered,
+    /// and the flush does not fail.
+    #[test]
+    fn sealed_input_is_dropped_without_failing_other_sessions_input() {
+        let sealed_id = SessionId("sealed".to_string());
+        let live_id = SessionId("live".to_string());
+        let sealed_input = SessionRuntimeInput::PtyInput {
+            session_id: sealed_id.clone(),
+            data: b"to-sealed".to_vec(),
+        };
+        let live_input = SessionRuntimeInput::PtyInput {
+            session_id: live_id.clone(),
+            data: b"to-live".to_vec(),
+        };
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        for id in [&sealed_id, &live_id] {
+            runtime
+                .spawn_session(test_spawn_request(&id.0), CoreSessionMetadata::new())
+                .expect("spawn");
+        }
+        runtime
+            .engine_worker(&sealed_id)
+            .expect("sealed worker")
+            .write_input(&sealed_id, b"to-sealed");
+        runtime
+            .engine_worker(&live_id)
+            .expect("live worker")
+            .write_input(&live_id, b"to-live");
+        runtime
+            .session_runtime_mut()
+            .fail_next_sealed(sealed_input.clone());
+
+        runtime
+            .flush_runtime_inputs()
+            .expect("a sealed plane never fails the flush");
+        assert!(runtime.session_runtime().delivered.contains(&live_input));
+        assert!(!runtime.session_runtime().delivered.contains(&sealed_input));
     }
 
     #[test]

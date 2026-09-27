@@ -1526,6 +1526,14 @@ impl CoreDaemon {
     ) -> Result<(), CoreDaemonError> {
         self.ensure_running()?;
         self.ensure_session_mutable(&session_id)?;
+        // A failed control plane can never deliver input: refuse it here,
+        // typed, instead of buffering bytes the pump would have to drop.
+        if matches!(
+            self.engine.control_plane_state(&session_id),
+            botster_core::runtime::ControlPlaneState::Failed(_)
+        ) {
+            return Err(CoreDaemonError::ControlPlaneFailed(session_id));
+        }
         self.engine
             .write_bytes(client_id, session_id, data.into(), now_seconds)?;
         Ok(())
@@ -4512,6 +4520,14 @@ fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {
                         code: payload.exit_code,
                     },
                 }),
+                SessionIoEvent::WorkerLost { session_id } => {
+                    Some(BotsterEngineObservation::SessionLifecycle {
+                        session_id: session_id.clone(),
+                        state: SessionLifecycleState::Failed {
+                            reason: "worker_lost".to_string(),
+                        },
+                    })
+                }
                 _ => None,
             }),
     );

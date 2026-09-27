@@ -124,6 +124,11 @@ pub enum SessionWorkerRuntimeEvent {
         /// Process exit payload.
         payload: ProcessExitedPayload,
     },
+    /// The session's worker ended without reporting an exit.
+    WorkerLost {
+        /// Session whose worker was lost.
+        session_id: SessionId,
+    },
 }
 
 /// Events and observations produced by a worker engine step.
@@ -449,6 +454,12 @@ where
                     session_id,
                     payload,
                 });
+                SessionWorkerOutcome::from_events(events, self.last_output_at)
+            }
+            SessionWorkerRuntimeEvent::WorkerLost { session_id } => {
+                self.closed = true;
+                let mut events = self.flush_initial_output_events(&session_id);
+                events.push(SessionIoEvent::WorkerLost { session_id });
                 SessionWorkerOutcome::from_events(events, self.last_output_at)
             }
         }

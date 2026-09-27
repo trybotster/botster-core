@@ -2171,6 +2171,387 @@ fn an_exit_with_no_capture_leaves_no_worker_behind() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// Wait, without pumping, until the parent reader of `session_id` reaches
+/// its worker's end of stream.
+fn wait_for_reader_end(events: &mpsc::Receiver<WorkerRouteProbeEvent>, session_id: &SessionId) {
+    loop {
+        // timer: deadline — the reader must end; expiry fails the test
+        match events
+            .recv_timeout(REAL_WORKER_COMPLETION_TIMEOUT)
+            .expect("the parent reader reaches the worker's end of stream")
+        {
+            WorkerRouteProbeEvent::ReaderEnded {
+                session_id: ref ended,
+            } if ended == session_id => {
+                return;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A worker killed without PROCESS_EXITED ends its session from its reader's
+/// end of stream alone: no input, only wakes. Its owner is swept with the
+/// typed worker-link close, and the session fails as worker_lost.
+#[cfg(unix)]
+#[test]
+fn a_killed_worker_is_detected_from_its_reader_end_without_input() {
+    let data_dir = temp_data_dir("worker-lost");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("worker-lost".to_string());
+    let subscription_id = SubscriptionId("worker-lost-sub".to_string());
+    let adapter = bind_echo_worker(
+        &mut daemon,
+        session_id.clone(),
+        ClientId("worker-lost-client".to_string()),
+        subscription_id.clone(),
+        "exec cat >/dev/null",
+        10,
+    );
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &session_id);
+    let _ = Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status()
+        .expect("kill the worker");
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "worker exits"
+    );
+
+    // Only wakes drive the pump; no input is sent.
+    let mut now = 20;
+    wait_for(
+        "the lost worker's owner swept",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            let gone = daemon
+                .list_terminal_subscriptions(1024 * 1024)
+                .expect("inventory")
+                .records
+                .iter()
+                .all(|row| row.subscription_id != subscription_id);
+            if gone {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump the lost worker");
+            }
+            None
+        },
+    );
+    assert_eq!(
+        adapter.close_reason(),
+        Some(botster_core::contract::terminal_adapter::TerminalRouteCloseReason::WorkerLinkFailed),
+        "the route ends with the typed worker-link close"
+    );
+    assert_eq!(
+        daemon.engine_session_lifecycle(&session_id),
+        Some(SessionLifecycleState::Failed {
+            reason: "worker_lost".to_string()
+        }),
+        "the session reports a typed terminal outcome"
+    );
+    assert!(matches!(
+        daemon
+            .session_registry_state(&session_id)
+            .expect("registry lookup"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Stale)
+    ));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A capture whose barrier release cannot be queued (the worker stopped
+/// taking control frames, so the queue is full) fails its route typed and
+/// never fails the host's pump batch.
+#[cfg(unix)]
+#[test]
+fn a_capture_release_that_cannot_be_queued_never_fails_the_pump() {
+    let data_dir = temp_data_dir("release-queue-full");
+    let (probe, probe_events) = WorkerRouteProbe::channel();
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_route_probe(Some(probe)),
+    );
+    let session_id = SessionId("release-queue-full".to_string());
+    let client_id = ClientId("release-queue-full-client".to_string());
+    let subscription_id = SubscriptionId("release-queue-full-sub".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("inventory")
+        .records
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory row")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind while the capture is in flight");
+    // Without pumping, wait until the worker has sent the capture's FINISH:
+    // the release is owed, and nothing has tried to queue it yet.
+    loop {
+        // timer: deadline — the capture must finish at the worker; expiry fails the test
+        match probe_events
+            .recv_timeout(REAL_WORKER_COMPLETION_TIMEOUT)
+            .expect("the worker finishes the capture")
+        {
+            WorkerRouteProbeEvent::SnapshotFinishRead {
+                session_id: ref finished,
+            } if *finished == session_id => {
+                break;
+            }
+            _ => {}
+        }
+    }
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &session_id);
+    let stopped = StoppedProcess::new(worker_pid);
+    wait_for(
+        "the control queue full",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |_| {
+            daemon
+                .input(
+                    client_id.clone(),
+                    session_id.clone(),
+                    vec![b'x'; 64 * 1024],
+                    12,
+                )
+                .err()
+                .filter(|error| error.to_string().contains("control queue full"))
+                .map(|_| ())
+        },
+    );
+    // This pump handles FINISH and cannot queue the release.
+    let batch = botster_core::contract::terminal_wake::TerminalWakeBatch {
+        adapter_routes: Vec::new(),
+        ingress_sessions: vec![session_id.clone()],
+    };
+    let _ = daemon
+        .pump_woken(&batch, 13)
+        .expect("a release that cannot be queued must not fail the pump");
+    // The capturing route ends with ATTACH_STATE failed, typed.
+    let mut now = 14;
+    wait_for(
+        "the capturing route's close",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            if adapter.close_reason().is_some() {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump the failed route");
+            }
+            None
+        },
+    );
+    let last = adapter_terminal_frame(
+        adapter
+            .snapshot_delivered_frame_bytes()
+            .last()
+            .expect("the route received frames"),
+    );
+    assert!(
+        last.kind() == TerminalKind::AttachState
+            && decode_attach_state(&last).expect("attach state body") == AttachStateCode::Failed,
+        "the capturing route ends with ATTACH_STATE failed"
+    );
+    drop(stopped);
+    let _ = Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Host input into a failed control plane is refused, typed, at the call:
+/// never buffered and then silently dropped.
+#[cfg(unix)]
+#[test]
+fn input_into_a_failed_control_plane_is_refused_typed() {
+    let data_dir = temp_data_dir("sealed-input-refused");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("sealed-input-refused".to_string());
+    let client_id = ClientId("sealed-input-refused-client".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("sealed-input-refused-sub".to_string()),
+            11,
+        )
+        .expect("attach");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &session_id);
+    // A stopped worker takes no control frames: the queue fills, and the
+    // control writer misses its production write deadline.
+    let stopped = StoppedProcess::new(worker_pid);
+    wait_for(
+        "the control queue full",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |_| {
+            daemon
+                .input(
+                    client_id.clone(),
+                    session_id.clone(),
+                    vec![b'x'; 64 * 1024],
+                    12,
+                )
+                .err()
+                .filter(|error| error.to_string().contains("control queue full"))
+                .map(|_| ())
+        },
+    );
+    let mut now = 13;
+    wait_for(
+        "the control plane failed",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            if matches!(
+                daemon.control_plane_state(&session_id),
+                botster_core::runtime::ControlPlaneState::Failed(_)
+            ) {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump the writer failure");
+            }
+            None
+        },
+    );
+
+    let refused = daemon.input(
+        client_id,
+        session_id.clone(),
+        b"after-failure\n".to_vec(),
+        now + 1,
+    );
+    assert!(
+        matches!(&refused, Err(CoreDaemonError::ControlPlaneFailed(id)) if *id == session_id),
+        "input into a failed control plane must be refused typed: {refused:?}"
+    );
+    drop(stopped);
+    let _ = Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Host input buffered for a session whose worker is then lost never fails
+/// another session's input: flushing every session's buffered input drops
+/// the lost session's bytes, and the other session's input and output
+/// complete.
+#[cfg(unix)]
+#[test]
+fn input_for_a_lost_worker_never_fails_other_work_in_the_batch() {
+    let data_dir = temp_data_dir("lost-input-batch");
+    let (probe, probe_events) = WorkerRouteProbe::channel();
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_route_probe(Some(probe)),
+    );
+    let lost = SessionId("lost-input-a".to_string());
+    let live = SessionId("lost-input-b".to_string());
+    let lost_client = ClientId("lost-input-a-client".to_string());
+    let live_client = ClientId("lost-input-b-client".to_string());
+    for (session_id, client_id, subscription) in [
+        (&lost, &lost_client, "lost-input-a-sub"),
+        (&live, &live_client, "lost-input-b-sub"),
+    ] {
+        daemon.spawn(spawn_request(session_id), 10).expect("spawn");
+        daemon
+            .attach(
+                client_id.clone(),
+                session_id.clone(),
+                SubscriptionId(subscription.to_string()),
+                11,
+            )
+            .expect("attach");
+    }
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &lost);
+
+    // A stopped worker stops reading its control socket, so A's control
+    // queue fills and its further input stays buffered in Core.
+    let stopped = StoppedProcess::new(worker_pid);
+    wait_for(
+        "A's control queue full",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |_| {
+            daemon
+                .input(lost_client.clone(), lost.clone(), vec![b'x'; 64 * 1024], 12)
+                .err()
+                .filter(|error| error.to_string().contains("control queue full"))
+                .map(|_| ())
+        },
+    );
+
+    // The stopped worker dies: its reader ends without an exit report, and
+    // the pump reports the loss and removes A.
+    let _ = Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status()
+        .expect("kill worker A");
+    drop(stopped);
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "worker A exits"
+    );
+    wait_for_reader_end(&probe_events, &lost);
+    let batch = botster_core::contract::terminal_wake::TerminalWakeBatch {
+        adapter_routes: Vec::new(),
+        ingress_sessions: vec![lost.clone()],
+    };
+    let _ = daemon.pump_woken(&batch, 13).expect("pump A's loss");
+    assert_eq!(
+        daemon.engine_session_lifecycle(&lost),
+        Some(SessionLifecycleState::Failed {
+            reason: "worker_lost".to_string()
+        })
+    );
+
+    // B's input flushes every session's buffered input, A's included.
+    daemon
+        .input(live_client, live.clone(), b"still-live\n".to_vec(), 14)
+        .expect("A's lost input must not fail B's input");
+    let drained = drain_until(&mut daemon, &live, "echo:still-live");
+    assert!(terminal_output(&drained.client_egress).contains("echo:still-live"));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 fn complete_one_slot_if_full(adapter: &SharedFakeTerminalAdapter) {
     if adapter.snapshot_pressure() == TerminalAdapterPressure::Full {
         adapter.complete_write();
@@ -6875,34 +7256,39 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
         .args(["-9", &worker_pid.to_string()])
         .status()
         .expect("kill worker");
-    wait_for_condition("failed worker exits", || process_has_exited(worker_pid));
-    let started = Instant::now();
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "failed worker exits"
+    );
+    // No input: the dead worker's reader end wakes the session, and the
+    // pump that handles it sweeps every owner of the session.
     let mut saw_inventory_change = false;
-    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let _ = daemon.input(
-            ClientId("duplex-writer-idle-client".to_string()),
-            failed.clone(),
-            vec![b'X'; 4_096],
-            29,
-        );
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
-        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
-            let outcome = daemon
-                .pump_woken(&batch, 30)
-                .expect("pump worker-link failure");
-            saw_inventory_change |= outcome.terminal_inventory_changed;
-        }
-        let gone = daemon
-            .list_terminal_subscriptions(1024 * 1024)
-            .expect("test inventory allowance")
-            .records
-            .iter()
-            .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub);
-        if gone {
-            break;
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
+    let mut now = 30;
+    wait_for(
+        "the dead worker's owners swept",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            let gone = daemon
+                .list_terminal_subscriptions(1024 * 1024)
+                .expect("test inventory allowance")
+                .records
+                .iter()
+                .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub);
+            if gone {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let outcome = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump worker-link failure");
+                saw_inventory_change |= outcome.terminal_inventory_changed;
+            }
+            None
+        },
+    );
     assert!(
         saw_inventory_change,
         "worker-link failure must report the inventory removal"
@@ -6916,22 +7302,35 @@ fn pump_woken_writer_failure_sweeps_idle_same_session_owner() {
             .all(|row| row.subscription_id != idle_sub && row.subscription_id != active_sub),
         "writer failure must sweep every same-session owner"
     );
+    // Ingress is work for Core: a transport wakes it. The echo may arrive
+    // split across output frames.
     other_adapter.inject_ingress_frame(compact_input_frame(b"LIVE\n"));
-    let started = Instant::now();
-    let mut saw_other = false;
-    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 31);
-        if other_adapter
-            .snapshot_delivered_frame_bytes()
-            .iter()
-            .any(|bytes| adapter_payload_text(bytes).contains("echo:LIVE"))
-        {
-            saw_other = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    assert!(saw_other, "a different session must survive writer failure");
+    let _ = other_adapter.wake(TerminalWakeKind::Writable);
+    wait_for(
+        "a different session surviving the loss",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            let echoed = other_adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .filter(|bytes| adapter_frame_type(bytes) == "terminal_output")
+                .map(|bytes| adapter_payload_text(bytes))
+                .collect::<String>()
+                .contains("echo:LIVE");
+            if echoed {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon
+                    .pump_woken(&batch, now)
+                    .expect("pump the surviving session");
+            }
+            None
+        },
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 
