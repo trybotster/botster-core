@@ -324,8 +324,11 @@ The child side mirrors this (review H2). No plugin-facing call writes the
 socket: frames enter one FIFO, and a child writer thread sends them. A host
 call or log line enters only after its credit is debited, and an
 `InvocationResult` only for an invoke in flight; `Load` carries
-`max_in_flight_invokes`, and more results than that is a parent protocol
-error. So the FIFO needs no new number. A Lua log call only enqueues or drops,
+`max_in_flight_invokes`. A result stops counting when the writer takes it,
+not after its write returns, because the parent may receive it and send the
+next `Invoke` first (review H5). So every counted result belongs to an invoke
+the parent still holds in flight, and more than `max_in_flight_invokes` of them
+is a parent protocol error. The FIFO needs no new number. A Lua log call only enqueues or drops,
 so child logging never blocks. After `Shutdown`, the child exits once the FIFO
 is written; the shutdown deadline bounds that. The decode buffers on both
 sides are bounded by the maximum frame length.
