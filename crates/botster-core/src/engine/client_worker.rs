@@ -295,6 +295,10 @@ struct SubscriptionOwner {
     capture_open: bool,
     /// `PROCESS_EXIT` held while `capture_open`.
     deferred_exit: Option<TerminalFrame>,
+    /// An unserved capture ended with its FINISH queued and no exit held
+    /// yet: the later PROCESS_EXIT is released only while that FINISH is
+    /// intact and the exit fits, and the route ends typed otherwise.
+    unserved_finish: Option<CaptureIdentity>,
     input_queue: VecDeque<AdmittedInput>,
     last_operation_id: u64,
     paste: Option<PasteAssembly>,
@@ -429,6 +433,7 @@ impl ClientWorker {
                 // route; an engine that captures synchronously never opens it.
                 capture_open: false,
                 deferred_exit: None,
+                unserved_finish: None,
                 input_queue: VecDeque::new(),
                 last_operation_id: 0,
                 paste: None,
@@ -959,6 +964,14 @@ impl ClientWorker {
                     owner.deferred_exit = Some(frame.clone());
                     continue;
                 }
+                if let Some(finished) = owner.unserved_finish.take() {
+                    if let Some(teardown) =
+                        self.release_after_unserved_finish(&key, frame.clone(), Some(finished))
+                    {
+                        teardowns.push(teardown);
+                    }
+                    continue;
+                }
             }
             if let Some(teardown) =
                 self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Terminal)
@@ -1085,6 +1098,7 @@ impl ClientWorker {
         }) {
             owner.awaiting_capture = true;
             owner.capture_open = true;
+            owner.unserved_finish = None;
         }
     }
 
@@ -1096,6 +1110,7 @@ impl ClientWorker {
             subscription_id: subscription_id.clone(),
         }) {
             owner.capture_open = true;
+            owner.unserved_finish = None;
         }
     }
 
@@ -1150,25 +1165,51 @@ impl ClientWorker {
         if owner.adapter.is_none() && !owner.hold_until_bound {
             return self.hard_stop_key(&key, TerminalRouteCloseReason::Failed);
         }
+        match exit {
+            Some(exit) => self.release_after_unserved_finish(&key, exit, finished),
+            None if finished.is_some() => {
+                // FINISH is queued and the exit has not arrived: it is
+                // released later under the same rule.
+                owner.unserved_finish = finished;
+                None
+            }
+            None => self.fail_unserved_route(&key),
+        }
+    }
+
+    /// Release `exit` after an unserved capture's FINISH only while that
+    /// FINISH is intact (same generation and capture fence, no pending
+    /// resync) and the exit fits without an overflow that would drop it.
+    /// Otherwise end the route with the typed ATTACH_STATE failed.
+    fn release_after_unserved_finish(
+        &mut self,
+        key: &OwnerKey,
+        exit: TerminalFrame,
+        finished: Option<CaptureIdentity>,
+    ) -> Option<ClientWorkerTeardown> {
+        let owner = self.live.get(key)?;
+        if owner.terminal_enqueued {
+            return None;
+        }
         let intact = finished.is_some_and(|identity| {
             owner.generation == identity.generation
                 && owner.capture_fence == identity.capture_fence
                 && !owner.awaiting_capture
         });
-        if intact {
-            let Some(exit) = exit else {
-                // The snapshot is complete and no exit is held.
-                return None;
-            };
-            let fits = owner.queue.len() < MAX_ROUTE_EGRESS_FRAMES
-                && owner.queued_bytes.saturating_add(exit.len()) <= MAX_ROUTE_EGRESS_BYTES;
-            if fits {
-                return self.enqueue_owner_frame(&key, exit, QueuedKind::Terminal);
-            }
+        let fits = owner.queue.len() < MAX_ROUTE_EGRESS_FRAMES
+            && owner.queued_bytes.saturating_add(exit.len()) <= MAX_ROUTE_EGRESS_BYTES;
+        if intact && fits {
+            return self.enqueue_owner_frame(key, exit, QueuedKind::Terminal);
         }
+        self.fail_unserved_route(key)
+    }
+
+    /// End a route whose owed snapshot cannot be completed: ATTACH_STATE
+    /// failed, a Terminal frame that an overflow preserves.
+    fn fail_unserved_route(&mut self, key: &OwnerKey) -> Option<ClientWorkerTeardown> {
         match encode_attach_state(AttachStateCode::Failed) {
-            Ok(frame) => self.enqueue_owner_frame(&key, frame, QueuedKind::Terminal),
-            Err(_) => self.hard_stop_key(&key, TerminalRouteCloseReason::Failed),
+            Ok(frame) => self.enqueue_owner_frame(key, frame, QueuedKind::Terminal),
+            Err(_) => self.hard_stop_key(key, TerminalRouteCloseReason::Failed),
         }
     }
 
@@ -3059,6 +3100,80 @@ mod tests {
         );
     }
 
+    /// Shutdown ends an unserved capture before the exit exists. The exit
+    /// that arrives later on a full route would overflow and drop the
+    /// queued FINISH, so the route ends typed instead of with a bare exit.
+    #[test]
+    fn a_later_exit_on_a_full_route_after_an_unserved_finish_ends_typed() {
+        let (mut worker, key) = bound_route();
+        let identity = worker
+            .capture_identity(&key.session_id, &key.subscription_id)
+            .expect("capture identity");
+        worker.open_route_capture(&key.session_id, &key.subscription_id);
+        assert!(worker
+            .push_capture_frame(
+                &key.session_id,
+                &key.subscription_id,
+                identity,
+                encode_snapshot_finish().expect("finish"),
+            )
+            .expect("finish enqueue")
+            .is_none());
+        fill_route(&mut worker, &key);
+        // No exit is held yet: shutdown ends the capture first.
+        assert!(worker
+            .end_unserved_capture(&key.session_id, &key.subscription_id, Some(identity))
+            .is_none());
+
+        let _ = worker.push_session_process_exit(&key.session_id, Some(0));
+        let kinds = queued_frame_kinds(&worker, &key);
+        assert!(
+            queued_attach_failed(&worker, &key),
+            "the route ends with ATTACH_STATE failed: {kinds:?}"
+        );
+        assert!(
+            !kinds.contains(&TerminalKind::ProcessExit),
+            "no exit that overtook its dropped FINISH: {kinds:?}"
+        );
+    }
+
+    /// The same later exit on a route with room follows the intact FINISH.
+    #[test]
+    fn a_later_exit_after_an_intact_unserved_finish_follows_it() {
+        let (mut worker, key) = bound_route();
+        let identity = worker
+            .capture_identity(&key.session_id, &key.subscription_id)
+            .expect("capture identity");
+        worker.open_route_capture(&key.session_id, &key.subscription_id);
+        assert!(worker
+            .push_capture_frame(
+                &key.session_id,
+                &key.subscription_id,
+                identity,
+                encode_snapshot_finish().expect("finish"),
+            )
+            .expect("finish enqueue")
+            .is_none());
+        assert!(worker
+            .end_unserved_capture(&key.session_id, &key.subscription_id, Some(identity))
+            .is_none());
+
+        assert!(worker
+            .push_session_process_exit(&key.session_id, Some(0))
+            .is_empty());
+        let kinds = queued_frame_kinds(&worker, &key);
+        let finish = kinds
+            .iter()
+            .position(|kind| *kind == TerminalKind::SnapshotFinish);
+        let exit = kinds
+            .iter()
+            .position(|kind| *kind == TerminalKind::ProcessExit);
+        assert!(
+            finish.zip(exit).is_some_and(|(finish, exit)| finish < exit),
+            "the later exit follows the intact FINISH: {kinds:?}"
+        );
+    }
+
     /// A PROCESS_EXIT held for an open capture is queued when the capture
     /// ends. On a held route filled to its ceiling, that overflow fails the
     /// route, and end_route_capture returns the teardown for the caller.
@@ -3772,10 +3887,10 @@ mod tests {
                 ("detach_generation", "Detached"),
                 ("detach_live", "Detached"),
                 ("end_unserved_capture", "Failed"),
-                ("end_unserved_capture", "Failed"),
                 ("enqueue_owner_frame", "Overflowed"),
                 ("expire_pastes_keys", "InputFailed"),
                 ("fail_queued_input_for_session", "SessionEnded"),
+                ("fail_unserved_route", "Failed"),
                 ("fail_route", "Failed"),
                 ("fail_route", "Failed"),
                 ("filter_bound_terminal_frames", "SessionEnded"),
