@@ -181,6 +181,7 @@ impl SessionRuntime for FakeSessionRuntime {
             let output_session_id = match &output {
                 SessionRuntimeOutput::PtyOutput { session_id, .. }
                 | SessionRuntimeOutput::ProcessExited { session_id, .. }
+                | SessionRuntimeOutput::WorkerLost { session_id }
                 | SessionRuntimeOutput::TitleChanged { session_id, .. }
                 | SessionRuntimeOutput::CwdChanged { session_id, .. }
                 | SessionRuntimeOutput::PromptMark { session_id, .. }

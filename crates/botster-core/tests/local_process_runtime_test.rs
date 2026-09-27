@@ -173,6 +173,7 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
             SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::WorkerLost { .. }
             | SessionRuntimeOutput::TitleChanged { .. }
             | SessionRuntimeOutput::CwdChanged { .. }
             | SessionRuntimeOutput::PromptMark { .. }
