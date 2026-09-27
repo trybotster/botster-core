@@ -6,9 +6,8 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use botster_core::{
-        ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId,
-        SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId,
-        TerminalCapabilitySet,
+        ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
+        SpawnEnvironment, SpawnWorkingDirectory, SubscriptionId, TerminalCapabilitySet,
     };
     use botster_core_daemon::{
         CoreDaemon, CoreDaemonConfig, ObserveLifecycleBudget, RegistrySessionState,
@@ -17,9 +16,7 @@ mod tests {
     use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 
     enum HubRequest {
-        Exercise {
-            completed: mpsc::SyncSender<()>,
-        },
+        Exercise { completed: mpsc::SyncSender<()> },
     }
 
     fn exercise_control_path(daemon: &mut CoreDaemon) {
@@ -72,7 +69,12 @@ mod tests {
             )
             .expect("bind waking adapter");
         daemon
-            .input(client_id.clone(), session_id.clone(), b"hello\n".to_vec(), 3)
+            .input(
+                client_id.clone(),
+                session_id.clone(),
+                b"hello\n".to_vec(),
+                3,
+            )
             .expect("input");
         daemon
             .resize(client_id.clone(), session_id.clone(), 30, 100, 4)
@@ -91,7 +93,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let data_dir = std::env::temp_dir().join(format!("hub-data-plane-{nonce}"));
+        let data_dir =
+            std::env::temp_dir().join(format!("hub-data-plane-{}-{nonce}", std::process::id()));
         let (request_tx, request_rx) = mpsc::sync_channel::<HubRequest>(4);
         let (control_tx, control_rx) = mpsc::sync_channel(1);
 
@@ -148,13 +151,16 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let data_dir = std::env::temp_dir().join(format!("hub-data-plane-observe-{nonce}"));
+        let data_dir = std::env::temp_dir().join(format!(
+            "hub-data-plane-observe-{}-{nonce}",
+            std::process::id()
+        ));
         let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
         let control = daemon.wake_pump_control();
         let session_id = SessionId("hub-observe-session".into());
         let client_id = ClientId("hub-observe-client".into());
         let subscription_id = SubscriptionId("hub-observe-sub".into());
-        let done = data_dir.join("child-done");
+        let done = botster_core_test_support::fixture_gate::Fifo::new("data-plane-done");
         daemon
             .spawn(
                 SpawnSessionRequest {
@@ -164,7 +170,10 @@ mod tests {
                         executable: "sh".into(),
                         arguments: vec![
                             "-c".into(),
-                            format!("printf ready; : > '{}'; exit 0", done.display()),
+                            format!(
+                                "printf ready; /bin/echo done > '{}'; exit 0",
+                                done.path().display()
+                            ),
                         ],
                         working_directory: SpawnWorkingDirectory { path: ".".into() },
                         environment: SpawnEnvironment::default(),
@@ -205,17 +214,7 @@ mod tests {
             )
             .expect("bind waking adapter");
 
-        let done_deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            if done.exists() {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < done_deadline,
-                "child did not write done file"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let _ = done.read_signal(Duration::from_secs(5));
         match daemon.wait_pump(Duration::from_secs(5)) {
             WakePumpWait::Wakes(batch)
                 if batch.ingress_sessions.iter().any(|id| id == &session_id) => {}
@@ -261,7 +260,11 @@ mod tests {
             ) {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            // The child's exit and its PTY end wake the session once visible;
+            // wait for that (consumed here: the observe that commits Exited
+            // emits its own wake for the process_exit check below).
+            // timer: deadline — the loop's bound; expiry fails the assert above
+            let _ = daemon.wait_pump(deadline.saturating_duration_since(std::time::Instant::now()));
         }
         let writes_before = adapter.try_write_count();
         match daemon.wait_pump(Duration::from_secs(2)) {
