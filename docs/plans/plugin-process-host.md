@@ -164,30 +164,47 @@ refused.
 
 ### 5.1 Delivery pool and credits (R1)
 
-Engine API, used by both hosts (the reservation call itself is the atomic
-multi-spec `try_reserve_delivery` described at the end of this section):
+Engine API, used by both hosts (implemented in slice 3a,
+`engine/plugin_delivery_pool.rs`):
 
 ```rust
-pub fn try_reserve_delivery_pool(
-    &self,
-    plugin_key: &PluginKey,
-    slots: usize,
-    request_bytes: usize,
-    completion_bytes_per_slot: usize,
-) -> Result<DeliveryPool, DeliveryRefusal>; // Backpressured | WorkerStopped | RejectedBudget
+pub struct PluginDeliveryQuota {           // every value is Hub policy
+    pub call_result_slots: usize,
+    pub call_result_request_bytes: usize,
+    pub call_result_completion_bytes: usize, // payload allowance per result
+    pub ordinary_completion_entries: usize,  // the plugin's ordinary share
+    pub ordinary_completion_bytes: usize,
+}
+
+impl PluginWorkerEngine {
+    /// All or nothing for the plugin's current generation.
+    pub fn try_reserve_delivery(&self, plugin_key: &PluginKey, quota: PluginDeliveryQuota)
+        -> Result<DeliveryPool, DeliveryRefusal>; // Backpressured | WorkerStopped | RejectedBudget
+}
 
 impl DeliveryPool {
     /// Record an accepted host call. Fails only when the caller overdraws
     /// (on the process host this means the child ignored its credits).
-    pub fn accept_call(&self, call_id: CallId, max_result_bytes: usize) -> Result<(), PoolOverdraw>;
+    pub fn accept_call(&self, call: CallId, max_result_bytes: usize) -> Result<(), PoolOverdraw>;
     /// Admit the call's single result Invoke. Never refuses for capacity.
-    pub fn admit_result(&self, call_id: CallId, request: PluginInvocationRequest) -> PluginAdmissionResult; // Queued | WorkerStopped
+    pub fn admit_result(&self, call: CallId, request: PluginInvocationRequest) -> PluginAdmissionResult;
     /// Terminal for a call that will never receive a result.
-    pub fn release_call(&self, call_id: CallId);
-    /// Called once per freed unit, outside every engine lock.
-    pub fn install_unit_returned(&self, notifier: Arc<dyn Fn(CallId) + Send + Sync>);
+    pub fn release_call(&self, call: CallId) -> bool;
+    /// Called once per returned unit, outside every engine lock.
+    pub fn install_unit_returned(&self, notifier: UnitReturnedNotifier);
+    pub fn free(&self) -> (usize, usize);
 }
 ```
+
+Mechanism: the reservation creates two completion-store funds, pre-charged
+from the engine-wide completion pool (the pool's entries at
+`call_result_completion_bytes` plus Core's per-entry metadata, and the
+ordinary share), and sets the pool's queue room aside from the plugin's
+Background queue. A result admitted from a unit is charged to the pool's
+fund and uses the reserved room, so it needs no capacity check. The
+plugin's ordinary completions are charged to its share. Retiring the
+generation closes both funds: their unused part returns to the engine-wide
+pool at once, and each outstanding entry returns as it drains.
 
 - **Reservation.** At load, the pool takes `slots` Background queue slots plus
   `request_bytes`, and `slots` completion-store entries of
