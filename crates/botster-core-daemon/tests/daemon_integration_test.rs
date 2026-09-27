@@ -2281,10 +2281,14 @@ fn a_killed_worker_is_detected_from_its_reader_end_without_input() {
         "worker exits"
     );
 
-    // Only wakes drive the pump; no input is sent.
+    // Only wakes drive the pump; no input is sent. Two independent
+    // detections follow the kill, in either order: a control write that
+    // fails sweeps the route (WorkerLinkFailed) and leaves the session
+    // running, and the reader's end of stream reports WorkerLost, which
+    // sweeps any route left and fails the session. Wait for both.
     let mut now = 20;
     wait_for(
-        "the lost worker's owner swept",
+        "the lost worker's owner swept and its session failed",
         REAL_WORKER_COMPLETION_TIMEOUT,
         |remaining| {
             let gone = daemon
@@ -2293,7 +2297,11 @@ fn a_killed_worker_is_detected_from_its_reader_end_without_input() {
                 .records
                 .iter()
                 .all(|row| row.subscription_id != subscription_id);
-            if gone {
+            let failed = matches!(
+                daemon.engine_session_lifecycle(&session_id),
+                Some(SessionLifecycleState::Failed { .. })
+            );
+            if gone && failed {
                 return Some(());
             }
             // timer: deadline — wait_for's bound limits this wait
@@ -4820,33 +4828,41 @@ fn observe_slice_publishes_zero_client_exit_without_drain() {
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("self-exit spawn");
     let after = daemon.lifecycle_baseline().expect("baseline").cursor;
-    std::thread::sleep(Duration::from_millis(50));
-    let mut resume = None;
-    let mut complete = false;
-    for tick in 0..50 {
-        let slice = daemon
-            .observe_lifecycle_slice(20 + tick, resume.as_ref(), observe_item_budget(1))
-            .expect("slice");
-        assert!(slice.resync_required.is_none());
-        complete = slice.complete;
-        resume = slice
-            .last_visited
-            .as_ref()
-            .map(|last_visited| ObserveLifecycleCursor {
-                pass_id: slice.pass_id.clone(),
-                last_visited: Some(last_visited.clone()),
-            });
-        if complete {
-            break;
-        }
-    }
-    assert!(complete, "sliced observe must finish the pass");
-    let page = daemon
-        .lifecycle_changes_page(&after, 16, 16 * 1024)
-        .expect("page");
-    assert!(
-        page_contains_exited(&page, &session_id),
-        "sliced observe must publish Exited without Drain: {page:?}"
+    // Each round runs one whole sliced pass. The child's exit and its PTY
+    // end wake the session once visible, so a pass that ran too early is
+    // followed by a wake. No drain runs.
+    let mut tick = 0;
+    on_wakes_until(
+        &mut daemon,
+        "a sliced observe pass publishing Exited",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |daemon| {
+            let mut resume = None;
+            let mut complete = false;
+            for _ in 0..50 {
+                tick += 1;
+                let slice = daemon
+                    .observe_lifecycle_slice(20 + tick, resume.as_ref(), observe_item_budget(1))
+                    .expect("slice");
+                assert!(slice.resync_required.is_none());
+                complete = slice.complete;
+                resume = slice
+                    .last_visited
+                    .as_ref()
+                    .map(|last_visited| ObserveLifecycleCursor {
+                        pass_id: slice.pass_id.clone(),
+                        last_visited: Some(last_visited.clone()),
+                    });
+                if complete {
+                    break;
+                }
+            }
+            assert!(complete, "sliced observe must finish the pass");
+            let page = daemon
+                .lifecycle_changes_page(&after, 16, 16 * 1024)
+                .expect("page");
+            page_contains_exited(&page, &session_id).then_some(())
+        },
     );
     daemon.shutdown(Some(session_id), 40).ok();
     let _ = fs::remove_dir_all(data_dir);
