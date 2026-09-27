@@ -8,7 +8,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
@@ -2872,7 +2871,8 @@ fn worker_pending_replacement_does_not_start_the_old_subscription() {
                 saw_old_after_replace = true;
             }
         }
-        thread::sleep(Duration::from_millis(10));
+        // timer: deadline — the 2 s window in which the old subscription must stay silent
+        let _ = daemon.wait_wakes(Duration::from_secs(2).saturating_sub(started.elapsed()));
     }
     assert!(
         !saw_old_after_replace,
@@ -3381,7 +3381,6 @@ fn daemon_default_ghostty_scrollback_byte_budget_pins_effective_window() {
             output.extend_from_slice(format!("echo:scrollback-line-{line:05}\n").as_bytes());
         }
         terminal.write_output_bytes(&output);
-        std::thread::sleep(Duration::from_millis(1));
     }
 
     let plain_text = terminal
@@ -4580,8 +4579,23 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
     };
     assert!(!first_page.complete);
     let snapshot = first_page.snapshot_sequence.clone();
-    std::thread::sleep(Duration::from_millis(50));
-    let _ = daemon.observe_lifecycle(20).expect("observe after mint");
+    // Observe after the mint until it commits the second session's exit, so
+    // the frozen page below must ignore a real mutation.
+    on_wakes_until(
+        &mut daemon,
+        "observe committing the second session's exit",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |daemon| {
+            let _ = daemon.observe_lifecycle(20).expect("observe after mint");
+            matches!(
+                daemon
+                    .session_registry_state(&second)
+                    .expect("second registry state"),
+                SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+            )
+            .then_some(())
+        },
+    );
     let second_page = daemon
         .lifecycle_baseline_page(
             Some(&snapshot),
@@ -5092,10 +5106,12 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
     let data_dir = short_temp_data_dir("w1-hold");
     let session_id = SessionId("w1-hold-session".to_string());
     let hold_ms = 8_000;
+    let (probe, probe_events) = WorkerRouteProbe::channel();
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_test_hold_before_exit_ms(Some(hold_ms)),
+            .with_test_hold_before_exit_ms(Some(hold_ms))
+            .with_test_route_probe(Some(probe)),
     );
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
@@ -5107,9 +5123,21 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
         "W1 session process exit"
     );
     assert!(process_exists(worker_pid), "W1 worker still alive");
-    // Worker loop + writer need a short beat after the PTY child exits to
-    // queue FRAME_PROCESS_EXITED before the hold starts.
-    thread::sleep(Duration::from_millis(150));
+    // The worker sends FRAME_PROCESS_EXITED and then holds: the parent
+    // reading that frame proves the hold has begun.
+    let probe_deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
+    loop {
+        // timer: deadline — the parent must read the exit frame; expiry fails the test
+        match probe_events
+            .recv_timeout(probe_deadline.saturating_duration_since(Instant::now()))
+            .expect("the parent reads the worker's exit frame")
+        {
+            WorkerRouteProbeEvent::ProcessExitRead {
+                session_id: ref exited,
+            } if *exited == session_id => break,
+            _ => {}
+        }
+    }
     assert!(
         process_exists(worker_pid),
         "W1 hold must still own the worker child before blind shutdown"
