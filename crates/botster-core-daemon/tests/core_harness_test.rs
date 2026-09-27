@@ -408,5 +408,8 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("botster-core-harness-{label}-{nanos}"))
+    std::env::temp_dir().join(format!(
+        "botster-core-harness-{label}-{}-{nanos}",
+        std::process::id()
+    ))
 }
