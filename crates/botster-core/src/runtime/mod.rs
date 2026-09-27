@@ -76,6 +76,8 @@ pub use session_admission::{
     SessionReservationRelease, SessionReservationState,
 };
 #[cfg(feature = "local-runtime")]
+pub(crate) use worker_process::WorkerSnapshotBoundaryPoll;
+#[cfg(feature = "local-runtime")]
 pub use worker_process::{
     PtyOutputRouting, ResizeAckHold, RetainedWorkerFinalState, SnapshotCancelAdmission,
     WorkerHealth, WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerRouteProbe,
