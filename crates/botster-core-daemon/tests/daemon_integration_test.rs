@@ -6965,7 +6965,10 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("botster-core-daemon-{label}-{nanos}"))
+    std::env::temp_dir().join(format!(
+        "botster-core-daemon-{label}-{}-{nanos}",
+        std::process::id()
+    ))
 }
 
 fn short_temp_data_dir(label: &str) -> std::path::PathBuf {
@@ -6973,7 +6976,7 @@ fn short_temp_data_dir(label: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after unix epoch")
         .as_nanos();
-    std::path::PathBuf::from("/tmp").join(format!("bcd-{label}-{nanos}"))
+    std::path::PathBuf::from("/tmp").join(format!("bcd-{label}-{}-{nanos}", std::process::id()))
 }
 
 #[cfg(unix)]
