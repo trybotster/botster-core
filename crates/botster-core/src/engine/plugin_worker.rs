@@ -14,12 +14,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::actor::{
-    BackpressureRoute, BackpressureSummary, PluginAdmissionResult, PluginCleanupResult,
-    PluginCleanupScope, PluginCompletion, PluginCompletionDrain, PluginCompletionItem,
-    PluginDescriptorRef, PluginHandlerRef, PluginInvocationClass, PluginInvocationFailure,
-    PluginInvocationFailureKind, PluginInvocationRequest, PluginInvocationResult, PluginKey,
-    PluginLoadSpec, PluginReloadSpec, PluginResourceRef, PluginUnloadSpec, PluginWorkerEvent,
-    QueueSource,
+    BackpressureRoute, BackpressureSummary, PluginAdmissionResult, PluginBackpressureCause,
+    PluginCleanupResult, PluginCleanupScope, PluginCompletion, PluginCompletionDrain,
+    PluginCompletionItem, PluginDescriptorRef, PluginHandlerRef, PluginInvocationClass,
+    PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
+    PluginInvocationResult, PluginKey, PluginLoadSpec, PluginReloadSpec, PluginResourceRef,
+    PluginUnloadSpec, PluginWorkerEvent, QueueSource,
 };
 use crate::capability::Capability;
 use crate::manifest::PackageManifest;
@@ -150,6 +150,12 @@ pub enum PluginQueueProbeEvent {
     ExecutorExited,
     /// A retired plugin's executors were all joined.
     PluginExecutorsRetired,
+    /// An executor found no work, released admission, fired any armed
+    /// admission wake, and is about to wait.
+    ExecutorIdle,
+    /// The deadline waiter released its book, fired any armed admission
+    /// wake, and is about to wait with nothing expired.
+    DeadlineWaiterIdle,
 }
 
 impl PluginQueueProbe {
@@ -909,12 +915,16 @@ impl PluginWorkerEngine {
     /// Never blocks on job completion, `recv`, sleep, or a contended mutex.
     /// A busy registry or admission lock is [`PluginAdmissionResult::LockBusy`].
     ///
-    /// A busy internal lock is retried once after the engine arms its
-    /// admission retry wake. If the retry is also busy, the result is
-    /// [`PluginAdmissionResult::LockBusy`] and the wake is armed (or has
-    /// already fired): the completion notifier fires once a worker or the
-    /// deadline waiter releases admission state, so the host retries on that
-    /// wake and never on a timer. A poisoned engine lock returns
+    /// A busy internal lock, or a full class queue or completion store, is
+    /// retried once after the engine arms its admission retry wake. If the
+    /// retry is refused too, the result is
+    /// [`PluginAdmissionResult::LockBusy`] or
+    /// [`PluginAdmissionResult::Backpressured`] and the wake is armed (or
+    /// has already fired): the completion notifier fires once a release can
+    /// end the refusal (a lock release, a worker's dequeue, a completion
+    /// drain, or a generation's reservations returning at unload), so the
+    /// host retries on that wake and never on a timer. A refused attempt
+    /// fires nothing of its own. A poisoned engine lock returns
     /// [`PluginAdmissionResult::WorkerStopped`], never `LockBusy`.
     pub fn try_admit(
         &self,
@@ -928,11 +938,15 @@ impl PluginWorkerEngine {
             request.clone(),
             completion_reservation_bytes,
         );
-        if !is_admission_lock_busy(&first) {
+        if !is_retryable_refusal(&first) {
             return first;
         }
-        // Arm before the retry: a holder that releases after this point
-        // wakes the host; one that released before it lets the retry through.
+        #[cfg(test)]
+        if let Some(hook) = AFTER_FIRST_REFUSAL.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
+        // Arm before the retry: a release after this point wakes the host;
+        // one before it lets the retry through.
         self.inner
             .shared
             .admission_retry_armed
@@ -1129,6 +1143,7 @@ impl PluginWorkerEngine {
             return self.admission_backpressured(
                 class,
                 request,
+                PluginBackpressureCause::ClassQueue,
                 "plugin worker class queue is at capacity",
                 Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
             );
@@ -1386,6 +1401,11 @@ impl PluginWorkerEngine {
         }
         // Units return outside every engine lock: their notifiers run host code.
         delivery_pool::return_units(&self.inner.shared, returned_units);
+        if drain.item_count > 0 {
+            // The drain returned completion reservations: an admission
+            // refused for completion capacity may fit now.
+            wake_armed_admission(&self.inner.shared);
+        }
         self.finish_completion_drain(drain)
     }
 
@@ -1727,12 +1747,14 @@ impl PluginWorkerEngine {
         &self,
         class: PluginInvocationClass,
         request: PluginInvocationRequest,
+        cause: PluginBackpressureCause,
         reason: &str,
         backpressure: Option<BackpressureSummary>,
     ) -> PluginAdmissionResult {
         PluginAdmissionResult::Backpressured {
             request_id: request.request_id,
             class,
+            cause,
             reason: reason.to_string(),
             backpressure,
         }
@@ -1946,6 +1968,7 @@ impl PluginWorkerEngine {
                 self.admission_backpressured(
                     class,
                     request,
+                    PluginBackpressureCause::CompletionReservation,
                     "plugin completion reservation pool is at capacity",
                     Some(self.backpressure_snapshot(&worker.plugin_key, worker.queued_jobs())),
                 )
@@ -2075,6 +2098,7 @@ impl WorkerState {
                                 // the armed retry wake: never wait holding it.
                                 drop(admission);
                                 wake_armed_admission(&worker_shared);
+                                worker_engine_metrics.report(PluginQueueProbeEvent::ExecutorIdle);
                                 worker_signal.wait_past(seen, None);
                             };
                             // The dispatch pop released admission.
@@ -2173,12 +2197,13 @@ impl WorkerState {
             remove_deadlines_for_generation(&self.shared, &self.plugin_key, generation);
         }
 
-        let (queued, open_async) = {
+        let (queued, open_async, funds_closed) = {
             let mut admission = self
                 .admission
                 .lock()
                 .expect("plugin worker admission mutex poisoned");
             admission.stopping = true;
+            let funds_closed = self.generation.is_some() && admission.delivery.is_some();
             // Async jobs keep their token only in the tracked job; it is
             // cancelled with the others, after WorkerStopped is sealed.
             tokens.extend(
@@ -2217,7 +2242,7 @@ impl WorkerState {
                 })
                 .collect::<Vec<_>>();
             admission.jobs.clear();
-            (queued, open_async)
+            (queued, open_async, funds_closed)
         };
         for job in queued {
             cancel_queued_job(job, &self.metrics, &self.shared.metrics);
@@ -2233,6 +2258,15 @@ impl WorkerState {
         }
         for token in tokens {
             token.cancel();
+        }
+        // Closing the generation's delivery funds returned their unused
+        // completion reservations, and every engine lock is released, so an
+        // admission that another plugin had refused for completion capacity
+        // may fit now. Retirement returns nothing here: it moves published
+        // completions to the retired queue, and their reservations return
+        // when that queue drains.
+        if funds_closed {
+            wake_armed_admission(&self.shared);
         }
         #[cfg(test)]
         {
@@ -3238,6 +3272,23 @@ fn is_admission_lock_busy(result: &PluginAdmissionResult) -> bool {
     matches!(result, PluginAdmissionResult::LockBusy { .. })
 }
 
+/// A refusal that a later release can end: a busy lock, or a full class
+/// queue or completion store. `try_admit` arms its retry wake for these.
+fn is_retryable_refusal(result: &PluginAdmissionResult) -> bool {
+    matches!(
+        result,
+        PluginAdmissionResult::LockBusy { .. } | PluginAdmissionResult::Backpressured { .. }
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs in `try_admit` after the first refusal and before the
+    /// wake is armed, on the admitting thread.
+    static AFTER_FIRST_REFUSAL: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Admission could not take a lock it needs: busy is transient, poisoned
 /// is terminal.
 fn lock_failure(
@@ -3665,6 +3716,9 @@ fn run_deadline_waiter(shared: Arc<EngineShared>) {
         }
         wake_armed_admission(&shared);
         if !fired {
+            shared
+                .metrics
+                .report(PluginQueueProbeEvent::DeadlineWaiterIdle);
             shared.deadline_signal.wait_past(seen, next);
         }
     }
@@ -3934,6 +3988,10 @@ mod tests {
 
     mod delivery_pool_tests {
         include!("plugin_worker_delivery_test.rs");
+    }
+
+    mod notifier_edge_tests {
+        include!("plugin_worker_notifier_test.rs");
     }
 
     #[derive(Clone)]

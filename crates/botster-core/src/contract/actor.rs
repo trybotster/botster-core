@@ -1306,6 +1306,20 @@ pub enum PluginInvocationClass {
     Background,
 }
 
+/// Which bound refused a [`PluginAdmissionResult::Backpressured`] admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PluginBackpressureCause {
+    /// The plugin's class queue is at its count or byte capacity. Room
+    /// returns when a worker dequeues a job or a queued job is removed.
+    ClassQueue,
+    /// The completion store cannot reserve the invocation's completion. Room
+    /// returns when a completion reservation returns: a drain, or a plugin
+    /// generation's retirement and delivery-fund closure.
+    CompletionReservation,
+}
+
 /// Immediate result of non-blocking plugin invocation admission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -1326,13 +1340,28 @@ pub enum PluginAdmissionResult {
     /// The request cannot be accepted right now.
     ///
     /// This covers class count/byte saturation and completion-reservation
-    /// saturation. It does not wait. A busy internal lock is
-    /// [`LockBusy`](Self::LockBusy), not this variant.
+    /// saturation; `cause` names which. It does not wait. A busy internal
+    /// lock is [`LockBusy`](Self::LockBusy), not this variant.
+    ///
+    /// `PluginWorkerEngine::try_admit` arms the engine's admission retry wake
+    /// before its final attempt, as for `LockBusy`. So when the caller sees
+    /// this result, the wake is armed or has already fired: the completion
+    /// notifier fires once a release can end the refusal. For
+    /// [`ClassQueue`](PluginBackpressureCause::ClassQueue) that is a worker's
+    /// dequeue or the removal of a queued job. For
+    /// [`CompletionReservation`](PluginBackpressureCause::CompletionReservation)
+    /// it is any return of a completion reservation: a completion drain, or
+    /// the retirement of a plugin generation and its delivery funds at
+    /// unload or reload. The caller parks the request and retries it on that
+    /// notification, never on a timer. A refused admission fires nothing of
+    /// its own.
     Backpressured {
         /// Request correlation id.
         request_id: RequestId,
         /// Class the caller asked to admit under.
         class: PluginInvocationClass,
+        /// Which bound refused the request.
+        cause: PluginBackpressureCause,
         /// Human-readable pressure reason.
         reason: String,
         /// Waiting-queue pressure for the target plugin, when available.
@@ -1349,10 +1378,10 @@ pub enum PluginAdmissionResult {
     /// releases admission state. The caller parks the request and retries
     /// it on that notification, never on a timer.
     ///
-    /// Only worker and deadline-waiter releases fire that wake. A host
-    /// thread that holds an engine lock (for example inside another
-    /// admission or a completion drain) fires none when it releases, so
-    /// host code must not hold engine locks across its own admission
+    /// Only worker and deadline-waiter releases of admission state fire
+    /// that wake for a busy lock. A host thread that holds an engine lock
+    /// (for example inside another admission) fires none when it releases,
+    /// so host code must not hold engine locks across its own admission
     /// attempts. A poisoned engine lock is never `LockBusy`: it is
     /// [`WorkerStopped`](Self::WorkerStopped).
     LockBusy {
