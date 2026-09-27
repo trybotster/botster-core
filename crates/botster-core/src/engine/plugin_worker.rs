@@ -99,6 +99,62 @@ pub struct PluginWorkerEngineConfig {
     pub completion_reservation_byte_capacity: usize,
     /// Maximum reserved payload and logical completion-store metadata bytes.
     pub completion_queue_byte_capacity: usize,
+    /// Test-only: reports each job the engine queues. `None` in production.
+    pub test_queue_probe: Option<PluginQueueProbe>,
+}
+
+/// Test-only observer of the engine's queueing decisions. It reports each
+/// job from the site that queued it, after the admission lock is released.
+/// Unconfigured, each site costs one `Option` check.
+#[derive(Clone)]
+pub struct PluginQueueProbe {
+    sender: mpsc::Sender<PluginQueueProbeEvent>,
+    identity: Arc<()>,
+}
+
+/// One decision reported by a [`PluginQueueProbe`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginQueueProbeEvent {
+    /// The engine queued one invocation for its plugin's executors.
+    JobQueued {
+        /// Plugin whose worker queued the job.
+        plugin_key: PluginKey,
+        /// The queued invocation.
+        request_id: RequestId,
+    },
+}
+
+impl PluginQueueProbe {
+    /// Create a probe and the receiver its events arrive on.
+    #[must_use]
+    pub fn channel() -> (Self, mpsc::Receiver<PluginQueueProbeEvent>) {
+        let (sender, receiver) = mpsc::channel();
+        (
+            Self {
+                sender,
+                identity: Arc::new(()),
+            },
+            receiver,
+        )
+    }
+
+    fn report(&self, event: PluginQueueProbeEvent) {
+        let _ = self.sender.send(event);
+    }
+}
+
+impl PartialEq for PluginQueueProbe {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
+    }
+}
+
+impl Eq for PluginQueueProbe {}
+
+impl std::fmt::Debug for PluginQueueProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginQueueProbe").finish_non_exhaustive()
+    }
 }
 
 impl Default for PluginWorkerEngineConfig {
@@ -113,6 +169,7 @@ impl Default for PluginWorkerEngineConfig {
             completion_queue_capacity: QueueSource::PluginWorker.default_capacity(),
             completion_reservation_byte_capacity: DEFAULT_QUEUE_BYTE_CAPACITY,
             completion_queue_byte_capacity: DEFAULT_QUEUE_BYTE_CAPACITY,
+            test_queue_probe: None,
         }
     }
 }
@@ -748,6 +805,12 @@ impl PluginWorkerEngine {
             return self.invoke_backpressured(request, "plugin worker queue is at capacity");
         }
 
+        let queued_event = self.inner.shared.config.test_queue_probe.as_ref().map(|_| {
+            PluginQueueProbeEvent::JobQueued {
+                plugin_key: request.handler.plugin_key.clone(),
+                request_id: request.request_id.clone(),
+            }
+        });
         let job = WorkerJob {
             request,
             cancellation: cancellation.clone(),
@@ -759,6 +822,11 @@ impl PluginWorkerEngine {
         };
         admission.push_queued(PluginInvocationClass::RequestResponse, job, &worker);
         drop(admission);
+        if let (Some(probe), Some(event)) =
+            (&self.inner.shared.config.test_queue_probe, queued_event)
+        {
+            probe.report(event);
+        }
         worker.work_signal.notify();
 
         match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
@@ -1084,6 +1152,12 @@ impl PluginWorkerEngine {
         };
 
         let request_id = request.request_id.clone();
+        let queued_event = self.inner.shared.config.test_queue_probe.as_ref().map(|_| {
+            PluginQueueProbeEvent::JobQueued {
+                plugin_key: request.handler.plugin_key.clone(),
+                request_id: request_id.clone(),
+            }
+        });
         let already_expired = timeout_ms == 0;
         let cancellation = PluginCancellationToken::new();
 
@@ -1131,6 +1205,11 @@ impl PluginWorkerEngine {
         drop(completions);
         drop(admission);
         if !already_expired {
+            if let (Some(probe), Some(event)) =
+                (&self.inner.shared.config.test_queue_probe, queued_event)
+            {
+                probe.report(event);
+            }
             worker.work_signal.notify();
             self.inner.shared.deadline_signal.notify();
         }

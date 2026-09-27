@@ -1,8 +1,8 @@
 //! Plugin worker engine acceptance tests.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use botster_core::{
     BoundaryJson, Capability, CapabilitySurface, ExtensionEntrypoint, ExtensionKind,
@@ -16,6 +16,7 @@ use botster_core::{
     PluginUnloadSpec, PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerEvent,
     PluginWorkerRegistration, RequestId,
 };
+use botster_core::{PluginQueueProbe, PluginQueueProbeEvent};
 
 #[derive(Clone)]
 struct FakeRuntime {
@@ -187,6 +188,8 @@ struct GatedRuntime {
 
 #[derive(Default)]
 struct GatedRuntimeState {
+    /// Reports each start, when the test asked for start events.
+    start_events: Option<Mutex<mpsc::Sender<()>>>,
     started: AtomicUsize,
     executing: AtomicUsize,
     max_executing: AtomicUsize,
@@ -194,6 +197,18 @@ struct GatedRuntimeState {
 }
 
 impl GatedRuntime {
+    /// A gated runtime that reports each invocation start on the receiver.
+    fn with_start_events() -> (Self, mpsc::Receiver<()>) {
+        let (sender, receiver) = mpsc::channel();
+        let runtime = Self {
+            state: Arc::new(GatedRuntimeState {
+                start_events: Some(Mutex::new(sender)),
+                ..GatedRuntimeState::default()
+            }),
+        };
+        (runtime, receiver)
+    }
+
     fn release(&self) {
         let (released, condition) = &self.state.gate;
         *released.lock().expect("gated runtime release lock") = true;
@@ -220,6 +235,9 @@ impl PluginRuntime for GatedRuntime {
         self.state
             .max_executing
             .fetch_max(executing, Ordering::SeqCst);
+        if let Some(events) = &self.state.start_events {
+            let _ = events.lock().expect("gated runtime start events").send(());
+        }
 
         let (released, condition) = &self.state.gate;
         let mut released = released.lock().expect("gated runtime gate lock");
@@ -530,10 +548,12 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     let fast_plugin = plugin_key("fast");
     let slow_handler = handler(&slow_plugin, "run");
     let fast_handler = handler(&fast_plugin, "run");
-    let slow_runtime = GatedRuntime::default();
+    let (slow_runtime, slow_starts) = GatedRuntime::with_start_events();
+    let (probe, queued) = PluginQueueProbe::channel();
     let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 4,
         per_plugin_executor_concurrency: 2,
+        test_queue_probe: Some(probe),
         ..PluginWorkerEngineConfig::default()
     });
     engine.load_plugin(registration(
@@ -565,13 +585,34 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
             ))
         }));
         if index == 0 {
-            wait_until(Duration::from_millis(250), || slow_runtime.started() == 1);
+            // timer: deadline — the first slow job must start within the bound
+            slow_starts
+                .recv_timeout(Duration::from_millis(250))
+                .expect("the first slow job starts");
         }
     }
-    wait_until(Duration::from_millis(250), || {
-        let snapshot = engine.debug_snapshot();
-        snapshot.queued_jobs == 4 && snapshot.in_flight_jobs == 2
-    });
+    // All six slow jobs are queued by the engine, and the second executor
+    // takes one: two run (gated) and four wait.
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let mut slow_queued = 0;
+    while slow_queued < 6 {
+        // timer: deadline — the engine must queue every slow job within the bound
+        match queued
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the engine queues every slow job")
+        {
+            PluginQueueProbeEvent::JobQueued { plugin_key, .. } if plugin_key == slow_plugin => {
+                slow_queued += 1;
+            }
+            PluginQueueProbeEvent::JobQueued { .. } => {}
+        }
+    }
+    // timer: deadline — the second slow job must start within the same bound
+    slow_starts
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .expect("the second slow job starts");
+    let snapshot = engine.debug_snapshot();
+    assert_eq!((snapshot.queued_jobs, snapshot.in_flight_jobs), (4, 2));
 
     let pressured = engine.invoke(invocation("overflow", slow_handler, 2_000));
     assert!(matches!(
