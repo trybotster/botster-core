@@ -6001,9 +6001,18 @@ fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
     let (worker_pid, pty_child_pid, socket_path) = worker_process_evidence(&daemon, &session_id);
     let mut stopped = StoppedProcess::new(worker_pid);
 
+    // This test keeps the production 2 s shutdown deadline: the stopped
+    // worker never completes, so shutdown waits the whole deadline and
+    // ends typed. Tests whose property is order may lengthen it.
+    let started = Instant::now();
     let error = daemon
         .shutdown(Some(session_id.clone()), 20)
         .expect_err("stopped worker must not produce truthful completion");
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= Duration::from_secs(2),
+        "shutdown waits the whole production 2 s deadline: {elapsed:?}"
+    );
     assert!(matches!(
         error,
         CoreDaemonError::Engine(botster_core::ManagedSessionRuntimeError::Runtime(
