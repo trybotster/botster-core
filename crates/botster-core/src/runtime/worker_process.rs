@@ -292,8 +292,10 @@ pub struct WorkerProcessRuntimeOptions {
     pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: report capture releases and PTY output routing decisions.
     pub test_route_probe: Option<WorkerRouteProbe>,
-    /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
-    pub test_hold_before_exit_ms: Option<u64>,
+    /// Test-only: after FRAME_PROCESS_EXITED, the worker blocks reading this
+    /// pipe with stdout still open, until the test writes it or ends the
+    /// worker.
+    pub test_hold_before_exit_gate: Option<PathBuf>,
     /// Test-only: worker process exit code after the payload is flushed.
     pub test_exit_code: Option<i32>,
     /// Ghostty scrollback byte budget used by the worker snapshot authority.
@@ -318,7 +320,7 @@ impl WorkerProcessRuntimeOptions {
             test_hold_after_enqueue_ms: None,
             test_resize_ack_hold: None,
             test_route_probe: None,
-            test_hold_before_exit_ms: None,
+            test_hold_before_exit_gate: None,
             test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
             terminal_color_profile: None,
@@ -353,10 +355,11 @@ impl WorkerProcessRuntimeOptions {
         self
     }
 
-    /// Hold after the worker sends FRAME_PROCESS_EXITED with stdout still open.
+    /// Block the worker on `gate` after it sends FRAME_PROCESS_EXITED, with
+    /// stdout still open.
     #[must_use]
-    pub const fn with_test_hold_before_exit_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_before_exit_ms = hold_ms;
+    pub fn with_test_hold_before_exit_gate(mut self, gate: Option<PathBuf>) -> Self {
+        self.test_hold_before_exit_gate = gate;
         self
     }
 
@@ -1801,10 +1804,8 @@ fn launch_worker_inner(
             .arg("--test-hold-after-enqueue-ms")
             .arg(hold_ms.to_string());
     }
-    if let Some(hold_ms) = options.test_hold_before_exit_ms {
-        command
-            .arg("--test-hold-before-exit-ms")
-            .arg(hold_ms.to_string());
+    if let Some(gate) = options.test_hold_before_exit_gate.as_ref() {
+        command.arg("--test-hold-before-exit-gate").arg(gate);
     }
     if let Some(exit_code) = options.test_exit_code {
         command.arg("--test-exit-code").arg(exit_code.to_string());

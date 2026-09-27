@@ -418,8 +418,10 @@ fn run() -> Result<(), String> {
         let _ = wakes.wait_wakes_untimed();
     }
 
-    if let Some(hold_ms) = args.test_hold_before_exit_ms {
-        thread::sleep(Duration::from_millis(hold_ms));
+    if let Some(gate) = &args.test_hold_before_exit_gate {
+        // Test-only: block reading the gate pipe with stdout still open,
+        // until the test writes it or ends the worker.
+        let _ = std::fs::read(gate);
     }
 
     drop(state);
@@ -2162,7 +2164,7 @@ struct WorkerArgs {
     test_hold_after_read_ms: Option<u64>,
     test_pending_capacity: Option<usize>,
     test_hold_after_enqueue_ms: Option<u64>,
-    test_hold_before_exit_ms: Option<u64>,
+    test_hold_before_exit_gate: Option<PathBuf>,
     test_exit_code: Option<i32>,
     ghostty_max_scrollback_bytes: usize,
     terminal_color_profile: Option<botster_core::TerminalColorProfile>,
@@ -2178,7 +2180,7 @@ impl WorkerArgs {
         let mut test_hold_after_read_ms = None;
         let mut test_pending_capacity = None;
         let mut test_hold_after_enqueue_ms = None;
-        let mut test_hold_before_exit_ms = None;
+        let mut test_hold_before_exit_gate = None;
         let mut test_exit_code = None;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
         let mut terminal_color_profile = None;
@@ -2224,10 +2226,13 @@ impl WorkerArgs {
                     test_hold_after_enqueue_ms =
                         Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
-                "--test-hold-before-exit-ms" => {
+                "--test-hold-before-exit-gate" => {
                     index += 1;
-                    test_hold_before_exit_ms =
-                        Some(parse_arg(&args, index, "--test-hold-before-exit-ms")?);
+                    test_hold_before_exit_gate = Some(PathBuf::from(parse_string_arg(
+                        &args,
+                        index,
+                        "--test-hold-before-exit-gate",
+                    )?));
                 }
                 "--test-exit-code" => {
                     index += 1;
@@ -2263,7 +2268,7 @@ impl WorkerArgs {
             test_hold_after_read_ms,
             test_pending_capacity,
             test_hold_after_enqueue_ms,
-            test_hold_before_exit_ms,
+            test_hold_before_exit_gate,
             test_exit_code,
             ghostty_max_scrollback_bytes,
             terminal_color_profile,

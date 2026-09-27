@@ -1648,12 +1648,15 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
 #[cfg(unix)]
 #[test]
 fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
+    // Never written: each round's worker holds after its exit frame until
+    // the reaper ends it.
+    let exit_hold = Fifo::new("bound-exit-rounds-hold");
     let data_dir = temp_data_dir("bound-exit-rounds");
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
             .with_ghostty_max_scrollback_bytes(0)
-            .with_test_hold_before_exit_ms(Some(2_000)),
+            .with_test_hold_before_exit_gate(Some(exit_hold.path().to_path_buf())),
     );
 
     for round in 0..3 {
@@ -2852,28 +2855,34 @@ fn worker_pending_replacement_does_not_start_the_old_subscription() {
         "replaced pending subscription must not stay in inventory: {live:?}"
     );
 
-    let started = Instant::now();
+    // Captures on the session run in order, so the replacement's own
+    // snapshot is the positive event: until it arrives, and with it, the
+    // old subscription must have emitted nothing.
     let mut saw_old_after_replace = false;
-    while started.elapsed() < Duration::from_secs(2) {
-        let drained = daemon.drain(&session_id, 20).expect("drain");
-        for (_, frame) in drained.client_egress {
-            if matches!(
-                frame,
-                TransportEgress::Snapshot {
-                    subscription_id,
-                    ..
+    on_wakes_until(
+        &mut daemon,
+        "the replacement subscription's attach snapshot",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |daemon| {
+            let drained = daemon.drain(&session_id, 20).expect("drain");
+            let mut replacement_attached = false;
+            for (_, frame) in drained.client_egress {
+                match frame {
+                    TransportEgress::Snapshot {
+                        subscription_id, ..
+                    }
+                    | TransportEgress::AttachState {
+                        subscription_id, ..
+                    } if subscription_id == old_sub => saw_old_after_replace = true,
+                    TransportEgress::Snapshot {
+                        subscription_id, ..
+                    } if subscription_id == new_sub => replacement_attached = true,
+                    _ => {}
                 }
-                | TransportEgress::AttachState {
-                    subscription_id,
-                    ..
-                } if subscription_id == old_sub
-            ) {
-                saw_old_after_replace = true;
             }
-        }
-        // timer: deadline — the 2 s window in which the old subscription must stay silent
-        let _ = daemon.wait_wakes(Duration::from_secs(2).saturating_sub(started.elapsed()));
-    }
+            replacement_attached.then_some(())
+        },
+    );
     assert!(
         !saw_old_after_replace,
         "old pending subscription must never start a snapshot boundary"
@@ -5117,12 +5126,14 @@ fn observe_session_lifecycle_finds_a_row_beyond_256_without_scans() {
 fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
     let data_dir = short_temp_data_dir("w1-hold");
     let session_id = SessionId("w1-hold-session".to_string());
-    let hold_ms = 8_000;
+    // Never written: the worker holds after its exit frame until the
+    // reaper ends it.
+    let exit_hold = Fifo::new("w1-exit-hold");
     let (probe, probe_events) = WorkerRouteProbe::channel();
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_test_hold_before_exit_ms(Some(hold_ms))
+            .with_test_hold_before_exit_gate(Some(exit_hold.path().to_path_buf()))
             .with_test_route_probe(Some(probe)),
     );
     daemon

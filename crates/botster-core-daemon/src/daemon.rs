@@ -138,8 +138,10 @@ pub struct CoreDaemonConfig {
     pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: report capture releases and PTY output routing decisions.
     pub test_route_probe: Option<WorkerRouteProbe>,
-    /// Test-only: hold after FRAME_PROCESS_EXITED with stdout still open.
-    pub test_hold_before_exit_ms: Option<u64>,
+    /// Test-only: after FRAME_PROCESS_EXITED, the worker blocks reading this
+    /// pipe with stdout still open, until the test writes it or ends the
+    /// worker.
+    pub test_hold_before_exit_gate: Option<PathBuf>,
     /// Test-only: worker process exit code after the payload is flushed.
     pub test_exit_code: Option<i32>,
     /// Test-only: the worker's shutdown grace before it kills the process
@@ -171,7 +173,7 @@ impl CoreDaemonConfig {
             test_worker_egress_capacity: None,
             test_resize_ack_hold: None,
             test_route_probe: None,
-            test_hold_before_exit_ms: None,
+            test_hold_before_exit_gate: None,
             test_shutdown_grace_ms: None,
             test_exit_code: None,
             #[cfg(test)]
@@ -228,10 +230,11 @@ impl CoreDaemonConfig {
         self
     }
 
-    /// Hold after the worker sends FRAME_PROCESS_EXITED with stdout still open.
+    /// Block the worker on `gate` after it sends FRAME_PROCESS_EXITED, with
+    /// stdout still open.
     #[must_use]
-    pub const fn with_test_hold_before_exit_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_before_exit_ms = hold_ms;
+    pub fn with_test_hold_before_exit_gate(mut self, gate: Option<PathBuf>) -> Self {
+        self.test_hold_before_exit_gate = gate;
         self
     }
 
@@ -579,7 +582,7 @@ impl CoreDaemon {
                 options.terminal_color_profile = terminal_color_profile.clone();
                 options.test_resize_ack_hold = config.test_resize_ack_hold.clone();
                 options.test_route_probe = config.test_route_probe.clone();
-                options.test_hold_before_exit_ms = config.test_hold_before_exit_ms;
+                options.test_hold_before_exit_gate = config.test_hold_before_exit_gate.clone();
                 options.test_exit_code = config.test_exit_code;
                 if let Some(capacity) = config.pty_reader_chunk_capacity {
                     options.pty_reader_chunk_capacity = capacity;
