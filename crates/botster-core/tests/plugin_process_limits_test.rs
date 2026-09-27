@@ -156,6 +156,14 @@ fn allocation_over_the_memory_cap_is_a_memory_cap_kill() {
     assert_eq!(await_exit(&process).cause, PluginExitCause::MemoryCap);
 }
 
+/// The kernel signal at the `RLIMIT_CPU` limit. Core sets soft = hard, and
+/// Linux checks the hard limit (SIGKILL) before the soft one (SIGXCPU);
+/// macOS sends SIGXCPU.
+#[cfg(target_os = "linux")]
+const CPU_LIMIT_SIGNAL: i32 = libc::SIGKILL;
+#[cfg(not(target_os = "linux"))]
+const CPU_LIMIT_SIGNAL: i32 = libc::SIGXCPU;
+
 #[test]
 fn the_cpu_rlimit_ends_a_spinning_worker_as_a_crash_not_a_parent_kill() {
     let mut config = config();
@@ -169,7 +177,7 @@ fn the_cpu_rlimit_ends_a_spinning_worker_as_a_crash_not_a_parent_kill() {
     assert_eq!(
         await_exit(&process).cause,
         PluginExitCause::Crashed {
-            signal: Some(libc::SIGXCPU),
+            signal: Some(CPU_LIMIT_SIGNAL),
             code: None
         }
     );
