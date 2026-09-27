@@ -347,6 +347,8 @@ impl LocalProcessRuntime {
             pending_capacity,
             overflow_error: Mutex::new(None),
             reader_finished: AtomicBool::new(false),
+            #[cfg(test)]
+            space_wait_entered: Mutex::new(None),
         });
         let wake_handle = self
             .wake_source
@@ -965,6 +967,10 @@ struct ReaderFence {
     overflow_error: Mutex<Option<String>>,
     /// Reader thread has exited (EOF/error stop).
     reader_finished: AtomicBool,
+    /// Test seam: signalled under the pending lock just before a reader
+    /// waits for pending space.
+    #[cfg(test)]
+    space_wait_entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 #[derive(Default)]
@@ -1062,6 +1068,14 @@ impl ReaderFence {
             return;
         };
         while pending.len() >= self.pending_capacity {
+            #[cfg(test)]
+            if let Some(entered) = &*self
+                .space_wait_entered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            {
+                let _ = entered.send(());
+            }
             let Ok(guard) = self.pending_cv.wait(pending) else {
                 return;
             };
@@ -1809,6 +1823,7 @@ mod tests {
             pending_capacity,
             overflow_error: Mutex::new(None),
             reader_finished: AtomicBool::new(false),
+            space_wait_entered: Mutex::new(None),
         })
     }
 
@@ -1852,7 +1867,8 @@ mod tests {
             }) {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            // timer: deadline — the loop's bound; the process exit wakes the session
+            let _ = source.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
 
         assert_eq!(source.session_registry_len(), 1);
@@ -2027,6 +2043,8 @@ mod tests {
             .expect_err("full");
         assert!(fence.take_overflow_error().is_none());
 
+        let (entered_sender, entered) = std::sync::mpsc::channel();
+        *fence.space_wait_entered.lock().expect("seam") = Some(entered_sender);
         let fence_w = Arc::clone(&fence);
         let pressure_w = Arc::clone(&pressure);
         let waiter = thread::spawn(move || {
@@ -2042,7 +2060,13 @@ mod tests {
             }
         });
 
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the waiter must reach its space wait; expiry fails the test
+        entered
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the waiter waits for pending space");
+        // The seam fires under the pending lock, so this lock is free only
+        // once the waiter is inside the condvar wait.
+        drop(fence.pending.lock().expect("pending"));
         let (out, fail) = drain_fence_pending(&fence, &test_session_id(), &pressure);
         assert!(fail.is_none());
         assert_eq!(out.len(), 1);
