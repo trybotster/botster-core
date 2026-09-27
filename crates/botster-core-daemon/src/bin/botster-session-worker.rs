@@ -17,6 +17,7 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -231,6 +232,7 @@ fn run() -> Result<(), String> {
 
     let (frame_sender, frame_receiver) = mpsc::channel();
     let snapshot_barrier = Arc::new(SnapshotBarrierControl::default());
+    let control_connections = Arc::new(AtomicUsize::new(0));
     control.spawn_readers(
         initial_control,
         frame_sender,
@@ -238,6 +240,7 @@ fn run() -> Result<(), String> {
         metadata.clone(),
         wakes.clone(),
         session_id.clone(),
+        Arc::clone(&control_connections),
     );
 
     let (egress, protected_receiver, metadata_receiver) =
@@ -261,6 +264,8 @@ fn run() -> Result<(), String> {
         pending_ops: 0,
         pending_bytes: 0,
         exited: false,
+        deferring_exit: false,
+        deferred_exit: None,
     };
     let mut reconnect_timeout_seconds = None;
     let mut lifecycle = WorkerLifecycle::default();
@@ -326,7 +331,15 @@ fn run() -> Result<(), String> {
                     FRAME_RESIZE => {
                         let size: ResizePayload = serde_json::from_slice(&frame.payload)
                             .map_err(|error| error.to_string())?;
-                        state.apply_resize(&mut runtime, size.rows, size.cols, None)?;
+                        if state.exited {
+                            // No PTY is left; the final model takes the size.
+                            state
+                                .ghostty
+                                .resize(TerminalScreenSize::new(size.rows, size.cols));
+                            state.publish_modes_if_changed();
+                        } else {
+                            state.apply_resize(&mut runtime, size.rows, size.cols, None)?;
+                        }
                         state
                             .egress
                             .send_protected_json(FRAME_RESIZE_APPLIED, &size);
@@ -352,11 +365,13 @@ fn run() -> Result<(), String> {
                         reconnect_timeout_seconds = Some(timeout.seconds);
                     }
                     FRAME_SHUTDOWN => {
-                        runtime
-                            .send_input(SessionRuntimeInput::Shutdown {
-                                session_id: state.session_id.clone(),
-                            })
-                            .map_err(|error| error.to_string())?;
+                        if !state.exited {
+                            runtime
+                                .send_input(SessionRuntimeInput::Shutdown {
+                                    session_id: state.session_id.clone(),
+                                })
+                                .map_err(|error| error.to_string())?;
+                        }
                         lifecycle.request_shutdown();
                     }
                     _ => {}
@@ -364,11 +379,13 @@ fn run() -> Result<(), String> {
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     if shutdown_on_disconnect {
-                        runtime
-                            .send_input(SessionRuntimeInput::Shutdown {
-                                session_id: state.session_id.clone(),
-                            })
-                            .map_err(|error| error.to_string())?;
+                        if !state.exited {
+                            runtime
+                                .send_input(SessionRuntimeInput::Shutdown {
+                                    session_id: state.session_id.clone(),
+                                })
+                                .map_err(|error| error.to_string())?;
+                        }
                         lifecycle.request_shutdown();
                     }
                     break;
@@ -379,7 +396,18 @@ fn run() -> Result<(), String> {
         state.drain_and_apply_pty_output(&mut runtime)?;
         if state.exited {
             lifecycle.observe_process_exit();
-            break;
+            // A socket worker whose every control connection has closed has
+            // no parent left to serve.
+            if !shutdown_on_disconnect && control_connections.load(Ordering::SeqCst) == 0 {
+                lifecycle.request_shutdown();
+            }
+            if !lifecycle.should_continue() {
+                break;
+            }
+            // Control frames and each control connection's end post session
+            // wakes, so this wait needs no timer.
+            let _ = wakes.wait_wakes_untimed();
+            continue;
         }
         let write_blocked = state.progress_pending_writes(&runtime);
         let timeout = if write_blocked {
@@ -447,6 +475,11 @@ struct WorkerState {
     /// Encoded bytes retained across keyed operations.
     pending_bytes: usize,
     exited: bool,
+    /// A snapshot request is being served: an exit met while draining under
+    /// its barrier waits here, so PROCESS_EXITED (terminal on the egress)
+    /// cannot close the egress before the snapshot frames are sent.
+    deferring_exit: bool,
+    deferred_exit: Option<botster_core::ProcessExitedPayload>,
 }
 
 impl WorkerState {
@@ -961,14 +994,11 @@ impl WorkerState {
             match output {
                 SessionRuntimeOutput::PtyOutput { data, .. } => self.apply_pty_output_chunk(data),
                 SessionRuntimeOutput::ProcessExited { payload, .. } => {
-                    for observation in self.metadata_shaper.drain() {
-                        send_metadata_observation(&self.egress, observation);
+                    if self.deferring_exit {
+                        self.deferred_exit = Some(payload);
+                    } else {
+                        self.emit_process_exit(&payload);
                     }
-                    self.fail_pending_on_exit();
-                    self.send_final_state();
-                    self.egress
-                        .send_protected_json(FRAME_PROCESS_EXITED, &payload);
-                    self.exited = true;
                 }
                 SessionRuntimeOutput::Backpressure(_)
                 | SessionRuntimeOutput::TitleChanged { .. }
@@ -979,6 +1009,19 @@ impl WorkerState {
                 | SessionRuntimeOutput::MetadataShaping(_) => {}
             }
         }
+    }
+
+    /// Emit the exit: pending metadata, failed keyed operations, the final
+    /// state, then PROCESS_EXITED, which ends the egress.
+    fn emit_process_exit(&mut self, payload: &botster_core::ProcessExitedPayload) {
+        for observation in self.metadata_shaper.drain() {
+            send_metadata_observation(&self.egress, observation);
+        }
+        self.fail_pending_on_exit();
+        self.send_final_state();
+        self.egress
+            .send_protected_json(FRAME_PROCESS_EXITED, payload);
+        self.exited = true;
     }
 
     fn send_final_state(&mut self) {
@@ -1018,6 +1061,98 @@ impl WorkerState {
         Ok(())
     }
 
+    /// Send one capture's snapshot frames and complete its release
+    /// handshake. Under `barrier` the PTY is held; with none, the child has
+    /// exited and the final terminal model is served.
+    fn serve_snapshot(
+        &mut self,
+        mut barrier: Option<&mut botster_core::PtyIoBarrier<'_>>,
+        request_id: &str,
+        barrier_control: &SnapshotBarrierControl,
+    ) -> Result<(), botster_core::SessionRuntimeError> {
+        let encoded = (|| {
+            if let Some(barrier) = barrier.as_mut() {
+                let outputs = barrier.drain_output()?;
+                self.apply_outputs(outputs);
+            }
+            let size = self.ghostty.size();
+            let color_profile = self.ghostty.read_color_profile().unwrap_or_default();
+            let egress = &self.egress;
+            self.ghostty
+                .export_snapshot_frames(|frame| {
+                    let phase = match frame.kind {
+                        GhosttySnapshotFrameKind::Ready => WorkerSnapshotPhase::Ready,
+                        GhosttySnapshotFrameKind::History => WorkerSnapshotPhase::History,
+                        GhosttySnapshotFrameKind::Finish => WorkerSnapshotPhase::Finish,
+                    };
+                    egress.send_protected_json_cancellable(
+                        FRAME_SNAPSHOT,
+                        &WorkerSnapshotResult {
+                            request_id: request_id.to_owned(),
+                            snapshot: Some(botster_core::TerminalSnapshotPayload::new(
+                                frame.bytes,
+                                size,
+                                Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
+                            )),
+                            phase: Some(phase),
+                            error_kind: None,
+                            barrier_released: false,
+                            color_profile: (frame.kind == GhosttySnapshotFrameKind::Finish)
+                                .then(|| color_profile.clone()),
+                        },
+                        || barrier_control.is_cancelled(request_id),
+                    )
+                })
+                .map_err(|error| {
+                    botster_core::SessionRuntimeError::new(
+                        botster_core::SessionRuntimeErrorKind::OutputFailed,
+                        error.to_string(),
+                    )
+                })
+        })();
+        if let Err(error) = encoded {
+            let _ = self.egress.send_protected_json_cancellable(
+                FRAME_SNAPSHOT,
+                &WorkerSnapshotResult {
+                    request_id: request_id.to_owned(),
+                    snapshot: None,
+                    phase: None,
+                    error_kind: Some(error.to_string()),
+                    barrier_released: false,
+                    color_profile: None,
+                },
+                || barrier_control.is_cancelled(request_id),
+            );
+        }
+        match barrier_control.wait_for_release(request_id) {
+            SnapshotBarrierRelease::Cancel => return Ok(()),
+            SnapshotBarrierRelease::Complete(resize) => {
+                let release_error = if let Some(size) = resize {
+                    self.ghostty
+                        .resize(TerminalScreenSize::new(size.rows, size.cols));
+                    barrier
+                        .as_mut()
+                        .and_then(|barrier| barrier.resize(size).err())
+                        .map(|error| error.to_string())
+                } else {
+                    None
+                };
+                let _ = self.egress.send_protected_json(
+                    FRAME_SNAPSHOT,
+                    &WorkerSnapshotResult {
+                        request_id: request_id.to_owned(),
+                        snapshot: None,
+                        phase: None,
+                        error_kind: release_error,
+                        barrier_released: true,
+                        color_profile: None,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn handle_snapshot_request(
         &mut self,
         runtime: &mut LocalProcessRuntime,
@@ -1044,84 +1179,16 @@ impl WorkerState {
         let request_id = request.request_id;
         let barrier_control = Arc::clone(snapshot_barrier);
         let session_id = self.session_id.clone();
-        let result = runtime.with_pty_io_barrier(&session_id, |barrier| {
-            let encoded = (|| {
-                let outputs = barrier.drain_output()?;
-                self.apply_outputs(outputs);
-                let size = self.ghostty.size();
-                let color_profile = self.ghostty.read_color_profile().unwrap_or_default();
-                let egress = &self.egress;
-                self.ghostty
-                    .export_snapshot_frames(|frame| {
-                        let phase = match frame.kind {
-                            GhosttySnapshotFrameKind::Ready => WorkerSnapshotPhase::Ready,
-                            GhosttySnapshotFrameKind::History => WorkerSnapshotPhase::History,
-                            GhosttySnapshotFrameKind::Finish => WorkerSnapshotPhase::Finish,
-                        };
-                        egress.send_protected_json_cancellable(
-                            FRAME_SNAPSHOT,
-                            &WorkerSnapshotResult {
-                                request_id: request_id.clone(),
-                                snapshot: Some(botster_core::TerminalSnapshotPayload::new(
-                                    frame.bytes,
-                                    size,
-                                    Some(GHOSTTY_SNAPSHOT_FORMAT.to_owned()),
-                                )),
-                                phase: Some(phase),
-                                error_kind: None,
-                                barrier_released: false,
-                                color_profile: (frame.kind == GhosttySnapshotFrameKind::Finish)
-                                    .then(|| color_profile.clone()),
-                            },
-                            || barrier_control.is_cancelled(&request_id),
-                        )
-                    })
-                    .map_err(|error| {
-                        botster_core::SessionRuntimeError::new(
-                            botster_core::SessionRuntimeErrorKind::OutputFailed,
-                            error.to_string(),
-                        )
-                    })
-            })();
-            if let Err(error) = encoded {
-                let _ = self.egress.send_protected_json_cancellable(
-                    FRAME_SNAPSHOT,
-                    &WorkerSnapshotResult {
-                        request_id: request_id.clone(),
-                        snapshot: None,
-                        phase: None,
-                        error_kind: Some(error.to_string()),
-                        barrier_released: false,
-                        color_profile: None,
-                    },
-                    || barrier_control.is_cancelled(&request_id),
-                );
-            }
-            match barrier_control.wait_for_release(&request_id) {
-                SnapshotBarrierRelease::Cancel => return Ok(()),
-                SnapshotBarrierRelease::Complete(resize) => {
-                    let release_error = if let Some(size) = resize {
-                        self.ghostty
-                            .resize(TerminalScreenSize::new(size.rows, size.cols));
-                        barrier.resize(size).err().map(|error| error.to_string())
-                    } else {
-                        None
-                    };
-                    let _ = self.egress.send_protected_json(
-                        FRAME_SNAPSHOT,
-                        &WorkerSnapshotResult {
-                            request_id: request_id.clone(),
-                            snapshot: None,
-                            phase: None,
-                            error_kind: release_error,
-                            barrier_released: true,
-                            color_profile: None,
-                        },
-                    );
-                }
-            }
-            Ok(())
-        });
+        self.deferring_exit = true;
+        let result = if self.exited {
+            // The child has exited and its PTY is gone. The final terminal
+            // model still answers, with the same release handshake.
+            self.serve_snapshot(None, &request_id, &barrier_control)
+        } else {
+            runtime.with_pty_io_barrier(&session_id, |barrier| {
+                self.serve_snapshot(Some(barrier), &request_id, &barrier_control)
+            })
+        };
         if let Err(error) = result {
             let _ = self.egress.send_protected_json(
                 FRAME_SNAPSHOT,
@@ -1137,6 +1204,10 @@ impl WorkerState {
         }
         snapshot_barrier.clear(&request_id);
         self.publish_modes_if_changed();
+        self.deferring_exit = false;
+        if let Some(payload) = self.deferred_exit.take() {
+            self.emit_process_exit(&payload);
+        }
     }
 }
 
@@ -1240,27 +1311,39 @@ impl SnapshotBarrierControl {
     }
 }
 
+/// The worker outlives its child: after the exit it keeps serving control
+/// requests (captures from the final terminal model) until the parent asks
+/// it to stop or its control closes.
 #[derive(Default)]
 enum WorkerLifecycle {
     #[default]
     Running,
+    /// Shutdown requested; the child has not exited yet.
     Stopping,
+    /// The child exited; control requests are still served.
     Exited,
+    /// The child exited and the parent asked to stop, or is gone.
+    Done,
 }
 
 impl WorkerLifecycle {
     fn request_shutdown(&mut self) {
-        if matches!(self, Self::Running) {
-            *self = Self::Stopping;
-        }
+        *self = match self {
+            Self::Running => Self::Stopping,
+            Self::Exited | Self::Done => Self::Done,
+            Self::Stopping => Self::Stopping,
+        };
     }
 
     fn observe_process_exit(&mut self) {
-        *self = Self::Exited;
+        *self = match self {
+            Self::Running | Self::Exited => Self::Exited,
+            Self::Stopping | Self::Done => Self::Done,
+        };
     }
 
     fn should_continue(&self) -> bool {
-        !matches!(self, Self::Exited)
+        !matches!(self, Self::Done)
     }
 }
 
@@ -1298,7 +1381,9 @@ fn spawn_control_reader(
     snapshot_barrier: Arc<SnapshotBarrierControl>,
     wakes: TerminalWakeSource,
     session_id: SessionId,
+    connections: Arc<AtomicUsize>,
 ) {
+    connections.fetch_add(1, Ordering::SeqCst);
     thread::spawn(move || {
         while let Ok(frame) = read_frame(&mut control) {
             if frame.frame_type == FRAME_GET_SNAPSHOT {
@@ -1338,6 +1423,7 @@ fn spawn_control_reader(
         // TryRecvError::Disconnected, and a wake that lands while the sender
         // is alive reads as Empty and leaves the loop parked with no wake.
         drop(sender);
+        connections.fetch_sub(1, Ordering::SeqCst);
         wakes.notify_session(&session_id);
         #[cfg(test)]
         hold_after_eof_wake(&session_id);
@@ -1381,22 +1467,19 @@ fn drain_metadata_lane(
     Ok(())
 }
 
-/// Write protected frames, then pending metadata. `FRAME_PROCESS_EXITED` is
-/// terminal: drain metadata first so queued observations still precede it,
-/// write the exit frame, then stop so no later frame follows it.
+/// Write protected frames, then pending metadata. Before
+/// `FRAME_PROCESS_EXITED`, drain metadata first so queued observations still
+/// precede it. The exit frame does not end the egress: the worker keeps
+/// answering control requests (captures from its final model) after it.
 fn write_egress_lanes(
     mut write_frame: impl FnMut(&[u8]) -> Result<(), String>,
     protected: Receiver<Vec<u8>>,
     metadata: Receiver<Vec<u8>>,
 ) -> Result<(), String> {
     while let Ok(frame) = protected.recv() {
-        if write_one_protected_frame(&mut write_frame, &metadata, frame)? {
-            return Ok(());
-        }
+        write_one_protected_frame(&mut write_frame, &metadata, frame)?;
         while let Ok(frame) = protected.try_recv() {
-            if write_one_protected_frame(&mut write_frame, &metadata, frame)? {
-                return Ok(());
-            }
+            write_one_protected_frame(&mut write_frame, &metadata, frame)?;
         }
     }
     Ok(())
@@ -1406,15 +1489,13 @@ fn write_one_protected_frame(
     write_frame: &mut impl FnMut(&[u8]) -> Result<(), String>,
     metadata: &Receiver<Vec<u8>>,
     frame: Vec<u8>,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     if is_process_exited_frame(&frame) {
         drain_metadata_lane(metadata, |queued| write_frame(queued))?;
-        write_frame(&frame)?;
-        return Ok(true);
+        return write_frame(&frame);
     }
     write_frame(&frame)?;
-    drain_metadata_lane(metadata, |queued| write_frame(queued))?;
-    Ok(false)
+    drain_metadata_lane(metadata, |queued| write_frame(queued))
 }
 
 fn write_egress(
@@ -1511,6 +1592,7 @@ impl WorkerControl {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn spawn_readers(
         &self,
         initial: Box<dyn ReadWrite + Send>,
@@ -1519,6 +1601,7 @@ impl WorkerControl {
         metadata: SessionMetadata,
         wakes: TerminalWakeSource,
         session_id: SessionId,
+        connections: Arc<AtomicUsize>,
     ) {
         spawn_control_reader(
             initial,
@@ -1526,6 +1609,7 @@ impl WorkerControl {
             Arc::clone(&snapshot_barrier),
             wakes.clone(),
             session_id.clone(),
+            Arc::clone(&connections),
         );
         #[cfg(unix)]
         if let Self::Socket {
@@ -1553,6 +1637,7 @@ impl WorkerControl {
                         Arc::clone(&snapshot_barrier),
                         wakes.clone(),
                         session_id.clone(),
+                        Arc::clone(&connections),
                     );
                 }
             });
@@ -2165,19 +2250,24 @@ mod tests {
         );
     }
 
+    /// Metadata queued before the exit still precedes it, and the exit no
+    /// longer ends the egress: a capture answered from the final model after
+    /// the exit is still written.
     #[test]
-    fn writer_emits_queued_metadata_then_process_exited_and_drops_later_protected_frames() {
+    fn writer_emits_queued_metadata_then_process_exited_and_serves_later_frames() {
         let (protected_tx, protected_rx) = std::sync::mpsc::sync_channel(8);
         let (metadata_tx, metadata_rx) = std::sync::mpsc::sync_channel(8);
-        let late_pty =
-            botster_core::encode_frame(super::FRAME_PTY_OUTPUT, b"after-exit").expect("pty");
+        let late_snapshot =
+            botster_core::encode_frame(super::FRAME_SNAPSHOT, b"after-exit").expect("snapshot");
         let late_title =
             botster_core::encode_string(super::FRAME_TITLE_CHANGED, "after-exit-title")
                 .expect("title");
         protected_tx
             .send(process_exited_frame())
             .expect("queue process-exited");
-        protected_tx.send(late_pty).expect("queue late pty");
+        protected_tx
+            .send(late_snapshot)
+            .expect("queue late snapshot");
         metadata_tx.send(late_title).expect("queue late title");
         drop(protected_tx);
         drop(metadata_tx);
@@ -2186,12 +2276,16 @@ mod tests {
         super::write_egress(&mut stdout, protected_rx, metadata_rx).expect("stdio writer");
         assert_eq!(
             decode_frame_types(&stdout),
-            vec![super::FRAME_TITLE_CHANGED, super::FRAME_PROCESS_EXITED]
+            vec![
+                super::FRAME_TITLE_CHANGED,
+                super::FRAME_PROCESS_EXITED,
+                super::FRAME_SNAPSHOT
+            ]
         );
     }
 
     #[test]
-    fn socket_writer_path_is_terminal_after_process_exited() {
+    fn socket_writer_path_emits_metadata_before_process_exited() {
         let (protected_tx, protected_rx) = std::sync::mpsc::sync_channel(8);
         let (metadata_tx, metadata_rx) = std::sync::mpsc::sync_channel(8);
         let title =
@@ -2313,6 +2407,7 @@ mod tests {
             Arc::clone(&control),
             super::TerminalWakeSource::new(),
             super::SessionId("shutdown-reader".to_string()),
+            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         );
 
         let shutdown =
@@ -2352,6 +2447,7 @@ mod tests {
             Arc::new(SnapshotBarrierControl::default()),
             wakes.clone(),
             session,
+            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         );
         drop(parent);
 
@@ -2384,6 +2480,7 @@ mod tests {
             Arc::clone(&control),
             super::TerminalWakeSource::new(),
             super::SessionId("truncated-reader".to_string()),
+            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         );
 
         // The reader itself begins the barrier from a real begin frame.
