@@ -1706,25 +1706,28 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
             wait_pid_exit(pty_child_pid, REAL_WORKER_COMPLETION_TIMEOUT),
             "round {round} PTY child exit"
         );
-        // Worker writer emits FRAME_PROCESS_EXITED before the hold starts.
-        thread::sleep(Duration::from_millis(150));
-
         let mut saw_live = false;
-        for tick in 0..80 {
-            let batch = daemon.wait_wakes(Duration::from_millis(250));
-            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
-                let _ = daemon
-                    .pump_woken(&batch, 13 + round + tick)
-                    .unwrap_or_else(|error| panic!("round {round} pump: {error:?}"));
-            }
-            complete_one_slot_if_full(&adapter);
-            if adapter_has_live(&adapter) {
-                saw_live = true;
-                if adapter_has_process_exit(&adapter) {
-                    break;
+        let mut now = 13 + round;
+        wait_for(
+            "LIVE and process_exit at the one-slot adapter",
+            REAL_WORKER_COMPLETION_TIMEOUT,
+            |remaining| {
+                complete_one_slot_and_wake(&adapter);
+                saw_live |= adapter_has_live(&adapter);
+                if saw_live && adapter_has_process_exit(&adapter) {
+                    return Some(());
                 }
-            }
-        }
+                // timer: deadline — wait_for's bound limits this wait
+                let batch = daemon.wait_wakes(remaining);
+                if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                    now += 1;
+                    let _ = daemon
+                        .pump_woken(&batch, now)
+                        .unwrap_or_else(|error| panic!("round {round} pump: {error:?}"));
+                }
+                None
+            },
+        );
         let delivered = adapter.snapshot_delivered_frame_bytes();
         let types: Vec<String> = delivered
             .iter()
@@ -2219,12 +2222,6 @@ fn an_exit_with_no_capture_leaves_no_worker_behind() {
         "the worker of an exited session with no capture must exit"
     );
     let _ = fs::remove_dir_all(data_dir);
-}
-
-fn complete_one_slot_if_full(adapter: &SharedFakeTerminalAdapter) {
-    if adapter.snapshot_pressure() == TerminalAdapterPressure::Full {
-        adapter.complete_write();
-    }
 }
 
 /// Complete the adapter's one in-flight write and wake Core, as a real
