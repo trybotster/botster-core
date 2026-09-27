@@ -103,12 +103,12 @@ pub struct PluginWorkerEngineConfig {
     pub test_queue_probe: Option<PluginQueueProbe>,
 }
 
-/// Test-only observer of the engine's queueing decisions. It reports each
-/// job from the site that queued it, after the admission lock is released.
-/// Unconfigured, each site costs one `Option` check.
+/// Test-only observer of the engine's job state. Each site reports right
+/// after it changes the engine's job counters, so a woken observer sees the
+/// new state. Unconfigured, each site costs one `Option` check.
 #[derive(Clone)]
 pub struct PluginQueueProbe {
-    sender: mpsc::Sender<PluginQueueProbeEvent>,
+    report: Arc<dyn Fn(PluginQueueProbeEvent) + Send + Sync>,
     identity: Arc<()>,
 }
 
@@ -122,6 +122,19 @@ pub enum PluginQueueProbeEvent {
         /// The queued invocation.
         request_id: RequestId,
     },
+    /// An executor took one queued job and it is now in flight.
+    JobStarted,
+    /// An in-flight job ended and left its executor.
+    JobFinished,
+    /// A queued job was removed without running (cancelled, expired, or its
+    /// worker stopped).
+    JobUnqueued,
+    /// The engine published an async completion.
+    CompletionPublished,
+    /// One executor worker thread ended.
+    ExecutorExited,
+    /// A retired plugin's executors were all joined.
+    PluginExecutorsRetired,
 }
 
 impl PluginQueueProbe {
@@ -129,17 +142,24 @@ impl PluginQueueProbe {
     #[must_use]
     pub fn channel() -> (Self, mpsc::Receiver<PluginQueueProbeEvent>) {
         let (sender, receiver) = mpsc::channel();
-        (
-            Self {
-                sender,
-                identity: Arc::new(()),
-            },
-            receiver,
-        )
+        let probe = Self::from_fn(move |event| {
+            let _ = sender.send(event);
+        });
+        (probe, receiver)
+    }
+
+    /// Create a probe that calls `report` for each event. `report` runs on
+    /// the engine's thread and must not call back into the engine.
+    #[must_use]
+    pub fn from_fn(report: impl Fn(PluginQueueProbeEvent) + Send + Sync + 'static) -> Self {
+        Self {
+            report: Arc::new(report),
+            identity: Arc::new(()),
+        }
     }
 
     fn report(&self, event: PluginQueueProbeEvent) {
-        let _ = self.sender.send(event);
+        (self.report)(event);
     }
 }
 
@@ -299,6 +319,8 @@ pub struct PluginWorkerDebugSnapshot {
     pub completion_pressure_events: usize,
     /// Times try_admit reported `admission lock busy` after its one retry.
     pub admission_lock_busy_events: usize,
+    /// Invocation deadlines the engine's deadline waiter still tracks.
+    pub tracked_deadlines: usize,
     /// Currently registered per-plugin rows sorted by plugin key.
     pub plugins: Vec<PluginWorkerPluginDebugSnapshot>,
 }
@@ -608,12 +630,16 @@ impl PluginWorkerEngine {
             "completion queue byte capacity must be greater than zero"
         );
 
+        let metrics = Arc::new(PluginWorkerEngineMetrics {
+            probe: config.test_queue_probe.clone(),
+            ..PluginWorkerEngineMetrics::default()
+        });
         let shared = Arc::new(EngineShared {
             config,
             workers: Mutex::new(HashMap::new()),
             completions: Mutex::new(CompletionStore::default()),
             completion_notifier: Mutex::new(None),
-            metrics: Arc::new(PluginWorkerEngineMetrics::default()),
+            metrics,
             deadlines: Mutex::new(DeadlineBook::default()),
             deadline_signal: WaitSignal::with_waiters(1),
             stopping: AtomicBool::new(false),
@@ -1602,6 +1628,13 @@ impl PluginWorkerEngine {
                 .metrics
                 .admission_lock_busy_events
                 .load(Ordering::SeqCst),
+            tracked_deadlines: self
+                .inner
+                .shared
+                .deadlines
+                .lock()
+                .map(|book| book.entries.len())
+                .unwrap_or_default(),
             plugins,
         }
     }
@@ -2253,6 +2286,9 @@ impl WorkerState {
             .metrics
             .live_plugin_executors
             .fetch_sub(1, Ordering::SeqCst);
+        self.shared
+            .metrics
+            .report(PluginQueueProbeEvent::PluginExecutorsRetired);
     }
 
     fn queued_jobs(&self) -> usize {
@@ -2549,6 +2585,7 @@ impl WorkerAdmission {
         metrics.in_flight_jobs.fetch_add(1, Ordering::SeqCst);
         engine_metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
         engine_metrics.in_flight_jobs.fetch_add(1, Ordering::SeqCst);
+        engine_metrics.report(PluginQueueProbeEvent::JobStarted);
         if let Some(tracked) = self.jobs.get_mut(&job.request.request_id) {
             tracked.phase = JobPhase::InFlight;
         }
@@ -2678,6 +2715,8 @@ impl Drop for WorkerExecutorHandle {
 
 #[derive(Default)]
 struct PluginWorkerEngineMetrics {
+    /// Test-only job-state probe (PluginWorkerEngineConfig::test_queue_probe).
+    probe: Option<PluginQueueProbe>,
     /// try_admit results that reported `admission lock busy`.
     admission_lock_busy_events: AtomicUsize,
     live_plugin_executors: AtomicUsize,
@@ -2696,6 +2735,15 @@ struct PluginWorkerEngineMetrics {
     request_response_pressure_events: AtomicUsize,
     background_pressure_events: AtomicUsize,
     completion_pressure_events: AtomicUsize,
+}
+
+impl PluginWorkerEngineMetrics {
+    /// Report a job-state change to the test probe, after the counters moved.
+    fn report(&self, event: PluginQueueProbeEvent) {
+        if let Some(probe) = &self.probe {
+            probe.report(event);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -2728,6 +2776,8 @@ impl Drop for WorkerLivenessGuard {
         self.engine_metrics
             .live_executor_workers
             .fetch_sub(1, Ordering::SeqCst);
+        self.engine_metrics
+            .report(PluginQueueProbeEvent::ExecutorExited);
     }
 }
 
@@ -3320,6 +3370,9 @@ fn pause_idle(shared: &EngineShared, site: IdleSite) {
 }
 
 fn notify_completion(shared: &EngineShared) {
+    shared
+        .metrics
+        .report(PluginQueueProbeEvent::CompletionPublished);
     let notifier = shared
         .completion_notifier
         .lock()
@@ -3511,6 +3564,7 @@ fn decrement_executor_in_flight(
     }
     metrics.in_flight_jobs.fetch_sub(1, Ordering::SeqCst);
     engine_metrics.in_flight_jobs.fetch_sub(1, Ordering::SeqCst);
+    engine_metrics.report(PluginQueueProbeEvent::JobFinished);
 }
 
 fn cancel_queued_job(
@@ -3552,6 +3606,7 @@ fn cancel_queued_job(
     }
     metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
     engine_metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
+    engine_metrics.report(PluginQueueProbeEvent::JobUnqueued);
     match job.completion {
         JobCompletion::Blocking { result_sender } => {
             let _ = result_sender.send(PluginInvocationResult::Failed(PluginInvocationFailure {
@@ -3710,6 +3765,7 @@ fn cancel_queue_metrics_only(
     }
     metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
     engine_metrics.queued_jobs.fetch_sub(1, Ordering::SeqCst);
+    engine_metrics.report(PluginQueueProbeEvent::JobUnqueued);
 }
 
 fn worker_stopped(request: PluginInvocationRequest, reason: &str) -> PluginInvocationOutcome {

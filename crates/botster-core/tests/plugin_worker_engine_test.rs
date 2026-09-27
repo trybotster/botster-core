@@ -25,19 +25,22 @@ struct FakeRuntime {
     invocations: Arc<Mutex<Vec<PluginInvocationRequest>>>,
     stopped: Arc<Mutex<Vec<PluginKey>>>,
     cancellations_observed: Arc<Mutex<usize>>,
+    /// Released by the test (or, for slow work, by cancellation).
+    gate: Arc<(Mutex<bool>, Condvar)>,
 }
 
 #[derive(Clone)]
 enum FakeBehavior {
     Success(BoundaryJson),
     Failure(String),
-    Delay {
-        duration: Duration,
+    /// Slow work: runs until the test releases it or the engine cancels it.
+    Slow {
         payload: BoundaryJson,
     },
     WaitForCancellation,
-    IgnoreCancellationThenReturn {
-        duration: Duration,
+    /// Ignores cancellation: runs until the test releases it, then returns
+    /// its (possibly stale) result.
+    IgnoreCancellationUntilReleased {
         payload: BoundaryJson,
     },
 }
@@ -53,9 +56,8 @@ impl FakeRuntime {
         Self::new(FakeBehavior::Failure(reason.to_string()))
     }
 
-    fn delayed(duration: Duration) -> Self {
-        Self::new(FakeBehavior::Delay {
-            duration,
+    fn slow() -> Self {
+        Self::new(FakeBehavior::Slow {
             payload: BoundaryJson(serde_json::json!({ "value": "late" })),
         })
     }
@@ -64,11 +66,34 @@ impl FakeRuntime {
         Self::new(FakeBehavior::WaitForCancellation)
     }
 
-    fn ignores_cancellation_then_returns(duration: Duration) -> Self {
-        Self::new(FakeBehavior::IgnoreCancellationThenReturn {
-            duration,
+    fn ignores_cancellation_until_released() -> Self {
+        Self::new(FakeBehavior::IgnoreCancellationUntilReleased {
             payload: BoundaryJson(serde_json::json!({ "value": "late" })),
         })
+    }
+
+    /// Let held work finish.
+    fn release(&self) {
+        let (released, changed) = &*self.gate;
+        *released.lock().expect("fake runtime gate lock") = true;
+        changed.notify_all();
+    }
+
+    /// Block until released, or also until cancelled when `cancellable`.
+    fn hold(&self, cancellation: &PluginCancellationToken, cancellable: bool) {
+        if cancellable {
+            let gate = Arc::clone(&self.gate);
+            cancellation.on_cancel(move || {
+                // Take the gate's own lock so the waiter cannot miss this.
+                let _released = gate.0.lock().expect("fake runtime gate lock");
+                gate.1.notify_all();
+            });
+        }
+        let (released, changed) = &*self.gate;
+        let mut released = released.lock().expect("fake runtime gate lock");
+        while !*released && !(cancellable && cancellation.is_cancelled()) {
+            released = changed.wait(released).expect("fake runtime gate wait");
+        }
     }
 
     fn new(behavior: FakeBehavior) -> Self {
@@ -77,6 +102,7 @@ impl FakeRuntime {
             invocations: Arc::new(Mutex::new(Vec::new())),
             stopped: Arc::new(Mutex::new(Vec::new())),
             cancellations_observed: Arc::new(Mutex::new(0)),
+            gate: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -116,6 +142,7 @@ impl PluginRuntime for FakeRuntime {
             .lock()
             .expect("fake runtime invocations lock")
             .push(request.clone());
+        CHANGES.bump();
 
         match self
             .behavior
@@ -139,8 +166,8 @@ impl PluginRuntime for FakeRuntime {
                     reason,
                 })
             }
-            FakeBehavior::Delay { duration, payload } => {
-                std::thread::sleep(duration);
+            FakeBehavior::Slow { payload } => {
+                self.hold(&cancellation, true);
                 PluginInvocationResult::Completed(PluginInvocationSuccess {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -148,13 +175,16 @@ impl PluginRuntime for FakeRuntime {
                 })
             }
             FakeBehavior::WaitForCancellation => {
-                while !cancellation.is_cancelled() {
-                    std::thread::sleep(Duration::from_millis(1));
-                }
+                let (cancelled, on_cancel) = mpsc::channel();
+                cancellation.on_cancel(move || {
+                    let _ = cancelled.send(());
+                });
+                let _ = on_cancel.recv();
                 *self
                     .cancellations_observed
                     .lock()
                     .expect("fake runtime cancellations lock") += 1;
+                CHANGES.bump();
                 PluginInvocationResult::Failed(PluginInvocationFailure {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -163,8 +193,8 @@ impl PluginRuntime for FakeRuntime {
                     reason: "cancelled by fake runtime".to_string(),
                 })
             }
-            FakeBehavior::IgnoreCancellationThenReturn { duration, payload } => {
-                std::thread::sleep(duration);
+            FakeBehavior::IgnoreCancellationUntilReleased { payload } => {
+                self.hold(&cancellation, false);
                 PluginInvocationResult::Completed(PluginInvocationSuccess {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -179,6 +209,10 @@ impl PluginRuntime for FakeRuntime {
             .lock()
             .expect("fake runtime stopped lock")
             .push(plugin_key.clone());
+        CHANGES.bump();
+        // The engine stops a runtime when it retires its generation: held
+        // work ends then, and its (stale) result comes back.
+        self.release();
     }
 }
 
@@ -236,17 +270,24 @@ impl PluginRuntime for GatedRuntime {
         self.state
             .max_executing
             .fetch_max(executing, Ordering::SeqCst);
+        // Report only after every counter a waiter reads has moved.
+        CHANGES.bump();
         if let Some(events) = &self.state.start_events {
             let _ = events.lock().expect("gated runtime start events").send(());
         }
 
+        let state = Arc::clone(&self.state);
+        cancellation.on_cancel(move || {
+            // Take the gate's own lock so the waiter cannot miss this.
+            let _released = state.gate.0.lock().expect("gated runtime gate lock");
+            state.gate.1.notify_all();
+        });
         let (released, condition) = &self.state.gate;
         let mut released = released.lock().expect("gated runtime gate lock");
         while !*released && !cancellation.is_cancelled() {
-            let (next, _) = condition
-                .wait_timeout(released, Duration::from_millis(1))
+            released = condition
+                .wait(released)
                 .expect("gated runtime condition wait");
-            released = next;
         }
         self.state.executing.fetch_sub(1, Ordering::SeqCst);
 
@@ -297,6 +338,7 @@ impl PluginRuntime for RetirementGatedRuntime {
         _cancellation: PluginCancellationToken,
     ) -> PluginInvocationResult {
         self.state.started.store(true, Ordering::SeqCst);
+        CHANGES.bump();
         let (released, condition) = &self.state.gate;
         let mut released = released.lock().expect("retirement gate lock");
         while !*released {
@@ -314,6 +356,7 @@ impl PluginRuntime for RetirementGatedRuntime {
 
     fn stop(&self, _plugin_key: &PluginKey) {
         self.state.stop_called.store(true, Ordering::SeqCst);
+        CHANGES.bump();
     }
 }
 
@@ -430,15 +473,66 @@ fn network_capability() -> Capability {
 
 const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
 
+/// One change counter for this test binary. Every engine built by [`probed`]
+/// bumps it through its job-state probe, and the test runtimes bump it when
+/// their own observable state changes. Tests running in parallel share it,
+/// which only adds spurious wakeups: a waiter rechecks its predicate.
+struct Changes {
+    count: Mutex<u64>,
+    changed: Condvar,
+}
+
+static CHANGES: Changes = Changes {
+    count: Mutex::new(0),
+    changed: Condvar::new(),
+};
+
+impl Changes {
+    fn bump(&self) {
+        *self.count.lock().expect("changes lock") += 1;
+        self.changed.notify_all();
+    }
+
+    fn current(&self) -> u64 {
+        *self.count.lock().expect("changes lock")
+    }
+}
+
+/// An engine whose job-state changes wake [`wait_until`]. A config that
+/// already carries its own probe keeps it.
+fn probed(mut config: PluginWorkerEngineConfig) -> PluginWorkerEngine {
+    if config.test_queue_probe.is_none() {
+        config.test_queue_probe = Some(PluginQueueProbe::from_fn(|_| CHANGES.bump()));
+    }
+    PluginWorkerEngine::with_config(config)
+}
+
+/// Wait until `predicate` holds, for at most `deadline`. The predicate is
+/// rechecked after each change the engines or the test runtimes report, so
+/// no change is missed: the counter is read before each check.
 fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
-    let started = std::time::Instant::now();
-    while started.elapsed() < deadline {
+    let end = Instant::now() + deadline;
+    loop {
+        let seen = CHANGES.current();
         if predicate() {
             return;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        let count = CHANGES.count.lock().expect("changes lock");
+        // timer: deadline — the caller's bound; expiry fails the wait below
+        let (count, _) = CHANGES
+            .changed
+            .wait_timeout_while(
+                count,
+                end.saturating_duration_since(Instant::now()),
+                |count| *count == seen,
+            )
+            .expect("changes wait");
+        if *count == seen {
+            drop(count);
+            assert!(predicate(), "condition did not become true before deadline");
+            return;
+        }
     }
-    assert!(predicate(), "condition did not become true before deadline");
 }
 
 fn admit(
@@ -460,7 +554,7 @@ fn engine_admit_with_reservation(
 
 #[test]
 fn default_queue_capacity_is_independent_from_executor_concurrency() {
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     for name in ["one", "two", "three", "four"] {
         let plugin = plugin_key(name);
         let command = handler(&plugin, "run");
@@ -501,7 +595,7 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     assert_eq!(defaults.completion_reservation_byte_capacity, 1024 * 1024);
     assert_eq!(defaults.completion_queue_byte_capacity, 1024 * 1024);
     assert!(std::panic::catch_unwind(|| {
-        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        probed(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 0,
             per_plugin_executor_concurrency: 2,
             ..PluginWorkerEngineConfig::default()
@@ -509,7 +603,7 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     })
     .is_err());
     assert!(std::panic::catch_unwind(|| {
-        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        probed(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
             per_plugin_executor_concurrency: 0,
             ..PluginWorkerEngineConfig::default()
@@ -517,7 +611,7 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     })
     .is_err());
     assert!(std::panic::catch_unwind(|| {
-        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        probed(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
             per_plugin_executor_concurrency: 2,
             reserved_request_response_executors: 0,
@@ -526,7 +620,7 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     })
     .is_err());
     assert!(std::panic::catch_unwind(|| {
-        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        probed(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
             per_plugin_executor_concurrency: 2,
             reserved_request_response_executors: 2,
@@ -535,7 +629,7 @@ fn queue_capacity_and_executor_concurrency_must_be_positive() {
     })
     .is_err());
     assert!(std::panic::catch_unwind(|| {
-        PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        probed(PluginWorkerEngineConfig {
             completion_reservation_byte_capacity: 0,
             ..PluginWorkerEngineConfig::default()
         })
@@ -551,7 +645,7 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     let fast_handler = handler(&fast_plugin, "run");
     let (slow_runtime, slow_starts) = GatedRuntime::with_start_events();
     let (probe, queued) = PluginQueueProbe::channel();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 4,
         per_plugin_executor_concurrency: 2,
         test_queue_probe: Some(probe),
@@ -606,7 +700,7 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
             PluginQueueProbeEvent::JobQueued { plugin_key, .. } if plugin_key == slow_plugin => {
                 slow_queued += 1;
             }
-            PluginQueueProbeEvent::JobQueued { .. } => {}
+            _ => {}
         }
     }
     let snapshot = engine.debug_snapshot();
@@ -643,7 +737,7 @@ fn executor_concurrency_allows_two_slow_invocations_to_overlap() {
     let plugin = plugin_key("slow");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 4,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -687,7 +781,7 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
     let plugin = plugin_key("slow");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -741,7 +835,7 @@ fn timed_out_queued_job_is_skipped_before_runtime_execution() {
 #[test]
 fn repeated_load_unload_cycles_join_workers_and_return_debug_counts_to_zero() {
     let plugin = plugin_key("reloadable");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -777,7 +871,7 @@ fn retiring_generation_remains_observable_until_unload_joins_its_worker() {
     let plugin = plugin_key("retiring");
     let command = handler(&plugin, "run");
     let runtime = RetirementGatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -810,7 +904,11 @@ fn retiring_generation_remains_observable_until_unload_joins_its_worker() {
             cleanup: PluginCleanupScope::DescriptorsAndResources,
         })
     });
-    wait_until(Duration::from_millis(250), || runtime.stop_called());
+    // Retirement stops the runtime and joins the idle executor; the busy
+    // one stays until the runtime is released.
+    wait_until(Duration::from_millis(250), || {
+        runtime.stop_called() && engine.debug_snapshot().live_executor_workers == 1
+    });
 
     let snapshot = engine.debug_snapshot();
     let unload_finished_before_release = unload_handle.is_finished();
@@ -836,7 +934,7 @@ fn final_engine_drop_stops_runtime_and_joins_idle_workers() {
     let plugin = plugin_key("drop");
     let command = handler(&plugin, "run");
     let runtime = FakeRuntime::success("ok");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 256,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -861,7 +959,7 @@ fn handler_invocation_dispatches_to_registered_runtime() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "advance");
     let runtime = FakeRuntime::success("ok");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin,
@@ -892,8 +990,8 @@ fn handler_invocation_dispatches_to_registered_runtime() {
 fn invocation_timeout_is_attributed_to_request_handler_and_plugin() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "slow");
-    let runtime = FakeRuntime::delayed(Duration::from_millis(100));
-    let engine = PluginWorkerEngine::new();
+    let runtime = FakeRuntime::slow();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin,
@@ -923,7 +1021,7 @@ fn timeout_cancels_runtime_invocation_and_releases_plugin_capacity() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "slow");
     let runtime = FakeRuntime::waits_for_cancellation();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -972,7 +1070,7 @@ fn unload_cancels_in_flight_invocations_before_cleanup() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "slow");
     let runtime = FakeRuntime::waits_for_cancellation();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1037,7 +1135,7 @@ fn runtime_failure_is_attributed_without_corrupting_other_plugins() {
     let plugin_b = plugin_key("preview");
     let handler_a = handler(&plugin_a, "fail");
     let handler_b = handler(&plugin_b, "ok");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin_a,
@@ -1082,7 +1180,7 @@ fn reload_cleanup_replaces_one_plugin_descriptors_only() {
     let new_a = handler(&plugin_a, "new");
     let handler_b = handler(&plugin_b, "render");
     let runtime_a = FakeRuntime::success("old");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin_a,
@@ -1139,7 +1237,7 @@ fn reload_cancels_only_replaced_plugin_and_keeps_neighbor_alive() {
     let new_a = handler(&plugin_a, "new");
     let handler_b = handler(&plugin_b, "render");
     let runtime_a = FakeRuntime::waits_for_cancellation();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1211,15 +1309,16 @@ fn reload_drops_stale_results_from_previous_plugin_generation() {
     let plugin = plugin_key("project-pipelines");
     let old_handler = handler(&plugin, "old");
     let new_handler = handler(&plugin, "new");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
     });
 
+    let old_runtime = FakeRuntime::ignores_cancellation_until_released();
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::ignores_cancellation_then_returns(Duration::from_millis(80)),
+        old_runtime.clone(),
         old_handler.clone(),
         vec![descriptor(&plugin, "old", old_handler.clone())],
         Vec::new(),
@@ -1254,6 +1353,9 @@ fn reload_drops_stale_results_from_previous_plugin_generation() {
             None,
         ),
     );
+    // The reload stopped the old runtime, which released its held work: its
+    // stale result came back while the old generation retired.
+    assert!(old_runtime.stopped().contains(&plugin));
 
     wait_until(Duration::from_millis(250), || {
         engine.backpressure_for(&plugin).depth == 0
@@ -1282,7 +1384,7 @@ fn unload_cleanup_removes_only_owner_plugin() {
     let plugin_b = plugin_key("preview");
     let handler_a = handler(&plugin_a, "advance");
     let handler_b = handler(&plugin_b, "render");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin_a,
@@ -1334,7 +1436,7 @@ fn unload_cleanup_tracks_capability_runtime_resource_kinds() {
     let other_plugin = plugin_key("preview");
     let command = handler(&plugin, "advance");
     let other_command = handler(&other_plugin, "render");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
 
     engine.load_plugin(registration(
         &plugin,
@@ -1397,7 +1499,7 @@ fn capability_checks_use_declared_package_metadata_for_rejection_and_grant() {
     let plugin = plugin_key("networked");
     let command = handler(&plugin, "fetch");
     let required = network_capability();
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     let runtime = FakeRuntime::success("allowed");
 
     engine.load_plugin(registration(
@@ -1443,7 +1545,7 @@ fn host_profile_metadata_is_not_a_plugin_worker_capability_grant() {
     let plugin = plugin_key("networked-profile");
     let command = handler(&plugin, "fetch");
     let required = network_capability();
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     let runtime = FakeRuntime::success("not-called");
     let mut manifest = manifest(&plugin, Vec::new());
 
@@ -1489,7 +1591,7 @@ fn backpressure_is_isolated_by_plugin_identity() {
     let handler_a = handler(&plugin_a, "slow");
     let handler_b = handler(&plugin_b, "fast");
     let runtime_a = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1565,8 +1667,8 @@ fn backpressure_is_isolated_by_plugin_identity() {
 fn late_runtime_completion_after_timeout_does_not_double_release_capacity() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "late");
-    let runtime = FakeRuntime::ignores_cancellation_then_returns(Duration::from_millis(80));
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let runtime = FakeRuntime::ignores_cancellation_until_released();
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1574,7 +1676,7 @@ fn late_runtime_completion_after_timeout_does_not_double_release_capacity() {
 
     engine.load_plugin(registration(
         &plugin,
-        runtime,
+        runtime.clone(),
         command.clone(),
         vec![descriptor(&plugin, "late", command.clone())],
         Vec::new(),
@@ -1591,6 +1693,8 @@ fn late_runtime_completion_after_timeout_does_not_double_release_capacity() {
     ));
     assert_eq!(engine.backpressure_for(&plugin).depth, 0);
     assert_eq!(engine.debug_snapshot().in_flight_jobs, 1);
+    // The runtime ignored the cancellation; its late completion comes now.
+    runtime.release();
 
     wait_until(Duration::from_millis(250), || {
         engine.debug_snapshot().in_flight_jobs == 0
@@ -1611,7 +1715,7 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
     let handler_a = handler(&plugin_a, "slow");
     let handler_b = handler(&plugin_b, "fast");
     let runtime_a = FakeRuntime::waits_for_cancellation();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 2,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1669,7 +1773,7 @@ fn repeated_timeouts_keep_fixed_executor_worker_count() {
 fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
     let plugin = plugin_key("project-pipelines");
     let command = handler(&plugin, "slow");
-    let timeout_engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let timeout_engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1695,7 +1799,7 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
     ));
 
     let pressure_runtime = GatedRuntime::default();
-    let pressure_engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let pressure_engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 1,
         per_plugin_executor_concurrency: 2,
         ..PluginWorkerEngineConfig::default()
@@ -1749,24 +1853,31 @@ fn timeout_and_backpressure_emit_typed_plugin_worker_events() {
     queued.join().expect("queued caller should join");
 }
 
+/// Drain until `request` completes, waking on the engine's completion
+/// publications (its probe bumps [`CHANGES`]), within 1 s.
 fn wait_for_completion(engine: &PluginWorkerEngine, request: &str) -> PluginCompletion {
-    let started = std::time::Instant::now();
-    while started.elapsed() < Duration::from_secs(1) {
-        let drain = engine.drain_completions(8, usize::MAX);
-        if let Some(item) =
-            drain
-                .completions
-                .into_iter()
-                .find(|item| match &item.completion.result {
-                    PluginInvocationResult::Completed(success) => success.request_id.0 == request,
-                    PluginInvocationResult::Failed(failure) => failure.request_id.0 == request,
-                })
-        {
-            return item.completion;
+    let found = std::cell::RefCell::new(None);
+    wait_until(Duration::from_secs(1), || {
+        if found.borrow().is_some() {
+            return true;
         }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    panic!("did not drain completion for {request}");
+        let drain = engine.drain_completions(8, usize::MAX);
+        let item = drain
+            .completions
+            .into_iter()
+            .find(|item| match &item.completion.result {
+                PluginInvocationResult::Completed(success) => success.request_id.0 == request,
+                PluginInvocationResult::Failed(failure) => failure.request_id.0 == request,
+            });
+        let done = item.is_some();
+        if let Some(item) = item {
+            *found.borrow_mut() = Some(item.completion);
+        }
+        done
+    });
+    found
+        .into_inner()
+        .unwrap_or_else(|| panic!("did not drain completion for {request}"))
 }
 
 #[test]
@@ -1774,7 +1885,7 @@ fn saturated_background_cannot_occupy_reserved_request_response_executor() {
     let plugin = plugin_key("reserved");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         reserved_request_response_executors: 1,
@@ -1830,8 +1941,8 @@ fn saturated_background_cannot_occupy_reserved_request_response_executor() {
 fn try_admit_never_waits_on_slow_in_flight_work() {
     let plugin = plugin_key("non-blocking");
     let command = handler(&plugin, "run");
-    let runtime = FakeRuntime::delayed(Duration::from_millis(200));
-    let engine = PluginWorkerEngine::new();
+    let runtime = FakeRuntime::slow();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
         runtime,
@@ -1878,7 +1989,7 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
 fn drain_completions_honors_item_and_byte_caps() {
     let plugin = plugin_key("drain");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
         FakeRuntime::success("ok"),
@@ -1934,10 +2045,10 @@ fn drain_completions_honors_item_and_byte_caps() {
 fn admitted_slow_job_times_out_through_engine_deadline_waiter() {
     let plugin = plugin_key("deadline");
     let command = handler(&plugin, "slow");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::delayed(Duration::from_millis(200)),
+        FakeRuntime::slow(),
         command.clone(),
         vec![descriptor(&plugin, "slow", command.clone())],
         Vec::new(),
@@ -1966,7 +2077,7 @@ fn completion_reservation_is_one_slot_until_drained() {
     let plugin = plugin_key("reserve");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         completion_queue_capacity: 1,
@@ -2012,10 +2123,10 @@ fn completion_reservation_is_one_slot_until_drained() {
 fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_timeout() {
     let plugin = plugin_key("stopped");
     let command = handler(&plugin, "slow");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::delayed(Duration::from_millis(200)),
+        FakeRuntime::slow(),
         command.clone(),
         vec![descriptor(&plugin, "slow", command.clone())],
         Vec::new(),
@@ -2056,7 +2167,7 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
 
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::delayed(Duration::from_millis(200)),
+        FakeRuntime::slow(),
         command.clone(),
         vec![descriptor(&plugin, "slow", command.clone())],
         Vec::new(),
@@ -2086,10 +2197,10 @@ fn unload_of_open_job_publishes_worker_stopped_and_does_not_rewrite_drained_time
 fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
     let plugin = plugin_key("reload-same-id");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::delayed(Duration::from_secs(5)),
+        FakeRuntime::slow(),
         command.clone(),
         vec![descriptor(&plugin, "run", command.clone())],
         Vec::new(),
@@ -2105,7 +2216,7 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
     ));
     engine.load_plugin(registration(
         &plugin,
-        FakeRuntime::delayed(Duration::from_secs(5)),
+        FakeRuntime::slow(),
         command.clone(),
         vec![descriptor(&plugin, "run", command.clone())],
         Vec::new(),
@@ -2127,7 +2238,9 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
                 if failure.kind == PluginInvocationFailureKind::WorkerStopped
         )
     }));
-    std::thread::sleep(Duration::from_millis(80));
+    // The reload removed the prior generation's 40 ms deadline with it, so it
+    // can never seal the reused id: only the new job's deadline remains.
+    assert_eq!(engine.debug_snapshot().tracked_deadlines, 1);
     assert!(engine
         .drain_completions(8, usize::MAX)
         .completions
@@ -2138,7 +2251,7 @@ fn reload_reused_request_id_is_not_sealed_by_prior_generation_deadline() {
 fn large_context_metadata_is_counted_in_class_byte_budget() {
     let plugin = plugin_key("bytes");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         background_queue_byte_capacity: 256,
@@ -2172,7 +2285,7 @@ fn short_and_long_correlation_fields_reserve_fitting_fallbacks() {
         kind: PluginHandlerKind::Command,
         handler_id: "h".repeat(128),
     };
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(PluginWorkerRegistration {
         handlers: vec![
             PluginHandlerRegistration {
@@ -2226,7 +2339,7 @@ fn oversize_handler_result_uses_prebuilt_compact_failure() {
     let plugin = plugin_key("oversize");
     let command = handler(&plugin, "run");
     let huge = BoundaryJson(serde_json::json!({ "blob": "x".repeat(8_192) }));
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         background_queue_byte_capacity: 2_048,
@@ -2261,7 +2374,7 @@ fn explicit_completion_reservation_allows_a_larger_bounded_result() {
     let plugin = plugin_key("explicit-reservation");
     let command = handler(&plugin, "run");
     let result_value = "x".repeat(512);
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_queue_byte_capacity: 2_048,
         ..PluginWorkerEngineConfig::default()
     });
@@ -2316,7 +2429,7 @@ fn completion_metadata_charge_does_not_enlarge_the_payload_allowance() {
         .expect("encoded completion")
         .len();
     assert!(encoded_len > payload_bytes && encoded_len < charged_bytes);
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
         FakeRuntime::success(&value),
@@ -2340,7 +2453,7 @@ fn completion_metadata_charge_does_not_enlarge_the_payload_allowance() {
 fn completion_reservation_requires_a_positive_allowance_and_fits_fallback_overhead() {
     let plugin = plugin_key("positive-reservation");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
         FakeRuntime::success("unused"),
@@ -2384,7 +2497,7 @@ fn completion_reservation_requires_a_positive_allowance_and_fits_fallback_overhe
 fn per_completion_ceiling_checks_both_admission_paths() {
     let plugin = plugin_key("per-completion-ceiling");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_reservation_byte_capacity: 1_024,
         completion_queue_byte_capacity: 4_096,
         ..PluginWorkerEngineConfig::default()
@@ -2443,7 +2556,7 @@ fn per_completion_ceiling_checks_both_admission_paths() {
 fn immediate_failure_rejects_a_request_above_the_class_byte_capacity() {
     let plugin = plugin_key("immediate-class-capacity");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         background_queue_byte_capacity: 512,
         completion_reservation_byte_capacity: 4_096,
         completion_queue_byte_capacity: 4_096,
@@ -2484,7 +2597,7 @@ fn immediate_failure_rejects_a_request_above_the_class_byte_capacity() {
 fn request_overhead_above_per_completion_capacity_is_permanently_rejected() {
     let plugin = plugin_key("request-overhead");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_reservation_byte_capacity: 512,
         completion_queue_byte_capacity: 4_096,
         ..PluginWorkerEngineConfig::default()
@@ -2521,7 +2634,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
     let plugin = plugin_key("explicit-capacity");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         per_plugin_queue_capacity: 8,
         per_plugin_executor_concurrency: 2,
         completion_queue_byte_capacity: 1_500
@@ -2595,7 +2708,7 @@ fn explicit_completion_reservation_enforces_capacity_and_drain_lifetime() {
 fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
     let plugin = plugin_key("reload-count-reservation");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_queue_capacity: 1,
         completion_queue_byte_capacity: 4_096,
         ..PluginWorkerEngineConfig::default()
@@ -2676,7 +2789,7 @@ fn repeated_reload_keeps_retired_completion_count_charged_until_drain() {
 fn repeated_reload_keeps_retired_completion_bytes_charged_until_drain() {
     let plugin = plugin_key("reload-byte-reservation");
     let command = handler(&plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_queue_capacity: 8,
         completion_queue_byte_capacity: 1_500
             + PluginWorkerEngine::completion_reservation_metadata_bytes(),
@@ -2762,7 +2875,7 @@ fn active_plugins_share_one_engine_wide_completion_reservation() {
     let first_command = handler(&first_plugin, "run");
     let second_plugin = plugin_key("shared-reservation-second");
     let second_command = handler(&second_plugin, "run");
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_queue_capacity: 1,
         completion_queue_byte_capacity: 4_096,
         ..PluginWorkerEngineConfig::default()
@@ -2823,7 +2936,7 @@ fn immediate_failure_uses_the_engine_wide_completion_reservation() {
     let plugin = plugin_key("immediate-reservation");
     let command = handler(&plugin, "run");
     let required = network_capability();
-    let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+    let engine = probed(PluginWorkerEngineConfig {
         completion_queue_capacity: 1,
         completion_queue_byte_capacity: 1_024
             + PluginWorkerEngine::completion_reservation_metadata_bytes(),
@@ -2896,7 +3009,7 @@ fn debug_snapshot_reports_live_class_fields() {
     let plugin = plugin_key("snap");
     let command = handler(&plugin, "run");
     let runtime = GatedRuntime::default();
-    let engine = PluginWorkerEngine::new();
+    let engine = probed(PluginWorkerEngineConfig::default());
     engine.load_plugin(registration(
         &plugin,
         runtime.clone(),
