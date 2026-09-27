@@ -117,8 +117,8 @@ impl FakePluginRuntime {
         let observed = observed
             .lock()
             .expect("fake plugin runtime cancellations lock");
-        // timer: deadline — the caller's bound; a recorded cancellation ends the wait
         let (observed, _) = changed
+            // timer: deadline — the caller's bound; a recorded cancellation ends the wait
             .wait_timeout_while(observed, timeout, |observed| *observed < count)
             .expect("fake plugin runtime cancellations wait");
         *observed

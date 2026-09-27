@@ -239,8 +239,8 @@ fn a_waiting_reply_sends_when_reply_credit_returns() {
     thread::spawn(move || {
         let _ = tx.send(port.reply(body(json!(3)), &PluginCancellationToken::new()));
     });
-    // timer: deadline — the reply reaches its wait; expiry fails the test
     waiting_rx
+        // timer: deadline — the reply reaches its wait; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the reply waits for credit");
     harness
@@ -267,8 +267,8 @@ fn a_cancel_ends_a_waiting_reply_without_taking_credit() {
         let _ = tx.send(port.reply(body(json!(2)), &token));
     });
     // Cancel only once the reply waits, so only the cancel's wake can end it.
-    // timer: deadline — the reply reaches its wait; expiry fails the test
     waiting_rx
+        // timer: deadline — the reply reaches its wait; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the reply waits for credit");
     cancellation.cancel();
@@ -355,8 +355,8 @@ fn port_calls_return_while_the_parent_is_not_reading() {
         let _ = tx.send((logged, called));
     });
     // The peer reads nothing until the plugin's calls have returned.
-    // timer: deadline — the port calls return without the peer reading; expiry fails the test
     let sent = rx
+        // timer: deadline — the port calls return without the peer reading; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("no port call blocks on the socket");
     assert_eq!(sent, (64, 64));
@@ -387,8 +387,8 @@ fn a_result_the_parent_received_frees_its_count_before_the_write_returns() {
         0x85,
         "the parent has the result"
     );
-    // timer: deadline — the writer reaches the hold after its write; expiry fails the test
     reached
+        // timer: deadline — the writer reaches the hold after its write; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the writer holds after the write");
 

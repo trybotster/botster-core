@@ -965,8 +965,8 @@ mod tests {
         *source.inner.blocking_recv_entered.lock().expect("seam") = Some(entered_sender);
         // timer: deadline — expiry fails the test
         let thread = thread::spawn(move || waiter.wait_wakes_interruptible(Duration::from_secs(5)));
-        // timer: deadline — the waiter must reach its blocking receive; expiry fails the test
         entered
+            // timer: deadline — the waiter must reach its blocking receive; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("the waiter blocks on the wake channel");
         source.interrupt_handle().interrupt();

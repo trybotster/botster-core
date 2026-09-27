@@ -640,8 +640,8 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
             completion = Some(item.completion);
             break;
         }
-        // timer: deadline — the loop's bound; a published completion ends the wait early
         if notified
+            // timer: deadline — the loop's bound; a published completion ends the wait early
             .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
             .is_err()
         {

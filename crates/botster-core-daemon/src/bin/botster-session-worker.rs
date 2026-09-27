@@ -2400,8 +2400,8 @@ mod tests {
         // The writer exits without taking the frame.
         drop(protected_rx);
         drop(super::CloseEgressOnExit(space));
-        // timer: deadline — the writer exit must release the blocked sender; expiry fails the test
         let sent = done_rx
+            // timer: deadline — the writer exit must release the blocked sender; expiry fails the test
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("blocked sender released by the writer exit");
         assert!(!sent);

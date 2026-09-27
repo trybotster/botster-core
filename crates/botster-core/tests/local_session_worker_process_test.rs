@@ -713,8 +713,8 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let _ = produced.read_signal(Duration::from_secs(10));
     let overflow_deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        // timer: deadline — the parent must record overflow within the one bound
         let event = probe_events
+            // timer: deadline — the parent must record overflow within the one bound
             .recv_timeout(overflow_deadline.saturating_duration_since(Instant::now()))
             .expect("the detached parent reader drops output on a full channel");
         if matches!(
@@ -855,8 +855,8 @@ fn wait_routed(
 ) {
     let deadline = Instant::now() + HANG_GUARD;
     loop {
-        // timer: deadline — the parent reader must route the output; expiry fails the test
         match routed
+            // timer: deadline — the parent reader must route the output; expiry fails the test
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("the parent reader routes the session's output")
         {
@@ -965,8 +965,8 @@ fn overflow_decision(
     }
     let deadline = Instant::now() + HANG_GUARD;
     loop {
-        // timer: deadline — the output must reach the full channel; expiry fails the test
         match routed
+            // timer: deadline — the output must reach the full channel; expiry fails the test
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("the parent reader routes the overflowing output")
         {
@@ -2066,8 +2066,8 @@ fn unexpected_control_eof_without_clean_exit_reports_the_worker_lost() {
     // the next drain sees the finished reader with no exit report.
     let reader_deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        // timer: deadline — the killed worker's reader must end within the one bound
         let event = probe_events
+            // timer: deadline — the killed worker's reader must end within the one bound
             .recv_timeout(reader_deadline.saturating_duration_since(Instant::now()))
             .expect("the killed worker's reader ends");
         if matches!(&event, WorkerRouteProbeEvent::ReaderEnded { session_id } if *session_id == session)
@@ -2611,8 +2611,8 @@ fn an_exited_socket_worker_exits_when_its_parent_connection_closes() {
     .expect("encode spawn");
     stream.write_all(&spawn).expect("write spawn");
     let _ = botster_core::read_welcome(&mut stream).expect("read welcome");
-    // timer: deadline — the worker must report the exit; expiry fails the test
     stream
+        // timer: deadline — the worker must report the exit; expiry fails the test
         .set_read_timeout(Some(Duration::from_secs(30)))
         .expect("bound the reads");
     let mut decoder = botster_core::FrameDecoder::new();

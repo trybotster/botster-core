@@ -3850,16 +3850,16 @@ mod tests {
 
         /// The reply behind the fill, once the fill is taken.
         fn reply_after_fill(receiver: &mpsc::Receiver<WorkerChannelEvent>) -> WorkerChannelEvent {
-            // timer: deadline — the filled slot is already queued
             let fill = receiver
+                // timer: deadline — the filled slot is already queued
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("the fill");
             assert!(matches!(
                 fill,
                 WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
             ));
-            // timer: deadline — the correlated reply must follow; a drop never sends it
             receiver
+                // timer: deadline — the correlated reply must follow; a drop never sends it
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("a correlated reply is never dropped")
         }
@@ -3939,8 +3939,8 @@ mod tests {
             });
             let mut bells = 0;
             while bells < 5 {
-                // timer: deadline — the stalled reader must deliver every bell
                 let event = receiver
+                    // timer: deadline — the stalled reader must deliver every bell
                     .recv_timeout(std::time::Duration::from_secs(5))
                     .expect("the stalled reader delivers the next event");
                 stall.note_space();
@@ -4011,8 +4011,8 @@ mod tests {
                     send_worker_event(&sender, &overflow, &stall, &None, title("new"));
                 })
             };
-            // timer: deadline — the reader must reach its paused publication
             reached_rx
+                // timer: deadline — the reader must reach its paused publication
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("the reader queued the newer title");
 
