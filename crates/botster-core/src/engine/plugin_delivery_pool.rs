@@ -121,6 +121,17 @@ struct PoolState {
     closed: bool,
 }
 
+/// Why a result could not start its admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AdmitRefusal {
+    /// The pool's generation retired.
+    Closed,
+    /// No accepted host call has this id.
+    UnknownCall,
+    /// This call's result was already admitted.
+    AlreadyAdmitted,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     /// Accepted; no result admitted yet.
@@ -174,17 +185,17 @@ impl PoolInner {
     }
 
     /// Mark `call`'s unit as admitting. Returns its declared result size.
-    pub(super) fn begin_admit(&self, call: CallId) -> Result<usize, &'static str> {
+    pub(super) fn begin_admit(&self, call: CallId) -> Result<usize, AdmitRefusal> {
         let mut state = self.lock();
         if state.closed {
-            return Err("the delivery pool's generation retired");
+            return Err(AdmitRefusal::Closed);
         }
         let unit = state
             .units
             .get_mut(&call)
-            .ok_or("no accepted host call has this call id")?;
+            .ok_or(AdmitRefusal::UnknownCall)?;
         if unit.phase != Phase::Accepted {
-            return Err("this host call's result was already admitted");
+            return Err(AdmitRefusal::AlreadyAdmitted);
         }
         unit.phase = Phase::Admitting;
         Ok(unit.declared_bytes)
@@ -202,16 +213,19 @@ impl PoolInner {
         }
     }
 
-    /// Return one unit and tell the host, outside the pool lock.
-    fn return_unit(&self, call: CallId) {
+    /// Return `call`'s unit if it is in `phase`, checking and removing under
+    /// one lock, then tell the host outside it. Returns whether it returned.
+    fn return_unit(&self, call: CallId, phase: Phase) -> bool {
         let returned = {
             let mut state = self.lock();
-            match state.units.remove(&call) {
-                Some(unit) => {
-                    state.used_bytes -= unit.declared_bytes;
+            match state.units.get(&call) {
+                Some(unit) if unit.phase == phase => {
+                    let declared = unit.declared_bytes;
+                    state.units.remove(&call);
+                    state.used_bytes -= declared;
                     true
                 }
-                None => false,
+                _ => false,
             }
         };
         if returned {
@@ -224,6 +238,7 @@ impl PoolInner {
                 notifier(call);
             }
         }
+        returned
     }
 
     /// The generation retired: every unit dies with the pool.
@@ -249,7 +264,11 @@ impl DeliveryPool {
         if state.units.len() >= self.inner.slots {
             return Err(PoolOverdraw::NoSlot);
         }
-        if state.used_bytes + max_result_bytes > self.inner.request_bytes {
+        if state
+            .used_bytes
+            .checked_add(max_result_bytes)
+            .is_none_or(|used| used > self.inner.request_bytes)
+        {
             return Err(PoolOverdraw::NoBytes);
         }
         state.used_bytes += max_result_bytes;
@@ -288,16 +307,7 @@ impl DeliveryPool {
     /// if the call is unknown or its result was already admitted (its unit
     /// then returns when that result's completion drains).
     pub fn release_call(&self, call: CallId) -> bool {
-        let accepted = self
-            .inner
-            .lock()
-            .units
-            .get(&call)
-            .is_some_and(|unit| unit.phase == Phase::Accepted);
-        if accepted {
-            self.inner.return_unit(call);
-        }
-        accepted
+        self.inner.return_unit(call, Phase::Accepted)
     }
 
     /// Run `notifier` once per returned unit, outside every engine lock.
@@ -341,6 +351,6 @@ pub(super) fn return_units(shared: &EngineShared, units: Vec<UnitTag>) {
             .collect()
     };
     for (pool, call) in pools {
-        pool.return_unit(call);
+        pool.return_unit(call, Phase::Admitted);
     }
 }

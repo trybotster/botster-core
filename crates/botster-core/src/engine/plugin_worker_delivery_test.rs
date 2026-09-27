@@ -287,10 +287,13 @@ fn unloading_retires_the_pool_and_returns_all_funding() {
 
     assert_eq!(completion_store_counts(&engine), (0, 0, 0, 0));
     assert_eq!(pool.accept_call(CallId(2), 1), Err(PoolOverdraw::Closed));
-    assert!(matches!(
-        pool.admit_result(CallId(1), request("late", handler(&plugin), 60_000)),
-        PluginAdmissionResult::RejectedBudget { .. } | PluginAdmissionResult::WorkerStopped { .. }
-    ));
+    assert!(
+        matches!(
+            pool.admit_result(CallId(1), request("late", handler(&plugin), 60_000)),
+            PluginAdmissionResult::WorkerStopped { .. }
+        ),
+        "a result after retirement is WorkerStopped (review D4)"
+    );
     assert_eq!(pool.free(), (0, 0));
 }
 
@@ -338,4 +341,71 @@ fn the_ordinary_share_bounds_one_plugin_and_leaves_others_the_global_pool() {
         PluginAdmissionResult::Queued { .. }
     ));
     gate.open();
+}
+
+/// Review D1: a result request larger than the completion allowance is
+/// admitted when it fits its declaration; only the fallback markers must fit
+/// the completion entry.
+#[test]
+fn a_result_request_is_bounded_by_its_declaration_not_the_completion_allowance() {
+    let engine = PluginWorkerEngine::new();
+    let plugin = PluginKey("large-result".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(
+            &plugin,
+            PluginDeliveryQuota {
+                call_result_slots: 1,
+                call_result_request_bytes: 64 * 1024,
+                call_result_completion_bytes: 4096,
+                ordinary_completion_entries: 0,
+                ordinary_completion_bytes: 0,
+            },
+        )
+        .expect("reserved");
+    let mut large = request("large", handler(&plugin), 60_000);
+    large.payload =
+        serde_json::from_value(serde_json::json!({ "blob": "x".repeat(8 * 1024) })).expect("payload");
+
+    pool.accept_call(CallId(1), 16 * 1024).expect("a unit");
+    assert!(matches!(
+        pool.admit_result(CallId(1), large),
+        PluginAdmissionResult::Queued { .. }
+    ));
+}
+
+/// Review D2: a huge declaration cannot overflow the byte accounting.
+#[test]
+fn a_huge_declaration_is_refused_without_overflow() {
+    let engine = PluginWorkerEngine::new();
+    let plugin = PluginKey("overflow".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(&plugin, quota(2, 0))
+        .expect("reserved");
+
+    pool.accept_call(CallId(1), 1).expect("one byte");
+    assert_eq!(pool.accept_call(CallId(2), usize::MAX), Err(PoolOverdraw::NoBytes));
+    assert_eq!(pool.free(), (1, 2 * 1024 - 1), "the accounting is unchanged");
+}
+
+/// Review D3: release_call checks and removes under one lock, so a unit whose
+/// result admission began is never released early.
+#[test]
+fn release_never_takes_a_unit_whose_result_admission_began() {
+    let engine = PluginWorkerEngine::new();
+    let plugin = PluginKey("release-race".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(&plugin, quota(1, 0))
+        .expect("reserved");
+    let returned = unit_returns(&pool);
+
+    pool.accept_call(CallId(1), 100).expect("a unit");
+    pool.inner.begin_admit(CallId(1)).expect("admission begins");
+    assert!(!pool.release_call(CallId(1)), "an admitting unit is not released");
+    pool.inner.end_admit(CallId(1), true);
+    assert!(!pool.release_call(CallId(1)), "an admitted unit is not released");
+    assert!(returned.try_recv().is_err());
+    assert_eq!(pool.free(), (0, 1024 - 100), "the unit is still held");
 }
