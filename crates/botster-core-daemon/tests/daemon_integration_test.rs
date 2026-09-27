@@ -60,7 +60,6 @@ const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
 const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
-const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[test]
@@ -943,7 +942,6 @@ fn daemon_late_attach_drains_initial_history_before_later_live_output() {
             11,
         )
         .expect("initial attach should subscribe through CoreDaemon");
-    let _ = drain_until(&mut daemon, &session_id, "ready");
 
     daemon
         .input(
@@ -3162,7 +3160,7 @@ fn worker_backed_daemon_honors_host_ghostty_scrollback_byte_budget() {
             11,
         )
         .expect("primary attach should succeed");
-    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let _ = drain_until_attached(&mut daemon, &session_id, &primary_client);
 
     for chunk_start in (0..marker_count).step_by(10) {
         let chunk_end = (chunk_start + 10).min(marker_count);
@@ -3294,7 +3292,7 @@ fn worker_backed_duplicate_attach_refreshes_same_subscription_with_current_snaps
             11,
         )
         .expect("first attach");
-    let _ = drain_until(&mut daemon, &session_id, "ready");
+    let _ = drain_until_attached(&mut daemon, &session_id, &client_id);
     daemon
         .input(
             client_id.clone(),
@@ -3583,14 +3581,17 @@ fn production_worker_root_handles_canonical_and_long_session_ids() {
     daemon
         .shutdown(Some(canonical.clone()), 31)
         .expect("shut down canonical session");
-    wait_for_condition("production worker and PTY cleanup", || {
-        !process_exists(canonical_worker)
-            && !process_exists(long_worker)
-            && !process_exists(canonical_pty)
-            && !process_exists(long_pty)
-            && !canonical_socket.exists()
-            && !long_socket.exists()
-    });
+    for pid in [canonical_worker, long_worker, canonical_pty, long_pty] {
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "production worker and PTY cleanup: pid {pid}"
+        );
+    }
+    // Each worker removes its socket before it exits.
+    assert!(
+        !canonical_socket.exists() && !long_socket.exists(),
+        "worker sockets removed"
+    );
     assert!(
         !worker_root.exists(),
         "worker-owned production root should be removed when empty"
@@ -3775,13 +3776,13 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
         .expect("same stable id should be reusable after complete removal");
     daemon
         .attach(
-            client_id,
+            client_id.clone(),
             session_id.clone(),
             SubscriptionId("lifecycle-source-reused-subscription".to_string()),
             211,
         )
         .expect("removed subscription state must not block a fresh attach");
-    let fresh = drain_until(&mut daemon, &session_id, "ready");
+    let fresh = drain_until_attached(&mut daemon, &session_id, &client_id);
     assert!(!terminal_output(&fresh.client_egress).contains("echo:finish"));
     assert!(fresh.observations.iter().all(|observation| !matches!(
         observation,
@@ -5285,20 +5286,21 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
     // runtime publishes ProcessExited only after its reader observes EOF, so
     // one observe pass may run before that and leave the record Running.
     // Observe until the runtime reconciles the parked exit.
-    let mut observed = None;
-    wait_for_condition("observe reconciles the parked exit", || {
-        let lookup = daemon
-            .observe_session_lifecycle(&session_id, 20)
-            .expect("positive observe control");
-        let exited = matches!(
-            &lookup,
-            SessionLifecycleLookup::Found(record)
-                if record.session.registry_state == RegistrySessionState::Exited
-        );
-        observed = Some(lookup);
-        exited
-    });
-    let observed = observed.expect("at least one observe pass");
+    let observed = on_wakes_until(
+        &mut daemon,
+        "observe reconciles the parked exit",
+        |daemon| {
+            let lookup = daemon
+                .observe_session_lifecycle(&session_id, 20)
+                .expect("positive observe control");
+            matches!(
+                &lookup,
+                SessionLifecycleLookup::Found(record)
+                    if record.session.registry_state == RegistrySessionState::Exited
+            )
+            .then_some(lookup)
+        },
+    );
     match &observed {
         SessionLifecycleLookup::Found(record) => {
             assert_eq!(record.session.registry_state, RegistrySessionState::Exited);
@@ -6318,7 +6320,9 @@ fn observe_until_exited(
     after: &SessionLifecycleCursor,
     now_seconds: u64,
 ) -> SessionLifecyclePage {
-    for tick in 0..100 {
+    let mut tick = 0;
+    on_wakes_until(daemon, "observe_lifecycle publishing Exited", |daemon| {
+        tick += 1;
         daemon
             .observe_lifecycle(now_seconds + tick)
             .expect("observe_lifecycle should succeed");
@@ -6326,15 +6330,8 @@ fn observe_until_exited(
             .lifecycle_changes_page(after, 16, 16 * 1024)
             .expect("page after observe");
         assert_successful_page_within_budget(&page, 16 * 1024);
-        if page_contains_exited(&page, session_id) {
-            return page;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!(
-        "observe_lifecycle did not publish Exited for {}",
-        session_id.0
-    )
+        page_contains_exited(&page, session_id).then_some(page)
+    })
 }
 
 fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
@@ -6476,18 +6473,19 @@ fn drain_until(
     expected: &str,
 ) -> botster_core_daemon::DrainResult {
     let mut aggregate = botster_core_daemon::DrainResult::default();
-    for tick in 0..100 {
+    let mut tick = 0;
+    on_wakes_until(daemon, "drained terminal output", |daemon| {
+        tick += 1;
         let drained = daemon
             .drain(session_id, 20 + tick)
             .expect("daemon drain should succeed");
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        if terminal_output(&aggregate.client_egress).contains(expected) {
-            return aggregate;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        terminal_output(&aggregate.client_egress)
+            .contains(expected)
+            .then_some(())
+    });
     aggregate
 }
 
@@ -6534,7 +6532,9 @@ fn drain_until_attached(
     client_id: &ClientId,
 ) -> botster_core_daemon::DrainResult {
     let mut aggregate = botster_core_daemon::DrainResult::default();
-    for tick in 0..10_000 {
+    let mut tick = 0;
+    on_wakes_until(daemon, "the worker attach reaching Attached", |daemon| {
+        tick += 1;
         let drained = daemon
             .drain(session_id, 20 + tick)
             .expect("daemon attach drain should succeed");
@@ -6542,12 +6542,9 @@ fn drain_until_attached(
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        if attached {
-            return aggregate;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    panic!("worker attach did not reach Attached");
+        attached.then_some(())
+    });
+    aggregate
 }
 
 fn drain_until_for_client(
@@ -6556,36 +6553,21 @@ fn drain_until_for_client(
     client_id: &ClientId,
     expected: &str,
 ) -> botster_core_daemon::DrainResult {
-    let started = Instant::now();
-    let mut last_progress = started;
-    let mut last_output_length = 0;
-    let mut tick = 0;
     let mut aggregate = botster_core_daemon::DrainResult::default();
-    loop {
+    let mut tick = 0;
+    on_wakes_until(daemon, "queued client output", |daemon| {
+        tick += 1;
         let drained = daemon
             .drain(session_id, 20 + tick)
             .expect("daemon drain should succeed");
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        let output = renderable_output_for_client(&aggregate.client_egress, client_id);
-        if output.contains(expected) {
-            return aggregate;
-        }
-
-        let now = Instant::now();
-        if output.len() != last_output_length {
-            last_progress = now;
-            last_output_length = output.len();
-        }
-        assert!(
-            now.duration_since(last_progress) < REAL_WORKER_IDLE_TIMEOUT
-                && now.duration_since(started) < REAL_WORKER_COMPLETION_TIMEOUT,
-            "queued client output never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last output: {output:?}"
-        );
-        tick += 1;
-        std::thread::sleep(Duration::from_millis(10));
-    }
+        renderable_output_for_client(&aggregate.client_egress, client_id)
+            .contains(expected)
+            .then_some(())
+    });
+    aggregate
 }
 
 #[cfg(unix)]
@@ -6595,36 +6577,20 @@ fn drain_until_terminal_marker(
     expected: &str,
     start_tick: u64,
 ) {
-    let started = Instant::now();
-    let mut last_progress = started;
-    let mut last_output_length = 0;
-    let mut tick = 0;
     let mut aggregate = botster_core_daemon::DrainResult::default();
-    loop {
+    let mut tick = 0;
+    on_wakes_until(daemon, "the terminal output marker", |daemon| {
         let drained = daemon
             .drain(session_id, start_tick + tick)
             .expect("daemon drain should succeed");
+        tick += 1;
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        let output = terminal_output(&aggregate.client_egress);
-        if output.contains(expected) {
-            return;
-        }
-
-        let now = Instant::now();
-        if output.len() != last_output_length {
-            last_progress = now;
-            last_output_length = output.len();
-        }
-        assert!(
-            now.duration_since(last_progress) < REAL_WORKER_IDLE_TIMEOUT
-                && now.duration_since(started) < REAL_WORKER_COMPLETION_TIMEOUT,
-            "terminal output never observed {expected:?} within {REAL_WORKER_COMPLETION_TIMEOUT:?} or after {REAL_WORKER_IDLE_TIMEOUT:?} idle; last output: {output:?}"
-        );
-        tick += 1;
-        std::thread::sleep(Duration::from_millis(10));
-    }
+        terminal_output(&aggregate.client_egress)
+            .contains(expected)
+            .then_some(())
+    });
 }
 
 fn assert_snapshot_format(payload: &botster_core::TerminalSnapshotPayload) {
@@ -6842,29 +6808,44 @@ fn wait_for_exact_session_exited(
     session_id: &SessionId,
     now_seconds: u64,
 ) -> SessionLifecycleLookup {
-    let mut last = None;
-    for tick in 0..100 {
-        let looked_up = daemon
-            .observe_session_lifecycle(session_id, now_seconds + tick)
-            .expect("exact query");
-        if matches!(
-            &looked_up,
-            SessionLifecycleLookup::Found(record)
-                if record.session.registry_state == RegistrySessionState::Exited
-                    && matches!(
-                        record.lifecycle,
-                        Some(SessionLifecycleState::Exited { .. })
-                    )
-        ) {
-            return looked_up;
+    let mut tick = 0;
+    on_wakes_until(
+        daemon,
+        "observe_session_lifecycle reconciling the parked exit",
+        |daemon| {
+            tick += 1;
+            let looked_up = daemon
+                .observe_session_lifecycle(session_id, now_seconds + tick)
+                .expect("exact query");
+            matches!(
+                &looked_up,
+                SessionLifecycleLookup::Found(record)
+                    if record.session.registry_state == RegistrySessionState::Exited
+                        && matches!(
+                            record.lifecycle,
+                            Some(SessionLifecycleState::Exited { .. })
+                        )
+            )
+            .then_some(looked_up)
+        },
+    )
+}
+
+/// Run `step` now and after each wake, under one deadline, until it returns
+/// a value. Wakes queue until taken, so none is lost between steps.
+fn on_wakes_until<T>(
+    daemon: &mut CoreDaemon,
+    label: &str,
+    mut step: impl FnMut(&mut CoreDaemon) -> Option<T>,
+) -> T {
+    wait_for(label, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+        if let Some(value) = step(daemon) {
+            return Some(value);
         }
-        last = Some(looked_up);
-        thread::sleep(Duration::from_millis(10));
-    }
-    panic!(
-        "observe_session_lifecycle did not reconcile parked ProcessExited for {}: {last:?}",
-        session_id.0
-    );
+        // timer: deadline — wait_for's bound limits this wait
+        let _ = daemon.wait_wakes(remaining);
+        step(daemon)
+    })
 }
 
 // Locate an existing test fixture by its verified record, without copying the filename encoding.
@@ -6976,18 +6957,6 @@ fn process_has_exited(pid: u32) -> bool {
         }
         Err(_) => !process_exists(pid),
     }
-}
-
-#[cfg(unix)]
-fn wait_for_condition(label: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
-    while Instant::now() < deadline {
-        if condition() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("{label} was not observed within {REAL_WORKER_COMPLETION_TIMEOUT:?}");
 }
 
 #[cfg(unix)]
