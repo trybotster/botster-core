@@ -65,11 +65,27 @@ enum LockMode {
     Block,
 }
 
-/// Take `mutex` as `mode` asks. A poisoned lock is reported like a busy one.
-fn acquire<T>(mutex: &Mutex<T>, mode: LockMode) -> Result<std::sync::MutexGuard<'_, T>, ()> {
+/// Why admission could not take an engine lock.
+#[derive(Clone, Copy)]
+enum LockFailure {
+    /// Another thread holds the lock (only in [`LockMode::Try`]).
+    Busy,
+    /// A holder panicked. The engine state behind the lock is not trusted,
+    /// and no release wake will follow, so this is terminal, never busy.
+    Poisoned,
+}
+
+/// Take `mutex` as `mode` asks.
+fn acquire<T>(
+    mutex: &Mutex<T>,
+    mode: LockMode,
+) -> Result<std::sync::MutexGuard<'_, T>, LockFailure> {
     match mode {
-        LockMode::Try => mutex.try_lock().map_err(|_| ()),
-        LockMode::Block => mutex.lock().map_err(|_| ()),
+        LockMode::Try => mutex.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::WouldBlock => LockFailure::Busy,
+            std::sync::TryLockError::Poisoned(_) => LockFailure::Poisoned,
+        }),
+        LockMode::Block => mutex.lock().map_err(|_| LockFailure::Poisoned),
     }
 }
 
@@ -898,7 +914,8 @@ impl PluginWorkerEngine {
     /// [`PluginAdmissionResult::LockBusy`] and the wake is armed (or has
     /// already fired): the completion notifier fires once a worker or the
     /// deadline waiter releases admission state, so the host retries on that
-    /// wake and never on a timer.
+    /// wake and never on a timer. A poisoned engine lock returns
+    /// [`PluginAdmissionResult::WorkerStopped`], never `LockBusy`.
     pub fn try_admit(
         &self,
         class: PluginInvocationClass,
@@ -935,7 +952,8 @@ impl PluginWorkerEngine {
     ///
     /// For callers outside an owner loop, such as tests and tools. The locks
     /// are held only for short critical sections, never across I/O or waits,
-    /// so this never reports [`PluginAdmissionResult::LockBusy`]; every other outcome is
+    /// so this never reports [`PluginAdmissionResult::LockBusy`] (a poisoned
+    /// lock is [`PluginAdmissionResult::WorkerStopped`]); every other outcome is
     /// the same as [`Self::try_admit`]. An owner loop must call
     /// [`Self::try_admit`] instead: an owner never waits.
     pub fn admit(
@@ -976,9 +994,7 @@ impl PluginWorkerEngine {
         }
 
         let worker = match self.admission_worker_for(&request.handler.plugin_key, mode) {
-            Err(()) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
             Ok(None) => {
                 return PluginAdmissionResult::WorkerStopped {
                     request_id: request.request_id,
@@ -1095,9 +1111,7 @@ impl PluginWorkerEngine {
         let plugin_key = request.handler.plugin_key.clone();
         let mut admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
-            Err(_) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
         };
         if admission.stopping || worker.executor.stopping.load(Ordering::SeqCst) {
             return PluginAdmissionResult::WorkerStopped {
@@ -1121,15 +1135,11 @@ impl PluginWorkerEngine {
         }
         let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
-            Err(_) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
         };
         let mut deadlines = match acquire(&self.inner.shared.deadlines, mode) {
             Ok(guard) => guard,
-            Err(_) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
         };
 
         let timeout_ms = request.timeout_ms;
@@ -1689,7 +1699,7 @@ impl PluginWorkerEngine {
         &self,
         plugin_key: &PluginKey,
         mode: LockMode,
-    ) -> Result<Option<WorkerState>, ()> {
+    ) -> Result<Option<WorkerState>, LockFailure> {
         let workers = acquire(&self.inner.shared.workers, mode)?;
         Ok(workers.get(plugin_key).cloned())
     }
@@ -1852,9 +1862,7 @@ impl PluginWorkerEngine {
         }
         let admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
-            Err(_) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
         };
         if admission.stopping {
             return PluginAdmissionResult::WorkerStopped {
@@ -1865,9 +1873,7 @@ impl PluginWorkerEngine {
         }
         let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
-            Err(_) => {
-                return admission_lock_busy(class, request);
-            }
+            Err(failure) => return lock_failure(failure, class, request),
         };
         let reservation = match completions.reserve_funded(
             generation,
@@ -3232,14 +3238,23 @@ fn is_admission_lock_busy(result: &PluginAdmissionResult) -> bool {
     matches!(result, PluginAdmissionResult::LockBusy { .. })
 }
 
-/// A lock that admission needs is held elsewhere.
-fn admission_lock_busy(
+/// Admission could not take a lock it needs: busy is transient, poisoned
+/// is terminal.
+fn lock_failure(
+    failure: LockFailure,
     class: PluginInvocationClass,
     request: PluginInvocationRequest,
 ) -> PluginAdmissionResult {
-    PluginAdmissionResult::LockBusy {
-        request_id: request.request_id,
-        class,
+    match failure {
+        LockFailure::Busy => PluginAdmissionResult::LockBusy {
+            request_id: request.request_id,
+            class,
+        },
+        LockFailure::Poisoned => PluginAdmissionResult::WorkerStopped {
+            request_id: request.request_id,
+            class,
+            reason: "plugin worker engine lock is poisoned".to_string(),
+        },
     }
 }
 
@@ -4858,6 +4873,97 @@ mod tests {
                 "class": "background",
             })
         );
+    }
+
+    /// Poison `mutex`: a holder panics while it holds the lock.
+    fn poison<T: Send>(mutex: &Mutex<T>) {
+        std::thread::scope(|scope| {
+            let holder = scope.spawn(|| {
+                let _guard = mutex.lock().expect("unpoisoned before the test");
+                panic!("deliberate panic to poison an engine lock");
+            });
+            assert!(holder.join().is_err(), "the holder panicked");
+        });
+        assert!(mutex.is_poisoned());
+    }
+
+    #[test]
+    fn a_poisoned_lock_is_worker_stopped_not_lock_busy() {
+        let engine = PluginWorkerEngine::new();
+        let plugin = PluginKey("poisoned".into());
+        load(&engine, &plugin, Duration::from_millis(1));
+        let worker = engine.worker_for(&plugin).expect("worker");
+        let shared = &engine.inner.shared;
+        type Poisoner<'a> = (&'a str, Box<dyn Fn(bool) + 'a>);
+        let locks: [Poisoner<'_>; 4] = [
+            (
+                "registry",
+                Box::new(|clear| {
+                    if clear {
+                        shared.workers.clear_poison();
+                    } else {
+                        poison(&shared.workers);
+                    }
+                }),
+            ),
+            (
+                "admission",
+                Box::new(|clear| {
+                    if clear {
+                        worker.admission.clear_poison();
+                    } else {
+                        poison(&worker.admission);
+                    }
+                }),
+            ),
+            (
+                "completion",
+                Box::new(|clear| {
+                    if clear {
+                        shared.completions.clear_poison();
+                    } else {
+                        poison(&shared.completions);
+                    }
+                }),
+            ),
+            (
+                "deadline",
+                Box::new(|clear| {
+                    if clear {
+                        shared.deadlines.clear_poison();
+                    } else {
+                        poison(&shared.deadlines);
+                    }
+                }),
+            ),
+        ];
+        for (lock, poison_or_clear) in &locks {
+            poison_or_clear(false);
+            let expected = PluginAdmissionResult::WorkerStopped {
+                request_id: RequestId((*lock).into()),
+                class: PluginInvocationClass::Background,
+                reason: "plugin worker engine lock is poisoned".to_string(),
+            };
+            assert_eq!(
+                engine.try_admit(
+                    PluginInvocationClass::Background,
+                    request(lock, handler(&plugin), 1_000),
+                    1,
+                ),
+                expected,
+                "try_admit with a poisoned {lock} lock"
+            );
+            assert_eq!(
+                engine.admit(
+                    PluginInvocationClass::Background,
+                    request(lock, handler(&plugin), 1_000),
+                    1,
+                ),
+                expected,
+                "admit with a poisoned {lock} lock"
+            );
+            poison_or_clear(true);
+        }
     }
 
     #[test]

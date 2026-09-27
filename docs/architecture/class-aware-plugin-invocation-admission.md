@@ -277,6 +277,7 @@ state.
 ```text
 if any required try_lock fails, arm the retry wake and retry once;
    if it fails again -> LockBusy (the wake is armed or has fired)
+if any required lock is poisoned -> WorkerStopped (terminal, never LockBusy)
 if worker missing or stopping -> WorkerStopped
 if queue_bytes > class.queue_byte_capacity -> RejectedBudget
 if reservation_bytes > completion_reservation_byte_capacity -> RejectedBudget
