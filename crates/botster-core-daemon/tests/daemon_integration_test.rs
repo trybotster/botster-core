@@ -43,7 +43,7 @@ use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
 use botster_core_test_support::bounded_wait::wait_for;
-use botster_core_test_support::fixture_gate::Fifo;
+use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttyClientProjection, GhosttySnapshotDecodeProgress, GhosttyTerminal,
@@ -1917,6 +1917,257 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
         "pre-fence bytes must not be repeated as output: {output_text:?}"
     );
 
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Pump a bound route on wakes until its adapter closes, completing each
+/// adapter write as a transport does.
+fn pump_until_route_closed(
+    daemon: &mut CoreDaemon,
+    adapter: &SharedFakeTerminalAdapter,
+    first_now: u64,
+) {
+    let mut now = first_now;
+    wait_for(
+        "the route's close",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            complete_one_slot_and_wake(adapter);
+            if adapter.close_reason().is_some() {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+                now += 1;
+                let _ = daemon.pump_woken(&batch, now).expect("pump the route");
+            }
+            None
+        },
+    );
+}
+
+/// The route stream of an attach during or after an exit: ATTACHED, one
+/// snapshot (READY, history, FINISH), then output, then PROCESS_EXIT last.
+/// Returns the snapshot bytes and the output text.
+fn assert_snapshot_then_exit(frames: &[Vec<u8>]) -> (Vec<u8>, String) {
+    let decoded: Vec<TerminalFrame> = frames
+        .iter()
+        .map(|bytes| adapter_terminal_frame(bytes))
+        .collect();
+    let kinds: Vec<TerminalKind> = decoded.iter().map(TerminalFrame::kind).collect();
+    let position = |kind: TerminalKind| kinds.iter().position(|seen| *seen == kind);
+    let attached = frames
+        .iter()
+        .position(|bytes| adapter_phase(bytes) == Some("attached"))
+        .unwrap_or_else(|| panic!("the route must be ATTACHED: {kinds:?}"));
+    let ready = position(TerminalKind::SnapshotReady)
+        .unwrap_or_else(|| panic!("the route must receive SNAPSHOT_READY: {kinds:?}"));
+    let finish = position(TerminalKind::SnapshotFinish)
+        .unwrap_or_else(|| panic!("the route must receive SNAPSHOT_FINISH: {kinds:?}"));
+    let exits: Vec<usize> = kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, kind)| **kind == TerminalKind::ProcessExit)
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(exits.len(), 1, "exactly one PROCESS_EXIT: {kinds:?}");
+    assert_eq!(
+        exits[0],
+        kinds.len() - 1,
+        "PROCESS_EXIT must be last: {kinds:?}"
+    );
+    assert!(
+        attached < ready && ready < finish,
+        "ATTACHED, READY, FINISH in order: {kinds:?}"
+    );
+    let mut snapshot = Vec::new();
+    for frame in &decoded[ready..=finish] {
+        snapshot.extend_from_slice(frame.body());
+    }
+    let output: String = decoded[finish..]
+        .iter()
+        .filter(|frame| frame.kind() == TerminalKind::Output)
+        .map(|frame| String::from_utf8_lossy(frame.body()).into_owned())
+        .collect();
+    (snapshot, output)
+}
+
+/// A route attached while its child exits: the capture is in flight when
+/// the exit lands, and the client is slow while the child writes and exits.
+/// The route receives its whole snapshot, the output behind its fence, and
+/// PROCESS_EXIT last; LIVE arrives exactly once.
+#[cfg(unix)]
+#[test]
+fn a_route_attached_while_its_child_exits_receives_its_snapshot_then_the_exit() {
+    let data_dir = temp_data_dir("attach-during-exit");
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_worker_egress_capacity(Some(1)),
+    );
+    let session_id = SessionId("attach-during-exit".to_string());
+    let client_id = ClientId("attach-during-exit-client".to_string());
+    let subscription_id = SubscriptionId("attach-during-exit-sub".to_string());
+    let ready = Fifo::new("exit-attach-ready");
+    let release = Fifo::new("exit-attach-release");
+    let printed = Fifo::new("exit-attach-printed");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = format!(
+        concat!(
+            "i=0; while [ $i -lt 2000 ]; do printf 'history-%04d\\n' \"$i\"; i=$((i+1)); done; ",
+            "/bin/echo ready > '{}'; /bin/cat '{}' >/dev/null; ",
+            "printf LIVE; /bin/echo printed > '{}'; exit 0"
+        ),
+        ready.path().display(),
+        release.path().display(),
+        printed.path().display()
+    );
+    daemon.spawn(request, 10).expect("spawn history then exit");
+    let _ = ready.read_signal(REAL_WORKER_COMPLETION_TIMEOUT);
+    drain_pre_attach_producer_output(&mut daemon, &session_id, 11);
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            12,
+        )
+        .expect("attach");
+    let generation = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("inventory")
+        .records
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory row")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::new();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind while the capture starts");
+    // The child writes LIVE and exits while Core is not pumping.
+    release.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    let _ = printed.read_signal(REAL_WORKER_COMPLETION_TIMEOUT);
+    pump_until_route_closed(&mut daemon, &adapter, 13);
+
+    let (snapshot, output) = assert_snapshot_then_exit(&adapter.snapshot_delivered_frame_bytes());
+    let in_snapshot = snapshot
+        .windows(4)
+        .filter(|window| *window == b"LIVE")
+        .count();
+    assert_eq!(
+        in_snapshot + output.matches("LIVE").count(),
+        1,
+        "LIVE exactly once, in the snapshot or as output after FINISH"
+    );
+    assert!(
+        !output.contains("history-"),
+        "no pre-fence history as output"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Path 2: the capture request reaches the worker after it has already sent
+/// PROCESS_EXITED. The worker serves it from its final terminal model.
+#[cfg(unix)]
+#[test]
+fn a_capture_requested_after_the_worker_saw_the_exit_is_served_from_the_final_screen() {
+    let data_dir = temp_data_dir("capture-after-exit");
+    let (probe, probe_events) = WorkerRouteProbe::channel();
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_route_probe(Some(probe)),
+    );
+    let session_id = SessionId("capture-after-exit".to_string());
+    let client_id = ClientId("capture-after-exit-client".to_string());
+    let subscription_id = SubscriptionId("capture-after-exit-sub".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "printf FINAL-SCREEN; exit 0".to_string();
+    daemon
+        .spawn(request, 10)
+        .expect("spawn a child that exits at once");
+    // Without pumping, wait until the parent reader has the worker's exit.
+    loop {
+        // timer: deadline — the worker must report the exit; expiry fails the test
+        match probe_events
+            .recv_timeout(REAL_WORKER_COMPLETION_TIMEOUT)
+            .expect("the worker reports the exit")
+        {
+            WorkerRouteProbeEvent::ProcessExitRead {
+                session_id: ref exited,
+            } if *exited == session_id => break,
+            _ => {}
+        }
+    }
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach after the worker saw the exit");
+    let generation = daemon
+        .list_terminal_subscriptions(1024 * 1024)
+        .expect("inventory")
+        .records
+        .into_iter()
+        .find(|row| row.subscription_id == subscription_id)
+        .expect("inventory row")
+        .generation;
+    let adapter = SharedFakeTerminalAdapter::new();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id,
+            generation,
+            TerminalCapabilitySet::empty(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind");
+    pump_until_route_closed(&mut daemon, &adapter, 12);
+
+    let (snapshot, output) = assert_snapshot_then_exit(&adapter.snapshot_delivered_frame_bytes());
+    assert!(
+        snapshot
+            .windows(b"FINAL-SCREEN".len())
+            .any(|window| window == b"FINAL-SCREEN")
+            || output.contains("FINAL-SCREEN"),
+        "the final screen must reach the route"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// With no capture owed, the parent removes an exited session at once and
+/// shuts its worker down: no worker lingers.
+#[cfg(unix)]
+#[test]
+fn an_exit_with_no_capture_leaves_no_worker_behind() {
+    let data_dir = temp_data_dir("exit-no-capture");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("exit-no-capture".to_string());
+    let mut request = spawn_request(&session_id);
+    request.request.arguments[1] = "exit 0".to_string();
+    daemon
+        .spawn(request, 10)
+        .expect("spawn a child that exits at once");
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &session_id);
+    pump_until_registry_exited(&mut daemon, &session_id, 11);
+    assert!(
+        wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "the worker of an exited session with no capture must exit"
+    );
     let _ = fs::remove_dir_all(data_dir);
 }
 
