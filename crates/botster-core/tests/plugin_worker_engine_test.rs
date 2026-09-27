@@ -17,6 +17,7 @@ use botster_core::{
     PluginWorkerRegistration, RequestId,
 };
 use botster_core::{PluginQueueProbe, PluginQueueProbeEvent};
+use botster_core_test_support::bounded_wait::HANG_GUARD;
 
 #[derive(Clone)]
 struct FakeRuntime {
@@ -585,15 +586,15 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
             ))
         }));
         if index == 0 {
-            // timer: deadline — the first slow job must start within the bound
+            // timer: deadline — the first slow job must start; expiry fails the test
             slow_starts
-                .recv_timeout(Duration::from_millis(250))
+                .recv_timeout(HANG_GUARD)
                 .expect("the first slow job starts");
         }
     }
     // All six slow jobs are queued by the engine, and the second executor
     // takes one: two run (gated) and four wait.
-    let deadline = Instant::now() + Duration::from_millis(250);
+    let deadline = Instant::now() + HANG_GUARD;
     let mut slow_queued = 0;
     while slow_queued < 6 {
         // timer: deadline — the engine must queue every slow job within the bound

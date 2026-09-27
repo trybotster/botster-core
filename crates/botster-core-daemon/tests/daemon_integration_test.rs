@@ -43,7 +43,7 @@ use botster_core_daemon::{
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
 };
-use botster_core_test_support::bounded_wait::wait_for;
+use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use botster_core_test_support::terminal_adapter::SharedFakeTerminalAdapter;
 use botster_terminal_ghostty::{
@@ -2229,6 +2229,48 @@ fn an_exit_with_no_capture_leaves_no_worker_behind() {
     assert!(
         wait_pid_exit(worker_pid, REAL_WORKER_COMPLETION_TIMEOUT),
         "the worker of an exited session with no capture must exit"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The production shutdown grace (500 ms) ends a process group that ignores
+/// TERM: shutdown waits the whole grace, then kills the group. Tests whose
+/// property is order or preservation may lengthen the grace; this test keeps
+/// the default and proves it.
+#[cfg(unix)]
+#[test]
+fn the_default_shutdown_grace_kills_a_group_that_ignores_term() {
+    let data_dir = temp_data_dir("grace-kills-ignoring-group");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("grace-kills-ignoring-group".to_string());
+    let ready = Fifo::new("grace-ready");
+    let hold = Fifo::new("grace-hold");
+    let mut request = spawn_request(&session_id);
+    // The shell and its cat both ignore TERM; the hold pipe is never written.
+    request.request.arguments[1] = format!(
+        "trap '' TERM; /bin/echo ready > '{}'; /bin/cat '{}' >/dev/null",
+        ready.path().display(),
+        hold.path().display()
+    );
+    daemon
+        .spawn(request, 10)
+        .expect("spawn TERM-ignoring group");
+    let _ = ready.read_signal(HANG_GUARD);
+    let (_, pty_child_pid, _) = worker_process_evidence(&daemon, &session_id);
+
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown ends a group that ignores TERM");
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= Duration::from_millis(500),
+        "the group ignores TERM, so shutdown waits the whole 500 ms grace: {elapsed:?}"
+    );
+    assert!(
+        wait_pid_exit(pty_child_pid, HANG_GUARD),
+        "the grace's group kill ends the shell"
     );
     let _ = fs::remove_dir_all(data_dir);
 }

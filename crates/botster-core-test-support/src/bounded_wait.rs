@@ -6,6 +6,15 @@
 
 use std::time::{Duration, Instant};
 
+/// The shared hang guard for a wait whose property is not its timing.
+///
+/// A test that proves order, delivery, or preservation bounds its waits by
+/// this one generous deadline, so a loaded machine never turns a
+/// normal-case budget into a failure. A test whose property is a timing
+/// bound keeps that bound. The value is the suites' existing worker
+/// completion bound (180 s).
+pub const HANG_GUARD: Duration = Duration::from_secs(180);
+
 /// Call `step` with the time left until it returns `Some`.
 ///
 /// `step` must block on an event for at most the duration it receives, and
