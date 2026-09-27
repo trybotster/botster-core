@@ -641,11 +641,13 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let _ = returned_sender.send(());
     shutdown_active.store(false, std::sync::atomic::Ordering::Release);
     let interrupter_result = interrupter.join();
+    // Report the shutdown result first: a shutdown that failed before its
+    // TERM leaves the releaser waiting for a receipt that never comes.
+    shutdown_result.expect("bounded shutdown while interrupted");
     releaser.join().expect("releaser");
     let bounded = watchdog.join().expect("watchdog");
 
     interrupter_result.expect("interrupter");
-    shutdown_result.expect("bounded shutdown while interrupted");
     assert!(
         interrupt_count.load(std::sync::atomic::Ordering::Acquire) > before_shutdown,
         "the control thread must raise an interrupt during shutdown"
