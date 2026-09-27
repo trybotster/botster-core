@@ -119,16 +119,18 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
 
 fn collect_until<F>(
     runtime: &mut dyn SessionRuntime,
+    wakes: &TerminalWakeSource,
     session_id: &SessionId,
     mut predicate: F,
 ) -> Vec<SessionRuntimeOutput>
 where
     F: FnMut(&[SessionRuntimeOutput]) -> bool,
 {
+    // timer: deadline — the output must arrive; the caller asserts on what came
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut output = Vec::new();
 
-    while Instant::now() < deadline {
+    loop {
         match runtime.drain_output(session_id) {
             Ok(drained) => output.extend(drained),
             Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {}
@@ -137,10 +139,12 @@ where
         if predicate(&output) {
             return output;
         }
-        thread::sleep(Duration::from_millis(20));
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return output;
+        };
+        // timer: deadline — wait for the session's next worker event wake
+        let _ = wakes.wait_wakes(remaining);
     }
-
-    output
 }
 
 fn output_text(output: &[SessionRuntimeOutput]) -> String {
@@ -249,10 +253,11 @@ where
 {
     let client = client_id("worker-client");
     let subscription = subscription_id("worker-sub");
+    // timer: deadline — the output must arrive; the caller asserts on what came
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut bytes = Vec::new();
 
-    while Instant::now() < deadline {
+    loop {
         let outcome = engine
             .drain_runtime_once(session_id, 20)
             .expect("drain worker-backed engine");
@@ -265,10 +270,12 @@ where
         if predicate(&bytes) {
             return bytes;
         }
-        thread::sleep(Duration::from_millis(20));
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return bytes;
+        };
+        // timer: deadline — wait for the engine's next session wake
+        let _ = engine.wait_wakes(remaining);
     }
-
-    bytes
 }
 
 #[test]
@@ -292,7 +299,9 @@ fn failed_worker_start_does_not_leave_wake_registry_residue() {
 
 #[test]
 fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_commands() {
-    let mut runtime = WorkerProcessRuntime::with_options(worker_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        WorkerProcessRuntime::with_options(worker_options()).with_wake_source(wakes.clone());
     let session = session_id("worker-process-protocol");
 
     runtime
@@ -332,7 +341,7 @@ fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_comma
         })
         .expect("send input frame");
 
-    let echoed = collect_until(&mut runtime, &session, |output| {
+    let echoed = collect_until(&mut runtime, &wakes, &session, |output| {
         let text = output_text(output);
         text.contains("31 91") && text.contains("hello")
     });
@@ -345,7 +354,7 @@ fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_comma
             session_id: session.clone(),
         })
         .expect("shutdown worker-owned PTY");
-    let finished = collect_until(&mut runtime, &session, has_process_exit);
+    let finished = collect_until(&mut runtime, &wakes, &session, has_process_exit);
     assert!(
         has_process_exit(&finished),
         "worker should emit process exit over protocol"
@@ -356,7 +365,8 @@ fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_comma
 fn worker_process_runtime_emits_semantic_metadata_from_session_worker_output() {
     let mut options = worker_options();
     options.pty_reader_chunk_capacity = 8;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-semantic-metadata");
     let script =
         "printf '\\033]2;Build\\007\\033]7;file://host/work/repo\\007\\033]133;A\\007\\007\\033]9;Notice;Body\\007'; sleep 0.1";
@@ -365,7 +375,7 @@ fn worker_process_runtime_emits_semantic_metadata_from_session_worker_output() {
         .spawn_session(shell_request(session.clone(), script))
         .expect("spawn metadata worker session");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output.iter().any(|event| {
             matches!(
                 event,
@@ -414,7 +424,8 @@ fn metadata_flood_reports_shaping_without_blocking_terminal_or_control_paths() {
     let mut options = worker_options();
     options.egress_capacity = 4;
     options.pty_reader_chunk_capacity = 4096;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-metadata-shaping");
     let titles = (0..40)
         .map(|index| format!("\\033]2;title-{index}\\007"))
@@ -425,7 +436,7 @@ fn metadata_flood_reports_shaping_without_blocking_terminal_or_control_paths() {
         .spawn_session(shell_request(session.clone(), &script))
         .expect("spawn metadata flood worker session");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("protected-ready")
             && metadata_shaping(output).iter().any(|observation| {
                 matches!(
@@ -462,7 +473,7 @@ fn metadata_flood_reports_shaping_without_blocking_terminal_or_control_paths() {
             data: b"after-flood\n".to_vec(),
         })
         .expect("send input after metadata flood");
-    let after_flood = collect_until(&mut runtime, &session, |output| {
+    let after_flood = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("after-flood")
     });
     assert!(
@@ -476,7 +487,8 @@ fn metadata_overflow_reports_typed_drop_without_starving_worker_paths() {
     let mut options = worker_options();
     options.egress_capacity = 8;
     options.pty_reader_chunk_capacity = 4096;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-metadata-drop");
     let prompts = (0..20)
         .map(|index| format!("\\033]133;P{index}\\007"))
@@ -487,7 +499,7 @@ fn metadata_overflow_reports_typed_drop_without_starving_worker_paths() {
         .spawn_session(shell_request(session.clone(), &script))
         .expect("spawn metadata drop worker session");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("drop-ready")
             && metadata_shaping(output).iter().any(|observation| {
                 observation.outcome == TerminalMetadataShapingOutcome::Dropped
@@ -515,7 +527,8 @@ fn metadata_overflow_reports_typed_drop_without_starving_worker_paths() {
 fn ordering_significant_metadata_flushes_before_later_pty_output() {
     let mut options = worker_options();
     options.pty_reader_chunk_capacity = 16;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-metadata-order");
     let script = "printf '\\033]133;A\\007'; sleep 0.1; printf 'after-prompt\\n'; cat";
 
@@ -523,7 +536,7 @@ fn ordering_significant_metadata_flushes_before_later_pty_output() {
         .spawn_session(shell_request(session.clone(), script))
         .expect("spawn metadata ordering worker session");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output.iter().any(|event| {
             matches!(
                 event,
@@ -672,7 +685,8 @@ fn detaching_one_client_does_not_starve_other_subscribers() {
 fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let mut options = worker_options();
     options.egress_capacity = 2;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-detach-reattach");
 
     runtime
@@ -722,7 +736,7 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
         })
         .expect("send input after reattach");
 
-    let reattached = collect_until(&mut runtime, &session, |output| {
+    let reattached = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("again")
     });
     assert!(
@@ -739,7 +753,8 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
 fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
     let mut options = worker_options();
     options.egress_capacity = 1;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-attached-process-echo");
 
     runtime
@@ -752,7 +767,7 @@ fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
         .attach_consumer(&session)
         .expect("attach parent consumer before live output");
 
-    let ready = collect_until(&mut runtime, &session, |output| {
+    let ready = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("ready")
     });
     assert!(
@@ -777,7 +792,7 @@ fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
     // A try_send drop keeps FILL-SLOT and loses echo:POST-BARRIER-MARKER.
     thread::sleep(Duration::from_millis(80));
 
-    let live = collect_until(&mut runtime, &session, |output| {
+    let live = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("echo:POST-BARRIER-MARKER")
     });
     let text = output_text(&live);
@@ -802,7 +817,9 @@ fn drain_until_attached(
     session: &SessionId,
     client: &botster_core::ClientId,
 ) {
-    for tick in 0..5_000u64 {
+    // timer: deadline — the attach must reach Attached; expiry fails the test
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for tick in 0u64.. {
         let outcome = engine
             .drain_runtime_once(session, 20 + tick)
             .expect("drain until Attached");
@@ -819,9 +836,12 @@ fn drain_until_attached(
         if attached {
             return;
         }
-        thread::sleep(Duration::from_millis(2));
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("attach did not reach Attached");
+        // timer: deadline — wait for the engine's next session wake
+        let _ = engine.wait_wakes(remaining);
     }
-    panic!("attach did not reach Attached");
 }
 
 fn drain_engine_text_for(
@@ -831,9 +851,10 @@ fn drain_engine_text_for(
     subscription: &SubscriptionId,
     expected: &str,
 ) -> String {
+    // timer: deadline — the text must arrive; the caller asserts on what came
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut bytes = Vec::new();
-    while Instant::now() < deadline {
+    loop {
         let outcome = engine
             .drain_runtime_once(session, 20)
             .expect("drain worker-backed engine");
@@ -847,9 +868,12 @@ fn drain_engine_text_for(
         if text.contains(expected) {
             return text;
         }
-        thread::sleep(Duration::from_millis(20));
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return text;
+        };
+        // timer: deadline — wait for the engine's next session wake
+        let _ = engine.wait_wakes(remaining);
     }
-    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn write_and_hold(
@@ -1107,7 +1131,8 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
 fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
     let mut options = worker_options();
     options.egress_capacity = 1;
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-attached-close-stall");
 
     runtime
@@ -1120,7 +1145,7 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
         .attach_consumer(&session)
         .expect("attach parent consumer so live output stalls");
 
-    let started_output = collect_until(&mut runtime, &session, |output| {
+    let started_output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("tick:")
     });
     assert!(
@@ -1184,7 +1209,8 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
     let long = session_id(&format!("sess-long-{}", "identifier-".repeat(100)));
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
 
     let canonical_handle = runtime
         .spawn_session(shell_request(canonical.clone(), "cat"))
@@ -1238,7 +1264,7 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
                 data: format!("{marker}\n").into_bytes(),
             })
             .expect("send marker input");
-        let output = collect_until(&mut runtime, session, |output| {
+        let output = collect_until(&mut runtime, &wakes, session, |output| {
             output_text(output).contains(marker)
         });
         assert!(
@@ -1257,7 +1283,7 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
                 session_id: session.clone(),
             })
             .expect("request worker shutdown");
-        let output = collect_until(&mut runtime, session, has_process_exit);
+        let output = collect_until(&mut runtime, &wakes, session, has_process_exit);
         assert!(has_process_exit(&output));
     }
     assert!(wait_pid_exit(canonical_worker_pid, Duration::from_secs(5)));
@@ -1317,7 +1343,9 @@ fn occupied_worker_endpoint_fails_without_contacting_or_replacing_the_live_worke
     let session = session_id("occupied-worker-endpoint");
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
-    let mut owner = WorkerProcessRuntime::with_options(options.clone());
+    let owner_wakes = TerminalWakeSource::new();
+    let mut owner =
+        WorkerProcessRuntime::with_options(options.clone()).with_wake_source(owner_wakes.clone());
     owner
         .spawn_session(shell_request(session.clone(), "cat"))
         .expect("spawn endpoint owner");
@@ -1350,7 +1378,7 @@ fn occupied_worker_endpoint_fails_without_contacting_or_replacing_the_live_worke
             data: b"owner-still-connected\n".to_vec(),
         })
         .expect("live owner remains writable");
-    let output = collect_until(&mut owner, &session, |output| {
+    let output = collect_until(&mut owner, &owner_wakes, &session, |output| {
         output_text(output).contains("owner-still-connected")
     });
     assert!(output_text(&output).contains("owner-still-connected"));
@@ -1361,6 +1389,7 @@ fn occupied_worker_endpoint_fails_without_contacting_or_replacing_the_live_worke
         .expect("shutdown endpoint owner");
     assert!(has_process_exit(&collect_until(
         &mut owner,
+        &owner_wakes,
         &session,
         has_process_exit
     )));
@@ -1567,7 +1596,10 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
     assert!(wait_pid_exit(first_pty_pid, Duration::from_secs(5)));
     assert!(stale_socket.exists());
 
-    let mut replacement = WorkerProcessRuntime::with_options(options);
+    let replacement_wakes = TerminalWakeSource::new();
+
+    let mut replacement =
+        WorkerProcessRuntime::with_options(options).with_wake_source(replacement_wakes.clone());
     replacement
         .spawn_session(shell_request(session.clone(), "cat"))
         .expect("same session id should reclaim refused stale socket");
@@ -1583,7 +1615,7 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
             data: b"replacement-marker\n".to_vec(),
         })
         .expect("send replacement marker");
-    let output = collect_until(&mut replacement, &session, |output| {
+    let output = collect_until(&mut replacement, &replacement_wakes, &session, |output| {
         output_text(output).contains("replacement-marker")
     });
     assert!(output_text(&output).contains("replacement-marker"));
@@ -1594,6 +1626,7 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
         .expect("shutdown replacement worker");
     assert!(has_process_exit(&collect_until(
         &mut replacement,
+        &replacement_wakes,
         &session,
         has_process_exit
     )));
@@ -1609,7 +1642,8 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
     let mut options = worker_options();
     options.egress_capacity = 1;
     options.control_socket_dir = Some(control_dir.clone());
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-loaded-completion");
     runtime
         .spawn_session(shell_request(
@@ -1635,7 +1669,7 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
     let pty_child_pid = metadata.pid;
 
     thread::sleep(Duration::from_millis(250));
-    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_process_exit);
     let terminal_index = output
         .iter()
         .position(|event| matches!(event, SessionRuntimeOutput::PtyOutput { .. }))
@@ -1678,7 +1712,8 @@ fn drain_output_delivers_process_exited_while_worker_holds_stdout_open() {
     let mut options = worker_options();
     options.test_hold_before_exit_ms = Some(hold_ms);
     options.control_socket_dir = Some(control_dir.clone());
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-w1-hold-before-exit");
     runtime
         .spawn_session(shell_request(
@@ -1689,7 +1724,7 @@ fn drain_output_delivers_process_exited_while_worker_holds_stdout_open() {
     let worker_pid = worker_pid(runtime.metadata(&session).expect("worker metadata"));
 
     let started = Instant::now();
-    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_process_exit);
     let elapsed = started.elapsed();
 
     assert!(
@@ -1724,7 +1759,8 @@ fn drain_output_delivers_process_exited_while_worker_holds_stdout_open() {
 fn drain_output_delivers_process_exited_when_worker_exits_nonzero() {
     let mut options = worker_options();
     options.test_exit_code = Some(1);
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-w2-nonzero-exit");
     runtime
         .spawn_session(shell_request(
@@ -1733,7 +1769,7 @@ fn drain_output_delivers_process_exited_when_worker_exits_nonzero() {
         ))
         .expect("spawn worker for W2 nonzero exit");
 
-    let output = collect_until(&mut runtime, &session, has_process_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_process_exit);
     let payload = output.iter().find_map(|event| match event {
         SessionRuntimeOutput::ProcessExited { payload, .. } => Some(payload.clone()),
         _ => None,
@@ -1766,7 +1802,8 @@ fn reaper_window_leaves_a_sibling_session_live() {
     let mut options = worker_options();
     options.test_hold_before_exit_ms = Some(hold_ms);
     options.control_socket_dir = Some(control_dir.clone());
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let exiting = session_id("worker-reaper-sibling-exit");
     let sibling = session_id("worker-reaper-sibling-live");
     runtime
@@ -1781,7 +1818,7 @@ fn reaper_window_leaves_a_sibling_session_live() {
     let exiting_pid = worker_pid(runtime.metadata(&exiting).expect("exiting metadata"));
     let sibling_pid = worker_pid(runtime.metadata(&sibling).expect("sibling metadata"));
 
-    let output = collect_until(&mut runtime, &exiting, has_process_exit);
+    let output = collect_until(&mut runtime, &wakes, &exiting, has_process_exit);
     assert!(has_process_exit(&output));
     assert!(
         process_exists(exiting_pid),
@@ -1798,7 +1835,7 @@ fn reaper_window_leaves_a_sibling_session_live() {
             data: b"sibling-still-live\n".to_vec(),
         })
         .expect("sibling must still accept input");
-    let sibling_output = collect_until(&mut runtime, &sibling, |output| {
+    let sibling_output = collect_until(&mut runtime, &wakes, &sibling, |output| {
         output_text(output).contains("sibling-still-live")
     });
     assert!(
@@ -1814,6 +1851,7 @@ fn reaper_window_leaves_a_sibling_session_live() {
         .expect("shutdown live sibling");
     assert!(has_process_exit(&collect_until(
         &mut runtime,
+        &wakes,
         &sibling,
         has_process_exit
     )));
