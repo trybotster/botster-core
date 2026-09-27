@@ -1194,6 +1194,14 @@ impl CoreDaemon {
         self.engine.capture_active(session_id)
     }
 
+    /// Whether the session holds output back because a progressing reader's
+    /// route is full (output backpressure is engaged).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn session_output_held(&self, session_id: &SessionId) -> bool {
+        self.engine.session_output_held(session_id)
+    }
+
     /// Durable control-plane state for one worker session.
     #[doc(hidden)]
     #[must_use]
@@ -4818,6 +4826,13 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.pending_terminal_resize_len(session_id),
             Self::Worker(engine) => engine.pending_terminal_resize_len(session_id),
+        }
+    }
+
+    fn session_output_held(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(engine) => engine.session_output_held(session_id),
+            Self::Worker(engine) => engine.session_output_held(session_id),
         }
     }
 

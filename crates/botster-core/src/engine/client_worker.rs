@@ -62,6 +62,10 @@ const WRITE_ATTEMPT_BUDGET: usize = 512;
 /// posts no writable wake and nothing else can observe it. The deadline is
 /// part of the host wait (see [`ClientWorker::next_reader_deadline`]), so a
 /// dead reader is closed even when the session produces nothing more.
+/// The detail of the result that fails an input operation still queued when
+/// its session ends.
+const SESSION_ENDED_DETAIL: &str = "session ended before the operation ran";
+
 pub(crate) const READER_PROGRESS_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What woke a route pump.
@@ -641,6 +645,66 @@ impl ClientWorker {
                 subscription_id: subscription_id.clone(),
             })
             .is_some_and(|owner| owner.adapter.is_some() && !owner.queue.is_empty())
+    }
+
+    /// Whether every bound route of `session_id` has room for `frames` more
+    /// frames totalling `bytes`.
+    ///
+    /// This is the session's output backpressure. While a bound reader
+    /// lacks room, the host holds the session's output instead of queuing
+    /// it: nothing is dropped, and the stall reaches the program as a slow
+    /// terminal would. The slowest reader governs. A reader that accepts
+    /// nothing for [`READER_PROGRESS_DEADLINE`] is ended at that deadline
+    /// (the host wait ends there and names its route), so one dead client
+    /// holds the session for at most the deadline. It is not fed output in
+    /// the meantime: a queue it could not drain would only overflow.
+    #[must_use]
+    pub fn session_output_has_room(
+        &self,
+        session_id: &SessionId,
+        frames: usize,
+        bytes: usize,
+    ) -> bool {
+        self.live.iter().all(|(key, owner)| {
+            let governs = &key.session_id == session_id
+                && owner.adapter.is_some()
+                && !owner.awaiting_capture
+                && !owner.terminal_enqueued;
+            !governs
+                || (owner.queue.len().saturating_add(frames) <= MAX_ROUTE_EGRESS_FRAMES
+                    && owner.queued_bytes.saturating_add(bytes) <= MAX_ROUTE_EGRESS_BYTES)
+        })
+    }
+
+    /// Whether every governing route of `session_id` has room for the
+    /// session's whole exit sequence: a `SessionEnded` INPUT_RESULT for each
+    /// input operation it has queued, then the `exit_len`-byte PROCESS_EXIT.
+    /// The routes govern as in [`Self::session_output_has_room`].
+    #[must_use]
+    pub fn session_exit_has_room(&self, session_id: &SessionId, exit_len: usize) -> bool {
+        let result_len = encode_input_result(&InputResultBody {
+            operation_id: u64::MAX,
+            outcome: InputOutcome::SessionEnded,
+            accepted_payload_bytes: Some(0),
+            written_pty_bytes: Some(0),
+            mode_bits: u32::MAX,
+            detail: bounded_detail(SESSION_ENDED_DETAIL),
+        })
+        .map_or(0, |frame| frame.len());
+        self.live.iter().all(|(key, owner)| {
+            let governs = &key.session_id == session_id
+                && owner.adapter.is_some()
+                && !owner.awaiting_capture
+                && !owner.terminal_enqueued;
+            let results = owner.input_queue.len();
+            !governs
+                || (owner.queue.len().saturating_add(results + 1) <= MAX_ROUTE_EGRESS_FRAMES
+                    && owner
+                        .queued_bytes
+                        .saturating_add(exit_len)
+                        .saturating_add(results.saturating_mul(result_len))
+                        <= MAX_ROUTE_EGRESS_BYTES)
+        })
     }
 
     fn owner_ready_for_bound_queue_wake(owner: &SubscriptionOwner) -> bool {
@@ -2375,23 +2439,35 @@ impl ClientWorker {
             let Some(owner) = self.live.get_mut(&key) else {
                 continue;
             };
-            let client_id = owner.client_id.clone();
             let drained: Vec<_> = owner.input_queue.drain(..).collect();
-            let released = LaneUsage {
-                operations: drained.len(),
-                bytes: drained.iter().map(|input| input.body.len()).sum(),
-            };
-            owner.lane.operations = owner.lane.operations.saturating_sub(released.operations);
-            owner.lane.bytes = owner.lane.bytes.saturating_sub(released.bytes);
             owner.paste = None;
-            self.release_lane(session_id, &client_id, released);
+            let mode_bits = self
+                .session_modes
+                .get(session_id)
+                .map(|modes| modes.mode_bits)
+                .unwrap_or(0);
             for input in drained {
-                if let Err(ended) = self.reject(
-                    &key,
-                    input.operation_id,
-                    InputOutcome::SessionEnded,
-                    "session ended before the operation ran",
-                ) {
+                // Each result keeps its operation's reservation until it is
+                // delivered, like any accepted operation's result. A result
+                // without one would count as a rejection, and more than
+                // MAX_QUEUED_REJECTIONS_PER_ROUTE of those end the route and
+                // discard its queued output.
+                let result = InputResultBody {
+                    operation_id: input.operation_id,
+                    outcome: InputOutcome::SessionEnded,
+                    accepted_payload_bytes: Some(0),
+                    written_pty_bytes: Some(0),
+                    mode_bits,
+                    detail: bounded_detail(SESSION_ENDED_DETAIL),
+                };
+                let reservation = LaneUsage {
+                    operations: 1,
+                    bytes: input.body.len(),
+                };
+                if let Err(ended) = self.enqueue_result_with_reservation(&key, &result, reservation)
+                {
+                    // Ending the route releases its whole lane, including the
+                    // reservations of the operations not reached here.
                     if let Some(teardown) = ended.or_else(|| {
                         self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded)
                     }) {
