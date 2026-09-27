@@ -21,7 +21,7 @@ use botster_core::{
     TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
     WorkerRouteProbe, WorkerRouteProbeEvent,
 };
-use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
+use botster_core_test_support::bounded_wait::wait_for;
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use sha2::{Digest, Sha256};
 
@@ -1463,12 +1463,15 @@ fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
     let worker_script = control_dir.join("sleeping-worker");
     let worker_pid_path = control_dir.join("sleeping-worker.pid");
     let started = Fifo::new("sleeping-worker-started");
+    // Never written: the fake worker blocks here until cleanup ends it.
+    let hold = Fifo::new("sleeping-worker-hold");
     std::fs::write(
         &worker_script,
         format!(
-            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
+            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec /bin/cat '{}' >/dev/null\n",
             worker_pid_path.display(),
-            started.path().display()
+            started.path().display(),
+            hold.path().display()
         ),
     )
     .expect("write sleeping worker");
@@ -1478,7 +1481,7 @@ fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
 
     let server_socket = socket_path.clone();
     let server = thread::spawn(move || {
-        let _ = started.read_signal(HANG_GUARD);
+        let _ = started.read_signal(Duration::from_secs(5));
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         let mut hello = [0_u8; 16];
@@ -1518,12 +1521,15 @@ fn welcome_must_identify_the_exact_spawned_worker() {
     let worker_script = control_dir.join("signaling-worker");
     let worker_pid_path = control_dir.join("signaling-worker.pid");
     let started = Fifo::new("signaling-worker-started");
+    // Never written: the fake worker blocks here until cleanup ends it.
+    let hold = Fifo::new("signaling-worker-hold");
     std::fs::write(
         &worker_script,
         format!(
-            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
+            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec /bin/cat '{}' >/dev/null\n",
             worker_pid_path.display(),
-            started.path().display()
+            started.path().display(),
+            hold.path().display()
         ),
     )
     .expect("write signaling worker");
@@ -1533,7 +1539,7 @@ fn welcome_must_identify_the_exact_spawned_worker() {
 
     let server_socket = socket_path.clone();
     let server = thread::spawn(move || {
-        let _ = started.read_signal(HANG_GUARD);
+        let _ = started.read_signal(Duration::from_secs(5));
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         botster_core::read_hello(&mut stream).expect("read hello");
@@ -2088,28 +2094,50 @@ fn warm_fake_worker(script: &std::path::Path) {
     assert!(status.success(), "the fake worker's warm run exits 0");
 }
 
-/// A fake worker that writes its pid, then signals `started` (a FIFO the
-/// test reads), then reports ready.
+/// A fake worker that writes its pid, signals `started` (a FIFO the test
+/// reads), reports ready, and then blocks reading `hold`, which is never
+/// written; [`end_fake_worker`] ends it.
 fn write_signaling_worker(
     dir: &std::path::Path,
     name: &str,
-) -> (std::path::PathBuf, std::path::PathBuf, Fifo) {
+) -> (std::path::PathBuf, std::path::PathBuf, Fifo, Fifo) {
     let script = dir.join(name);
     let pid_path = dir.join(format!("{name}.pid"));
     let started = Fifo::new(&format!("{name}-started"));
+    let hold = Fifo::new(&format!("{name}-hold"));
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec sleep 30\n",
+            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nprintf '%s' \"$$\" > '{}'\n/bin/echo started > '{}'\nprintf 'botster-session-worker-ready %s\\n' \"$$\"\nexec /bin/cat '{}' >/dev/null\n",
             pid_path.display(),
-            started.path().display()
+            started.path().display(),
+            hold.path().display()
         ),
     )
     .expect("write signaling worker");
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
         .expect("make signaling worker executable");
     warm_fake_worker(&script);
-    (script, pid_path, started)
+    (script, pid_path, started, hold)
+}
+
+/// End a fake worker the runtime left running: kill it by the pid it wrote
+/// and wait for its exit.
+fn end_fake_worker(pid_path: &std::path::Path) {
+    let Some(pid) = std::fs::read_to_string(pid_path)
+        .ok()
+        .and_then(|pid| pid.trim().parse::<u32>().ok())
+    else {
+        return;
+    };
+    let _ = Command::new("kill")
+        .arg("-KILL")
+        .arg(pid.to_string())
+        .status();
+    assert!(
+        wait_pid_exit(pid, Duration::from_secs(5)),
+        "the fake worker ends"
+    );
 }
 
 fn reserved_spawn(
@@ -2157,11 +2185,11 @@ fn spf1_wrong_worker_pid_is_unknown() {
     create_private_control_dir(&control_dir);
     let session = session_id("spf1-wrong-pid");
     let socket_path = derived_worker_socket(&control_dir, &session);
-    let (worker_script, worker_pid_path, started) =
+    let (worker_script, worker_pid_path, started, _hold) =
         write_signaling_worker(&control_dir, "spf1-worker");
     let server_socket = socket_path.clone();
     let server = thread::spawn(move || {
-        let _ = started.read_signal(HANG_GUARD);
+        let _ = started.read_signal(Duration::from_secs(5));
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         botster_core::read_hello(&mut stream).expect("read hello");
@@ -2209,6 +2237,7 @@ fn spf1_wrong_worker_pid_is_unknown() {
             .expect("retain unknown"),
         SessionReservationRelease::RetainedUnconfirmed
     );
+    end_fake_worker(&worker_pid_path);
     let _ = std::fs::remove_file(worker_pid_path);
     let _ = std::fs::remove_file(worker_script);
     let _ = std::fs::remove_dir(control_dir);
@@ -2247,11 +2276,11 @@ fn old_worker_reads_spawn_frame_then_exits_without_spf1_is_unknown() {
     create_private_control_dir(&control_dir);
     let session = session_id("spf1-old-after-spawn");
     let socket_path = derived_worker_socket(&control_dir, &session);
-    let (worker_script, worker_pid_path, started) =
+    let (worker_script, worker_pid_path, started, _hold) =
         write_signaling_worker(&control_dir, "old-after");
     let server_socket = socket_path.clone();
     let server = thread::spawn(move || {
-        let _ = started.read_signal(HANG_GUARD);
+        let _ = started.read_signal(Duration::from_secs(5));
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         botster_core::read_hello(&mut stream).expect("read hello");
@@ -2279,6 +2308,7 @@ fn old_worker_reads_spawn_frame_then_exits_without_spf1_is_unknown() {
         reservation.state(),
         SessionReservationState::CleanupUnconfirmed
     );
+    end_fake_worker(&worker_pid_path);
     let _ = std::fs::remove_file(worker_pid_path);
     let _ = std::fs::remove_file(worker_script);
     let _ = std::fs::remove_dir(control_dir);
@@ -2312,10 +2342,11 @@ fn crash_before_hello_is_not_created_crash_after_spawn_frame_is_unknown() {
     create_private_control_dir(&after_dir);
     let after_session = session_id("spf1-after-spawn");
     let socket_path = derived_worker_socket(&after_dir, &after_session);
-    let (after_script, after_pid_path, started) = write_signaling_worker(&after_dir, "crash-after");
+    let (after_script, after_pid_path, started, _hold) =
+        write_signaling_worker(&after_dir, "crash-after");
     let server_socket = socket_path.clone();
     let server = thread::spawn(move || {
-        let _ = started.read_signal(HANG_GUARD);
+        let _ = started.read_signal(Duration::from_secs(5));
         let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
         let (mut stream, _) = listener.accept().expect("accept startup connection");
         botster_core::read_hello(&mut stream).expect("read hello");
@@ -2344,6 +2375,7 @@ fn crash_before_hello_is_not_created_crash_after_spawn_frame_is_unknown() {
     );
     let _ = std::fs::remove_file(before_script);
     let _ = std::fs::remove_dir(before_dir);
+    end_fake_worker(&after_pid_path);
     let _ = std::fs::remove_file(after_pid_path);
     let _ = std::fs::remove_file(after_script);
     let _ = std::fs::remove_dir(after_dir);
