@@ -152,6 +152,7 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
             SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::WorkerLost { .. }
             | SessionRuntimeOutput::TitleChanged { .. }
             | SessionRuntimeOutput::CwdChanged { .. }
             | SessionRuntimeOutput::PromptMark { .. }
@@ -200,6 +201,7 @@ fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
                 Some(String::from_utf8_lossy(data).into_owned())
             }
             SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::WorkerLost { .. }
             | SessionRuntimeOutput::TitleChanged { .. }
             | SessionRuntimeOutput::CwdChanged { .. }
             | SessionRuntimeOutput::PromptMark { .. }
@@ -1822,7 +1824,7 @@ fn reaper_window_leaves_a_sibling_session_live() {
 }
 
 #[test]
-fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
+fn unexpected_control_eof_without_clean_exit_reports_the_worker_lost() {
     let control_dir = temp_control_dir("bwe");
     create_private_control_dir(&control_dir);
     let mut options = worker_options();
@@ -1855,11 +1857,16 @@ fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
     assert!(status.success());
     assert!(wait_until(|| !runtime.is_worker_process(&session)));
     thread::sleep(Duration::from_millis(50));
+    // The worker ended without an exit report: the session ends as
+    // WorkerLost, never as a completed exit, and is removed.
     let output = runtime
         .drain_output(&session)
-        .expect("unexpected EOF remains fail-closed runtime state");
+        .expect("drain reports the lost worker");
     assert!(!has_process_exit(&output));
-    assert!(runtime.metadata(&session).is_some());
+    assert!(output
+        .iter()
+        .any(|event| matches!(event, SessionRuntimeOutput::WorkerLost { session_id } if *session_id == session)));
+    assert!(runtime.metadata(&session).is_none());
 
     drop(runtime);
     assert!(wait_until(|| !process_exists(metadata.pid)));
