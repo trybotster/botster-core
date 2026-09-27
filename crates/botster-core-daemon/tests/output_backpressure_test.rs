@@ -188,10 +188,13 @@ impl Flood {
     /// Spawn `seq 1 LAST_LINE | cat`, gated on a FIFO so no line precedes
     /// the routes. Through the pipe the lines reach the PTY in full blocks,
     /// as a flooding program's writes do. `-onlcr` keeps the bytes exactly
-    /// seq's (the PTY's CR insertion can repeat a CR at a blocked write), and
-    /// the child then keeps the terminal open: a PTY discards output still
-    /// queued when its last slave closes, which is outside this property.
+    /// seq's (the PTY's CR insertion can repeat a CR at a blocked write).
+    /// The child then keeps the terminal open, unless `then_exit`.
     fn spawn(label: &str) -> Self {
+        Self::spawn_with(label, false)
+    }
+
+    fn spawn_with(label: &str, then_exit: bool) -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
@@ -214,8 +217,13 @@ impl Flood {
                             "-c".into(),
                             format!(
                                 "stty -echo -onlcr; /bin/cat '{}' >/dev/null; \
-                                 seq 1 {LAST_LINE} | cat; exec cat >/dev/null",
-                                go.path().display()
+                                 seq 1 {LAST_LINE} | cat{}",
+                                go.path().display(),
+                                if then_exit {
+                                    ""
+                                } else {
+                                    "; exec cat >/dev/null"
+                                }
                             ),
                         ],
                         working_directory: SpawnWorkingDirectory { path: ".".into() },
@@ -514,4 +522,33 @@ fn a_resync_capture_on_one_route_loses_no_output_on_another() {
         "route B receives every byte, in order, across route A's resync capture: {}",
         first_difference(&sibling.output(), &expected)
     );
+}
+
+#[test]
+fn a_flood_that_exits_under_backpressure_delivers_its_final_line() {
+    // The program writes far more than the route holds and exits while its
+    // output still waits: the PTY must not discard the queued tail.
+    let expected = seq_output(LAST_LINE);
+    let mut flood = Flood::spawn_with("backpressure-exit", true);
+    let (_, reader) = flood.attach("backpressure-exit");
+    flood.settle(&[&reader]);
+    flood.release();
+    flood.pump_until(
+        "the exit after every line",
+        || reader.complete(),
+        |_| reader.bodies(TerminalKind::ProcessExit).first().is_some(),
+    );
+    assert_eq!(reader.resyncs(), 0);
+    assert!(
+        reader.output() == expected,
+        "every line, the final one included, precedes the exit: {}",
+        first_difference(&reader.output(), &expected)
+    );
+    let last = reader
+        .lock()
+        .delivered
+        .last()
+        .and_then(|bytes| TerminalFrame::from_bytes(bytes).ok())
+        .map(|frame| frame.kind());
+    assert_eq!(last, Some(TerminalKind::ProcessExit));
 }
