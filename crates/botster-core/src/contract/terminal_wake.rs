@@ -272,6 +272,9 @@ struct WakeInner {
     reverse_clear: AtomicBool,
     #[cfg(test)]
     race_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Test seam: signalled just before a wait blocks on the channel.
+    #[cfg(test)]
+    blocking_recv_entered: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 /// Host-facing wait source for adapter and ingress wakes.
@@ -332,6 +335,8 @@ impl TerminalWakeSource {
                 reverse_clear: AtomicBool::new(false),
                 #[cfg(test)]
                 race_hook: Mutex::new(None),
+                #[cfg(test)]
+                blocking_recv_entered: Mutex::new(None),
             }),
         }
     }
@@ -614,6 +619,15 @@ impl TerminalWakeSource {
             && timeout.is_none_or(|timeout| !timeout.is_zero())
             && !self.inner.overflow.load(Ordering::Acquire)
         {
+            #[cfg(test)]
+            if let Some(entered) = &*self
+                .inner
+                .blocking_recv_entered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            {
+                let _ = entered.send(());
+            }
             let received = match timeout {
                 // timer: deadline — the caller's wake wait bound; expiry returns an empty batch
                 Some(timeout) => rx.recv_timeout(timeout),
@@ -945,8 +959,13 @@ mod tests {
         let source = TerminalWakeSource::new();
         let waiter = source.clone();
         let started = Instant::now();
+        let (entered_sender, entered) = mpsc::channel();
+        *source.inner.blocking_recv_entered.lock().expect("seam") = Some(entered_sender);
         let thread = thread::spawn(move || waiter.wait_wakes_interruptible(Duration::from_secs(5)));
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the waiter must reach its blocking receive; expiry fails the test
+        entered
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the waiter blocks on the wake channel");
         source.interrupt_handle().interrupt();
         assert_eq!(
             thread.join().expect("waiter"),
