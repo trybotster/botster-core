@@ -3528,6 +3528,7 @@ impl CoreDaemon {
         for touched_session in touched {
             if self.engine_session_is_terminal(&touched_session)
                 && !self.engine.session_has_undelivered_frames(&touched_session)
+                && !self.engine.session_held_after_exit(&touched_session)
             {
                 self.engine.wake_source().forget_session(&touched_session);
             }
@@ -4861,6 +4862,15 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.session_has_undelivered_frames(session_id),
             Self::Worker(engine) => engine.session_has_undelivered_frames(session_id),
+        }
+    }
+
+    /// An exited worker session the runtime still holds for a capture it
+    /// owes: its worker still reports through the session's wakes.
+    fn session_held_after_exit(&self, session_id: &SessionId) -> bool {
+        match self {
+            Self::Local(_) => false,
+            Self::Worker(engine) => engine.session_runtime().holds_session(session_id),
         }
     }
 
