@@ -3940,7 +3940,6 @@ mod tests {
     /// A runtime that either answers at once (HandlerFailed) or holds its
     /// invocation until the engine cancels it or stops the runtime.
     struct DelayRuntime {
-        delay: Duration,
         held: bool,
         stopped: Arc<(Mutex<bool>, Condvar)>,
     }
@@ -3950,7 +3949,6 @@ mod tests {
         /// less answers at once.
         fn new(delay: Duration) -> Self {
             Self {
-                delay,
                 held: delay > Duration::from_millis(1),
                 stopped: Arc::new((Mutex::new(false), Condvar::new())),
             }
@@ -3964,20 +3962,6 @@ mod tests {
             cancellation: PluginCancellationToken,
         ) -> PluginInvocationResult {
             if !self.held {
-                // Short delays keep the former brief in-flight window: several
-                // tests race their notifier checks against a second executor
-                // thread, and an instant answer widens that race. Tracked in
-                // the inventory with those tests; the poll goes when they are
-                // fixed.
-                let started = Instant::now();
-                while started.elapsed() < self.delay {
-                    if cancellation.is_cancelled()
-                        || *self.stopped.0.lock().expect("delay runtime lock")
-                    {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                }
                 return PluginInvocationResult::Failed(PluginInvocationFailure {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -4099,7 +4083,10 @@ mod tests {
                 return false;
             }
             // timer: deadline — the caller's bound; checked above on every pass
-            let _ = events.recv_timeout(left);
+            if let Err(mpsc::RecvTimeoutError::Disconnected) = events.recv_timeout(left) {
+                // The engine is gone; no later event can change the answer.
+                return done();
+            }
         }
     }
 
@@ -4833,17 +4820,27 @@ mod tests {
         let admission = engine.worker_for(&plugin).expect("worker").admission;
         let shared = Arc::downgrade(&engine.inner.shared);
         let (sender, receiver) = mpsc::channel();
+        // The notifying thread stays inside the notification while another
+        // thread takes both locks. A sibling executor may hold admission for
+        // a moment (the admission wakes it), so the check blocks on the locks
+        // instead of trying them once: it gets them only if the notifying
+        // thread released them before it notified.
         engine.install_completion_notifier(Arc::new(move || {
-            let _admission = admission.try_lock().expect("admission lock is released");
-            let shared = shared.upgrade().expect("engine alive");
-            let _store = shared
-                .completions
-                .try_lock()
-                .expect("store lock is released");
-            assert!(
-                shared.metrics.undrained_completions.load(Ordering::SeqCst) > 0,
-                "completion is published"
-            );
+            let admission = admission.clone();
+            let shared = shared.clone();
+            let (locked_sender, locked) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _admission = admission.lock().expect("admission lock");
+                let shared = shared.upgrade().expect("engine alive");
+                let _store = shared.completions.lock().expect("store lock");
+                let _ = locked_sender
+                    .send(shared.metrics.undrained_completions.load(Ordering::SeqCst) > 0);
+            });
+            // timer: deadline — both locks must be free of the notifying thread; expiry fails the test
+            let published = locked
+                .recv_timeout(Duration::from_secs(5))
+                .expect("admission and store locks are released before the notification");
+            assert!(published, "completion is published");
             sender.send(()).expect("notification receiver");
         }));
         let missing = PluginHandlerRef {
