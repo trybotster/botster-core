@@ -409,3 +409,110 @@ fn release_never_takes_a_unit_whose_result_admission_began() {
     assert!(returned.try_recv().is_err());
     assert_eq!(pool.free(), (0, 1024 - 100), "the unit is still held");
 }
+
+/// Review D5, immediate completion: a zero-timeout result publishes its
+/// timeout inside the admission; a notifier that drains synchronously must
+/// already find the unit Admitted, so the unit returns exactly once.
+#[test]
+fn an_immediately_published_result_returns_its_unit() {
+    let engine = PluginWorkerEngine::new();
+    let plugin = PluginKey("immediate".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(&plugin, quota(1, 0))
+        .expect("reserved");
+    let returned = unit_returns(&pool);
+    let draining = engine.clone();
+    let (drained_tx, drained) = mpsc::channel();
+    engine.install_completion_notifier(Arc::new(move || {
+        let _ = drained_tx.send(draining.drain_completions(usize::MAX, usize::MAX).item_count);
+    }));
+
+    pool.accept_call(CallId(1), 512).expect("a unit");
+    assert!(matches!(
+        pool.admit_result(CallId(1), request("zero", handler(&plugin), 0)),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    // timer: deadline — the synchronous drain reports; expiry fails the test
+    assert_eq!(drained.recv_timeout(EVENT_DEADLINE).expect("drained"), 1);
+    assert_eq!(returned.try_recv().expect("the unit returned"), CallId(1));
+    assert!(returned.try_recv().is_err(), "exactly once");
+    assert_eq!(pool.free(), (1, 1024));
+}
+
+/// Review D5, fast normal completion: the admission is held after it
+/// released every engine lock; meanwhile the executor finishes and the test
+/// drains. The unit is already Admitted, so the drain returns it.
+#[test]
+fn a_result_drained_before_its_admission_returns_still_returns_its_unit() {
+    let engine = PluginWorkerEngine::new();
+    let completions = notified(&engine);
+    let plugin = PluginKey("fast".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(&plugin, quota(1, 0))
+        .expect("reserved");
+    let returned = unit_returns(&pool);
+    let (reached_tx, reached) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    *engine
+        .inner
+        .shared
+        .pool_admit_pause
+        .lock()
+        .expect("pool admit pause") = Some((reached_tx, release_rx));
+
+    pool.accept_call(CallId(1), 512).expect("a unit");
+    let admitting = {
+        let pool = pool.clone();
+        let plugin = plugin.clone();
+        std::thread::spawn(move || {
+            pool.admit_result(CallId(1), request("fast", handler(&plugin), 60_000))
+        })
+    };
+    await_event(&reached, "the admission is held after it released the engine locks");
+    let drain = drain_one(&engine, &completions);
+    assert_eq!(drain.item_count, 1);
+    // timer: deadline — the drain returns the unit; expiry fails the test
+    assert_eq!(returned.recv_timeout(EVENT_DEADLINE).expect("returned"), CallId(1));
+    let _ = release_tx.send(());
+    assert!(matches!(
+        admitting.join().expect("admission"),
+        PluginAdmissionResult::Queued { .. }
+    ));
+    assert_eq!(pool.free(), (1, 1024));
+}
+
+/// Review D3, forced: a result admission starts at the end of the release
+/// step. The fixed release checked and removed in one step, so the call is
+/// already gone; a release split into check-then-remove would let the
+/// admission start in the gap and then remove an admitting unit.
+#[test]
+fn an_admission_racing_a_release_finds_the_call_gone() {
+    let engine = PluginWorkerEngine::new();
+    let plugin = PluginKey("release-forced".into());
+    engine.load_plugin(registration(&plugin, Arc::new(EchoRuntime)));
+    let pool = engine
+        .try_reserve_delivery(&plugin, quota(1, 0))
+        .expect("reserved");
+    let returned = unit_returns(&pool);
+    pool.accept_call(CallId(1), 100).expect("a unit");
+    let racing: Arc<Mutex<Option<Result<usize, delivery_pool::AdmitRefusal>>>> = Arc::default();
+    let hook_racing = racing.clone();
+    let hook_pool = pool.clone();
+    delivery_pool::RELEASE_STEP_END.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            *hook_racing.lock().expect("racing") = Some(hook_pool.inner.begin_admit(CallId(1)));
+        }));
+    });
+
+    assert!(pool.release_call(CallId(1)));
+    assert_eq!(
+        racing.lock().expect("racing").take(),
+        Some(Err(delivery_pool::AdmitRefusal::UnknownCall)),
+        "the racing admission must find the call released"
+    );
+    assert_eq!(returned.try_recv().expect("returned"), CallId(1));
+    assert!(returned.try_recv().is_err());
+    assert_eq!(pool.free(), (1, 1024));
+}
