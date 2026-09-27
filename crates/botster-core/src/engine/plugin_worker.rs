@@ -2643,7 +2643,19 @@ fn admit_pool_result(
         };
     let declared_bytes = match pool.begin_admit(call) {
         Ok(bytes) => bytes,
-        Err(reason) => return rejected(request, None, reason),
+        Err(delivery_pool::AdmitRefusal::Closed) => {
+            return stopped(request, "the delivery pool's generation retired")
+        }
+        Err(delivery_pool::AdmitRefusal::UnknownCall) => {
+            return rejected(request, None, "no accepted host call has this call id")
+        }
+        Err(delivery_pool::AdmitRefusal::AlreadyAdmitted) => {
+            return rejected(
+                request,
+                None,
+                "this host call's result was already admitted",
+            )
+        }
     };
     let finish = |admitted: bool, result: PluginAdmissionResult| {
         pool.end_admit(call, admitted);
@@ -2707,10 +2719,11 @@ fn admit_pool_result(
             ),
         );
     };
+    // The result request is bounded by its own declaration above. The
+    // completion entry only has to hold the job's fallback markers, so the
+    // request's size plays no part here.
     let payload_bytes = pool.completion_bytes;
-    if effective_completion_reservation_bytes(queue_bytes, &fallbacks, payload_bytes)
-        > payload_bytes
-    {
+    if effective_completion_reservation_bytes(0, &fallbacks, payload_bytes) > payload_bytes {
         return finish(
             false,
             rejected(
