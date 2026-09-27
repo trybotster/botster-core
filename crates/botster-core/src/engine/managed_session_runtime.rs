@@ -981,6 +981,22 @@ where
         self.applied_terminal_resizes.remove(session_id)
     }
 
+    /// Deliver a route's `SNAPSHOT_READY` and end its capture, as a
+    /// synchronous capture does, so a host test's route receives live output.
+    #[doc(hidden)]
+    pub fn test_complete_route_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        let ready = botster_terminal_protocol::encode_snapshot_ready(b"GHOSTSNP")
+            .expect("snapshot ready frame");
+        let _ = self
+            .client_worker
+            .push_route_frame(session_id, subscription_id, ready);
+        self.end_route_capture(session_id, subscription_id);
+    }
+
     /// Whether the session holds output back for a full progressing route
     /// (output backpressure is engaged).
     #[doc(hidden)]
@@ -1774,18 +1790,53 @@ where
         Ok(outcome)
     }
 
-    /// Encoded size of the bound-route frame one output becomes, for the
-    /// outputs that fan out to routes as visual frames.
-    fn bound_frame_len(output: &SessionRuntimeOutput) -> Option<usize> {
+    /// Route room one output needs, as (frames, bytes), for the outputs that
+    /// queue frames on every bound route of the session.
+    ///
+    /// A PTY chunk becomes one OUTPUT frame. Where the in-process terminal
+    /// model publishes modes, the chunk can also publish a MODES frame ahead
+    /// of its OUTPUT, so it needs room for both. A process exit becomes one
+    /// PROCESS_EXIT frame: it must follow all queued output without an
+    /// overflow, which would drop that output.
+    fn bound_room_need(
+        &self,
+        session_id: &SessionId,
+        output: &SessionRuntimeOutput,
+    ) -> Option<(usize, usize)> {
+        let frame_len = |frame: Result<
+            botster_terminal_protocol::TerminalFrame,
+            botster_terminal_protocol::TerminalFrameError,
+        >| frame.map_or(0, |frame| frame.len());
         match output {
             SessionRuntimeOutput::PtyOutput { data, .. } => {
-                Some(botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + data.len())
+                let output_len = botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + data.len();
+                let local_modes = self
+                    .engine
+                    .session_worker_runtime(session_id)
+                    .is_some_and(|worker| worker.mode_bits().is_some());
+                Some(if local_modes {
+                    let modes_len = frame_len(botster_terminal_protocol::encode_modes(
+                        botster_terminal_protocol::ModesBody {
+                            mode_bits: 0,
+                            rows: 0,
+                            cols: 0,
+                        },
+                    ));
+                    (2, output_len + modes_len)
+                } else {
+                    (1, output_len)
+                })
             }
-            SessionRuntimeOutput::ModesChanged { modes, .. } => {
-                botster_terminal_protocol::encode_modes(*modes)
-                    .ok()
-                    .map(|frame| frame.len())
-            }
+            SessionRuntimeOutput::ModesChanged { modes, .. } => Some((
+                1,
+                frame_len(botster_terminal_protocol::encode_modes(*modes)),
+            )),
+            SessionRuntimeOutput::ProcessExited { payload, .. } => Some((
+                1,
+                frame_len(botster_terminal_protocol::encode_process_exit(
+                    payload.exit_code,
+                )),
+            )),
             _ => None,
         }
     }
@@ -1809,10 +1860,10 @@ where
         // below serves unbound drain consumers.
         while let Some(output) = outputs.pop_front() {
             if backpressure {
-                if let Some(frame_len) = Self::bound_frame_len(&output) {
+                if let Some((frames, bytes)) = self.bound_room_need(session_id, &output) {
                     if !self
                         .client_worker
-                        .session_output_has_room(session_id, frame_len)
+                        .session_output_has_room(session_id, frames, bytes)
                     {
                         outputs.push_front(output);
                         self.held_runtime_output
@@ -2020,8 +2071,11 @@ where
         for (session_id, held) in &self.held_runtime_output {
             let fits = held
                 .front()
-                .and_then(Self::bound_frame_len)
-                .is_none_or(|len| self.client_worker.session_output_has_room(session_id, len));
+                .and_then(|output| self.bound_room_need(session_id, output))
+                .is_none_or(|(frames, bytes)| {
+                    self.client_worker
+                        .session_output_has_room(session_id, frames, bytes)
+                });
             if fits {
                 self.wake_source.notify_session(session_id);
             }

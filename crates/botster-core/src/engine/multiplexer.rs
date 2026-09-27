@@ -383,6 +383,13 @@ where
         &mut self.session_runtime
     }
 
+    /// Return a session worker runtime adapter.
+    pub fn session_worker_runtime(&self, session_id: &SessionId) -> Option<&W> {
+        self.session_workers
+            .get(session_id)
+            .map(SessionWorkerEngine::runtime)
+    }
+
     /// Return a mutable session worker runtime adapter.
     pub fn session_worker_runtime_mut(&mut self, session_id: &SessionId) -> Option<&mut W> {
         self.session_workers
