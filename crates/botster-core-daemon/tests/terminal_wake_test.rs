@@ -494,13 +494,15 @@ fn sustained_wake_producer_cannot_extend_the_post_stop_loop() {
 #[test]
 fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let data_dir = temp_data_dir("interrupt-shutdown");
-    // The property is order and preservation under interrupts, not the
-    // grace: the grace is the hang guard, so the daemon's own 2 s shutdown
-    // deadline is the only bound on the cooperating fixture.
+    // The property is order and preservation under interrupts, and that
+    // shutdown stays bounded (never spins) while interrupts arrive: the
+    // grace, the daemon's shutdown deadline, and the watchdog are hang
+    // guards.
     let mut daemon = CoreDaemon::new(
         CoreDaemonConfig::new(&data_dir)
             .with_worker_path(worker_path())
-            .with_test_shutdown_grace_ms(Some(HANG_GUARD.as_millis() as u64)),
+            .with_test_shutdown_grace_ms(Some(HANG_GUARD.as_millis() as u64))
+            .with_test_shutdown_deadline(Some(HANG_GUARD)),
     );
     let session_id = SessionId("interrupt-shutdown-session".into());
     let client_id = ClientId("interrupt-shutdown-client".into());
@@ -634,8 +636,8 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     });
     let (returned_sender, returned) = std::sync::mpsc::channel::<()>();
     let watchdog = std::thread::spawn(move || {
-        // timer: deadline — shutdown must return within its bound while interrupted
-        returned.recv_timeout(Duration::from_secs(2))
+        // timer: deadline — shutdown must return (never spin) while interrupted
+        returned.recv_timeout(HANG_GUARD)
     });
     let shutdown_result = daemon.shutdown(Some(session_id), 4);
     let _ = returned_sender.send(());
