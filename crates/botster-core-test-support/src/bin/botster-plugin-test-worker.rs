@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use botster_core::runtime::plugin_process::worker::{
-    run_worker, HostPort, LoadedPlugin, WorkerHooks,
+    run_worker, CappedAllocator, HostPort, LoadedPlugin, WorkerHooks,
 };
 use botster_core::runtime::plugin_process::{
     LoadFrame, PluginMessageBody, PluginRegistration, SandboxProfile,
@@ -46,6 +46,10 @@ use botster_core::{
     PluginInvocationRequest, PluginInvocationResult, PluginInvocationSuccess, PluginRuntime,
 };
 use serde_json::{json, Value};
+
+/// The worker counts every allocation, so a Bootstrap memory cap holds.
+#[global_allocator]
+static ALLOCATOR: CappedAllocator = CappedAllocator::new();
 
 static SANDBOX_APPLIED: AtomicBool = AtomicBool::new(false);
 static PORT: OnceLock<HostPort> = OnceLock::new();
@@ -222,8 +226,26 @@ fn report() -> Value {
 /// - `raw`: `{"type", "frame"}`: write `frame` (with this invocation's request
 ///   id added as `invocation_request_id` when absent) as a raw frame of
 ///   `type`, around the credit checks, then complete; with `"wait": true` it
-///   first reads `PLUGIN_TEST_GO_FIFO` to its end.
+///   first reads `PLUGIN_TEST_GO_FIFO` to its end;
+/// - `allocate`: `{"step", "steps"}`: allocate and touch `steps` blocks of
+///   `step` bytes, keep them, and complete with the total;
+/// - `logs_then_allocate`: `{"logs", "log_bytes", "step"}`: send that many log
+///   lines of that size, then allocate `step`-byte blocks without end;
+/// - `spin`: burn CPU until killed;
+/// - `open_files`: open `/dev/null` until refused, then complete with the
+///   count and the errno.
 struct TestRuntime;
+
+/// Allocate and touch `steps` blocks of `step` bytes, keeping them all.
+fn allocate(step: usize, steps: Option<u64>) -> usize {
+    let mut kept: Vec<Vec<u8>> = Vec::new();
+    let mut index = 0u64;
+    while steps.is_none_or(|steps| index < steps) {
+        kept.push(vec![1u8; step]);
+        index += 1;
+    }
+    kept.iter().map(Vec::len).sum()
+}
 
 fn port() -> &'static HostPort {
     PORT.get().expect("the host port from load")
@@ -256,6 +278,33 @@ impl PluginRuntime for TestRuntime {
             })
         };
         match handler_id.as_str() {
+            "allocate" => {
+                let step = args["step"].as_u64().expect("step") as usize;
+                let total = allocate(step, args["steps"].as_u64());
+                completed(json!({ "allocated": total }))
+            }
+            "logs_then_allocate" => {
+                let line = "x".repeat(args["log_bytes"].as_u64().expect("log_bytes") as usize);
+                for _ in 0..args["logs"].as_u64().expect("logs") {
+                    port().log(body(json!(line)));
+                }
+                let step = args["step"].as_u64().expect("step") as usize;
+                allocate(step, None);
+                unreachable!("the memory cap ends an unbounded allocation")
+            }
+            "spin" => loop {
+                std::hint::spin_loop();
+            },
+            "open_files" => {
+                let mut opened = Vec::new();
+                let errno = loop {
+                    match File::open("/dev/null") {
+                        Ok(file) => opened.push(file),
+                        Err(error) => break error.raw_os_error(),
+                    }
+                };
+                completed(json!({ "opened": opened.len(), "errno": errno }))
+            }
             "host_calls" => {
                 let count = args["count"].as_u64().unwrap_or(1);
                 let max_result_bytes = args["max_result_bytes"].as_u64().unwrap_or(0) as usize;

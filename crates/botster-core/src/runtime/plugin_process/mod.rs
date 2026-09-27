@@ -8,6 +8,7 @@
 //!
 //! See `docs/plans/plugin-process-host.md` for the accepted design.
 
+mod capped_allocator;
 mod host;
 mod host_port;
 mod ingress;
