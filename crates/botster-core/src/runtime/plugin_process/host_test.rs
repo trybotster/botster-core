@@ -225,6 +225,45 @@ fn plain_config() -> PluginProcessConfig {
 /// the reader's EOF kill and the exit watch's reap comes first, the cause is
 /// the crash, never the incidental `TransportClosed` kill (plan 7.5).
 fn assert_abort_classified(order: Order) {
+    assert_crash_classified(order, "abort", plain_config(), libc::SIGABRT);
+}
+
+/// The kernel signal at the `RLIMIT_CPU` limit. Core sets soft = hard, and
+/// Linux checks the hard limit (SIGKILL) before the soft one (SIGXCPU);
+/// macOS sends SIGXCPU.
+#[cfg(target_os = "linux")]
+const CPU_LIMIT_SIGNAL: i32 = libc::SIGKILL;
+#[cfg(not(target_os = "linux"))]
+const CPU_LIMIT_SIGNAL: i32 = libc::SIGXCPU;
+
+/// A spinning handler dies of the kernel's CPU-limit signal. Whichever of the
+/// reader's EOF kill and the exit watch's reap comes first, the cause is a
+/// crash by that signal, never the cleanup `TransportClosed` kill, even when
+/// the kernel's signal is SIGKILL (review M4).
+fn assert_cpu_limit_classified(order: Order) {
+    let mut config = plain_config();
+    config.rlimits.cpu_seconds = Some(1);
+    assert_crash_classified(order, "spin", config, CPU_LIMIT_SIGNAL);
+}
+
+#[test]
+fn a_cpu_limit_death_is_a_crash_when_the_eof_kill_comes_first() {
+    assert_cpu_limit_classified(Order::EofFirst);
+}
+
+#[test]
+fn a_cpu_limit_death_is_a_crash_when_the_exit_comes_first() {
+    assert_cpu_limit_classified(Order::ExitFirst);
+}
+
+/// Run `handler_id`, which kills the process without a parent kill, under
+/// `order`, and check the crash and its signal.
+fn assert_crash_classified(
+    order: Order,
+    handler_id: &str,
+    config: PluginProcessConfig,
+    signal: i32,
+) {
     use crate::actor::{
         PluginHandlerKind, PluginHandlerRef, PluginInvocationContext, PluginInvocationFailureKind,
         PluginInvocationRequest, PluginInvocationResult, PluginKey,
@@ -235,14 +274,14 @@ fn assert_abort_classified(order: Order) {
 
     let seam = OrderSeam::new(order);
     ORDER_SEAM.with(|slot| *slot.borrow_mut() = Some(seam));
-    let (process, _) = PluginProcess::spawn(&plain_config(), &load()).expect("loaded");
+    let (process, _) = PluginProcess::spawn(&config, &load()).expect("loaded");
 
     let request = PluginInvocationRequest {
-        request_id: RequestId("abort".to_string()),
+        request_id: RequestId(handler_id.to_string()),
         handler: PluginHandlerRef {
             plugin_key: PluginKey("order".to_string()),
             kind: PluginHandlerKind::Command,
-            handler_id: "abort".to_string(),
+            handler_id: handler_id.to_string(),
         },
         timeout_ms: 1_000,
         context: PluginInvocationContext {
@@ -267,7 +306,7 @@ fn assert_abort_classified(order: Order) {
             .expect("the exit settled the invocation")
             .cause,
         PluginExitCause::Crashed {
-            signal: Some(libc::SIGABRT),
+            signal: Some(signal),
             code: None,
         }
     );
