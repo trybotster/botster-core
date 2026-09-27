@@ -16,6 +16,7 @@ use std::os::fd::{AsFd, FromRawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
+pub use super::capped_allocator::CappedAllocator;
 pub use super::host_port::{HostPort, HostPortRefusal};
 use super::host_port::{Sender, EXIT_PROTOCOL};
 
@@ -397,11 +398,7 @@ impl Channel {
 fn install_memory_cap(cap: Option<u64>) -> Result<(), String> {
     match cap {
         None => Ok(()),
-        // The capped allocator arrives in a later slice; until then a
-        // requested cap is refused rather than silently ignored.
-        Some(_) => {
-            Err("a memory cap requires the capped allocator, which this worker lacks".into())
-        }
+        Some(cap) => super::capped_allocator::install(cap),
     }
 }
 
