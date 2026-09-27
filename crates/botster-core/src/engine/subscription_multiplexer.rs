@@ -245,6 +245,10 @@ impl SubscriptionMultiplexer {
                     payload: payload.clone(),
                 })
             }
+            SessionIoEvent::WorkerLost { session_id } => self
+                .fanout_session_event(&session_id, |session_id| SessionIoEvent::WorkerLost {
+                    session_id,
+                }),
             // These variants are intentionally matched one by one so adding a
             // new SessionIoEvent forces an explicit broadcast decision.
             SessionIoEvent::InitialSnapshotReady(snapshot) => {

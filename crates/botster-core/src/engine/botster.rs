@@ -1561,6 +1561,19 @@ impl WorkerBackedBotsterEngine {
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         self.settle_barrier_cancel(session_id, Instant::now());
+        if self.runtime.session_runtime().worker_lost(session_id) {
+            // A lost worker answers no capture. The capturing route fails
+            // typed, queued routes release their held exits, and the runtime
+            // drain reports the loss and removes the session.
+            if let Some(capture) = self.captures.remove(session_id) {
+                self.cancel_capture_boundary(session_id, capture.request_id.clone());
+                self.fail_capture_route(session_id, &capture);
+            }
+            self.end_dropped_route_captures(session_id, None);
+            self.capture_queue.remove(session_id);
+            self.sync_exit_hold(session_id);
+            return self.runtime.drain_runtime_once(session_id, last_output_at);
+        }
         let Some(mut capture) = self.captures.remove(session_id) else {
             let output = self
                 .runtime
@@ -1723,15 +1736,19 @@ impl WorkerBackedBotsterEngine {
 
         if finished && !capture.awaiting_release {
             capture.awaiting_release = true;
-            if let Err(error) = self
+            if self
                 .runtime
                 .session_runtime_mut()
                 .complete_snapshot_boundary(session_id, &capture.request_id)
+                .is_err()
             {
+                // The release could not be queued (a full or sealed control
+                // plane). The capturing route fails, typed; the host's pump
+                // batch does not, and the link failure is swept on its own.
                 self.cancel_capture_boundary(session_id, capture.request_id.clone());
                 self.fail_capture_route(session_id, &capture);
                 let _ = self.start_next_capture(session_id);
-                return Err(error.into());
+                return Ok(output);
             }
         }
 

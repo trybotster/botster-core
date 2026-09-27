@@ -20,7 +20,7 @@ use botster_core::{
     SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, StartupFailureOutcome,
     StartupFailureReport, SubscriptionId, TerminalMetadataShapingObservation,
     TerminalMetadataShapingOutcome, TerminalWakeSource, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerRouteProbe, WorkerRouteProbeEvent,
 };
 use botster_core_test_support::fixture_gate::wait_pid_exit;
 use sha2::{Digest, Sha256};
@@ -152,6 +152,7 @@ fn output_text(output: &[SessionRuntimeOutput]) -> String {
         .filter_map(|event| match event {
             SessionRuntimeOutput::PtyOutput { data, .. } => Some(data.as_slice()),
             SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::WorkerLost { .. }
             | SessionRuntimeOutput::TitleChanged { .. }
             | SessionRuntimeOutput::CwdChanged { .. }
             | SessionRuntimeOutput::PromptMark { .. }
@@ -200,6 +201,7 @@ fn output_event_texts(output: &[SessionRuntimeOutput]) -> Vec<String> {
                 Some(String::from_utf8_lossy(data).into_owned())
             }
             SessionRuntimeOutput::ProcessExited { .. }
+            | SessionRuntimeOutput::WorkerLost { .. }
             | SessionRuntimeOutput::TitleChanged { .. }
             | SessionRuntimeOutput::CwdChanged { .. }
             | SessionRuntimeOutput::PromptMark { .. }
@@ -1822,11 +1824,13 @@ fn reaper_window_leaves_a_sibling_session_live() {
 }
 
 #[test]
-fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
+fn unexpected_control_eof_without_clean_exit_reports_the_worker_lost() {
     let control_dir = temp_control_dir("bwe");
     create_private_control_dir(&control_dir);
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
+    let (probe, probe_events) = WorkerRouteProbe::channel();
+    options.test_route_probe = Some(probe);
     let mut runtime = WorkerProcessRuntime::with_options(options);
     let session = session_id("worker-unexpected-eof");
     runtime
@@ -1853,16 +1857,31 @@ fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
         .status()
         .expect("kill worker process");
     assert!(status.success());
-    assert!(wait_until(|| !runtime.is_worker_process(&session)));
-    thread::sleep(Duration::from_millis(50));
+    // The parent reader records its end before it reports ReaderEnded, so
+    // the next drain sees the finished reader with no exit report.
+    loop {
+        // timer: deadline — the killed worker's reader must end within the bound
+        let event = probe_events
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the killed worker's reader ends");
+        if matches!(&event, WorkerRouteProbeEvent::ReaderEnded { session_id } if *session_id == session)
+        {
+            break;
+        }
+    }
+    // The worker ended without an exit report: the session ends as
+    // WorkerLost, never as a completed exit, and is removed.
     let output = runtime
         .drain_output(&session)
-        .expect("unexpected EOF remains fail-closed runtime state");
+        .expect("drain reports the lost worker");
     assert!(!has_process_exit(&output));
-    assert!(runtime.metadata(&session).is_some());
+    assert!(output
+        .iter()
+        .any(|event| matches!(event, SessionRuntimeOutput::WorkerLost { session_id } if *session_id == session)));
+    assert!(runtime.metadata(&session).is_none());
 
     drop(runtime);
-    assert!(wait_until(|| !process_exists(metadata.pid)));
+    assert!(wait_pid_exit(metadata.pid, Duration::from_secs(5)));
     assert!(!socket_path.exists());
     let _ = std::fs::remove_dir_all(control_dir);
 }

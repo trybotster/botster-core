@@ -436,6 +436,18 @@ impl ClientStreamHarness {
                     code: payload.exit_code,
                 }
             }),
+            // A drain consumer has no failure frame: the lost worker ends its
+            // stream as an exit with no code. Hub reads the typed outcome from
+            // the session lifecycle (Failed, "worker_lost").
+            SessionIoEvent::WorkerLost { session_id } => {
+                self.route_delivery(session_id, |session_id, subscription_id| {
+                    TransportEgress::ProcessExit {
+                        session_id,
+                        subscription_id,
+                        code: None,
+                    }
+                })
+            }
             SessionIoEvent::SendFileWritten(_)
             | SessionIoEvent::PreparedSnapshotReady(_)
             | SessionIoEvent::ModeFlagsReady(_)

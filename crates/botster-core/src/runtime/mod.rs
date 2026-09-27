@@ -297,6 +297,12 @@ pub enum SessionRuntimeOutput {
         /// Process exit payload reused from the session protocol.
         payload: ProcessExitedPayload,
     },
+    /// The session's worker ended without reporting an exit (it was killed
+    /// or crashed). The session is over; its child's exit status is unknown.
+    WorkerLost {
+        /// Source session identifier.
+        session_id: SessionId,
+    },
     /// Terminal title changed.
     TitleChanged {
         /// Source session identifier.

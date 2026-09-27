@@ -737,6 +737,12 @@ pub enum SessionIoEvent {
         /// Process exit summary.
         payload: ProcessExitedPayload,
     },
+    /// The session's worker ended without reporting an exit (killed or
+    /// crashed). The session is over and failed; its exit status is unknown.
+    WorkerLost {
+        /// Session whose worker was lost.
+        session_id: SessionId,
+    },
     /// Session I/O worker shut down.
     Shutdown {
         /// Session that shut down.
