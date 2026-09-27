@@ -715,8 +715,9 @@ fn spawn_refuses_a_frame_bound_below_the_reply_allowance() {
 /// `--ignored --nocapture` to report the numbers. All times are parent-side:
 /// - publish: from the root invocation to the host call's arrival at the Hub
 ///   (the entity-publish path: one HostCall, no result);
-/// - result leg: from the Hub's result admission to its drained completion;
-/// - capability call: from the root invocation to the result's completion
+/// - result leg: from the Hub's result admission to the publication of its
+///   completion (the completion notifier, before the drain);
+/// - capability call: from the root invocation to that publication
 ///   (HostCall, then the result Invoke).
 #[test]
 #[ignore = "measurement: run with --ignored --nocapture"]
