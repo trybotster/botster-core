@@ -301,6 +301,9 @@ struct EngineShared {
     publication_pause: Mutex<Option<Arc<PublicationPause>>>,
     #[cfg(test)]
     deadline_permits: Mutex<Option<Arc<DeadlinePermits>>>,
+    /// Test seam: hold a worker shutdown right after it cancelled its tokens.
+    #[cfg(test)]
+    shutdown_pause: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
 }
 
 /// Test seam: when installed, the deadline waiter takes the permit of a
@@ -525,6 +528,8 @@ impl PluginWorkerEngine {
             publication_pause: Mutex::new(None),
             #[cfg(test)]
             deadline_permits: Mutex::new(None),
+            #[cfg(test)]
+            shutdown_pause: Mutex::new(None),
         });
         let waiter_shared = shared.clone();
         let waiter = std::thread::Builder::new()
@@ -1953,9 +1958,6 @@ impl WorkerState {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        for token in tokens {
-            token.cancel();
-        }
         if let Some(generation) = self.generation {
             remove_deadlines_for_generation(&self.shared, &self.plugin_key, generation);
         }
@@ -2001,12 +2003,30 @@ impl WorkerState {
         for job in queued {
             cancel_queued_job(job, &self.metrics, &self.shared.metrics);
         }
+        // Seal WorkerStopped before cancelling: a runtime that returns at once
+        // on the cancel must not win the first-commit race with its own result.
         for state in open_async {
             seal_and_publish(
                 &state,
                 state.fallbacks.worker_stopped.result.clone(),
                 Some(state.fallbacks.worker_stopped.clone()),
             );
+        }
+        for token in tokens {
+            token.cancel();
+        }
+        #[cfg(test)]
+        {
+            let pause = self
+                .shared
+                .shutdown_pause
+                .lock()
+                .expect("shutdown pause")
+                .take();
+            if let Some((reached, release)) = pause {
+                let _ = reached.send(());
+                let _ = release.recv();
+            }
         }
 
         self.work_cvar.notify_all();
