@@ -1943,13 +1943,12 @@ impl WorkerBackedBotsterEngine {
     }
 
     /// End the route captures of a session whose worker can no longer serve
-    /// them (shutdown, a lost worker, a failed control link). PROCESS_EXIT
-    /// never reaches a route ahead of its owed snapshot, and the snapshot is
-    /// never lost silently. Before each route's held exit is released:
-    /// - a capture past READY finishes its snapshot (HISTORY_UNAVAILABLE,
-    ///   then SNAPSHOT_FINISH), unless FINISH was already sent;
-    /// - a capture before READY, and every queued capture, ends with the
-    ///   typed ATTACH_STATE failed, the route's terminal frame.
+    /// them (shutdown, a lost worker, a failed or released session, an ended
+    /// control link). PROCESS_EXIT never reaches a route ahead of its owed
+    /// snapshot, and the snapshot is never lost silently: a route keeps its
+    /// held exit only after a FINISH that is still queued intact, and every
+    /// other route ends with the typed ATTACH_STATE failed
+    /// ([`ClientWorker::end_unserved_capture`]).
     fn end_dropped_route_captures(
         &mut self,
         session_id: &SessionId,
@@ -1966,28 +1965,17 @@ impl WorkerBackedBotsterEngine {
         if let Some(capture) =
             active.filter(|capture| !matches!(capture.kind, CaptureKind::Host(_)))
         {
-            if capture.ready {
-                if !capture.awaiting_release {
-                    let _ = self.push_capture_frames(
-                        session_id,
-                        capture,
-                        vec![
-                            encode_history_unavailable(HistoryUnavailableReason::CaptureFailed),
-                            encode_snapshot_finish(),
-                        ],
-                    );
-                }
-            } else {
-                self.runtime
-                    .fail_route_capture(session_id, &capture.subscription_id);
-            }
+            // FINISH was queued only once the capture awaits its release.
+            let finished = capture
+                .awaiting_release
+                .then_some(capture.identity)
+                .flatten();
             self.runtime
-                .end_route_capture(session_id, &capture.subscription_id);
+                .end_unserved_capture(session_id, &capture.subscription_id, finished);
         }
         for subscription_id in queued {
             self.runtime
-                .fail_route_capture(session_id, &subscription_id);
-            self.runtime.end_route_capture(session_id, &subscription_id);
+                .end_unserved_capture(session_id, &subscription_id, None);
         }
     }
 
