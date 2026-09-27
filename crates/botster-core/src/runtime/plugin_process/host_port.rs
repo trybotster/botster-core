@@ -76,11 +76,14 @@ pub(super) struct Sender {
     max_results: usize,
     /// What the writer does when it ends: exit the worker with the code.
     end: fn(i32),
+    /// Test seam: after the next write, report and wait for a release.
+    #[cfg(test)]
+    after_send: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 struct Wire {
     queue: VecDeque<Outgoing>,
-    /// Results queued or being written.
+    /// Results queued and not yet taken by the writer.
     results: usize,
     /// The parent accepts host calls and log lines only after `Loaded`.
     serving: bool,
@@ -129,6 +132,8 @@ impl Sender {
             max_frame_bytes,
             max_results,
             end,
+            #[cfg(test)]
+            after_send: Mutex::new(None),
         });
         let writer = sender.clone();
         std::thread::Builder::new()
@@ -151,6 +156,13 @@ impl Sender {
                 let mut wire = self.lock();
                 loop {
                     if let Some(next) = wire.queue.pop_front() {
+                        // A taken result may reach the parent, which may then
+                        // send the next Invoke, before the write call returns.
+                        // So it stops counting here, not after the write
+                        // (review H5).
+                        if next.result {
+                            wire.results -= 1;
+                        }
                         break next;
                     }
                     if wire.shutdown {
@@ -167,19 +179,27 @@ impl Sender {
                 (self.end)(EXIT_PROTOCOL);
                 return;
             }
-            if next.result {
-                self.lock().results -= 1;
+            #[cfg(test)]
+            {
+                let seam = self.after_send.lock().expect("after-send seam").take();
+                if let Some((reached, release)) = seam {
+                    let _ = reached.send(());
+                    let _ = release.recv();
+                }
             }
         }
     }
 
-    /// Queue `frame` under the caller's lock. More results than the parent's
-    /// invocation bound means the parent broke the protocol.
+    /// Queue `frame` under the caller's lock. Every queued result belongs to
+    /// an invocation that the parent still holds in flight (it has not
+    /// received the result), so more queued results than the parent's bound
+    /// means the parent broke the protocol.
     fn enqueue(&self, wire: &mut Wire, frame: Vec<u8>, result: bool) {
         if result {
             if wire.results >= self.max_results {
                 eprintln!("botster plugin worker: more results than invocations in flight");
-                std::process::exit(EXIT_PROTOCOL);
+                (self.end)(EXIT_PROTOCOL);
+                return;
             }
             wire.results += 1;
         }

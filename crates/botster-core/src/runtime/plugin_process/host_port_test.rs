@@ -32,9 +32,14 @@ struct Harness {
 
 impl Harness {
     fn new(grants: CreditGrants) -> Self {
+        Self::with_writer(grants, 4, |_| {})
+    }
+
+    /// `end` runs where the worker would exit; the writer thread then ends.
+    fn with_writer(grants: CreditGrants, max_results: usize, end: fn(i32)) -> Self {
         let (child, peer) = UnixStream::pair().expect("socketpair");
-        // The writer thread ends quietly when the test drops the peer.
-        let sender = Sender::start_with(Arc::new(child), 1024 * 1024, 4, |_| {}).expect("writer");
+        let sender =
+            Sender::start_with(Arc::new(child), 1024 * 1024, max_results, end).expect("writer");
         let port = HostPort::new(sender.clone(), grants);
         Self {
             sender,
@@ -62,6 +67,13 @@ impl Harness {
                 .extend(self.decoder.feed(&buf[..read]).expect("valid frames"));
         }
         self.pending.remove(0)
+    }
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        // Wake an idle writer so its thread ends with the test.
+        self.sender.shutdown();
     }
 }
 
@@ -351,4 +363,43 @@ fn port_calls_return_while_the_parent_is_not_reading() {
     for _ in 0..128 {
         harness.frame();
     }
+}
+
+static WRITER_END: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+fn record_end(code: i32) {
+    WRITER_END.store(code, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// A result stops counting when the writer takes it, not after its write
+/// returns: the parent may receive it and send the next Invoke first.
+#[test]
+fn a_result_the_parent_received_frees_its_count_before_the_write_returns() {
+    let mut harness = Harness::with_writer(grants(), 1, record_end);
+    let (reached_tx, reached) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    *harness.sender.after_send.lock().expect("seam") = Some((reached_tx, release_rx));
+
+    harness.sender.begin(RequestId("one".to_string()));
+    harness.sender.finish(0x85, &json!("one"));
+    assert_eq!(
+        harness.frame().frame_type,
+        0x85,
+        "the parent has the result"
+    );
+    // timer: deadline — the writer reaches the hold after its write; expiry fails the test
+    reached
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("the writer holds after the write");
+
+    // The parent retired the first invocation and sent the next one.
+    harness.sender.begin(RequestId("two".to_string()));
+    harness.sender.finish(0x85, &json!("two"));
+    assert_eq!(
+        WRITER_END.load(std::sync::atomic::Ordering::SeqCst),
+        -1,
+        "a healthy worker was ended"
+    );
+    let _ = release.send(());
+    assert_eq!(harness.frame().frame_type, 0x85);
 }
