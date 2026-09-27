@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 #[cfg(feature = "local-runtime")]
-use std::thread;
 use std::time::Duration;
 #[cfg(feature = "local-runtime")]
 use std::time::Instant;
@@ -620,21 +619,34 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
         &handler,
     ));
 
+    // Published completions notify this channel.
+    let (notified_sender, notified) = std::sync::mpsc::channel();
+    engine
+        .plugin_workers()
+        .install_completion_notifier(Arc::new(move || {
+            let _ = notified_sender.send(());
+        }));
     let admitted = engine.admit_plugin(
         PluginInvocationClass::Background,
         plugin_invocation_with_timeout("facade-timeout", handler.clone(), 10),
         1,
     );
     assert!(matches!(admitted, PluginAdmissionResult::Queued { .. }));
-    let started = std::time::Instant::now();
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
     let mut completion = None;
-    while started.elapsed() < Duration::from_secs(1) {
+    loop {
         let drain = engine.drain_plugin_completions(8, usize::MAX);
         if let Some(item) = drain.completions.into_iter().next() {
             completion = Some(item.completion);
             break;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        // timer: deadline — the loop's bound; a published completion ends the wait early
+        if notified
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .is_err()
+        {
+            break;
+        }
     }
     let snapshot = engine.plugin_workers().debug_snapshot();
     assert_eq!(snapshot.configured_reserved_request_response_executors, 1);
@@ -703,7 +715,8 @@ fn drain_default_until(
             return observed;
         }
 
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the loop's bound; the next session wake ends the wait early
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     panic!(
@@ -741,7 +754,8 @@ fn drain_default_all_until(
             return observed;
         }
 
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the loop's bound; the next session wake ends the wait early
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     panic!(
