@@ -428,8 +428,6 @@ fn network_capability() -> Capability {
     }
 }
 
-const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
-
 fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
     let started = std::time::Instant::now();
     while started.elapsed() < deadline {
@@ -1860,9 +1858,7 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
                 break;
             }
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == ADMISSION_LOCK_BUSY =>
-            {
+            PluginAdmissionResult::LockBusy { .. } => {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
                 assert!(
                     started.elapsed() < Duration::from_millis(100),
