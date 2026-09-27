@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use botster_core::{
@@ -266,9 +266,19 @@ impl HttpCapabilityTransport for FakeHttpTransport {
                 "fake transport failure",
             )),
             FakeHttpBehavior::BlockUntilCancelled => {
-                while !cancellation.is_cancelled() {
-                    std::thread::sleep(Duration::from_millis(1));
+                let woken = Arc::new((Mutex::new(false), Condvar::new()));
+                let signal = Arc::clone(&woken);
+                cancellation.on_cancel(move || {
+                    let (flag, changed) = &*signal;
+                    *flag.lock().expect("cancel flag lock") = true;
+                    changed.notify_all();
+                });
+                let (flag, changed) = &*woken;
+                let mut flag = flag.lock().expect("cancel flag lock");
+                while !*flag && !cancellation.is_cancelled() {
+                    flag = changed.wait(flag).expect("cancel flag wait");
                 }
+                drop(flag);
                 self.cancellation_observed.fetch_add(1, Ordering::SeqCst);
                 Err(botster_core::CapabilityRuntimeError::new(
                     botster_core::CapabilityRuntimeErrorKind::Cancelled,
@@ -326,9 +336,13 @@ fn drain_until(
     plugin: &PluginKey,
     predicate: impl Fn(&[CapabilityRuntimeEvent]) -> bool,
 ) -> Vec<CapabilityRuntimeEvent> {
-    let started = Instant::now();
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let (notified_sender, notified) = mpsc::channel();
+    runtime.set_event_notifier(Arc::new(move || {
+        let _ = notified_sender.send(());
+    }));
     let mut events = Vec::new();
-    while started.elapsed() < Duration::from_millis(500) {
+    loop {
         events.extend(
             runtime
                 .drain_events(plugin)
@@ -337,7 +351,17 @@ fn drain_until(
         if predicate(&events) {
             return events;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        // A pending operation's timeout is reported by the drain at or
+        // after its deadline, so the wait ends at that deadline too.
+        let until = runtime
+            .next_deadline()
+            .map_or(deadline, |next| next.min(deadline));
+        // timer: deadline — the loop's bound, clamped to the next operation deadline; a queued event ends the wait early
+        let _ = notified.recv_timeout(until.saturating_duration_since(now));
     }
     assert!(
         predicate(&events),
@@ -1270,9 +1294,12 @@ fn http_runtime_timeout_cancels_in_flight_transport_and_releases_capacity() {
     started_receiver
         .recv_timeout(Duration::from_millis(250))
         .expect("transport starts before timeout assertion");
-    std::thread::sleep(Duration::from_millis(20));
 
-    let events = runtime.drain_events(&plugin).expect("drain timeout event");
+    // Drain as of the operation's deadline: the host clock seam, no wait.
+    let deadline = runtime.next_deadline().expect("the request is pending");
+    let events = runtime
+        .drain_events_at(&plugin, deadline)
+        .expect("drain timeout event");
     assert!(matches!(
         events.as_slice(),
         [CapabilityRuntimeEvent::TimedOut(
