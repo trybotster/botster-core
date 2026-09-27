@@ -3,6 +3,7 @@
 
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,7 +22,10 @@ use botster_core::{
     TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
     WorkerRouteProbe, WorkerRouteProbeEvent,
 };
-use botster_core_test_support::bounded_wait::wait_for;
+use botster_core::{
+    ClientStreamObservation, MultiplexerEngineObservation, SubscriptionMultiplexerObservation,
+};
+use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use sha2::{Digest, Sha256};
 
@@ -778,6 +782,8 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
 fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
     let mut options = worker_options();
     options.egress_capacity = 1;
+    let (probe, routed) = WorkerRouteProbe::channel();
+    options.test_route_probe = Some(probe);
     let wakes = TerminalWakeSource::new();
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-attached-process-echo");
@@ -800,22 +806,25 @@ fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
         "pre-input ready marker should drain"
     );
 
+    // The ready marker's decisions must not satisfy the waits below.
+    while routed.try_recv().is_ok() {}
     runtime
         .send_input(SessionRuntimeInput::PtyInput {
             session_id: session.clone(),
             data: b"FILL-SLOT\n".to_vec(),
         })
         .expect("fill the one-slot parent channel");
-    thread::sleep(Duration::from_millis(80));
+    wait_routed(&routed, &session, None);
     runtime
         .send_input(SessionRuntimeInput::PtyInput {
             session_id: session.clone(),
             data: b"POST-BARRIER-MARKER\n".to_vec(),
         })
         .expect("write queued marker into the PTY");
-    // Hold the parent drain so the marker races a full one-slot channel.
-    // A try_send drop keeps FILL-SLOT and loses echo:POST-BARRIER-MARKER.
-    thread::sleep(Duration::from_millis(80));
+    // The parent is not draining, so output meets the full one-slot channel
+    // with a consumer attached and stalls: a try_send drop would instead
+    // keep FILL-SLOT and lose echo:POST-BARRIER-MARKER.
+    wait_routed(&routed, &session, Some(PtyOutputRouting::Stalled));
 
     let live = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("echo:POST-BARRIER-MARKER")
@@ -827,10 +836,41 @@ fn attached_capacity_one_retains_process_echo_after_terminal_echo() {
     );
 }
 
-fn capacity_one_engine() -> WorkerBackedBotsterEngine {
+fn capacity_one_engine() -> (
+    WorkerBackedBotsterEngine,
+    mpsc::Receiver<WorkerRouteProbeEvent>,
+) {
     let mut options = worker_options();
     options.egress_capacity = 1;
-    WorkerBackedBotsterEngine::with_options(options)
+    let (probe, routed) = WorkerRouteProbe::channel();
+    options.test_route_probe = Some(probe);
+    (WorkerBackedBotsterEngine::with_options(options), routed)
+}
+
+/// Wait until the parent reader routes output of `session` as `routing`,
+/// or makes any routing decision when `routing` is `None`. Probe events
+/// queue, so a decision made before the call is found too.
+fn wait_routed(
+    routed: &mpsc::Receiver<WorkerRouteProbeEvent>,
+    session: &SessionId,
+    routing: Option<PtyOutputRouting>,
+) {
+    let deadline = Instant::now() + HANG_GUARD;
+    loop {
+        // timer: deadline — the parent reader must route the output; expiry fails the test
+        match routed
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the parent reader routes the session's output")
+        {
+            WorkerRouteProbeEvent::PtyOutputRouted {
+                session_id,
+                routing: decided,
+            } if session_id == *session && routing.is_none_or(|routing| decided == routing) => {
+                return
+            }
+            _ => {}
+        }
+    }
 }
 
 fn echo_script() -> &'static str {
@@ -901,21 +941,66 @@ fn drain_engine_text_for(
     }
 }
 
-fn write_and_hold(
+/// Discard routing decisions made so far (the attach's output), so they
+/// cannot satisfy a later wait.
+fn forget_routed(routed: &mpsc::Receiver<WorkerRouteProbeEvent>) {
+    while routed.try_recv().is_ok() {}
+}
+
+/// Write two lines to the session's PTY through the runtime's own input
+/// (no client route), then return the parent reader's first decision other
+/// than Enqueued: the output that met the full one-slot channel.
+fn overflow_decision(
     engine: &mut WorkerBackedBotsterEngine,
+    routed: &mpsc::Receiver<WorkerRouteProbeEvent>,
+    session: &SessionId,
+) -> PtyOutputRouting {
+    forget_routed(routed);
+    for data in [&b"FILL-SLOT\n"[..], &b"POST-BARRIER-MARKER\n"[..]] {
+        engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session.clone(),
+                data: data.to_vec(),
+            })
+            .expect("write into the PTY");
+    }
+    let deadline = Instant::now() + HANG_GUARD;
+    loop {
+        // timer: deadline — the output must reach the full channel; expiry fails the test
+        match routed
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("the parent reader routes the overflowing output")
+        {
+            WorkerRouteProbeEvent::PtyOutputRouted {
+                session_id,
+                routing,
+            } if session_id == *session && routing != PtyOutputRouting::Enqueued => return routing,
+            _ => {}
+        }
+    }
+}
+
+/// Write `data`, then wait until the parent reader routes the session's
+/// output as `routing` (`None`: any decision): the output reached the
+/// one-slot channel.
+fn write_and_route(
+    engine: &mut WorkerBackedBotsterEngine,
+    routed: &mpsc::Receiver<WorkerRouteProbeEvent>,
     client: &botster_core::ClientId,
     session: &SessionId,
     data: &[u8],
+    routing: Option<PtyOutputRouting>,
 ) {
     engine
         .write_bytes(client.clone(), session.clone(), data.to_vec(), 30)
         .expect("write bytes");
-    thread::sleep(Duration::from_millis(80));
+    wait_routed(routed, session, routing);
 }
 
 #[test]
 fn takeover_then_full_detach_restores_overflow_progress() {
-    let mut engine = capacity_one_engine();
+    let (mut engine, routed) = capacity_one_engine();
     let session = session_id("owner-takeover-detach");
     let first = client_id("owner-takeover-a");
     let second = client_id("owner-takeover-b");
@@ -938,8 +1023,35 @@ fn takeover_then_full_detach_restores_overflow_progress() {
         .detach_client(second.clone(), session.clone(), subscription, 12)
         .expect("full detach after takeover");
 
-    write_and_hold(&mut engine, &second, &session, b"FILL-SLOT\n");
-    write_and_hold(&mut engine, &second, &session, b"POST-BARRIER-MARKER\n");
+    // The fully detached client's input is refused: typed as an
+    // observation on an Ok result, and it never reaches the PTY.
+    let refused = engine
+        .write_bytes(
+            second.clone(),
+            session.clone(),
+            b"FROM-DETACHED\n".to_vec(),
+            30,
+        )
+        .expect("write bytes");
+    assert!(
+        refused.observations.iter().any(|observation| matches!(
+            observation,
+            MultiplexerEngineObservation::Subscription(
+                SubscriptionMultiplexerObservation::ClientStream {
+                    observation: ClientStreamObservation::DroppedUnsubscribedInput { .. },
+                    ..
+                }
+            )
+        )),
+        "a detached client's input is reported dropped: {:?}",
+        refused.observations
+    );
+    // With no consumer left, output that meets the full channel is dropped,
+    // not stalled on a route that no longer exists.
+    assert_eq!(
+        overflow_decision(&mut engine, &routed, &session),
+        PtyOutputRouting::Dropped
+    );
     let started = Instant::now();
     let _ = engine
         .drain_runtime_once(&session, 40)
@@ -952,7 +1064,7 @@ fn takeover_then_full_detach_restores_overflow_progress() {
 
 #[test]
 fn generation_detach_restores_overflow_progress() {
-    let mut engine = capacity_one_engine();
+    let (mut engine, routed) = capacity_one_engine();
     let session = session_id("owner-generation-detach");
     let client = client_id("owner-generation-client");
     let subscription = subscription_id("owner-generation-sub");
@@ -979,8 +1091,12 @@ fn generation_detach_restores_overflow_progress() {
         )
         .expect("generation detach");
 
-    write_and_hold(&mut engine, &client, &session, b"FILL-SLOT\n");
-    write_and_hold(&mut engine, &client, &session, b"POST-BARRIER-MARKER\n");
+    // With no consumer left, output that meets the full channel is dropped,
+    // not stalled on the detached generation's route.
+    assert_eq!(
+        overflow_decision(&mut engine, &routed, &session),
+        PtyOutputRouting::Dropped
+    );
     let started = Instant::now();
     let _ = engine.drain_runtime_once(&session, 40).expect("drain");
     assert!(
@@ -991,7 +1107,7 @@ fn generation_detach_restores_overflow_progress() {
 
 #[test]
 fn stale_detach_keeps_sibling_process_echo() {
-    let mut engine = capacity_one_engine();
+    let (mut engine, routed) = capacity_one_engine();
     let session = session_id("owner-stale-sibling");
     let first = client_id("owner-stale-a");
     let sibling = client_id("owner-stale-b");
@@ -1018,8 +1134,25 @@ fn stale_detach_keeps_sibling_process_echo() {
         .detach_client(first, session.clone(), first_sub, 13)
         .expect("stale second detach");
 
-    write_and_hold(&mut engine, &sibling, &session, b"FILL-SLOT\n");
-    write_and_hold(&mut engine, &sibling, &session, b"POST-BARRIER-MARKER\n");
+    // The sibling is a consumer and nothing drains: once the slot is full,
+    // the parent reader stalls on the next output.
+    forget_routed(&routed);
+    write_and_route(
+        &mut engine,
+        &routed,
+        &sibling,
+        &session,
+        b"FILL-SLOT\n",
+        None,
+    );
+    write_and_route(
+        &mut engine,
+        &routed,
+        &sibling,
+        &session,
+        b"POST-BARRIER-MARKER\n",
+        Some(PtyOutputRouting::Stalled),
+    );
     let text = drain_engine_text_for(
         &mut engine,
         &session,
@@ -1035,7 +1168,7 @@ fn stale_detach_keeps_sibling_process_echo() {
 
 #[test]
 fn detach_while_stalled_unblocks_parent() {
-    let mut engine = capacity_one_engine();
+    let (mut engine, routed) = capacity_one_engine();
     let session = session_id("owner-detach-stalled");
     let client = client_id("owner-detach-stalled-client");
     let subscription = subscription_id("owner-detach-stalled-sub");
@@ -1049,7 +1182,15 @@ fn detach_while_stalled_unblocks_parent() {
         .attach_client(client.clone(), session.clone(), subscription.clone(), 10)
         .expect("attach");
     drain_until_attached(&mut engine, &session, &client);
-    write_and_hold(&mut engine, &client, &session, b"FILL-SLOT\n");
+    forget_routed(&routed);
+    write_and_route(
+        &mut engine,
+        &routed,
+        &client,
+        &session,
+        b"FILL-SLOT\n",
+        None,
+    );
     engine
         .write_bytes(
             client.clone(),
@@ -1156,6 +1297,8 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
 fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
     let mut options = worker_options();
     options.egress_capacity = 1;
+    let (probe, routed) = WorkerRouteProbe::channel();
+    options.test_route_probe = Some(probe);
     let wakes = TerminalWakeSource::new();
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-attached-close-stall");
@@ -1177,10 +1320,11 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
         output_text(&started_output).contains("tick:"),
         "sustained producer must emit live PTY bytes before close"
     );
-    // Stop draining so the one-slot channel stays full and the attached
-    // stdout reader waits on EgressStall. Keep producing until the worker
-    // pipe fills; that is the shutdown cycle the close notification breaks.
-    thread::sleep(Duration::from_millis(300));
+    // Stop draining: the one-slot channel stays full and the parent reader
+    // stalls (the probe reports it). The unbounded producer then fills the
+    // worker pipe behind it; that is the cycle the close notification
+    // breaks. The worker-side fill has no observable event here.
+    wait_routed(&routed, &session, Some(PtyOutputRouting::Stalled));
 
     let metadata = runtime.metadata(&session).expect("worker metadata").clone();
     let worker_pid = metadata
