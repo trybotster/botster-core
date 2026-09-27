@@ -107,10 +107,10 @@ Parent to child:
 | Frame | Content |
 |---|---|
 | `Bootstrap` | protocol version; `sandbox: BoundaryJson`; `memory_cap_bytes: Option<u64>` |
-| `Load` | `sources: BoundaryJson` (the package module set as in-memory text, because the sandboxed child has no filesystem); `config: BoundaryJson`; the initial credit grants (section 5.1) |
+| `Load` | `sources: BoundaryJson` (the package module set as in-memory text, because the sandboxed child has no filesystem); `config: BoundaryJson`; the initial ingress, reply, and log grants (section 5.1) |
 | `Invoke` | `PluginInvocationRequest` |
 | `Cancel` | `request_id` |
-| `Credit` | one of `Delivery{call_id}`, `Reply{call_id}`, `IngressBytes{bytes}`, `Log{count, bytes}` |
+| `Credit` | one of `DeliveryPool{slots, request_bytes}` (once, at `attach_delivery`), `Delivery{call_id}`, `Reply{call_id}`, `IngressBytes{bytes}`, `Log{count, bytes}` |
 | `Shutdown` | none |
 
 Child to parent:
@@ -121,7 +121,7 @@ Child to parent:
 | `BootstrapFailed` / `LoadFailed` | typed reason |
 | `Loaded` | `registration: BoundaryJson` (Hub turns it into `PluginWorkerRegistration`) |
 | `InvocationResult` | `PluginInvocationResult` |
-| `HostCall` | `kind` (`Call` or `Reply`), `call_id` (unique within the generation), `invocation_request_id`, `max_result_bytes` (`Call` only), `body` |
+| `HostCall` | `kind` (`Call` or `Reply`), `call_id` (unique among the process's open calls and replies), `invocation_request_id` (the invoke running in the child; not a plugin-supplied value), `max_result_bytes` (`Call` only), `body` |
 | `Log` | `dropped_since_last: u64`, `body: BoundaryJson` |
 
 **Every delivery into the plugin is an engine-admitted `Invoke`.** Host-call
@@ -150,8 +150,15 @@ then kills the process group (section 7):
   result for the same id. An invoke that `stop` failed early stays in the
   in-flight map, marked abandoned, until its result arrives or the process
   exits. Its late result is discarded and is not a violation;
-- a `HostCall` with a duplicate `call_id`, or without enough credit;
+- a `HostCall` or `Log` before `Loaded`;
+- a `HostCall` whose `invocation_request_id` is not in flight;
+- a `HostCall` with a duplicate open `call_id`, or without enough credit
+  (a `Call` before `attach_delivery` has no delivery credit);
+- a `Reply` larger than the reply allowance;
 - a `Log` without enough credit.
+
+A `Call` that arrives after the pool's generation retired is dropped, not a
+violation: the process is being stopped, and the child could not know.
 
 ## 5. Bounds, credits, and backpressure
 
@@ -233,30 +240,49 @@ pool at once, and each outstanding entry returns as it drains.
   holds the slot, the bytes, and the completion entry. A result request larger
   than the declared `max_result_bytes` is a Hub bug, and Core asserts it. The Hub
   converts an oversize result into a typed failure that fits.
-- **Ingress body bytes.** The Hub receives HostCall bodies through a bounded
-  ingress queue. The child debits `IngressBytes` credit by the encoded body size
-  before sending. The parent returns it when the Hub drains the call. This
-  credit is separate from the delivery unit, because the body leaves the queue
-  long before the result arrives.
-- **Log.** The child debits `Log{1, bytes}` credit before sending. When it has
-  no credit, it drops the log line locally, increments `dropped_since_last`,
-  and never blocks. The parent returns log credit when the Hub drains the log
-  queue.
+- **Attach after registration.** The pool exists only for a registered
+  engine generation, which is after `Loaded`. The Hub therefore reserves the
+  pool after registration and calls `attach_delivery(pool)`, which grants the
+  pool's free units to the child with `Credit{DeliveryPool}` and installs the
+  pool's unit-returned notifier. Before the attach, the child has no delivery
+  credit and refuses its calls locally.
+- **Byte measure.** Every byte credit (ingress, reply, log) is charged the
+  whole encoded frame (type byte plus payload, envelope included). Both sides
+  know that length exactly, and the parent never re-serializes a body.
+- **Ingress bytes.** The Hub receives `Call` frames through a bounded ingress
+  queue. The child debits `IngressBytes` credit by the frame length before
+  sending. The parent returns it when the Hub drains the call. This credit is
+  separate from the delivery unit, because the body leaves the queue long
+  before the result arrives.
+- **Log.** The child debits `Log{1, frame bytes}` credit before sending. When
+  it has no credit, it drops the log line locally, counts it, and never
+  blocks; the count travels as `dropped_since_last` on the next sent line,
+  exactly once. The parent returns log credit when the Hub drains the line.
 - **Local refusal.** When the child lacks delivery or ingress credit, the child
   library returns a typed `Backpressured` result to the Lua caller at once. The
-  handler does not suspend. No parent refusal frame exists.
+  handler does not suspend. No parent refusal frame exists. A call outside a
+  running invoke (for example during load) is refused as `NotInInvocation`.
 - **Reply (user decision, 2026-09-26).** A suspended request-response chain
   delivers its final result as a `Reply`: a `HostCall` with `kind: Reply`,
-  fire-and-forget, with no result `Invoke`. It has its own conserved ingress
-  credit class, `Reply{count, bytes}` (the Hub sets 2 credits of 1 MiB body
-  each per plugin). The child debits one Reply credit and the body's encoded
-  size before it sends. The Hub's only terminal for a Reply is
-  `release_call(call_id)`, which returns the credit as
-  `Credit{Reply{call_id}}` exactly once. A Reply takes no delivery-pool unit.
-  A Reply without Reply credit is a protocol violation.
-- **Frame bound versus Reply size.** `max_frame_bytes` must be at least the
-  Reply body allowance plus the envelope overhead, or a full-size Reply cannot
-  be framed. `spawn` validates this and returns `InvalidConfig` otherwise.
+  fire-and-forget, with no result `Invoke`. It has its own conserved credit
+  class, `reply_credits{count, bytes}`: `count` open replies, each a frame of
+  at most `bytes` (the Hub sets 2 credits, sized for a 1 MiB body plus the
+  envelope). The child debits one Reply credit before it sends. The Hub's
+  only terminal for a Reply is `release_reply(call_id)` on the process, which
+  returns the credit as `Credit{Reply{call_id}}` exactly once. A Reply takes
+  no delivery-pool unit. A Reply without Reply credit is a protocol
+  violation.
+- **Reply exhaustion never drops a chain's result.** When no Reply credit is
+  free, `HostPort::reply` waits for `Credit{Reply}` with no timer; the running
+  invoke's cancellation (its deadline or a `Cancel`) ends the wait with a typed
+  `Cancelled`. So the final result is either sent, or its invoke ends with a
+  typed failure. `try_reply` refuses at once instead. The Hub holds at most as
+  many open chains as Reply credits, so the wait covers only the credit's
+  transit.
+- **Frame bound versus Reply size.** `max_frame_bytes` must be at least
+  `reply_credits.bytes`, or a full-size Reply cannot be framed. It must also
+  carry the widest `Credit` frame. `spawn` validates both and returns
+  `InvalidConfig` otherwise.
 - **Completion markers only.** Every invocation (root, resume, or ordinary)
   completes with a small marker; payloads travel as credited messages. The
   marker bound is the pool's `completion_bytes_per_slot` for results, and the
@@ -279,7 +305,7 @@ consume another class's room. All bounds are derived; none is a new number.
 | `Shutdown` | 1 | fixed | sent at most once per process |
 | `Cancel` | executor concurrency | fixed per frame | at most one Cancel per in-flight invoke |
 | `Invoke` | executor concurrency | engine class byte caps | each executor thread has at most one invoke in flight, and the request was already admitted |
-| `Credit` | pool slots + Reply credits + 1 ingress + 1 log | fixed per frame | ingress and log credits coalesce into one pending frame each |
+| `Credit` | pool slots + Reply credits + 1 pool grant, plus 1 ingress and 1 log total | fixed per frame | each unit and reply returns once, as one pending id; ingress and log credits coalesce into one pending total each; the writer encodes credits lazily and sends them before queued frames |
 | `Bootstrap`, `Load` | 1 each | max frame length | startup only |
 
 Frames stay counted until the writer has written them completely
@@ -523,34 +549,45 @@ pub struct PluginProcessConfig {            // no Default: every value is Hub-su
     pub startup_deadline: Duration,         // spawn through Loaded
     pub shutdown_deadline: Duration,
     pub cancel_grace: Duration,
-    pub delivery_pool: DeliveryPoolSize,    // {slots, request_bytes, completion_bytes_per_slot}
     pub ingress_bytes: usize,
-    pub log_credits: LogCredits,            // {count, bytes}
+    pub reply_credits: PluginReplyCredits,  // {count, bytes}
+    pub log_credits: PluginLogCredits,      // {count, bytes}
     pub stderr_tail_bytes: usize,
 }
-impl ProcessPluginRuntime {
-    pub fn spawn(engine: &PluginWorkerEngine, plugin_key, config, load: LoadFrame)
-        -> Result<(Self, BoundaryJson /* registration */), PluginProcessError>;
-    pub fn kill(&self, reason: PluginKillReason);          // Budget | Requested
-    pub fn install_notifier(&self, notifier: PluginCompletionNotifier);
-    pub fn drain_host_calls(&self, max_items, max_bytes) -> HostCallDrain; // returns ingress credit
-    pub fn drain_logs(&self, max_items, max_bytes) -> LogDrain;           // returns log credit
-    pub fn delivery_pool(&self) -> &DeliveryPool;
-    pub fn take_exit(&self) -> Option<PluginProcessExited>;
+impl PluginProcess {
+    pub fn spawn(config, load: &LoadFrame)
+        -> Result<(Self, PluginRegistration), PluginProcessError>;
+    pub fn kill(&self);
+    pub fn attach_delivery(&self, pool: DeliveryPool) -> Result<(), PluginProcessError>;
+    pub fn drain_ingress(&self, max_items, max_bytes) -> Vec<PluginIngress>; // returns ingress and log credit
+    pub fn release_reply(&self, call_id: CallId) -> bool;
+    pub fn install_ingress_notifier(&self, notifier: PluginIngressNotifier);
+    pub fn install_exit_notifier(&self, notifier: PluginExitNotifier);
+    pub fn exit(&self) -> Option<PluginProcessExited>;
 }
-impl PluginRuntime for ProcessPluginRuntime { /* invoke forwards; stop per section 6 */ }
+impl PluginRuntime for PluginProcess { /* invoke forwards; stop per section 6 */ }
 
 // Child side (linked into the Hub binary)
 pub struct WorkerHooks {
     pub apply_sandbox: fn(&BoundaryJson) -> Result<(), String>,
-    pub load: fn(LoadFrame, HostPort) -> Result<(Arc<dyn PluginRuntime>, BoundaryJson), String>,
+    pub load: fn(LoadFrame, HostPort) -> Result<LoadedPlugin, String>,
 }
 pub fn run_worker(hooks: WorkerHooks) -> !;
+
+impl HostPort {                              // Clone; used inside a running invoke
+    pub fn call(&self, max_result_bytes: usize, body: PluginMessageBody) -> Result<CallId, HostPortRefusal>;
+    pub fn reply(&self, body, cancellation: &PluginCancellationToken) -> Result<CallId, HostPortRefusal>;
+    pub fn try_reply(&self, body) -> Result<CallId, HostPortRefusal>;
+    pub fn log(&self, body) -> bool;         // false: dropped and counted
+}
+// HostPortRefusal: Backpressured | NotInInvocation | TooLarge | Cancelled
 ```
 
 `HostPort` is the child's credit-checked sender for `HostCall` and `Log`. The Hub
 Lua API calls it. The same Hub API uses an in-process port on the thread host.
-That port calls the same `DeliveryPool` API directly.
+That port calls the same `DeliveryPool` API directly. The child clears the
+running invoke under the sender's lock before it sends that invoke's result, so
+no host call can follow its invoke's result on the wire.
 
 ## 10. Slices
 

@@ -9,6 +9,8 @@
 //! See `docs/plans/plugin-process-host.md` for the accepted design.
 
 mod host;
+mod host_port;
+mod ingress;
 mod invocations;
 mod launch;
 mod outbound;
@@ -22,8 +24,13 @@ use std::time::Duration;
 
 use crate::contract::session_protocol::ProtocolError;
 
-pub use host::PluginProcess;
-pub use protocol::{LoadFrame, PluginConfig, PluginRegistration, PluginSources, SandboxProfile};
+pub use host::{PluginExitNotifier, PluginProcess};
+pub use ingress::{
+    PluginHostCall, PluginHostCallKind, PluginIngress, PluginIngressNotifier, PluginLog,
+};
+pub use protocol::{
+    LoadFrame, PluginConfig, PluginMessageBody, PluginRegistration, PluginSources, SandboxProfile,
+};
 
 /// Hub-supplied configuration for one plugin process. Core has no defaults.
 #[derive(Debug, Clone)]
@@ -54,6 +61,32 @@ pub struct PluginProcessConfig {
     pub max_in_flight_invokes: usize,
     /// Bytes of the child's stderr kept for diagnostics.
     pub stderr_tail_bytes: usize,
+    /// Encoded frame bytes of `Call` host calls that the Hub has not drained.
+    pub ingress_bytes: usize,
+    /// Replies that the Hub has not released, and the largest reply frame.
+    /// `max_frame_bytes` must be at least `reply_credits.bytes`.
+    pub reply_credits: PluginReplyCredits,
+    /// Log lines, and their encoded frame bytes, that the Hub has not drained.
+    pub log_credits: PluginLogCredits,
+}
+
+/// Reply credit: `count` open replies, each an encoded frame of at most
+/// `bytes` (envelope included).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PluginReplyCredits {
+    /// Replies open at once.
+    pub count: usize,
+    /// Largest encoded reply frame.
+    pub bytes: usize,
+}
+
+/// Log credit: `count` undrained lines of `bytes` encoded frame bytes in all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PluginLogCredits {
+    /// Undrained log lines.
+    pub count: usize,
+    /// Encoded frame bytes of the undrained log lines.
+    pub bytes: usize,
 }
 
 /// Kernel resource limits for the child. Each set value becomes both the soft

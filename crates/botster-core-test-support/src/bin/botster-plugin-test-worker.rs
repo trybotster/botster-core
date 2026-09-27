@@ -3,8 +3,11 @@
 //! It links the Core worker library with a Rust test runtime instead of Lua.
 //! The `Load` config selects a behavior:
 //! - `{"mode": "report"}`: load and report the environment, open descriptors,
-//!   working directory, `RLIMIT_NOFILE`, and whether the sandbox hook ran first.
+//!   working directory, `RLIMIT_NOFILE`, whether the sandbox hook ran first,
+//!   and how the host port answered a call made during the load.
 //! - `{"mode": "fail"}`: refuse the load.
+//! - `{"mode": "host_call_before_loaded"}`: send a host call frame during the
+//!   load, around the host port.
 //! - `{"mode": "spin"}`: never finish the load.
 //! - `{"mode": "close_ipc_then_wait"}`: close the IPC channel and stay alive
 //!   until killed.
@@ -29,10 +32,14 @@ use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use botster_core::runtime::plugin_process::worker::{run_worker, LoadedPlugin, WorkerHooks};
-use botster_core::runtime::plugin_process::{LoadFrame, PluginRegistration, SandboxProfile};
+use botster_core::runtime::plugin_process::worker::{
+    run_worker, HostPort, LoadedPlugin, WorkerHooks,
+};
+use botster_core::runtime::plugin_process::{
+    LoadFrame, PluginMessageBody, PluginRegistration, SandboxProfile,
+};
 use botster_core::session::RequestId;
 use botster_core::{
     BoundaryJson, PluginCancellationToken, PluginInvocationFailure, PluginInvocationFailureKind,
@@ -41,6 +48,7 @@ use botster_core::{
 use serde_json::{json, Value};
 
 static SANDBOX_APPLIED: AtomicBool = AtomicBool::new(false);
+static PORT: OnceLock<HostPort> = OnceLock::new();
 
 fn main() {
     if let (Some(descendant), Some(alive), Some(report)) = (
@@ -127,13 +135,33 @@ fn apply_sandbox(profile: &SandboxProfile) -> Result<(), String> {
     Ok(())
 }
 
-fn load(frame: LoadFrame) -> Result<LoadedPlugin, String> {
+fn load(frame: LoadFrame, port: HostPort) -> Result<LoadedPlugin, String> {
+    let during_load = match port.call(1, body(json!("during load"))) {
+        Ok(call) => format!("sent {}", call.0),
+        Err(refusal) => refusal.to_string(),
+    };
+    let _ = PORT.set(port);
     let mode = frame.config.0 .0.get("mode").and_then(Value::as_str);
     match mode {
-        Some("report") => Ok(LoadedPlugin {
-            runtime: Arc::new(TestRuntime),
-            registration: PluginRegistration(BoundaryJson(report())),
-        }),
+        Some("report") => {
+            let mut report = report();
+            report["call_during_load"] = json!(during_load);
+            Ok(LoadedPlugin {
+                runtime: Arc::new(TestRuntime),
+                registration: PluginRegistration(BoundaryJson(report)),
+            })
+        }
+        Some("host_call_before_loaded") => {
+            // A host call is valid only after Loaded; the parent must kill.
+            let frame = json!({
+                "kind": "reply",
+                "call_id": 0,
+                "invocation_request_id": "none",
+                "body": null,
+            });
+            write_raw_frame(0x86, &serde_json::to_vec(&frame).expect("encode"));
+            wait_for_kill()
+        }
         Some("fail") => Err("scripted load failure".to_string()),
         Some("spin") => loop {
             std::hint::spin_loop();
@@ -183,17 +211,83 @@ fn report() -> Value {
 /// - `fatal_then_violation`: publish a panic cause, then break the protocol;
 /// - `garbage`: write a frame of an unknown type to the parent;
 /// - `foreign_result`: write a result for a request that is not in flight;
-/// - `forged_identity`: return the live request id with another plugin's handler.
+/// - `forged_identity`: return the live request id with another plugin's handler;
+/// - `host_calls`: `{"count", "max_result_bytes"}`: make that many host calls
+///   and complete with each outcome (`{"call_id"}` or `{"refused"}`);
+/// - `reply` / `try_reply`: `{"body"}`: send a reply (waiting for credit, or
+///   not) and complete with the outcome; `reply` with `"signal": true` first
+///   writes to `PLUGIN_TEST_STARTED_FIFO`;
+/// - `logs`: `{"count", "body"}`: send that many log lines and complete with
+///   the number sent;
+/// - `raw`: `{"type", "frame"}`: write `frame` (with this invocation's request
+///   id added as `invocation_request_id` when absent) as a raw frame of
+///   `type`, around the credit checks, then complete.
 struct TestRuntime;
+
+fn port() -> &'static HostPort {
+    PORT.get().expect("the host port from load")
+}
+
+fn body(value: Value) -> PluginMessageBody {
+    PluginMessageBody(BoundaryJson(value))
+}
+
+fn outcome(sent: Result<botster_core::engine::CallId, impl std::fmt::Display>) -> Value {
+    match sent {
+        Ok(call) => json!({ "call_id": call.0 }),
+        Err(refusal) => json!({ "refused": refusal.to_string() }),
+    }
+}
 
 impl PluginRuntime for TestRuntime {
     fn invoke(
         &self,
         request: PluginInvocationRequest,
-        _cancellation: PluginCancellationToken,
+        cancellation: PluginCancellationToken,
     ) -> PluginInvocationResult {
         let handler_id = request.handler.handler_id.clone();
+        let args = request.payload.0.clone();
+        let completed = |payload: Value| {
+            PluginInvocationResult::Completed(PluginInvocationSuccess {
+                request_id: request.request_id.clone(),
+                handler: request.handler.clone(),
+                payload: Some(BoundaryJson(payload)),
+            })
+        };
         match handler_id.as_str() {
+            "host_calls" => {
+                let count = args["count"].as_u64().unwrap_or(1);
+                let max_result_bytes = args["max_result_bytes"].as_u64().unwrap_or(0) as usize;
+                let outcomes: Vec<Value> = (0..count)
+                    .map(|index| outcome(port().call(max_result_bytes, body(json!(index)))))
+                    .collect();
+                completed(json!(outcomes))
+            }
+            "reply" => {
+                if args["signal"] == json!(true) {
+                    signal_started();
+                }
+                completed(outcome(
+                    port().reply(body(args["body"].clone()), &cancellation),
+                ))
+            }
+            "try_reply" => completed(outcome(port().try_reply(body(args["body"].clone())))),
+            "logs" => {
+                let count = args["count"].as_u64().unwrap_or(1);
+                let sent = (0..count)
+                    .filter(|_| port().log(body(args["body"].clone())))
+                    .count();
+                completed(json!({ "sent": sent }))
+            }
+            "raw" => {
+                let mut frame = args["frame"].clone();
+                if frame.get("invocation_request_id").is_none() {
+                    frame["invocation_request_id"] = json!(request.request_id.0);
+                }
+                let frame_type = args["type"].as_u64().expect("raw frame type") as u8;
+                write_raw_frame(frame_type, &serde_json::to_vec(&frame).expect("encode"));
+                completed(json!({ "raw": true }))
+            }
             "echo" => PluginInvocationResult::Completed(PluginInvocationSuccess {
                 request_id: request.request_id,
                 handler: request.handler,
@@ -201,15 +295,7 @@ impl PluginRuntime for TestRuntime {
             }),
             "block" => wait_for_kill(),
             "block_after_signal" => {
-                // Tell the test that this handler is running, then block.
-                let started =
-                    std::env::var_os("PLUGIN_TEST_STARTED_FIFO").expect("PLUGIN_TEST_STARTED_FIFO");
-                let mut started = OpenOptions::new()
-                    .write(true)
-                    .open(started)
-                    .expect("open the started FIFO");
-                writeln!(started, "started").expect("signal the start");
-                drop(started);
+                signal_started();
                 wait_for_kill()
             }
             "abort" => std::process::abort(),
@@ -256,6 +342,16 @@ impl PluginRuntime for TestRuntime {
             }),
         }
     }
+}
+
+/// Tell the test that this handler is running.
+fn signal_started() {
+    let started = std::env::var_os("PLUGIN_TEST_STARTED_FIFO").expect("PLUGIN_TEST_STARTED_FIFO");
+    let mut started = OpenOptions::new()
+        .write(true)
+        .open(started)
+        .expect("open the started FIFO");
+    writeln!(started, "started").expect("signal the start");
 }
 
 /// Write one frame straight to the IPC descriptor, around the library.

@@ -276,6 +276,15 @@ impl Invocations {
         Ok(invocation.settle(Outcome::Result(result)))
     }
 
+    /// Whether `request_id` is admitted and its child result has not
+    /// arrived. `stop` leaves such a record live: the child still runs it.
+    pub(super) fn is_live(&self, request_id: &RequestId) -> bool {
+        self.lock()
+            .records
+            .get(request_id)
+            .is_some_and(|record| !record.retired)
+    }
+
     /// The writer finished a frame owned by `request_id`.
     pub(super) fn frame_written(&self, request_id: &RequestId, sink: FrameSink<'_>) {
         let mut table = self.lock();

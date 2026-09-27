@@ -4,11 +4,20 @@
 //! its own bound, so one lane can never consume another's room: a full
 //! `Invoke` lane cannot refuse a `Cancel` or the `Shutdown`. A frame stays
 //! counted until the writer has sent all of it. Kill never uses this queue.
+//!
+//! Credits are not queued as frames. Each returned delivery unit and each
+//! released reply is one pending id, so their count is bounded by the pool
+//! slots plus the reply credits. Ingress and log credit coalesce into one
+//! pending total each. The writer encodes one pending credit at a time, and
+//! it takes credits before frames: a credit is small, and it lets the child
+//! make progress.
 
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex, PoisonError};
 
 use crate::session::RequestId;
+
+use super::protocol::CreditFrame;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {
@@ -70,8 +79,43 @@ pub(super) struct Queued {
     pub owner: Option<RequestId>,
 }
 
+/// What the writer sends next.
+pub(super) enum Next {
+    Frame(Queued),
+    Credit(CreditFrame),
+}
+
+/// Credit owed to the child and not yet taken by the writer.
+#[derive(Default)]
+struct PendingCredits {
+    /// `DeliveryPool`, `Delivery`, and `Reply` credits, in the order owed.
+    ids: VecDeque<CreditFrame>,
+    ingress_bytes: usize,
+    log_count: usize,
+    log_bytes: usize,
+}
+
+impl PendingCredits {
+    fn take(&mut self) -> Option<CreditFrame> {
+        if let Some(credit) = self.ids.pop_front() {
+            return Some(credit);
+        }
+        if self.ingress_bytes > 0 {
+            let bytes = std::mem::take(&mut self.ingress_bytes);
+            return Some(CreditFrame::IngressBytes { bytes });
+        }
+        if self.log_count > 0 || self.log_bytes > 0 {
+            let count = std::mem::take(&mut self.log_count);
+            let bytes = std::mem::take(&mut self.log_bytes);
+            return Some(CreditFrame::Log { count, bytes });
+        }
+        None
+    }
+}
+
 struct Queue {
     frames: VecDeque<Queued>,
+    credits: PendingCredits,
     /// Frames per lane that are queued or being written.
     held: [usize; LANES],
     /// Bytes per lane that are queued or being written.
@@ -90,6 +134,7 @@ impl Outbound {
         Self {
             queue: Mutex::new(Queue {
                 frames: VecDeque::new(),
+                credits: PendingCredits::default(),
                 held: [0; LANES],
                 held_bytes: [0; LANES],
                 bounds,
@@ -127,13 +172,44 @@ impl Outbound {
         Ok(())
     }
 
-    /// The next frame for the writer, or `None` once closed and empty. The
+    /// Owe `credit` to the child. Never blocks and never refuses: every
+    /// credit returns what the child already debited, so the pending set is
+    /// bounded by the grants. After close, credit no longer matters.
+    pub(super) fn push_credit(&self, credit: CreditFrame) {
+        let mut queue = self.lock();
+        if queue.closed {
+            return;
+        }
+        let pending = &mut queue.credits;
+        match credit {
+            CreditFrame::IngressBytes { bytes } => {
+                pending.ingress_bytes = pending.ingress_bytes.saturating_add(bytes);
+            }
+            CreditFrame::Log { count, bytes } => {
+                pending.log_count = pending.log_count.saturating_add(count);
+                pending.log_bytes = pending.log_bytes.saturating_add(bytes);
+            }
+            CreditFrame::DeliveryPool { .. }
+            | CreditFrame::Delivery { .. }
+            | CreditFrame::Reply { .. } => pending.ids.push_back(credit),
+        }
+        drop(queue);
+        self.ready.notify_one();
+    }
+
+    /// The next credit or frame for the writer, or `None` once closed. A
     /// frame stays counted until [`Self::written`].
-    pub(super) fn next(&self) -> Option<Queued> {
+    pub(super) fn next(&self) -> Option<Next> {
         let mut queue = self.lock();
         loop {
+            if queue.closed && queue.frames.is_empty() {
+                return None;
+            }
+            if let Some(credit) = queue.credits.take() {
+                return Some(Next::Credit(credit));
+            }
             if let Some(frame) = queue.frames.pop_front() {
-                return Some(frame);
+                return Some(Next::Frame(frame));
             }
             if queue.closed {
                 return None;
@@ -158,10 +234,16 @@ impl Outbound {
         let mut queue = self.lock();
         queue.closed = true;
         queue.frames.clear();
+        queue.credits = PendingCredits::default();
         queue.held = [0; LANES];
         queue.held_bytes = [0; LANES];
         drop(queue);
         self.ready.notify_all();
+    }
+
+    #[cfg(test)]
+    pub(super) fn pending_credit_ids(&self) -> usize {
+        self.lock().credits.ids.len()
     }
 
     #[cfg(test)]
