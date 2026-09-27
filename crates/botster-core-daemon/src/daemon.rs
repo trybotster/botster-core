@@ -147,6 +147,9 @@ pub struct CoreDaemonConfig {
     /// Test-only: the worker's shutdown grace before it kills the process
     /// group. `None` keeps the production default.
     pub test_shutdown_grace_ms: Option<u64>,
+    /// Test-only: the daemon's shutdown deadline. `None` keeps the
+    /// production value (2 s).
+    pub test_shutdown_deadline: Option<Duration>,
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
@@ -175,6 +178,7 @@ impl CoreDaemonConfig {
             test_route_probe: None,
             test_hold_before_exit_gate: None,
             test_shutdown_grace_ms: None,
+            test_shutdown_deadline: None,
             test_exit_code: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
@@ -220,6 +224,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_test_route_probe(mut self, probe: Option<WorkerRouteProbe>) -> Self {
         self.test_route_probe = probe;
+        self
+    }
+
+    /// Use this daemon shutdown deadline instead of the production value.
+    #[must_use]
+    pub const fn with_test_shutdown_deadline(mut self, deadline: Option<Duration>) -> Self {
+        self.test_shutdown_deadline = deadline;
         self
     }
 
@@ -2133,7 +2144,7 @@ impl CoreDaemon {
                     session_id,
                     now_seconds,
                 },
-                deadline: Some(Instant::now() + SHUTDOWN_DEADLINE),
+                deadline: Some(Instant::now() + self.shutdown_deadline()),
                 cancelled: false,
             },
         );
@@ -3384,7 +3395,7 @@ impl CoreDaemon {
         let shutdown_observations = shutdown_drain.observations.clone();
         self.retain_pending_drain_result(&session_id, shutdown_drain);
         self.commit_terminal_lifecycle(&session_id, &shutdown_observations, now_seconds)?;
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + self.shutdown_deadline();
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -3615,6 +3626,13 @@ impl CoreDaemon {
             .session(session_id)
             .map(|_| ())
             .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))
+    }
+
+    /// The shutdown deadline: SHUTDOWN_DEADLINE unless a test set its own.
+    fn shutdown_deadline(&self) -> Duration {
+        self.config
+            .test_shutdown_deadline
+            .unwrap_or(SHUTDOWN_DEADLINE)
     }
 
     fn ensure_control_plane_live(&self, session_id: &SessionId) -> Result<(), CoreDaemonError> {
