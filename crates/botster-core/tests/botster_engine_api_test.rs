@@ -435,8 +435,7 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
         );
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
-    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
-        duration: Duration::from_millis(100),
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Held {
         payload: BoundaryJson(serde_json::json!({ "value": "late" })),
     });
     engine
@@ -586,8 +585,7 @@ fn botster_engine_invoke_plugin_exposes_timeout_events() {
         );
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
-    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
-        duration: Duration::from_millis(100),
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Held {
         payload: BoundaryJson(serde_json::json!({ "value": "late" })),
     });
     engine.load_plugin(plugin_registration(plugin_runtime, &plugin, &handler));
@@ -617,7 +615,7 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
     engine.load_plugin(plugin_registration(
-        FakePluginRuntime::delayed(Duration::from_millis(200)),
+        FakePluginRuntime::held(),
         &plugin,
         &handler,
     ));
