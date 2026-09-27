@@ -759,7 +759,7 @@ fn executor_concurrency_allows_two_slow_invocations_to_overlap() {
             caller_engine.invoke(invocation(
                 &format!("concurrent-{index}"),
                 caller_handler,
-                2_000,
+                HANG_GUARD.as_millis() as u64,
             ))
         }));
     }
