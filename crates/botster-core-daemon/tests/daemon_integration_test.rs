@@ -3002,10 +3002,14 @@ fn worker_same_key_takeover_preserves_pending_sibling_input_and_resize() {
     let sibling = ClientId("worker-takeover-sibling-c".to_string());
     let first_sub = SubscriptionId("worker-takeover-sibling-sub-a".to_string());
     let sibling_sub = SubscriptionId("worker-takeover-sibling-sub-c".to_string());
+    // The child reads its input only after the gate opens, so the echo of
+    // the sibling's pending input follows both attaches as live output.
+    let gate = Fifo::new("takeover-sibling-gate");
     let mut request = spawn_request(&session_id);
-    request.request.arguments[1] =
-        "printf ready; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done"
-            .to_string();
+    request.request.arguments[1] = format!(
+        "printf ready; /bin/cat '{}' >/dev/null; while IFS= read -r line; do printf \"echo:%s\\n\" \"$line\"; done",
+        gate.path().display()
+    );
     daemon.spawn(request, 10).expect("spawn");
     daemon
         .attach(first.clone(), session_id.clone(), first_sub.clone(), 11)
@@ -3045,6 +3049,7 @@ fn worker_same_key_takeover_preserves_pending_sibling_input_and_resize() {
         let more = drain_until_attached(&mut daemon, &session_id, &sibling);
         seen.client_egress.extend(more.client_egress);
     }
+    gate.release(Duration::from_secs(5));
     if !terminal_output(&seen.client_egress).contains("echo:SIBLING-KEEP") {
         drain_until_terminal_marker(&mut daemon, &session_id, "echo:SIBLING-KEEP", 30);
     }
