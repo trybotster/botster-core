@@ -61,6 +61,7 @@ fn pump_until(
 }
 
 fn pump_next(daemon: &mut CoreDaemon, now_seconds: u64) {
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(5));
     assert!(
         !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty(),
@@ -126,10 +127,20 @@ fn bind_size_reporting_worker(
         )
         .expect("bind waking adapter");
 
-    pump_until(daemon, "worker attach", Duration::from_secs(8), 2, |_| {
-        adapter_has_attached(&adapter)
-    });
-    pump_available_wakes_until_quiet(daemon, 2);
+    // The reporter's setup ends when its ready line has reached the adapter,
+    // in the snapshot or as live output; after that it prints only on input.
+    pump_until(
+        daemon,
+        "worker attach and ready",
+        Duration::from_secs(8),
+        2,
+        |daemon| {
+            adapter_settled(&adapter)
+                && !daemon.capture_active(&session_id)
+                && adapter_has_seen(&adapter, b"ready")
+        },
+    );
+    pump_queued_wakes(daemon, 2);
     (session_id, adapter)
 }
 
@@ -357,6 +368,23 @@ fn adapter_output_contains(adapter: &SharedFakeTerminalAdapter, needle: &[u8]) -
     adapter_output_count(adapter, needle) > 0
 }
 
+/// The adapter side of attach is complete: the adapter holds the Attached
+/// state and its snapshot write has finished. The worker's capture can
+/// still be open; `CoreDaemon::capture_active` reports that side.
+fn adapter_settled(adapter: &SharedFakeTerminalAdapter) -> bool {
+    adapter_has_attached(adapter) && adapter.snapshot_pressure() == TerminalAdapterPressure::Ready
+}
+
+/// Whether any frame the adapter received, the attach snapshot included,
+/// carries `needle`. Output printed before the attach reaches the adapter
+/// in the snapshot; output printed after it arrives as live output.
+fn adapter_has_seen(adapter: &SharedFakeTerminalAdapter, needle: &[u8]) -> bool {
+    adapter
+        .snapshot_delivered_frame_bytes()
+        .iter()
+        .any(|bytes| bytes.windows(needle.len()).any(|window| window == needle))
+}
+
 fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
 
 #[test]
@@ -371,11 +399,13 @@ fn wake_pump_control_interrupts_a_daemon_constructed_on_its_owner_thread() {
             .send(daemon.wake_pump_control())
             .expect("publish control");
         assert!(matches!(
+            // timer: deadline — expiry fails the checks that follow
             daemon.wait_pump(Duration::from_secs(5)),
             WakePumpWait::Interrupted
         ));
         interrupted_tx.send(()).expect("publish interrupt result");
         assert!(matches!(
+            // timer: deadline — expiry fails the checks that follow
             daemon.wait_pump(Duration::from_secs(5)),
             WakePumpWait::Stopped
         ));
@@ -454,6 +484,7 @@ fn stop_collision_returns_one_real_batch_then_stops() {
         Err(CoreDaemonError::WakePump(WakePumpError::StopNotObserved))
     ));
     assert!(matches!(
+        // timer: deadline — expiry fails the checks that follow
         daemon.wait_pump(Duration::from_secs(1)),
         WakePumpWait::Stopped
     ));
@@ -482,6 +513,7 @@ fn sustained_wake_producer_cannot_extend_the_post_stop_loop() {
         WakePumpWait::Wakes(_) | WakePumpWait::Stopped
     ));
     assert!(matches!(
+        // timer: deadline — expiry fails the checks that follow
         daemon.wait_pump(Duration::from_secs(1)),
         WakePumpWait::Stopped
     ));
@@ -621,6 +653,7 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     });
     // timer: deadline — the interrupter must start; expiry fails the test
     first_interrupt
+        // timer: deadline — expiry fails the checks that follow
         .recv_timeout(Duration::from_secs(5))
         .expect("the interrupter raised its first interrupt");
     let before_shutdown = interrupt_count.load(std::sync::atomic::Ordering::Acquire);
@@ -756,6 +789,7 @@ fn sustained_worker_and_adapter_producers_still_reach_shutdown_bound() {
         std::thread::yield_now();
     }
     assert!(matches!(
+        // timer: deadline — expiry fails the checks that follow
         daemon.wait_pump(Duration::from_secs(1)),
         WakePumpWait::Stopped
     ));
@@ -816,6 +850,7 @@ fn pump_woken_applies_named_duplex_input_through_the_pty_once() {
         .expect("bind waking adapter");
 
     adapter.inject_ingress_frame(compact_input_frame(1, b"WAKE-INPUT\n"));
+    // timer: deadline — expiry fails the checks that follow
     let first = daemon.wait_wakes(Duration::from_secs(1));
     assert!(first.adapter_routes.iter().any(|route| {
         route.session_id == session_id && route.subscription_id == subscription_id
@@ -924,16 +959,18 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
         "same-session routes attaching",
         Duration::from_secs(8),
         2,
-        |_| {
+        |daemon| {
             [&owner, &sibling]
                 .iter()
-                .all(|adapter| adapter_has_attached(adapter))
+                .all(|adapter| adapter_settled(adapter))
+                && !daemon.capture_active(&session_id)
         },
     );
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_queued_wakes(&mut daemon, 2);
 
     owner.inject_ingress_frame(compact_resize_frame(1, 31, 91));
     owner.inject_ingress_frame(compact_input_frame(2, b"OWNER\n"));
+    // timer: deadline — expiry fails the checks that follow
     let mixed_batch = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(
         mixed_batch
@@ -990,12 +1027,14 @@ fn pump_woken_preserves_mixed_resize_and_input_with_same_session_sibling() {
 
     pump_until_output(&mut daemon, &owner, b"echo:OWNER\r\n", 4);
     owner.inject_ingress_frame(compact_input_frame(3, b"REPORT-SIZE\n"));
+    // timer: deadline — expiry fails the checks that follow
     let size_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&size_batch, 5)
         .expect("request worker size after mixed batch");
     pump_until_output(&mut daemon, &owner, b"31 91\r\n", 6);
     sibling.inject_ingress_frame(compact_input_frame(1, b"SIBLING\n"));
+    // timer: deadline — expiry fails the checks that follow
     let sibling_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&sibling_batch, 7)
@@ -1066,20 +1105,16 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
         "worker attach",
         Duration::from_secs(8),
         2,
-        |_| adapter_has_attached(&adapter),
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
     );
-    loop {
-        let settled = daemon.wait_wakes(Duration::from_millis(50));
-        if settled.adapter_routes.is_empty() && settled.ingress_sessions.is_empty() {
-            break;
-        }
-        daemon.pump_woken(&settled, 2).expect("settle wakes");
-    }
+    // Attached is the positive end of setup; pump what it left queued.
+    pump_queued_wakes(&mut daemon, 2);
     assert_eq!(daemon.wake_source().occupancy(), 0);
 
     adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
     adapter.inject_ingress_frame(compact_input_frame(2, b"SCRATCH\n"));
 
+    // timer: deadline — expiry fails the checks that follow
     let mixed = daemon.wait_wakes(Duration::from_secs(5));
     assert_eq!(mixed.adapter_routes.len(), 1);
     assert_eq!(mixed.adapter_routes[0].session_id, session_id);
@@ -1135,6 +1170,8 @@ fn pump_woken_same_wake_resize_then_input_survives_resize_completion() {
             "each result must identify the live owner"
         );
     }
+    // The results and the registry geometry are separate events.
+    pump_until_registry_size(&mut daemon, &session_id, 31, 91, 4);
     let record = daemon
         .registry()
         .load(&session_id)
@@ -1227,15 +1264,24 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             "one-slot attach wakes did not settle"
         );
         adapter.complete_write();
-        let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_millis(50)) else {
+        let WakePumpWait::Wakes(mut batch) = daemon.wait_pump(Duration::ZERO) else {
             panic!("uncontrolled wake pump must return wakes");
         };
-        if batch.adapter_routes.is_empty()
-            && batch.ingress_sessions.is_empty()
-            && adapter.snapshot_pressure() == TerminalAdapterPressure::Ready
-            && daemon.wake_source().occupancy() == 0
-        {
-            break;
+        if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
+            if adapter.snapshot_pressure() == TerminalAdapterPressure::Ready
+                && !daemon.capture_active(&session_id)
+                && daemon.wake_source().occupancy() == 0
+            {
+                break;
+            }
+            // Not settled and nothing queued: wait for the next wake.
+            let WakePumpWait::Wakes(next) =
+                // timer: deadline — the settle loop's remaining bound; expiry fails the assert above
+                daemon.wait_pump(settle_deadline.saturating_duration_since(Instant::now()))
+            else {
+                panic!("uncontrolled wake pump must return wakes");
+            };
+            batch = next;
         }
         daemon.pump_woken(&batch, 2).expect("settle attach wakes");
     }
@@ -1243,6 +1289,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
     adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
     adapter.inject_ingress_frame(compact_input_frame(2, b"SCRATCH\n"));
 
+    // timer: deadline — expiry fails the checks that follow
     let WakePumpWait::Wakes(mixed) = daemon.wait_pump(Duration::from_secs(5)) else {
         panic!("uncontrolled wake pump must return the mixed wake");
     };
@@ -1281,6 +1328,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
             "one-slot input results did not complete"
         );
         adapter.complete_write();
+        // timer: deadline — expiry fails the checks that follow
         let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_secs(5)) else {
             panic!("uncontrolled wake pump must return a completion wake");
         };
@@ -1335,7 +1383,10 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
                 Instant::now() < retained_deadline,
                 "missing one-slot resize-completion session wake"
             );
-            let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_millis(20)) else {
+            let WakePumpWait::Wakes(batch) =
+                // timer: deadline — the loop's remaining bound; expiry fails the assert above
+                daemon.wait_pump(retained_deadline.saturating_duration_since(Instant::now()))
+            else {
                 panic!("uncontrolled wake pump must return the retained wake");
             };
             if batch.ingress_sessions.contains(&session_id) {
@@ -1366,6 +1417,7 @@ fn one_slot_adapter_preserves_resize_input_and_echo_wake_obligations() {
     while !adapter_output_contains(&adapter, b"echo:SCRATCH\r\n") {
         assert!(Instant::now() < echo_deadline, "worker echo did not arrive");
         adapter.complete_write();
+        // timer: deadline — expiry fails the checks that follow
         let WakePumpWait::Wakes(echo) = daemon.wait_pump(Duration::from_secs(5)) else {
             panic!("uncontrolled wake pump must return the echo wake");
         };
@@ -1446,12 +1498,20 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
         .expect("begin");
     adapter.inject_ingress_frame(begin.clone());
     adapter.inject_ingress_frame(begin.clone());
+    // timer: deadline — expiry fails the checks that follow
     let intake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&intake, 3).expect("accept begin");
     let _control = daemon.wake_pump_control();
     let started = Instant::now();
     let expired = loop {
-        let WakePumpWait::Wakes(batch) = daemon.wait_pump(Duration::from_secs(30)) else {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the paste deadline's wake did not arrive"
+        );
+        let WakePumpWait::Wakes(batch) =
+            // timer: deadline — a hang guard; Core ends the wait at its paste deadline
+            daemon.wait_pump(Duration::from_secs(30))
+        else {
             panic!("paste deadline must return a wake batch");
         };
         daemon
@@ -1469,7 +1529,14 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
     assert_eq!(expired.adapter_routes.len(), 1);
     assert_eq!(expired.adapter_routes[0].session_id, session_id);
     assert_eq!(expired.adapter_routes[0].subscription_id, subscription_id);
-    pump_available_wakes_until_quiet(&mut daemon, 4);
+    pump_until(
+        &mut daemon,
+        "both paste results",
+        Duration::from_secs(5),
+        4,
+        |_| delivered_input_results(&adapter).len() >= 2,
+    );
+    pump_queued_wakes(&mut daemon, 4);
     let results = delivered_input_results(&adapter);
     assert_eq!(results.len(), 2);
     let timeout = results
@@ -1492,6 +1559,7 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
     );
 
     adapter.inject_ingress_frame(begin);
+    // timer: deadline — expiry fails the checks that follow
     let replay = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&replay, 5)
@@ -1577,17 +1645,30 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
         "worker attach",
         Duration::from_secs(8),
         2,
-        |_| adapter_has_attached(&adapter),
+        |daemon| {
+            adapter_settled(&adapter)
+                && !daemon.capture_active(&session_id)
+                && adapter_has_seen(&adapter, b"ready")
+        },
     );
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_queued_wakes(&mut daemon, 2);
     let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
 
     adapter.inject_ingress_frame(compact_resize_frame(1, 31, 91));
+    // timer: deadline — expiry fails the checks that follow
     let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&resize_batch, 3)
         .expect("resize apply tick");
     pump_until_registry_size(&mut daemon, &session_id, 31, 91, 3);
+    // The registry and the adapter's result are separate events.
+    pump_until(
+        &mut daemon,
+        "the resize result",
+        Duration::from_secs(5),
+        3,
+        |_| delivered_input_result_count(&adapter, 1..=1) == 1,
+    );
     assert_eq!(delivered_input_result_count(&adapter, 1..=1), 1);
     let record = daemon
         .registry()
@@ -1597,6 +1678,7 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
     assert_eq!((record.rows, record.cols), (31, 91));
 
     adapter.inject_ingress_frame(compact_input_frame(2, b"report-size\n"));
+    // timer: deadline — expiry fails the checks that follow
     let input_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&input_batch, 4)
@@ -1617,6 +1699,7 @@ fn pump_woken_worker_resize_updates_live_pty_registry_and_one_patch() {
 
     adapter.inject_ingress_frame(compact_resize_frame(3, 31, 91));
     adapter.inject_ingress_frame(compact_resize_frame(4, 31, 91));
+    // timer: deadline — expiry fails the checks that follow
     let repeated_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&repeated_batch, 6)
@@ -1664,12 +1747,21 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
     let before_resize = daemon.lifecycle_baseline().expect("baseline").cursor;
 
     adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
+    // timer: deadline — expiry fails the checks that follow
     let resize_batch = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&resize_batch, 3)
         .expect("resize named worker");
     assert_eq!(delivered_input_result_count(&adapter_b, 1..=1), 0);
     pump_until_registry_size(&mut daemon, &session_a, 31, 101, 3);
+    // The registry and the adapter's result are separate events.
+    pump_until(
+        &mut daemon,
+        "the named sibling's resize result",
+        Duration::from_secs(5),
+        3,
+        |_| delivered_input_result_count(&adapter_a, 1..=1) == 1,
+    );
     assert_eq!(delivered_input_result_count(&adapter_a, 1..=1), 1);
 
     let record_a = daemon
@@ -1686,10 +1778,12 @@ fn pump_woken_worker_resize_isolates_the_named_sibling() {
     assert_eq!((record_b.rows, record_b.cols), (24, 80));
 
     adapter_a.inject_ingress_frame(compact_input_frame(2, b"report-a\n"));
+    // timer: deadline — expiry fails the checks that follow
     let input_a = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&input_a, 4).expect("request A size");
     pump_until_output(&mut daemon, &adapter_a, b"31 101\r\n", 5);
     adapter_b.inject_ingress_frame(compact_input_frame(1, b"report-b\n"));
+    // timer: deadline — expiry fails the checks that follow
     let input_b = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&input_b, 6).expect("request B size");
     pump_until_output(&mut daemon, &adapter_b, b"24 80\r\n", 7);
@@ -1747,6 +1841,7 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
     for operation_id in 1..=first_batch {
         adapter_a.inject_ingress_frame(compact_resize_frame(operation_id as u64, 31, 101));
     }
+    // timer: deadline — expiry fails the checks that follow
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&wake, 3)
@@ -1756,6 +1851,7 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
     for operation_id in (first_batch + 1)..=PENDING_INGRESS_RESIZE_CAP {
         adapter_a.inject_ingress_frame(compact_resize_frame(operation_id as u64, 31, 101));
     }
+    // timer: deadline — expiry fails the checks that follow
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 4).expect("fill pending cap");
     assert_eq!(
@@ -1776,6 +1872,7 @@ fn pending_resize_cap_parks_the_next_resize_and_resumes_on_acknowledgement() {
         PENDING_INGRESS_RESIZE_CAP as u64 + 2,
         b"behind-resize\n",
     ));
+    // timer: deadline — expiry fails the checks that follow
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon
         .pump_woken(&wake, 5)
@@ -1894,6 +1991,7 @@ fn explicit_resize_is_busy_while_ingress_resize_is_pending() {
     hold.arm();
 
     adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
+    // timer: deadline — expiry fails the checks that follow
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 3).expect("accept ingress resize");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
@@ -1971,6 +2069,7 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
     hold.arm();
 
     adapter_a.inject_ingress_frame(compact_resize_frame(1, 31, 101));
+    // timer: deadline — expiry fails the checks that follow
     let wake = daemon.wait_wakes(Duration::from_secs(1));
     daemon.pump_woken(&wake, 3).expect("accept pending resize");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 1);
@@ -1987,7 +2086,8 @@ fn teardown_clears_pending_resize_and_ignores_late_acknowledgement() {
         .shutdown(Some(session_a.clone()), 4)
         .expect("shutdown after releasing the acknowledgement hold");
     assert_eq!(daemon.pending_terminal_resize_len(&session_a), 0);
-    let late = daemon.wait_wakes(Duration::from_millis(200));
+    // Pump whatever the teardown left queued; nothing waits for more.
+    let late = daemon.wait_wakes(Duration::ZERO);
     let _ = daemon.pump_woken(&late, 5);
     if let Some(record) = daemon
         .registry()
@@ -2192,20 +2292,37 @@ fn waking_bind_then_writable_wake_pumps_one_route() {
             subscription_id.clone(),
             generation,
             empty_caps(),
-            Box::new(adapter),
+            Box::new(adapter.clone()),
         )
         .expect("bind");
     assert_eq!(daemon.wake_source().registry_len(), 1);
     assert!(daemon
         .wake_source()
         .registry_contains(&session_id, &subscription_id));
-    let _ = daemon.wait_wakes(Duration::from_millis(0));
-    let batch = daemon.wait_wakes(Duration::from_millis(50));
+    // The adapter raises a writable wake; wait for the batch that names it.
+    assert!(adapter.wake(TerminalWakeKind::Writable));
+    let batch = wait_for(
+        "the bound route's wake",
+        Duration::from_secs(5),
+        |remaining| {
+            // timer: deadline — wait_for's remaining bound; expiry fails the test
+            let batch = daemon.wait_wakes(remaining);
+            (!batch.adapter_routes.is_empty()).then_some(batch)
+        },
+    );
+    assert_eq!(
+        batch
+            .adapter_routes
+            .iter()
+            .map(|route| &route.subscription_id)
+            .collect::<Vec<_>>(),
+        vec![&subscription_id],
+        "one waking bind names exactly its own route"
+    );
     let outcome = daemon.pump_woken(&batch, 4).expect("pump");
-    assert!(
-        outcome.pumped_routes <= 1,
-        "one waking bind must name at most one adapter route, got {}",
-        outcome.pumped_routes
+    assert_eq!(
+        outcome.pumped_routes, 1,
+        "one waking bind must pump exactly one adapter route"
     );
     daemon
         .detach_terminal_subscription(
@@ -2234,44 +2351,38 @@ fn wait_for_done_signal(done: &Fifo) {
     let _ = done.read_signal(Duration::from_secs(5));
 }
 
+/// Take the wakes already queued, without waiting and without pumping.
+///
+/// A caller first waits for a positive event that ends its setup (the
+/// child's signal, an attach, a delivered result). Wakes coalesce into one
+/// node per session and per route, so a wake that arrives after this drain
+/// merges into the node the test reads next instead of adding a new one.
 fn drain_follow_up_wakes(daemon: &mut CoreDaemon) {
-    let quiet_deadline = Instant::now() + Duration::from_secs(5);
-    let mut empty_streak = 0;
-    while Instant::now() < quiet_deadline {
-        let extra = daemon.wait_wakes(Duration::from_millis(200));
+    loop {
+        let extra = daemon.wait_wakes(Duration::ZERO);
         if extra.adapter_routes.is_empty() && extra.ingress_sessions.is_empty() {
-            empty_streak += 1;
-            if empty_streak >= 3 {
-                return;
-            }
-        } else {
-            empty_streak = 0;
+            return;
         }
     }
-    panic!("runtime wake channel did not go quiet before the target drain");
 }
 
-fn pump_available_wakes_until_quiet(daemon: &mut CoreDaemon, now_seconds: u64) {
-    let quiet_deadline = Instant::now() + Duration::from_secs(5);
-    let mut empty_streak = 0;
-    while Instant::now() < quiet_deadline {
-        let batch = daemon.wait_wakes(Duration::from_millis(200));
+/// Pump the wakes already queued, without waiting. As with
+/// [`drain_follow_up_wakes`], the caller first waits for the positive event
+/// that ends its setup.
+fn pump_queued_wakes(daemon: &mut CoreDaemon, now_seconds: u64) {
+    loop {
+        let batch = daemon.wait_wakes(Duration::ZERO);
         if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
-            empty_streak += 1;
-            if empty_streak >= 3 {
-                return;
-            }
-        } else {
-            empty_streak = 0;
-            daemon
-                .pump_woken(&batch, now_seconds)
-                .expect("pump leftover attach wakes");
+            return;
         }
+        daemon
+            .pump_woken(&batch, now_seconds)
+            .expect("pump queued setup wakes");
     }
-    panic!("worker attach did not go quiet before child release");
 }
 
 fn consume_runtime_ingress_wakes(daemon: &mut CoreDaemon, session_id: &SessionId) {
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(5));
     assert!(
         batch.ingress_sessions.iter().any(|id| id == session_id),
@@ -2433,6 +2544,7 @@ fn assert_observe_then_targeted_process_exit(
     assert_eq!(exited, 1);
     let writes_before = adapter.try_write_count();
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(2));
     assert!(
         batch.ingress_sessions.iter().any(|id| id == session_id),
@@ -2522,9 +2634,9 @@ fn worker_backed_observe_queues_process_exit_until_wait_wakes_and_pump_woken() {
         "worker attach",
         Duration::from_secs(8),
         2,
-        |_| adapter_has_attached(&adapter),
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
     );
-    pump_available_wakes_until_quiet(&mut daemon, 3);
+    pump_queued_wakes(&mut daemon, 3);
     go.release(Duration::from_secs(5));
     consume_runtime_ingress_wakes(&mut daemon, &session_id);
     assert_observe_then_targeted_process_exit(&mut daemon, &adapter, &session_id);
@@ -2594,6 +2706,7 @@ fn declared_unbound_exit_keeps_session_wake_until_bind_and_pump() {
             Box::new(adapter.clone()),
         )
         .expect("bind");
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(2));
     assert!(
         batch.ingress_sessions.iter().any(|id| id == &session_id),
@@ -2617,6 +2730,7 @@ fn observe_then_force_closed_adapter_still_retires_session_wake() {
     observe_until_exited_without_pump(&mut daemon, &session_id, 3);
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
     adapter.close_transport();
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(2));
     let outcome = daemon.pump_woken(&batch, 4).expect("pump closed adapter");
     assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
@@ -2704,12 +2818,25 @@ fn natural_exit_coalesces_sibling_removals_and_later_pump_is_unchanged() {
             )
             .expect("bind sibling adapter");
     }
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_until(
+        &mut daemon,
+        "sibling attaches",
+        Duration::from_secs(8),
+        2,
+        |daemon| {
+            routes
+                .iter()
+                .all(|(_, _, adapter)| adapter_settled(adapter))
+                && !daemon.capture_active(&session_id)
+        },
+    );
+    pump_queued_wakes(&mut daemon, 2);
 
     go.release(Duration::from_secs(5));
     wait_for_done_signal(&done);
     consume_runtime_ingress_wakes(&mut daemon, &session_id);
     observe_until_exited_without_pump(&mut daemon, &session_id, 3);
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(2));
     assert!(batch.ingress_sessions.contains(&session_id));
     let outcome = daemon.pump_woken(&batch, 4).expect("deliver process exit");
@@ -2772,7 +2899,14 @@ fn ordinary_pty_output_does_not_report_inventory_change() {
             Box::new(adapter.clone()),
         )
         .expect("bind adapter");
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_until(
+        &mut daemon,
+        "attach before the gated output",
+        Duration::from_secs(8),
+        2,
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
+    );
+    pump_queued_wakes(&mut daemon, 2);
 
     go.release(Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -3116,9 +3250,17 @@ fn malformed_input_reports_inventory_change() {
         "malformed-inventory-sub",
         adapter.clone(),
     );
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_until(
+        &mut daemon,
+        "probe attach",
+        Duration::from_secs(8),
+        2,
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
+    );
+    pump_queued_wakes(&mut daemon, 2);
 
     adapter.inject_ingress_frame(vec![0xff, 0xff, 0xff]);
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(1));
     let outcome = daemon.pump_woken(&batch, 3).expect("pump malformed input");
     assert_eq!(outcome.pumped_routes, batch.adapter_routes.len());
@@ -3144,7 +3286,7 @@ fn outside_pump_replacement_wakes_and_failed_pump_does_not_acknowledge() {
             2,
         )
         .expect("attach first owner");
-    pump_available_wakes_until_quiet(&mut daemon, 2);
+    pump_queued_wakes(&mut daemon, 2);
 
     daemon
         .attach(
@@ -3164,6 +3306,7 @@ fn outside_pump_replacement_wakes_and_failed_pump_does_not_acknowledge() {
         )
         .is_err());
 
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(batch.ingress_sessions, vec![session_id]);
     let outcome = daemon
@@ -3207,7 +3350,6 @@ fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
 
     go.release(Duration::from_secs(5));
     wait_for_done_signal(&produced);
-    let _ = cleanup.daemon().wait_wakes(Duration::from_secs(1));
     drain_follow_up_wakes(cleanup.daemon());
     observe_until(
         cleanup.daemon(),
@@ -3225,6 +3367,7 @@ fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
         .terminal_subscription_generation(&session_id, &subscription_id)
         .is_none());
 
+    // timer: deadline — expiry fails the checks that follow
     let batch = cleanup.daemon().wait_wakes(Duration::from_secs(1));
     assert_eq!(batch.ingress_sessions, vec![session_id]);
     let outcome = cleanup
@@ -3318,16 +3461,9 @@ fn public_occupancy_is_exact_after_quiesce() {
     let stop = Arc::new(AtomicBool::new(false));
     let drain_source = source.clone();
     let drain_stop = Arc::clone(&stop);
+    let stop_drainer = source.interrupt_handle();
     let drainer = thread::spawn(move || {
-        let mut worst = 0usize;
-        while !drain_stop.load(Ordering::Relaxed) {
-            let _ = drain_source.wait_wakes(Duration::from_millis(1));
-            let seen = drain_source.occupancy();
-            if seen > worst {
-                worst = seen;
-            }
-        }
-        worst
+        drain_until_interrupted(&drain_source, &drain_stop, Duration::from_secs(5))
     });
     let deadline = Instant::now() + Duration::from_millis(400);
     let mut producer_worst = 0usize;
@@ -3338,8 +3474,13 @@ fn public_occupancy_is_exact_after_quiesce() {
             producer_worst = seen;
         }
     }
-    stop.store(true, Ordering::Relaxed);
-    let drain_worst = drainer.join().expect("drain thread");
+    stop.store(true, Ordering::Release);
+    // An interrupt sent before the drainer waits is kept as pending.
+    stop_drainer.interrupt();
+    let drain_worst = drainer
+        .join()
+        .expect("drain thread")
+        .expect("the stop interrupt ends the drainer");
     assert!(
         producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
         "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
@@ -3434,6 +3575,7 @@ fn public_overflow_wait_does_not_depend_on_timeout() {
     let handle = source.session_handle(session.clone());
     handle.notify();
     let started = Instant::now();
+    // timer: deadline — expiry fails the checks that follow
     let batch = daemon.wait_wakes(Duration::from_secs(5));
     assert!(
         started.elapsed() < Duration::from_millis(500),
@@ -3490,9 +3632,9 @@ fn stale_registry_then_shutdown_completes_through_wait_wakes() {
         "worker attach",
         Duration::from_secs(8),
         2,
-        |_| adapter_has_attached(&adapter),
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
     );
-    pump_available_wakes_until_quiet(&mut daemon, 3);
+    pump_queued_wakes(&mut daemon, 3);
     daemon
         .mark_stale(&session_id, 10)
         .expect("mark registry stale");
@@ -3567,9 +3709,9 @@ fn stale_registry_with_live_worker_still_delivers_process_exit_through_targeted_
         "worker attach",
         Duration::from_secs(8),
         2,
-        |_| adapter_has_attached(&adapter),
+        |daemon| adapter_settled(&adapter) && !daemon.capture_active(&session_id),
     );
-    pump_available_wakes_until_quiet(&mut daemon, 3);
+    pump_queued_wakes(&mut daemon, 3);
     daemon
         .mark_stale(&session_id, 10)
         .expect("mark registry stale");
@@ -3628,4 +3770,44 @@ fn shutdown_completion_arrives_through_wait_wakes() {
     );
     assert_eq!(source.session_registry_len(), 0);
     let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Drain wakes, recording the worst occupancy, until the stop interrupt.
+/// Expiry of the hang guard is a failure, never an exit: a lost stop
+/// interrupt cannot pass through the deadline.
+fn drain_until_interrupted(
+    source: &botster_core::TerminalWakeSource,
+    stop: &std::sync::atomic::AtomicBool,
+    guard: Duration,
+) -> Result<usize, &'static str> {
+    let mut worst = 0usize;
+    loop {
+        // timer: deadline — a hang guard only; expiry fails the test
+        match source.wait_wakes_interruptible(guard) {
+            botster_core::TerminalWakeWait::Wakes(_) => {}
+            botster_core::TerminalWakeWait::Interrupted
+                if stop.load(std::sync::atomic::Ordering::Acquire) =>
+            {
+                return Ok(worst.max(source.occupancy()));
+            }
+            botster_core::TerminalWakeWait::Interrupted => {}
+            botster_core::TerminalWakeWait::TimedOut => {
+                return Err("the hang guard expired: the stop interrupt was lost");
+            }
+            _ => return Err("an unknown wait outcome"),
+        }
+        worst = worst.max(source.occupancy());
+    }
+}
+
+/// With the stop flag set and no interrupt sent, the drainer reports its
+/// hang guard's expiry instead of treating it as a stop.
+#[test]
+fn a_lost_stop_interrupt_fails_the_public_drainer_instead_of_passing() {
+    let source = botster_core::TerminalWakeSource::new();
+    let stop = std::sync::atomic::AtomicBool::new(true);
+    assert_eq!(
+        drain_until_interrupted(&source, &stop, Duration::ZERO),
+        Err("the hang guard expired: the stop interrupt was lost")
+    );
 }
