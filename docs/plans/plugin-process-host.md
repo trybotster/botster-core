@@ -451,6 +451,11 @@ allocation and the vendored Lua heap, because mlua 0.11.6 allocates through
 - **Cap installation.** The cap arrives in `Bootstrap.memory_cap_bytes`. The
   child library sets it before `Ready`, so it is in force before any plugin byte
   is loaded. `None` means no cap; that is a Hub choice, not a Core default.
+  Core exports `worker::CappedAllocator` and declares no global allocator; the
+  worker binary declares it (`#[global_allocator]`). The first allocation
+  through it proves that it is installed. A requested cap on a worker that did
+  not install it, or one below the worker's current use, fails `Bootstrap`: a
+  cap is never silently ignored.
 - **Failure path.** The failure path is allocation-free and never blocks. When
   an allocation would exceed the cap, the allocator does not return null. A null
   return would let Lua raise a catchable "not enough memory" error. Instead the
@@ -670,6 +675,15 @@ on macOS (local) and Linux (CI, `ubuntu-latest`).
   Add a benchmark of the round trip for a capability call (HostCall, then
   result Invoke) and for an entity publish (HostCall), as a
   `// timer: measurement-window` probe. Report the numbers; no target is set.
+
+  Measured (`measure_host_call_round_trips`, ignored by default; Apple M2 Max,
+  debug builds, 500 iterations, parent-side times):
+
+  | Path | p50 | p90 | p99 | max |
+  |---|---|---|---|---|
+  | Entity publish (root invoke to HostCall at the Hub) | 103 µs | 157 µs | 413 µs | 948 µs |
+  | Result leg (Hub admission to drained completion) | 141 µs | 204 µs | 530 µs | 894 µs |
+  | Capability call (root invoke to result completion) | 266 µs | 403 µs | 985 µs | 1.67 ms |
 - **S5. Hub integration support.** Pair with the Hub writer on the Hub binary
   and on policy wiring. Core changes only mechanism.
 

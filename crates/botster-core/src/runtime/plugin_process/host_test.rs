@@ -654,3 +654,129 @@ fn a_child_cannot_spend_a_credit_return_that_the_writer_has_not_taken() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Memory cap (plan section 7.4, slice 4).
+
+/// The cap is hit while the IPC socket is full, because the parent reader is
+/// held and the child's writer is blocked. The cause still arrives through
+/// the fatal pipe, the exit is classified as the memory cap, and the whole
+/// group dies.
+#[test]
+fn a_memory_cap_hit_with_a_full_socket_reports_its_cause_and_kills_the_group() {
+    use crate::runtime::plugin_process::{PluginExitCause, PluginLogCredits};
+
+    let dir = std::env::temp_dir().join(format!("botster-plugin-cap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let (descendant, alive, report) = (
+        dir.join("descendant"),
+        dir.join("alive"),
+        dir.join("report"),
+    );
+    for fifo in [&descendant, &alive, &report] {
+        mkfifo(fifo);
+    }
+    // The held input FIFO keeps the descendant alive until the group dies.
+    let _hold = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&descendant)
+        .expect("hold the input FIFO");
+    let mut alive_read = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&alive)
+        .expect("open the alive FIFO");
+    let report_path = report.clone();
+    let report_reader = std::thread::spawn(move || {
+        let mut pid = String::new();
+        File::open(&report_path)
+            .and_then(|mut report| report.read_to_string(&mut pid))
+            .expect("read the descendant report");
+        pid
+    });
+
+    let seams = Arc::new(TestSeams::default());
+    TEST_SEAMS.with(|slot| *slot.borrow_mut() = Some(seams.clone()));
+    let mut config = plain_config();
+    config.memory_cap_bytes = Some(64 * 1024 * 1024);
+    config.log_credits = PluginLogCredits {
+        count: 64,
+        bytes: 8 * 1024 * 1024,
+    };
+    let env = |key: &str, path: &Path| (OsString::from(key), path.as_os_str().to_owned());
+    config.env = vec![
+        env("PLUGIN_TEST_DESCENDANT_FIFO", &descendant),
+        env("PLUGIN_TEST_ALIVE_FIFO", &alive),
+        env("PLUGIN_TEST_REPORT_FIFO", &report),
+    ];
+    let (process, _) = PluginProcess::spawn(&config, &load()).expect("loaded");
+    let process = Arc::new(process);
+    assert!(!report_reader.join().expect("report").trim().is_empty());
+    let (exited_tx, exited) = mpsc::channel();
+    process.install_exit_notifier(Arc::new(move || {
+        let _ = exited_tx.send(());
+    }));
+
+    // Hold the reader at the next readable event: the child's log flood.
+    let (reader_gate, reader_reached, reader_release) = gate();
+    *seams.reader_hold.lock().expect("reader hold") = Some(reader_gate);
+    let mut request = invocation("cap", "logs_then_allocate");
+    request.payload = opaque(json!({
+        "logs": 64,
+        "log_bytes": 64 * 1024,
+        "step": 1024 * 1024,
+    }));
+    let outcome = invoke_on_thread(&process, request, &PluginCancellationToken::new(), None);
+    event(
+        &reader_reached,
+        "the reader holds with the child's frames unread",
+    );
+
+    event(&exited, "the capped child exits while the reader is held");
+    let exit = process.exit().expect("recorded");
+    assert_eq!(exit.cause, PluginExitCause::MemoryCap, "{exit:?}");
+    let _ = reader_release.send(());
+    let failed = result(&outcome);
+    assert!(
+        matches!(
+            &failed,
+            PluginInvocationResult::Failed(failure)
+                if failure.kind == PluginInvocationFailureKind::WorkerKilled
+        ),
+        "{failed:?}"
+    );
+
+    // SAFETY: fcntl get/set on a descriptor this test owns.
+    unsafe {
+        let flags = libc::fcntl(alive_read.as_raw_fd(), libc::F_GETFL);
+        libc::fcntl(
+            alive_read.as_raw_fd(),
+            libc::F_SETFL,
+            flags & !libc::O_NONBLOCK,
+        );
+    }
+    let (died, descendant_died) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut sink = Vec::new();
+        let _ = died.send(alive_read.read_to_end(&mut sink).is_ok());
+    });
+    // timer: deadline — EOF on the alive FIFO means the descendant died; expiry fails the test
+    assert!(descendant_died
+        .recv_timeout(WAIT)
+        .expect("the whole group died"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A requested cap on a worker without the allocator is refused at
+/// bootstrap, never ignored. The test process itself does not install
+/// `CappedAllocator`, so the library's own check is exercised directly.
+#[test]
+fn a_cap_without_the_capped_allocator_is_refused() {
+    let refused = super::super::capped_allocator::install(1024 * 1024);
+    assert!(
+        matches!(&refused, Err(reason) if reason.contains("CappedAllocator")),
+        "{refused:?}"
+    );
+}
