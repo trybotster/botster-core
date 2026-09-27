@@ -56,6 +56,17 @@ use botster_terminal_protocol_client::{
 };
 
 fn main() {
+    if std::env::args().skip(1).eq(["--probe".to_string()]) {
+        // Identity only: no sockets, PTYs, or environment-dependent setup.
+        // A host runs this once so the OS's first-exec cost for a newly
+        // installed binary is paid before the first worker spawn.
+        println!(
+            "botster-session-worker {} protocol {}",
+            env!("CARGO_PKG_VERSION"),
+            PROTOCOL_VERSION
+        );
+        return;
+    }
     if let Err(error) = run() {
         let _ = writeln!(
             io::stderr(),
