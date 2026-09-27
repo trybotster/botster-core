@@ -344,7 +344,17 @@ impl TerminalWakeSource {
     /// overflow flag does not wait on an empty channel.
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
-        let nodes = self.recv_nodes(timeout);
+        let nodes = self.recv_nodes(Some(timeout));
+        self.assemble_batch(nodes)
+    }
+
+    /// Block until a wake arrives, with no timeout.
+    ///
+    /// For an owner loop whose every source of work posts a wake. Behaves
+    /// like [`Self::wait_wakes`] otherwise, including the overflow walk.
+    #[must_use]
+    pub fn wait_wakes_untimed(&self) -> TerminalWakeBatch {
+        let nodes = self.recv_nodes(None);
         self.assemble_batch(nodes)
     }
 
@@ -354,7 +364,7 @@ impl TerminalWakeSource {
     /// drain can use it without letting a stale host interrupt cause a spin.
     #[must_use]
     pub fn wait_wakes_bounded(&self, timeout: Duration) -> TerminalWakeBatch {
-        let nodes = self.recv_nodes_limited(timeout, WAKE_QUEUE_CAPACITY);
+        let nodes = self.recv_nodes_limited(Some(timeout), WAKE_QUEUE_CAPACITY);
         self.assemble_batch(nodes)
     }
 
@@ -365,7 +375,7 @@ impl TerminalWakeSource {
     /// pending for the next call when this call returns real wakes.
     #[must_use]
     pub fn wait_wakes_interruptible(&self, timeout: Duration) -> TerminalWakeWait {
-        let nodes = self.recv_nodes_limited(timeout, WAKE_QUEUE_CAPACITY);
+        let nodes = self.recv_nodes_limited(Some(timeout), WAKE_QUEUE_CAPACITY);
         let batch = self.assemble_batch(nodes);
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
             return TerminalWakeWait::Wakes(batch);
@@ -580,11 +590,12 @@ impl TerminalWakeSource {
             .map(Arc::strong_count)
     }
 
-    fn recv_nodes(&self, timeout: Duration) -> Vec<WakeNode> {
+    fn recv_nodes(&self, timeout: Option<Duration>) -> Vec<WakeNode> {
         self.recv_nodes_limited(timeout, usize::MAX)
     }
 
-    fn recv_nodes_limited(&self, timeout: Duration, max_nodes: usize) -> Vec<WakeNode> {
+    /// `timeout` of `None` waits for a wake with no timeout.
+    fn recv_nodes_limited(&self, timeout: Option<Duration>, max_nodes: usize) -> Vec<WakeNode> {
         let rx = self
             .inner
             .rx
@@ -600,10 +611,15 @@ impl TerminalWakeSource {
         }
         if nodes.is_empty()
             && max_nodes > 0
-            && !timeout.is_zero()
+            && timeout.is_none_or(|timeout| !timeout.is_zero())
             && !self.inner.overflow.load(Ordering::Acquire)
         {
-            match rx.recv_timeout(timeout) {
+            let received = match timeout {
+                // timer: deadline — the caller's wake wait bound; expiry returns an empty batch
+                Some(timeout) => rx.recv_timeout(timeout),
+                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match received {
                 Ok(node) => {
                     record_channel_dequeue(&self.inner.occupancy);
                     nodes.push(node);
