@@ -484,9 +484,15 @@ classifies the exit from evidence, in this order:
 1. **Fatal byte present:** `WorkerKilled(MemoryCap)` or `WorkerCrashed(Panic)`.
    The child wrote the byte before it died, so the byte proves the cause even
    if a parent kill came later.
-2. **Wait status is SIGKILL, and a parent thread sent SIGKILL:** the first
-   recorded kill reason (for example `WorkerKilled(Deadline)` or
-   `WorkerKilled(TransportClosed)`).
+2. **Wait status is SIGKILL, and a parent thread sent SIGKILL while the
+   leader was not already exiting:** the first recorded kill reason (for
+   example `WorkerKilled(Deadline)` or `WorkerKilled(TransportClosed)`). A
+   kill that reaches a leader already exiting is still sent (it ends other
+   group members) but is not recorded, because it cannot be the cause. On
+   Linux a dying task sets `PF_EXITING` before it releases its files, so a
+   reader's EOF cleanup kill after a kernel SIGKILL (for example at the
+   `RLIMIT_CPU` hard limit) always sees the flag in `/proc/<pid>/stat`
+   (review M4). Elsewhere only a leader that is already a zombie is detected.
 3. **After a `Shutdown` was sent, the leader exited with code 0:** `Stopped`,
    which is not a failure.
 4. **Anything else:** `WorkerCrashed` with the signal or the exit code. This
@@ -500,8 +506,14 @@ Consequences:
   status of a process that is already dying from a fatal signal.
 - A child that closes fd 3 and stays alive is killed and reports
   `WorkerKilled(TransportClosed)` (rule 2).
+- Core sets the soft and hard `RLIMIT_CPU` to one value. Linux checks the
+  hard limit first, so the kernel ends the worker with SIGKILL; macOS sends
+  SIGXCPU. Both classify as `Crashed` by that signal (rule 4), in both
+  orders of EOF and exit.
 - One residual case remains. A child that calls `exit()` on its own while a
-  parent kill races it can report the parent's kill reason. A voluntary exit
+  parent kill races it can report the parent's kill reason. On macOS, a
+  SIGKILL that the parent did not send can also be claimed by a racing
+  parent kill, because only a zombie leader is detected there. A voluntary exit
   is an anomaly in either classification. The tests cover rules 1, 2, and 4
   under both orders (EOF first, and exit watch first), using a test hook that
   holds the exit watch until the reader has recorded EOF, and the reverse
@@ -682,8 +694,8 @@ on macOS (local) and Linux (CI, `ubuntu-latest`).
   | Path | p50 | p90 | p99 | max |
   |---|---|---|---|---|
   | Entity publish (root invoke to HostCall at the Hub) | 103 µs | 157 µs | 413 µs | 948 µs |
-  | Result leg (Hub admission to drained completion) | 141 µs | 204 µs | 530 µs | 894 µs |
-  | Capability call (root invoke to result completion) | 266 µs | 403 µs | 985 µs | 1.67 ms |
+  | Result leg (Hub admission to completion publication, before the drain) | 141 µs | 204 µs | 530 µs | 894 µs |
+  | Capability call (root invoke to result completion publication) | 266 µs | 403 µs | 985 µs | 1.67 ms |
 - **S5. Hub integration support.** Pair with the Hub writer on the Hub binary
   and on policy wiring. Core changes only mechanism.
 
