@@ -471,8 +471,6 @@ fn network_capability() -> Capability {
     }
 }
 
-const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
-
 /// One change counter for this test binary. Every engine built by [`probed`]
 /// bumps it through its job-state probe, and the test runtimes bump it when
 /// their own observable state changes. Tests running in parallel share it,
@@ -1991,9 +1989,7 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
                 break;
             }
-            PluginAdmissionResult::Backpressured { reason, .. }
-                if reason == ADMISSION_LOCK_BUSY =>
-            {
+            PluginAdmissionResult::LockBusy { .. } => {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
                 assert!(
                     started.elapsed() < Duration::from_millis(100),

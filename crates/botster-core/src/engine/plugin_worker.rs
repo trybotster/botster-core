@@ -55,12 +55,11 @@ fn allocate_worker_generation(counter: &AtomicU64) -> Option<u64> {
 
 const DEFAULT_QUEUE_BYTE_CAPACITY: usize = 1024 * 1024;
 const OVERSIZE_COMPLETION_REASON: &str = "completion exceeded reserved byte budget";
-const ADMISSION_LOCK_BUSY: &str = "admission lock busy";
 
 /// How admission takes the engine's internal locks.
 #[derive(Clone, Copy)]
 enum LockMode {
-    /// Owner loops: a contended lock is `admission lock busy`.
+    /// Owner loops: a contended lock is [`PluginAdmissionResult::LockBusy`].
     Try,
     /// Non-owner callers: wait for the short critical section.
     Block,
@@ -317,7 +316,7 @@ pub struct PluginWorkerDebugSnapshot {
     pub background_pressure_events: usize,
     /// Times admission was refused because a completion pool was full.
     pub completion_pressure_events: usize,
-    /// Times try_admit reported `admission lock busy` after its one retry.
+    /// Times try_admit reported `LockBusy` after its one retry.
     pub admission_lock_busy_events: usize,
     /// Invocation deadlines the engine's deadline waiter still tracks.
     pub tracked_deadlines: usize,
@@ -892,13 +891,14 @@ impl PluginWorkerEngine {
     /// `Queued.reservation_bytes` reports the total retained reservation.
     ///
     /// Never blocks on job completion, `recv`, sleep, or a contended mutex.
-    /// A busy registry or admission lock is [`PluginAdmissionResult::Backpressured`].
+    /// A busy registry or admission lock is [`PluginAdmissionResult::LockBusy`].
     ///
     /// A busy internal lock is retried once after the engine arms its
-    /// admission retry wake. If the result is still `admission lock busy`,
-    /// the completion notifier fires once a worker or the deadline waiter
-    /// releases admission state, so the host retries on that wake and never
-    /// on a timer.
+    /// admission retry wake. If the retry is also busy, the result is
+    /// [`PluginAdmissionResult::LockBusy`] and the wake is armed (or has
+    /// already fired): the completion notifier fires once a worker or the
+    /// deadline waiter releases admission state, so the host retries on that
+    /// wake and never on a timer.
     pub fn try_admit(
         &self,
         class: PluginInvocationClass,
@@ -935,7 +935,7 @@ impl PluginWorkerEngine {
     ///
     /// For callers outside an owner loop, such as tests and tools. The locks
     /// are held only for short critical sections, never across I/O or waits,
-    /// so this never reports `admission lock busy`; every other outcome is
+    /// so this never reports [`PluginAdmissionResult::LockBusy`]; every other outcome is
     /// the same as [`Self::try_admit`]. An owner loop must call
     /// [`Self::try_admit`] instead: an owner never waits.
     pub fn admit(
@@ -977,7 +977,7 @@ impl PluginWorkerEngine {
 
         let worker = match self.admission_worker_for(&request.handler.plugin_key, mode) {
             Err(()) => {
-                return self.admission_backpressured(class, request, ADMISSION_LOCK_BUSY, None);
+                return admission_lock_busy(class, request);
             }
             Ok(None) => {
                 return PluginAdmissionResult::WorkerStopped {
@@ -1096,12 +1096,7 @@ impl PluginWorkerEngine {
         let mut admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
             Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
+                return admission_lock_busy(class, request);
             }
         };
         if admission.stopping || worker.executor.stopping.load(Ordering::SeqCst) {
@@ -1127,23 +1122,13 @@ impl PluginWorkerEngine {
         let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
             Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
+                return admission_lock_busy(class, request);
             }
         };
         let mut deadlines = match acquire(&self.inner.shared.deadlines, mode) {
             Ok(guard) => guard,
             Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
+                return admission_lock_busy(class, request);
             }
         };
 
@@ -1865,16 +1850,10 @@ impl PluginWorkerEngine {
                     .to_string(),
             };
         }
-        let plugin_key = request.handler.plugin_key.clone();
         let admission = match acquire(&worker.admission, mode) {
             Ok(guard) => guard,
             Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
+                return admission_lock_busy(class, request);
             }
         };
         if admission.stopping {
@@ -1887,12 +1866,7 @@ impl PluginWorkerEngine {
         let mut completions = match acquire(&self.inner.shared.completions, mode) {
             Ok(guard) => guard,
             Err(_) => {
-                return self.admission_backpressured(
-                    class,
-                    request,
-                    ADMISSION_LOCK_BUSY,
-                    Some(self.backpressure_snapshot(&plugin_key, worker.queued_jobs())),
-                );
+                return admission_lock_busy(class, request);
             }
         };
         let reservation = match completions.reserve_funded(
@@ -2717,7 +2691,7 @@ impl Drop for WorkerExecutorHandle {
 struct PluginWorkerEngineMetrics {
     /// Test-only job-state probe (PluginWorkerEngineConfig::test_queue_probe).
     probe: Option<PluginQueueProbe>,
-    /// try_admit results that reported `admission lock busy`.
+    /// try_admit results that reported `LockBusy`.
     admission_lock_busy_events: AtomicUsize,
     live_plugin_executors: AtomicUsize,
     live_executor_workers: AtomicUsize,
@@ -3255,7 +3229,18 @@ fn publish_prepared_into(
 }
 
 fn is_admission_lock_busy(result: &PluginAdmissionResult) -> bool {
-    matches!(result, PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY)
+    matches!(result, PluginAdmissionResult::LockBusy { .. })
+}
+
+/// A lock that admission needs is held elsewhere.
+fn admission_lock_busy(
+    class: PluginInvocationClass,
+    request: PluginInvocationRequest,
+) -> PluginAdmissionResult {
+    PluginAdmissionResult::LockBusy {
+        request_id: request.request_id,
+        class,
+    }
 }
 
 /// A non-owner thread released admission state. Fire the completion
@@ -4798,18 +4783,81 @@ mod tests {
     }
 
     #[test]
-    fn try_admit_returns_backpressured_when_admission_lock_is_held() {
+    fn a_held_lock_is_lock_busy_not_backpressured_and_arms_the_retry_wake() {
+        type Holder = fn(
+            &PluginWorkerEngine,
+            PluginInvocationClass,
+            PluginInvocationRequest,
+        ) -> PluginAdmissionResult;
         let engine = PluginWorkerEngine::new();
         let plugin = PluginKey("lock".into());
         load(&engine, &plugin, Duration::from_millis(1));
-        let result = engine.try_admit_while_holding_admission_lock(
-            PluginInvocationClass::Background,
-            request("busy", handler(&plugin), 1_000),
+        let (wakes_sender, wakes) = mpsc::channel();
+        engine.install_completion_notifier(Arc::new(move || {
+            let _ = wakes_sender.send(());
+        }));
+        let holders: [(&str, Holder); 4] = [
+            (
+                "admission",
+                PluginWorkerEngine::try_admit_while_holding_admission_lock,
+            ),
+            (
+                "registry",
+                PluginWorkerEngine::try_admit_while_holding_registry_lock,
+            ),
+            (
+                "deadline",
+                PluginWorkerEngine::try_admit_while_holding_deadline_lock,
+            ),
+            (
+                "completion",
+                PluginWorkerEngine::try_admit_while_holding_completion_reservation_lock,
+            ),
+        ];
+        for (lock, hold) in holders {
+            engine
+                .inner
+                .shared
+                .admission_retry_armed
+                .store(false, Ordering::SeqCst);
+            while wakes.try_recv().is_ok() {}
+            let result = hold(
+                &engine,
+                PluginInvocationClass::Background,
+                request(lock, handler(&plugin), 1_000),
+            );
+            assert_eq!(
+                result,
+                PluginAdmissionResult::LockBusy {
+                    request_id: RequestId(lock.into()),
+                    class: PluginInvocationClass::Background,
+                },
+                "a held {lock} lock"
+            );
+            // An idle worker that releases admission meanwhile consumes the
+            // armed flag and fires the notifier; either proves the wake.
+            let armed = engine
+                .inner
+                .shared
+                .admission_retry_armed
+                .load(Ordering::SeqCst);
+            assert!(
+                armed || wakes.try_recv().is_ok(),
+                "LockBusy from a held {lock} lock leaves the retry wake armed or fired"
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(PluginAdmissionResult::LockBusy {
+                request_id: RequestId("wire".into()),
+                class: PluginInvocationClass::Background,
+            })
+            .expect("encode"),
+            serde_json::json!({
+                "status": "lock_busy",
+                "request_id": "wire",
+                "class": "background",
+            })
         );
-        assert!(matches!(
-            result,
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
-        ));
     }
 
     #[test]
@@ -5095,21 +5143,21 @@ mod tests {
                 PluginInvocationClass::Background,
                 request("reg", handler(&plugin), 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
         assert!(matches!(
             engine.try_admit_while_holding_deadline_lock(
                 PluginInvocationClass::Background,
                 request("dead", handler(&plugin), 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
         assert!(matches!(
             engine.try_admit_while_holding_completion_reservation_lock(
                 PluginInvocationClass::Background,
                 request("completion", handler(&plugin), 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
         // Async admission keeps its token in the tracked job, so the
         // cancellation map is not an admission lock.
@@ -5125,7 +5173,7 @@ mod tests {
                 PluginInvocationClass::Background,
                 request("zero", handler(&plugin), 0),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
         let missing = PluginHandlerRef {
             plugin_key: plugin.clone(),
@@ -5137,7 +5185,7 @@ mod tests {
                 PluginInvocationClass::Background,
                 request("fail", missing, 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
         let missing = PluginHandlerRef {
             plugin_key: plugin,
@@ -5149,7 +5197,7 @@ mod tests {
                 PluginInvocationClass::Background,
                 request("fail-completion", missing, 1_000),
             ),
-            PluginAdmissionResult::Backpressured { reason, .. } if reason == ADMISSION_LOCK_BUSY
+            PluginAdmissionResult::LockBusy { .. }
         ));
     }
 
