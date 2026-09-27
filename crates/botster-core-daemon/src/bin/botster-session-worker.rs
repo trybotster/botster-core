@@ -102,9 +102,7 @@ fn run() -> Result<(), String> {
     let runtime_options = LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(args.shutdown_grace_ms),
         pty_reader_chunk_capacity: args.pty_reader_chunk_capacity,
-        test_hold_after_read_ms: args.test_hold_after_read_ms,
         test_pending_capacity: args.test_pending_capacity,
-        test_hold_after_enqueue_ms: args.test_hold_after_enqueue_ms,
     };
     let mut runtime =
         LocalProcessRuntime::with_options(runtime_options).with_wake_source(wakes.clone());
@@ -2161,9 +2159,7 @@ struct WorkerArgs {
     shutdown_grace_ms: u64,
     control_socket: Option<PathBuf>,
     test_fail_after_spawn: bool,
-    test_hold_after_read_ms: Option<u64>,
     test_pending_capacity: Option<usize>,
-    test_hold_after_enqueue_ms: Option<u64>,
     test_hold_before_exit_gate: Option<PathBuf>,
     test_exit_code: Option<i32>,
     ghostty_max_scrollback_bytes: usize,
@@ -2177,9 +2173,7 @@ impl WorkerArgs {
         let mut shutdown_grace_ms = 500;
         let mut control_socket = None;
         let mut test_fail_after_spawn = false;
-        let mut test_hold_after_read_ms = None;
         let mut test_pending_capacity = None;
-        let mut test_hold_after_enqueue_ms = None;
         let mut test_hold_before_exit_gate = None;
         let mut test_exit_code = None;
         let mut ghostty_max_scrollback_bytes = 10_000_000;
@@ -2211,20 +2205,10 @@ impl WorkerArgs {
                 "--test-fail-after-spawn" => {
                     test_fail_after_spawn = true;
                 }
-                "--test-hold-after-read-ms" => {
-                    index += 1;
-                    test_hold_after_read_ms =
-                        Some(parse_arg(&args, index, "--test-hold-after-read-ms")?);
-                }
                 "--test-pending-capacity" => {
                     index += 1;
                     test_pending_capacity =
                         Some(parse_arg(&args, index, "--test-pending-capacity")?);
-                }
-                "--test-hold-after-enqueue-ms" => {
-                    index += 1;
-                    test_hold_after_enqueue_ms =
-                        Some(parse_arg(&args, index, "--test-hold-after-enqueue-ms")?);
                 }
                 "--test-hold-before-exit-gate" => {
                     index += 1;
@@ -2265,9 +2249,7 @@ impl WorkerArgs {
             shutdown_grace_ms,
             control_socket,
             test_fail_after_spawn,
-            test_hold_after_read_ms,
             test_pending_capacity,
-            test_hold_after_enqueue_ms,
             test_hold_before_exit_gate,
             test_exit_code,
             ghostty_max_scrollback_bytes,

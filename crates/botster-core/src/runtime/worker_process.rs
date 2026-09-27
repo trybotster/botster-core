@@ -282,12 +282,8 @@ pub struct WorkerProcessRuntimeOptions {
     pub control_socket_dir: Option<PathBuf>,
     /// Bound for correlated worker replies and pending readback deadlines.
     pub worker_reply_timeout: Duration,
-    /// Test-only: hold after PTY read while still in the reader critical section (worker CLI).
-    pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: single-queue fence capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after fence enqueue while still critical.
-    pub test_hold_after_enqueue_ms: Option<u64>,
     /// Test-only: hold `FRAME_RESIZE_APPLIED` in the parent reader for one session.
     pub test_resize_ack_hold: Option<ResizeAckHold>,
     /// Test-only: report capture releases and PTY output routing decisions.
@@ -315,9 +311,7 @@ impl WorkerProcessRuntimeOptions {
             shutdown_grace_ms: 500,
             control_socket_dir: None,
             worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
-            test_hold_after_read_ms: None,
             test_pending_capacity: None,
-            test_hold_after_enqueue_ms: None,
             test_resize_ack_hold: None,
             test_route_probe: None,
             test_hold_before_exit_gate: None,
@@ -334,24 +328,10 @@ impl WorkerProcessRuntimeOptions {
         self
     }
 
-    /// Set the test-only after-read hold for unpublished-chunk race proofs.
-    #[must_use]
-    pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_read_ms = hold_ms;
-        self
-    }
-
     /// Set the test-only single-queue fence capacity for overflow proofs.
     #[must_use]
     pub const fn with_test_pending_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_pending_capacity = capacity;
-        self
-    }
-
-    /// Set the test-only post-enqueue hold while still under the admission fence.
-    #[must_use]
-    pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_enqueue_ms = hold_ms;
         self
     }
 
@@ -1789,20 +1769,10 @@ fn launch_worker_inner(
         .arg("--shutdown-grace-ms")
         .arg(options.shutdown_grace_ms.to_string())
         .stderr(Stdio::piped());
-    if let Some(hold_ms) = options.test_hold_after_read_ms {
-        command
-            .arg("--test-hold-after-read-ms")
-            .arg(hold_ms.to_string());
-    }
     if let Some(capacity) = options.test_pending_capacity {
         command
             .arg("--test-pending-capacity")
             .arg(capacity.to_string());
-    }
-    if let Some(hold_ms) = options.test_hold_after_enqueue_ms {
-        command
-            .arg("--test-hold-after-enqueue-ms")
-            .arg(hold_ms.to_string());
     }
     if let Some(gate) = options.test_hold_before_exit_gate.as_ref() {
         command.arg("--test-hold-before-exit-gate").arg(gate);

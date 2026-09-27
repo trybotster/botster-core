@@ -61,14 +61,8 @@ pub struct LocalProcessRuntimeOptions {
     /// critical section (lossless ordinary pressure + OS PTY backpressure). It
     /// does **not** treat capacity alone as a sticky mode-authority failure.
     pub pty_reader_chunk_capacity: usize,
-    /// Test-only: hold after a successful PTY read while still inside the reader
-    /// critical section, before leave_critical (still unpublished on the fence).
-    pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: override fence pending capacity (pressure / forced-loss proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after successful fence enqueue while still critical
-    /// (single-queue hold proofs; must stay under the fence the barrier waits on).
-    pub test_hold_after_enqueue_ms: Option<u64>,
 }
 
 impl Default for LocalProcessRuntimeOptions {
@@ -76,9 +70,7 @@ impl Default for LocalProcessRuntimeOptions {
         Self {
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
-            test_hold_after_read_ms: None,
             test_pending_capacity: None,
-            test_hold_after_enqueue_ms: None,
         }
     }
 }
@@ -351,8 +343,6 @@ impl LocalProcessRuntime {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             pending_cv: Condvar::new(),
-            test_hold_after_read_ms: self.options.test_hold_after_read_ms,
-            test_hold_after_enqueue_ms: self.options.test_hold_after_enqueue_ms,
             pending: Mutex::new(VecDeque::new()),
             pending_capacity,
             overflow_error: Mutex::new(None),
@@ -966,9 +956,6 @@ struct ReaderFence {
     cv: Condvar,
     /// Wakes the reader after drain frees fence pending capacity.
     pending_cv: Condvar,
-    test_hold_after_read_ms: Option<u64>,
-    /// Hold after successful enqueue while still in critical (tests only).
-    test_hold_after_enqueue_ms: Option<u64>,
     /// Single ownership queue for reader PTY events.
     pending: Mutex<VecDeque<ReaderEvent>>,
     pending_capacity: usize,
@@ -1516,22 +1503,12 @@ fn spawn_reader(
                 }
                 Ok(bytes_read) => {
                     let mut event = ReaderEvent::Output(buffer[..bytes_read].to_vec());
-                    if let Some(hold_ms) = reader_fence.test_hold_after_read_ms {
-                        if hold_ms > 0 {
-                            thread::sleep(Duration::from_millis(hold_ms));
-                        }
-                    }
                     // Enqueue + depth under one lock (see push_pending). On
                     // capacity pressure, leave critical before waiting so a
                     // mode barrier can progress; never block under critical.
                     loop {
                         match reader_fence.push_pending(event, &reader_pressure, capacity) {
                             Ok(()) => {
-                                if let Some(hold_ms) = reader_fence.test_hold_after_enqueue_ms {
-                                    if hold_ms > 0 {
-                                        thread::sleep(Duration::from_millis(hold_ms));
-                                    }
-                                }
                                 reader_fence.leave_critical();
                                 notify_session_wake(&wake_handle);
                                 break;
@@ -1828,8 +1805,6 @@ mod tests {
             state: Mutex::new(ReaderFenceState::default()),
             cv: Condvar::new(),
             pending_cv: Condvar::new(),
-            test_hold_after_read_ms: None,
-            test_hold_after_enqueue_ms: None,
             pending: Mutex::new(VecDeque::new()),
             pending_capacity,
             overflow_error: Mutex::new(None),
