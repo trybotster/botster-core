@@ -268,6 +268,7 @@ impl ControlWriterSlot {
     pub fn wait_stopped(&self, timeout: Duration) -> bool {
         let (slot, changed) = &*self.inner;
         let outcome = slot.lock().unwrap_or_else(|error| error.into_inner());
+        // timer: deadline — the caller's bound on the writer stopping
         let (outcome, _) = changed
             .wait_timeout_while(outcome, timeout, |outcome| {
                 matches!(outcome, ControlWriterOutcome::Running)

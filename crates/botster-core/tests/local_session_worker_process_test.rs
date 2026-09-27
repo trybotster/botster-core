@@ -12,13 +12,14 @@ use std::os::unix::net::UnixListener;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use botster_core::{
     write_startup_failure, BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine,
-    NotificationPayload, PromptMarkPayload, QueueSource, RequestId, ReservedSessionSpawnError,
-    ResizePayload, SessionId, SessionMetadata, SessionReservationRelease, SessionReservationState,
-    SessionRuntime, SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput,
-    SessionSpawnRequest, SpawnEnvironment, SpawnWorkingDirectory, StartupFailureOutcome,
-    StartupFailureReport, SubscriptionId, TerminalMetadataShapingObservation,
-    TerminalMetadataShapingOutcome, TerminalWakeSource, TransportEgress, WorkerBackedBotsterEngine,
-    WorkerProcessRuntime, WorkerProcessRuntimeOptions, WorkerRouteProbe, WorkerRouteProbeEvent,
+    NotificationPayload, PromptMarkPayload, PtyOutputRouting, QueueSource, RequestId,
+    ReservedSessionSpawnError, ResizePayload, SessionId, SessionMetadata,
+    SessionReservationRelease, SessionReservationState, SessionRuntime, SessionRuntimeErrorKind,
+    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment,
+    SpawnWorkingDirectory, StartupFailureOutcome, StartupFailureReport, SubscriptionId,
+    TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalWakeSource,
+    TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
+    WorkerRouteProbe, WorkerRouteProbeEvent,
 };
 use botster_core_test_support::bounded_wait::wait_for;
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
@@ -696,13 +697,16 @@ fn detaching_one_client_does_not_starve_other_subscribers() {
 fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let mut options = worker_options();
     options.egress_capacity = 2;
+    let (probe, probe_events) = WorkerRouteProbe::channel();
+    options.test_route_probe = Some(probe);
     let wakes = TerminalWakeSource::new();
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-detach-reattach");
 
-    // The child reports when its loop is done. Its PTY is far smaller than the
-    // 2000 lines, so by then the worker has read them and the two-slot parent
-    // channel, with no consumer attached, has overflowed.
+    // The child reports when its loop is done. Child completion does not
+    // prove parent pressure (bytes may still sit in the PTY, the worker, or
+    // the socket), so the test then waits for the parent reader's own Dropped
+    // decision: the two-slot channel, with no consumer, has overflowed.
     let produced = Fifo::new("worker-detach-produced");
     runtime
         .spawn_session(shell_request(
@@ -718,6 +722,21 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
         .detach_consumer(&session)
         .expect("detach parent-side consumer without protocol frame");
     let _ = produced.read_signal(Duration::from_secs(10));
+    loop {
+        // timer: deadline — the parent must record overflow within the bound
+        let event = probe_events
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the detached parent reader drops output on a full channel");
+        if matches!(
+            &event,
+            WorkerRouteProbeEvent::PtyOutputRouted {
+                session_id,
+                routing: PtyOutputRouting::Dropped,
+            } if *session_id == session
+        ) {
+            break;
+        }
+    }
     let detached = runtime
         .drain_output(&session)
         .expect("detached drain should not block worker");
