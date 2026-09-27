@@ -307,7 +307,12 @@ impl DeliveryPool {
     /// if the call is unknown or its result was already admitted (its unit
     /// then returns when that result's completion drains).
     pub fn release_call(&self, call: CallId) -> bool {
-        self.inner.return_unit(call, Phase::Accepted)
+        let released = self.inner.return_unit(call, Phase::Accepted);
+        #[cfg(test)]
+        if let Some(hook) = RELEASE_STEP_END.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
+        released
     }
 
     /// Run `notifier` once per returned unit, outside every engine lock.
@@ -331,6 +336,16 @@ impl DeliveryPool {
             self.inner.request_bytes - state.used_bytes,
         )
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once at the end of a release step. In the fixed
+    /// release the phase check and the removal are one step, so this runs
+    /// after both; a release split into check-then-remove would run it in
+    /// the gap.
+    pub(super) static RELEASE_STEP_END: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Return the units whose result completions were just drained.

@@ -304,6 +304,10 @@ struct EngineShared {
     /// Test seam: hold a worker shutdown right after it cancelled its tokens.
     #[cfg(test)]
     shutdown_pause: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
+    /// Test seam: hold a pool result admission after it released every
+    /// engine lock and before it returns.
+    #[cfg(test)]
+    pool_admit_pause: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
 }
 
 /// Test seam: when installed, the deadline waiter takes the permit of a
@@ -530,6 +534,8 @@ impl PluginWorkerEngine {
             deadline_permits: Mutex::new(None),
             #[cfg(test)]
             shutdown_pause: Mutex::new(None),
+            #[cfg(test)]
+            pool_admit_pause: Mutex::new(None),
         });
         let waiter_shared = shared.clone();
         let waiter = std::thread::Builder::new()
@@ -2817,6 +2823,11 @@ fn admit_pool_result(
             )
         }
     };
+    // Nothing below can fail. Commit the unit as admitted before the job or
+    // its completion can become visible to an executor or a drain, so the
+    // drain that hands out its completion always finds it Admitted. The pool
+    // lock is a leaf: it never takes an engine lock.
+    pool.end_admit(call, true);
 
     let request_id = request.request_id.clone();
     let cancellation = PluginCancellationToken::new();
@@ -2859,18 +2870,27 @@ fn admit_pool_result(
     drop(deadlines);
     drop(completions);
     drop(admission);
+    #[cfg(test)]
+    {
+        let pause = shared
+            .pool_admit_pause
+            .lock()
+            .expect("pool admit pause")
+            .take();
+        if let Some((reached, release)) = pause {
+            let _ = reached.send(());
+            let _ = release.recv();
+        }
+    }
     if published {
         notify_completion(shared);
     }
-    finish(
-        true,
-        PluginAdmissionResult::Queued {
-            request_id,
-            class,
-            queue_bytes,
-            reservation_bytes: charged_bytes,
-        },
-    )
+    PluginAdmissionResult::Queued {
+        request_id,
+        class,
+        queue_bytes,
+        reservation_bytes: charged_bytes,
+    }
 }
 
 fn is_background(class: PluginInvocationClass) -> bool {
