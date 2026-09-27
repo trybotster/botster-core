@@ -620,6 +620,13 @@ impl DefaultBotsterEngine {
         self.runtime.pending_terminal_resize_len(session_id)
     }
 
+    /// Whether the session holds output back for a full progressing route.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn session_output_held(&self, session_id: &SessionId) -> bool {
+        self.runtime.session_output_held(session_id)
+    }
+
     /// Shared wake source for tests and host wait loops.
     #[must_use]
     pub fn wake_source(&self) -> &TerminalWakeSource {
@@ -1289,6 +1296,13 @@ impl WorkerBackedBotsterEngine {
         self.runtime.pending_terminal_resize_len(session_id)
     }
 
+    /// Whether the session holds output back for a full progressing route.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn session_output_held(&self, session_id: &SessionId) -> bool {
+        self.runtime.session_output_held(session_id)
+    }
+
     /// Shared wake source for tests and host wait loops.
     #[must_use]
     pub fn wake_source(&self) -> &TerminalWakeSource {
@@ -1582,6 +1596,21 @@ impl WorkerBackedBotsterEngine {
             self.start_next_capture(session_id)?;
             return Ok(output);
         };
+        // Output held back for a full route precedes this capture's boundary
+        // in the stream, and the boundary's own output cannot be held back.
+        // Route the held output first, under backpressure; take the boundary
+        // only once nothing is held, so it finds room.
+        if self.runtime.session_output_held(session_id) {
+            let output = self
+                .runtime
+                .route_held_output_once(session_id, last_output_at);
+            self.captures.insert(session_id.clone(), capture);
+            if !self.runtime.session_output_held(session_id) {
+                // No later wake would take the boundary.
+                self.runtime.wake_source().notify_session(session_id);
+            }
+            return output;
+        }
         let poll = match self
             .runtime
             .session_runtime_mut()
