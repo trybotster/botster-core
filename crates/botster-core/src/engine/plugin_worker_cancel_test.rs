@@ -181,3 +181,72 @@ fn a_panicking_target_does_not_stop_later_deadlines() {
     assert_eq!(timed_out, ["first", "second"]);
     drop(ManuallyDrop::into_inner(engine));
 }
+
+/// Unloading seals WorkerStopped before it cancels running tokens, so a
+/// runtime that returns at once on the cancel cannot win the first-commit
+/// race: shutdown is held right after its cancel until the runtime's own
+/// result was attempted, and only WorkerStopped is published.
+#[test]
+fn unloading_seals_worker_stopped_before_a_prompt_runtime_answers() {
+    let engine = ManuallyDrop::new(PluginWorkerEngine::new());
+    let permits = engine.gate_deadlines();
+    let plugin = PluginKey("unload-order".into());
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let runtime = Arc::new(CancelWaitRuntime {
+        extras: Mutex::new(Vec::new()),
+        permits: permits.clone(),
+    });
+    engine.load_plugin(registration(&plugin, runtime));
+    admit(&engine, &plugin, "running", 600_000);
+    // The runtime grants this permit once it has subscribed, i.e. it runs.
+    permits.take(&RequestId("running".into()));
+    engine.install_completion_notifier(Arc::new(move || {
+        let _ = returned_tx.send(());
+    }));
+    let (reached_tx, reached_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    *engine
+        .inner
+        .shared
+        .shutdown_pause
+        .lock()
+        .expect("shutdown pause") = Some((reached_tx, release_rx));
+
+    let unloading = {
+        let engine = PluginWorkerEngine::clone(&engine);
+        let plugin = plugin.clone();
+        std::thread::spawn(move || {
+            engine.unload_plugin(PluginUnloadSpec {
+                request_id: RequestId("unload".into()),
+                plugin_key: plugin,
+                cleanup: PluginCleanupScope::DescriptorsAndResources,
+            })
+        })
+    };
+    // timer: deadline — shutdown reaches its post-cancel pause; expiry fails the test
+    reached_rx
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("shutdown cancelled its tokens");
+    // timer: deadline — a completion was published; expiry fails the test
+    returned_rx
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("a completion is published");
+    let _ = release_tx.send(());
+    unloading.join().expect("unload");
+
+    let drained = engine.drain_completions(usize::MAX, usize::MAX).completions;
+    assert!(
+        matches!(
+            drained.as_slice(),
+            [PluginCompletionItem {
+                completion: PluginCompletion {
+                    result: PluginInvocationResult::Failed(failure),
+                    ..
+                },
+                ..
+            }] if failure.kind == PluginInvocationFailureKind::WorkerStopped
+        ),
+        "only WorkerStopped is published: {drained:?}"
+    );
+    drop(ManuallyDrop::into_inner(engine));
+}
