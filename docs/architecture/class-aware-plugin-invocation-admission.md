@@ -275,7 +275,8 @@ mutex**. Use `try_lock` on the worker registry and the per-plugin admission
 state.
 
 ```text
-if any required try_lock fails -> Backpressured (reason: admission lock busy)
+if any required try_lock fails, arm the retry wake and retry once;
+   if it fails again -> LockBusy (the wake is armed or has fired)
 if worker missing or stopping -> WorkerStopped
 if queue_bytes > class.queue_byte_capacity -> RejectedBudget
 if reservation_bytes > completion_reservation_byte_capacity -> RejectedBudget
