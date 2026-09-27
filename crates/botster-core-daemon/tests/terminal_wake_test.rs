@@ -2253,26 +2253,44 @@ fn finish_short_lived_runtime_setup(daemon: &mut CoreDaemon, session_id: &Sessio
     consume_runtime_ingress_wakes(daemon, session_id);
 }
 
-fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
-    let deadline = Instant::now() + Duration::from_secs(8);
-    loop {
-        assert!(
-            Instant::now() < deadline,
-            "observe did not commit Exited without a pump"
-        );
+/// Observe `session_id` without pumping until `done`, waiting for a wake
+/// between observes. The child's exit and its PTY end each wake the session
+/// once visible, so an observe that misses them is followed by a wake.
+fn observe_until(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    now: u64,
+    what: &str,
+    mut done: impl FnMut(&mut CoreDaemon) -> bool,
+) {
+    wait_for(what, Duration::from_secs(8), |remaining| {
         daemon
             .observe_session_lifecycle(session_id, now)
-            .expect("observe until exit");
-        if matches!(
-            daemon
-                .session_registry_state(session_id)
-                .expect("registry after observe"),
-            SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
-        ) {
-            return;
+            .expect("observe without a pump");
+        if done(daemon) {
+            return Some(());
         }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+        // timer: deadline — wait_for's bound limits this wait
+        let _ = daemon.wait_wakes(remaining);
+        None
+    });
+}
+
+fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &SessionId, now: u64) {
+    observe_until(
+        daemon,
+        session_id,
+        now,
+        "observe committing Exited without a pump",
+        |daemon| {
+            matches!(
+                daemon
+                    .session_registry_state(session_id)
+                    .expect("registry after observe"),
+                SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+            )
+        },
+    );
 }
 
 fn adapter_has_process_exit(adapter: &SharedFakeTerminalAdapter) -> bool {
@@ -3159,19 +3177,17 @@ fn outside_pump_observe_hard_stop_wakes_without_later_traffic() {
     wait_for_done_signal(&produced);
     let _ = cleanup.daemon().wait_wakes(Duration::from_secs(1));
     drain_follow_up_wakes(cleanup.daemon());
-    let deadline = Instant::now() + Duration::from_secs(8);
-    while cleanup
-        .daemon()
-        .terminal_subscription_generation(&session_id, &subscription_id)
-        .is_some()
-    {
-        assert!(Instant::now() < deadline, "observe did not hard-stop route");
-        cleanup
-            .daemon()
-            .observe_session_lifecycle(&session_id, 3)
-            .expect("observe output outside pump");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    observe_until(
+        cleanup.daemon(),
+        &session_id,
+        3,
+        "observe hard-stopping the route",
+        |daemon| {
+            daemon
+                .terminal_subscription_generation(&session_id, &subscription_id)
+                .is_none()
+        },
+    );
     assert!(cleanup
         .daemon()
         .terminal_subscription_generation(&session_id, &subscription_id)
