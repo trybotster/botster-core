@@ -11,6 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use botster_core::ManagedSessionRuntimeError;
 use botster_core::{
     write_startup_failure, BackpressureSummary, CoreSessionMetadata, DefaultBotsterEngine,
     NotificationPayload, PromptMarkPayload, PtyOutputRouting, QueueSource, RequestId,
@@ -21,9 +22,6 @@ use botster_core::{
     TerminalMetadataShapingObservation, TerminalMetadataShapingOutcome, TerminalWakeSource,
     TransportEgress, WorkerBackedBotsterEngine, WorkerProcessRuntime, WorkerProcessRuntimeOptions,
     WorkerRouteProbe, WorkerRouteProbeEvent,
-};
-use botster_core::{
-    ClientStreamObservation, MultiplexerEngineObservation, SubscriptionMultiplexerObservation,
 };
 use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
@@ -1023,28 +1021,20 @@ fn takeover_then_full_detach_restores_overflow_progress() {
         .detach_client(second.clone(), session.clone(), subscription, 12)
         .expect("full detach after takeover");
 
-    // The fully detached client's input is refused: typed as an
-    // observation on an Ok result, and it never reaches the PTY.
-    let refused = engine
-        .write_bytes(
-            second.clone(),
-            session.clone(),
-            b"FROM-DETACHED\n".to_vec(),
-            30,
-        )
-        .expect("write bytes");
+    // The fully detached client's input is refused, typed; it never reaches
+    // the PTY.
+    let refused = engine.write_bytes(
+        second.clone(),
+        session.clone(),
+        b"FROM-DETACHED\n".to_vec(),
+        30,
+    );
     assert!(
-        refused.observations.iter().any(|observation| matches!(
-            observation,
-            MultiplexerEngineObservation::Subscription(
-                SubscriptionMultiplexerObservation::ClientStream {
-                    observation: ClientStreamObservation::DroppedUnsubscribedInput { .. },
-                    ..
-                }
-            )
-        )),
-        "a detached client's input is reported dropped: {:?}",
-        refused.observations
+        matches!(
+            &refused,
+            Err(ManagedSessionRuntimeError::NotSubscribed { client_id, .. }) if *client_id == second
+        ),
+        "a detached client's input is refused typed: {refused:?}"
     );
     // With no consumer left, output that meets the full channel is dropped,
     // not stalled on a route that no longer exists.

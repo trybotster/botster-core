@@ -2074,3 +2074,98 @@ fn supervised_session_does_not_add_pushed_terminal_mode_event_variants() {
         assert!(!transport_source.contains(pushed_variant));
     }
 }
+
+fn unsubscribe(runtime: &mut ManagedSessionRuntime<FakeSessionRuntime>) {
+    runtime
+        .handle_client_ingress(
+            client_id("client-a"),
+            TransportIngress::UnsubscribeSession {
+                client_id: client_id("client-a"),
+                session_id: session_id(),
+                subscription_id: subscription_id("sub-a"),
+            },
+            11,
+        )
+        .expect("unsubscribe client");
+}
+
+fn delivered_inputs(
+    runtime: &ManagedSessionRuntime<FakeSessionRuntime>,
+) -> Vec<SessionRuntimeInput> {
+    runtime
+        .session_runtime()
+        .inputs()
+        .iter()
+        .filter(|input| {
+            matches!(
+                input,
+                SessionRuntimeInput::PtyInput { .. } | SessionRuntimeInput::Resize { .. }
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+/// Input and resize from a client with no route on the session are refused
+/// with a typed NotSubscribed, and nothing reaches the session runtime: an
+/// Ok that loses the bytes is not allowed.
+#[test]
+fn input_and_resize_from_an_unsubscribed_client_are_refused_typed() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    unsubscribe(&mut runtime);
+
+    for ingress in [
+        TransportIngress::TerminalInput {
+            session_id: session_id(),
+            data: b"after-detach\n".to_vec(),
+        },
+        TransportIngress::Resize {
+            session_id: session_id(),
+            rows: 30,
+            cols: 100,
+        },
+    ] {
+        let refused = runtime.handle_client_ingress(client_id("client-a"), ingress, 12);
+        assert!(
+            matches!(
+                &refused,
+                Err(ManagedSessionRuntimeError::NotSubscribed { client_id: refused_client, session_id: refused_session })
+                    if *refused_client == client_id("client-a") && *refused_session == session_id()
+            ),
+            "unsubscribed ingress is refused typed: {refused:?}"
+        );
+    }
+    assert!(
+        delivered_inputs(&runtime).is_empty(),
+        "nothing reaches the session runtime"
+    );
+}
+
+/// Input accepted while the client is subscribed is delivered even when the
+/// client detaches right after: accepted means delivered, never Ok and then
+/// dropped.
+#[test]
+fn input_accepted_before_a_detach_is_delivered() {
+    let mut runtime = managed_runtime();
+    subscribe(&mut runtime);
+    runtime
+        .handle_client_ingress(
+            client_id("client-a"),
+            TransportIngress::TerminalInput {
+                session_id: session_id(),
+                data: b"in-flight\n".to_vec(),
+            },
+            12,
+        )
+        .expect("input from a subscribed client is accepted");
+    unsubscribe(&mut runtime);
+    assert!(
+        delivered_inputs(&runtime).iter().any(|input| matches!(
+            input,
+            SessionRuntimeInput::PtyInput { data, .. } if data == b"in-flight\n"
+        )),
+        "accepted input reached the session runtime: {:?}",
+        delivered_inputs(&runtime)
+    );
+}

@@ -91,6 +91,48 @@ pub enum ManagedSessionRuntimeError {
         /// Backend-owned error message.
         message: String,
     },
+    /// The client has no active subscription on the session: its terminal
+    /// input or resize was refused and never reached the session.
+    #[error("client {} is not subscribed to session {}", client_id.0, session_id.0)]
+    NotSubscribed {
+        /// Client whose ingress was refused.
+        client_id: ClientId,
+        /// Session the ingress named.
+        session_id: SessionId,
+    },
+}
+
+/// Refuse terminal input or resize from a client with no active route on
+/// the session. The stream still records the drop as an observation (a
+/// diagnostic counter); the Result is the contract: never Ok with the
+/// bytes lost.
+fn refuse_unsubscribed_ingress(
+    client_id: &ClientId,
+    outcome: &MultiplexerEngineOutcome,
+) -> Result<(), ManagedSessionRuntimeError> {
+    for observation in &outcome.observations {
+        if let MultiplexerEngineObservation::Subscription(
+            crate::engine::subscription_multiplexer::SubscriptionMultiplexerObservation::ClientStream {
+                client_id: observed,
+                observation:
+                    crate::contract::client_stream::ClientStreamObservation::DroppedUnsubscribedInput {
+                        session_id,
+                    }
+                    | crate::contract::client_stream::ClientStreamObservation::DroppedUnsubscribedResize {
+                        session_id,
+                    },
+            },
+        ) = observation
+        {
+            if observed == client_id {
+                return Err(ManagedSessionRuntimeError::NotSubscribed {
+                    client_id: client_id.clone(),
+                    session_id: session_id.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 type TerminalBackendFactory<T> =
@@ -1178,6 +1220,7 @@ where
                     return Err(error.into());
                 }
             };
+        refuse_unsubscribed_ingress(&client_id, &outcome)?;
         let mut extra_teardowns = Vec::new();
         if let TransportIngress::SubscribeSession {
             client_id: ref subscribe_client,
@@ -1229,18 +1272,20 @@ where
         };
         let backend_operation = terminal_backend_ingress_operation(&ingress);
         let resize = matches!(ingress, TransportIngress::Resize { .. });
-        let outcome = match self
-            .engine
-            .handle_client_ingress(client_id, ingress, now_seconds)
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                if let Some((backend_session_id, operation)) = backend_operation {
-                    self.ensure_terminal_backend_ok(&backend_session_id, operation)?;
+        let outcome =
+            match self
+                .engine
+                .handle_client_ingress(client_id.clone(), ingress, now_seconds)
+            {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    if let Some((backend_session_id, operation)) = backend_operation {
+                        self.ensure_terminal_backend_ok(&backend_session_id, operation)?;
+                    }
+                    return Err(error.into());
                 }
-                return Err(error.into());
-            }
-        };
+            };
+        refuse_unsubscribed_ingress(&client_id, &outcome)?;
         if let Err(error) = self.flush_runtime_inputs_for_session(&session_id) {
             if !error.message.contains("control queue full") {
                 return Err(error.into());
