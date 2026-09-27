@@ -220,13 +220,13 @@ pub use engine::{
     ManagedSessionRuntime, ManagedSessionRuntimeError, MultiplexerEngine, MultiplexerEngineError,
     MultiplexerEngineObservation, MultiplexerEngineOutcome, MultiplexerSpawnOutcome,
     PluginCompletionNotifier, PluginDeliveryQuota, PluginHandlerRegistration,
-    PluginInvocationOutcome, PluginTimerDrainOutcome, PluginTimerScheduleOutcome,
-    PluginTimerScheduler, PluginWorkerDebugSnapshot, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerPluginDebugSnapshot, PluginWorkerRegistration, PoolOverdraw, RoutedEnvelopeRouter,
-    SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent,
-    SubscriptionMultiplexer, SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome,
-    TerminalScreenEngine, TerminalScreenOutcome, TerminalScreenRuntime, UnitReturnedNotifier,
-    ENGINE_COMMAND_KINDS,
+    PluginInvocationOutcome, PluginQueueProbe, PluginQueueProbeEvent, PluginTimerDrainOutcome,
+    PluginTimerScheduleOutcome, PluginTimerScheduler, PluginWorkerDebugSnapshot,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerPluginDebugSnapshot,
+    PluginWorkerRegistration, PoolOverdraw, RoutedEnvelopeRouter, SessionWorkerEngine,
+    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
+    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
+    TerminalScreenOutcome, TerminalScreenRuntime, UnitReturnedNotifier, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{
