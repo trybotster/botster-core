@@ -2653,26 +2653,18 @@ fn connect_spawned_worker_socket(
     path: &std::path::Path,
     pending_worker: &mut PendingWorker,
 ) -> Result<UnixStream, SessionRuntimeError> {
-    let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
-    loop {
-        if let Some(diagnostic) = pending_worker.exited_diagnostic() {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SpawnFailed,
-                format!("connect worker control socket failed: {diagnostic}"),
-            ));
-        }
-        let error = match UnixStream::connect(path) {
-            Ok(stream) => return Ok(stream),
-            Err(error) => error,
-        };
-        if Instant::now() >= deadline {
-            return Err(SessionRuntimeError::new(
-                SessionRuntimeErrorKind::SpawnFailed,
-                format!("connect worker control socket failed: {error}"),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+    // The worker binds and listens before it reports readiness, and the
+    // caller waited for that report: one connect either succeeds or finds
+    // the worker gone. There is nothing to retry.
+    UnixStream::connect(path).map_err(|error| {
+        let detail = pending_worker
+            .exited_diagnostic()
+            .unwrap_or_else(|| error.to_string());
+        SessionRuntimeError::new(
+            SessionRuntimeErrorKind::SpawnFailed,
+            format!("connect worker control socket failed: {detail}"),
+        )
+    })
 }
 
 #[cfg(unix)]
