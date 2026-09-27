@@ -16,7 +16,7 @@ use botster_core_daemon::{
     ResizeAckHold, SessionLifecycleChangeKind, SessionLifecycleLookup, SessionRegistryStateLookup,
     SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
-use botster_core_test_support::bounded_wait::wait_for;
+use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
 use botster_core_test_support::fixture_gate::Fifo;
 use botster_core_test_support::terminal_adapter::{
     DeliveredFrame, SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
@@ -491,8 +491,14 @@ fn sustained_wake_producer_cannot_extend_the_post_stop_loop() {
 #[test]
 fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let data_dir = temp_data_dir("interrupt-shutdown");
-    let mut daemon =
-        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    // The property is order and preservation under interrupts, not the
+    // grace: the grace is the hang guard, so the daemon's own 2 s shutdown
+    // deadline is the only bound on the cooperating fixture.
+    let mut daemon = CoreDaemon::new(
+        CoreDaemonConfig::new(&data_dir)
+            .with_worker_path(worker_path())
+            .with_test_shutdown_grace_ms(Some(HANG_GUARD.as_millis() as u64)),
+    );
     let session_id = SessionId("interrupt-shutdown-session".into());
     let client_id = ClientId("interrupt-shutdown-client".into());
     let subscription_id = SubscriptionId("interrupt-shutdown-sub".into());
@@ -603,10 +609,10 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     let releaser_control = control.clone();
     let during = std::sync::Arc::clone(&interrupt_count);
     let releaser = std::thread::spawn(move || {
-        let _ = terminated.read_signal(Duration::from_secs(5));
+        let _ = terminated.read_signal(HANG_GUARD);
         releaser_control.interrupt();
         during.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        gate.release(Duration::from_secs(5));
+        gate.release(HANG_GUARD);
     });
     let (returned_sender, returned) = std::sync::mpsc::channel::<()>();
     let watchdog = std::thread::spawn(move || {
