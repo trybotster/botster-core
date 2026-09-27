@@ -379,7 +379,10 @@ impl DisposableCommandLocalSession {
             {
                 return Ok(combined);
             }
-            std::thread::sleep(Duration::from_millis(20));
+            // timer: deadline — the loop's bound; the next wake ends the wait early
+            let _ = self
+                .engine
+                .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
 
         Err(EngineConformanceError::Timeout {
@@ -734,7 +737,10 @@ pub fn run_adversarial_hot_path_load(
         }
 
         if output.client_egress.is_empty() && output.session_events.is_empty() {
-            std::thread::sleep(Duration::from_millis(10));
+            // timer: deadline — the loop's bound; the next wake ends the wait early
+            let _ = harness
+                .engine
+                .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
 
@@ -833,7 +839,10 @@ fn drain_remaining_adversarial_load(
         }
 
         if output.client_egress.is_empty() && output.session_events.is_empty() {
-            std::thread::sleep(Duration::from_millis(10));
+            // timer: deadline — the loop's bound; the next wake ends the wait early
+            let _ = harness
+                .engine
+                .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
 
@@ -1416,7 +1425,10 @@ fn drain_control_until_input_echo(
         {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(10));
+        // timer: deadline — the loop's bound; the next wake ends the wait early
+        let _ = harness
+            .engine
+            .wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     Err(EngineConformanceError::Timeout {
@@ -1452,7 +1464,10 @@ fn cleanup_adversarial_sessions(
             break;
         }
         control_cleaned_up = drain_control_cleanup_once(harness, control, report)?;
-        std::thread::sleep(Duration::from_millis(10));
+        // timer: deadline — the loop's bound; the next wake ends the wait early
+        let _ = harness
+            .engine
+            .wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     let mut live = harness
@@ -1579,7 +1594,10 @@ fn drain_many_pty_sessions(
         }
 
         if !made_progress {
-            std::thread::sleep(Duration::from_millis(10));
+            // timer: deadline — the loop's bound; the next wake ends the wait early
+            let _ = harness
+                .engine
+                .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
 
@@ -1806,7 +1824,11 @@ impl DisposableManagedLocalSession {
         require_local_pty().map_err(EngineConformanceError::Skipped)?;
 
         let session_id = request.session_id.clone();
-        let mut runtime = ManagedSessionRuntime::new(LocalProcessRuntime::new());
+        // Share one wake source so drain loops can wait for runtime output.
+        let wakes = botster_core::TerminalWakeSource::new();
+        let mut runtime =
+            ManagedSessionRuntime::new(LocalProcessRuntime::new().with_wake_source(wakes.clone()))
+                .with_shared_wake_source(wakes);
         runtime.spawn_session(request, metadata)?;
 
         Ok(Self {
@@ -1924,7 +1946,10 @@ impl DisposableManagedLocalSession {
             {
                 return Ok(combined);
             }
-            std::thread::sleep(Duration::from_millis(20));
+            // timer: deadline — the loop's bound; the next wake ends the wait early
+            let _ = self
+                .runtime
+                .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
 
         Err(EngineConformanceError::Timeout {
