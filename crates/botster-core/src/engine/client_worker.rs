@@ -62,6 +62,10 @@ const WRITE_ATTEMPT_BUDGET: usize = 512;
 /// posts no writable wake and nothing else can observe it. The deadline is
 /// part of the host wait (see [`ClientWorker::next_reader_deadline`]), so a
 /// dead reader is closed even when the session produces nothing more.
+/// The detail of the result that fails an input operation still queued when
+/// its session ends.
+const SESSION_ENDED_DETAIL: &str = "session ended before the operation ran";
+
 pub(crate) const READER_PROGRESS_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What woke a route pump.
@@ -669,6 +673,37 @@ impl ClientWorker {
             !governs
                 || (owner.queue.len().saturating_add(frames) <= MAX_ROUTE_EGRESS_FRAMES
                     && owner.queued_bytes.saturating_add(bytes) <= MAX_ROUTE_EGRESS_BYTES)
+        })
+    }
+
+    /// Whether every governing route of `session_id` has room for the
+    /// session's whole exit sequence: a `SessionEnded` INPUT_RESULT for each
+    /// input operation it has queued, then the `exit_len`-byte PROCESS_EXIT.
+    /// The routes govern as in [`Self::session_output_has_room`].
+    #[must_use]
+    pub fn session_exit_has_room(&self, session_id: &SessionId, exit_len: usize) -> bool {
+        let result_len = encode_input_result(&InputResultBody {
+            operation_id: u64::MAX,
+            outcome: InputOutcome::SessionEnded,
+            accepted_payload_bytes: Some(0),
+            written_pty_bytes: Some(0),
+            mode_bits: u32::MAX,
+            detail: bounded_detail(SESSION_ENDED_DETAIL),
+        })
+        .map_or(0, |frame| frame.len());
+        self.live.iter().all(|(key, owner)| {
+            let governs = &key.session_id == session_id
+                && owner.adapter.is_some()
+                && !owner.awaiting_capture
+                && !owner.terminal_enqueued;
+            let results = owner.input_queue.len();
+            !governs
+                || (owner.queue.len().saturating_add(results + 1) <= MAX_ROUTE_EGRESS_FRAMES
+                    && owner
+                        .queued_bytes
+                        .saturating_add(exit_len)
+                        .saturating_add(results.saturating_mul(result_len))
+                        <= MAX_ROUTE_EGRESS_BYTES)
         })
     }
 
@@ -2419,7 +2454,7 @@ impl ClientWorker {
                     &key,
                     input.operation_id,
                     InputOutcome::SessionEnded,
-                    "session ended before the operation ran",
+                    SESSION_ENDED_DETAIL,
                 ) {
                     if let Some(teardown) = ended.or_else(|| {
                         self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded)

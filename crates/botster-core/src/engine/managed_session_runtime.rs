@@ -1795,9 +1795,8 @@ where
     ///
     /// A PTY chunk becomes one OUTPUT frame. Where the in-process terminal
     /// model publishes modes, the chunk can also publish a MODES frame ahead
-    /// of its OUTPUT, so it needs room for both. A process exit becomes one
-    /// PROCESS_EXIT frame: it must follow all queued output without an
-    /// overflow, which would drop that output.
+    /// of its OUTPUT, so it needs room for both. A process exit is sized per
+    /// route by [`Self::output_fits`].
     fn bound_room_need(
         &self,
         session_id: &SessionId,
@@ -1831,14 +1830,28 @@ where
                 1,
                 frame_len(botster_terminal_protocol::encode_modes(*modes)),
             )),
-            SessionRuntimeOutput::ProcessExited { payload, .. } => Some((
-                1,
-                frame_len(botster_terminal_protocol::encode_process_exit(
-                    payload.exit_code,
-                )),
-            )),
             _ => None,
         }
+    }
+
+    /// Whether every governing route of the session has room for `output`.
+    ///
+    /// A process exit needs room on each route for its whole sequence: a
+    /// failed INPUT_RESULT for each input operation that route still queues,
+    /// then PROCESS_EXIT. An overflow there would drop queued output.
+    fn output_fits(&self, session_id: &SessionId, output: &SessionRuntimeOutput) -> bool {
+        if let SessionRuntimeOutput::ProcessExited { payload, .. } = output {
+            let exit_len = botster_terminal_protocol::encode_process_exit(payload.exit_code)
+                .map_or(0, |frame| frame.len());
+            return self
+                .client_worker
+                .session_exit_has_room(session_id, exit_len);
+        }
+        self.bound_room_need(session_id, output)
+            .is_none_or(|(frames, bytes)| {
+                self.client_worker
+                    .session_output_has_room(session_id, frames, bytes)
+            })
     }
 
     /// Route runtime outputs in stream order. With `backpressure`, an output
@@ -1859,18 +1872,11 @@ where
         // receive the binary frame here, once per event; the multiplexer path
         // below serves unbound drain consumers.
         while let Some(output) = outputs.pop_front() {
-            if backpressure {
-                if let Some((frames, bytes)) = self.bound_room_need(session_id, &output) {
-                    if !self
-                        .client_worker
-                        .session_output_has_room(session_id, frames, bytes)
-                    {
-                        outputs.push_front(output);
-                        self.held_runtime_output
-                            .insert(session_id.clone(), std::mem::take(&mut outputs));
-                        break;
-                    }
-                }
+            if backpressure && !self.output_fits(session_id, &output) {
+                outputs.push_front(output);
+                self.held_runtime_output
+                    .insert(session_id.clone(), std::mem::take(&mut outputs));
+                break;
             }
             let runtime_event = match output {
                 SessionRuntimeOutput::ModesChanged { session_id, modes } => {
@@ -2073,11 +2079,7 @@ where
         for (session_id, held) in &self.held_runtime_output {
             let fits = held
                 .front()
-                .and_then(|output| self.bound_room_need(session_id, output))
-                .is_none_or(|(frames, bytes)| {
-                    self.client_worker
-                        .session_output_has_room(session_id, frames, bytes)
-                });
+                .is_none_or(|output| self.output_fits(session_id, output));
             if fits {
                 self.wake_source.notify_session(session_id);
             }
