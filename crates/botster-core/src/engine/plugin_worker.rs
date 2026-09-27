@@ -870,6 +870,7 @@ impl PluginWorkerEngine {
         }
         worker.work_signal.notify();
 
+        // timer: deadline — the invocation's own timeout_ms
         match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
             Ok(result) => PluginInvocationOutcome::new(result),
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -4569,6 +4570,7 @@ mod tests {
             PluginAdmissionResult::Queued { .. }
         ));
         entered_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("handler entered");
         {
@@ -4582,6 +4584,7 @@ mod tests {
         }
         engine.inner.shared.deadline_signal.notify();
         sealed_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("real deadline waiter sealed before publication");
         assert_eq!(
@@ -4592,6 +4595,7 @@ mod tests {
         if publish_before_retire {
             resume.send(()).expect("publish before retire");
             notified_rx
+                // timer: deadline — expiry fails the test
                 .recv_timeout(Duration::from_secs(5))
                 .expect("deadline published");
         }
@@ -4607,6 +4611,7 @@ mod tests {
         );
         publish_immediate_failure(&engine, &plugin, "same");
         notified_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("replacement published");
         assert_eq!(completion_store_counts(&engine).2, 2);
@@ -4632,6 +4637,7 @@ mod tests {
             );
             resume.send(()).expect("publish into retired generation");
             notified_rx
+                // timer: deadline — expiry fails the test
                 .recv_timeout(Duration::from_secs(5))
                 .expect("late deadline published");
         }
@@ -5016,6 +5022,7 @@ mod tests {
         ));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(100))
             .expect("completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");
@@ -5052,6 +5059,7 @@ mod tests {
         ));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(250))
             .expect("completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");
@@ -5083,6 +5091,7 @@ mod tests {
         }));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(100))
             .expect("reconciled completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");

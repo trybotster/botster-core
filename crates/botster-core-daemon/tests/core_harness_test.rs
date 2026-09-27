@@ -353,7 +353,8 @@ fn wait_for_state(
                 .failure(step, "deadline passed")
                 .with_timing(STEP_DEADLINE, started));
         }
-        let batch = daemon.wait_wakes(Duration::from_millis(100));
+        // timer: deadline — the step's remaining bound; the next wake ends the wait early
+        let batch = daemon.wait_wakes(STEP_DEADLINE.saturating_sub(started.elapsed()));
         daemon
             .pump_woken(&batch, 10)
             .map_err(|error| observer.failure(step, format!("wake pump failed: {error}")))?;

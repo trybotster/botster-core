@@ -1160,6 +1160,7 @@ fn http_runtime_submit_returns_while_transport_blocks_on_worker_thread() {
         "submit must not block on transport execution"
     );
     started_receiver
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_millis(250))
         .expect("transport runs on background worker");
 
@@ -1292,6 +1293,7 @@ fn http_runtime_timeout_cancels_in_flight_transport_and_releases_capacity() {
 
     runtime.submit(request).expect("HTTP request is accepted");
     started_receiver
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_millis(250))
         .expect("transport starts before timeout assertion");
 

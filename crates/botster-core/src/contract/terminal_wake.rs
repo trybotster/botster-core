@@ -890,6 +890,7 @@ mod tests {
         interrupt.interrupt();
         assert_eq!(source.occupancy(), 1);
         assert_eq!(
+            // timer: deadline — expiry fails the test
             source.wait_wakes_interruptible(Duration::from_secs(1)),
             TerminalWakeWait::Interrupted
         );
@@ -909,6 +910,7 @@ mod tests {
         assert!(sink.wake(TerminalWakeKind::Writable));
 
         let TerminalWakeWait::Wakes(batch) =
+            // timer: deadline — expiry fails the test
             source.wait_wakes_interruptible(Duration::from_secs(1))
         else {
             panic!("real wake must win over interrupt");
@@ -961,6 +963,7 @@ mod tests {
         let started = Instant::now();
         let (entered_sender, entered) = mpsc::channel();
         *source.inner.blocking_recv_entered.lock().expect("seam") = Some(entered_sender);
+        // timer: deadline — expiry fails the test
         let thread = thread::spawn(move || waiter.wait_wakes_interruptible(Duration::from_secs(5)));
         // timer: deadline — the waiter must reach its blocking receive; expiry fails the test
         entered
@@ -1173,10 +1176,12 @@ mod tests {
         let stop = std::sync::Arc::new(AtomicBool::new(false));
         let drain_source = source.clone();
         let drain_stop = std::sync::Arc::clone(&stop);
+        let stop_drainer = source.interrupt_handle();
         let drainer = thread::spawn(move || {
             let mut worst = 0usize;
             while !drain_stop.load(Ordering::Relaxed) {
-                let _ = drain_source.wait_wakes(Duration::from_millis(1));
+                // timer: deadline — a hang guard only; the stop interrupt ends the wait
+                let _ = drain_source.wait_wakes_interruptible(Duration::from_secs(5));
                 let seen = drain_source.occupancy();
                 if seen > worst {
                     worst = seen;
@@ -1194,6 +1199,8 @@ mod tests {
             }
         }
         stop.store(true, Ordering::Relaxed);
+        // An interrupt sent before the drainer waits is kept as pending.
+        stop_drainer.interrupt();
         let drain_worst = drainer.join().expect("drain thread");
         assert!(
             producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
@@ -1294,6 +1301,7 @@ mod tests {
         source.arm_queued_overflow_for_test(&session);
         assert_eq!(source.ingress_overflow_len(), 1);
         let started = Instant::now();
+        // timer: deadline — the bound the early wake must beat; the assertion below checks it
         let batch = source.wait_wakes(Duration::from_secs(5));
         assert!(
             started.elapsed() < Duration::from_millis(500),

@@ -2541,11 +2541,13 @@ mod tests {
 
         assert!(matches!(
             released
+                // timer: deadline — expiry fails the test
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
         ));
         let forwarded = frames_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("shutdown still reaches the main loop");
         assert_eq!(forwarded.frame_type, super::FRAME_SHUTDOWN);
@@ -2618,6 +2620,7 @@ mod tests {
         let begin = botster_core::encode_frame(super::FRAME_GET_SNAPSHOT, &begin).expect("frame");
         parent.write_all(&begin).expect("write begin");
         let forwarded = frames_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("begin frame reaches the main loop");
         assert_eq!(forwarded.frame_type, super::FRAME_GET_SNAPSHOT);
@@ -2640,6 +2643,7 @@ mod tests {
         // waiter is parked, so it is not re-checked after this take.
         assert!(matches!(
             released
+                // timer: deadline — expiry fails the test
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
@@ -2657,6 +2661,7 @@ mod tests {
 
         assert!(matches!(
             released
+                // timer: deadline — expiry fails the test
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("barrier released within the bound"),
             SnapshotBarrierRelease::Cancel
