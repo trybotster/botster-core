@@ -4849,17 +4849,20 @@ mod tests {
                 },
                 "a held {lock} lock"
             );
-            // An idle worker that releases admission meanwhile consumes the
-            // armed flag and fires the notifier; either proves the wake.
+            // An idle worker that releases admission meanwhile clears the
+            // armed flag, then fires the notifier. A clear flag therefore
+            // means the notification is sent or on its way: wait for it.
             let armed = engine
                 .inner
                 .shared
                 .admission_retry_armed
                 .load(Ordering::SeqCst);
-            assert!(
-                armed || wakes.try_recv().is_ok(),
-                "LockBusy from a held {lock} lock leaves the retry wake armed or fired"
-            );
+            if !armed {
+                // timer: deadline — the cleared flag's notification must arrive; expiry fails the test
+                wakes.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| {
+                    panic!("LockBusy from a held {lock} lock: the retry wake was neither armed nor fired")
+                });
+            }
         }
         assert_eq!(
             serde_json::to_value(PluginAdmissionResult::LockBusy {
