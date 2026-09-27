@@ -124,12 +124,8 @@ pub struct CoreDaemonConfig {
     pub worker_reply_timeout: Duration,
     /// Retention policy for ended-session terminal history.
     pub retention: RetentionPolicy,
-    /// Test-only: hold after PTY read while still in the reader critical section.
-    pub test_hold_after_read_ms: Option<u64>,
     /// Test-only: single-queue fence capacity override (overflow proofs).
     pub test_pending_capacity: Option<usize>,
-    /// Test-only: hold after fence enqueue while still under the critical fence.
-    pub test_hold_after_enqueue_ms: Option<u64>,
     /// Retained PTY reader chunks inside the worker process (tests may set 1).
     pub pty_reader_chunk_capacity: Option<usize>,
     /// Test-only parent worker egress capacity.
@@ -169,9 +165,7 @@ impl CoreDaemonConfig {
             terminal_color_profile: None,
             worker_reply_timeout: DEFAULT_WORKER_REPLY_TIMEOUT,
             retention: DEFAULT_RETENTION_POLICY,
-            test_hold_after_read_ms: None,
             test_pending_capacity: None,
-            test_hold_after_enqueue_ms: None,
             pty_reader_chunk_capacity: None,
             test_worker_egress_capacity: None,
             test_resize_ack_hold: None,
@@ -196,13 +190,6 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_retention_policy(mut self, policy: RetentionPolicy) -> Self {
         self.retention = policy;
-        self
-    }
-
-    /// Set the test-only after-read publication hold for unpublished-chunk proofs.
-    #[must_use]
-    pub const fn with_test_hold_after_read_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_read_ms = hold_ms;
         self
     }
 
@@ -268,13 +255,6 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_pending_capacity(mut self, capacity: Option<usize>) -> Self {
         self.test_pending_capacity = capacity;
-        self
-    }
-
-    /// Set test-only post-enqueue hold while still under the admission fence.
-    #[must_use]
-    pub const fn with_test_hold_after_enqueue_ms(mut self, hold_ms: Option<u64>) -> Self {
-        self.test_hold_after_enqueue_ms = hold_ms;
         self
     }
 
@@ -586,9 +566,7 @@ impl CoreDaemon {
                 let mut options = WorkerProcessRuntimeOptions::new(worker_path);
                 options.control_socket_dir = Some(worker_socket_dir(&config.data_dir));
                 options.worker_reply_timeout = config.worker_reply_timeout;
-                options.test_hold_after_read_ms = config.test_hold_after_read_ms;
                 options.test_pending_capacity = config.test_pending_capacity;
-                options.test_hold_after_enqueue_ms = config.test_hold_after_enqueue_ms;
                 options.ghostty_max_scrollback_bytes = ghostty_max_scrollback_bytes;
                 options.terminal_color_profile = terminal_color_profile.clone();
                 options.test_resize_ack_hold = config.test_resize_ack_hold.clone();
