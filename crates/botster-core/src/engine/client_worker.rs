@@ -643,8 +643,8 @@ impl ClientWorker {
             .is_some_and(|owner| owner.adapter.is_some() && !owner.queue.is_empty())
     }
 
-    /// Whether every bound route of `session_id` has room for one more frame
-    /// of `frame_len` bytes.
+    /// Whether every bound route of `session_id` has room for `frames` more
+    /// frames totalling `bytes`.
     ///
     /// This is the session's output backpressure. While a bound reader
     /// lacks room, the host holds the session's output instead of queuing
@@ -655,15 +655,20 @@ impl ClientWorker {
     /// holds the session for at most the deadline. It is not fed output in
     /// the meantime: a queue it could not drain would only overflow.
     #[must_use]
-    pub fn session_output_has_room(&self, session_id: &SessionId, frame_len: usize) -> bool {
+    pub fn session_output_has_room(
+        &self,
+        session_id: &SessionId,
+        frames: usize,
+        bytes: usize,
+    ) -> bool {
         self.live.iter().all(|(key, owner)| {
             let governs = &key.session_id == session_id
                 && owner.adapter.is_some()
                 && !owner.awaiting_capture
                 && !owner.terminal_enqueued;
             !governs
-                || (owner.queue.len() < MAX_ROUTE_EGRESS_FRAMES
-                    && owner.queued_bytes.saturating_add(frame_len) <= MAX_ROUTE_EGRESS_BYTES)
+                || (owner.queue.len().saturating_add(frames) <= MAX_ROUTE_EGRESS_FRAMES
+                    && owner.queued_bytes.saturating_add(bytes) <= MAX_ROUTE_EGRESS_BYTES)
         })
     }
 
