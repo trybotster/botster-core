@@ -204,6 +204,16 @@ pub enum WorkerRouteProbeEvent {
         /// Session whose child exited.
         session_id: crate::SessionId,
     },
+    /// The parent reader read a capture's FINISH frame from the worker.
+    SnapshotFinishRead {
+        /// Session whose capture finished at the worker.
+        session_id: crate::SessionId,
+    },
+    /// The parent reader reached its worker's end of stream and stopped.
+    ReaderEnded {
+        /// Session whose reader ended.
+        session_id: crate::SessionId,
+    },
     /// The parent reader routed one worker PTY output event.
     PtyOutputRouted {
         /// Session the output belongs to.
@@ -1175,6 +1185,49 @@ impl WorkerProcessRuntime {
         Ok(())
     }
 
+    /// Remove an ended session: retire its admission, keep its final
+    /// terminal state, and shut its worker link down.
+    fn remove_ended_session(&mut self, session_id: &SessionId) {
+        // Map removal transfers wake-retirement ownership to CoreDaemon.
+        if let Some(mut removed) = self.sessions.remove(session_id) {
+            if let Some(admission) = &removed.admission {
+                admission.runtime_removed();
+                admission.observe_process_exit();
+                let _ = self.admission.retire_implicit(admission);
+            }
+            let final_state = removed
+                .completion
+                .lock()
+                .ok()
+                .and_then(|mut completion| completion.final_state.take());
+            if let Some(final_state) = final_state {
+                self.retained_final_states
+                    .insert(session_id.clone(), final_state);
+            }
+            removed.close_before_blocking_shutdown();
+            removed.shutdown_control();
+            if let Some(mut child) = removed.child.take() {
+                match child.try_wait() {
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => reap_worker_child_in_background(child),
+                }
+            }
+            removed.control.cleanup();
+        }
+    }
+
+    /// The session's worker ended without reporting an exit: its reader
+    /// reached end of stream with no `PROCESS_EXITED`. Does not consume it;
+    /// the next drain reports [`SessionRuntimeOutput::WorkerLost`].
+    #[must_use]
+    pub fn worker_lost(&self, session_id: &SessionId) -> bool {
+        self.sessions.get(session_id).is_some_and(|session| {
+            session.completion.lock().is_ok_and(|completion| {
+                completion.reader_finished && completion.process_exited.is_none()
+            })
+        })
+    }
+
     /// Whether the runtime still holds this session: a live one, or an exited
     /// one kept for a capture it owes.
     #[must_use]
@@ -2053,14 +2106,29 @@ impl SessionRuntime for WorkerProcessRuntime {
         // and pending buffers stay ordered.
         self.pump_session_output(session_id)?;
         let mut output = Vec::new();
-        let completed = {
+        let (completed, lost) = {
             let session = self.session_mut(session_id)?;
             session.take_reader_output(session_id, &mut output);
             #[cfg(test)]
             before_completion_read(session);
             let completion = session.completion.lock().map_err(lock_error)?;
-            completion.process_exited.clone()
+            // The reader ends at its worker's end of stream. With no exit
+            // report, the worker was killed or crashed: nothing else will
+            // wake this session, so this drain ends it.
+            let lost = completion.reader_finished && completion.process_exited.is_none();
+            (completion.process_exited.clone(), lost)
         };
+
+        if lost {
+            self.pump_session_output(session_id)?;
+            self.session_mut(session_id)?
+                .take_reader_output(session_id, &mut output);
+            self.remove_ended_session(session_id);
+            output.push(SessionRuntimeOutput::WorkerLost {
+                session_id: session_id.clone(),
+            });
+            return Ok(output);
+        }
 
         if let Some(payload) = completed {
             // The reader stores FRAME_PROCESS_EXITED only after earlier frames
@@ -2076,31 +2144,8 @@ impl SessionRuntime for WorkerProcessRuntime {
             // A capture the engine still owes a route is served from the
             // worker's final terminal model; removal shuts that worker down.
             let held = session.exit_hold || session.outstanding_snapshot_request.is_some();
-            // Map removal transfers wake-retirement ownership to CoreDaemon.
-            if let Some(mut removed) = (!held).then(|| self.sessions.remove(session_id)).flatten() {
-                if let Some(admission) = &removed.admission {
-                    admission.runtime_removed();
-                    admission.observe_process_exit();
-                    let _ = self.admission.retire_implicit(admission);
-                }
-                let final_state = removed
-                    .completion
-                    .lock()
-                    .ok()
-                    .and_then(|mut completion| completion.final_state.take());
-                if let Some(final_state) = final_state {
-                    self.retained_final_states
-                        .insert(session_id.clone(), final_state);
-                }
-                removed.close_before_blocking_shutdown();
-                removed.shutdown_control();
-                if let Some(mut child) = removed.child.take() {
-                    match child.try_wait() {
-                        Ok(Some(_)) => {}
-                        Ok(None) | Err(_) => reap_worker_child_in_background(child),
-                    }
-                }
-                removed.control.cleanup();
+            if !held {
+                self.remove_ended_session(session_id);
             }
             if first_report {
                 output.push(SessionRuntimeOutput::ProcessExited {
@@ -3155,8 +3200,16 @@ fn spawn_stdout_reader(
                     if let Ok(result) =
                         serde_json::from_slice::<WorkerSnapshotResult>(&frame.payload)
                     {
+                        let finish = result.phase == Some(crate::WorkerSnapshotPhase::Finish);
                         if sender.send(WorkerChannelEvent::Snapshot(result)).is_err() {
                             break;
+                        }
+                        if finish {
+                            if let Some(probe) = &route_probe {
+                                probe.report(WorkerRouteProbeEvent::SnapshotFinishRead {
+                                    session_id: session_id.clone(),
+                                });
+                            }
                         }
                         notify_session_wake(&wake_handle);
                     }
@@ -3174,6 +3227,11 @@ fn spawn_stdout_reader(
         }
         if let Ok(mut state) = completion.lock() {
             state.reader_finished = true;
+        }
+        if let Some(probe) = &route_probe {
+            probe.report(WorkerRouteProbeEvent::ReaderEnded {
+                session_id: session_id.clone(),
+            });
         }
         notify_session_wake(&wake_handle);
     });
