@@ -284,7 +284,7 @@ fn failed_worker_start_does_not_leave_wake_registry_residue() {
     let session = session_id("failed-start-wake");
     let before = source.session_registry_len();
     let error = runtime
-        .spawn_session(shell_request(session.clone(), "sleep 0.2"))
+        .spawn_session(shell_request(session.clone(), "exec cat >/dev/null"))
         .expect_err("injected start_writer failure");
     assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
     assert_eq!(source.session_registry_len(), before);
@@ -302,7 +302,7 @@ fn worker_process_runtime_crosses_os_process_boundary_and_handles_protocol_comma
     let session = session_id("worker-process-protocol");
 
     runtime
-        .spawn_session(shell_request(session.clone(), "sleep 0.2; stty size; cat"))
+        .spawn_session(shell_request(session.clone(), "read _; stty size; cat"))
         .expect("spawn worker-owned session");
 
     let metadata = runtime
@@ -366,7 +366,7 @@ fn worker_process_runtime_emits_semantic_metadata_from_session_worker_output() {
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-semantic-metadata");
     let script =
-        "printf '\\033]2;Build\\007\\033]7;file://host/work/repo\\007\\033]133;A\\007\\007\\033]9;Notice;Body\\007'; sleep 0.1";
+        "printf '\\033]2;Build\\007\\033]7;file://host/work/repo\\007\\033]133;A\\007\\007\\033]9;Notice;Body\\007'; exec cat >/dev/null";
 
     runtime
         .spawn_session(shell_request(session.clone(), script))
@@ -527,13 +527,15 @@ fn ordering_significant_metadata_flushes_before_later_pty_output() {
     let wakes = TerminalWakeSource::new();
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-metadata-order");
-    let script = "printf '\\033]133;A\\007'; sleep 0.1; printf 'after-prompt\\n'; cat";
+    // The later output waits for a line the test sends only after the prompt
+    // mark arrived, so the two are in separate PTY reads.
+    let script = "printf '\\033]133;A\\007'; read _; printf 'after-prompt\\n'; cat";
 
     runtime
         .spawn_session(shell_request(session.clone(), script))
         .expect("spawn metadata ordering worker session");
 
-    let output = collect_until(&mut runtime, &wakes, &session, |output| {
+    let mut output = collect_until(&mut runtime, &wakes, &session, |output| {
         output.iter().any(|event| {
             matches!(
                 event,
@@ -542,8 +544,17 @@ fn ordering_significant_metadata_flushes_before_later_pty_output() {
                     ..
                 } if mark == "A"
             )
-        }) && output_text(output).contains("after-prompt")
+        })
     });
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"\n".to_vec(),
+        })
+        .expect("release the later output");
+    output.extend(collect_until(&mut runtime, &wakes, &session, |output| {
+        output_text(output).contains("after-prompt")
+    }));
 
     let prompt_index = output
         .iter()
@@ -584,7 +595,7 @@ fn worker_backed_public_engine_path_routes_spawn_input_resize_output_and_shutdow
         .spawn_session(
             shell_request(
                 session.clone(),
-                "printf 'public-ready\\n'; sleep 0.2; stty size; cat",
+                "printf 'public-ready\\n'; read _; stty size; cat",
             ),
             CoreSessionMetadata::new(),
         )
