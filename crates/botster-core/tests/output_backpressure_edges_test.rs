@@ -39,6 +39,7 @@ struct PacedState {
     delivered: Vec<Vec<u8>>,
     sink: Option<TerminalWakeSink>,
     closed: Option<TerminalRouteCloseReason>,
+    ingress: std::collections::VecDeque<Vec<u8>>,
 }
 
 impl PacedReader {
@@ -54,6 +55,11 @@ impl PacedReader {
                 let _ = sink.wake(TerminalWakeKind::Writable);
             }
         }
+    }
+
+    /// Queue one client input frame for Core's next read of this route.
+    fn inject(&self, frame: Vec<u8>) {
+        self.lock().ingress.push_back(frame);
     }
 
     fn frames(&self) -> Vec<TerminalFrame> {
@@ -109,7 +115,10 @@ impl TerminalAdapter for PacedReader {
     }
 
     fn try_read(&mut self) -> TerminalIngress {
-        TerminalIngress::Empty
+        self.lock()
+            .ingress
+            .pop_front()
+            .map_or(TerminalIngress::Empty, TerminalIngress::Frame)
     }
 }
 
@@ -314,4 +323,60 @@ fn a_mode_changing_chunk_waits_for_room_for_its_modes_and_output() {
     );
     assert!(reader.output() == expected, "every byte arrives, in order");
     assert!(reader.count(TerminalKind::Modes) >= 1);
+}
+
+#[test]
+fn a_process_exit_waits_for_room_for_its_input_results_too() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn");
+    let (subscription_id, reader) = bind(&mut runtime);
+    let batch = TerminalWakeBatch {
+        adapter_routes: vec![TerminalWakeRoute {
+            session_id: session_id(),
+            subscription_id: subscription_id.clone(),
+        }],
+        ingress_sessions: vec![session_id()],
+    };
+    // 63 output frames wait on the 64-frame route: the reader takes none.
+    let expected: Vec<u8> = (0..63).flat_map(chunk).collect();
+    for index in 0..63 {
+        runtime
+            .session_runtime_mut()
+            .emit_output(session_id(), chunk(index));
+    }
+    runtime.pump_woken(&batch, 2).expect("fill the route");
+    // An input operation arrives in the same pump as the exit: the exit
+    // fails it with a SessionEnded INPUT_RESULT ahead of PROCESS_EXIT, so
+    // the exit sequence needs two frames on a route that has one free.
+    reader.inject(
+        botster_terminal_protocol_client::encode_terminal_input(
+            &botster_terminal_protocol_client::TerminalInputCommand::RawBytes {
+                operation_id: 1,
+                data: b"late".to_vec(),
+            },
+        )
+        .expect("input frame")
+        .into_bytes(),
+    );
+    runtime.session_runtime_mut().emit_exit(
+        session_id(),
+        ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    );
+    let (done, _) = pace_until(&mut runtime, &subscription_id, &reader, || {
+        reader.count(TerminalKind::ProcessExit) > 0
+    });
+    assert!(done, "the exit reaches the reader");
+    assert_eq!(reader.count(TerminalKind::RouteResync), 0);
+    assert!(
+        reader.output() == expected,
+        "every queued frame arrives, in order, before the exit"
+    );
+    assert_eq!(reader.count(TerminalKind::InputResult), 1);
+    let last = reader.frames().last().map(TerminalFrame::kind);
+    assert_eq!(last, Some(TerminalKind::ProcessExit), "the exit comes last");
 }
