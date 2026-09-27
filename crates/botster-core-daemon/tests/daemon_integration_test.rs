@@ -473,7 +473,8 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
             Instant::now() < deadline,
             "registry persistence did not fail"
         );
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        // timer: deadline — the loop's bound on the next wake
+        let batch = daemon.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         if !batch.ingress_sessions.contains(&session_id) {
             continue;
         }
@@ -630,7 +631,8 @@ fn direct_drain_exit_commits_and_retires_once() {
         ) {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
+        // timer: deadline — the loop's bound; the exit wakes the session
+        let _ = daemon.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
@@ -678,7 +680,8 @@ fn observe_lifecycle_exit_commits_and_retires_once() {
         ) {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
+        // timer: deadline — the loop's bound; the exit wakes the session
+        let _ = daemon.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     assert_eq!(daemon.wake_source().session_registry_len(), 0);
@@ -1550,7 +1553,9 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
     let mut live_output = Vec::new();
     let mut seen_frames = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        // timer: deadline — the loop's bound on the next wake
+        let batch =
+            daemon.wait_wakes(REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()));
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
             let _ = daemon
                 .pump_woken(&batch, 20)
@@ -1618,7 +1623,6 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
         {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     let ready = phases.iter().position(|phase| phase == "ready");
     let finish = phases.iter().position(|phase| phase == "finish");
@@ -5652,14 +5656,18 @@ fn colliding_sanitizer_ids_restart_adopt_and_remove_independently() {
     }
     drop(restarted);
     let deadline = Instant::now() + Duration::from_secs(5);
-    while evidence.iter().any(|(worker, child, socket)| {
-        !process_has_exited(*worker) || !process_has_exited(*child) || socket.exists()
-    }) {
+    for (worker, child, socket) in &evidence {
+        for pid in [*worker, *child] {
+            assert!(
+                wait_pid_exit(pid, deadline.saturating_duration_since(Instant::now())),
+                "registry identity workers must stop within the cleanup bound"
+            );
+        }
+        // The worker removes its socket before it exits.
         assert!(
-            Instant::now() < deadline,
-            "registry identity workers must stop within the cleanup bound"
+            !socket.exists(),
+            "a stopped worker leaves no control socket"
         );
-        thread::sleep(Duration::from_millis(10));
     }
     let _ = fs::remove_dir_all(&data_dir);
     if let Err(panic) = result {
@@ -6264,7 +6272,8 @@ fn pump_until_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId, n
             "targeted pump did not commit Exited for {}",
             session_id.0
         );
-        let batch = daemon.wait_wakes(Duration::from_millis(250));
+        // timer: deadline — the loop's bound on the next wake
+        let batch = daemon.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
             continue;
         }
@@ -6942,24 +6951,6 @@ fn process_exists(pid: u32) -> bool {
 }
 
 #[cfg(unix)]
-fn process_has_exited(pid: u32) -> bool {
-    if !process_exists(pid) {
-        return true;
-    }
-    let output = Command::new("ps")
-        .args(["-o", "state=", "-p", &pid.to_string()])
-        .output();
-    match output {
-        Ok(output) => {
-            let state = String::from_utf8_lossy(&output.stdout);
-            let state = state.trim();
-            state.is_empty() || state.starts_with('Z')
-        }
-        Err(_) => !process_exists(pid),
-    }
-}
-
-#[cfg(unix)]
 struct StoppedProcess {
     pid: u32,
     resumed: bool,
@@ -7062,8 +7053,9 @@ fn pump_on_wakes_until(
     inventory_changed
 }
 
-fn pump_next_available_wake(daemon: &mut CoreDaemon, now_seconds: u64) -> bool {
-    let batch = daemon.wait_wakes(Duration::from_millis(250));
+fn pump_next_available_wake(daemon: &mut CoreDaemon, now_seconds: u64, within: Duration) -> bool {
+    // timer: deadline — the caller's bound on the next wake
+    let batch = daemon.wait_wakes(within);
     if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
         return false;
     }
@@ -7308,7 +7300,11 @@ fn pump_woken_applies_injected_duplex_input_through_real_worker_pty() {
     let mut saw_echo = false;
     let mut saw_result_id = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 21);
+        pump_next_available_wake(
+            &mut daemon,
+            21,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+        );
         for bytes in adapter.snapshot_delivered_frame_bytes() {
             if adapter_frame_type(&bytes) == "terminal_output"
                 && adapter_payload_text(&bytes).contains("echo:ORACLE")
@@ -7322,7 +7318,6 @@ fn pump_woken_applies_injected_duplex_input_through_real_worker_pty() {
         if saw_echo && saw_result_id {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     assert!(saw_echo, "injected adapter bytes must reach the worker PTY");
     assert!(
@@ -7393,7 +7388,11 @@ fn pump_woken_reconnects_and_rejects_stale_generation_ingress() {
     let started = Instant::now();
     let mut saw_fresh = false;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 14);
+        pump_next_available_wake(
+            &mut daemon,
+            14,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+        );
         let stale_bytes = stale
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -7407,7 +7406,6 @@ fn pump_woken_reconnects_and_rejects_stale_generation_ingress() {
             saw_fresh = true;
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     assert!(saw_fresh, "generation N+1 must apply fresh adapter input");
     let _ = fs::remove_dir_all(data_dir);
@@ -7632,7 +7630,11 @@ fn pump_woken_ingress_loss_and_malformed_input_remove_the_route() {
             20,
         );
         inject(&adapter);
-        assert!(pump_next_available_wake(&mut daemon, 30));
+        assert!(pump_next_available_wake(
+            &mut daemon,
+            30,
+            Duration::from_millis(250)
+        ));
         assert_eq!(adapter.snapshot_pressure(), TerminalAdapterPressure::Closed);
         assert!(daemon
             .list_terminal_subscriptions(1024 * 1024)
@@ -7654,7 +7656,11 @@ fn pump_woken_ingress_loss_and_malformed_input_remove_the_route() {
         let started = Instant::now();
         let mut saw_sibling = false;
         while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-            pump_next_available_wake(&mut daemon, 32);
+            pump_next_available_wake(
+                &mut daemon,
+                32,
+                REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+            );
             if sibling_adapter
                 .snapshot_delivered_frame_bytes()
                 .iter()
@@ -7663,7 +7669,6 @@ fn pump_woken_ingress_loss_and_malformed_input_remove_the_route() {
                 saw_sibling = true;
                 break;
             }
-            thread::sleep(Duration::from_millis(10));
         }
         assert!(saw_sibling, "{label} must leave the sibling session live");
         let _ = fs::remove_dir_all(data_dir);
@@ -7821,7 +7826,11 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
     // live output may interleave. Wait for FINISH within the same bound.
     let started = Instant::now();
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 20);
+        pump_next_available_wake(
+            &mut daemon,
+            20,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+        );
         if adapter
             .snapshot_delivered_frame_bytes()
             .iter()
@@ -7829,7 +7838,6 @@ fn declared_attach_retains_frames_until_bind_then_delivers_ready_history_finish(
         {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     let mut phases = Vec::new();
     for bytes in adapter.snapshot_delivered_frame_bytes() {
@@ -7919,7 +7927,11 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     let mut unsubscribe_count = 0;
     let mut pumps = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 30);
+        pump_next_available_wake(
+            &mut daemon,
+            30,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+        );
         pumps += 1;
         let drained = daemon.drain(&session_id, 30).expect("read overflow result");
         unsubscribe_count +=
@@ -7933,7 +7945,6 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
         if !holder_live {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     assert!(
         daemon
@@ -7971,7 +7982,11 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
     let mut sibling_progress = false;
     let mut extra_unsubscribes = 0;
     while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 31);
+        pump_next_available_wake(
+            &mut daemon,
+            31,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(sibling_started.elapsed()),
+        );
         let drained = daemon.drain(&session_id, 31).expect("drain after overflow");
         extra_unsubscribes +=
             count_production_unsubscribe(&drained.observations, &holder, &session_id, &holder_sub);
@@ -7992,7 +8007,6 @@ fn hold_overflow_unsubscribes_through_production_path_and_keeps_sibling() {
             sibling_progress = true;
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     assert!(
         sibling_progress,
@@ -8073,7 +8087,11 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     let started = Instant::now();
     let mut unsubscribe_count = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 40);
+        pump_next_available_wake(
+            &mut daemon,
+            40,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()),
+        );
         let drained = daemon
             .drain(&session_id, 40)
             .expect("read closed-bind result");
@@ -8089,7 +8107,6 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
         {
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     let extra = daemon
         .drain(&session_id, 40)
@@ -8125,12 +8142,15 @@ fn closed_adapter_at_bind_discards_hold_and_unsubscribes_through_production_path
     let sibling_started = Instant::now();
     let mut sibling_progress = false;
     while sibling_started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(&mut daemon, 41);
+        pump_next_available_wake(
+            &mut daemon,
+            41,
+            REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(sibling_started.elapsed()),
+        );
         if sibling_adapter.snapshot_delivered_frame_bytes().len() > before {
             sibling_progress = true;
             break;
         }
-        thread::sleep(Duration::from_millis(10));
     }
     assert!(
         sibling_progress,
