@@ -60,6 +60,7 @@ const EXPECTED_GHOSTTY_SNAPSHOT_SIZE_CEILING: usize = 16 * 1024 * 1024;
 const EXPECTED_GHOSTTY_MIN_RETAINED_MARKERS: usize = 4_000;
 const EXPECTED_GHOSTTY_DROPPED_MARKER: &str = "echo:scrollback-line-00000";
 const LOW_GHOSTTY_MAX_SCROLLBACK_BYTES: usize = 1_000_000;
+const REAL_WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const REAL_WORKER_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[test]
@@ -381,7 +382,7 @@ fn mixed_session_batch_retains_output_per_session() {
     let mut batch = TerminalWakeBatch::default();
     wait_for(
         "wakes from both mixed sessions",
-        REAL_WORKER_COMPLETION_TIMEOUT,
+        Duration::from_secs(1),
         |remaining| {
             // timer: deadline — wait_for's bound limits this wait
             let next = daemon.wait_wakes(remaining);
@@ -1712,7 +1713,8 @@ fn bound_adapter_keeps_live_bytes_across_repeated_process_exited_rounds() {
         let mut now = 13 + round;
         wait_for(
             "LIVE and process_exit at the one-slot adapter",
-            REAL_WORKER_COMPLETION_TIMEOUT,
+            // The former 80 wake rounds of 250 ms each.
+            Duration::from_secs(20),
             |remaining| {
                 complete_one_slot_and_wake(&adapter);
                 saw_live |= adapter_has_live(&adapter);
@@ -5293,6 +5295,7 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
     let observed = on_wakes_until(
         &mut daemon,
         "observe reconciles the parked exit",
+        REAL_WORKER_COMPLETION_TIMEOUT,
         |daemon| {
             let lookup = daemon
                 .observe_session_lifecycle(&session_id, 20)
@@ -6330,17 +6333,22 @@ fn observe_until_exited(
     now_seconds: u64,
 ) -> SessionLifecyclePage {
     let mut tick = 0;
-    on_wakes_until(daemon, "observe_lifecycle publishing Exited", |daemon| {
-        tick += 1;
-        daemon
-            .observe_lifecycle(now_seconds + tick)
-            .expect("observe_lifecycle should succeed");
-        let page = daemon
-            .lifecycle_changes_page(after, 16, 16 * 1024)
-            .expect("page after observe");
-        assert_successful_page_within_budget(&page, 16 * 1024);
-        page_contains_exited(&page, session_id).then_some(page)
-    })
+    on_wakes_until(
+        daemon,
+        "observe_lifecycle publishing Exited",
+        Duration::from_secs(1),
+        |daemon| {
+            tick += 1;
+            daemon
+                .observe_lifecycle(now_seconds + tick)
+                .expect("observe_lifecycle should succeed");
+            let page = daemon
+                .lifecycle_changes_page(after, 16, 16 * 1024)
+                .expect("page after observe");
+            assert_successful_page_within_budget(&page, 16 * 1024);
+            page_contains_exited(&page, session_id).then_some(page)
+        },
+    )
 }
 
 fn self_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
@@ -6481,9 +6489,12 @@ fn drain_until(
     session_id: &SessionId,
     expected: &str,
 ) -> botster_core_daemon::DrainResult {
+    // As before, the drain returns what it has after its 1 s bound (the
+    // former 100 steps of 10 ms); callers assert on the result.
+    let deadline = Instant::now() + Duration::from_secs(1);
     let mut aggregate = botster_core_daemon::DrainResult::default();
     let mut tick = 0;
-    on_wakes_until(daemon, "drained terminal output", |daemon| {
+    loop {
         tick += 1;
         let drained = daemon
             .drain(session_id, 20 + tick)
@@ -6491,11 +6502,13 @@ fn drain_until(
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        terminal_output(&aggregate.client_egress)
-            .contains(expected)
-            .then_some(())
-    });
-    aggregate
+        let left = deadline.saturating_duration_since(Instant::now());
+        if terminal_output(&aggregate.client_egress).contains(expected) || left.is_zero() {
+            return aggregate;
+        }
+        // timer: deadline — the drain's 1 s bound; expiry returns what was drained
+        let _ = daemon.wait_wakes(left);
+    }
 }
 
 fn drain_pre_attach_producer_output(
@@ -6542,17 +6555,22 @@ fn drain_until_attached(
 ) -> botster_core_daemon::DrainResult {
     let mut aggregate = botster_core_daemon::DrainResult::default();
     let mut tick = 0;
-    on_wakes_until(daemon, "the worker attach reaching Attached", |daemon| {
-        tick += 1;
-        let drained = daemon
-            .drain(session_id, 20 + tick)
-            .expect("daemon attach drain should succeed");
-        let attached = client_attached(&drained, client_id);
-        aggregate.client_egress.extend(drained.client_egress);
-        aggregate.observations.extend(drained.observations);
-        aggregate.backpressure.extend(drained.backpressure);
-        attached.then_some(())
-    });
+    on_wakes_until(
+        daemon,
+        "the worker attach reaching Attached",
+        Duration::from_secs(10),
+        |daemon| {
+            tick += 1;
+            let drained = daemon
+                .drain(session_id, 20 + tick)
+                .expect("daemon attach drain should succeed");
+            let attached = client_attached(&drained, client_id);
+            aggregate.client_egress.extend(drained.client_egress);
+            aggregate.observations.extend(drained.observations);
+            aggregate.backpressure.extend(drained.backpressure);
+            attached.then_some(())
+        },
+    );
     aggregate
 }
 
@@ -6564,7 +6582,7 @@ fn drain_until_for_client(
 ) -> botster_core_daemon::DrainResult {
     let mut aggregate = botster_core_daemon::DrainResult::default();
     let mut tick = 0;
-    on_wakes_until(daemon, "queued client output", |daemon| {
+    on_wakes_until_idle(daemon, "queued client output", |daemon| {
         tick += 1;
         let drained = daemon
             .drain(session_id, 20 + tick)
@@ -6572,9 +6590,12 @@ fn drain_until_for_client(
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        renderable_output_for_client(&aggregate.client_egress, client_id)
-            .contains(expected)
-            .then_some(())
+        let output = renderable_output_for_client(&aggregate.client_egress, client_id);
+        if output.contains(expected) {
+            Ok(())
+        } else {
+            Err(output.len())
+        }
     });
     aggregate
 }
@@ -6588,7 +6609,7 @@ fn drain_until_terminal_marker(
 ) {
     let mut aggregate = botster_core_daemon::DrainResult::default();
     let mut tick = 0;
-    on_wakes_until(daemon, "the terminal output marker", |daemon| {
+    on_wakes_until_idle(daemon, "the terminal output marker", |daemon| {
         let drained = daemon
             .drain(session_id, start_tick + tick)
             .expect("daemon drain should succeed");
@@ -6596,9 +6617,12 @@ fn drain_until_terminal_marker(
         aggregate.client_egress.extend(drained.client_egress);
         aggregate.observations.extend(drained.observations);
         aggregate.backpressure.extend(drained.backpressure);
-        terminal_output(&aggregate.client_egress)
-            .contains(expected)
-            .then_some(())
+        let output = terminal_output(&aggregate.client_egress);
+        if output.contains(expected) {
+            Ok(())
+        } else {
+            Err(output.len())
+        }
     });
 }
 
@@ -6821,6 +6845,7 @@ fn wait_for_exact_session_exited(
     on_wakes_until(
         daemon,
         "observe_session_lifecycle reconciling the parked exit",
+        Duration::from_secs(1),
         |daemon| {
             tick += 1;
             let looked_up = daemon
@@ -6845,15 +6870,51 @@ fn wait_for_exact_session_exited(
 fn on_wakes_until<T>(
     daemon: &mut CoreDaemon,
     label: &str,
+    bound: Duration,
     mut step: impl FnMut(&mut CoreDaemon) -> Option<T>,
 ) -> T {
-    wait_for(label, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+    wait_for(label, bound, |remaining| {
         if let Some(value) = step(daemon) {
             return Some(value);
         }
         // timer: deadline — wait_for's bound limits this wait
         let _ = daemon.wait_wakes(remaining);
         step(daemon)
+    })
+}
+
+/// [`on_wakes_until`] under [`REAL_WORKER_COMPLETION_TIMEOUT`] that also
+/// fails when `step`'s progress measure (`Err(progress)`) stays unchanged for
+/// [`REAL_WORKER_IDLE_TIMEOUT`].
+fn on_wakes_until_idle<T>(
+    daemon: &mut CoreDaemon,
+    label: &str,
+    mut step: impl FnMut(&mut CoreDaemon) -> Result<T, usize>,
+) -> T {
+    let mut last = None;
+    let last_progress = std::cell::Cell::new(Instant::now());
+    wait_for(label, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+        let mut check = |daemon: &mut CoreDaemon| match step(daemon) {
+            Ok(value) => Some(value),
+            Err(progress) => {
+                if last != Some(progress) {
+                    last = Some(progress);
+                    last_progress.set(Instant::now());
+                }
+                assert!(
+                    last_progress.get().elapsed() < REAL_WORKER_IDLE_TIMEOUT,
+                    "{label}: no progress for {REAL_WORKER_IDLE_TIMEOUT:?}"
+                );
+                None
+            }
+        };
+        if let Some(value) = check(daemon) {
+            return Some(value);
+        }
+        let idle_left = REAL_WORKER_IDLE_TIMEOUT.saturating_sub(last_progress.get().elapsed());
+        // timer: deadline — the completion bound or the idle bound, whichever ends first
+        let _ = daemon.wait_wakes(remaining.min(idle_left));
+        check(daemon)
     })
 }
 
