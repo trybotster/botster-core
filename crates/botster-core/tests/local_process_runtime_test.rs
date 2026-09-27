@@ -40,8 +40,13 @@ fn slow_shutdown_runtime_options() -> LocalProcessRuntimeOptions {
     }
 }
 
-fn term_ignoring_process_group_script() -> &'static str {
-    "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!"
+/// A process group that survives TERM: a TERM-ignoring grandchild holds the
+/// PTY, and the leader reports each TERM through `$TERMINATED` and keeps
+/// waiting, so a test knows the shutdown has signalled it and is now in its
+/// grace wait. The loop blocks in `wait`; its child dies only with the whole
+/// group.
+fn term_reporting_process_group_script() -> &'static str {
+    "trap '/bin/echo term > \"$TERMINATED\"' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; while :; do wait $!; done"
 }
 
 fn session_id(value: &str) -> SessionId {
@@ -634,7 +639,7 @@ fn local_process_runtime_resizes_pty_when_supported() {
     let session = session_id("local-runtime-resize");
 
     runtime
-        .spawn_session(shell_request(session.clone(), "sleep 0.2; stty size"))
+        .spawn_session(shell_request(session.clone(), "read _; stty size"))
         .expect("spawn resizable local command");
 
     runtime
@@ -646,6 +651,13 @@ fn local_process_runtime_resizes_pty_when_supported() {
             },
         })
         .expect("resize local pty");
+    // The child reports its size only after the resize is applied.
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"\n".to_vec(),
+        })
+        .expect("release the size report");
 
     let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("33 120") && has_exit(output)
@@ -877,18 +889,22 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
     let wakes = TerminalWakeSource::new();
     let mut runtime = LocalProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let child_pid_file = Fifo::new("nonblocking-child-pid");
+    let terminated = Fifo::new("nonblocking-child-pid-term");
     let stubborn = session_id("local-nonblocking-stubborn");
     let peer = session_id("local-nonblocking-peer");
 
     runtime
         .spawn_session(shell_request_with_env(
             stubborn.clone(),
-            term_ignoring_process_group_script(),
+            term_reporting_process_group_script(),
             SpawnEnvironment {
-                variables: vec![env_var(
-                    "CHILD_PID_FILE",
-                    child_pid_file.path().display().to_string(),
-                )],
+                variables: vec![
+                    env_var(
+                        "CHILD_PID_FILE",
+                        child_pid_file.path().display().to_string(),
+                    ),
+                    env_var("TERMINATED", terminated.path().display().to_string()),
+                ],
             },
         ))
         .expect("spawn stubborn process");
@@ -914,9 +930,14 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
     started_rx
         .recv_timeout(Duration::from_secs(1))
         .expect("shutdown thread should start");
-    thread::sleep(Duration::from_millis(100));
+    // The shutdown's TERM reached the stubborn leader: it is in its grace wait.
+    let _ = terminated.read_signal(Duration::from_secs(5));
 
-    let started = Instant::now();
+    let (done_sender, done) = mpsc::channel::<()>();
+    let watchdog = thread::spawn(move || {
+        // timer: deadline — peer operations must not wait on the stubborn shutdown
+        done.recv_timeout(Duration::from_millis(250))
+    });
     runtime
         .send_input(SessionRuntimeInput::Resize {
             session_id: peer.clone(),
@@ -937,11 +958,10 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
             session_id: peer.clone(),
         })
         .expect("shutdown peer while stubborn shutdown waits");
-    let elapsed = started.elapsed();
-
+    let _ = done_sender.send(());
     assert!(
-        elapsed < Duration::from_millis(250),
-        "peer operations were blocked for {elapsed:?}"
+        watchdog.join().expect("watchdog").is_ok(),
+        "peer operations were blocked by the stubborn shutdown"
     );
     assert!(output_text(&output).contains("peer-still-live"));
 
@@ -1225,6 +1245,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     let mut runtime = LocalProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let mut engine = MultiplexerEngine::new(runtime.clone());
     let child_pid_file = Fifo::new("engine-nonblocking-child-pid");
+    let terminated = Fifo::new("engine-nonblocking-child-pid-term");
     let stubborn = session_id("engine-nonblocking-stubborn");
     let peer = session_id("engine-nonblocking-peer");
 
@@ -1232,12 +1253,15 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
         .spawn_session(
             shell_request_with_env(
                 stubborn.clone(),
-                term_ignoring_process_group_script(),
+                term_reporting_process_group_script(),
                 SpawnEnvironment {
-                    variables: vec![env_var(
-                        "CHILD_PID_FILE",
-                        child_pid_file.path().display().to_string(),
-                    )],
+                    variables: vec![
+                        env_var(
+                            "CHILD_PID_FILE",
+                            child_pid_file.path().display().to_string(),
+                        ),
+                        env_var("TERMINATED", terminated.path().display().to_string()),
+                    ],
                 },
             ),
             CoreSessionMetadata::new(),
@@ -1269,9 +1293,14 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     started_rx
         .recv_timeout(Duration::from_secs(1))
         .expect("engine shutdown thread should start");
-    thread::sleep(Duration::from_millis(100));
+    // The shutdown's TERM reached the stubborn leader: it is in its grace wait.
+    let _ = terminated.read_signal(Duration::from_secs(5));
 
-    let started = Instant::now();
+    let (done_sender, done) = mpsc::channel::<()>();
+    let watchdog = thread::spawn(move || {
+        // timer: deadline — peer access must not wait on the engine shutdown
+        done.recv_timeout(Duration::from_millis(250))
+    });
     runtime
         .send_input(SessionRuntimeInput::PtyInput {
             session_id: peer.clone(),
@@ -1281,11 +1310,10 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     let output = collect_until(&mut runtime, &wakes, &peer, |output| {
         output_text(output).contains("engine-peer-still-live")
     });
-    let elapsed = started.elapsed();
-
+    let _ = done_sender.send(());
     assert!(
-        elapsed < Duration::from_millis(250),
-        "peer runtime access was blocked by engine shutdown for {elapsed:?}"
+        watchdog.join().expect("watchdog").is_ok(),
+        "peer runtime access was blocked by the engine shutdown"
     );
     assert!(output_text(&output).contains("engine-peer-still-live"));
 
