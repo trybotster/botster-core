@@ -20,9 +20,7 @@ fn runtime_options() -> LocalProcessRuntimeOptions {
     LocalProcessRuntimeOptions {
         shutdown_grace: Duration::from_millis(50),
         pty_reader_chunk_capacity: DEFAULT_PTY_READER_CHUNK_CAPACITY,
-        test_hold_after_read_ms: None,
         test_pending_capacity: None,
-        test_hold_after_enqueue_ms: None,
     }
 }
 
