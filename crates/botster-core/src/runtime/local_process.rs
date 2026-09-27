@@ -1303,8 +1303,12 @@ fn drain_reader_output(
             },
         }));
     }
-    let (pending_out, fence_failure) =
-        drain_fence_pending(&session.reader_fence, session_id, &session.output_pressure);
+    let (pending_out, fence_failure, reader_finished) = take_fence_output(
+        &session.reader_fence,
+        session_id,
+        &session.output_pressure,
+        || {},
+    );
     output.extend(pending_out);
     if let Some(message) = fence_failure {
         session.authority_failed.get_or_insert(message);
@@ -1315,10 +1319,34 @@ fn drain_reader_output(
     if let Some(message) = session.pending_reader_error.take() {
         session.authority_failed.get_or_insert(message);
     }
-    if session.reader_fence.reader_finished() {
+    if reader_finished {
         session.reader_disconnected = true;
     }
     Ok(output)
+}
+
+/// Take the fence's pending output, and whether the reader had finished
+/// before the take.
+///
+/// The finished flag is read first. A reader marks itself finished only after
+/// it queued its last chunk, so a take that follows a set flag holds every
+/// chunk. Read after the take, the flag can report a reader that queued more
+/// chunks and finished in between: the exit would then be reported, and the
+/// session removed, with those chunks still in the fence. A flag that was
+/// still clear leaves them for the drain that the reader's final wake starts.
+///
+/// `after_take` runs after the take. Production passes a no-op; a test uses
+/// it to finish the reader at that point.
+fn take_fence_output(
+    fence: &ReaderFence,
+    session_id: &SessionId,
+    pressure: &ReaderPressure,
+    after_take: impl FnOnce(),
+) -> (Vec<SessionRuntimeOutput>, Option<String>, bool) {
+    let finished = fence.reader_finished();
+    let (output, failure) = drain_fence_pending(fence, session_id, pressure);
+    after_take();
+    (output, failure, finished)
 }
 
 fn sticky_session_error(session: &LocalSession) -> Option<String> {
@@ -2157,6 +2185,40 @@ mod tests {
         let (out, _) = drain_fence_pending(&fence, &test_session_id(), &pressure);
         assert_eq!(out.len(), 1);
         assert!(reader_finalization_complete(true, None, None,));
+    }
+
+    /// A reader that queues its tail and finishes between a drain's take and
+    /// its finished check must not be reported finished with that tail still
+    /// queued: the drain would report the exit and remove the session, and
+    /// the tail would be lost. Seen as a large tail lost when a flood exits.
+    #[test]
+    fn a_reader_that_finishes_after_the_take_keeps_its_tail_for_the_next_drain() {
+        let fence = test_fence(8);
+        let pressure = Arc::new(ReaderPressure::default());
+        fence.enqueue_read(ReaderEvent::Output(b"head".to_vec()), &pressure, 8);
+
+        let (first, _, finished) = take_fence_output(&fence, &test_session_id(), &pressure, || {
+            // The reader, unblocked by the take: its tail, then EOF.
+            fence.enqueue_read(ReaderEvent::Output(b"tail".to_vec()), &pressure, 8);
+            fence.mark_reader_finished();
+        });
+        let bytes = |out: &[SessionRuntimeOutput]| {
+            out.iter()
+                .flat_map(|output| match output {
+                    SessionRuntimeOutput::PtyOutput { data, .. } => data.clone(),
+                    _ => Vec::new(),
+                })
+                .collect::<Vec<u8>>()
+        };
+        assert_eq!(bytes(&first), b"head");
+        assert!(
+            !finished,
+            "the reader finished with its tail still queued; an exit now would lose it"
+        );
+
+        let (second, _, finished) = take_fence_output(&fence, &test_session_id(), &pressure, || {});
+        assert_eq!(bytes(&second), b"tail");
+        assert!(finished, "every chunk is taken once the reader is finished");
     }
 
     /// Write end of a pipe that is non-blocking and already full.
