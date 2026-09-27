@@ -12,6 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
+use botster_core::contract::terminal_wake::TerminalWakeBatch;
 use botster_core::TerminalScreenSize;
 use botster_core::{
     BindTerminalAdapterError, BotsterEngineObservation, ClientId, ClientStreamObservation,
@@ -290,8 +291,12 @@ fn pump_woken_ignore_payload_hub_shape() {
     let data_dir = temp_data_dir("pump-ignore-payload");
     let session_id = SessionId("pump-ignore-payload".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let fixture = GatedOutputExit::new();
     daemon
-        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .spawn(
+            gated_output_exit_spawn_request(&session_id, &fixture, "PUMP-RETAINED"),
+            10,
+        )
         .expect("spawn output worker");
     daemon
         .attach(
@@ -301,6 +306,7 @@ fn pump_woken_ignore_payload_hub_shape() {
             11,
         )
         .expect("attach unbound consumer");
+    let _ = fixture.release();
 
     pump_until_registry_exited(&mut daemon, &session_id, 20);
 
@@ -335,10 +341,18 @@ fn mixed_session_batch_retains_output_per_session() {
     let client_a = ClientId("mixed-client-a".to_string());
     let client_b = ClientId("mixed-client-b".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-    for (session_id, marker) in [(&session_a, "MIXED-A"), (&session_b, "MIXED-B")] {
-        let mut request = delayed_output_exit_spawn_request(session_id);
-        request.request.arguments[1] = format!("sleep 0.1; printf {marker}; exit 0");
-        daemon.spawn(request, 10).expect("spawn mixed session");
+    let fixture_a = GatedOutputExit::new();
+    let fixture_b = GatedOutputExit::new();
+    for (session_id, fixture, marker) in [
+        (&session_a, &fixture_a, "MIXED-A"),
+        (&session_b, &fixture_b, "MIXED-B"),
+    ] {
+        daemon
+            .spawn(
+                gated_output_exit_spawn_request(session_id, fixture, marker),
+                10,
+            )
+            .expect("spawn mixed session");
     }
     daemon
         .attach(
@@ -357,11 +371,35 @@ fn mixed_session_batch_retains_output_per_session() {
         )
         .expect("attach session B");
 
-    thread::sleep(Duration::from_millis(200));
-    let batch = daemon.wait_wakes(Duration::from_secs(1));
-    assert!(batch.ingress_sessions.contains(&session_a));
-    assert!(batch.ingress_sessions.contains(&session_b));
+    for fixture in [&fixture_a, &fixture_b] {
+        let pid = fixture.release();
+        assert!(
+            wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+            "mixed fixture exit"
+        );
+    }
+    // Both sessions have exited; gather their wakes into one mixed batch.
+    let mut batch = TerminalWakeBatch::default();
+    wait_for(
+        "wakes from both mixed sessions",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            // timer: deadline — wait_for's bound limits this wait
+            let next = daemon.wait_wakes(remaining);
+            for session in next.ingress_sessions {
+                if !batch.ingress_sessions.contains(&session) {
+                    batch.ingress_sessions.push(session);
+                }
+            }
+            batch.adapter_routes.extend(next.adapter_routes);
+            (batch.ingress_sessions.contains(&session_a)
+                && batch.ingress_sessions.contains(&session_b))
+            .then_some(())
+        },
+    );
     let _ = daemon.pump_woken(&batch, 20).expect("pump mixed batch");
+    pump_until_registry_exited(&mut daemon, &session_a, 20);
+    pump_until_registry_exited(&mut daemon, &session_b, 20);
 
     let first_a = daemon.drain(&session_a, 21).expect("drain session A");
     let first_b = daemon.drain(&session_b, 22).expect("drain session B");
@@ -392,8 +430,12 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
     let sessions_dir = data_dir.join("sessions");
     let session_id = SessionId("pump-persistence-retry".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let fixture = GatedOutputExit::new();
     daemon
-        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .spawn(
+            gated_output_exit_spawn_request(&session_id, &fixture, "PUMP-RETAINED"),
+            10,
+        )
         .expect("spawn output process");
     daemon
         .attach(
@@ -423,6 +465,8 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
         fs::set_permissions(&sessions_dir, restored).expect("restore sessions permissions");
         panic!("read-only sessions directory accepted a probe write");
     }
+    // The exit happens only now, so its commit meets the read-only directory.
+    let _ = fixture.release();
 
     let deadline = Instant::now() + Duration::from_secs(15);
     let failure = loop {
@@ -495,8 +539,12 @@ fn shutdown_daemon_error_after_engine_output_retains_once() {
     let sessions_dir = data_dir.join("sessions");
     let session_id = SessionId("shutdown-registry-error-retention".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let fixture = GatedOutputExit::new();
     daemon
-        .spawn(delayed_output_exit_spawn_request(&session_id), 10)
+        .spawn(
+            gated_output_exit_spawn_request(&session_id, &fixture, "PUMP-RETAINED"),
+            10,
+        )
         .expect("spawn shutdown registry process");
     daemon
         .attach(
@@ -506,7 +554,12 @@ fn shutdown_daemon_error_after_engine_output_retains_once() {
             11,
         )
         .expect("attach shutdown registry session");
-    thread::sleep(Duration::from_millis(300));
+    // Shutdown must meet engine output from a process that already exited.
+    let pid = fixture.release();
+    assert!(
+        wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "shutdown fixture exit"
+    );
 
     let original_mode = fs::metadata(&sessions_dir)
         .expect("sessions directory metadata")
@@ -5757,7 +5810,36 @@ fn immediate_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
     }
 }
 
-fn delayed_output_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequest {
+/// A shell fixture that reports its pid, blocks until the test releases it,
+/// prints its marker, and exits. The test chooses when the output and exit
+/// happen instead of racing a fixed delay.
+struct GatedOutputExit {
+    pid: Fifo,
+    gate: Fifo,
+}
+
+impl GatedOutputExit {
+    fn new() -> Self {
+        Self {
+            pid: Fifo::new("gated-exit-pid"),
+            gate: Fifo::new("gated-exit-gate"),
+        }
+    }
+
+    /// Release the fixture to print and exit; returns its pid.
+    fn release(&self) -> u32 {
+        let pid = String::from_utf8(self.pid.read_signal(REAL_WORKER_COMPLETION_TIMEOUT))
+            .expect("fixture pid is text");
+        self.gate.release(REAL_WORKER_COMPLETION_TIMEOUT);
+        pid.trim().parse().expect("fixture pid")
+    }
+}
+
+fn gated_output_exit_spawn_request(
+    session_id: &SessionId,
+    fixture: &GatedOutputExit,
+    marker: &str,
+) -> SpawnSessionRequest {
     SpawnSessionRequest {
         request: SessionSpawnRequest {
             request_id: RequestId(format!("{}-spawn", session_id.0)),
@@ -5765,7 +5847,11 @@ fn delayed_output_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequ
             executable: "sh".to_string(),
             arguments: vec![
                 "-c".to_string(),
-                "sleep 0.2; printf PUMP-RETAINED; exit 0".to_string(),
+                format!(
+                    "/bin/echo $$ > '{}'; /bin/cat '{}' >/dev/null; printf {marker}; exit 0",
+                    fixture.pid.path().display(),
+                    fixture.gate.path().display()
+                ),
             ],
             working_directory: SpawnWorkingDirectory {
                 path: ".".to_string(),
@@ -5780,6 +5866,14 @@ fn delayed_output_exit_spawn_request(session_id: &SessionId) -> SpawnSessionRequ
 fn pump_until_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId, now_seconds: u64) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
+        if matches!(
+            daemon
+                .session_registry_state(session_id)
+                .expect("non-progress registry lookup"),
+            SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+        ) {
+            return;
+        }
         assert!(
             Instant::now() < deadline,
             "targeted pump did not commit Exited for {}",
@@ -5792,14 +5886,6 @@ fn pump_until_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId, n
         let _ = daemon
             .pump_woken(&batch, now_seconds)
             .expect("targeted pump");
-        if matches!(
-            daemon
-                .session_registry_state(session_id)
-                .expect("non-progress registry lookup"),
-            SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
-        ) {
-            return;
-        }
     }
 }
 
