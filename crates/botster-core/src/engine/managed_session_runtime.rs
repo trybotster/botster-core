@@ -1993,14 +1993,16 @@ where
         outputs: Vec<SessionRuntimeOutput>,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        // Output held before this boundary precedes it in the stream. The
-        // boundary is not held back: its capture must complete.
+        // Output held before this boundary precedes it in the stream. Both
+        // route under backpressure: what does not fit a live route stays held,
+        // and the engine keeps the boundary's snapshot frames until it has
+        // routed, so no live route overflows into a resync.
         let mut ordered = self
             .held_runtime_output
             .remove(session_id)
             .unwrap_or_default();
         ordered.extend(outputs);
-        let mut outcome = self.route_runtime_outputs(session_id, ordered, last_output_at, false)?;
+        let mut outcome = self.route_runtime_outputs(session_id, ordered, last_output_at, true)?;
         self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
@@ -3242,6 +3244,86 @@ mod tests {
             environment: crate::SpawnEnvironment::default(),
             initial_pty_size: None,
         }
+    }
+
+    /// Accepts one write and never finishes it: the route queue fills.
+    #[derive(Default)]
+    struct StuckReader {
+        active: bool,
+    }
+
+    impl crate::contract::terminal_adapter::TerminalAdapter for StuckReader {
+        fn try_write(
+            &mut self,
+            _frame: &botster_terminal_protocol::RoutedTerminalFrame,
+        ) -> Result<(), crate::contract::terminal_adapter::TerminalAdapterWriteError> {
+            if self.active {
+                return Err(crate::contract::terminal_adapter::TerminalAdapterWriteError::Full);
+            }
+            self.active = true;
+            Ok(())
+        }
+
+        fn close(&mut self, _reason: TerminalRouteCloseReason) {}
+
+        fn pressure(&self) -> crate::contract::terminal_adapter::TerminalAdapterPressure {
+            if self.active {
+                crate::contract::terminal_adapter::TerminalAdapterPressure::Full
+            } else {
+                crate::contract::terminal_adapter::TerminalAdapterPressure::Ready
+            }
+        }
+
+        fn try_read(&mut self) -> crate::contract::terminal_adapter::TerminalIngress {
+            crate::contract::terminal_adapter::TerminalIngress::Empty
+        }
+    }
+
+    impl crate::contract::terminal_wake::WakingTerminalAdapter for StuckReader {
+        fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
+    }
+
+    #[test]
+    fn capture_boundary_output_waits_for_a_full_route_instead_of_overflowing_it() {
+        let session_id = SessionId("boundary-held".to_string());
+        let subscription_id = SubscriptionId("boundary-held-sub".to_string());
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        runtime
+            .spawn_session(
+                test_spawn_request("boundary-held"),
+                CoreSessionMetadata::new(),
+            )
+            .expect("spawn");
+        runtime
+            .test_bind_owner(
+                ClientId("boundary-held-client".to_string()),
+                session_id.clone(),
+                subscription_id.clone(),
+                Box::new(StuckReader::default()),
+            )
+            .expect("bind");
+        runtime.test_complete_route_capture(&session_id, &subscription_id);
+
+        // Output that precedes another route's capture boundary: more than
+        // the route's 64-frame bound, and its reader takes nothing.
+        let outputs: Vec<_> = (0..100)
+            .map(|_| SessionRuntimeOutput::PtyOutput {
+                session_id: session_id.clone(),
+                data: vec![b'x'; 100],
+            })
+            .collect();
+        runtime
+            .route_worker_boundary_outputs(&session_id, outputs, 1)
+            .expect("route boundary output");
+
+        assert!(
+            runtime.session_output_held(&session_id),
+            "what does not fit waits, held"
+        );
+        assert!(
+            runtime.client_worker.take_resync_requests().is_empty(),
+            "the full route did not overflow into a resync"
+        );
     }
 
     #[test]
