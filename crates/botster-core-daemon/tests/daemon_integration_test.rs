@@ -4047,6 +4047,16 @@ fn lifecycle_wakes_coalesce_and_page_does_not_clear_them() {
     daemon
         .spawn(spawn_request(&session_id), 10)
         .expect("first append sets the wake");
+    // Only a subscribed client may resize (an unsubscribed one is refused,
+    // typed).
+    daemon
+        .attach(
+            ClientId("wake-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("wake-sub".to_string()),
+            11,
+        )
+        .expect("attach before resize");
     daemon
         .resize(
             ClientId("wake-client".to_string()),
@@ -4127,6 +4137,16 @@ fn lifecycle_page_expired_cursor_resyncs_before_budget() {
     daemon
         .spawn(spawn_request(&session_id), 10)
         .expect("first append");
+    // Only a subscribed client may resize (an unsubscribed one is refused,
+    // typed).
+    daemon
+        .attach(
+            ClientId("expired-client".to_string()),
+            session_id.clone(),
+            SubscriptionId("expired-sub".to_string()),
+            11,
+        )
+        .expect("attach before resize");
     daemon
         .resize(
             ClientId("expired-client".to_string()),
