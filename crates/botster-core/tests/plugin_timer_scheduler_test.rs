@@ -257,7 +257,7 @@ fn timer_schedule_path_does_not_block_on_slow_plugin_handler() {
     let engine = engine();
     let plugin = plugin_key("slow-plugin");
     let handler = timer_handler(&plugin, "slow_timer");
-    let runtime = FakePluginRuntime::delayed(Duration::from_millis(100));
+    let runtime = FakePluginRuntime::held();
     engine.load_plugin(registration(runtime, &plugin, &handler));
 
     let started = std::time::Instant::now();
