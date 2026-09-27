@@ -517,22 +517,42 @@ fn wait_until(deadline: Duration, predicate: impl Fn() -> bool) {
         if predicate() {
             return;
         }
+        // The deadline holds on every pass, however often unrelated changes
+        // (other tests share the counter) wake this wait.
+        let remaining = end.saturating_duration_since(Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "condition did not become true before deadline"
+        );
         let count = CHANGES.count.lock().expect("changes lock");
-        // timer: deadline — the caller's bound; expiry fails the wait below
-        let (count, _) = CHANGES
+        let _ = CHANGES
             .changed
-            .wait_timeout_while(
-                count,
-                end.saturating_duration_since(Instant::now()),
-                |count| *count == seen,
-            )
+            // timer: deadline — the caller's bound; checked above on every pass
+            .wait_timeout_while(count, remaining, |count| *count == seen)
             .expect("changes wait");
-        if *count == seen {
-            drop(count);
-            assert!(predicate(), "condition did not become true before deadline");
-            return;
-        }
     }
+}
+
+/// A predicate that never holds fails at its deadline even when an
+/// unrelated change lands between reading the counter and every wait (the
+/// predicate itself bumps the counter, deterministically).
+#[test]
+fn wait_until_fails_at_its_deadline_under_unrelated_changes() {
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(|| {
+            wait_until(Duration::from_millis(50), || {
+                CHANGES.bump();
+                false
+            })
+        });
+        let _ = done_tx.send(result.is_err());
+    });
+    // timer: deadline — the wait must fail near its 50 ms bound, not run on
+    let failed = done_rx
+        .recv_timeout(HANG_GUARD)
+        .expect("the wait ended despite continuing changes");
+    assert!(failed, "a predicate that never holds fails the wait");
 }
 
 fn admit(
