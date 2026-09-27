@@ -976,6 +976,23 @@ where
             });
     }
 
+    /// End a route's capture. A `PROCESS_EXIT` held for it is queued now;
+    /// if that overflows the route, its teardown goes through the managed
+    /// teardown path (unsubscribe, inventory, in-flight cancels) with the
+    /// next outcome.
+    pub(crate) fn end_route_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        if let Some(teardown) = self
+            .client_worker
+            .end_route_capture(session_id, subscription_id)
+        {
+            self.pending_input_teardowns.push(teardown);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn test_pending_input_teardown_count(&self) -> usize {
         self.pending_input_teardowns.len()
@@ -2994,6 +3011,56 @@ mod tests {
         assert_eq!(
             runtime.session_runtime().delivered,
             vec![retained_input, shutdown]
+        );
+    }
+
+    /// The teardown a released PROCESS_EXIT causes (it overflowed its held
+    /// route) is kept for the managed teardown path, never discarded.
+    #[test]
+    fn a_released_exit_that_overflows_its_route_reaches_the_managed_teardown_path() {
+        let session_id = SessionId("deferred-exit-overflow".to_string());
+        let client = ClientId("deferred-exit-client".to_string());
+        let subscription = SubscriptionId("deferred-exit-sub".to_string());
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        runtime
+            .spawn_session(
+                test_spawn_request(&session_id.0),
+                CoreSessionMetadata::new(),
+            )
+            .expect("spawn");
+        runtime.client_worker.expect_terminal_adapter(
+            client.clone(),
+            session_id.clone(),
+            subscription.clone(),
+        );
+        let _ = runtime
+            .client_worker
+            .record_attach(client, session_id.clone(), subscription.clone())
+            .expect("declared attach");
+        runtime
+            .client_worker
+            .open_route_capture(&session_id, &subscription);
+        assert!(runtime
+            .client_worker
+            .push_session_process_exit(&session_id, Some(0))
+            .is_empty());
+        for _ in 0..botster_terminal_protocol::MAX_ROUTE_EGRESS_FRAMES {
+            let _ = runtime.client_worker.push_route_frame(
+                &session_id,
+                &subscription,
+                botster_terminal_protocol::encode_modes(
+                    botster_terminal_protocol::ModesBody::default(),
+                )
+                .expect("modes"),
+            );
+        }
+        assert_eq!(runtime.test_pending_input_teardown_count(), 0);
+
+        runtime.end_route_capture(&session_id, &subscription);
+        assert_eq!(
+            runtime.test_pending_input_teardown_count(),
+            1,
+            "the teardown goes through the managed teardown path"
         );
     }
 

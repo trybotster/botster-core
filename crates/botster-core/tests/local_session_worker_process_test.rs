@@ -22,6 +22,7 @@ use botster_core::{
     TerminalMetadataShapingOutcome, TerminalWakeSource, TransportEgress, WorkerBackedBotsterEngine,
     WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
+use botster_core_test_support::fixture_gate::wait_pid_exit;
 use sha2::{Digest, Sha256};
 
 extern "C" {
@@ -2213,4 +2214,81 @@ fn crash_before_hello_is_not_created_crash_after_spawn_frame_is_unknown() {
     let _ = std::fs::remove_file(after_pid_path);
     let _ = std::fs::remove_file(after_script);
     let _ = std::fs::remove_dir(after_dir);
+}
+
+/// After its child exits, a socket worker keeps serving its parent (captures
+/// from the final terminal model). When its last control connection closes,
+/// the parent is gone, and the worker exits.
+#[cfg(unix)]
+#[test]
+fn an_exited_socket_worker_exits_when_its_parent_connection_closes() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let dir = std::env::temp_dir().join(format!(
+        "bw-exit-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&dir).expect("create the socket directory");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .expect("make the socket directory private");
+    let socket = dir.join("w.sock");
+    let mut worker = Command::new(worker_path())
+        .arg("--control-socket")
+        .arg(&socket)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn a socket worker");
+    let mut ready = String::new();
+    BufReader::new(worker.stdout.take().expect("worker stdout"))
+        .read_line(&mut ready)
+        .expect("read worker readiness");
+    assert!(
+        ready.starts_with("botster-session-worker-ready"),
+        "{ready:?}"
+    );
+
+    let mut stream = UnixStream::connect(&socket).expect("connect to the worker");
+    botster_core::write_hello(&mut stream).expect("write hello");
+    let spawn = botster_core::encode_json(
+        botster_core::FRAME_SPAWN_SESSION,
+        &shell_request(session_id("socket-exit"), "exit 0"),
+    )
+    .expect("encode spawn");
+    stream.write_all(&spawn).expect("write spawn");
+    let _ = botster_core::read_welcome(&mut stream).expect("read welcome");
+    // timer: deadline — the worker must report the exit; expiry fails the test
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .expect("bound the reads");
+    let mut decoder = botster_core::FrameDecoder::new();
+    let mut buffer = [0_u8; 4096];
+    'exited: loop {
+        let read = stream.read(&mut buffer).expect("read worker frames");
+        assert!(read > 0, "the worker closed before reporting the exit");
+        for frame in decoder.feed(&buffer[..read]).expect("decode worker frames") {
+            if frame.frame_type == botster_core::FRAME_PROCESS_EXITED {
+                break 'exited;
+            }
+        }
+    }
+
+    // The child has exited; the worker is serving. The parent goes away.
+    drop(stream);
+    let exited = wait_pid_exit(worker.id(), Duration::from_secs(30));
+    if !exited {
+        let _ = worker.kill();
+    }
+    let _ = worker.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        exited,
+        "an exited worker must exit when its parent's connection closes"
+    );
 }
