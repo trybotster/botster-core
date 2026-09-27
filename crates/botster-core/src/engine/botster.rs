@@ -215,6 +215,9 @@ struct RouteCapture {
     collected: Vec<u8>,
     collected_size: Option<TerminalScreenSize>,
     collected_colors: Option<crate::TerminalColorProfile>,
+    /// Snapshot frames already polled whose preceding output is still held
+    /// for a full route: processed once that output has routed.
+    stashed_frames: Option<crate::runtime::WorkerSnapshotBoundaryPoll>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -1611,11 +1614,14 @@ impl WorkerBackedBotsterEngine {
             }
             return output;
         }
-        let poll = match self
-            .runtime
-            .session_runtime_mut()
-            .poll_snapshot_boundary(session_id, &capture.request_id)
-        {
+        let polled = match capture.stashed_frames.take() {
+            Some(stashed) => Ok(stashed),
+            None => self
+                .runtime
+                .session_runtime_mut()
+                .poll_snapshot_boundary(session_id, &capture.request_id),
+        };
+        let poll = match polled {
             Ok(poll) => poll,
             Err(error) => {
                 let not_found = error.kind == crate::SessionRuntimeErrorKind::SessionNotFound;
@@ -1640,6 +1646,19 @@ impl WorkerBackedBotsterEngine {
                 return Err(error);
             }
         };
+        if self.runtime.session_output_held(session_id) {
+            // The output before this boundary did not all fit a live route:
+            // keep the snapshot frames until it has routed. The capture's own
+            // route awaits its capture, so it never takes that output.
+            suppress_capture_route_output(&mut output, session_id, &capture, &self.capture_queue);
+            capture.stashed_frames = Some(crate::runtime::WorkerSnapshotBoundaryPoll {
+                frames: poll.frames,
+                before_ready: Vec::new(),
+                complete: poll.complete,
+            });
+            self.captures.insert(session_id.clone(), capture);
+            return Ok(output);
+        }
         suppress_capture_route_output(&mut output, session_id, &capture, &self.capture_queue);
 
         let mut finished = false;
@@ -2074,6 +2093,7 @@ impl WorkerBackedBotsterEngine {
                             collected: Vec::new(),
                             collected_size: None,
                             collected_colors: None,
+                            stashed_frames: None,
                         },
                     );
                     let _ = self.sync_worker_consumers(session_id);
@@ -3409,6 +3429,7 @@ mod capture_identity_tests {
             collected: Vec::new(),
             collected_size: None,
             collected_colors: None,
+            stashed_frames: None,
         }
     }
 
@@ -3805,6 +3826,7 @@ mod capture_identity_tests {
                 collected: Vec::new(),
                 collected_size: None,
                 collected_colors: None,
+                stashed_frames: None,
             },
         );
 

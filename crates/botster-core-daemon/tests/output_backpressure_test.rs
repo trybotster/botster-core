@@ -56,6 +56,13 @@ impl PacedReader {
         }
     }
 
+    /// Raise a writable wake without reading anything: a spurious wake.
+    fn spurious_wake(&self) {
+        if let Some(sink) = &self.lock().sink {
+            let _ = sink.wake(TerminalWakeKind::Writable);
+        }
+    }
+
     fn has_active(&self) -> bool {
         self.lock().active.is_some()
     }
@@ -259,6 +266,10 @@ impl Flood {
         });
     }
 
+    fn held(&self) -> bool {
+        self.daemon.session_output_held(&self.session_id)
+    }
+
     /// Pace `readers` until each is attached and the capture has closed.
     fn settle(&mut self, readers: &[&PacedReader]) {
         let session_id = self.session_id.clone();
@@ -376,4 +387,95 @@ fn a_reader_stopped_past_the_deadline_ends_and_no_longer_throttles_its_sibling()
         "the progressing reader receives every byte, in order"
     );
     assert_eq!(progressing.closed(), None);
+}
+
+#[test]
+fn an_attach_while_the_session_is_held_completes_and_keeps_order() {
+    let expected = seq_output(LAST_LINE);
+    let mut flood = Flood::spawn("backpressure-capture");
+    let (_, first) = flood.attach("backpressure-capture-a");
+    flood.settle(&[&first]);
+    flood.release();
+    let session_id = flood.session_id.clone();
+    flood.pump_until(
+        "the first reader holds the session",
+        || {},
+        |daemon| daemon.session_output_held(&session_id) && first.has_active(),
+    );
+    assert!(flood.held());
+    // A second client attaches while output is held; its capture must
+    // complete, and both streams must stay in order.
+    let (_, second) = flood.attach("backpressure-capture-b");
+    flood.pump_until(
+        "the second reader's capture while held",
+        || {
+            first.complete();
+            second.complete();
+        },
+        |daemon| second.attached() && !daemon.capture_active(&session_id),
+    );
+    flood.pump_until(
+        "every line through both readers",
+        || {
+            first.complete();
+            second.complete();
+        },
+        |_| first.output().len() >= expected.len() && second.output().ends_with(b"200000\n"),
+    );
+    assert_eq!(first.resyncs(), 0);
+    assert!(
+        first.output() == expected,
+        "the first reader receives every byte, in order, across the capture"
+    );
+    assert_eq!(second.resyncs(), 0);
+    let tail = second.output();
+    assert!(
+        !tail.is_empty() && expected.ends_with(&tail),
+        "the second reader's live output is an exact tail of the stream: \
+         no gap, repeat, or reorder after its capture"
+    );
+}
+
+#[test]
+fn a_resync_capture_on_one_route_loses_no_output_on_another() {
+    let expected = seq_output(LAST_LINE);
+    let mut flood = Flood::spawn("resync-sibling");
+    let (_, resynced) = flood.attach("resync-sibling-a");
+    let (_, sibling) = flood.attach("resync-sibling-b");
+    flood.settle(&[&resynced, &sibling]);
+    flood.release();
+    // Route A stops reading, and its unhonoured writable wakes exhaust the
+    // attempt budget: a stall resync queues A's capture. B reads meanwhile.
+    let session_id = flood.session_id.clone();
+    flood.pump_until(
+        "route A's resync capture",
+        || {
+            sibling.complete();
+            resynced.spurious_wake();
+        },
+        |daemon| daemon.capture_active(&session_id),
+    );
+    // Then B stops until it is full and the session holds: A's capture
+    // boundary waits, and the parent's channel fills behind the hold.
+    flood.pump_until(
+        "route B holds the session during A's capture",
+        || {},
+        |daemon| daemon.session_output_held(&session_id) && sibling.has_active(),
+    );
+    // B resumes one frame at a time: when the held output clears, B has one
+    // free slot, and A's capture boundary brings a full channel of output
+    // that precedes it. That output must wait for B, not overflow it.
+    flood.pump_until(
+        "every line through route B",
+        || {
+            sibling.complete();
+            resynced.complete();
+        },
+        |_| sibling.output().len() >= expected.len(),
+    );
+    assert_eq!(sibling.resyncs(), 0);
+    assert!(
+        sibling.output() == expected,
+        "route B receives every byte, in order, across route A's resync capture"
+    );
 }
