@@ -1094,11 +1094,11 @@ fn dropping_parent_runtime_reaps_worker_and_pty_child() {
     };
 
     assert!(
-        wait_until(|| !process_exists(worker_pid)),
+        wait_pid_exit(worker_pid, Duration::from_secs(5)),
         "dropping parent runtime should reap worker process {worker_pid}"
     );
     assert!(
-        wait_until(|| !process_exists(pty_child_pid)),
+        wait_pid_exit(pty_child_pid, Duration::from_secs(5)),
         "dropping parent runtime should clean worker PTY child {pty_child_pid}"
     );
 }
@@ -1168,11 +1168,11 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
         started.elapsed()
     );
     assert!(
-        wait_until(|| !process_exists(worker_pid)),
+        wait_pid_exit(worker_pid, Duration::from_secs(5)),
         "dropping parent runtime should reap worker process {worker_pid}"
     );
     assert!(
-        wait_until(|| !process_exists(pty_child_pid)),
+        wait_pid_exit(pty_child_pid, Duration::from_secs(5)),
         "dropping parent runtime should clean worker PTY child {pty_child_pid}"
     );
 }
@@ -1260,10 +1260,10 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
         let output = collect_until(&mut runtime, session, has_process_exit);
         assert!(has_process_exit(&output));
     }
-    assert!(wait_until(|| !process_exists(canonical_worker_pid)));
-    assert!(wait_until(|| !process_exists(long_worker_pid)));
-    assert!(wait_until(|| !process_exists(canonical_pty_pid)));
-    assert!(wait_until(|| !process_exists(long_pty_pid)));
+    assert!(wait_pid_exit(canonical_worker_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(long_worker_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(canonical_pty_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(long_pty_pid, Duration::from_secs(5)));
     assert!(!canonical_socket.exists());
     assert!(!long_socket.exists());
     assert!(
@@ -1364,8 +1364,8 @@ fn occupied_worker_endpoint_fails_without_contacting_or_replacing_the_live_worke
         &session,
         has_process_exit
     )));
-    assert!(wait_until(|| !process_exists(owner_worker_pid)));
-    assert!(wait_until(|| !process_exists(owner_pty_pid)));
+    assert!(wait_pid_exit(owner_worker_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(owner_pty_pid, Duration::from_secs(5)));
     assert!(!owner_socket.exists());
     let _ = std::fs::remove_dir(control_dir);
 }
@@ -1447,7 +1447,7 @@ fn handshake_failure_reaps_the_spawned_worker_and_its_socket() {
         .expect("parse sleeping worker pid");
 
     assert_eq!(error.kind, SessionRuntimeErrorKind::SpawnFailed);
-    assert!(wait_until(|| !process_exists(worker_pid)));
+    assert!(wait_pid_exit(worker_pid, Duration::from_secs(5)));
     assert!(!socket_path.exists());
     assert!(control_dir.exists(), "caller-owned root must remain");
     let _ = std::fs::remove_file(worker_pid_path);
@@ -1530,7 +1530,7 @@ fn welcome_must_identify_the_exact_spawned_worker() {
         error.message,
         "worker welcome did not identify the spawned child"
     );
-    assert!(wait_until(|| !process_exists(worker_pid)));
+    assert!(wait_pid_exit(worker_pid, Duration::from_secs(5)));
     assert!(!socket_path.exists());
     let _ = std::fs::remove_file(worker_pid_path);
     let _ = std::fs::remove_file(worker_script);
@@ -1564,7 +1564,7 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
         (socket, worker_pid, metadata.pid)
     };
     assert!(!process_exists(first_worker_pid));
-    assert!(wait_until(|| !process_exists(first_pty_pid)));
+    assert!(wait_pid_exit(first_pty_pid, Duration::from_secs(5)));
     assert!(stale_socket.exists());
 
     let mut replacement = WorkerProcessRuntime::with_options(options);
@@ -1651,7 +1651,7 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
     );
     assert!(output_text(&output).contains("terminal-before-exit"));
     assert!(
-        wait_until(|| !process_exists(worker_pid)),
+        wait_pid_exit(worker_pid, Duration::from_secs(5)),
         "worker must be reaped after ProcessExited delivery"
     );
     assert!(
@@ -1714,7 +1714,7 @@ fn drain_output_delivers_process_exited_while_worker_holds_stdout_open() {
         .expect_err("delivered session must be removed from the runtime map");
     assert_eq!(error.kind, SessionRuntimeErrorKind::SessionNotFound);
     assert!(
-        wait_until(|| !process_exists(worker_pid)),
+        wait_pid_exit(worker_pid, Duration::from_secs(5)),
         "bounded reaper must eventually reap worker {worker_pid}"
     );
     let _ = std::fs::remove_dir_all(control_dir);
@@ -1817,8 +1817,8 @@ fn reaper_window_leaves_a_sibling_session_live() {
         &sibling,
         has_process_exit
     )));
-    assert!(wait_until(|| !process_exists(exiting_pid)));
-    assert!(wait_until(|| !process_exists(sibling_pid)));
+    assert!(wait_pid_exit(exiting_pid, Duration::from_secs(5)));
+    assert!(wait_pid_exit(sibling_pid, Duration::from_secs(5)));
     let _ = std::fs::remove_dir_all(control_dir);
 }
 
