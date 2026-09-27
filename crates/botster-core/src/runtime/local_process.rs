@@ -1055,6 +1055,32 @@ impl ReaderFence {
         Ok(())
     }
 
+    /// The reader's enqueue of a chunk it has read: always into the fence, in
+    /// order, so a barrier drain always sees it. Returns whether the queue is
+    /// now at or over capacity: the reader must then wait for space before it
+    /// reads more. The queue holds at most one chunk beyond capacity.
+    ///
+    /// A chunk held outside the fence while the reader waits would be missed
+    /// by a barrier's drain, which then takes newer residual PTY bytes ahead
+    /// of it: the chunk would arrive after bytes that followed it.
+    fn enqueue_read(
+        &self,
+        event: ReaderEvent,
+        pressure: &ReaderPressure,
+        pressure_capacity: usize,
+    ) -> bool {
+        let Ok(mut pending) = self.pending.lock() else {
+            return false;
+        };
+        pending.push_back(event);
+        let depth = pending.len();
+        pressure.depth.store(depth, Ordering::Release);
+        if depth >= pressure_capacity.max(1) {
+            pressure.pressured.store(true, Ordering::Release);
+        }
+        depth >= self.pending_capacity
+    }
+
     /// Wait until fence pending has free capacity. Must not be called while the
     /// reader holds the fence critical section (would block mode barriers).
     fn wait_for_pending_space(&self) {
@@ -1502,25 +1528,17 @@ fn spawn_reader(
                     break;
                 }
                 Ok(bytes_read) => {
-                    let mut event = ReaderEvent::Output(buffer[..bytes_read].to_vec());
-                    // Enqueue + depth under one lock (see push_pending). On
-                    // capacity pressure, leave critical before waiting so a
-                    // mode barrier can progress; never block under critical.
-                    loop {
-                        match reader_fence.push_pending(event, &reader_pressure, capacity) {
-                            Ok(()) => {
-                                reader_fence.leave_critical();
-                                notify_session_wake(&wake_handle);
-                                break;
-                            }
-                            Err(returned) => {
-                                // Ordinary pressure is always lossless.
-                                event = returned;
-                                reader_fence.leave_critical();
-                                reader_fence.wait_for_pending_space();
-                                reader_fence.enter_critical();
-                            }
-                        }
+                    let event = ReaderEvent::Output(buffer[..bytes_read].to_vec());
+                    // The chunk enters the fence at once, in order (see
+                    // enqueue_read). On capacity pressure, leave critical
+                    // before waiting so a mode barrier can progress; never
+                    // block under critical, and read nothing more until the
+                    // queue has room.
+                    let full = reader_fence.enqueue_read(event, &reader_pressure, capacity);
+                    reader_fence.leave_critical();
+                    notify_session_wake(&wake_handle);
+                    if full {
+                        reader_fence.wait_for_pending_space();
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -2051,6 +2069,32 @@ mod tests {
         let (out2, fail2) = drain_fence_pending(&fence, &test_session_id(), &pressure);
         assert!(fail2.is_none());
         assert_eq!(out2.len(), 1, "second chunk retained after wait+drain");
+    }
+
+    #[test]
+    fn a_chunk_read_while_the_queue_is_full_is_drained_in_order() {
+        // A capture barrier pauses the reader and drains the fence, then the
+        // newer residual PTY bytes. A chunk the reader already read must be
+        // in that drain, ahead of the residual bytes, even when the queue
+        // was full: otherwise it arrives after bytes that followed it.
+        let fence = test_fence(1);
+        let pressure = Arc::new(ReaderPressure::default());
+        assert!(
+            fence.enqueue_read(ReaderEvent::Output(b"first".to_vec()), &pressure, 1),
+            "one chunk fills a one-slot queue: the reader must wait"
+        );
+        assert!(fence.enqueue_read(ReaderEvent::Output(b"second".to_vec()), &pressure, 1));
+        let (out, fail) = drain_fence_pending(&fence, &test_session_id(), &pressure);
+        assert!(fail.is_none());
+        let chunks: Vec<Vec<u8>> = out
+            .into_iter()
+            .filter_map(|output| match output {
+                SessionRuntimeOutput::PtyOutput { data, .. } => Some(data),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(chunks, vec![b"first".to_vec(), b"second".to_vec()]);
+        assert!(fence.take_overflow_error().is_none());
     }
 
     #[test]

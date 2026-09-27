@@ -141,6 +141,31 @@ impl WakingTerminalAdapter for PacedReader {
     }
 }
 
+/// Describe where `got` first differs from `want`, for a failed assertion.
+fn first_difference(got: &[u8], want: &[u8]) -> String {
+    let at = got
+        .iter()
+        .zip(want)
+        .position(|(g, w)| g != w)
+        .unwrap_or(got.len().min(want.len()));
+    let around = |bytes: &[u8]| {
+        String::from_utf8_lossy(&bytes[at.saturating_sub(24)..(at + 40).min(bytes.len())])
+            .into_owned()
+    };
+    let wanted = &want[at..(at + 32).min(want.len())];
+    let found = got
+        .windows(wanted.len().max(1))
+        .position(|window| window == wanted);
+    format!(
+        "the wanted bytes at {at} appear in got at {found:?}; \
+         first difference at byte {at} of {} (want {}): got {:?}, want {:?}",
+        got.len(),
+        want.len(),
+        around(got),
+        around(want)
+    )
+}
+
 /// Lines 1..=`last` exactly as `seq` writes them.
 fn seq_output(last: u32) -> Vec<u8> {
     (1..=last)
@@ -317,7 +342,11 @@ fn a_progressing_reader_receives_every_byte_in_order_without_resync() {
         "the paced reader must have held the session at least once"
     );
     assert_eq!(reader.resyncs(), 0, "a progressing reader never resyncs");
-    assert!(reader.output() == expected, "every byte arrives, in order");
+    assert!(
+        reader.output() == expected,
+        "every byte arrives, in order: {}",
+        first_difference(&reader.output(), &expected)
+    );
     assert_eq!(reader.closed(), None);
 }
 
@@ -342,7 +371,11 @@ fn a_reader_that_stalls_and_resumes_before_the_deadline_does_not_resync() {
         |_| reader.output().len() >= expected.len(),
     );
     assert_eq!(reader.resyncs(), 0, "a resumed reader never resyncs");
-    assert!(reader.output() == expected, "every byte arrives, in order");
+    assert!(
+        reader.output() == expected,
+        "every byte arrives, in order: {}",
+        first_difference(&reader.output(), &expected)
+    );
     assert_eq!(reader.closed(), None);
 }
 
@@ -384,7 +417,8 @@ fn a_reader_stopped_past_the_deadline_ends_and_no_longer_throttles_its_sibling()
     assert_eq!(progressing.resyncs(), 0);
     assert!(
         progressing.output() == expected,
-        "the progressing reader receives every byte, in order"
+        "the progressing reader receives every byte, in order: {}",
+        first_difference(&progressing.output(), &expected)
     );
     assert_eq!(progressing.closed(), None);
 }
@@ -425,7 +459,8 @@ fn an_attach_while_the_session_is_held_completes_and_keeps_order() {
     assert_eq!(first.resyncs(), 0);
     assert!(
         first.output() == expected,
-        "the first reader receives every byte, in order, across the capture"
+        "the first reader receives every byte, in order, across the capture: {}",
+        first_difference(&first.output(), &expected)
     );
     assert_eq!(second.resyncs(), 0);
     let tail = second.output();
@@ -476,6 +511,7 @@ fn a_resync_capture_on_one_route_loses_no_output_on_another() {
     assert_eq!(sibling.resyncs(), 0);
     assert!(
         sibling.output() == expected,
-        "route B receives every byte, in order, across route A's resync capture"
+        "route B receives every byte, in order, across route A's resync capture: {}",
+        first_difference(&sibling.output(), &expected)
     );
 }
