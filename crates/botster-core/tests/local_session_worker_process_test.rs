@@ -3,8 +3,6 @@
 
 use std::io::Read;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -22,7 +20,8 @@ use botster_core::{
     TerminalMetadataShapingOutcome, TerminalWakeSource, TransportEgress, WorkerBackedBotsterEngine,
     WorkerProcessRuntime, WorkerProcessRuntimeOptions,
 };
-use botster_core_test_support::fixture_gate::wait_pid_exit;
+use botster_core_test_support::bounded_wait::wait_for;
+use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use sha2::{Digest, Sha256};
 
 extern "C" {
@@ -678,7 +677,8 @@ fn detaching_one_client_does_not_starve_other_subscribers() {
         if String::from_utf8_lossy(&client_b_bytes).contains("still-attached") {
             break;
         }
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — wait for the engine's next session wake
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     assert!(
@@ -698,17 +698,24 @@ fn detach_reattach_keeps_worker_live_and_bounded_egress_reports_pressure() {
     let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-detach-reattach");
 
+    // The child reports when its loop is done. Its PTY is far smaller than the
+    // 2000 lines, so by then the worker has read them and the two-slot parent
+    // channel, with no consumer attached, has overflowed.
+    let produced = Fifo::new("worker-detach-produced");
     runtime
         .spawn_session(shell_request(
             session.clone(),
-            "i=0; while [ $i -lt 2000 ]; do printf \"tick:$i\\n\"; i=$((i+1)); done; cat",
+            &format!(
+                "i=0; while [ $i -lt 2000 ]; do printf \"tick:$i\\n\"; i=$((i+1)); done; /bin/echo produced > '{}'; cat",
+                produced.path().display()
+            ),
         ))
         .expect("spawn noisy worker session");
 
     runtime
         .detach_consumer(&session)
         .expect("detach parent-side consumer without protocol frame");
-    thread::sleep(Duration::from_millis(500));
+    let _ = produced.read_signal(Duration::from_secs(10));
     let detached = runtime
         .drain_output(&session)
         .expect("detached drain should not block worker");
@@ -1175,15 +1182,14 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
         .expect("worker pid in recovery identity") as u32;
     let pty_child_pid = metadata.pid;
 
-    let dropped = Arc::new(AtomicBool::new(false));
-    let drop_flag = Arc::clone(&dropped);
-    let started = Instant::now();
+    let (dropped_sender, dropped) = std::sync::mpsc::channel();
     thread::spawn(move || {
         drop(runtime);
-        drop_flag.store(true, Ordering::SeqCst);
+        let _ = dropped_sender.send(());
     });
 
-    let drop_finished = wait_until(|| dropped.load(Ordering::SeqCst));
+    // timer: deadline — the parent drop must finish within its 2 s bound
+    let drop_finished = dropped.recv_timeout(Duration::from_secs(2)).is_ok();
     if !drop_finished {
         // SAFETY: signal 9 is SIGKILL. The parent drop is stuck, so the test
         // must reap leftovers before later cases observe leaked PIDs.
@@ -1195,11 +1201,6 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
     assert!(
         drop_finished,
         "parent drop must finish while attached capacity-one stall is under sustained PTY pressure"
-    );
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "parent drop must stay bounded; elapsed={:?}",
-        started.elapsed()
     );
     assert!(
         wait_pid_exit(worker_pid, Duration::from_secs(5)),
@@ -1582,7 +1583,9 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
     let (stale_socket, first_worker_pid, first_pty_pid) = {
-        let mut runtime = WorkerProcessRuntime::with_options(options.clone());
+        let wakes = TerminalWakeSource::new();
+        let mut runtime =
+            WorkerProcessRuntime::with_options(options.clone()).with_wake_source(wakes.clone());
         runtime
             .spawn_session(shell_request(session.clone(), "cat"))
             .expect("spawn first worker");
@@ -1595,7 +1598,7 @@ fn killed_worker_stale_socket_is_reclaimed_for_same_session_id() {
             .status()
             .expect("kill first worker");
         assert!(status.success());
-        assert!(wait_until(|| !runtime.is_worker_process(&session)));
+        wait_worker_gone(&mut runtime, &wakes, &session);
         assert!(!process_exists(worker_pid));
         assert!(socket.exists(), "SIGKILL should leave a stale socket entry");
         runtime.release_for_restart();
@@ -1677,7 +1680,11 @@ fn loaded_bounded_egress_publishes_exit_only_after_worker_and_control_teardown()
         .expect("worker socket in recovery identity");
     let pty_child_pid = metadata.pid;
 
-    thread::sleep(Duration::from_millis(250));
+    // The child prints once and exits; collect only after it has exited.
+    assert!(
+        wait_pid_exit(pty_child_pid, Duration::from_secs(5)),
+        "the one-line child exits"
+    );
     let output = collect_until(&mut runtime, &wakes, &session, has_process_exit);
     let terminal_index = output
         .iter()
@@ -1875,7 +1882,8 @@ fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
     create_private_control_dir(&control_dir);
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
-    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let session = session_id("worker-unexpected-eof");
     runtime
         .spawn_session(shell_request(session.clone(), "cat"))
@@ -1901,7 +1909,7 @@ fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
         .status()
         .expect("kill worker process");
     assert!(status.success());
-    assert!(wait_until(|| !runtime.is_worker_process(&session)));
+    wait_worker_gone(&mut runtime, &wakes, &session);
     thread::sleep(Duration::from_millis(50));
     let output = runtime
         .drain_output(&session)
@@ -1913,6 +1921,27 @@ fn unexpected_control_eof_without_clean_exit_does_not_publish_completion() {
     assert!(wait_pid_exit(metadata.pid, Duration::from_secs(5)));
     assert!(!socket_path.exists());
     let _ = std::fs::remove_dir_all(control_dir);
+}
+
+/// Wait until the runtime observes that its killed worker is gone. The
+/// reader's end of stream posts a session wake.
+fn wait_worker_gone(
+    runtime: &mut WorkerProcessRuntime,
+    wakes: &TerminalWakeSource,
+    session: &SessionId,
+) {
+    wait_for(
+        "the runtime observing the worker's death",
+        Duration::from_secs(5),
+        |remaining| {
+            if !runtime.is_worker_process(session) {
+                return Some(());
+            }
+            // timer: deadline — wait_for's bound limits this wait
+            let _ = wakes.wait_wakes(remaining);
+            (!runtime.is_worker_process(session)).then_some(())
+        },
+    );
 }
 
 fn temp_control_dir(prefix: &str) -> std::path::PathBuf {
@@ -2004,7 +2033,14 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
     stdin.write_all(&spawn).expect("write spawn frame");
     stdin.flush().expect("flush spawn frame");
     drop(stdin);
+    // timer: deadline — a stdio worker must exit on control EOF; the bound
+    // turns a missed disconnect into a failure instead of a hang.
+    let exited = wait_pid_exit(child.id(), Duration::from_secs(10));
+    if !exited {
+        let _ = child.kill();
+    }
     let _ = child.wait();
+    assert!(exited, "stdio worker did not exit after control EOF");
 }
 
 fn write_signaling_worker(
