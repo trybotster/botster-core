@@ -1834,12 +1834,16 @@ fn repeated_equal_resizes_complete_in_acknowledgement_order() {
     adapter_a.inject_ingress_frame(compact_resize_frame(1, 24, 80));
     adapter_a.inject_ingress_frame(compact_resize_frame(2, 24, 80));
     adapter_a.inject_ingress_frame(compact_resize_frame(3, 31, 91));
-    let wake = daemon.wait_wakes(Duration::from_secs(1));
-    daemon
-        .pump_woken(&wake, 3)
-        .expect("accept repeated resizes");
+    // A full control queue parks a resize until the writer frees space and
+    // wakes the session, so the three may take more than one pump.
+    pump_until(
+        &mut daemon,
+        "all three resizes submitted and pending",
+        Duration::from_secs(1),
+        3,
+        |daemon| daemon.pending_terminal_resize_len(&session_a) == 3,
+    );
     assert_eq!(delivered_input_result_count(&adapter_a, 1..=3), 0);
-    assert_eq!(daemon.pending_terminal_resize_len(&session_a), 3);
     let record = daemon
         .registry()
         .load(&session_a)
