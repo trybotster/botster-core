@@ -5,10 +5,13 @@
 //! release.
 
 pub mod assertions;
+pub mod bounded_wait;
 #[cfg(feature = "local-runtime")]
 pub mod conformance;
 pub mod diagnostics;
 pub mod fake;
+#[cfg(unix)]
+pub mod fixture_gate;
 pub mod fixtures;
 pub mod real_worker;
 pub mod route_observer;
