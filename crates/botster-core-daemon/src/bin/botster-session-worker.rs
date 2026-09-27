@@ -1334,8 +1334,33 @@ fn spawn_control_reader(
             wakes.notify_session(&session_id);
         }
         snapshot_barrier.cancel_active();
+        // Drop the sender before the wake: the main loop reads disconnect as
+        // TryRecvError::Disconnected, and a wake that lands while the sender
+        // is alive reads as Empty and leaves the loop parked with no wake.
+        drop(sender);
         wakes.notify_session(&session_id);
+        #[cfg(test)]
+        hold_after_eof_wake(&session_id);
     });
+}
+
+/// Test seam: a gate that parks a control reader right after its final wake,
+/// so a test can observe what the main loop sees at that wake.
+#[cfg(test)]
+static EOF_WAKE_GATES: Mutex<Vec<(SessionId, Receiver<()>)>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn hold_after_eof_wake(session_id: &SessionId) {
+    let gate = {
+        let mut gates = EOF_WAKE_GATES.lock().expect("eof wake gates");
+        gates
+            .iter()
+            .position(|(id, _)| id == session_id)
+            .map(|index| gates.swap_remove(index).1)
+    };
+    if let Some(gate) = gate {
+        let _ = gate.recv();
+    }
 }
 
 fn encoded_frame_type(frame: &[u8]) -> Option<u8> {
@@ -2305,6 +2330,43 @@ mod tests {
             .expect("shutdown still reaches the main loop");
         assert_eq!(forwarded.frame_type, super::FRAME_SHUTDOWN);
         drop(parent);
+    }
+
+    #[test]
+    fn control_eof_wake_finds_the_frame_channel_disconnected() {
+        use std::os::unix::net::UnixStream;
+
+        let session = super::SessionId("eof-wake-reader".to_string());
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        super::EOF_WAKE_GATES
+            .lock()
+            .expect("eof wake gates")
+            .push((session.clone(), gate));
+        let wakes = super::TerminalWakeSource::new();
+        let _registered = wakes.session_handle(session.clone());
+        let (frames_tx, frames_rx) = std::sync::mpsc::channel();
+        let (parent, worker) = UnixStream::pair().expect("socket pair");
+        super::spawn_control_reader(
+            Box::new(worker),
+            frames_tx,
+            Arc::new(SnapshotBarrierControl::default()),
+            wakes.clone(),
+            session,
+        );
+        drop(parent);
+
+        // timer: deadline — bounds the wait for the reader's EOF wake.
+        let batch = wakes.wait_wakes(std::time::Duration::from_secs(5));
+        assert_eq!(
+            batch.ingress_sessions,
+            vec![super::SessionId("eof-wake-reader".to_string())],
+            "the reader posts a wake on control EOF"
+        );
+        // The reader is parked at the gate after its wake. The main loop
+        // shuts down only on Disconnected, so Empty here would park it forever.
+        let observed = frames_rx.try_recv().map(|_| ());
+        drop(release);
+        assert_eq!(observed, Err(super::TryRecvError::Disconnected));
     }
 
     #[test]
