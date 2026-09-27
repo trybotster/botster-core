@@ -33,7 +33,8 @@ struct Harness {
 impl Harness {
     fn new(grants: CreditGrants) -> Self {
         let (child, peer) = UnixStream::pair().expect("socketpair");
-        let sender = Arc::new(Sender::new(Arc::new(child), 1024 * 1024));
+        // The writer thread ends quietly when the test drops the peer.
+        let sender = Sender::start_with(Arc::new(child), 1024 * 1024, 4, |_| {}).expect("writer");
         let port = HostPort::new(sender.clone(), grants);
         Self {
             sender,
@@ -71,6 +72,7 @@ fn grants() -> CreditGrants {
         reply_bytes: 500,
         log_count: 1,
         log_bytes: 500,
+        max_in_flight_invokes: 4,
     }
 }
 
@@ -307,4 +309,46 @@ fn dropped_log_lines_are_reported_once_with_the_next_sent_line() {
     assert!(harness.port.log(body(json!("sent"))));
     let third: LogFrame = decode_json(&harness.frame()).expect("log frame");
     assert_eq!(third.dropped_since_last, 0, "each drop is reported once");
+}
+
+#[test]
+fn port_calls_return_while_the_parent_is_not_reading() {
+    // Far more credited bytes than a socket buffer holds.
+    let mut harness = Harness::serving_in(
+        CreditGrants {
+            ingress_bytes: 8 * 1024 * 1024,
+            reply_count: 1,
+            reply_bytes: 500,
+            log_count: 64,
+            log_bytes: 8 * 1024 * 1024,
+            max_in_flight_invokes: 4,
+        },
+        "r",
+    );
+    harness
+        .port
+        .credit(CreditFrame::DeliveryPool {
+            slots: 64,
+            request_bytes: 64,
+        })
+        .expect("grant");
+    let port = harness.port.clone();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let line = "x".repeat(64 * 1024);
+        let logged = (0..64).filter(|_| port.log(body(json!(line)))).count();
+        let called = (0..64)
+            .filter(|_| port.call(1, body(json!(line))).is_ok())
+            .count();
+        let _ = tx.send((logged, called));
+    });
+    // The peer reads nothing until the plugin's calls have returned.
+    // timer: deadline — the port calls return without the peer reading; expiry fails the test
+    let sent = rx
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("no port call blocks on the socket");
+    assert_eq!(sent, (64, 64));
+    for _ in 0..128 {
+        harness.frame();
+    }
 }

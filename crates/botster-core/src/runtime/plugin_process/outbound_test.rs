@@ -81,12 +81,12 @@ fn closing_ends_the_writer_and_refuses_frames() {
 }
 
 #[test]
-fn credits_go_before_frames_and_ingress_and_log_credit_coalesce() {
+fn frames_and_credits_leave_in_push_order_and_ingress_and_log_credit_coalesce() {
     let outbound = Outbound::new(LaneBounds::derived(1));
+    outbound.push_credit(CreditFrame::IngressBytes { bytes: 100 });
     outbound
         .push(Lane::Invoke, vec![0; 10], None)
         .expect("invoke");
-    outbound.push_credit(CreditFrame::IngressBytes { bytes: 100 });
     outbound.push_credit(CreditFrame::Delivery { call_id: 7 });
     outbound.push_credit(CreditFrame::Log {
         count: 1,
@@ -99,27 +99,55 @@ fn credits_go_before_frames_and_ingress_and_log_credit_coalesce() {
     });
     outbound.push_credit(CreditFrame::Reply { call_id: 8 });
 
-    let mut credits = Vec::new();
-    while let Some(Next::Credit(credit)) = outbound.next() {
-        credits.push(credit);
-        if credits.len() == 4 {
-            break;
-        }
+    let mut order = Vec::new();
+    for _ in 0..5 {
+        order.push(match outbound.next() {
+            Some(Next::Credit(credit)) => format!("{credit:?}"),
+            Some(Next::Frame(queued)) => format!("{:?}", queued.lane),
+            None => panic!("ended early"),
+        });
     }
     assert_eq!(
-        credits,
+        order,
         vec![
-            CreditFrame::Delivery { call_id: 7 },
-            CreditFrame::Reply { call_id: 8 },
-            CreditFrame::IngressBytes { bytes: 120 },
-            CreditFrame::Log {
-                count: 3,
-                bytes: 100
-            },
+            "IngressBytes { bytes: 120 }".to_string(),
+            "Invoke".to_string(),
+            "Delivery { call_id: 7 }".to_string(),
+            "Log { count: 3, bytes: 100 }".to_string(),
+            "Reply { call_id: 8 }".to_string(),
         ],
-        "ids stay one per credit; ingress and log coalesce into one total each"
+        "push order; a coalesced total keeps its first position"
     );
-    assert_eq!(next_frame(&outbound).lane, Lane::Invoke);
+}
+
+#[test]
+fn a_continuous_credit_stream_cannot_hold_back_cancel_or_shutdown() {
+    let outbound = Outbound::new(LaneBounds::derived(1));
+    outbound.push_credit(CreditFrame::Log {
+        count: 1,
+        bytes: 10,
+    });
+    outbound.push(Lane::Cancel, vec![1], None).expect("cancel");
+    outbound
+        .push(Lane::Shutdown, vec![2], None)
+        .expect("shutdown");
+    let mut frames = Vec::new();
+    let mut credits = 0;
+    while frames.len() < 2 {
+        // Each credit the writer takes is replaced at once, as a Hub that
+        // keeps draining a chatty plugin would do.
+        outbound.push_credit(CreditFrame::Log {
+            count: 1,
+            bytes: 10,
+        });
+        match outbound.next() {
+            Some(Next::Credit(_)) => credits += 1,
+            Some(Next::Frame(queued)) => frames.push(queued.lane),
+            None => panic!("ended early"),
+        }
+        assert!(credits <= 2, "a queued frame waited behind later credit");
+    }
+    assert_eq!(frames, vec![Lane::Cancel, Lane::Shutdown]);
 }
 
 #[test]

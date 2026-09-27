@@ -100,7 +100,14 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
     let envelope: LoadEnvelope<LoadFrame> = channel.expect(FRAME_LOAD, "Load");
     // The sender shares the channel's socket rather than a duplicate, so
     // the plugin sees exactly descriptors 0-4.
-    let sender = Arc::new(Sender::new(channel.ipc.clone(), channel.max_frame_bytes));
+    let sender = match Sender::start(
+        channel.ipc.clone(),
+        channel.max_frame_bytes,
+        envelope.grants.max_in_flight_invokes,
+    ) {
+        Ok(sender) => sender,
+        Err(_) => std::process::exit(EXIT_PROTOCOL),
+    };
     let port = HostPort::new(sender.clone(), envelope.grants);
     let loaded = match (hooks.load)(envelope.load, port.clone()) {
         Ok(loaded) => loaded,
@@ -155,7 +162,11 @@ fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender, port:
         match channel.next() {
             None => std::process::exit(0),
             Some(frame) => match frame.frame_type {
-                FRAME_SHUTDOWN => std::process::exit(0),
+                FRAME_SHUTDOWN => {
+                    // Exit once the frames already queued are written.
+                    sender.shutdown();
+                    return;
+                }
                 FRAME_INVOKE => match decode_json::<PluginInvocationRequest>(&frame) {
                     Ok(request) => queue.push(request),
                     Err(error) => {
@@ -175,7 +186,7 @@ fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender, port:
                 FRAME_CANCEL => match decode_json::<CancelFrame>(&frame) {
                     Ok(cancel) => {
                         if let Some(request) = queue.cancel(&cancel.request_id) {
-                            sender.send(FRAME_INVOCATION_RESULT, &cancelled(request));
+                            sender.send_result(FRAME_INVOCATION_RESULT, &cancelled(request));
                         }
                     }
                     Err(error) => {

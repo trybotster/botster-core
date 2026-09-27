@@ -14,7 +14,7 @@ use crate::engine::{
     CallId, DeliveryPool, PluginDeliveryQuota, PluginWorkerEngine, PluginWorkerRegistration,
 };
 use crate::runtime::plugin_process::protocol::{
-    CreditGrants, HostCallFrame, HostCallKindFrame, LogFrame, PluginMessageBody,
+    CreditFrame, CreditGrants, HostCallFrame, HostCallKindFrame, LogFrame, PluginMessageBody,
 };
 use crate::runtime::{PluginCancellationToken, PluginRuntime};
 use crate::session::RequestId;
@@ -90,6 +90,7 @@ fn grants() -> CreditGrants {
         reply_bytes: 500,
         log_count: 2,
         log_bytes: 300,
+        max_in_flight_invokes: 1,
     }
 }
 
@@ -125,7 +126,7 @@ fn log() -> LogFrame {
 }
 
 #[test]
-fn a_drain_returns_exactly_the_call_and_log_credit_it_frees() {
+fn spent_credit_returns_only_when_the_writer_takes_its_credit_frame() {
     let (_engine, pool) = engine_and_pool(2);
     let ingress = Ingress::new(grants());
     ingress.attach(pool).expect("attach");
@@ -145,12 +146,59 @@ fn a_drain_returns_exactly_the_call_and_log_credit_it_frees() {
         (100, 1, 30)
     );
     assert!(matches!(&items[1], PluginIngress::HostCall(reply) if reply.call_id == CallId(2)));
-    assert_eq!(ingress.held(), (0, 0, 0, 1), "the reply keeps its credit");
     assert!(ingress.release_reply(CallId(2)));
     assert!(!ingress.release_reply(CallId(2)), "a reply releases once");
+    // Drained and released, but the returns are only queued: still spent.
+    assert_eq!(ingress.held(), (100, 1, 30, 1));
+    assert!(
+        ingress.host_call(reply(3), 50).is_err(),
+        "a reply that spends a return still queued"
+    );
+
+    ingress.credit_taken(&CreditFrame::IngressBytes { bytes: 100 });
+    ingress.credit_taken(&CreditFrame::Log {
+        count: 1,
+        bytes: 30,
+    });
+    ingress.credit_taken(&CreditFrame::Reply { call_id: 2 });
     assert_eq!(ingress.held(), (0, 0, 0, 0));
-    // A released id holds no storage and may be used again.
+    // The returned id holds no storage and may be used again.
     assert_eq!(ingress.host_call(reply(2), 50), Ok(CallAdmission::Queued));
+}
+
+#[test]
+fn a_returned_pool_unit_stays_spent_until_its_credit_is_taken() {
+    let (_engine, pool) = engine_and_pool(1);
+    let ingress = Ingress::new(grants());
+    ingress.attach(pool.clone()).expect("attach");
+    assert_eq!(ingress.host_call(call(1), 100), Ok(CallAdmission::Queued));
+    ingress.drain(16, 1000);
+    ingress.credit_taken(&CreditFrame::IngressBytes { bytes: 100 });
+    assert!(pool.release_call(CallId(1)));
+    assert_eq!(pool.free(), (1, 1024), "the pool has its unit back");
+    assert!(
+        ingress.host_call(call(2), 100).is_err(),
+        "the child has not been sent the unit yet"
+    );
+    ingress.credit_taken(&CreditFrame::Delivery { call_id: 1 });
+    assert_eq!(ingress.host_call(call(2), 100), Ok(CallAdmission::Queued));
+}
+
+#[test]
+fn calls_and_replies_share_one_id_namespace() {
+    let (_engine, pool) = engine_and_pool(2);
+    let ingress = Ingress::new(grants());
+    ingress.attach(pool).expect("attach");
+    assert_eq!(ingress.host_call(call(1), 10), Ok(CallAdmission::Queued));
+    assert!(
+        ingress.host_call(reply(1), 10).is_err(),
+        "a reply on an open call id"
+    );
+    assert_eq!(ingress.host_call(reply(2), 10), Ok(CallAdmission::Queued));
+    assert!(
+        ingress.host_call(call(2), 10).is_err(),
+        "a call on an open reply id"
+    );
 }
 
 #[test]

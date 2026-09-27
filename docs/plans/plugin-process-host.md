@@ -121,7 +121,7 @@ Child to parent:
 | `BootstrapFailed` / `LoadFailed` | typed reason |
 | `Loaded` | `registration: BoundaryJson` (Hub turns it into `PluginWorkerRegistration`) |
 | `InvocationResult` | `PluginInvocationResult` |
-| `HostCall` | `kind` (`Call` or `Reply`), `call_id` (unique among the process's open calls and replies), `invocation_request_id` (the invoke running in the child; not a plugin-supplied value), `max_result_bytes` (`Call` only), `body` |
+| `HostCall` | `kind` (`Call` or `Reply`), `call_id` (one namespace for calls and replies: unique among the ids whose credit has not returned), `invocation_request_id` (the invoke running in the child; not a plugin-supplied value), `max_result_bytes` (`Call` only), `body` |
 | `Log` | `dropped_since_last: u64`, `body: BoundaryJson` |
 
 **Every delivery into the plugin is an engine-admitted `Invoke`.** Host-call
@@ -305,17 +305,30 @@ consume another class's room. All bounds are derived; none is a new number.
 | `Shutdown` | 1 | fixed | sent at most once per process |
 | `Cancel` | executor concurrency | fixed per frame | at most one Cancel per in-flight invoke |
 | `Invoke` | executor concurrency | engine class byte caps | each executor thread has at most one invoke in flight, and the request was already admitted |
-| `Credit` | pool slots + Reply credits + 1 pool grant, plus 1 ingress and 1 log total | fixed per frame | each unit and reply returns once, as one pending id; ingress and log credits coalesce into one pending total each; the writer encodes credits lazily and sends them before queued frames |
+| `Credit` | pool slots + Reply credits + 1 pool grant, plus 1 ingress and 1 log total | fixed per frame | the parent's account keeps every return spent until the writer takes its frame, so a child that ignores its credits cannot spend a queued return, and each unit and reply is at most one pending id; ingress and log credits coalesce into one pending total each |
 | `Bootstrap`, `Load` | 1 each | max frame length | startup only |
 
 Frames stay counted until the writer has written them completely
 (writer-owned frames are included). Kill never uses this FIFO: `killpg` is a
 system call, so kill makes progress under any saturation.
 
-The child side mirrors this. Its outbound lanes are bounded by its credits plus
-one `InvocationResult` per in-flight invoke. A Lua log call only enqueues or
-drops, so child logging never blocks. The decode buffers on both sides are
-bounded by the maximum frame length.
+Frames and credits share one push sequence, and the writer sends them in that
+order (review H3). Nothing waits behind an item pushed after it, so a stream of
+returned credit cannot hold back a queued `Cancel`, `Shutdown`, or `Invoke`,
+and a credit returned before an `Invoke` reaches the child first. The account
+restores a credit when the writer takes its frame, not after the write: a
+compliant child may read and spend it before the parent's write call returns.
+So at most one credit frame is outside the account (review H1).
+
+The child side mirrors this (review H2). No plugin-facing call writes the
+socket: frames enter one FIFO, and a child writer thread sends them. A host
+call or log line enters only after its credit is debited, and an
+`InvocationResult` only for an invoke in flight; `Load` carries
+`max_in_flight_invokes`, and more results than that is a parent protocol
+error. So the FIFO needs no new number. A Lua log call only enqueues or drops,
+so child logging never blocks. After `Shutdown`, the child exits once the FIFO
+is written; the shutdown deadline bounds that. The decode buffers on both
+sides are bounded by the maximum frame length.
 
 ### 5.3 stderr
 

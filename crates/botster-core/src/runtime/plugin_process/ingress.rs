@@ -6,21 +6,29 @@
 //! - `Call` frames are bounded by the ingress bytes, and each holds one unit
 //!   of the attached delivery pool;
 //! - `Reply` frames are bounded by the reply credits; a reply holds its
-//!   credit until the Hub releases it;
+//!   credit until the Hub releases it and the returning credit leaves;
 //! - `Log` frames are bounded by the log count and bytes.
 //!
 //! A frame's cost is its whole encoded length (type byte plus payload), which
 //! both sides know exactly. A frame that exceeds its credit is a protocol
 //! violation: the child's credit-checked sender never sends one.
+//!
+//! The account mirrors the child's, not the Hub's: spent credit stays spent
+//! until the writer takes the `Credit` frame that returns it. A drain, a
+//! released reply, or a returned pool unit only queues that frame. So a child
+//! that ignores its credits cannot spend a return that is still queued, and
+//! the queued returns can never exceed the grants. Credit is restored when
+//! the writer takes the frame, not after it is written: a compliant child may
+//! read and spend it before the parent's write call returns.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::engine::{CallId, DeliveryPool, PoolOverdraw};
 use crate::session::RequestId;
 
 use super::protocol::{
-    CreditGrants, HostCallFrame, HostCallKindFrame, LogFrame, PluginMessageBody,
+    CreditFrame, CreditGrants, HostCallFrame, HostCallKindFrame, LogFrame, PluginMessageBody,
 };
 
 /// Callback run outside every lock after the child's host call or log line
@@ -117,14 +125,35 @@ pub(super) struct Ingress {
 struct IngressState {
     queue: VecDeque<PluginIngress>,
     grants: CreditGrants,
-    /// Frame bytes of `Call` frames not yet drained.
+    /// Frame bytes of `Call` frames whose ingress credit has not left in a
+    /// taken `Credit` frame (queued, drained, or returning).
     call_bytes: usize,
-    /// `Log` frames and their bytes not yet drained.
+    /// `Log` frames, and their bytes, whose credit has not left.
     log_count: usize,
     log_bytes: usize,
-    /// Replies not yet released. At most `grants.reply_count`.
-    replies: HashSet<u64>,
-    pool: Option<DeliveryPool>,
+    /// Ids the child spent whose credit has not left: one namespace for
+    /// calls and replies. At most the granted units plus the reply credits.
+    open: HashMap<u64, Open>,
+    /// Open replies in `open`.
+    open_replies: usize,
+    delivery: Option<Delivery>,
+}
+
+enum Open {
+    /// Holds one delivery unit and its declared result bytes.
+    Call { declared: usize },
+    /// Holds one reply credit. `released` once the Hub released it; its
+    /// credit then waits for the writer.
+    Reply { released: bool },
+}
+
+/// The delivery grant and what the child holds of it.
+struct Delivery {
+    pool: DeliveryPool,
+    slots: usize,
+    request_bytes: usize,
+    used_slots: usize,
+    used_bytes: usize,
 }
 
 impl Ingress {
@@ -136,8 +165,9 @@ impl Ingress {
                 call_bytes: 0,
                 log_count: 0,
                 log_bytes: 0,
-                replies: HashSet::new(),
-                pool: None,
+                open: HashMap::new(),
+                open_replies: 0,
+                delivery: None,
             }),
             notifier: Mutex::new(None),
         }
@@ -152,12 +182,18 @@ impl Ingress {
     /// bytes to grant to the child: what the pool has free now.
     pub(super) fn attach(&self, pool: DeliveryPool) -> Result<(usize, usize), String> {
         let mut state = self.lock();
-        if state.pool.is_some() {
+        if state.delivery.is_some() {
             return Err("a delivery pool is already attached".to_string());
         }
-        let free = pool.free();
-        state.pool = Some(pool);
-        Ok(free)
+        let (slots, request_bytes) = pool.free();
+        state.delivery = Some(Delivery {
+            pool,
+            slots,
+            request_bytes,
+            used_slots: 0,
+            used_bytes: 0,
+        });
+        Ok((slots, request_bytes))
     }
 
     /// Validate and queue one `HostCall` frame of `frame_bytes`. `Err` is a
@@ -167,10 +203,14 @@ impl Ingress {
         frame: HostCallFrame,
         frame_bytes: usize,
     ) -> Result<CallAdmission, String> {
-        let mut state = self.lock();
+        let mut guard = self.lock();
+        let state = &mut *guard;
+        if state.open.contains_key(&frame.call_id) {
+            return Err(format!("call id {} is already open", frame.call_id));
+        }
         let kind = match frame.kind {
             HostCallKindFrame::Call { max_result_bytes } => {
-                let Some(pool) = &state.pool else {
+                let Some(delivery) = &mut state.delivery else {
                     return Err("a Call before any delivery credit was granted".to_string());
                 };
                 if state
@@ -182,14 +222,41 @@ impl Ingress {
                         "a Call of {frame_bytes} bytes exceeds the ingress credit"
                     ));
                 }
-                match pool.accept_call(CallId(frame.call_id), max_result_bytes) {
+                if delivery.used_slots >= delivery.slots {
+                    return Err(format!(
+                        "Call {}: every delivery unit is in use",
+                        frame.call_id
+                    ));
+                }
+                if delivery
+                    .used_bytes
+                    .checked_add(max_result_bytes)
+                    .is_none_or(|used| used > delivery.request_bytes)
+                {
+                    return Err(format!(
+                        "Call {}: the declared result size exceeds the free request bytes",
+                        frame.call_id
+                    ));
+                }
+                match delivery
+                    .pool
+                    .accept_call(CallId(frame.call_id), max_result_bytes)
+                {
                     Ok(()) => {}
                     Err(PoolOverdraw::Closed) => return Ok(CallAdmission::Dropped),
                     Err(overdraw) => {
                         return Err(format!("Call {}: {overdraw}", frame.call_id));
                     }
                 }
+                delivery.used_slots += 1;
+                delivery.used_bytes += max_result_bytes;
                 state.call_bytes += frame_bytes;
+                state.open.insert(
+                    frame.call_id,
+                    Open::Call {
+                        declared: max_result_bytes,
+                    },
+                );
                 PluginHostCallKind::Call { max_result_bytes }
             }
             HostCallKindFrame::Reply => {
@@ -198,13 +265,13 @@ impl Ingress {
                         "a Reply of {frame_bytes} bytes exceeds the reply allowance"
                     ));
                 }
-                if state.replies.contains(&frame.call_id) {
-                    return Err(format!("Reply {} is already open", frame.call_id));
-                }
-                if state.replies.len() >= state.grants.reply_count {
+                if state.open_replies >= state.grants.reply_count {
                     return Err("a Reply without reply credit".to_string());
                 }
-                state.replies.insert(frame.call_id);
+                state.open_replies += 1;
+                state
+                    .open
+                    .insert(frame.call_id, Open::Reply { released: false });
                 PluginHostCallKind::Reply
             }
         };
@@ -244,8 +311,9 @@ impl Ingress {
 
     /// Take at most `max_items` items, in order, whose frame bytes sum to at
     /// most `max_bytes`. The first item that does not fit stays, and so do
-    /// the items behind it. Returns the drained `Call` and `Log` credit;
-    /// a drained reply keeps its credit until it is released.
+    /// the items behind it. Returns the `Call` and `Log` credit to send back;
+    /// the account keeps it spent until the writer takes that `Credit`. A
+    /// drained reply keeps its credit until it is released.
     pub(super) fn drain(
         &self,
         max_items: usize,
@@ -274,14 +342,9 @@ impl Ingress {
                 PluginIngress::HostCall(PluginHostCall {
                     kind: PluginHostCallKind::Call { .. },
                     ..
-                }) => {
-                    state.call_bytes -= size;
-                    returned.ingress_bytes += size;
-                }
+                }) => returned.ingress_bytes += size,
                 PluginIngress::HostCall(_) => {}
                 PluginIngress::Log(_) => {
-                    state.log_count -= 1;
-                    state.log_bytes -= size;
                     returned.log_count += 1;
                     returned.log_bytes += size;
                 }
@@ -291,9 +354,46 @@ impl Ingress {
         (items, returned)
     }
 
-    /// Close a reply. Returns true once per open reply.
+    /// Release a reply. Returns true once per open reply; its credit stays
+    /// spent until the writer takes the returning `Credit`.
     pub(super) fn release_reply(&self, call_id: CallId) -> bool {
-        self.lock().replies.remove(&call_id.0)
+        match self.lock().open.get_mut(&call_id.0) {
+            Some(Open::Reply { released }) if !*released => {
+                *released = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The writer took `credit` to send it: the child may spend it from now
+    /// on, so restore it in the account.
+    pub(super) fn credit_taken(&self, credit: &CreditFrame) {
+        let mut guard = self.lock();
+        let state = &mut *guard;
+        match *credit {
+            CreditFrame::DeliveryPool { .. } => {}
+            CreditFrame::Delivery { call_id } => {
+                if let (Some(Open::Call { declared }), Some(delivery)) =
+                    (state.open.remove(&call_id), &mut state.delivery)
+                {
+                    delivery.used_slots -= 1;
+                    delivery.used_bytes -= declared;
+                }
+            }
+            CreditFrame::Reply { call_id } => {
+                if let Some(Open::Reply { .. }) = state.open.remove(&call_id) {
+                    state.open_replies -= 1;
+                }
+            }
+            CreditFrame::IngressBytes { bytes } => {
+                state.call_bytes = state.call_bytes.saturating_sub(bytes);
+            }
+            CreditFrame::Log { count, bytes } => {
+                state.log_count = state.log_count.saturating_sub(count);
+                state.log_bytes = state.log_bytes.saturating_sub(bytes);
+            }
+        }
     }
 
     pub(super) fn install_notifier(&self, notifier: PluginIngressNotifier) {
@@ -312,6 +412,7 @@ impl Ingress {
         }
     }
 
+    /// Spent ingress bytes, log count and bytes, and open replies.
     #[cfg(test)]
     pub(super) fn held(&self) -> (usize, usize, usize, usize) {
         let state = self.lock();
@@ -319,7 +420,7 @@ impl Ingress {
             state.call_bytes,
             state.log_count,
             state.log_bytes,
-            state.replies.len(),
+            state.open_replies,
         )
     }
 }
