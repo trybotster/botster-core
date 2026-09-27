@@ -151,6 +151,9 @@ pub(crate) struct CreditGrants {
     pub log_count: usize,
     /// Frame bytes of `Log` frames that the Hub has not drained.
     pub log_bytes: usize,
+    /// Invocations the parent keeps in flight at once, which bounds the
+    /// results the child can owe.
+    pub max_in_flight_invokes: usize,
 }
 
 /// Credit returned to the child. Each returns exactly what the child debited.

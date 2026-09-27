@@ -11,10 +11,12 @@
 //! - a log line without credit is dropped and counted, and never blocks.
 //!
 //! Every host call names the invocation that is running now. The executor
-//! clears that invocation under the sender's lock before it sends the
-//! result, so a host call can never follow its invocation's result.
+//! clears that invocation under the sender's lock when it queues the result,
+//! and one FIFO carries both, so a host call can never follow its
+//! invocation's result. No port call writes to the socket: a writer thread
+//! does, so a slow parent never blocks the plugin's thread.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -61,41 +63,136 @@ impl std::fmt::Display for HostPortRefusal {
 impl std::error::Error for HostPortRefusal {}
 
 /// The child's sending half, shared by the executor, the reader, and the
-/// host port. One lock orders every frame the child sends.
+/// host port. Nothing that the plugin calls writes to the socket: frames
+/// enter one FIFO, and a writer thread sends them (plan section 5.2). The
+/// FIFO is bounded without a new number: a host call or log line enters it
+/// only after its credit is debited, and a result only for an invocation in
+/// flight, of which the parent sends at most `max_results`.
 pub(super) struct Sender {
+    ipc: Arc<UnixStream>,
     wire: Mutex<Wire>,
+    ready: Condvar,
     max_frame_bytes: usize,
+    max_results: usize,
+    /// What the writer does when it ends: exit the worker with the code.
+    end: fn(i32),
 }
 
 struct Wire {
-    ipc: Arc<UnixStream>,
+    queue: VecDeque<Outgoing>,
+    /// Results queued or being written.
+    results: usize,
     /// The parent accepts host calls and log lines only after `Loaded`.
     serving: bool,
     /// The invocation that the executor is running now.
     current: Option<RequestId>,
+    /// `Shutdown` arrived: the writer exits once the FIFO is empty.
+    shutdown: bool,
+}
+
+struct Outgoing {
+    frame: Vec<u8>,
+    result: bool,
 }
 
 impl Sender {
-    pub(super) fn new(ipc: Arc<UnixStream>, max_frame_bytes: usize) -> Self {
-        Self {
+    /// Start the writer thread on `ipc`. `max_results` is the parent's
+    /// invocation bound.
+    pub(super) fn start(
+        ipc: Arc<UnixStream>,
+        max_frame_bytes: usize,
+        max_results: usize,
+    ) -> std::io::Result<Arc<Self>> {
+        Self::start_with(ipc, max_frame_bytes, max_results, |code| {
+            std::process::exit(code)
+        })
+    }
+
+    /// As [`Self::start`], with `end` run when the writer ends (tests end
+    /// only the thread).
+    pub(super) fn start_with(
+        ipc: Arc<UnixStream>,
+        max_frame_bytes: usize,
+        max_results: usize,
+        end: fn(i32),
+    ) -> std::io::Result<Arc<Self>> {
+        let sender = Arc::new(Self {
+            ipc,
             wire: Mutex::new(Wire {
-                ipc,
+                queue: VecDeque::new(),
+                results: 0,
                 serving: false,
                 current: None,
+                shutdown: false,
             }),
+            ready: Condvar::new(),
             max_frame_bytes,
-        }
+            max_results,
+            end,
+        });
+        let writer = sender.clone();
+        std::thread::Builder::new()
+            .name("plugin-worker-writer".to_string())
+            .spawn(move || writer.run())?;
+        Ok(sender)
     }
 
     fn lock(&self) -> MutexGuard<'_, Wire> {
         self.wire.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Encode and send one frame. A frame that cannot be encoded or sent
-    /// ends the worker: the parent can no longer drive it.
-    pub(super) fn send<T: serde::Serialize>(&self, frame_type: u8, value: &T) {
+    /// Send queued frames in order. A failed write ends the worker: the
+    /// parent can no longer drive it. After `Shutdown`, the worker exits once
+    /// every queued frame is written; the parent's shutdown deadline bounds
+    /// that.
+    fn run(&self) {
+        loop {
+            let next = {
+                let mut wire = self.lock();
+                loop {
+                    if let Some(next) = wire.queue.pop_front() {
+                        break next;
+                    }
+                    if wire.shutdown {
+                        (self.end)(0);
+                        return;
+                    }
+                    wire = self
+                        .ready
+                        .wait(wire)
+                        .unwrap_or_else(PoisonError::into_inner);
+                }
+            };
+            if send_all(self.ipc.as_fd(), &next.frame).is_err() {
+                (self.end)(EXIT_PROTOCOL);
+                return;
+            }
+            if next.result {
+                self.lock().results -= 1;
+            }
+        }
+    }
+
+    /// Queue `frame` under the caller's lock. More results than the parent's
+    /// invocation bound means the parent broke the protocol.
+    fn enqueue(&self, wire: &mut Wire, frame: Vec<u8>, result: bool) {
+        if result {
+            if wire.results >= self.max_results {
+                eprintln!("botster plugin worker: more results than invocations in flight");
+                std::process::exit(EXIT_PROTOCOL);
+            }
+            wire.results += 1;
+        }
+        wire.queue.push_back(Outgoing { frame, result });
+        self.ready.notify_one();
+    }
+
+    /// Queue one invocation result that is not the running invocation's (a
+    /// queued invocation answered at once).
+    pub(super) fn send_result<T: serde::Serialize>(&self, frame_type: u8, value: &T) {
         let frame = encode_or_exit(frame_type, value, self.max_frame_bytes);
-        write_or_exit(&self.lock(), &frame);
+        let mut wire = self.lock();
+        self.enqueue(&mut wire, frame, true);
     }
 
     /// `Loaded` is sent: host calls and log lines may follow.
@@ -103,41 +200,49 @@ impl Sender {
         self.lock().serving = true;
     }
 
+    /// `Shutdown` arrived: write what is queued, then exit.
+    pub(super) fn shutdown(&self) {
+        self.lock().shutdown = true;
+        self.ready.notify_one();
+    }
+
     /// The executor starts `request_id`.
     pub(super) fn begin(&self, request_id: RequestId) {
         self.lock().current = Some(request_id);
     }
 
-    /// The executor finished its invocation: clear it and send the result,
-    /// under one lock.
+    /// The executor finished its invocation: clear it and queue the result,
+    /// under one lock, behind every host call it made.
     pub(super) fn finish<T: serde::Serialize>(&self, frame_type: u8, result: &T) {
         let frame = encode_or_exit(frame_type, result, self.max_frame_bytes);
         let mut wire = self.lock();
         wire.current = None;
-        write_or_exit(&wire, &frame);
+        self.enqueue(&mut wire, frame, true);
     }
 
     fn current(&self) -> Option<RequestId> {
         self.lock().current.clone()
     }
 
-    /// Send `frame` if `request_id` is still running. Returns false otherwise.
-    fn send_for(&self, request_id: &RequestId, frame: &[u8]) -> bool {
-        let wire = self.lock();
+    /// Queue `frame` if `request_id` is still running. Returns false
+    /// otherwise. Never blocks on the socket.
+    fn send_for(&self, request_id: &RequestId, frame: Vec<u8>) -> bool {
+        let mut wire = self.lock();
         if wire.current.as_ref() != Some(request_id) {
             return false;
         }
-        write_or_exit(&wire, frame);
+        self.enqueue(&mut wire, frame, false);
         true
     }
 
-    /// Send `frame` if the worker is serving. Returns false otherwise.
-    fn send_if_serving(&self, frame: &[u8]) -> bool {
-        let wire = self.lock();
+    /// Queue `frame` if the worker is serving. Returns false otherwise.
+    /// Never blocks on the socket.
+    fn send_if_serving(&self, frame: Vec<u8>) -> bool {
+        let mut wire = self.lock();
         if !wire.serving {
             return false;
         }
-        write_or_exit(&wire, frame);
+        self.enqueue(&mut wire, frame, false);
         true
     }
 }
@@ -149,12 +254,6 @@ fn encode_or_exit<T: serde::Serialize>(frame_type: u8, value: &T, max: usize) ->
             eprintln!("botster plugin worker: cannot encode frame: {error}");
             std::process::exit(EXIT_PROTOCOL);
         }
-    }
-}
-
-fn write_or_exit(wire: &Wire, frame: &[u8]) {
-    if send_all(wire.ipc.as_fd(), frame).is_err() {
-        std::process::exit(EXIT_PROTOCOL);
     }
 }
 
@@ -298,7 +397,7 @@ impl HostPort {
             credits.ingress_free -= cost;
             credits.calls.insert(call_id, max_result_bytes);
         }
-        if self.inner.sender.send_for(&request_id, &frame) {
+        if self.inner.sender.send_for(&request_id, frame) {
             return Ok(CallId(call_id));
         }
         let mut credits = self.lock();
@@ -392,7 +491,7 @@ impl HostPort {
             credits.reply_free -= 1;
             credits.replies.insert(call_id);
         }
-        if self.inner.sender.send_for(&request_id, &frame) {
+        if self.inner.sender.send_for(&request_id, frame) {
             return Ok(CallId(call_id));
         }
         let mut credits = self.lock();
@@ -454,7 +553,7 @@ impl HostPort {
             credits.dropped_logs = 0;
             (frame, dropped, cost)
         };
-        if self.inner.sender.send_if_serving(&frame) {
+        if self.inner.sender.send_if_serving(frame) {
             return true;
         }
         let mut credits = self.lock();

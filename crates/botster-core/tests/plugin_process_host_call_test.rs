@@ -621,7 +621,29 @@ fn a_duplicate_open_call_id_is_a_violation_kill() {
         FRAME_HOST_CALL,
         raw_call(open, 1, json!(null)),
     );
-    assert_violation(&process, "already in use");
+    assert_violation(&process, "already open");
+}
+
+#[test]
+fn a_reply_on_an_open_call_id_is_a_violation_kill() {
+    let (process, _engine, _pool) = attached(2, &config());
+    let open = call_id(&host_calls(&process, "first", 1)[0]);
+    raw(&process, "v", FRAME_HOST_CALL, raw_reply(open, json!(null)));
+    assert_violation(&process, "already open");
+}
+
+#[test]
+fn a_call_on_an_open_reply_id_is_a_violation_kill() {
+    let (process, _engine, _pool) = attached(2, &config());
+    raw(&process, "r", FRAME_HOST_CALL, raw_reply(100, json!(null)));
+    assert!(process.exit().is_none(), "the reply fits its credit");
+    raw(
+        &process,
+        "v",
+        FRAME_HOST_CALL,
+        raw_call(100, 1, json!(null)),
+    );
+    assert_violation(&process, "already open");
 }
 
 #[test]

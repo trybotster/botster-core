@@ -358,6 +358,10 @@ fn run_writer(shared: &Shared, ipc: &UnixStream) {
         let queued = match next {
             Next::Frame(queued) => queued,
             Next::Credit(credit) => {
+                // From here the child may receive and spend this credit, so
+                // the account restores it before the write, not after: a
+                // compliant child can spend it before `send_all` returns.
+                shared.ingress.credit_taken(&credit);
                 // spawn checked that every credit fits the frame bound.
                 let sent = encode_json_bounded(FRAME_CREDIT, &credit, shared.max_frame_bytes)
                     .map_err(|error| io::Error::other(error.to_string()))
@@ -396,6 +400,7 @@ fn grants(config: &PluginProcessConfig) -> CreditGrants {
         reply_bytes: config.reply_credits.bytes,
         log_count: config.log_credits.count,
         log_bytes: config.log_credits.bytes,
+        max_in_flight_invokes: config.max_in_flight_invokes,
     }
 }
 

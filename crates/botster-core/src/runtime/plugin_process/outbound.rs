@@ -6,11 +6,15 @@
 //! counted until the writer has sent all of it. Kill never uses this queue.
 //!
 //! Credits are not queued as frames. Each returned delivery unit and each
-//! released reply is one pending id, so their count is bounded by the pool
-//! slots plus the reply credits. Ingress and log credit coalesce into one
-//! pending total each. The writer encodes one pending credit at a time, and
-//! it takes credits before frames: a credit is small, and it lets the child
-//! make progress.
+//! released reply is one pending id; the parent's credit account keeps each
+//! one spent until the writer takes it, so their count is bounded by the
+//! granted units plus the reply credits. Ingress and log credit coalesce into
+//! one pending total each, which keeps the position of its first return.
+//!
+//! Frames and credits share one push sequence, and the writer sends them in
+//! that order. So nothing waits behind items pushed after it: a stream of
+//! returned credit cannot hold back a queued `Cancel` or `Shutdown`, and a
+//! credit returned before an `Invoke` reaches the child first.
 
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex, PoisonError};
@@ -85,36 +89,52 @@ pub(super) enum Next {
     Credit(CreditFrame),
 }
 
-/// Credit owed to the child and not yet taken by the writer.
+/// Credit owed to the child and not yet taken by the writer. Each entry
+/// carries its push sequence number.
 #[derive(Default)]
 struct PendingCredits {
     /// `DeliveryPool`, `Delivery`, and `Reply` credits, in the order owed.
-    ids: VecDeque<CreditFrame>,
-    ingress_bytes: usize,
-    log_count: usize,
-    log_bytes: usize,
+    ids: VecDeque<(u64, CreditFrame)>,
+    /// Coalesced ingress bytes, at the position of the first return.
+    ingress: Option<(u64, usize)>,
+    /// Coalesced log count and bytes, at the position of the first return.
+    log: Option<(u64, usize, usize)>,
 }
 
 impl PendingCredits {
+    /// The earliest pending credit's sequence number.
+    fn first(&self) -> Option<u64> {
+        [
+            self.ids.front().map(|(seq, _)| *seq),
+            self.ingress.map(|(seq, _)| seq),
+            self.log.map(|(seq, _, _)| seq),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    /// Take the earliest pending credit.
     fn take(&mut self) -> Option<CreditFrame> {
-        if let Some(credit) = self.ids.pop_front() {
-            return Some(credit);
+        let first = self.first()?;
+        if self.ids.front().is_some_and(|(seq, _)| *seq == first) {
+            return self.ids.pop_front().map(|(_, credit)| credit);
         }
-        if self.ingress_bytes > 0 {
-            let bytes = std::mem::take(&mut self.ingress_bytes);
-            return Some(CreditFrame::IngressBytes { bytes });
+        if let Some((seq, bytes)) = self.ingress {
+            if seq == first {
+                self.ingress = None;
+                return Some(CreditFrame::IngressBytes { bytes });
+            }
         }
-        if self.log_count > 0 || self.log_bytes > 0 {
-            let count = std::mem::take(&mut self.log_count);
-            let bytes = std::mem::take(&mut self.log_bytes);
-            return Some(CreditFrame::Log { count, bytes });
-        }
-        None
+        let (_, count, bytes) = self.log.take()?;
+        Some(CreditFrame::Log { count, bytes })
     }
 }
 
 struct Queue {
-    frames: VecDeque<Queued>,
+    /// The next push sequence number.
+    seq: u64,
+    frames: VecDeque<(u64, Queued)>,
     credits: PendingCredits,
     /// Frames per lane that are queued or being written.
     held: [usize; LANES],
@@ -129,10 +149,19 @@ pub(super) struct Outbound {
     ready: Condvar,
 }
 
+impl Queue {
+    fn next_seq(&mut self) -> u64 {
+        let seq = self.seq;
+        self.seq += 1;
+        seq
+    }
+}
+
 impl Outbound {
     pub(super) fn new(bounds: LaneBounds) -> Self {
         Self {
             queue: Mutex::new(Queue {
+                seq: 0,
                 frames: VecDeque::new(),
                 credits: PendingCredits::default(),
                 held: [0; LANES],
@@ -166,7 +195,8 @@ impl Outbound {
         }
         queue.held[index] += 1;
         queue.held_bytes[index] += frame.len();
-        queue.frames.push_back(Queued { lane, frame, owner });
+        let seq = queue.next_seq();
+        queue.frames.push_back((seq, Queued { lane, frame, owner }));
         drop(queue);
         self.ready.notify_one();
         Ok(())
@@ -180,18 +210,24 @@ impl Outbound {
         if queue.closed {
             return;
         }
+        let seq = queue.next_seq();
         let pending = &mut queue.credits;
         match credit {
             CreditFrame::IngressBytes { bytes } => {
-                pending.ingress_bytes = pending.ingress_bytes.saturating_add(bytes);
+                let (first, total) = pending.ingress.unwrap_or((seq, 0));
+                pending.ingress = Some((first, total.saturating_add(bytes)));
             }
             CreditFrame::Log { count, bytes } => {
-                pending.log_count = pending.log_count.saturating_add(count);
-                pending.log_bytes = pending.log_bytes.saturating_add(bytes);
+                let (first, total_count, total_bytes) = pending.log.unwrap_or((seq, 0, 0));
+                pending.log = Some((
+                    first,
+                    total_count.saturating_add(count),
+                    total_bytes.saturating_add(bytes),
+                ));
             }
             CreditFrame::DeliveryPool { .. }
             | CreditFrame::Delivery { .. }
-            | CreditFrame::Reply { .. } => pending.ids.push_back(credit),
+            | CreditFrame::Reply { .. } => pending.ids.push_back((seq, credit)),
         }
         drop(queue);
         self.ready.notify_one();
@@ -205,11 +241,25 @@ impl Outbound {
             if queue.closed && queue.frames.is_empty() {
                 return None;
             }
-            if let Some(credit) = queue.credits.take() {
-                return Some(Next::Credit(credit));
-            }
-            if let Some(frame) = queue.frames.pop_front() {
-                return Some(Next::Frame(frame));
+            // Strict push order across frames and credits.
+            let frame_first = queue.frames.front().map(|(seq, _)| *seq);
+            match (frame_first, queue.credits.first()) {
+                (Some(frame), Some(credit)) if credit < frame => {
+                    if let Some(credit) = queue.credits.take() {
+                        return Some(Next::Credit(credit));
+                    }
+                }
+                (Some(_), _) => {
+                    if let Some((_, frame)) = queue.frames.pop_front() {
+                        return Some(Next::Frame(frame));
+                    }
+                }
+                (None, Some(_)) => {
+                    if let Some(credit) = queue.credits.take() {
+                        return Some(Next::Credit(credit));
+                    }
+                }
+                (None, None) => {}
             }
             if queue.closed {
                 return None;

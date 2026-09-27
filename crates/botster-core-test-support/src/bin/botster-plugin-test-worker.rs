@@ -221,7 +221,8 @@ fn report() -> Value {
 ///   the number sent;
 /// - `raw`: `{"type", "frame"}`: write `frame` (with this invocation's request
 ///   id added as `invocation_request_id` when absent) as a raw frame of
-///   `type`, around the credit checks, then complete.
+///   `type`, around the credit checks, then complete; with `"wait": true` it
+///   first reads `PLUGIN_TEST_GO_FIFO` to its end.
 struct TestRuntime;
 
 fn port() -> &'static HostPort {
@@ -280,6 +281,16 @@ impl PluginRuntime for TestRuntime {
                 completed(json!({ "sent": sent }))
             }
             "raw" => {
+                if args["wait"] == json!(true) {
+                    // Hold until the test writes a line to the go FIFO.
+                    let go = std::env::var_os("PLUGIN_TEST_GO_FIFO").expect("PLUGIN_TEST_GO_FIFO");
+                    let mut line = String::new();
+                    std::io::Read::read_to_string(
+                        &mut File::open(go).expect("open the go FIFO"),
+                        &mut line,
+                    )
+                    .expect("read the go FIFO");
+                }
                 let mut frame = args["frame"].clone();
                 if frame.get("invocation_request_id").is_none() {
                     frame["invocation_request_id"] = json!(request.request_id.0);

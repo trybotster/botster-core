@@ -5,7 +5,7 @@
 
 use std::ffi::{CString, OsString};
 use std::fs::{File, OpenOptions};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
@@ -568,4 +568,89 @@ fn a_next_invocation_waits_for_the_previous_frame_to_retire() {
     no_kill(&h.process);
     drop(h.seams);
     h.process.kill();
+}
+
+// ---------------------------------------------------------------------------
+// Credit conservation at the parent boundary (review H1).
+
+/// A released reply's credit stays spent while its `Credit` frame waits for
+/// the writer. A child that ignores its credits and spends that return early
+/// is killed, so queued returns can never exceed the grant.
+#[test]
+fn a_child_cannot_spend_a_credit_return_that_the_writer_has_not_taken() {
+    use crate::runtime::plugin_process::{PluginExitCause, PluginKillReason};
+    let dir = std::env::temp_dir().join(format!("botster-plugin-h1-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let go = dir.join("go");
+    mkfifo(&go);
+
+    let seams = Arc::new(TestSeams::default());
+    TEST_SEAMS.with(|slot| *slot.borrow_mut() = Some(seams.clone()));
+    let mut config = plain_config();
+    config.reply_credits.count = 1;
+    config.env = vec![(
+        OsString::from("PLUGIN_TEST_GO_FIFO"),
+        go.clone().into_os_string(),
+    )];
+    let (process, _) = PluginProcess::spawn(&config, &load()).expect("loaded");
+    let process = Arc::new(process);
+    let raw_reply = |id: &str, call_id: u64, wait: bool| {
+        let mut request = invocation(id, "raw");
+        request.payload = opaque(json!({
+            "type": 0x86,
+            "wait": wait,
+            "frame": { "kind": "reply", "call_id": call_id, "body": null },
+        }));
+        request
+    };
+    let token = PluginCancellationToken::new();
+
+    // The only reply credit is spent and released; its return is queued.
+    let first = result(&invoke_on_thread(
+        &process,
+        raw_reply("first", 100, false),
+        &token,
+        None,
+    ));
+    assert!(
+        matches!(first, PluginInvocationResult::Completed(_)),
+        "{first:?}"
+    );
+    assert_eq!(process.drain_ingress(16, 1024 * 1024).len(), 1);
+
+    // Hold the writer after it sends the next Invoke, so it takes no credit.
+    let (writer_gate, writer_reached, writer_release) = gate();
+    *seams.writer_hold.lock().expect("writer hold") = Some((Lane::Invoke, writer_gate));
+    let second = invoke_on_thread(&process, raw_reply("second", 101, true), &token, None);
+    event(&writer_reached, "the writer holds after the Invoke");
+    assert!(process.release_reply(crate::engine::CallId(100)));
+
+    // The child spends the return that is still queued behind the writer.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&go)
+        .expect("open the go FIFO")
+        .write_all(b"go\n")
+        .expect("release the handler");
+    let second = result(&second);
+    let _ = writer_release.send(());
+    assert!(
+        matches!(
+            &second,
+            PluginInvocationResult::Failed(failure)
+                if failure.kind == PluginInvocationFailureKind::WorkerKilled
+        ),
+        "{second:?}"
+    );
+    let exit = process.exit().expect("the exit settled the invocation");
+    assert!(
+        matches!(
+            &exit.cause,
+            PluginExitCause::Killed(PluginKillReason::ProtocolViolation(violation))
+                if violation.contains("without reply credit")
+        ),
+        "{exit:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
