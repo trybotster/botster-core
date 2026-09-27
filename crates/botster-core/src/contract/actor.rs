@@ -1325,8 +1325,9 @@ pub enum PluginAdmissionResult {
     },
     /// The request cannot be accepted right now.
     ///
-    /// This covers class count/byte saturation, completion-reservation
-    /// saturation, and a busy admission lock. It does not wait.
+    /// This covers class count/byte saturation and completion-reservation
+    /// saturation. It does not wait. A busy internal lock is
+    /// [`LockBusy`](Self::LockBusy), not this variant.
     Backpressured {
         /// Request correlation id.
         request_id: RequestId,
@@ -1336,6 +1337,22 @@ pub enum PluginAdmissionResult {
         reason: String,
         /// Waiting-queue pressure for the target plugin, when available.
         backpressure: Option<BackpressureSummary>,
+    },
+    /// Another thread held an engine lock that admission needs. This is
+    /// transient contention, not capacity pressure.
+    ///
+    /// Only `PluginWorkerEngine::try_admit` returns this. It retries once
+    /// after it arms the engine's admission retry wake, and returns
+    /// `LockBusy` only when the retry is also busy. The wake is therefore
+    /// armed, or it has already fired, when the caller sees this result:
+    /// the completion notifier fires once a worker or the deadline waiter
+    /// releases admission state. The caller parks the request and retries
+    /// it on that notification, never on a timer.
+    LockBusy {
+        /// Request correlation id.
+        request_id: RequestId,
+        /// Class the caller asked to admit under.
+        class: PluginInvocationClass,
     },
     /// The owned request encoding can never fit the class byte bound.
     RejectedBudget {
