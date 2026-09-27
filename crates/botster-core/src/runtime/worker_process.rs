@@ -198,6 +198,12 @@ pub enum WorkerRouteProbeEvent {
         /// Session whose capture was released.
         session_id: crate::SessionId,
     },
+    /// The parent reader read the worker's `FRAME_PROCESS_EXITED` and stored
+    /// it for the next drain.
+    ProcessExitRead {
+        /// Session whose child exited.
+        session_id: crate::SessionId,
+    },
     /// The parent reader routed one worker PTY output event.
     PtyOutputRouted {
         /// Session the output belongs to.
@@ -1169,6 +1175,26 @@ impl WorkerProcessRuntime {
         Ok(())
     }
 
+    /// Whether the runtime still holds this session: a live one, or an exited
+    /// one kept for a capture it owes.
+    #[must_use]
+    pub fn holds_session(&self, session_id: &SessionId) -> bool {
+        self.sessions.contains_key(session_id)
+    }
+
+    /// Hold an exited session, and its worker, while the engine still owes a
+    /// capture on it. Releasing the hold of an exited session wakes it, so
+    /// the next drain removes it and shuts its worker down.
+    pub fn set_exit_hold(&mut self, session_id: &SessionId, hold: bool) {
+        if let Some(session) = self.sessions.get_mut(session_id) {
+            let released = session.exit_hold && !hold;
+            session.exit_hold = hold;
+            if released && session.exit_reported {
+                notify_session_wake(&session.wake_handle);
+            }
+        }
+    }
+
     /// Current durable control-plane state.
     #[must_use]
     pub fn control_plane_state(&self, session_id: &SessionId) -> ControlPlaneState {
@@ -1344,6 +1370,8 @@ impl WorkerProcessRuntime {
             applied_resizes: VecDeque::new(),
             snapshot_boundary: VecDeque::new(),
             outstanding_snapshot_request: None,
+            exit_hold: false,
+            exit_reported: false,
             supports_snapshot_boundary: true,
             egress_capacity: 1,
             stall: Arc::new(EgressStall::new()),
@@ -1652,6 +1680,8 @@ impl WorkerProcessRuntime {
             applied_resizes: VecDeque::new(),
             snapshot_boundary: VecDeque::new(),
             outstanding_snapshot_request: None,
+            exit_hold: false,
+            exit_reported: false,
             supports_snapshot_boundary,
             egress_capacity: self.options.egress_capacity.max(1),
             stall,
@@ -2039,10 +2069,15 @@ impl SessionRuntime for WorkerProcessRuntime {
             // chunk or a drop recorded after the first take is not lost when
             // the session is removed.
             self.pump_session_output(session_id)?;
-            self.session_mut(session_id)?
-                .take_reader_output(session_id, &mut output);
+            let session = self.session_mut(session_id)?;
+            session.take_reader_output(session_id, &mut output);
+            let first_report = !session.exit_reported;
+            session.exit_reported = true;
+            // A capture the engine still owes a route is served from the
+            // worker's final terminal model; removal shuts that worker down.
+            let held = session.exit_hold || session.outstanding_snapshot_request.is_some();
             // Map removal transfers wake-retirement ownership to CoreDaemon.
-            if let Some(mut removed) = self.sessions.remove(session_id) {
+            if let Some(mut removed) = (!held).then(|| self.sessions.remove(session_id)).flatten() {
                 if let Some(admission) = &removed.admission {
                     admission.runtime_removed();
                     admission.observe_process_exit();
@@ -2067,10 +2102,12 @@ impl SessionRuntime for WorkerProcessRuntime {
                 }
                 removed.control.cleanup();
             }
-            output.push(SessionRuntimeOutput::ProcessExited {
-                session_id: session_id.clone(),
-                payload,
-            });
+            if first_report {
+                output.push(SessionRuntimeOutput::ProcessExited {
+                    session_id: session_id.clone(),
+                    payload,
+                });
+            }
         }
 
         Ok(output)
@@ -2304,6 +2341,12 @@ struct WorkerProcessSession {
     applied_resizes: VecDeque<crate::ResizePayload>,
     snapshot_boundary: VecDeque<(WorkerSnapshotResult, usize)>,
     outstanding_snapshot_request: Option<String>,
+    /// The engine still has a capture for this session, active or queued.
+    /// After the exit the worker keeps serving captures from its final
+    /// terminal model, so the session is removed only once no hold remains.
+    exit_hold: bool,
+    /// `ProcessExited` was reported; it is reported once.
+    exit_reported: bool,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
     stall: Arc<EgressStall>,
@@ -2960,6 +3003,11 @@ fn spawn_stdout_reader(
                         if let Ok(mut state) = completion.lock() {
                             state.process_exited = Some(payload);
                         }
+                    }
+                    if let Some(probe) = &route_probe {
+                        probe.report(WorkerRouteProbeEvent::ProcessExitRead {
+                            session_id: session_id.clone(),
+                        });
                     }
                     notify_session_wake(&wake_handle);
                 }

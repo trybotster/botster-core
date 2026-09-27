@@ -289,6 +289,12 @@ struct SubscriptionOwner {
     capture_fence: u64,
     /// Live output is suppressed until the route's `SNAPSHOT_READY` lands.
     awaiting_capture: bool,
+    /// A capture was requested for the route and the engine has not ended
+    /// it: `PROCESS_EXIT` waits for it, so it follows the snapshot and the
+    /// output after the capture fence.
+    capture_open: bool,
+    /// `PROCESS_EXIT` held while `capture_open`.
+    deferred_exit: Option<TerminalFrame>,
     input_queue: VecDeque<AdmittedInput>,
     last_operation_id: u64,
     paste: Option<PasteAssembly>,
@@ -419,6 +425,10 @@ impl ClientWorker {
                 stream_epoch: 0,
                 capture_fence: 0,
                 awaiting_capture: true,
+                // Opened by the engine when it queues a capture for the
+                // route; an engine that captures synchronously never opens it.
+                capture_open: false,
+                deferred_exit: None,
                 input_queue: VecDeque::new(),
                 last_operation_id: 0,
                 paste: None,
@@ -922,8 +932,9 @@ impl ClientWorker {
         }
     }
 
-    /// Share `PROCESS_EXIT` with every route on the session, including routes
-    /// still awaiting a capture that will never arrive.
+    /// Share `PROCESS_EXIT` with every route on the session. A route whose
+    /// capture is still open holds it until the engine ends that capture
+    /// ([`Self::end_route_capture`]): the exit never overtakes a snapshot.
     pub fn push_session_process_exit(
         &mut self,
         session_id: &SessionId,
@@ -943,6 +954,12 @@ impl ClientWorker {
             }
         };
         for key in keys {
+            if let Some(owner) = self.live.get_mut(&key) {
+                if owner.capture_open {
+                    owner.deferred_exit = Some(frame.clone());
+                    continue;
+                }
+            }
             if let Some(teardown) =
                 self.enqueue_owner_frame(&key, frame.clone(), QueuedKind::Terminal)
             {
@@ -1067,7 +1084,40 @@ impl ClientWorker {
             subscription_id: subscription_id.clone(),
         }) {
             owner.awaiting_capture = true;
+            owner.capture_open = true;
         }
+    }
+
+    /// The engine queued a capture for the route: a `PROCESS_EXIT` now waits
+    /// for it.
+    pub fn open_route_capture(&mut self, session_id: &SessionId, subscription_id: &SubscriptionId) {
+        if let Some(owner) = self.live.get_mut(&OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        }) {
+            owner.capture_open = true;
+        }
+    }
+
+    /// The engine ended the route's capture, after its snapshot and the
+    /// output behind its fence were routed. A `PROCESS_EXIT` held for the
+    /// capture is queued now, last.
+    pub fn end_route_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) -> Option<ClientWorkerTeardown> {
+        let key = OwnerKey {
+            session_id: session_id.clone(),
+            subscription_id: subscription_id.clone(),
+        };
+        let owner = self.live.get_mut(&key)?;
+        owner.capture_open = false;
+        let frame = owner.deferred_exit.take()?;
+        if owner.terminal_enqueued {
+            return None;
+        }
+        self.enqueue_owner_frame(&key, frame, QueuedKind::Terminal)
     }
 
     /// Take routes whose egress overflowed and now need a fresh capture.
