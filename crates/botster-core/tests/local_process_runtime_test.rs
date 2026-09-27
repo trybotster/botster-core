@@ -113,16 +113,18 @@ fn wait_for_child_pid(fifo: &Fifo) -> u32 {
 
 fn collect_until<F>(
     runtime: &mut dyn SessionRuntime,
+    wakes: &TerminalWakeSource,
     session_id: &SessionId,
     mut predicate: F,
 ) -> Vec<SessionRuntimeOutput>
 where
     F: FnMut(&[SessionRuntimeOutput]) -> bool,
 {
+    // timer: deadline — the output must arrive; the caller asserts on what came
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut output = Vec::new();
 
-    while Instant::now() < deadline {
+    loop {
         match runtime.drain_output(session_id) {
             Ok(drained) => output.extend(drained),
             Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {}
@@ -131,10 +133,12 @@ where
         if predicate(&output) {
             return output;
         }
-        thread::sleep(Duration::from_millis(20));
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return output;
+        };
+        // timer: deadline — wait for the session's next output or exit wake
+        let _ = wakes.wait_wakes(remaining);
     }
-
-    output
 }
 
 fn output_text(output: &[SessionRuntimeOutput]) -> String {
@@ -202,7 +206,8 @@ fn source_files(root: impl AsRef<Path>) -> Vec<PathBuf> {
 #[test]
 fn local_process_runtime_spawns_simple_command_and_drains_output() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::new();
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::new().with_wake_source(wakes.clone());
     let session = session_id("local-runtime-output");
 
     runtime
@@ -212,7 +217,7 @@ fn local_process_runtime_spawns_simple_command_and_drains_output() {
         ))
         .expect("spawn local command");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("botster-local-output") && has_exit(output)
     });
 
@@ -223,10 +228,12 @@ fn local_process_runtime_spawns_simple_command_and_drains_output() {
 #[test]
 fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
     let _guard = local_process_test_lock();
+    let wakes = TerminalWakeSource::new();
     let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
         pty_reader_chunk_capacity: 1,
         ..runtime_options()
-    });
+    })
+    .with_wake_source(wakes.clone());
     let session = session_id("local-runtime-reader-pressure");
 
     // Flood enough to exceed capacity-1 single-queue occupancy so the reader
@@ -239,10 +246,11 @@ fn local_process_runtime_reports_bounded_reader_backpressure_out_of_band() {
         ))
         .expect("spawn noisy local command");
 
-    thread::sleep(Duration::from_millis(100));
-    let output = runtime
-        .drain_output(&session)
-        .expect("drain local process pressure");
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
+        output
+            .iter()
+            .any(|event| matches!(event, SessionRuntimeOutput::Backpressure(_)))
+    });
 
     let summary = output
         .iter()
@@ -277,11 +285,13 @@ fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
     // pending + many adversarial small chunks. Expects typed backpressure, quiet
     // sibling completion, noisy process exit, and no sticky authority failure.
     let _guard = local_process_test_lock();
+    let wakes = TerminalWakeSource::new();
     let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
         pty_reader_chunk_capacity: 1,
         test_pending_capacity: Some(2),
         ..runtime_options()
-    });
+    })
+    .with_wake_source(wakes.clone());
     let noisy = session_id("local-adv-noisy");
     let quiet = session_id("local-adv-quiet");
 
@@ -299,6 +309,7 @@ fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
         ))
         .expect("spawn noisy");
 
+    // timer: deadline — both sessions must finish; expiry fails the assertions below
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut quiet_out = Vec::new();
     let mut noisy_out = Vec::new();
@@ -330,7 +341,8 @@ fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
         quiet_done = output_text(&quiet_out).contains("quiet-done") && has_exit(&quiet_out);
         noisy_exit = has_exit(&noisy_out);
         if !quiet_done || !noisy_exit {
-            thread::sleep(Duration::from_millis(5));
+            // timer: deadline — wait for either session's next wake
+            let _ = wakes.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
 
@@ -359,13 +371,15 @@ fn small_capacity_adversarial_chunks_backpressure_without_authority_failure() {
 #[test]
 fn local_process_runtime_spawns_and_captures_process_exit_status() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let session = session_id("local-exit");
     runtime
         .spawn_session(shell_request(session.clone(), "exit 7"))
         .expect("spawn short-lived local process");
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
 
     assert!(output.iter().any(|event| {
         event
@@ -430,7 +444,9 @@ fn local_process_runtime_wakes_the_session_when_the_child_exits_without_pty_eof(
 #[test]
 fn local_process_runtime_drains_final_output_before_exit_and_removal() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let session = session_id("local-final-reader-egress");
     let ready_fifo = unique_temp_path("final-reader-ready");
     let hold_fifo = unique_temp_path("final-reader-hold");
@@ -462,7 +478,7 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
         .expect("spawn leader with PTY-holding descendant");
     let descendant_pid = wait_for_child_pid(&child_pid_file);
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
     let marker_index = output
         .iter()
         .position(|event| {
@@ -523,6 +539,7 @@ fn default_engine_subscription_publishes_final_terminal_output_before_process_ex
         .attach_client(client.clone(), session.clone(), subscription.clone(), 1)
         .expect("attach default-engine subscription");
 
+    // timer: deadline — the exit must reach the route; expiry fails the assertions below
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut egress = Vec::new();
     while Instant::now() < deadline {
@@ -543,7 +560,8 @@ fn default_engine_subscription_publishes_final_terminal_output_before_process_ex
         {
             break;
         }
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — wait for the engine's next session wake
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     let marker_index = egress
@@ -583,7 +601,8 @@ fn default_engine_subscription_publishes_final_terminal_output_before_process_ex
 #[test]
 fn local_process_runtime_writes_input_to_pty() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::new();
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::new().with_wake_source(wakes.clone());
     let session = session_id("local-runtime-input");
 
     runtime
@@ -596,7 +615,7 @@ fn local_process_runtime_writes_input_to_pty() {
         })
         .expect("write local pty input");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("botster-input-marker")
     });
     runtime
@@ -611,7 +630,8 @@ fn local_process_runtime_writes_input_to_pty() {
 #[test]
 fn local_process_runtime_resizes_pty_when_supported() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::new();
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::new().with_wake_source(wakes.clone());
     let session = session_id("local-runtime-resize");
 
     runtime
@@ -628,7 +648,7 @@ fn local_process_runtime_resizes_pty_when_supported() {
         })
         .expect("resize local pty");
 
-    let output = collect_until(&mut runtime, &session, |output| {
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
         output_text(output).contains("33 120") && has_exit(output)
     });
 
@@ -641,7 +661,9 @@ fn local_process_runtime_resizes_pty_when_supported() {
 #[test]
 fn local_process_runtime_graceful_shutdown_records_exit() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let session = session_id("local-graceful");
     runtime
         .spawn_session(shell_request(
@@ -656,7 +678,7 @@ fn local_process_runtime_graceful_shutdown_records_exit() {
         })
         .expect("shutdown graceful process");
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
     assert!(output.iter().any(|event| {
         matches!(
             event,
@@ -671,7 +693,9 @@ fn local_process_runtime_graceful_shutdown_records_exit() {
 #[test]
 fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let child_pid_file = Fifo::new("graceful-child-pid");
     let session = session_id("local-graceful-child");
     runtime
@@ -694,7 +718,7 @@ fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group()
         })
         .expect("shutdown graceful leader process group");
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
     assert!(output.iter().any(|event| {
         event
             == &SessionRuntimeOutput::ProcessExited {
@@ -711,7 +735,9 @@ fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group()
 #[test]
 fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let child_pid_file = Fifo::new("child-pid");
     let session = session_id("local-forced");
     let handle = runtime
@@ -735,7 +761,7 @@ fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
         })
         .expect("force shutdown process group");
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
     assert!(output.iter().any(|event| {
         matches!(
             event,
@@ -813,7 +839,9 @@ fn shutdown_returns_while_an_undrained_reader_holds_the_child_in_its_exit() {
 #[test]
 fn local_process_runtime_shutdown_is_idempotent() {
     let _guard = local_process_test_lock();
-    let mut runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let session = session_id("local-idempotent");
     runtime
         .spawn_session(shell_request(
@@ -833,7 +861,7 @@ fn local_process_runtime_shutdown_is_idempotent() {
         })
         .expect("second shutdown is a no-op");
 
-    let output = collect_until(&mut runtime, &session, has_exit);
+    let output = collect_until(&mut runtime, &wakes, &session, has_exit);
     assert_eq!(
         output
             .iter()
@@ -847,7 +875,8 @@ fn local_process_runtime_shutdown_is_idempotent() {
 fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
     let _guard = local_process_test_lock();
     let options = slow_shutdown_runtime_options();
-    let mut runtime = LocalProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let child_pid_file = Fifo::new("nonblocking-child-pid");
     let stubborn = session_id("local-nonblocking-stubborn");
     let peer = session_id("local-nonblocking-peer");
@@ -901,7 +930,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
             data: b"peer-still-live\n".to_vec(),
         })
         .expect("write peer while stubborn shutdown waits");
-    let output = collect_until(&mut runtime, &peer, |output| {
+    let output = collect_until(&mut runtime, &wakes, &peer, |output| {
         output_text(output).contains("peer-still-live")
     });
     runtime
@@ -922,7 +951,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
         shutdown_elapsed >= options.shutdown_grace,
         "stubborn shutdown completed too quickly: {shutdown_elapsed:?}"
     );
-    let stubborn_output = collect_until(&mut runtime, &stubborn, has_exit);
+    let stubborn_output = collect_until(&mut runtime, &wakes, &stubborn, has_exit);
     assert_eq!(
         exit_signal(&stubborn_output, &stubborn),
         Some(SIGKILL),
@@ -1019,7 +1048,9 @@ fn local_process_runtime_unknown_session_shutdown_returns_typed_error() {
 #[test]
 fn local_process_runtime_can_be_used_through_public_session_runtime_trait() {
     let _guard = local_process_test_lock();
-    let mut runtime: Box<dyn SessionRuntime> = Box::new(LocalProcessRuntime::new());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime: Box<dyn SessionRuntime> =
+        Box::new(LocalProcessRuntime::new().with_wake_source(wakes.clone()));
     let session = session_id("local-runtime-trait-object");
     let mut request = shell_request(
         session.clone(),
@@ -1038,7 +1069,7 @@ fn local_process_runtime_can_be_used_through_public_session_runtime_trait() {
         .expect("spawn through public trait object");
     assert_eq!(handle.session_id, session);
 
-    let output = collect_until(runtime.as_mut(), &handle.session_id, |output| {
+    let output = collect_until(runtime.as_mut(), &wakes, &handle.session_id, |output| {
         output_text(output).contains("trait-runtime env-1") && has_exit(output)
     });
 
@@ -1094,7 +1125,9 @@ fn missing_executable_is_structural_not_created_and_releases() {
 #[test]
 fn botster_engine_shutdown_uses_runtime_cleanup_path() {
     let _guard = local_process_test_lock();
-    let runtime = LocalProcessRuntime::with_options(runtime_options());
+    let wakes = TerminalWakeSource::new();
+    let runtime =
+        LocalProcessRuntime::with_options(runtime_options()).with_wake_source(wakes.clone());
     let worker_runtime = runtime.worker_runtime();
     let mut engine = MultiplexerEngine::new(runtime);
     let session = session_id("engine-local");
@@ -1110,7 +1143,7 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         )
         .expect("spawn local process through engine");
     let pid = spawn.handle.process.pid.expect("local process exposes pid");
-    let ready = collect_until(engine.session_runtime_mut(), &session, |output| {
+    let ready = collect_until(engine.session_runtime_mut(), &wakes, &session, |output| {
         output_text(output).contains("shutdown-ready")
     });
     assert!(output_text(&ready).contains("shutdown-ready"));
@@ -1127,6 +1160,7 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
         "engine shutdown must withhold ProcessExited until reader completion"
     );
 
+    // timer: deadline — the reader must release the exit; expiry fails the assertion below
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut routed_exit = false;
     let mut final_output = Vec::new();
@@ -1153,7 +1187,10 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
                 });
             }
         }
-        thread::sleep(Duration::from_millis(20));
+        if !routed_exit {
+            // timer: deadline — wait for the reader's completion wake
+            let _ = wakes.wait_wakes(deadline.saturating_duration_since(Instant::now()));
+        }
     }
     assert!(
         routed_exit,
@@ -1185,7 +1222,8 @@ fn botster_engine_shutdown_uses_runtime_cleanup_path() {
 fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     let _guard = local_process_test_lock();
     let options = slow_shutdown_runtime_options();
-    let mut runtime = LocalProcessRuntime::with_options(options);
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::with_options(options).with_wake_source(wakes.clone());
     let mut engine = MultiplexerEngine::new(runtime.clone());
     let child_pid_file = Fifo::new("engine-nonblocking-child-pid");
     let stubborn = session_id("engine-nonblocking-stubborn");
@@ -1241,7 +1279,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
             data: b"engine-peer-still-live\n".to_vec(),
         })
         .expect("write peer while engine shutdown waits");
-    let output = collect_until(&mut runtime, &peer, |output| {
+    let output = collect_until(&mut runtime, &wakes, &peer, |output| {
         output_text(output).contains("engine-peer-still-live")
     });
     let elapsed = started.elapsed();
@@ -1270,7 +1308,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
             .any(|event| matches!(event, botster_core::SessionIoEvent::ProcessExited { .. })),
         "engine shutdown must withhold exit until reader completion"
     );
-    let output = collect_until(engine.session_runtime_mut(), &stubborn, has_exit);
+    let output = collect_until(engine.session_runtime_mut(), &wakes, &stubborn, has_exit);
     assert_eq!(exit_signal(&output, &stubborn), Some(SIGKILL));
 }
 
