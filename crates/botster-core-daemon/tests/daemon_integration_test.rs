@@ -490,6 +490,7 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
 
     assert!(failure.to_string().contains("Permission denied"));
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    // timer: deadline — expiry fails the test
     let retry = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(retry.ingress_sessions, vec![session_id.clone()]);
     let _ = daemon
@@ -7412,6 +7413,7 @@ fn pump_wakes_until(daemon: &mut CoreDaemon, mut done: impl FnMut() -> bool) -> 
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
         };
+        // timer: deadline — expiry fails the test
         let batch = daemon.wait_wakes(remaining);
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
             daemon.pump_woken(&batch, 30).expect("pump woken");

@@ -1535,6 +1535,7 @@ impl WorkerProcessRuntime {
         write_hello(&mut control)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         control
+            // timer: deadline — the worker reply deadline
             .set_read_timeout(Some(self.options.worker_reply_timeout))
             .map_err(|error| {
                 SessionRuntimeError::new(
@@ -1816,6 +1817,7 @@ fn launch_worker_inner(
             pending_worker.wait_for_socket_readiness()?;
             let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
             stream
+                // timer: deadline — the worker startup reply deadline
                 .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
                 .map_err(|error| {
                     SessionRuntimeError::new(
@@ -3548,6 +3550,7 @@ impl WorkerWriteHalf {
         match self {
             Self::Stdio(_) => Ok(()),
             #[cfg(unix)]
+            // timer: deadline — forwards the caller's write slice
             Self::Socket(stream) => stream.set_write_timeout(timeout),
         }
     }
@@ -3671,6 +3674,7 @@ fn write_control_bytes(
             return Err(ControlWriterError::DeadlineExpired);
         };
         write
+            // timer: deadline — one write slice, bounded by the control write deadline
             .set_write_timeout(Some(slice))
             .map_err(|error| ControlWriterError::WriteError(error.to_string()))?;
         match write.write(&bytes[written..]) {
@@ -4416,6 +4420,7 @@ mod tests {
         let mut runtime = WorkerProcessRuntime::new("/missing/botster-session-worker");
         let session = SessionId("socket-plane".to_string());
         let mut peer = runtime.insert_test_socket_session(session.clone());
+        // timer: deadline — a read past the bound fails the test
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("bounded read");
         let request_id = runtime
@@ -4459,6 +4464,7 @@ mod tests {
         queue.admit(class, frame).expect("admit");
         let (writer, mut peer) = UnixStream::pair().expect("socket pair");
         // Bound the peer read before the writer can touch the socket.
+        // timer: deadline — a read past the bound fails the test
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("bounded read");
         let slot = ControlWriterSlot::running();

@@ -942,7 +942,8 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
     let mut clock = 1u64;
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline && !saw_final {
-        let batch = engine.wait_wakes(Duration::from_millis(50));
+        // timer: deadline — the loop's remaining bound; the next wake ends the wait early
+        let batch = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         let outcome = engine.pump_woken(&batch, clock).expect("pump");
         clock += 1;
         saw_final = outcome.session_events.iter().any(|event| match event {
@@ -967,7 +968,8 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
     assert_eq!(source.session_registry_len(), 1);
     let wait_deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < wait_deadline && !saw_exit {
-        let batch = engine.wait_wakes(Duration::from_millis(50));
+        // timer: deadline — the loop's remaining bound; the next wake ends the wait early
+        let batch = engine.wait_wakes(wait_deadline.saturating_duration_since(Instant::now()));
         let outcome = engine.pump_woken(&batch, clock).expect("pump exit");
         clock += 1;
         saw_exit = outcome.session_events.iter().any(|event| {

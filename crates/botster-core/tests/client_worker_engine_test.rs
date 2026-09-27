@@ -310,7 +310,12 @@ fn stale_adapter_close_after_reattach_does_not_stop_the_live_generation() {
         )
         .expect("queue ready for the live generation");
     assert!(second_adapter.wake(TerminalWakeKind::Writable));
+    // timer: deadline — the wake is already queued; the bound only guards a hang
     let batch = worker.wake_source().wait_wakes(Duration::from_secs(1));
+    assert!(
+        !batch.adapter_routes.is_empty(),
+        "the stale adapter's wake arrives, so the empty pump below is a real result"
+    );
     assert!(worker.pump_woken(&batch).is_empty());
     let delivered = second_adapter.snapshot_delivered_frames();
     assert_eq!(delivered.len(), 1);
@@ -555,6 +560,7 @@ fn bind_local_pair(
 }
 
 fn apply_and_pump(engine: &mut DefaultBotsterEngine, _session: &SessionId) {
+    // timer: deadline — expiry fails the assertion below
     let batch = engine.wait_wakes(Duration::from_secs(5));
     assert!(
         !batch.adapter_routes.is_empty(),
@@ -599,6 +605,7 @@ fn local_unsafe_paste_rejects_with_zero_counts_and_exact_route_identity() {
         assert!(engine.adapter_is_bound(&session, &subscription));
         let remaining = deadline.saturating_duration_since(Instant::now());
         assert!(!remaining.is_zero(), "paste result deadline");
+        // timer: deadline — the loop's remaining bound; expiry fails the assertion above
         let batch = engine.wait_wakes(remaining);
         engine.pump_woken(&batch, 2).expect("targeted pump");
     };
@@ -803,7 +810,8 @@ fn owner_removal_matrix_closes_adapter_and_route() {
         .expect("teardown_session");
     let deadline = Instant::now() + Duration::from_secs(5);
     while engine.adapter_is_bound(&torn, &torn_sub) && Instant::now() < deadline {
-        let batch = engine.wait_wakes(Duration::from_secs(5));
+        // timer: deadline — the loop's remaining bound; the next wake ends the wait early
+        let batch = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         engine
             .pump_woken(&batch, 6)
             .expect("shutdown wake delivers ProcessExit then closes the owner");

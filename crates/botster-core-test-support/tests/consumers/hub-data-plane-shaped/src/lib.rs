@@ -104,7 +104,9 @@ mod tests {
                 .send(daemon.wake_pump_control())
                 .expect("publish control");
             loop {
-                match daemon.wait_pump(Duration::from_secs(30)) {
+                // No host timer: Core clamps the wait to its own pending
+                // deadlines, and wakes, interrupts, and stop end it.
+                match daemon.wait_pump(Duration::MAX) {
                     WakePumpWait::Wakes(batch) => {
                         daemon.pump_woken(&batch, 6).expect("targeted pump");
                     }
@@ -215,6 +217,7 @@ mod tests {
             .expect("bind waking adapter");
 
         let _ = done.read_signal(Duration::from_secs(5));
+        // timer: deadline — expiry fails the match below
         match daemon.wait_pump(Duration::from_secs(5)) {
             WakePumpWait::Wakes(batch)
                 if batch.ingress_sessions.iter().any(|id| id == &session_id) => {}
@@ -269,6 +272,7 @@ mod tests {
             let _ = daemon.wait_pump(deadline.saturating_duration_since(std::time::Instant::now()));
         }
         let writes_before = adapter.try_write_count();
+        // timer: deadline — expiry fails the match below
         match daemon.wait_pump(Duration::from_secs(2)) {
             WakePumpWait::Wakes(batch) => {
                 daemon.pump_woken(&batch, 4).expect("targeted pump");
@@ -278,16 +282,19 @@ mod tests {
         assert!(adapter.try_write_count() > writes_before);
         assert!(adapter_has_process_exit(&adapter));
         control.request_stop();
-        loop {
-            match daemon.wait_pump(Duration::from_secs(1)) {
-                WakePumpWait::Stopped => break,
+        botster_core_test_support::bounded_wait::wait_for(
+            "the requested stop reaches the pump",
+            botster_core_test_support::bounded_wait::HANG_GUARD,
+            // timer: deadline — the remaining hang guard; expiry fails the test
+            |remaining| match daemon.wait_pump(remaining) {
+                WakePumpWait::Stopped => Some(()),
                 WakePumpWait::Wakes(batch) => {
                     daemon.pump_woken(&batch, 5).expect("final pump");
+                    None
                 }
-                WakePumpWait::Interrupted => {}
-                _ => {}
-            }
-        }
+                _ => None,
+            },
+        );
         daemon.shutdown(None, 6).expect("shutdown");
         let _ = std::fs::remove_dir_all(data_dir);
     }
