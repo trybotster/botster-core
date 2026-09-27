@@ -567,6 +567,21 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
         )
         .expect("bind");
     let _ = ready.read_signal(Duration::from_secs(15));
+    // The property is order and preservation for an attached route: finish
+    // the attach capture before shutdown begins.
+    pump_until(
+        &mut daemon,
+        "the route's attach snapshot finishing",
+        Duration::from_secs(15),
+        2,
+        |_| {
+            adapter
+                .snapshot_delivered_frame_bytes()
+                .iter()
+                .filter_map(|bytes| TerminalFrame::from_bytes(bytes).ok())
+                .any(|frame| frame.kind() == TerminalKind::SnapshotFinish)
+        },
+    );
 
     let control = daemon.wake_pump_control();
     control.request_stop();
