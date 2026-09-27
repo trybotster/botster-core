@@ -207,26 +207,28 @@ fn a_release_between_the_first_refusal_and_the_arm_is_not_lost() {
     ));
 }
 
-#[test]
-fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
-    let (engine, _events) = probed_engine(PluginWorkerEngineConfig {
+fn class_capacity_one() -> PluginWorkerEngineConfig {
+    PluginWorkerEngineConfig {
         per_plugin_executor_concurrency: 2,
         reserved_request_response_executors: 1,
         background_queue_capacity: 1,
         ..PluginWorkerEngineConfig::default()
-    });
-    let plugin = PluginKey("class-edge".into());
-    let (runtime, entered) = GatedRuntime::new();
-    engine.load_plugin(registration(&plugin, runtime.clone()));
-    let wakes = notifications(&engine);
+    }
+}
 
-    // Two blocking invocations hold both executors. Blocking invocations
-    // publish no completion, so their end cannot wake the host by itself.
+/// Hold both executors with blocking invocations, which publish no
+/// completion, and fill the one-slot Background queue with `queued`.
+fn fill_class_queue(
+    engine: &PluginWorkerEngine,
+    plugin: &PluginKey,
+    entered: &mpsc::Receiver<String>,
+    queued: PluginInvocationRequest,
+) -> Vec<std::thread::JoinHandle<PluginInvocationOutcome>> {
     let blockers: Vec<_> = ["hold-a", "hold-b"]
         .into_iter()
         .map(|id| {
             let engine = engine.clone();
-            let handler = handler(&plugin);
+            let handler = handler(plugin);
             std::thread::spawn(move || engine.invoke(request(id, handler, 60_000)))
         })
         .collect();
@@ -236,46 +238,145 @@ fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
             .recv_timeout(EVENT_DEADLINE)
             .expect("a blocking invocation holds an executor");
     }
-    // One Background job fills the class queue; it cannot start.
     assert!(matches!(
-        admit(
-            &engine,
-            PluginInvocationClass::Background,
-            request("queued", handler(&plugin), 60_000)
-        ),
+        admit(engine, PluginInvocationClass::Background, queued),
         PluginAdmissionResult::Queued { .. }
     ));
-    let parked = || {
-        engine.try_admit(
-            PluginInvocationClass::Background,
-            request("parked", handler(&plugin), 60_000),
-            1,
-        )
-    };
-    assert_eq!(cause(&parked()), PluginBackpressureCause::ClassQueue);
+    blockers
+}
 
-    // One executor frees and dequeues the queued job, which stays held. The
-    // host retries only on the notifier, as an owner loop would.
-    runtime.open("hold-a");
-    let admitted = loop {
-        // timer: deadline — the armed wake arrives after the dequeue; expiry fails the test
-        wakes
-            .recv_timeout(EVENT_DEADLINE)
-            .expect("the dequeue fires the armed wake");
-        match parked() {
-            PluginAdmissionResult::Backpressured { .. } => {}
-            other => break other,
-        }
-    };
-    assert!(
-        matches!(admitted, PluginAdmissionResult::Queued { .. }),
-        "{admitted:?}"
+fn parked(engine: &PluginWorkerEngine, plugin: &PluginKey) -> PluginAdmissionResult {
+    engine.try_admit(
+        PluginInvocationClass::Background,
+        request("parked", handler(plugin), 60_000),
+        1,
+    )
+}
+
+/// The pop of a queued job is the release that ends a class-cause refusal.
+/// Every other release is held or consumed first: the deadline waiter is
+/// held at its idle point, and the executor's own release wake is consumed
+/// and re-armed while the job is still queued. Only the pop can then fire.
+#[test]
+fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
+    let (engine, _events) = probed_engine(class_capacity_one());
+    let plugin = PluginKey("class-edge".into());
+    let (runtime, entered) = GatedRuntime::new();
+    engine.load_plugin(registration(&plugin, runtime.clone()));
+    let wakes = notifications(&engine);
+    let blockers = fill_class_queue(
+        &engine,
+        &plugin,
+        &entered,
+        request("queued", handler(&plugin), 60_000),
     );
+
+    let (waiter_held, waiter_resume) = install_idle_pause(&engine, IdleSite::DeadlineWaiter);
+    engine.inner.shared.deadline_signal.notify();
+    // timer: deadline — the deadline waiter reaches its hold; expiry fails the test
+    waiter_held
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("the deadline waiter holds before its wake");
+    assert_eq!(cause(&parked(&engine, &plugin)), PluginBackpressureCause::ClassQueue);
+    assert!(armed(&engine));
+
+    // One executor frees. Its release wake fires; hold the executor before
+    // it pops the queued job.
+    let (dispatch_held, dispatch_resume) = install_idle_pause(&engine, IdleSite::WorkerDispatch);
+    runtime.open("hold-a");
+    // timer: deadline — the executor release fires the armed wake; expiry fails the test
+    wakes
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("the executor release fires the armed wake");
+    // timer: deadline — the executor reaches its dispatch hold; expiry fails the test
+    dispatch_held
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("the executor holds before its pop");
+    // The queue is still full: the retry is refused and re-arms.
+    assert_eq!(cause(&parked(&engine, &plugin)), PluginBackpressureCause::ClassQueue);
+    assert!(armed(&engine));
+    assert!(wakes.try_recv().is_err(), "no release since the re-arm");
+
+    // Only the pop can fire now.
+    dispatch_resume.send(()).expect("release the dispatch");
+    // timer: deadline — the pop fires the armed wake; expiry fails the test
+    wakes
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("the dequeue fires the armed wake");
     // timer: deadline — the queued job runs on the freed executor; expiry fails the test
     assert_eq!(
         entered.recv_timeout(EVENT_DEADLINE).expect("dequeued"),
         "queued"
     );
+    waiter_resume.send(()).expect("resume the deadline waiter");
+    assert!(matches!(
+        engine.admit(
+            PluginInvocationClass::Background,
+            request("parked", handler(&plugin), 60_000),
+            1,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
+
+    runtime.open("*");
+    for blocker in blockers {
+        blocker.join().expect("blocking caller");
+    }
+}
+
+/// A queued job's deadline removes it from the class queue. The timed-out
+/// completion's own notification does not consume the armed wake, so the
+/// consumed flag proves that the deadline waiter fired it after the removal.
+#[test]
+fn a_deadline_unqueue_fires_the_armed_class_wake() {
+    let (engine, events) = probed_engine(class_capacity_one());
+    let plugin = PluginKey("deadline-edge".into());
+    let (runtime, entered) = GatedRuntime::new();
+    engine.load_plugin(registration(&plugin, runtime.clone()));
+    let wakes = notifications(&engine);
+    // The deadline delivery waits for its permit, so the queued job leaves
+    // the queue only when the test grants it.
+    let permits = engine.gate_deadlines();
+    let blockers = fill_class_queue(
+        &engine,
+        &plugin,
+        &entered,
+        request("expiring", handler(&plugin), 1),
+    );
+    // The waiter is now inside the delivery of `expiring`, waiting for its
+    // permit, so no earlier pass of it can fire the wake armed below.
+    permits.wait_until_waiting(&RequestId("expiring".into()));
+    assert_eq!(cause(&parked(&engine, &plugin)), PluginBackpressureCause::ClassQueue);
+    assert!(armed(&engine));
+    while events.try_recv().is_ok() {}
+    while wakes.try_recv().is_ok() {}
+
+    permits.grant(RequestId("expiring".into()));
+    // The waiter is inside that delivery until it ends, so its next idle
+    // report follows the removal and its armed fire.
+    loop {
+        // timer: deadline — the deadline waiter finishes the delivery; expiry fails the test
+        if events
+            .recv_timeout(EVENT_DEADLINE)
+            .expect("the deadline waiter goes idle")
+            == PluginQueueProbeEvent::DeadlineWaiterIdle
+        {
+            break;
+        }
+    }
+    assert!(
+        !armed(&engine),
+        "the deadline waiter fired the armed wake after the removal"
+    );
+    assert!(wakes.try_recv().is_ok(), "the host was notified");
+    assert!(matches!(
+        engine.admit(
+            PluginInvocationClass::Background,
+            request("parked", handler(&plugin), 60_000),
+            1,
+        ),
+        PluginAdmissionResult::Queued { .. }
+    ));
 
     runtime.open("*");
     for blocker in blockers {
@@ -375,11 +476,24 @@ fn a_retired_completion_returns_its_reservation_when_drained() {
     wait_quiet(&events, 4);
     let wakes = notifications(&engine);
 
+    // The unload signals the deadline waiter. Its idle report after the
+    // unload proves that pass ended, so it cannot fire after the arm below.
+    while events.try_recv().is_ok() {}
     engine.unload_plugin(PluginUnloadSpec {
         request_id: RequestId("unload".into()),
         plugin_key: holder,
         cleanup: PluginCleanupScope::DescriptorsAndResources,
     });
+    loop {
+        // timer: deadline — the deadline waiter ends the unload's pass; expiry fails the test
+        if events
+            .recv_timeout(EVENT_DEADLINE)
+            .expect("the deadline waiter goes idle")
+            == PluginQueueProbeEvent::DeadlineWaiterIdle
+        {
+            break;
+        }
+    }
     while wakes.try_recv().is_ok() {}
     let refused = try_admit(&engine, "parked", &parker);
     assert_eq!(

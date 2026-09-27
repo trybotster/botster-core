@@ -444,6 +444,8 @@ struct EngineShared {
 #[derive(Default)]
 struct DeadlinePermits {
     granted: Mutex<std::collections::HashSet<RequestId>>,
+    /// Deliveries that reached their permit wait.
+    waiting: Mutex<std::collections::HashSet<RequestId>>,
     changed: Condvar,
 }
 
@@ -459,7 +461,25 @@ impl DeadlinePermits {
 
     fn take(&self, request_id: &RequestId) {
         let mut granted = self.granted.lock().expect("deadline permits");
+        self.waiting
+            .lock()
+            .expect("deadline permits")
+            .insert(request_id.clone());
+        self.changed.notify_all();
         while !granted.remove(request_id) {
+            granted = self.changed.wait(granted).expect("deadline permits");
+        }
+    }
+
+    /// Wait until the delivery of `request_id` waits for its permit.
+    fn wait_until_waiting(&self, request_id: &RequestId) {
+        let mut granted = self.granted.lock().expect("deadline permits");
+        while !self
+            .waiting
+            .lock()
+            .expect("deadline permits")
+            .contains(request_id)
+        {
             granted = self.changed.wait(granted).expect("deadline permits");
         }
     }
@@ -471,6 +491,8 @@ impl DeadlinePermits {
 enum IdleSite {
     Worker,
     DeadlineWaiter,
+    /// An executor about to lock admission to pop its next job.
+    WorkerDispatch,
 }
 
 #[cfg(test)]
@@ -2079,6 +2101,8 @@ impl WorkerState {
                         loop {
                             let job = loop {
                                 let seen = worker_signal.epoch();
+                                #[cfg(test)]
+                                pause_idle(&worker_shared, IdleSite::WorkerDispatch);
                                 let mut admission = worker_admission
                                     .lock()
                                     .expect("plugin worker admission mutex poisoned");
