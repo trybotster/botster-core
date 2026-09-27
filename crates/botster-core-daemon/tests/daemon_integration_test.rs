@@ -7058,22 +7058,39 @@ fn wait_until_bound_attached(
     _session_id: &SessionId,
     adapter: &SharedFakeTerminalAdapter,
 ) {
-    let started = Instant::now();
-    while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        pump_next_available_wake(daemon, 20);
-        let attached = adapter
+    let _ = pump_on_wakes_until(daemon, "the bound adapter reaching attached", 20, |_| {
+        complete_one_slot_and_wake(adapter);
+        adapter
             .snapshot_delivered_frame_bytes()
             .iter()
-            .any(|bytes| adapter_phase(bytes) == Some("attached"));
-        if attached {
-            return;
+            .any(|bytes| adapter_phase(bytes) == Some("attached"))
+    });
+}
+
+/// Pump on wakes under one deadline until `done` holds. Returns whether any
+/// pump reported a terminal inventory change.
+fn pump_on_wakes_until(
+    daemon: &mut CoreDaemon,
+    label: &str,
+    first_now: u64,
+    mut done: impl FnMut(&mut CoreDaemon) -> bool,
+) -> bool {
+    let mut now = first_now;
+    let mut inventory_changed = false;
+    wait_for(label, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+        if done(daemon) {
+            return Some(());
         }
-        thread::sleep(Duration::from_millis(10));
-    }
-    panic!(
-        "bound adapter never reached attached: {:?}",
-        adapter.snapshot_delivered_frame_bytes()
-    );
+        // timer: deadline — wait_for's bound limits this wait
+        let batch = daemon.wait_wakes(remaining);
+        if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
+            now += 1;
+            let outcome = daemon.pump_woken(&batch, now).expect("pump a woken batch");
+            inventory_changed |= outcome.terminal_inventory_changed;
+        }
+        done(daemon).then_some(())
+    });
+    inventory_changed
 }
 
 fn pump_next_available_wake(daemon: &mut CoreDaemon, now_seconds: u64) -> bool {
