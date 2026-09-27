@@ -2439,23 +2439,35 @@ impl ClientWorker {
             let Some(owner) = self.live.get_mut(&key) else {
                 continue;
             };
-            let client_id = owner.client_id.clone();
             let drained: Vec<_> = owner.input_queue.drain(..).collect();
-            let released = LaneUsage {
-                operations: drained.len(),
-                bytes: drained.iter().map(|input| input.body.len()).sum(),
-            };
-            owner.lane.operations = owner.lane.operations.saturating_sub(released.operations);
-            owner.lane.bytes = owner.lane.bytes.saturating_sub(released.bytes);
             owner.paste = None;
-            self.release_lane(session_id, &client_id, released);
+            let mode_bits = self
+                .session_modes
+                .get(session_id)
+                .map(|modes| modes.mode_bits)
+                .unwrap_or(0);
             for input in drained {
-                if let Err(ended) = self.reject(
-                    &key,
-                    input.operation_id,
-                    InputOutcome::SessionEnded,
-                    SESSION_ENDED_DETAIL,
-                ) {
+                // Each result keeps its operation's reservation until it is
+                // delivered, like any accepted operation's result. A result
+                // without one would count as a rejection, and more than
+                // MAX_QUEUED_REJECTIONS_PER_ROUTE of those end the route and
+                // discard its queued output.
+                let result = InputResultBody {
+                    operation_id: input.operation_id,
+                    outcome: InputOutcome::SessionEnded,
+                    accepted_payload_bytes: Some(0),
+                    written_pty_bytes: Some(0),
+                    mode_bits,
+                    detail: bounded_detail(SESSION_ENDED_DETAIL),
+                };
+                let reservation = LaneUsage {
+                    operations: 1,
+                    bytes: input.body.len(),
+                };
+                if let Err(ended) = self.enqueue_result_with_reservation(&key, &result, reservation)
+                {
+                    // Ending the route releases its whole lane, including the
+                    // reservations of the operations not reached here.
                     if let Some(teardown) = ended.or_else(|| {
                         self.hard_stop_key(&key, TerminalRouteCloseReason::SessionEnded)
                     }) {
