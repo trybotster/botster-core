@@ -3937,16 +3937,22 @@ mod tests {
     }
 
     #[derive(Clone)]
+    /// A runtime that either answers at once (HandlerFailed) or holds its
+    /// invocation until the engine cancels it or stops the runtime.
     struct DelayRuntime {
         delay: Duration,
-        stopped: Arc<AtomicBool>,
+        held: bool,
+        stopped: Arc<(Mutex<bool>, Condvar)>,
     }
 
     impl DelayRuntime {
+        /// `delay` above 1 ms holds the invocation for cancellation; 1 ms or
+        /// less answers at once.
         fn new(delay: Duration) -> Self {
             Self {
                 delay,
-                stopped: Arc::new(AtomicBool::new(false)),
+                held: delay > Duration::from_millis(1),
+                stopped: Arc::new((Mutex::new(false), Condvar::new())),
             }
         }
     }
@@ -3957,30 +3963,52 @@ mod tests {
             request: PluginInvocationRequest,
             cancellation: PluginCancellationToken,
         ) -> PluginInvocationResult {
-            let started = Instant::now();
-            while started.elapsed() < self.delay {
-                if cancellation.is_cancelled() || self.stopped.load(Ordering::SeqCst) {
-                    return PluginInvocationResult::Failed(PluginInvocationFailure {
-                        request_id: request.request_id,
-                        handler: request.handler,
-                        kind: PluginInvocationFailureKind::Cancelled,
-                        timeout_ms: None,
-                        reason: "delay runtime observed cancellation".to_string(),
-                    });
+            if !self.held {
+                // Short delays keep the former brief in-flight window: several
+                // tests race their notifier checks against a second executor
+                // thread, and an instant answer widens that race. Tracked in
+                // the inventory with those tests; the poll goes when they are
+                // fixed.
+                let started = Instant::now();
+                while started.elapsed() < self.delay {
+                    if cancellation.is_cancelled()
+                        || *self.stopped.0.lock().expect("delay runtime lock")
+                    {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
                 }
-                std::thread::sleep(Duration::from_millis(1));
+                return PluginInvocationResult::Failed(PluginInvocationFailure {
+                    request_id: request.request_id,
+                    handler: request.handler,
+                    kind: PluginInvocationFailureKind::HandlerFailed,
+                    timeout_ms: None,
+                    reason: "delay runtime should lose the first-commit race".to_string(),
+                });
+            }
+            let stopped = Arc::clone(&self.stopped);
+            cancellation.on_cancel(move || {
+                // Take the runtime's own lock so the waiter cannot miss this.
+                let _stopped = stopped.0.lock().expect("delay runtime lock");
+                stopped.1.notify_all();
+            });
+            let (stopped, changed) = &*self.stopped;
+            let mut stopped = stopped.lock().expect("delay runtime lock");
+            while !*stopped && !cancellation.is_cancelled() {
+                stopped = changed.wait(stopped).expect("delay runtime wait");
             }
             PluginInvocationResult::Failed(PluginInvocationFailure {
                 request_id: request.request_id,
                 handler: request.handler,
-                kind: PluginInvocationFailureKind::HandlerFailed,
+                kind: PluginInvocationFailureKind::Cancelled,
                 timeout_ms: None,
-                reason: "delay runtime should lose the first-commit race".to_string(),
+                reason: "delay runtime observed cancellation".to_string(),
             })
         }
 
         fn stop(&self, _plugin_key: &PluginKey) {
-            self.stopped.store(true, Ordering::SeqCst);
+            *self.stopped.0.lock().expect("delay runtime lock") = true;
+            self.stopped.1.notify_all();
         }
     }
 
@@ -4040,6 +4068,57 @@ mod tests {
 
     fn load(engine: &PluginWorkerEngine, plugin: &PluginKey, delay: Duration) {
         engine.load_plugin(registration(plugin, Arc::new(DelayRuntime::new(delay))));
+    }
+
+    /// An engine whose job-state probe feeds the returned channel.
+    fn probed_engine(
+        config: PluginWorkerEngineConfig,
+    ) -> (PluginWorkerEngine, mpsc::Receiver<PluginQueueProbeEvent>) {
+        let (probe, events) = PluginQueueProbe::channel();
+        let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+            test_queue_probe: Some(probe),
+            ..config
+        });
+        (engine, events)
+    }
+
+    /// Check `done`, then recheck after each engine event, within `bound`.
+    /// Events queue, so a change between checks is never missed.
+    fn until_event(
+        events: &mpsc::Receiver<PluginQueueProbeEvent>,
+        bound: Duration,
+        mut done: impl FnMut() -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + bound;
+        loop {
+            if done() {
+                return true;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            // timer: deadline — the caller's bound; checked above on every pass
+            let _ = events.recv_timeout(left);
+        }
+    }
+
+    /// Wait for the next event matching `wanted`, within `bound`.
+    fn wait_event(
+        events: &mpsc::Receiver<PluginQueueProbeEvent>,
+        bound: Duration,
+        wanted: impl Fn(&PluginQueueProbeEvent) -> bool,
+    ) {
+        let deadline = Instant::now() + bound;
+        loop {
+            // timer: deadline — the caller's bound; expiry fails the test
+            let event = events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("the engine reports the awaited event");
+            if wanted(&event) {
+                return;
+            }
+        }
     }
 
     fn registration(
@@ -4858,7 +4937,7 @@ mod tests {
 
     #[test]
     fn deadline_first_then_unload_keeps_only_timed_out() {
-        let engine = PluginWorkerEngine::new();
+        let (engine, events) = probed_engine(PluginWorkerEngineConfig::default());
         let plugin = PluginKey("deadline-first".into());
         load(&engine, &plugin, Duration::from_millis(200));
         assert!(matches!(
@@ -4869,9 +4948,8 @@ mod tests {
             ),
             PluginAdmissionResult::Queued { .. }
         ));
-        let started = Instant::now();
         let mut completions = Vec::new();
-        while started.elapsed() < Duration::from_millis(250) {
+        until_event(&events, Duration::from_millis(250), || {
             completions.extend(
                 engine
                     .drain_completions(8, usize::MAX)
@@ -4879,11 +4957,8 @@ mod tests {
                     .into_iter()
                     .map(|item| item.completion),
             );
-            if !completions.is_empty() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
+            !completions.is_empty()
+        });
         assert!(matches!(
             completions.as_slice(),
             [PluginCompletion {
@@ -4904,7 +4979,7 @@ mod tests {
 
     #[test]
     fn unload_first_then_deadline_keeps_only_worker_stopped() {
-        let engine = PluginWorkerEngine::new();
+        let (engine, events) = probed_engine(PluginWorkerEngineConfig::default());
         let plugin = PluginKey("unload-first".into());
         load(&engine, &plugin, Duration::from_secs(2));
         assert!(matches!(
@@ -4931,7 +5006,19 @@ mod tests {
                 ..
             }] if failure.kind == PluginInvocationFailureKind::WorkerStopped
         ));
-        std::thread::sleep(Duration::from_millis(20));
+        // The job leaves the engine: the stopped runtime returns its late
+        // result (JobFinished), or the job never started (JobUnqueued).
+        // Anything it could publish is in the store by then.
+        wait_event(
+            &events,
+            botster_core_test_support::bounded_wait::HANG_GUARD,
+            |event| {
+                matches!(
+                    event,
+                    PluginQueueProbeEvent::JobFinished | PluginQueueProbeEvent::JobUnqueued
+                )
+            },
+        );
         assert!(engine
             .drain_completions(8, usize::MAX)
             .completions
@@ -4940,7 +5027,7 @@ mod tests {
 
     #[test]
     fn late_handler_after_timeout_publishes_nothing_more() {
-        let engine = PluginWorkerEngine::new();
+        let (engine, events) = probed_engine(PluginWorkerEngineConfig::default());
         let plugin = PluginKey("late".into());
         load(&engine, &plugin, Duration::from_millis(80));
         assert!(matches!(
@@ -4951,16 +5038,25 @@ mod tests {
             ),
             PluginAdmissionResult::Queued { .. }
         ));
-        let started = Instant::now();
-        while started.elapsed() < Duration::from_millis(200)
-            && engine
+        until_event(&events, Duration::from_millis(200), || {
+            !engine
                 .drain_completions(1, usize::MAX)
                 .completions
                 .is_empty()
-        {
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        std::thread::sleep(Duration::from_millis(100));
+        });
+        // The job leaves the engine: the cancelled runtime returns its late
+        // result (JobFinished), or the job timed out while still queued
+        // (JobUnqueued). Nothing more may be published.
+        wait_event(
+            &events,
+            botster_core_test_support::bounded_wait::HANG_GUARD,
+            |event| {
+                matches!(
+                    event,
+                    PluginQueueProbeEvent::JobFinished | PluginQueueProbeEvent::JobUnqueued
+                )
+            },
+        );
         assert!(engine
             .drain_completions(8, usize::MAX)
             .completions
@@ -5090,7 +5186,9 @@ mod tests {
                     if failure.kind == PluginInvocationFailureKind::WorkerStopped
             )
         }));
-        std::thread::sleep(Duration::from_millis(80));
+        // The reload removed the prior generation's 40 ms deadline with it,
+        // so it can never seal the reused id: only the new job's remains.
+        assert_eq!(engine.tracked_deadline_count(), 1);
         assert!(engine
             .drain_completions(8, usize::MAX)
             .completions
@@ -5100,7 +5198,7 @@ mod tests {
 
     #[test]
     fn queued_timeouts_and_fast_completions_do_not_retain_private_tracking() {
-        let engine = PluginWorkerEngine::with_config(PluginWorkerEngineConfig {
+        let (engine, events) = probed_engine(PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 32,
             per_plugin_executor_concurrency: 2,
             reserved_request_response_executors: 1,
@@ -5127,9 +5225,8 @@ mod tests {
                 PluginAdmissionResult::Queued { .. }
             ));
         }
-        let started = Instant::now();
         let mut timed_out = 0;
-        while started.elapsed() < Duration::from_millis(400) && timed_out < 8 {
+        until_event(&events, Duration::from_millis(400), || {
             timed_out += engine
                 .drain_completions(8, usize::MAX)
                 .completions
@@ -5142,8 +5239,8 @@ mod tests {
                     )
                 })
                 .count();
-            std::thread::sleep(Duration::from_millis(2));
-        }
+            timed_out >= 8
+        });
         assert_eq!(timed_out, 8);
         assert_eq!(engine.tracked_job_count(&plugin), 1);
         // The running async job keeps its token in the tracked job only.
@@ -5160,12 +5257,10 @@ mod tests {
             ),
             PluginAdmissionResult::Queued { .. }
         ));
-        let started = Instant::now();
-        while started.elapsed() < Duration::from_millis(250) && engine.tracked_job_count(&fast) > 0
-        {
+        until_event(&events, Duration::from_millis(250), || {
             let _ = engine.drain_completions(8, usize::MAX);
-            std::thread::sleep(Duration::from_millis(2));
-        }
+            engine.tracked_job_count(&fast) == 0
+        });
         assert_eq!(engine.tracked_job_count(&fast), 0);
         assert_eq!(engine.tracked_cancellation_count(&fast), 0);
         assert_eq!(engine.tracked_deadline_count(), 1);
