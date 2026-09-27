@@ -1173,22 +1173,19 @@ fn detach_while_stalled_unblocks_parent() {
         .expect("attach");
     drain_until_attached(&mut engine, &session, &client);
     forget_routed(&routed);
-    write_and_route(
-        &mut engine,
-        &routed,
-        &client,
-        &session,
-        b"FILL-SLOT\n",
-        None,
-    );
-    engine
-        .write_bytes(
-            client.clone(),
-            session.clone(),
-            b"POST-BARRIER-MARKER\n".to_vec(),
-            31,
-        )
-        .expect("second write while the one-slot channel is full");
+    for (data, now) in [
+        (&b"FILL-SLOT\n"[..], 30),
+        (&b"POST-BARRIER-MARKER\n"[..], 31),
+    ] {
+        engine
+            .write_bytes(client.clone(), session.clone(), data.to_vec(), now)
+            .expect("write into the one-slot session");
+    }
+    // Nothing drains after the attach drain, so a Stalled decision proves the
+    // parent reader is blocked on the full channel when detach runs. Either
+    // write's output can be the one that stalls: the slot may already hold
+    // the script's "ready" line, so no decision is awaited between writes.
+    wait_routed(&routed, &session, Some(PtyOutputRouting::Stalled));
     let started = Instant::now();
     engine
         .detach_client(client, session.clone(), subscription, 32)
@@ -1289,8 +1286,7 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
     options.egress_capacity = 1;
     let (probe, routed) = WorkerRouteProbe::channel();
     options.test_route_probe = Some(probe);
-    let wakes = TerminalWakeSource::new();
-    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
     let session = session_id("worker-attached-close-stall");
 
     runtime
@@ -1303,17 +1299,12 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
         .attach_consumer(&session)
         .expect("attach parent consumer so live output stalls");
 
-    let started_output = collect_until(&mut runtime, &wakes, &session, |output| {
-        output_text(output).contains("tick:")
-    });
-    assert!(
-        output_text(&started_output).contains("tick:"),
-        "sustained producer must emit live PTY bytes before close"
-    );
-    // Stop draining: the one-slot channel stays full and the parent reader
-    // stalls (the probe reports it). The unbounded producer then fills the
-    // worker pipe behind it; that is the cycle the close notification
-    // breaks. The worker-side fill has no observable event here.
+    // The test never drains, so the one-slot channel stays full and only a
+    // drain, detach, or close can end a stall. The first Stalled decision
+    // after attach is therefore a live stall on live PTY output. The
+    // unbounded producer then fills the worker pipe behind it; that is the
+    // cycle the close notification breaks. The worker-side fill has no
+    // observable event here.
     wait_routed(&routed, &session, Some(PtyOutputRouting::Stalled));
 
     let metadata = runtime.metadata(&session).expect("worker metadata").clone();
