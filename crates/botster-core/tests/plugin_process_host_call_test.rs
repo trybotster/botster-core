@@ -710,3 +710,85 @@ fn spawn_refuses_a_frame_bound_below_the_reply_allowance() {
         Err(PluginProcessError::InvalidConfig(_))
     ));
 }
+
+/// Round-trip measurement (plan slice 4). It sets no target; run it with
+/// `--ignored --nocapture` to report the numbers. All times are parent-side:
+/// - publish: from the root invocation to the host call's arrival at the Hub
+///   (the entity-publish path: one HostCall, no result);
+/// - result leg: from the Hub's result admission to its drained completion;
+/// - capability call: from the root invocation to the result's completion
+///   (HostCall, then the result Invoke).
+#[test]
+#[ignore = "measurement: run with --ignored --nocapture"]
+fn measure_host_call_round_trips() {
+    const ITERATIONS: usize = 500;
+    let (process, engine, pool) = attached(1, &config());
+    let (ingress_tx, ingress_rx) = mpsc::channel();
+    process.install_ingress_notifier(Arc::new(move || {
+        let _ = ingress_tx.send(std::time::Instant::now());
+    }));
+    let (completion_tx, completion_rx) = mpsc::channel();
+    engine.install_completion_notifier(Arc::new(move || {
+        let _ = completion_tx.send(std::time::Instant::now());
+    }));
+
+    let (mut publish, mut result_leg, mut capability) = (Vec::new(), Vec::new(), Vec::new());
+    for index in 0..ITERATIONS {
+        // timer: measurement-window — the round-trip probe reports elapsed times only
+        let started = std::time::Instant::now();
+        let root = invoke_async(
+            &process,
+            request(
+                &format!("root-{index}"),
+                "host_calls",
+                json!({ "count": 1, "max_result_bytes": 512 }),
+            ),
+            &PluginCancellationToken::new(),
+        );
+        // timer: deadline — the host call arrives; expiry fails the measurement
+        let arrived = ingress_rx
+            .recv_timeout(EVENT_DEADLINE)
+            .expect("the host call arrives");
+        let call = match process.drain_ingress(1, 1024 * 1024).pop() {
+            Some(PluginIngress::HostCall(call)) => call.call_id,
+            other => panic!("expected a host call, got {other:?}"),
+        };
+        settled(&root);
+        let admitted = std::time::Instant::now();
+        let queued = pool.admit_result(
+            call,
+            request(&format!("result-{index}"), "echo", json!(null)),
+        );
+        assert!(
+            matches!(queued, PluginAdmissionResult::Queued { .. }),
+            "{queued:?}"
+        );
+        // timer: deadline — the result completes; expiry fails the measurement
+        let completed_at = completion_rx
+            .recv_timeout(EVENT_DEADLINE)
+            .expect("the result completes");
+        assert_eq!(
+            engine.drain_completions(1, 1024 * 1024).completions.len(),
+            1
+        );
+        publish.push(arrived - started);
+        result_leg.push(completed_at - admitted);
+        capability.push(completed_at - started);
+    }
+    for (name, samples) in [
+        ("publish", &mut publish),
+        ("result leg", &mut result_leg),
+        ("capability call", &mut capability),
+    ] {
+        samples.sort();
+        let at = |fraction: f64| samples[((samples.len() - 1) as f64 * fraction) as usize];
+        println!(
+            "{name}: p50 {:?} p90 {:?} p99 {:?} max {:?} (n={})",
+            at(0.5),
+            at(0.9),
+            at(0.99),
+            samples[samples.len() - 1],
+            samples.len()
+        );
+    }
+}

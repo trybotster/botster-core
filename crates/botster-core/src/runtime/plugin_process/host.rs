@@ -821,6 +821,9 @@ pub(super) struct TestSeams {
     pub settled: Mutex<Option<mpsc::Sender<()>>>,
     /// Reports each invocation that waits for room.
     pub waiting: Mutex<Option<mpsc::Sender<()>>>,
+    /// Hold the reader once, after the socket became readable and before it
+    /// takes the inbound lock, so the child's writes back up.
+    pub reader_hold: Mutex<Option<Gate>>,
 }
 
 #[cfg(test)]
@@ -1056,6 +1059,13 @@ fn run_reader(shared: &Shared) {
                 continue;
             }
             break;
+        }
+        #[cfg(test)]
+        if let Some(seams) = &shared.seams {
+            let gate = seams.reader_hold.lock().expect("reader hold").take();
+            if let Some(gate) = gate {
+                gate.hold();
+            }
         }
         let mut inbound = shared.lock_inbound();
         if inbound.done {
