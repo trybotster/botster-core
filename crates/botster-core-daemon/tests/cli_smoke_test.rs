@@ -147,3 +147,43 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
         std::process::id()
     ))
 }
+
+/// `--probe` prints one identity line and exits 0 without other setup.
+#[cfg(unix)]
+#[test]
+fn session_worker_probe_prints_its_identity_and_exits_zero() {
+    let worker = botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"));
+    let output = std::process::Command::new(&worker.path)
+        .arg("--probe")
+        .output()
+        .expect("run the worker probe");
+    assert!(output.status.success(), "the probe exits 0: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("the probe prints UTF-8");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 1, "one identity line: {stdout:?}");
+    assert!(
+        lines[0].starts_with(&format!(
+            "botster-session-worker {} protocol ",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "the line names the worker, its version, and its protocol: {stdout:?}"
+    );
+}
+
+/// An unknown argument still fails the worker with exit status 1.
+#[cfg(unix)]
+#[test]
+fn session_worker_rejects_an_unknown_argument() {
+    let worker = botster_core_test_support::real_worker::WorkerBinary::from_env()
+        .unwrap_or_else(|failure| panic!("{failure}"));
+    let output = std::process::Command::new(&worker.path)
+        .arg("--no-such-flag")
+        .output()
+        .expect("run the worker with an unknown argument");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "unknown argument: {output:?}"
+    );
+}
