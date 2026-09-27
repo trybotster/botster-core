@@ -13,9 +13,9 @@ use std::thread;
 use std::time::Duration;
 
 use botster_core::runtime::plugin_process::{
-    LoadFrame, PluginConfig, PluginExitCause, PluginKillReason, PluginProcess, PluginProcessConfig,
-    PluginProcessError, PluginProcessExited, PluginProcessRlimits, PluginRegistration,
-    PluginSources, SandboxProfile,
+    LoadFrame, PluginConfig, PluginExitCause, PluginKillReason, PluginLogCredits, PluginProcess,
+    PluginProcessConfig, PluginProcessError, PluginProcessExited, PluginProcessRlimits,
+    PluginRegistration, PluginReplyCredits, PluginSources, SandboxProfile,
 };
 use botster_core::{BoundaryJson, MAX_FRAME_LEN};
 use botster_core_test_support::real_worker::WorkerBinary;
@@ -60,6 +60,15 @@ fn config(sandbox: Value) -> PluginProcessConfig {
         cancel_grace: GENEROUS_STARTUP,
         max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
+        ingress_bytes: 64 * 1024,
+        reply_credits: PluginReplyCredits {
+            count: 2,
+            bytes: 64 * 1024,
+        },
+        log_credits: PluginLogCredits {
+            count: 8,
+            bytes: 16 * 1024,
+        },
     }
 }
 

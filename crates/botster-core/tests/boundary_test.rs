@@ -265,6 +265,7 @@ fn source_boundary_json_uses_are_limited_to_classified_escape_hatches() {
         "pub struct PluginSources(pub BoundaryJson);",
         "pub struct PluginConfig(pub BoundaryJson);",
         "pub struct PluginRegistration(pub BoundaryJson);",
+        "pub struct PluginMessageBody(pub BoundaryJson);",
     ];
 
     let mut boundary_uses = Vec::new();

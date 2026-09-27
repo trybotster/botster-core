@@ -22,6 +22,7 @@ pub(crate) const FRAME_BOOTSTRAP: u8 = 0x01;
 pub(crate) const FRAME_LOAD: u8 = 0x02;
 pub(crate) const FRAME_INVOKE: u8 = 0x03;
 pub(crate) const FRAME_CANCEL: u8 = 0x04;
+pub(crate) const FRAME_CREDIT: u8 = 0x05;
 pub(crate) const FRAME_SHUTDOWN: u8 = 0x06;
 
 // Child to parent.
@@ -30,6 +31,8 @@ pub(crate) const FRAME_BOOTSTRAP_FAILED: u8 = 0x82;
 pub(crate) const FRAME_LOADED: u8 = 0x83;
 pub(crate) const FRAME_LOAD_FAILED: u8 = 0x84;
 pub(crate) const FRAME_INVOCATION_RESULT: u8 = 0x85;
+pub(crate) const FRAME_HOST_CALL: u8 = 0x86;
+pub(crate) const FRAME_LOG: u8 = 0x87;
 
 /// The IPC socket end that the child finds at a fixed descriptor.
 pub(crate) const CHILD_IPC_FD: i32 = 3;
@@ -104,9 +107,14 @@ pub(crate) struct LoadedFrame {
     pub registration: PluginRegistration,
 }
 
+/// A plugin-API message body: host-call arguments, a reply, or a log line.
+/// The Hub's plugin API defines it; Core carries it unread and charges its
+/// frame to the plugin's credits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PluginMessageBody(pub BoundaryJson);
+
 /// The `Load` frame: the package sources and config the Hub sends.
-///
-/// Credit grants join this frame in the slice that introduces host calls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoadFrame {
     /// Package module set as in-memory text; the sandboxed child has no
@@ -118,6 +126,99 @@ pub struct LoadFrame {
 
 /// Encode one frame, refusing a frame longer than `max_len` (type byte plus
 /// payload) before any byte is written.
+/// What the parent sends in `Load`: the Hub's frame and the child's initial
+/// credit grants. Delivery credit is granted later, by `Credit`, when the Hub
+/// attaches the generation's delivery pool.
+/// `L` is `&LoadFrame` when the parent encodes and `LoadFrame` when the
+/// child decodes, so the package sources are never copied to be sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct LoadEnvelope<L> {
+    pub load: L,
+    pub grants: CreditGrants,
+}
+
+/// The child's initial ingress, reply, and log credits. Every value is Hub
+/// policy (`PluginProcessConfig`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CreditGrants {
+    /// Frame bytes of `Call` host calls that the Hub has not drained.
+    pub ingress_bytes: usize,
+    /// `Reply` host calls that the Hub has not released.
+    pub reply_count: usize,
+    /// Largest `Reply` frame.
+    pub reply_bytes: usize,
+    /// `Log` frames that the Hub has not drained.
+    pub log_count: usize,
+    /// Frame bytes of `Log` frames that the Hub has not drained.
+    pub log_bytes: usize,
+}
+
+/// Credit returned to the child. Each returns exactly what the child debited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "credit", rename_all = "snake_case")]
+pub(crate) enum CreditFrame {
+    /// The delivery pool is attached: this many units and request bytes.
+    /// Sent once.
+    DeliveryPool { slots: usize, request_bytes: usize },
+    /// The unit of this `Call` returned (its result drained, or the Hub
+    /// released the call).
+    Delivery { call_id: u64 },
+    /// The Hub released this `Reply`.
+    Reply { call_id: u64 },
+    /// The Hub drained `Call` frames of this many bytes (coalesced).
+    IngressBytes { bytes: usize },
+    /// The Hub drained this many `Log` frames of this many bytes (coalesced).
+    Log { count: usize, bytes: usize },
+}
+
+impl CreditFrame {
+    /// The largest encoding of each variant, used to check that the frame
+    /// bound can carry every credit.
+    pub(crate) fn widest() -> [Self; 5] {
+        [
+            Self::DeliveryPool {
+                slots: usize::MAX,
+                request_bytes: usize::MAX,
+            },
+            Self::Delivery { call_id: u64::MAX },
+            Self::Reply { call_id: u64::MAX },
+            Self::IngressBytes { bytes: usize::MAX },
+            Self::Log {
+                count: usize::MAX,
+                bytes: usize::MAX,
+            },
+        ]
+    }
+}
+
+/// Which kind of host call a `HostCall` frame carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum HostCallKindFrame {
+    /// A call that the Hub answers with one result `Invoke`. It holds one
+    /// delivery unit.
+    Call { max_result_bytes: usize },
+    /// A chain's final result. It holds one reply credit and has no result.
+    Reply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct HostCallFrame {
+    #[serde(flatten)]
+    pub kind: HostCallKindFrame,
+    pub call_id: u64,
+    /// The invocation that was running in the child when it sent the call.
+    pub invocation_request_id: crate::session::RequestId,
+    pub body: PluginMessageBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct LogFrame {
+    /// Log lines the child dropped for lack of credit since its last `Log`.
+    pub dropped_since_last: u64,
+    pub body: PluginMessageBody,
+}
+
 pub(crate) fn encode_bounded(
     frame_type: u8,
     payload: &[u8],

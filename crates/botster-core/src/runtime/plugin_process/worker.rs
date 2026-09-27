@@ -16,6 +16,9 @@ use std::os::fd::{AsFd, FromRawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
+pub use super::host_port::{HostPort, HostPortRefusal};
+use super::host_port::{Sender, EXIT_PROTOCOL};
+
 use crate::actor::{
     PluginInvocationFailure, PluginInvocationFailureKind, PluginInvocationRequest,
     PluginInvocationResult,
@@ -25,12 +28,12 @@ use crate::runtime::{PluginCancellationToken, PluginRuntime};
 use crate::session::RequestId;
 
 use super::protocol::{
-    decode_json, encode_json_bounded, send_all, BootstrapFrame, CancelFrame, FailedFrame,
-    LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, SandboxProfile, CAUSE_PANIC,
-    CHILD_FATAL_FD, CHILD_IPC_FD, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED,
-    FRAME_CANCEL, FRAME_INVOCATION_RESULT, FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED,
-    FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN, MAX_FRAME_ARG, PROTOCOL_MAGIC,
-    PROTOCOL_VERSION,
+    decode_json, encode_json_bounded, send_all, BootstrapFrame, CancelFrame, CreditFrame,
+    FailedFrame, LoadEnvelope, LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame,
+    SandboxProfile, CAUSE_PANIC, CHILD_FATAL_FD, CHILD_IPC_FD, FATAL_MESSAGE_BYTES,
+    FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_CANCEL, FRAME_CREDIT, FRAME_INVOCATION_RESULT,
+    FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_READY, FRAME_SHUTDOWN,
+    MAX_FRAME_ARG, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 
 /// Worker-binary hooks: the policy and the runtime that the Hub supplies.
@@ -38,8 +41,10 @@ use super::protocol::{
 pub struct WorkerHooks {
     /// Apply the Hub's opaque sandbox profile. Runs before plugin code loads.
     pub apply_sandbox: fn(&SandboxProfile) -> Result<(), String>,
-    /// Load the plugin from its in-memory sources.
-    pub load: fn(LoadFrame) -> Result<LoadedPlugin, String>,
+    /// Load the plugin from its in-memory sources. The runtime keeps the
+    /// [`HostPort`] for its host calls, replies, and log lines; the port
+    /// refuses them until an invocation runs.
+    pub load: fn(LoadFrame, HostPort) -> Result<LoadedPlugin, String>,
 }
 
 /// A loaded plugin: its runtime and the registration reported to the parent.
@@ -52,8 +57,6 @@ pub struct LoadedPlugin {
 
 /// Exit code for a failure that the worker reported to the parent.
 const EXIT_REPORTED_FAILURE: i32 = 1;
-/// Exit code for a broken channel or protocol.
-const EXIT_PROTOCOL: i32 = 2;
 
 /// Run the worker. Never returns.
 pub fn run_worker(hooks: WorkerHooks) -> ! {
@@ -94,8 +97,12 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
         },
     );
 
-    let load: LoadFrame = channel.expect(FRAME_LOAD, "Load");
-    let loaded = match (hooks.load)(load) {
+    let envelope: LoadEnvelope<LoadFrame> = channel.expect(FRAME_LOAD, "Load");
+    // The sender shares the channel's socket rather than a duplicate, so
+    // the plugin sees exactly descriptors 0-4.
+    let sender = Arc::new(Sender::new(channel.ipc.clone(), channel.max_frame_bytes));
+    let port = HostPort::new(sender.clone(), envelope.grants);
+    let loaded = match (hooks.load)(envelope.load, port.clone()) {
         Ok(loaded) => loaded,
         Err(reason) => channel.fail(FRAME_LOAD_FAILED, reason),
     };
@@ -109,39 +116,41 @@ pub fn run_worker(hooks: WorkerHooks) -> ! {
             format!("registration does not fit the frame bound: {error}"),
         ),
     }
-    serve(channel, &loaded.runtime)
+    sender.start_serving();
+    serve(channel, &loaded.runtime, &sender, port)
 }
 
 /// Run invocations one at a time, in arrival order, on this thread, while a
 /// reader thread takes frames from the parent.
-fn serve(channel: Channel, runtime: &Arc<dyn PluginRuntime>) -> ! {
-    let sender = match channel.ipc.try_clone() {
-        Ok(ipc) => Arc::new(Sender {
-            ipc: Mutex::new(ipc),
-            max_frame_bytes: channel.max_frame_bytes,
-        }),
-        Err(_) => std::process::exit(EXIT_PROTOCOL),
-    };
+fn serve(
+    channel: Channel,
+    runtime: &Arc<dyn PluginRuntime>,
+    sender: &Arc<Sender>,
+    port: HostPort,
+) -> ! {
     let queue = Arc::new(InvokeQueue::default());
     let reader_queue = queue.clone();
     let reader_sender = sender.clone();
     if std::thread::Builder::new()
         .name("plugin-worker-reader".to_string())
-        .spawn(move || read_parent(channel, &reader_queue, &reader_sender))
+        .spawn(move || read_parent(channel, &reader_queue, &reader_sender, &port))
         .is_err()
     {
         std::process::exit(EXIT_PROTOCOL);
     }
     loop {
         let (request, cancellation) = queue.next();
+        sender.begin(request.request_id.clone());
         let result = runtime.invoke(request, cancellation);
         queue.finished();
-        sender.send(FRAME_INVOCATION_RESULT, &result);
+        // Clears the running invocation and sends its result under one
+        // lock, so none of its host calls can follow the result.
+        sender.finish(FRAME_INVOCATION_RESULT, &result);
     }
 }
 
 /// Take frames from the parent until Shutdown or EOF, which end the worker.
-fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender) {
+fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender, port: &HostPort) {
     loop {
         match channel.next() {
             None => std::process::exit(0),
@@ -154,6 +163,15 @@ fn read_parent(mut channel: Channel, queue: &InvokeQueue, sender: &Sender) {
                         std::process::exit(EXIT_PROTOCOL);
                     }
                 },
+                FRAME_CREDIT => {
+                    let applied = decode_json::<CreditFrame>(&frame)
+                        .map_err(|error| error.to_string())
+                        .and_then(|credit| port.credit(credit));
+                    if let Err(error) = applied {
+                        eprintln!("botster plugin worker: bad Credit frame: {error}");
+                        std::process::exit(EXIT_PROTOCOL);
+                    }
+                }
                 FRAME_CANCEL => match decode_json::<CancelFrame>(&frame) {
                     Ok(cancel) => {
                         if let Some(request) = queue.cancel(&cancel.request_id) {
@@ -252,28 +270,6 @@ impl InvokeQueue {
     }
 }
 
-/// The child's sending half, shared by the executor and the reader.
-struct Sender {
-    ipc: Mutex<UnixStream>,
-    max_frame_bytes: usize,
-}
-
-impl Sender {
-    fn send<T: serde::Serialize>(&self, frame_type: u8, value: &T) {
-        let frame = match encode_json_bounded(frame_type, value, self.max_frame_bytes) {
-            Ok(frame) => frame,
-            Err(error) => {
-                eprintln!("botster plugin worker: cannot encode frame: {error}");
-                std::process::exit(EXIT_PROTOCOL);
-            }
-        };
-        let ipc = self.ipc.lock().unwrap_or_else(PoisonError::into_inner);
-        if send_all(ipc.as_fd(), &frame).is_err() {
-            std::process::exit(EXIT_PROTOCOL);
-        }
-    }
-}
-
 /// Read `--botster-plugin-max-frame-bytes <n>` from argv.
 fn max_frame_bytes_from_args() -> Result<usize, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -291,7 +287,7 @@ fn max_frame_bytes_from_args() -> Result<usize, String> {
 /// The child's end of the IPC channel, bounded by the negotiated frame size
 /// in both directions from the first frame on.
 pub(super) struct Channel {
-    ipc: UnixStream,
+    ipc: Arc<UnixStream>,
     decoder: FrameDecoder,
     pending: VecDeque<Frame>,
     max_frame_bytes: usize,
@@ -300,7 +296,7 @@ pub(super) struct Channel {
 impl Channel {
     pub(super) fn new(ipc: UnixStream, max_frame_bytes: usize) -> Self {
         Self {
-            ipc,
+            ipc: Arc::new(ipc),
             decoder: FrameDecoder::with_max_len(max_frame_bytes),
             pending: VecDeque::new(),
             max_frame_bytes,
@@ -315,7 +311,7 @@ impl Channel {
             if let Some(frame) = self.pending.pop_front() {
                 return Ok(Some(frame));
             }
-            let read = match self.ipc.read(&mut buf) {
+            let read = match (&*self.ipc).read(&mut buf) {
                 Ok(0) => return Ok(None),
                 Ok(read) => read,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,

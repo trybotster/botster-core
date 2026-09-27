@@ -22,8 +22,9 @@ use botster_core::engine::{
     PluginWorkerRegistration,
 };
 use botster_core::runtime::plugin_process::{
-    LoadFrame, PluginConfig, PluginExitCause, PluginKillReason, PluginProcess, PluginProcessConfig,
-    PluginProcessExited, PluginProcessRlimits, PluginSources, SandboxProfile,
+    LoadFrame, PluginConfig, PluginExitCause, PluginKillReason, PluginLogCredits, PluginProcess,
+    PluginProcessConfig, PluginProcessExited, PluginProcessRlimits, PluginReplyCredits,
+    PluginSources, SandboxProfile,
 };
 use botster_core::session::RequestId;
 use botster_core::{
@@ -56,6 +57,15 @@ fn config() -> PluginProcessConfig {
         cancel_grace: GENEROUS,
         max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
+        ingress_bytes: 64 * 1024,
+        reply_credits: PluginReplyCredits {
+            count: 2,
+            bytes: 64 * 1024,
+        },
+        log_credits: PluginLogCredits {
+            count: 8,
+            bytes: 16 * 1024,
+        },
     }
 }
 

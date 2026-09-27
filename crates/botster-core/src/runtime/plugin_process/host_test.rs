@@ -17,7 +17,8 @@ use serde_json::json;
 
 use super::{FaultPoint, Order, OrderSeam, PluginProcess, StartFault, ORDER_SEAM, START_FAULT};
 use crate::runtime::plugin_process::{
-    LoadFrame, PluginProcessConfig, PluginProcessError, PluginProcessRlimits,
+    LoadFrame, PluginLogCredits, PluginProcessConfig, PluginProcessError, PluginProcessRlimits,
+    PluginReplyCredits,
 };
 
 /// Bound for the descendant's death; expiry fails the test.
@@ -89,6 +90,15 @@ fn config(fifos: &Fifos) -> PluginProcessConfig {
         cancel_grace: Duration::from_secs(30),
         max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
+        ingress_bytes: 64 * 1024,
+        reply_credits: PluginReplyCredits {
+            count: 2,
+            bytes: 64 * 1024,
+        },
+        log_credits: PluginLogCredits {
+            count: 8,
+            bytes: 16 * 1024,
+        },
     }
 }
 
@@ -199,6 +209,15 @@ fn plain_config() -> PluginProcessConfig {
         cancel_grace: Duration::from_secs(30),
         max_in_flight_invokes: 2,
         stderr_tail_bytes: 4096,
+        ingress_bytes: 64 * 1024,
+        reply_credits: PluginReplyCredits {
+            count: 2,
+            bytes: 64 * 1024,
+        },
+        log_credits: PluginLogCredits {
+            count: 8,
+            bytes: 16 * 1024,
+        },
     }
 }
 

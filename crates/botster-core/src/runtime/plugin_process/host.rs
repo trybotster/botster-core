@@ -18,18 +18,21 @@ use crate::actor::{
     PluginInvocationResult, PluginKey,
 };
 use crate::contract::session_protocol::{Frame, FrameDecoder, MAX_FRAME_LEN};
+use crate::engine::{CallId, DeliveryPool};
 use crate::runtime::process_exit::ExitWatch;
 use crate::runtime::{PluginCancellationToken, PluginRuntime};
 use crate::session::RequestId;
 
+use super::ingress::{CallAdmission, Ingress, PluginIngress, PluginIngressNotifier};
 use super::invocations::{Admission, GraceExpiry, Invocation, Invocations, Outcome};
 use super::launch::{launch, Launched};
-use super::outbound::{Lane, LaneBounds, Outbound, Refused};
+use super::outbound::{Lane, LaneBounds, Next, Outbound, Refused};
 use super::protocol::{
     decode_json, encode_bounded, encode_json_bounded, send_all, BootstrapFrame, CancelFrame,
-    FailedFrame, LoadFrame, LoadedFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP,
-    CAUSE_PANIC, FATAL_MESSAGE_BYTES, FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_CANCEL,
-    FRAME_INVOCATION_RESULT, FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED,
+    CreditFrame, CreditGrants, FailedFrame, HostCallFrame, LoadEnvelope, LoadFrame, LoadedFrame,
+    LogFrame, PluginRegistration, ReadyFrame, CAUSE_MEMORY_CAP, CAUSE_PANIC, FATAL_MESSAGE_BYTES,
+    FRAME_BOOTSTRAP, FRAME_BOOTSTRAP_FAILED, FRAME_CANCEL, FRAME_CREDIT, FRAME_HOST_CALL,
+    FRAME_INVOCATION_RESULT, FRAME_INVOKE, FRAME_LOAD, FRAME_LOADED, FRAME_LOAD_FAILED, FRAME_LOG,
     FRAME_READY, FRAME_SHUTDOWN, PROTOCOL_MAGIC, PROTOCOL_VERSION,
 };
 use super::supervisor::{Expiry, KillState, ProcessKiller, Supervisor};
@@ -60,6 +63,7 @@ struct Shared {
     changed: Condvar,
     inbound: Mutex<Inbound>,
     invocations: Invocations,
+    ingress: Ingress,
     stderr: Arc<Mutex<StderrTail>>,
     #[cfg(test)]
     order: Option<Arc<OrderSeam>>,
@@ -112,6 +116,20 @@ impl PluginProcess {
                 "max_in_flight_invokes must be positive".to_string(),
             ));
         }
+        if config.reply_credits.bytes > config.max_frame_bytes {
+            // A full-size reply could not be framed (plan section 5.1).
+            return Err(PluginProcessError::InvalidConfig(
+                "max_frame_bytes must be at least reply_credits.bytes".to_string(),
+            ));
+        }
+        if CreditFrame::widest().iter().any(|credit| {
+            encode_json_bounded(FRAME_CREDIT, credit, config.max_frame_bytes).is_err()
+        }) {
+            // Credit must always be returnable, whatever its values.
+            return Err(PluginProcessError::InvalidConfig(
+                "max_frame_bytes cannot carry a credit frame".to_string(),
+            ));
+        }
         // Encode before starting anything, so an oversize frame starts no process.
         let bootstrap = encode_json_bounded(
             FRAME_BOOTSTRAP,
@@ -124,8 +142,15 @@ impl PluginProcess {
             config.max_frame_bytes,
         )
         .map_err(PluginProcessError::Encode)?;
-        let load = encode_json_bounded(FRAME_LOAD, load, config.max_frame_bytes)
-            .map_err(PluginProcessError::Encode)?;
+        let load = encode_json_bounded(
+            FRAME_LOAD,
+            &LoadEnvelope {
+                load,
+                grants: grants(config),
+            },
+            config.max_frame_bytes,
+        )
+        .map_err(PluginProcessError::Encode)?;
 
         let shared = start(config)?;
         let startup = shared.supervisor.arm(
@@ -196,6 +221,73 @@ impl PluginProcess {
         self.shared.lock_state().exit.clone()
     }
 
+    /// Attach the delivery pool of the plugin's engine generation (plan
+    /// section 5.1) and grant its free units to the child. Until this runs,
+    /// the child has no delivery credit and refuses its host calls locally.
+    /// Each returned unit is sent back to the child as credit.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidConfig` when a pool is already attached.
+    pub fn attach_delivery(&self, pool: DeliveryPool) -> Result<(), PluginProcessError> {
+        let (slots, request_bytes) = self
+            .shared
+            .ingress
+            .attach(pool.clone())
+            .map_err(PluginProcessError::InvalidConfig)?;
+        let shared = Arc::downgrade(&self.shared);
+        pool.install_unit_returned(Arc::new(move |call: CallId| {
+            if let Some(shared) = shared.upgrade() {
+                shared
+                    .outbound
+                    .push_credit(CreditFrame::Delivery { call_id: call.0 });
+            }
+        }));
+        self.shared.outbound.push_credit(CreditFrame::DeliveryPool {
+            slots,
+            request_bytes,
+        });
+        Ok(())
+    }
+
+    /// Take at most `max_items` host calls and log lines, in the order the
+    /// child sent them, whose encoded frames sum to at most `max_bytes`. The
+    /// drained ingress and log credit returns to the child. A drained reply
+    /// keeps its credit until [`Self::release_reply`].
+    pub fn drain_ingress(&self, max_items: usize, max_bytes: usize) -> Vec<PluginIngress> {
+        let (items, returned) = self.shared.ingress.drain(max_items, max_bytes);
+        if returned.ingress_bytes > 0 {
+            self.shared.outbound.push_credit(CreditFrame::IngressBytes {
+                bytes: returned.ingress_bytes,
+            });
+        }
+        if returned.log_count > 0 {
+            self.shared.outbound.push_credit(CreditFrame::Log {
+                count: returned.log_count,
+                bytes: returned.log_bytes,
+            });
+        }
+        items
+    }
+
+    /// The terminal of a reply: return its credit to the child. Returns true
+    /// once per reply; false for an id that is not an open reply.
+    pub fn release_reply(&self, call_id: CallId) -> bool {
+        if !self.shared.ingress.release_reply(call_id) {
+            return false;
+        }
+        self.shared
+            .outbound
+            .push_credit(CreditFrame::Reply { call_id: call_id.0 });
+        true
+    }
+
+    /// Run `notifier` after each host call or log line enters the ingress
+    /// queue. It runs outside every lock and must return promptly.
+    pub fn install_ingress_notifier(&self, notifier: PluginIngressNotifier) {
+        self.shared.ingress.install_notifier(notifier);
+    }
+
     /// Run `notifier` once after the process is reaped (at once when it
     /// already is). It runs outside every lock and must return promptly.
     pub fn install_exit_notifier(&self, notifier: PluginExitNotifier) {
@@ -262,7 +354,22 @@ fn exit_failure(exit: &PluginProcessExited) -> (PluginInvocationFailureKind, Str
 /// cannot be driven any further. The exit closes the queue, which ends this
 /// thread.
 fn run_writer(shared: &Shared, ipc: &UnixStream) {
-    while let Some(queued) = shared.outbound.next() {
+    while let Some(next) = shared.outbound.next() {
+        let queued = match next {
+            Next::Frame(queued) => queued,
+            Next::Credit(credit) => {
+                // spawn checked that every credit fits the frame bound.
+                let sent = encode_json_bounded(FRAME_CREDIT, &credit, shared.max_frame_bytes)
+                    .map_err(|error| io::Error::other(error.to_string()))
+                    .and_then(|frame| send_all(ipc.as_fd(), &frame));
+                if sent.is_err() {
+                    shared.killer.kill(PluginKillReason::TransportClosed);
+                    shared.outbound.close();
+                    return;
+                }
+                continue;
+            }
+        };
         let sent = send_all(ipc.as_fd(), &queued.frame);
         #[cfg(test)]
         if let Some(seams) = &shared.seams {
@@ -278,6 +385,17 @@ fn run_writer(shared: &Shared, ipc: &UnixStream) {
             shared.outbound.close();
             return;
         }
+    }
+}
+
+/// The child's initial credits, from the Hub's configuration.
+fn grants(config: &PluginProcessConfig) -> CreditGrants {
+    CreditGrants {
+        ingress_bytes: config.ingress_bytes,
+        reply_count: config.reply_credits.count,
+        reply_bytes: config.reply_credits.bytes,
+        log_count: config.log_credits.count,
+        log_bytes: config.log_credits.bytes,
     }
 }
 
@@ -575,8 +693,10 @@ fn start(config: &PluginProcessConfig) -> Result<Arc<Shared>, PluginProcessError
             ipc: reader_ipc,
             decoder: FrameDecoder::with_max_len(config.max_frame_bytes),
             done: false,
+            ingress_arrived: false,
         }),
         invocations: Invocations::new(config.max_in_flight_invokes),
+        ingress: Ingress::new(grants(config)),
         stderr: tail.clone(),
         #[cfg(test)]
         order: ORDER_SEAM.with(|slot| slot.borrow_mut().take()),
@@ -846,6 +966,9 @@ struct Inbound {
     ipc: UnixStream,
     decoder: FrameDecoder,
     done: bool,
+    /// A host call or log line was queued since the last take; the caller
+    /// runs the ingress notifier after it releases this lock.
+    ingress_arrived: bool,
 }
 
 enum InboundEnd {
@@ -854,6 +977,10 @@ enum InboundEnd {
 }
 
 impl Inbound {
+    fn take_ingress_arrived(&mut self) -> bool {
+        std::mem::take(&mut self.ingress_arrived)
+    }
+
     /// Handle every frame that is readable now, without blocking. Returns
     /// `Some` once the channel is finished.
     fn drain(&mut self, shared: &Shared) -> Option<InboundEnd> {
@@ -896,9 +1023,12 @@ impl Inbound {
                 }
             };
             for frame in frames {
-                if let Err(violation) = handle_frame(shared, &frame) {
-                    self.done = true;
-                    return Some(InboundEnd::Violation(violation));
+                match handle_frame(shared, &frame) {
+                    Ok(arrived) => self.ingress_arrived |= arrived,
+                    Err(violation) => {
+                        self.done = true;
+                        return Some(InboundEnd::Violation(violation));
+                    }
                 }
             }
         }
@@ -927,11 +1057,16 @@ fn run_reader(shared: &Shared) {
             // The exit watch already finished the channel.
             return;
         }
-        match inbound.drain(shared) {
+        let end = inbound.drain(shared);
+        let arrived = inbound.take_ingress_arrived();
+        drop(inbound);
+        if arrived {
+            shared.ingress.notify();
+        }
+        match end {
             None => {}
             Some(InboundEnd::Closed) => break,
             Some(InboundEnd::Violation(violation)) => {
-                drop(inbound);
                 shared
                     .killer
                     .kill(PluginKillReason::ProtocolViolation(violation));
@@ -952,11 +1087,21 @@ fn run_reader(shared: &Shared) {
     }
 }
 
-fn handle_frame(shared: &Shared, frame: &Frame) -> Result<(), String> {
+/// Handle one child frame. Returns whether it queued ingress for the Hub;
+/// `Err` is a protocol violation.
+fn handle_frame(shared: &Shared, frame: &Frame) -> Result<bool, String> {
     let mut state = shared.lock_state();
-    if matches!(state.startup, Startup::Loaded(_)) && frame.frame_type == FRAME_INVOCATION_RESULT {
-        drop(state);
-        return handle_result(shared, frame);
+    if matches!(state.startup, Startup::Loaded(_)) {
+        let handler = match frame.frame_type {
+            FRAME_INVOCATION_RESULT => Some(handle_result as fn(&Shared, &Frame) -> _),
+            FRAME_HOST_CALL => Some(handle_host_call as fn(&Shared, &Frame) -> _),
+            FRAME_LOG => Some(handle_log as fn(&Shared, &Frame) -> _),
+            _ => None,
+        };
+        if let Some(handler) = handler {
+            drop(state);
+            return handler(shared, frame);
+        }
     }
     let next = match (&state.startup, frame.frame_type) {
         (Startup::AwaitReady, FRAME_READY) => {
@@ -993,14 +1138,43 @@ fn handle_frame(shared: &Shared, frame: &Frame) -> Result<(), String> {
     state.startup = next;
     drop(state);
     shared.changed.notify_all();
-    Ok(())
+    Ok(false)
+}
+
+/// The encoded length of a received frame (type byte plus payload): what the
+/// child charged to its credits.
+fn frame_bytes(frame: &Frame) -> usize {
+    frame.payload.len() + 1
+}
+
+/// Queue one host call for the Hub. The call must name an invocation that is
+/// in flight, and it must fit the child's credits.
+fn handle_host_call(shared: &Shared, frame: &Frame) -> Result<bool, String> {
+    let call: HostCallFrame = decode_json(frame).map_err(|error| error.to_string())?;
+    if !shared.invocations.is_live(&call.invocation_request_id) {
+        return Err(format!(
+            "host call {} names request {:?}, which is not in flight",
+            call.call_id, call.invocation_request_id
+        ));
+    }
+    match shared.ingress.host_call(call, frame_bytes(frame))? {
+        CallAdmission::Queued => Ok(true),
+        CallAdmission::Dropped => Ok(false),
+    }
+}
+
+/// Queue one log line for the Hub. It must fit the child's log credit.
+fn handle_log(shared: &Shared, frame: &Frame) -> Result<bool, String> {
+    let log: LogFrame = decode_json(frame).map_err(|error| error.to_string())?;
+    shared.ingress.log(log, frame_bytes(frame))?;
+    Ok(true)
 }
 
 /// Settle the caller of one result. Only in-flight ids of this process are
 /// accepted, so stale or foreign ids need no history: an id that is not in
 /// flight is a protocol violation. A late result for an invocation that
 /// `stop` already failed is dropped.
-fn handle_result(shared: &Shared, frame: &Frame) -> Result<(), String> {
+fn handle_result(shared: &Shared, frame: &Frame) -> Result<bool, String> {
     let result: PluginInvocationResult = decode_json(frame).map_err(|error| error.to_string())?;
     let sink = |lane, frame, owner| shared.send_owned(lane, frame, owner);
     if let Some(grace) = shared.invocations.settle_result(result, &sink)? {
@@ -1010,7 +1184,7 @@ fn handle_result(shared: &Shared, frame: &Frame) -> Result<(), String> {
     if let Some(seams) = &shared.seams {
         seams.result_settled();
     }
-    Ok(())
+    Ok(false)
 }
 
 fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &OwnedFd) {
@@ -1050,7 +1224,14 @@ fn run_exit_watch(shared: &Shared, watch: ExitWatch, mut child: Child, fatal: &O
     // Handle every frame the child sent before it died (for example a
     // LoadFailed report), before the exit becomes visible. Violations no
     // longer matter: the process is gone.
-    let _ = shared.lock_inbound().drain(shared);
+    let arrived = {
+        let mut inbound = shared.lock_inbound();
+        let _ = inbound.drain(shared);
+        inbound.take_ingress_arrived()
+    };
+    if arrived {
+        shared.ingress.notify();
+    }
     shared.outbound.close();
     let _ = shared.ipc.shutdown(Shutdown::Both);
     let notifier = {
