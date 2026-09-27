@@ -2740,6 +2740,7 @@ impl PongCounter {
     /// Wait until the count passes `before`. Returns `false` at the deadline.
     fn wait_past(&self, before: usize, timeout: Duration) -> Result<bool, SessionRuntimeError> {
         let count = self.count.lock().map_err(lock_error)?;
+        // timer: deadline — the caller's bound on the next pong
         let (count, _) = self
             .changed
             .wait_timeout_while(count, timeout, |count| *count <= before)
