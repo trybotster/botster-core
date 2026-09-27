@@ -380,3 +380,64 @@ fn a_process_exit_waits_for_room_for_its_input_results_too() {
     let last = reader.frames().last().map(TerminalFrame::kind);
     assert_eq!(last, Some(TerminalKind::ProcessExit), "the exit comes last");
 }
+
+#[test]
+fn more_than_sixteen_inputs_queued_at_exit_keep_the_route_and_its_output() {
+    let mut runtime = ManagedSessionRuntime::new(FakeSessionRuntime::new());
+    runtime
+        .spawn_session(spawn_request(), CoreSessionMetadata::new())
+        .expect("spawn");
+    let (subscription_id, reader) = bind(&mut runtime);
+    let batch = TerminalWakeBatch {
+        adapter_routes: vec![TerminalWakeRoute {
+            session_id: session_id(),
+            subscription_id: subscription_id.clone(),
+        }],
+        ingress_sessions: vec![session_id()],
+    };
+    // Visual output waits on the route: the reader takes none yet.
+    let expected: Vec<u8> = (0..40).flat_map(chunk).collect();
+    for index in 0..40 {
+        runtime
+            .session_runtime_mut()
+            .emit_output(session_id(), chunk(index));
+    }
+    runtime.pump_woken(&batch, 2).expect("queue the output");
+    // Twenty accepted operations are still queued when the exit is routed:
+    // more than the route's 16 queued rejections, within its 64 frames.
+    for operation_id in 1..=20 {
+        reader.inject(
+            botster_terminal_protocol_client::encode_terminal_input(
+                &botster_terminal_protocol_client::TerminalInputCommand::RawBytes {
+                    operation_id,
+                    data: b"late".to_vec(),
+                },
+            )
+            .expect("input frame")
+            .into_bytes(),
+        );
+    }
+    runtime.session_runtime_mut().emit_exit(
+        session_id(),
+        ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        },
+    );
+    let (done, _) = pace_until(&mut runtime, &subscription_id, &reader, || {
+        reader.count(TerminalKind::ProcessExit) > 0
+    });
+    assert!(done, "the exit reaches the reader");
+    assert_eq!(reader.count(TerminalKind::RouteResync), 0);
+    assert!(
+        reader.output() == expected,
+        "the queued output survives the exit's results"
+    );
+    assert_eq!(
+        reader.count(TerminalKind::InputResult),
+        20,
+        "every queued operation gets its SessionEnded result"
+    );
+    let last = reader.frames().last().map(TerminalFrame::kind);
+    assert_eq!(last, Some(TerminalKind::ProcessExit), "the exit comes last");
+}
