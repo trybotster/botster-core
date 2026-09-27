@@ -49,12 +49,19 @@ impl PluginRuntime for OccupiedRuntime {
     ) -> PluginInvocationResult {
         self.invocations.fetch_add(1, Ordering::SeqCst);
         self.started.fetch_add(1, Ordering::SeqCst);
+        note_job_change();
+        let gate = Arc::clone(&self.gate);
+        cancellation.on_cancel(move || {
+            // Take the gate's lock so the waiter cannot miss this.
+            let _released = gate.0.lock().expect("occupied runtime cancel lock");
+            gate.1.notify_all();
+        });
         let (released, condition) = &*self.gate;
         let mut guard = released.lock().expect("occupied runtime wait lock");
         while !*guard && !cancellation.is_cancelled() {
-            guard = match condition.wait_timeout(guard, Duration::from_millis(10)) {
-                Ok((inner, _)) => inner,
-                Err(poisoned) => poisoned.into_inner().0,
+            guard = match condition.wait(guard) {
+                Ok(inner) => inner,
+                Err(poisoned) => poisoned.into_inner(),
             };
         }
         PluginInvocationResult::Completed(PluginInvocationSuccess {
@@ -193,27 +200,58 @@ fn plugin_invocation(
     }
 }
 
+/// One change counter for this test binary. Every engine built by
+/// [`engine`] bumps it through its job-state probe, which reports right
+/// after the job counters move, and [`OccupiedRuntime`] bumps it when an
+/// invocation starts. Tests running in parallel share it, which
+/// only adds spurious wakeups: a waiter rechecks its predicate.
+static JOB_CHANGES: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Record a job state change: an engine probe event or a test runtime start.
+fn note_job_change() {
+    let (count, changed) = &JOB_CHANGES;
+    *count.lock().expect("job changes lock") += 1;
+    changed.notify_all();
+}
+
 fn engine() -> BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> {
     BotsterEngine::with_plugin_config(
         FakeSessionRuntime::new(),
         botster_core::PluginWorkerEngineConfig {
             per_plugin_queue_capacity: 1,
             per_plugin_executor_concurrency: 2,
+            test_queue_probe: Some(botster_core::PluginQueueProbe::from_fn(|_| {
+                note_job_change();
+            })),
             ..botster_core::PluginWorkerEngineConfig::default()
         },
     )
 }
 
+/// Wait until the snapshot satisfies `predicate`, rechecking after each job
+/// state change. The counter is read before each check, so no change is
+/// missed.
 fn wait_for_snapshot(
     engine: &BotsterEngine<FakeSessionRuntime, FakeSessionWorkerRuntime>,
     predicate: impl Fn(&botster_core::PluginWorkerDebugSnapshot) -> bool,
 ) {
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while std::time::Instant::now() < deadline {
+    let (count, changed) = &JOB_CHANGES;
+    loop {
+        let seen = *count.lock().expect("job changes lock");
         if predicate(&engine.plugin_workers().debug_snapshot()) {
             return;
         }
-        std::thread::sleep(Duration::from_millis(1));
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            break;
+        }
+        let guard = count.lock().expect("job changes lock");
+        // timer: deadline — the loop's bound; a job state change ends the wait early
+        let _ = changed
+            .wait_timeout_while(guard, deadline - now, |count| *count == seen)
+            .expect("job changes wait");
     }
     panic!(
         "plugin worker snapshot never satisfied predicate: {:?}",
@@ -438,19 +476,12 @@ fn interval_timer_retries_after_timeout() {
         "tick",
     ));
     let first = engine.drain_plugin_timers_due(10);
-    for _ in 0..50 {
-        if runtime.cancellations_observed() >= 1 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    assert!(runtime.wait_for_cancellations(1, Duration::from_millis(50)) >= 1);
     let second = engine.drain_plugin_timers_due(20);
-    for _ in 0..50 {
-        if runtime.cancellations_observed() >= 2 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    assert_eq!(
+        runtime.wait_for_cancellations(2, Duration::from_millis(50)),
+        2
+    );
 
     assert_eq!(runtime.cancellations_observed(), 2);
     assert_eq!(runtime.invocations().len(), 2);
@@ -486,10 +517,12 @@ fn interval_timer_retries_after_backpressure() {
             ))
         }));
         let expected = index + 1;
+        // A job is in flight from its dispatch; the runtime starts it after.
         wait_for_snapshot(&engine, |debug| {
-            debug.in_flight_jobs == expected && debug.queued_jobs == 0
+            debug.in_flight_jobs == expected
+                && debug.queued_jobs == 0
+                && occupy.started() == expected
         });
-        assert_eq!(occupy.started(), expected);
     }
 
     let queued_engine = engine.clone();
