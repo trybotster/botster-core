@@ -585,15 +585,16 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
                 2_000,
             ))
         }));
-        if index == 0 {
-            // timer: deadline — the first slow job must start; expiry fails the test
+        if index < 2 {
+            // Both executors take their job before the next caller arrives,
+            // so the four later callers fill the queue exactly.
+            // timer: deadline — the slow job must start; expiry fails the test
             slow_starts
                 .recv_timeout(HANG_GUARD)
-                .expect("the first slow job starts");
+                .expect("a slow job starts on each executor");
         }
     }
-    // All six slow jobs are queued by the engine, and the second executor
-    // takes one: two run (gated) and four wait.
+    // All six slow jobs were queued by the engine: two run (gated), four wait.
     let deadline = Instant::now() + HANG_GUARD;
     let mut slow_queued = 0;
     while slow_queued < 6 {
@@ -608,10 +609,6 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
             PluginQueueProbeEvent::JobQueued { .. } => {}
         }
     }
-    // timer: deadline — the second slow job must start within the same bound
-    slow_starts
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .expect("the second slow job starts");
     let snapshot = engine.debug_snapshot();
     assert_eq!((snapshot.queued_jobs, snapshot.in_flight_jobs), (4, 2));
 
