@@ -2060,8 +2060,8 @@ mod tests {
             }
         });
 
-        // timer: deadline — the waiter must reach its space wait; expiry fails the test
         entered
+            // timer: deadline — the waiter must reach its space wait; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("the waiter waits for pending space");
         // The seam fires under the pending lock, so this lock is free only

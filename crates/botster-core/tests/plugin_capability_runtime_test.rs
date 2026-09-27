@@ -1193,8 +1193,8 @@ fn http_runtime_notifies_the_host_after_it_queues_a_completion() {
             "https://api.example.test/status",
         ))
         .expect("allowed HTTP request is accepted");
-    // timer: deadline — the completion must notify the host; expiry fails the test
     notified
+        // timer: deadline — the completion must notify the host; expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("a queued completion notifies the host");
 
@@ -1221,8 +1221,8 @@ fn http_runtime_reports_the_earliest_pending_deadline() {
     runtime.submit(later).expect("later accepted");
     runtime.submit(sooner).expect("sooner accepted");
     let after = Instant::now();
-    // timer: deadline — the blocking transport must start; expiry fails the test
     started
+        // timer: deadline — the blocking transport must start; expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("transport starts");
 
@@ -1246,8 +1246,8 @@ fn http_runtime_drain_at_the_deadline_returns_the_timeout_event() {
     let mut request = http_request(&plugin, "http-expire", "https://api.example.test/status");
     request.timeout_ms = 20;
     runtime.submit(request).expect("HTTP request is accepted");
-    // timer: deadline — the blocking transport must start; expiry fails the test
     started
+        // timer: deadline — the blocking transport must start; expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("transport starts");
 

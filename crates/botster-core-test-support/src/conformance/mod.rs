@@ -379,9 +379,9 @@ impl DisposableCommandLocalSession {
             {
                 return Ok(combined);
             }
-            // timer: deadline — the loop's bound; the next wake ends the wait early
             let _ = self
                 .engine
+                // timer: deadline — the loop's bound; the next wake ends the wait early
                 .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
 
@@ -737,9 +737,9 @@ pub fn run_adversarial_hot_path_load(
         }
 
         if output.client_egress.is_empty() && output.session_events.is_empty() {
-            // timer: deadline — the loop's bound; the next wake ends the wait early
             let _ = harness
                 .engine
+                // timer: deadline — the loop's bound; the next wake ends the wait early
                 .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
@@ -839,9 +839,9 @@ fn drain_remaining_adversarial_load(
         }
 
         if output.client_egress.is_empty() && output.session_events.is_empty() {
-            // timer: deadline — the loop's bound; the next wake ends the wait early
             let _ = harness
                 .engine
+                // timer: deadline — the loop's bound; the next wake ends the wait early
                 .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
@@ -1425,9 +1425,9 @@ fn drain_control_until_input_echo(
         {
             return Ok(());
         }
-        // timer: deadline — the loop's bound; the next wake ends the wait early
         let _ = harness
             .engine
+            // timer: deadline — the loop's bound; the next wake ends the wait early
             .wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
@@ -1464,9 +1464,9 @@ fn cleanup_adversarial_sessions(
         if control_cleaned_up {
             break;
         }
-        // timer: deadline — the loop's bound; the next wake ends the wait early
         let _ = harness
             .engine
+            // timer: deadline — the loop's bound; the next wake ends the wait early
             .wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
@@ -1594,9 +1594,9 @@ fn drain_many_pty_sessions(
         }
 
         if !made_progress {
-            // timer: deadline — the loop's bound; the next wake ends the wait early
             let _ = harness
                 .engine
+                // timer: deadline — the loop's bound; the next wake ends the wait early
                 .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
     }
@@ -1946,9 +1946,9 @@ impl DisposableManagedLocalSession {
             {
                 return Ok(combined);
             }
-            // timer: deadline — the loop's bound; the next wake ends the wait early
             let _ = self
                 .runtime
+                // timer: deadline — the loop's bound; the next wake ends the wait early
                 .wait_wakes(deadline.saturating_duration_since(Instant::now()));
         }
 

@@ -313,8 +313,8 @@ impl BlockingHttpTransport {
     fn wait_cancelled(&self, count: usize, timeout: Duration) -> usize {
         let (cancelled, changed) = &*self.cancelled;
         let cancelled = cancelled.lock().expect("cancelled lock");
-        // timer: deadline — the caller's bound; a recorded cancellation ends the wait
         let (cancelled, _) = changed
+            // timer: deadline — the caller's bound; a recorded cancellation ends the wait
             .wait_timeout_while(cancelled, timeout, |cancelled| *cancelled < count)
             .expect("cancelled wait");
         *cancelled

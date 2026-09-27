@@ -248,8 +248,8 @@ fn wait_for_snapshot(
             break;
         }
         let guard = count.lock().expect("job changes lock");
-        // timer: deadline — the loop's bound; a job state change ends the wait early
         let _ = changed
+            // timer: deadline — the loop's bound; a job state change ends the wait early
             .wait_timeout_while(guard, deadline - now, |count| *count == seen)
             .expect("job changes wait");
     }
