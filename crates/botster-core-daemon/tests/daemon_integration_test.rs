@@ -3154,7 +3154,8 @@ fn worker_subscription_drain_retains_foreign_route_frames() {
         .expect("write route marker");
 
     let mut route_a = botster_core_daemon::DrainResult::default();
-    for tick in 0..100 {
+    let tick_deadline = Instant::now() + HANG_GUARD;
+    for tick in 0.. {
         let drained = daemon
             .drain_subscription(&client_a, &session_id, &subscription_a, 20 + tick)
             .expect("drain route A");
@@ -3186,7 +3187,12 @@ fn worker_subscription_drain_retains_foreign_route_frames() {
         {
             break;
         }
-        std::thread::sleep(Duration::from_millis(1));
+        assert!(
+            Instant::now() < tick_deadline,
+            "the route-drain marker did not arrive within {HANG_GUARD:?}"
+        );
+        // timer: deadline — HANG_GUARD bounds this wait
+        let _ = daemon.wait_wakes(tick_deadline.saturating_duration_since(Instant::now()));
     }
     assert!(
         renderable_output_for_client(&route_a.client_egress, &client_a)
@@ -3236,7 +3242,8 @@ fn worker_concurrent_attaches_serialize_without_pre_attached_live_output() {
     egress.extend(second.client_egress);
     let mut attached_a = false;
     let mut attached_b = false;
-    for tick in 0..10_000 {
+    let tick_deadline = Instant::now() + HANG_GUARD;
+    for tick in 0.. {
         let drained = daemon
             .drain(&session_id, 20 + tick)
             .expect("drain serialized attaches");
@@ -3268,7 +3275,9 @@ fn worker_concurrent_attaches_serialize_without_pre_attached_live_output() {
         {
             break;
         }
-        std::thread::sleep(Duration::from_millis(1));
+        assert!(Instant::now() < tick_deadline, "both serialized attaches and the post-attach echo did not arrive within {HANG_GUARD:?}");
+        // timer: deadline — HANG_GUARD bounds this wait
+        let _ = daemon.wait_wakes(tick_deadline.saturating_duration_since(Instant::now()));
     }
     assert!(attached_a && attached_b);
     assert!(renderable_output_for_client(&egress, &client_b).contains("echo:CONCURRENT-POST"));
@@ -3847,7 +3856,8 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
         .expect("fixture input should cause natural process exit");
 
     let mut terminal_drain = botster_core_daemon::DrainResult::default();
-    let exited = (0..100).find_map(|tick| {
+    let tick_deadline = Instant::now() + HANG_GUARD;
+    let exited = (0..).find_map(|tick| {
         let drained = daemon
             .drain(&session_id, 20 + tick)
             .expect("natural-exit drain should succeed");
@@ -3870,7 +3880,9 @@ fn worker_backed_lifecycle_source_drives_projection_through_exit_and_removal() {
         if observed_exit {
             Some(changes)
         } else {
-            std::thread::sleep(Duration::from_millis(10));
+            assert!(Instant::now() < tick_deadline, "the natural exit publishing its lifecycle upsert did not arrive within {HANG_GUARD:?}");
+            // timer: deadline — HANG_GUARD bounds this wait
+            let _ = daemon.wait_wakes(tick_deadline.saturating_duration_since(Instant::now()));
             None
         }
     });
@@ -5996,13 +6008,19 @@ fn worker_shutdown_timeout_is_typed_and_keeps_non_exited_cleanup_ownership() {
     assert!(socket_path.exists());
 
     stopped.resume();
-    for tick in 0..500 {
+    let tick_deadline = Instant::now() + HANG_GUARD;
+    for tick in 0.. {
         let _ = daemon.drain(&session_id, 30 + tick);
         let listed = daemon.list().expect("list resumed worker session");
         if listed[0].registry_state == RegistrySessionState::Exited {
             break;
         }
-        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            Instant::now() < tick_deadline,
+            "the resumed worker session exiting did not arrive within {HANG_GUARD:?}"
+        );
+        // timer: deadline — HANG_GUARD bounds this wait
+        let _ = daemon.wait_wakes(tick_deadline.saturating_duration_since(Instant::now()));
     }
     assert_eq!(
         daemon.list().expect("list cleaned worker session")[0].registry_state,
