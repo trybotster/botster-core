@@ -222,8 +222,10 @@ mod tests {
                 "setup must consume a runtime session ingress wake before observe, got {other:?}"
             ),
         }
+        // Take the wakes already queued without waiting (a zero timeout is a
+        // nonblocking receive). Later wakes are consumed by the observe loop.
         loop {
-            match daemon.wait_pump(Duration::from_millis(200)) {
+            match daemon.wait_pump(Duration::ZERO) {
                 WakePumpWait::Wakes(batch)
                     if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() =>
                 {
