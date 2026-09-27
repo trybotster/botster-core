@@ -180,6 +180,11 @@ where
     pending_terminal_resizes: HashMap<SessionId, VecDeque<PendingTerminalResize>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
     pending_spawn_adapters: HashMap<SessionId, PendingSpawnAdapter<T>>,
+    /// Runtime output a full progressing route could not take yet, in stream
+    /// order. While a session holds output, nothing new is taken from its
+    /// runtime, so the runtime's own bounded channel fills and its reader
+    /// stops reading: the program blocks on write, as with a slow terminal.
+    held_runtime_output: HashMap<SessionId, VecDeque<SessionRuntimeOutput>>,
 }
 
 struct PendingSpawnAdapter<T: TerminalScreenRuntime> {
@@ -242,7 +247,7 @@ where
             {
                 Ok(sizes) => sizes,
                 Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
-                    if self.session(session_id).is_none() || self.session_ended(session_id) {
+                    if self.session(session_id).is_none() || self.runtime_forgot(session_id) {
                         self.pending_terminal_resizes.remove(session_id);
                         continue;
                     }
@@ -889,6 +894,7 @@ where
             wake_source,
             terminal_inventory_revision: 0,
             pending_input_teardowns: Vec::new(),
+            held_runtime_output: HashMap::new(),
             pending_worker_cancels: Vec::new(),
             pending_terminal_resizes: HashMap::new(),
             applied_terminal_resizes: HashMap::new(),
@@ -955,6 +961,7 @@ where
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
         self.wake_source.forget_session(session_id);
+        self.held_runtime_output.remove(session_id);
         self.applied_terminal_resizes.remove(session_id);
         self.pending_terminal_resizes.remove(session_id);
         let teardowns = self
@@ -972,6 +979,30 @@ where
         session_id: &SessionId,
     ) -> Option<(u16, u16, u64)> {
         self.applied_terminal_resizes.remove(session_id)
+    }
+
+    /// Deliver a route's `SNAPSHOT_READY` and end its capture, as a
+    /// synchronous capture does, so a host test's route receives live output.
+    #[doc(hidden)]
+    pub fn test_complete_route_capture(
+        &mut self,
+        session_id: &SessionId,
+        subscription_id: &SubscriptionId,
+    ) {
+        let ready = botster_terminal_protocol::encode_snapshot_ready(b"GHOSTSNP")
+            .expect("snapshot ready frame");
+        let _ = self
+            .client_worker
+            .push_route_frame(session_id, subscription_id, ready);
+        self.end_route_capture(session_id, subscription_id);
+    }
+
+    /// Whether the session holds output back for a full progressing route
+    /// (output backpressure is engaged).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn session_output_held(&self, session_id: &SessionId) -> bool {
+        self.held_runtime_output.contains_key(session_id)
     }
 
     /// Whether this session has accepted ingress resizes awaiting acknowledgement.
@@ -1671,7 +1702,7 @@ where
             Ok(outcome) => outcome,
             Err(ManagedSessionRuntimeError::Runtime(error))
                 if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                    && self.session_ended(session_id) =>
+                    && self.runtime_forgot(session_id) =>
             {
                 MultiplexerEngineOutcome::empty()
             }
@@ -1700,7 +1731,7 @@ where
                 Ok(step) => append_outcome(&mut outcome, step),
                 Err(ManagedSessionRuntimeError::Runtime(error))
                     if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                        && self.session_ended(&session_id) =>
+                        && self.runtime_forgot(&session_id) =>
                 {
                     continue;
                 }
@@ -1719,15 +1750,119 @@ where
         session_id: &SessionId,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let outputs = self.engine.session_runtime_mut().drain_output(session_id)?;
-        self.route_runtime_outputs(session_id, outputs, last_output_at)
+        // Held output goes first; nothing new is taken while any is held.
+        let mut outcome = MultiplexerEngineOutcome::empty();
+        if let Some(held) = self.held_runtime_output.remove(session_id) {
+            // The runtime removes a session in the drain that reports its
+            // end, so held output that carries the end is the last there is.
+            let ended = held.iter().any(Self::is_session_end);
+            let step = self.route_runtime_outputs(session_id, held, last_output_at, true)?;
+            append_outcome(&mut outcome, step);
+            if ended || self.held_runtime_output.contains_key(session_id) {
+                return Ok(outcome);
+            }
+        }
+        // The runtime's reader may be stalled on its full channel: only this
+        // drain frees space and lets it read again, so take new output now.
+        let outputs = self
+            .engine
+            .session_runtime_mut()
+            .drain_output(session_id)?
+            .into();
+        let step = self.route_runtime_outputs(session_id, outputs, last_output_at, true)?;
+        append_outcome(&mut outcome, step);
+        Ok(outcome)
     }
 
+    /// Route only the session's held output, under backpressure. A capture
+    /// pump calls this before it takes the capture boundary.
+    pub(crate) fn route_held_output_once(
+        &mut self,
+        session_id: &SessionId,
+        last_output_at: u64,
+    ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
+        let Some(held) = self.held_runtime_output.remove(session_id) else {
+            return Ok(MultiplexerEngineOutcome::empty());
+        };
+        let mut outcome = self.route_runtime_outputs(session_id, held, last_output_at, true)?;
+        self.route_pending_runtime_events(&mut outcome)?;
+        self.apply_client_worker(&mut outcome)?;
+        Ok(outcome)
+    }
+
+    /// Route room one output needs, as (frames, bytes), for the outputs that
+    /// queue frames on every bound route of the session.
+    ///
+    /// A PTY chunk becomes one OUTPUT frame. Where the in-process terminal
+    /// model publishes modes, the chunk can also publish a MODES frame ahead
+    /// of its OUTPUT, so it needs room for both. A process exit is sized per
+    /// route by [`Self::output_fits`].
+    fn bound_room_need(
+        &self,
+        session_id: &SessionId,
+        output: &SessionRuntimeOutput,
+    ) -> Option<(usize, usize)> {
+        let frame_len = |frame: Result<
+            botster_terminal_protocol::TerminalFrame,
+            botster_terminal_protocol::TerminalFrameError,
+        >| frame.map_or(0, |frame| frame.len());
+        match output {
+            SessionRuntimeOutput::PtyOutput { data, .. } => {
+                let output_len = botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + data.len();
+                let local_modes = self
+                    .engine
+                    .session_worker_runtime(session_id)
+                    .is_some_and(|worker| worker.mode_bits().is_some());
+                Some(if local_modes {
+                    let modes_len = frame_len(botster_terminal_protocol::encode_modes(
+                        botster_terminal_protocol::ModesBody {
+                            mode_bits: 0,
+                            rows: 0,
+                            cols: 0,
+                        },
+                    ));
+                    (2, output_len + modes_len)
+                } else {
+                    (1, output_len)
+                })
+            }
+            SessionRuntimeOutput::ModesChanged { modes, .. } => Some((
+                1,
+                frame_len(botster_terminal_protocol::encode_modes(*modes)),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Whether every governing route of the session has room for `output`.
+    ///
+    /// A process exit needs room on each route for its whole sequence: a
+    /// failed INPUT_RESULT for each input operation that route still queues,
+    /// then PROCESS_EXIT. An overflow there would drop queued output.
+    fn output_fits(&self, session_id: &SessionId, output: &SessionRuntimeOutput) -> bool {
+        if let SessionRuntimeOutput::ProcessExited { payload, .. } = output {
+            let exit_len = botster_terminal_protocol::encode_process_exit(payload.exit_code)
+                .map_or(0, |frame| frame.len());
+            return self
+                .client_worker
+                .session_exit_has_room(session_id, exit_len);
+        }
+        self.bound_room_need(session_id, output)
+            .is_none_or(|(frames, bytes)| {
+                self.client_worker
+                    .session_output_has_room(session_id, frames, bytes)
+            })
+    }
+
+    /// Route runtime outputs in stream order. With `backpressure`, an output
+    /// that a progressing bound route has no room for stops the routing: it
+    /// and everything after it are held for the session's next pump.
     fn route_runtime_outputs(
         &mut self,
         session_id: &SessionId,
-        outputs: Vec<SessionRuntimeOutput>,
+        mut outputs: VecDeque<SessionRuntimeOutput>,
         last_output_at: u64,
+        backpressure: bool,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
         let mut outcome = MultiplexerEngineOutcome::empty();
         let mut teardowns = Vec::new();
@@ -1736,7 +1871,13 @@ where
         // request routing paths and are flushed by those mutators. Bound routes
         // receive the binary frame here, once per event; the multiplexer path
         // below serves unbound drain consumers.
-        for output in outputs {
+        while let Some(output) = outputs.pop_front() {
+            if backpressure && !self.output_fits(session_id, &output) {
+                outputs.push_front(output);
+                self.held_runtime_output
+                    .insert(session_id.clone(), std::mem::take(&mut outputs));
+                break;
+            }
             let runtime_event = match output {
                 SessionRuntimeOutput::ModesChanged { session_id, modes } => {
                     // Delivered at its place in the stream, before the output
@@ -1834,6 +1975,12 @@ where
             // pump: the input stays buffered, and the queue's writer wakes
             // the session when it has room again.
             Err(error) if error.message.contains("control queue full") => {}
+            // The runtime removes a session in the drain that reports its
+            // end; output held back from that drain is routed afterwards,
+            // when there is no input left to write.
+            Err(error)
+                if error.kind == SessionRuntimeErrorKind::SessionNotFound
+                    && self.runtime_forgot(session_id) => {}
             Err(error) => return Err(error.into()),
         }
 
@@ -1846,7 +1993,14 @@ where
         outputs: Vec<SessionRuntimeOutput>,
         last_output_at: u64,
     ) -> Result<MultiplexerEngineOutcome, ManagedSessionRuntimeError> {
-        let mut outcome = self.route_runtime_outputs(session_id, outputs, last_output_at)?;
+        // Output held before this boundary precedes it in the stream. The
+        // boundary is not held back: its capture must complete.
+        let mut ordered = self
+            .held_runtime_output
+            .remove(session_id)
+            .unwrap_or_default();
+        ordered.extend(outputs);
+        let mut outcome = self.route_runtime_outputs(session_id, ordered, last_output_at, false)?;
         self.apply_client_worker(&mut outcome)?;
         Ok(outcome)
     }
@@ -1882,7 +2036,7 @@ where
                 Ok(step) => append_outcome(&mut outcome, step),
                 Err(ManagedSessionRuntimeError::Runtime(error))
                     if error.kind == SessionRuntimeErrorKind::SessionNotFound
-                        && self.session_ended(session_id) => {}
+                        && self.runtime_forgot(session_id) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -1909,8 +2063,25 @@ where
         self.pending_input_teardowns = foreign_teardowns;
         teardowns.splice(0..0, owned_teardowns);
         self.unsubscribe_owner_teardowns(&mut outcome, &mut teardowns)?;
-        let _ = self.client_worker.take_bound_queue_wake_sessions();
+        for session_id in self.client_worker.take_bound_queue_wake_sessions() {
+            self.wake_source.notify_session(&session_id);
+        }
+        self.wake_resumable_held_sessions();
         Ok(outcome)
+    }
+
+    /// Wake each session whose held output now fits its routes, so the next
+    /// pump takes it. The routes drained in this pump; no later wake would
+    /// name the session otherwise.
+    fn wake_resumable_held_sessions(&self) {
+        for (session_id, held) in &self.held_runtime_output {
+            let fits = held
+                .front()
+                .is_none_or(|output| self.output_fits(session_id, output));
+            if fits {
+                self.wake_source.notify_session(session_id);
+            }
+        }
     }
 
     /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
@@ -2340,6 +2511,29 @@ where
         matches!(
             self.session(session_id).map(|session| &session.lifecycle),
             Some(SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. })
+        )
+    }
+
+    /// Whether the runtime may already have forgotten the session: its end
+    /// is recorded, or it was reported in output that backpressure still
+    /// holds. The runtime removes a session in the drain that reports its
+    /// end, before the engine sees that held end. Only a missing-session
+    /// error is excused by this; the session is not treated as ended.
+    fn runtime_forgot(&self, session_id: &SessionId) -> bool {
+        self.session_ended(session_id) || self.held_end(session_id)
+    }
+
+    /// Whether the session's held output carries its end.
+    fn held_end(&self, session_id: &SessionId) -> bool {
+        self.held_runtime_output
+            .get(session_id)
+            .is_some_and(|held| held.iter().any(Self::is_session_end))
+    }
+
+    fn is_session_end(output: &SessionRuntimeOutput) -> bool {
+        matches!(
+            output,
+            SessionRuntimeOutput::ProcessExited { .. } | SessionRuntimeOutput::WorkerLost { .. }
         )
     }
 
