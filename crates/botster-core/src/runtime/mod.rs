@@ -420,6 +420,22 @@ pub(crate) trait CancelTarget: Send + Sync + 'static {
 
 type CancelWake = Arc<dyn CancelTarget>;
 
+/// The cancel target behind [`PluginCancellationToken::on_cancel`].
+struct OnCancel(Mutex<Option<Box<dyn FnOnce() + Send>>>);
+
+impl CancelTarget for OnCancel {
+    fn cancelled(&self) {
+        let f = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(f) = f {
+            f();
+        }
+    }
+}
+
 fn run_cancel_target(target: &dyn CancelTarget) {
     // A buggy target must not skip the other targets or unwind the thread
     // that cancelled, which can be the engine's only deadline waiter.
@@ -479,6 +495,23 @@ impl PluginCancellationToken {
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.inner.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Run `f` once when this token is cancelled, or at once on the calling
+    /// thread if it already is. A runtime blocked on its own wait uses it to
+    /// interrupt that wait on cancellation, with no polling.
+    ///
+    /// `f` runs on the thread that cancels, after the token's lock is
+    /// released. That thread can be the engine's deadline waiter or a caller
+    /// that holds engine or capability-runtime locks, so `f` must only record
+    /// the cancellation and wake its own waiter: it must not block, and must
+    /// not call into the engine or a capability runtime. If the token is
+    /// dropped without being cancelled, `f` is dropped without running.
+    pub fn on_cancel(&self, f: impl FnOnce() + Send + 'static) {
+        let target: CancelWake = Arc::new(OnCancel(Mutex::new(Some(Box::new(f)))));
+        let mut subscription = self.subscribe(target);
+        // Stay registered until cancellation or the token's drop.
+        subscription.id = None;
     }
 
     /// Notify `target` once when this token is cancelled.

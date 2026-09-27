@@ -182,3 +182,55 @@ fn racing_subscriptions_are_each_notified_exactly_once() {
         assert_eq!(target.count(), SUBSCRIBERS);
     }
 }
+
+/// `on_cancel` registered after cancellation runs at once, on the caller.
+#[test]
+fn on_cancel_after_cancel_runs_at_once() {
+    let token = PluginCancellationToken::new();
+    token.cancel();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&runs);
+    token.on_cancel(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+}
+
+/// `on_cancel` runs exactly once, however often the token is cancelled.
+#[test]
+fn on_cancel_runs_exactly_once() {
+    let token = PluginCancellationToken::new();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&runs);
+    token.on_cancel(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    assert_eq!(runs.load(Ordering::SeqCst), 0, "not before cancellation");
+    token.cancel();
+    token.cancel();
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+}
+
+/// A token dropped without cancellation drops its `on_cancel` callbacks
+/// without running them.
+#[test]
+fn on_cancel_does_not_run_when_the_token_drops_uncancelled() {
+    struct DropMark(Arc<AtomicUsize>);
+    impl Drop for DropMark {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let runs = Arc::new(AtomicUsize::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let token = PluginCancellationToken::new();
+    let counted = Arc::clone(&runs);
+    let mark = DropMark(Arc::clone(&drops));
+    token.on_cancel(move || {
+        let _mark = &mark;
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    drop(token);
+    assert_eq!(runs.load(Ordering::SeqCst), 0, "never ran");
+    assert_eq!(drops.load(Ordering::SeqCst), 1, "dropped with the token");
+}
