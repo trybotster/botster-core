@@ -1459,11 +1459,11 @@ fn cleanup_adversarial_sessions(
         });
 
     let mut control_cleaned_up = session_record_exited(&harness.engine, &control.session_id);
-    while Instant::now() < deadline {
+    while !control_cleaned_up && Instant::now() < deadline {
+        control_cleaned_up = drain_control_cleanup_once(harness, control, report)?;
         if control_cleaned_up {
             break;
         }
-        control_cleaned_up = drain_control_cleanup_once(harness, control, report)?;
         // timer: deadline — the loop's bound; the next wake ends the wait early
         let _ = harness
             .engine
