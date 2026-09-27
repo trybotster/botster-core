@@ -142,6 +142,9 @@ pub struct CoreDaemonConfig {
     pub test_hold_before_exit_ms: Option<u64>,
     /// Test-only: worker process exit code after the payload is flushed.
     pub test_exit_code: Option<i32>,
+    /// Test-only: the worker's shutdown grace before it kills the process
+    /// group. `None` keeps the production default.
+    pub test_shutdown_grace_ms: Option<u64>,
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
@@ -169,6 +172,7 @@ impl CoreDaemonConfig {
             test_resize_ack_hold: None,
             test_route_probe: None,
             test_hold_before_exit_ms: None,
+            test_shutdown_grace_ms: None,
             test_exit_code: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
@@ -214,6 +218,13 @@ impl CoreDaemonConfig {
     #[must_use]
     pub fn with_test_route_probe(mut self, probe: Option<WorkerRouteProbe>) -> Self {
         self.test_route_probe = probe;
+        self
+    }
+
+    /// Use this worker shutdown grace instead of the production default.
+    #[must_use]
+    pub const fn with_test_shutdown_grace_ms(mut self, grace_ms: Option<u64>) -> Self {
+        self.test_shutdown_grace_ms = grace_ms;
         self
     }
 
@@ -575,6 +586,9 @@ impl CoreDaemon {
                 }
                 if let Some(capacity) = config.test_worker_egress_capacity {
                     options.egress_capacity = capacity;
+                }
+                if let Some(grace_ms) = config.test_shutdown_grace_ms {
+                    options.shutdown_grace_ms = grace_ms;
                 }
                 DaemonEngine::Worker(Box::new(WorkerBackedBotsterEngine::with_options(options)))
             })
