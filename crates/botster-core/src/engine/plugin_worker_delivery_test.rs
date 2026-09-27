@@ -438,6 +438,8 @@ fn an_immediately_published_result_returns_its_unit() {
     assert_eq!(returned.try_recv().expect("the unit returned"), CallId(1));
     assert!(returned.try_recv().is_err(), "exactly once");
     assert_eq!(pool.free(), (1, 1024));
+    // The notifier holds an engine clone; replace it so the engine can drop.
+    engine.install_completion_notifier(Arc::new(|| {}));
 }
 
 /// Review D5, fast normal completion: the admission is held after it
