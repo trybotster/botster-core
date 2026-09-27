@@ -1977,7 +1977,12 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
         ),
         PluginAdmissionResult::Queued { .. }
     ));
+    let (wakes_sender, wakes) = std::sync::mpsc::channel();
+    engine.install_completion_notifier(Arc::new(move || {
+        let _ = wakes_sender.send(());
+    }));
     let started = std::time::Instant::now();
+    let retry_deadline = started + Duration::from_millis(100);
     loop {
         let call_started = std::time::Instant::now();
         match engine.try_admit(
@@ -1991,10 +1996,12 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
             }
             PluginAdmissionResult::LockBusy { .. } => {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
-                assert!(
-                    started.elapsed() < Duration::from_millis(100),
-                    "typed admission lock busy persisted"
-                );
+                // LockBusy leaves the retry wake armed (or fired): retry
+                // only on that notification, as the contract requires.
+                // timer: deadline — the busy lock must clear in the budget; expiry fails the test
+                wakes
+                    .recv_timeout(retry_deadline.saturating_duration_since(Instant::now()))
+                    .expect("typed admission lock busy persisted");
             }
             other => panic!("expected queued second admission, got {other:?}"),
         }
