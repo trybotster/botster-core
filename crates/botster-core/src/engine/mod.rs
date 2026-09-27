@@ -55,9 +55,10 @@ pub use multiplexer::{
 };
 pub use plugin_timer::{PluginTimerDrainOutcome, PluginTimerScheduleOutcome, PluginTimerScheduler};
 pub use plugin_worker::{
-    PluginCompletionNotifier, PluginHandlerRegistration, PluginInvocationOutcome,
-    PluginWorkerDebugSnapshot, PluginWorkerEngine, PluginWorkerEngineConfig,
-    PluginWorkerPluginDebugSnapshot, PluginWorkerRegistration,
+    CallId, DeliveryPool, DeliveryRefusal, PluginCompletionNotifier, PluginDeliveryQuota,
+    PluginHandlerRegistration, PluginInvocationOutcome, PluginWorkerDebugSnapshot,
+    PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerPluginDebugSnapshot,
+    PluginWorkerRegistration, PoolOverdraw, UnitReturnedNotifier,
 };
 pub use routed_envelope::RoutedEnvelopeRouter;
 pub use session_activity::{apply_session_activity_event, classify_session_activity};

@@ -19,12 +19,43 @@ pub(super) struct CompletionReservation {
     pub(super) generation: u64,
     pub(super) payload_bytes: usize,
     pub(super) charged_bytes: usize,
+    pub(super) funding: Funding,
+}
+
+/// Where a reservation's count and bytes are charged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Funding {
+    /// The engine-wide completion pool.
+    Global,
+    /// A fund pre-charged from the engine-wide pool for one plugin
+    /// generation (a delivery pool or an ordinary completion share).
+    Fund(u64),
+}
+
+/// The delivery-pool unit that a reservation belongs to; returned by the
+/// drain that hands out its completion, so the unit returns exactly once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct UnitTag {
+    pub(super) pool: u64,
+    pub(super) call: u64,
 }
 
 struct CompletionSlot {
     reservation: CompletionReservation,
+    unit: Option<UnitTag>,
     item: Option<PluginCompletionItem>,
     next: Option<u64>,
+}
+
+/// Capacity pre-charged from the engine-wide pool. Reservations charged to a
+/// live fund never touch the engine-wide pool. Closing the fund returns its
+/// unused part at once and each outstanding reservation as it drains.
+struct Fund {
+    cap_count: usize,
+    cap_bytes: usize,
+    used_count: usize,
+    used_bytes: usize,
+    closed: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -49,6 +80,8 @@ pub(super) struct CompletionStore {
     active_fronts: BTreeSet<(usize, u64)>,
     retired: Fifo,
     engine_metrics: Option<Arc<PluginWorkerEngineMetrics>>,
+    funds: BTreeMap<u64, Fund>,
+    next_fund: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -79,13 +112,90 @@ pub(super) const fn metadata_bytes() -> usize {
 }
 
 impl CompletionStore {
-    pub(super) fn reserve(
+    /// Pre-charge a fund of `count` entries and `bytes` from the engine-wide
+    /// pool. Fails without charging anything when it does not fit.
+    pub(super) fn create_fund(
+        &mut self,
+        count: usize,
+        bytes: usize,
+        config: &super::PluginWorkerEngineConfig,
+    ) -> Result<u64, StoreAdmissionError> {
+        let id = self
+            .next_fund
+            .checked_add(1)
+            .ok_or(StoreAdmissionError::IdentityExhausted)?;
+        if !self.reservations.fits_many(count, bytes, config) {
+            return Err(StoreAdmissionError::Capacity);
+        }
+        self.reservations.reserve_many(count, bytes);
+        self.next_fund = id;
+        self.funds.insert(
+            id,
+            Fund {
+                cap_count: count,
+                cap_bytes: bytes,
+                used_count: 0,
+                used_bytes: 0,
+                closed: false,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Close a fund: no new reservation draws on it, its unused part returns
+    /// to the engine-wide pool now, and each outstanding reservation returns
+    /// when it drains.
+    pub(super) fn close_fund(&mut self, id: u64) {
+        let Some(fund) = self.funds.get_mut(&id) else {
+            return;
+        };
+        if fund.closed {
+            return;
+        }
+        fund.closed = true;
+        let unused_count = fund.cap_count - fund.used_count;
+        let unused_bytes = fund.cap_bytes - fund.used_bytes;
+        let empty = fund.used_count == 0;
+        self.reservations.release_many(unused_count, unused_bytes);
+        if empty {
+            self.funds.remove(&id);
+        }
+    }
+
+    fn release_charge(&mut self, funding: Funding, charged_bytes: usize) {
+        match funding {
+            Funding::Global => self.reservations.release(charged_bytes),
+            Funding::Fund(id) => {
+                let fund = self
+                    .funds
+                    .get_mut(&id)
+                    .expect("a funded slot keeps its fund");
+                fund.used_count -= 1;
+                fund.used_bytes -= charged_bytes;
+                if fund.closed {
+                    let empty = fund.used_count == 0;
+                    self.reservations.release(charged_bytes);
+                    if empty {
+                        self.funds.remove(&id);
+                    }
+                }
+            }
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one reservation names its generation, sizes, owners, funding, and unit"
+    )]
+    pub(super) fn reserve_funded(
         &mut self,
         generation: u64,
         payload_bytes: usize,
         charged_bytes: usize,
         metrics: &Arc<WorkerMetrics>,
         shared: &EngineShared,
+        funding: Funding,
+        unit: Option<UnitTag>,
     ) -> Result<CompletionReservation, StoreAdmissionError> {
         if self
             .generations
@@ -98,16 +208,36 @@ impl CompletionStore {
             .next_slot
             .checked_add(1)
             .ok_or(StoreAdmissionError::IdentityExhausted)?;
-        if self
-            .reservations
-            .is_at_capacity(charged_bytes, &shared.config)
-        {
-            return Err(StoreAdmissionError::Capacity);
+        match funding {
+            Funding::Global => {
+                if self
+                    .reservations
+                    .is_at_capacity(charged_bytes, &shared.config)
+                {
+                    return Err(StoreAdmissionError::Capacity);
+                }
+                // Nothing fallible remains after reservation. These
+                // allocations and their map insertion occur under this same
+                // guard, before Queued.
+                self.reservations.reserve(charged_bytes);
+            }
+            Funding::Fund(fund_id) => {
+                let fund = self
+                    .funds
+                    .get_mut(&fund_id)
+                    .ok_or(StoreAdmissionError::Retired)?;
+                if fund.closed {
+                    return Err(StoreAdmissionError::Retired);
+                }
+                if fund.used_count >= fund.cap_count
+                    || fund.used_bytes + charged_bytes > fund.cap_bytes
+                {
+                    return Err(StoreAdmissionError::Capacity);
+                }
+                fund.used_count += 1;
+                fund.used_bytes += charged_bytes;
+            }
         }
-
-        // Nothing fallible remains after reservation. These allocations and
-        // their map insertion occur under this same guard, before Queued.
-        self.reservations.reserve(charged_bytes);
         if self.engine_metrics.is_none() {
             self.engine_metrics = Some(shared.metrics.clone());
         }
@@ -117,6 +247,7 @@ impl CompletionStore {
             generation,
             payload_bytes,
             charged_bytes,
+            funding,
         };
         let row = self
             .generations
@@ -132,6 +263,7 @@ impl CompletionStore {
             id,
             CompletionSlot {
                 reservation,
+                unit,
                 item: None,
                 next: None,
             },
@@ -229,11 +361,13 @@ impl CompletionStore {
         }
     }
 
+    /// The next completion that fits `max_bytes`, and the delivery-pool unit
+    /// it returns, if it belonged to one.
     pub(super) fn take_fitting(
         &mut self,
         max_bytes: usize,
         metrics: &PluginWorkerEngineMetrics,
-    ) -> Option<PluginCompletionItem> {
+    ) -> Option<(PluginCompletionItem, Option<UnitTag>)> {
         let fitting_retired = self.retired.head.filter(|head| {
             self.slots[head]
                 .item
@@ -286,7 +420,6 @@ impl CompletionStore {
             .checked_sub(1)
             .expect("one slot retires once");
         let charged_bytes = slot.reservation.charged_bytes;
-        self.reservations.release(charged_bytes);
         row.metrics
             .reserved_completion_count
             .fetch_sub(1, Ordering::SeqCst);
@@ -307,7 +440,8 @@ impl CompletionStore {
             assert!(row.published.head.is_none());
             self.generations.remove(&generation);
         }
-        Some(slot.item.expect("selected slot published"))
+        self.release_charge(slot.reservation.funding, charged_bytes);
+        Some((slot.item.expect("selected slot published"), slot.unit))
     }
 
     #[cfg(test)]
@@ -357,7 +491,18 @@ impl Drop for CompletionStore {
                     .fetch_sub(1, Ordering::SeqCst);
                 metrics.undrained_completions.fetch_sub(1, Ordering::SeqCst);
             }
-            self.reservations.release(slot.reservation.charged_bytes);
+        }
+        let charges: Vec<_> = self
+            .slots
+            .values()
+            .map(|slot| (slot.reservation.funding, slot.reservation.charged_bytes))
+            .collect();
+        for (funding, charged_bytes) in charges {
+            self.release_charge(funding, charged_bytes);
+        }
+        let open: Vec<_> = self.funds.keys().copied().collect();
+        for id in open {
+            self.close_fund(id);
         }
         debug_assert_eq!(self.reservations.reserved_count, 0);
         debug_assert_eq!(self.reservations.reserved_bytes, 0);

@@ -30,6 +30,12 @@ use completion_store::{CompletionReservation, CompletionStore, StoreAdmissionErr
 
 #[path = "plugin_worker_resources.rs"]
 mod worker_resources;
+
+#[path = "plugin_delivery_pool.rs"]
+mod delivery_pool;
+pub use delivery_pool::{
+    CallId, DeliveryPool, DeliveryRefusal, PluginDeliveryQuota, PoolOverdraw, UnitReturnedNotifier,
+};
 pub use worker_resources::{
     PluginWorkerResource, PluginWorkerResourceCountMismatch, PluginWorkerResources,
 };
@@ -288,6 +294,9 @@ struct EngineShared {
     deadlines: Mutex<DeadlineBook>,
     deadline_cvar: Condvar,
     stopping: AtomicBool,
+    /// Live delivery pools, by id, for returning drained units.
+    pools: Mutex<HashMap<u64, std::sync::Weak<delivery_pool::PoolInner>>>,
+    next_pool: AtomicU64,
     #[cfg(test)]
     publication_pause: Mutex<Option<Arc<PublicationPause>>>,
     #[cfg(test)]
@@ -359,13 +368,33 @@ impl CompletionReservationPool {
     }
 
     fn release(&mut self, reservation_bytes: usize) {
+        self.release_many(1, reservation_bytes);
+    }
+
+    /// Whether `count` more entries of `bytes` in total still fit.
+    fn fits_many(&self, count: usize, bytes: usize, config: &PluginWorkerEngineConfig) -> bool {
+        self.reserved_count
+            .checked_add(count)
+            .is_some_and(|total| total <= config.completion_queue_capacity)
+            && self
+                .reserved_bytes
+                .checked_add(bytes)
+                .is_some_and(|total| total <= config.completion_queue_byte_capacity)
+    }
+
+    fn reserve_many(&mut self, count: usize, bytes: usize) {
+        self.reserved_count += count;
+        self.reserved_bytes += bytes;
+    }
+
+    fn release_many(&mut self, count: usize, bytes: usize) {
         self.reserved_count = self
             .reserved_count
-            .checked_sub(1)
+            .checked_sub(count)
             .expect("completion reservation count released exactly once");
         self.reserved_bytes = self
             .reserved_bytes
-            .checked_sub(reservation_bytes)
+            .checked_sub(bytes)
             .expect("completion reservation bytes released exactly once");
     }
 }
@@ -490,6 +519,8 @@ impl PluginWorkerEngine {
             deadlines: Mutex::new(DeadlineBook::default()),
             deadline_cvar: Condvar::new(),
             stopping: AtomicBool::new(false),
+            pools: Mutex::new(HashMap::new()),
+            next_pool: AtomicU64::new(1),
             #[cfg(test)]
             publication_pause: Mutex::new(None),
             #[cfg(test)]
@@ -676,6 +707,7 @@ impl PluginWorkerEngine {
             completion: JobCompletion::Blocking {
                 result_sender: sender,
             },
+            pooled: false,
         };
         admission.push_queued(PluginInvocationClass::RequestResponse, job, &worker);
         worker.work_cvar.notify_one();
@@ -876,8 +908,9 @@ impl PluginWorkerEngine {
             };
         }
 
-        let class_capacity = self.inner.shared.config.class_queue_capacity(class);
-        let (queued_count, queued_bytes) = admission.queue_occupancy(class);
+        let (class_capacity, class_byte_capacity) =
+            admission.ordinary_room(class, &self.inner.shared.config);
+        let (queued_count, queued_bytes) = admission.ordinary_occupancy(class);
         if queued_count >= class_capacity || queued_bytes + queue_bytes > class_byte_capacity {
             self.record_class_pressure(class, &worker);
             return self.admission_backpressured(
@@ -930,12 +963,14 @@ impl PluginWorkerEngine {
                 reason: "plugin completion deadline is out of range".to_string(),
             };
         };
-        let reservation = match completions.reserve(
+        let reservation = match completions.reserve_funded(
             generation,
             payload_bytes,
             reservation_bytes,
             &worker.metrics,
             &self.inner.shared,
+            admission.ordinary_funding(),
+            None,
         ) {
             Ok(reservation) => reservation,
             Err(error) => {
@@ -965,6 +1000,7 @@ impl PluginWorkerEngine {
             cancellation: cancellation.clone(),
             queue_bytes,
             completion: JobCompletion::Async(async_state.clone()),
+            pooled: false,
         };
 
         let published = if already_expired {
@@ -1011,6 +1047,117 @@ impl PluginWorkerEngine {
         }
     }
 
+    /// Reserve the host-call delivery pool and the ordinary completion share
+    /// of `plugin_key`'s current generation, all or nothing (plan section
+    /// 5.1). Every quota value is Hub policy. On refusal nothing is reserved.
+    pub fn try_reserve_delivery(
+        &self,
+        plugin_key: &PluginKey,
+        quota: PluginDeliveryQuota,
+    ) -> Result<DeliveryPool, DeliveryRefusal> {
+        let shared = &self.inner.shared;
+        let Some(worker) = self.worker_for(plugin_key) else {
+            return Err(DeliveryRefusal::WorkerStopped(
+                "the plugin is not loaded".to_string(),
+            ));
+        };
+        let Some(generation) = worker.generation else {
+            return Err(DeliveryRefusal::RejectedBudget(
+                "plugin worker generation identities exhausted".to_string(),
+            ));
+        };
+        let config = &shared.config;
+        if quota.call_result_slots > config.background_queue_capacity
+            || quota.call_result_request_bytes > config.background_queue_byte_capacity
+        {
+            return Err(DeliveryRefusal::RejectedBudget(
+                "the pool exceeds the plugin's Background queue capacity".to_string(),
+            ));
+        }
+        let metadata = completion_store::metadata_bytes();
+        let pool_bytes = quota
+            .call_result_completion_bytes
+            .checked_add(metadata)
+            .and_then(|per_slot| per_slot.checked_mul(quota.call_result_slots));
+        let share_bytes = metadata
+            .checked_mul(quota.ordinary_completion_entries)
+            .and_then(|bytes| bytes.checked_add(quota.ordinary_completion_bytes));
+        let (Some(pool_bytes), Some(share_bytes)) = (pool_bytes, share_bytes) else {
+            return Err(DeliveryRefusal::RejectedBudget(
+                "the quota's byte sizes overflow".to_string(),
+            ));
+        };
+
+        let mut admission = worker
+            .admission
+            .lock()
+            .expect("plugin worker admission mutex poisoned");
+        if admission.stopping {
+            return Err(DeliveryRefusal::WorkerStopped(
+                "the plugin worker is stopping".to_string(),
+            ));
+        }
+        if admission.delivery.is_some() {
+            return Err(DeliveryRefusal::RejectedBudget(
+                "this generation already reserved its delivery".to_string(),
+            ));
+        }
+        let (ordinary_count, ordinary_bytes) =
+            admission.ordinary_occupancy(PluginInvocationClass::Background);
+        if ordinary_count + quota.call_result_slots > config.background_queue_capacity
+            || ordinary_bytes + quota.call_result_request_bytes
+                > config.background_queue_byte_capacity
+        {
+            return Err(DeliveryRefusal::Backpressured(
+                "queued work leaves no room for the pool".to_string(),
+            ));
+        }
+        let (pool_fund, share_fund) = {
+            let mut completions = shared
+                .completions
+                .lock()
+                .expect("plugin completion store mutex poisoned");
+            let pool_fund = completions
+                .create_fund(quota.call_result_slots, pool_bytes, config)
+                .map_err(|_| {
+                    DeliveryRefusal::Backpressured(
+                        "the completion pool cannot fund the delivery pool".to_string(),
+                    )
+                })?;
+            match completions.create_fund(quota.ordinary_completion_entries, share_bytes, config) {
+                Ok(share_fund) => (pool_fund, share_fund),
+                Err(_) => {
+                    // All or nothing: return the pool's funding too.
+                    completions.close_fund(pool_fund);
+                    return Err(DeliveryRefusal::Backpressured(
+                        "the completion pool cannot fund the ordinary share".to_string(),
+                    ));
+                }
+            }
+        };
+        let id = shared.next_pool.fetch_add(1, Ordering::SeqCst);
+        let pool = Arc::new(delivery_pool::PoolInner::new(
+            id,
+            plugin_key.clone(),
+            generation,
+            &quota,
+            pool_fund,
+            Arc::downgrade(shared),
+        ));
+        shared
+            .pools
+            .lock()
+            .expect("plugin delivery pool registry mutex poisoned")
+            .insert(id, Arc::downgrade(&pool));
+        admission.delivery = Some(delivery_pool::GenerationDelivery {
+            pool: pool.clone(),
+            pool_slots: quota.call_result_slots,
+            pool_request_bytes: quota.call_result_request_bytes,
+            share_fund,
+        });
+        Ok(DeliveryPool { inner: pool })
+    }
+
     /// Drain previously published async completions without waiting.
     ///
     /// Returns at most `max_items` completions whose encoded sizes sum to at
@@ -1018,6 +1165,7 @@ impl PluginWorkerEngine {
     /// left in the mailbox.
     pub fn drain_completions(&self, max_items: usize, max_bytes: usize) -> PluginCompletionDrain {
         let mut drain = PluginCompletionDrain::default();
+        let mut returned_units = Vec::new();
         if max_items != 0 && max_bytes != 0 {
             let mut completions = self
                 .inner
@@ -1026,7 +1174,7 @@ impl PluginWorkerEngine {
                 .lock()
                 .expect("plugin completion store mutex poisoned");
             while drain.item_count < max_items {
-                let Some(item) = completions
+                let Some((item, unit)) = completions
                     .take_fitting(max_bytes - drain.byte_count, &self.inner.shared.metrics)
                 else {
                     break;
@@ -1034,8 +1182,11 @@ impl PluginWorkerEngine {
                 drain.item_count += 1;
                 drain.byte_count += item.encoded_len;
                 drain.completions.push(item);
+                returned_units.extend(unit);
             }
         }
+        // Units return outside every engine lock: their notifiers run host code.
+        delivery_pool::return_units(&self.inner.shared, returned_units);
         self.finish_completion_drain(drain)
     }
 
@@ -1522,12 +1673,14 @@ impl PluginWorkerEngine {
                 );
             }
         };
-        let reservation = match completions.reserve(
+        let reservation = match completions.reserve_funded(
             generation,
             payload_bytes,
             reservation_bytes,
             &worker.metrics,
             &self.inner.shared,
+            admission.ordinary_funding(),
+            None,
         ) {
             Ok(reservation) => reservation,
             Err(error) => {
@@ -1814,11 +1967,24 @@ impl WorkerState {
                 .expect("plugin worker admission mutex poisoned");
             admission.stopping = true;
             if let Some(generation) = self.generation {
-                self.shared
+                let mut completions = self
+                    .shared
                     .completions
                     .lock()
-                    .expect("plugin completion store mutex poisoned")
-                    .retire(generation);
+                    .expect("plugin completion store mutex poisoned");
+                completions.retire(generation);
+                if let Some(delivery) = &admission.delivery {
+                    completions.close_fund(delivery.pool.fund);
+                    completions.close_fund(delivery.share_fund);
+                }
+            }
+            if let Some(delivery) = admission.delivery.take() {
+                delivery.pool.close();
+                self.shared
+                    .pools
+                    .lock()
+                    .expect("plugin delivery pool registry mutex poisoned")
+                    .remove(&delivery.pool.id);
             }
             let queued = admission.drain_queued();
             let open_async = admission
@@ -1938,9 +2104,62 @@ struct WorkerAdmission {
     executor_in_flight_rr: usize,
     executor_in_flight_bg: usize,
     jobs: HashMap<RequestId, TrackedJob>,
+    /// This generation's delivery reservation, once made.
+    delivery: Option<delivery_pool::GenerationDelivery>,
+    /// Pool result jobs waiting in `bg_queue`, and their bytes.
+    pooled_queued: usize,
+    pooled_queued_bytes: usize,
 }
 
 impl WorkerAdmission {
+    /// Queue room left for ordinary (non-pool) work of `class`: the delivery
+    /// pool holds its slots and request bytes out of the Background queue.
+    fn ordinary_room(
+        &self,
+        class: PluginInvocationClass,
+        config: &PluginWorkerEngineConfig,
+    ) -> (usize, usize) {
+        let (count, bytes) = (
+            config.class_queue_capacity(class),
+            config.class_queue_byte_capacity(class),
+        );
+        match (&self.delivery, is_background(class)) {
+            (Some(delivery), true) => (
+                count.saturating_sub(delivery.pool_slots),
+                bytes.saturating_sub(delivery.pool_request_bytes),
+            ),
+            _ => (count, bytes),
+        }
+    }
+
+    /// Queued ordinary (non-pool) work of `class`.
+    fn ordinary_occupancy(&self, class: PluginInvocationClass) -> (usize, usize) {
+        let (count, bytes) = self.queue_occupancy(class);
+        if is_background(class) {
+            (count - self.pooled_queued, bytes - self.pooled_queued_bytes)
+        } else {
+            (count, bytes)
+        }
+    }
+
+    /// Where an ordinary completion is charged: the plugin's completion
+    /// share when it reserved one, else the engine-wide pool.
+    fn ordinary_funding(&self) -> completion_store::Funding {
+        self.delivery
+            .as_ref()
+            .map_or(completion_store::Funding::Global, |delivery| {
+                completion_store::Funding::Fund(delivery.share_fund)
+            })
+    }
+
+    /// Account a pool job leaving the Background queue.
+    fn pooled_left(&mut self, job: &WorkerJob) {
+        if job.pooled {
+            self.pooled_queued -= 1;
+            self.pooled_queued_bytes -= job.queue_bytes;
+        }
+    }
+
     fn queue_occupancy(&self, class: PluginInvocationClass) -> (usize, usize) {
         match class {
             PluginInvocationClass::Background => (self.bg_queue.len(), self.bg_queued_bytes),
@@ -1961,6 +2180,10 @@ impl WorkerAdmission {
         );
         match class {
             PluginInvocationClass::Background => {
+                if job.pooled {
+                    self.pooled_queued += 1;
+                    self.pooled_queued_bytes += queue_bytes;
+                }
                 self.bg_queue.push_back(job);
                 self.bg_queued_bytes += queue_bytes;
                 worker
@@ -2049,6 +2272,7 @@ impl WorkerAdmission {
             PluginInvocationClass::RequestResponse => self.rr_queue.pop_front()?,
         };
         let queue_bytes = job.queue_bytes;
+        self.pooled_left(&job);
         match class {
             PluginInvocationClass::Background => {
                 self.bg_queued_bytes = self.bg_queued_bytes.saturating_sub(queue_bytes);
@@ -2111,6 +2335,8 @@ impl WorkerAdmission {
         jobs.extend(self.bg_queue.drain(..));
         self.rr_queued_bytes = 0;
         self.bg_queued_bytes = 0;
+        self.pooled_queued = 0;
+        self.pooled_queued_bytes = 0;
         jobs
     }
 
@@ -2127,7 +2353,9 @@ impl WorkerAdmission {
             .iter()
             .position(|job| job.request.request_id == *request_id)
         {
-            return self.bg_queue.remove(index);
+            let job = self.bg_queue.remove(index)?;
+            self.pooled_left(&job);
+            return Some(job);
         }
         None
     }
@@ -2319,6 +2547,8 @@ struct WorkerJob {
     cancellation: PluginCancellationToken,
     queue_bytes: usize,
     completion: JobCompletion,
+    /// A delivery-pool result job: it uses the pool's reserved queue room.
+    pooled: bool,
 }
 
 #[derive(Clone)]
@@ -2382,6 +2612,232 @@ struct TrackedJob {
 enum JobPhase {
     Queued,
     InFlight,
+}
+
+/// Admit one delivery-pool result (see [`DeliveryPool::admit_result`]).
+///
+/// The unit already holds the Background queue room and a funded completion
+/// entry, so nothing here checks capacity. Lock order matches `try_admit`:
+/// worker admission, then the completion store, the deadline book, and the
+/// cancellation map. The pool's own lock is never held with them.
+fn admit_pool_result(
+    shared: &Arc<EngineShared>,
+    pool: &Arc<delivery_pool::PoolInner>,
+    call: CallId,
+    request: PluginInvocationRequest,
+) -> PluginAdmissionResult {
+    let class = PluginInvocationClass::Background;
+    let rejected = |request: PluginInvocationRequest, queue_bytes, reason: &str| {
+        PluginAdmissionResult::RejectedBudget {
+            request_id: request.request_id,
+            class,
+            queue_bytes,
+            reason: reason.to_string(),
+        }
+    };
+    let stopped =
+        |request: PluginInvocationRequest, reason: &str| PluginAdmissionResult::WorkerStopped {
+            request_id: request.request_id,
+            class,
+            reason: reason.to_string(),
+        };
+    let declared_bytes = match pool.begin_admit(call) {
+        Ok(bytes) => bytes,
+        Err(reason) => return rejected(request, None, reason),
+    };
+    let finish = |admitted: bool, result: PluginAdmissionResult| {
+        pool.end_admit(call, admitted);
+        result
+    };
+
+    let worker = shared
+        .workers
+        .lock()
+        .expect("plugin worker engine mutex poisoned")
+        .get(&pool.plugin_key)
+        .cloned();
+    let Some(worker) = worker.filter(|worker| worker.generation == Some(pool.generation)) else {
+        return finish(
+            false,
+            stopped(request, "the delivery pool's generation retired"),
+        );
+    };
+    let registered = worker
+        .handlers
+        .get(&request.handler)
+        .is_some_and(|handler| {
+            handler
+                .required_capability
+                .as_ref()
+                .is_none_or(|capability| worker.manifest.capabilities.contains(capability))
+        });
+    if !registered {
+        return finish(
+            false,
+            rejected(
+                request,
+                None,
+                "the result handler is not registered with its capability",
+            ),
+        );
+    }
+    let Ok(queue_bytes) = plugin_invocation_queue_bytes(&request) else {
+        return finish(
+            false,
+            rejected(request, None, "the result request could not be encoded"),
+        );
+    };
+    if queue_bytes > declared_bytes {
+        return finish(
+            false,
+            rejected(
+                request,
+                Some(queue_bytes),
+                "the result request exceeds its declared size",
+            ),
+        );
+    }
+    let Ok(fallbacks) = build_completion_fallbacks(class, &request) else {
+        return finish(
+            false,
+            rejected(
+                request,
+                Some(queue_bytes),
+                "the completion fallbacks could not be encoded",
+            ),
+        );
+    };
+    let payload_bytes = pool.completion_bytes;
+    if effective_completion_reservation_bytes(queue_bytes, &fallbacks, payload_bytes)
+        > payload_bytes
+    {
+        return finish(
+            false,
+            rejected(
+                request,
+                Some(queue_bytes),
+                "the result's completion fallbacks exceed the pool's completion allowance",
+            ),
+        );
+    }
+    let charged_bytes = payload_bytes + completion_store::metadata_bytes();
+    let timeout_ms = request.timeout_ms;
+    let Some(deadline) = Instant::now().checked_add(Duration::from_millis(timeout_ms)) else {
+        return finish(
+            false,
+            rejected(
+                request,
+                Some(queue_bytes),
+                "the result deadline is out of range",
+            ),
+        );
+    };
+
+    let mut admission = worker
+        .admission
+        .lock()
+        .expect("plugin worker admission mutex poisoned");
+    if admission.stopping {
+        return finish(false, stopped(request, "the plugin worker stopped"));
+    }
+    let mut completions = shared
+        .completions
+        .lock()
+        .expect("plugin completion store mutex poisoned");
+    let mut deadlines = shared
+        .deadlines
+        .lock()
+        .expect("plugin deadline book mutex poisoned");
+    let mut cancellations = worker
+        .executor
+        .cancellations
+        .lock()
+        .expect("plugin worker cancellations mutex poisoned");
+    let reservation = match completions.reserve_funded(
+        pool.generation,
+        payload_bytes,
+        charged_bytes,
+        &worker.metrics,
+        shared,
+        completion_store::Funding::Fund(pool.fund),
+        Some(completion_store::UnitTag {
+            pool: pool.id,
+            call: call.0,
+        }),
+    ) {
+        Ok(reservation) => reservation,
+        Err(StoreAdmissionError::Capacity) => {
+            debug_assert!(false, "a unit's completion entry is always funded");
+            return finish(
+                false,
+                rejected(
+                    request,
+                    Some(queue_bytes),
+                    "the pool's completion fund is exhausted",
+                ),
+            );
+        }
+        Err(_) => {
+            return finish(
+                false,
+                stopped(request, "the delivery pool's generation retired"),
+            )
+        }
+    };
+
+    let request_id = request.request_id.clone();
+    let cancellation = PluginCancellationToken::new();
+    let async_state = Arc::new(AsyncJobState {
+        class,
+        reservation,
+        terminal: JobTerminal::new(),
+        fallbacks,
+        shared: shared.clone(),
+    });
+    let job = WorkerJob {
+        request,
+        cancellation: cancellation.clone(),
+        queue_bytes,
+        completion: JobCompletion::Async(async_state.clone()),
+        pooled: true,
+    };
+    let published = if timeout_ms == 0 {
+        // A fresh token that never reached a runtime: no target can run.
+        cancellation.cancel();
+        publish_prepared_into(
+            &mut completions,
+            &async_state,
+            async_state.fallbacks.timed_out.clone(),
+        )
+    } else {
+        cancellations.insert(request_id.clone(), cancellation);
+        admission.push_queued(class, job, &worker);
+        deadlines.entries.push(DeadlineEntry {
+            at: deadline,
+            plugin_key: pool.plugin_key.clone(),
+            generation: pool.generation,
+            request_id: request_id.clone(),
+        });
+        worker.work_cvar.notify_one();
+        shared.deadline_cvar.notify_one();
+        false
+    };
+    drop(cancellations);
+    drop(deadlines);
+    drop(completions);
+    drop(admission);
+    if published {
+        notify_completion(shared);
+    }
+    finish(
+        true,
+        PluginAdmissionResult::Queued {
+            request_id,
+            class,
+            queue_bytes,
+            reservation_bytes: charged_bytes,
+        },
+    )
 }
 
 fn is_background(class: PluginInvocationClass) -> bool {
@@ -3035,6 +3491,10 @@ mod tests {
 
     mod cancel_target_tests {
         include!("plugin_worker_cancel_test.rs");
+    }
+
+    mod delivery_pool_tests {
+        include!("plugin_worker_delivery_test.rs");
     }
 
     #[derive(Clone)]
