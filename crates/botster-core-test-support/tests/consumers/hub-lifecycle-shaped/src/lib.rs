@@ -42,12 +42,25 @@ pub fn consume_lifecycle_until_caught_up(
     max_changes: usize,
     max_bytes: usize,
 ) -> Result<(), HubLifecycleConsumeError> {
-    let _ = daemon.take_journal_advanced_wake();
+    let _ = take_journal_advanced(daemon);
     page_until_caught_up(daemon, projection, max_changes, max_bytes)?;
-    if daemon.take_journal_advanced_wake() {
+    if take_journal_advanced(daemon) {
         page_until_caught_up(daemon, projection, max_changes, max_bytes)?;
     }
     Ok(())
+}
+
+/// The coalesced journal bit, taken as a host takes it: from a pump's
+/// outcome. Core reports it only there, and an append outside a pump
+/// interrupts the host's wait so that pump happens.
+fn take_journal_advanced(daemon: &mut CoreDaemon) -> bool {
+    daemon
+        .pump_woken(
+            &botster_core::contract::terminal_wake::TerminalWakeBatch::default(),
+            1,
+        )
+        .map(|outcome| outcome.journal_advanced)
+        .unwrap_or(false)
 }
 
 fn page_until_caught_up(
@@ -298,7 +311,7 @@ mod tests {
         .expect("hub-shaped observe is the control-plane tick");
         assert!(observed.complete);
         assert!(observed.session_errors.is_empty());
-        let _ = daemon.take_journal_advanced_wake();
+        let _ = take_journal_advanced(&mut daemon);
         let _ = daemon.shutdown(Some(session_id), 20);
         let _ = fs::remove_dir_all(data_dir);
     }
@@ -334,22 +347,21 @@ mod tests {
         .expect("first owner turn can yield during setup");
         assert!(setup_slice.last_visited.is_none());
         assert!(!setup_slice.complete);
-        let setup_resume = observe_lifecycle_resume_cursor(&setup_slice)
-            .expect("setup yield has a resume cursor");
+        let setup_resume =
+            observe_lifecycle_resume_cursor(&setup_slice).expect("setup yield has a resume cursor");
         let first_slice = observe_lifecycle_stage_a(&mut daemon, 13, Some(&setup_resume), budget)
             .expect("second owner turn visits first session");
         assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
         assert!(!first_slice.complete);
-        let resume = observe_lifecycle_resume_cursor(&first_slice)
-            .expect("caller owns the resume cursor");
-        let _ = daemon.take_journal_advanced_wake();
+        let resume =
+            observe_lifecycle_resume_cursor(&first_slice).expect("caller owns the resume cursor");
+        let _ = take_journal_advanced(&mut daemon);
         let listed = daemon
             .list()
             .expect("host can do ready work between owner turns");
         assert!(listed.iter().any(|session| session.session_id == first));
-        let second_slice =
-            observe_lifecycle_stage_a(&mut daemon, 14, Some(&resume), budget)
-                .expect("third owner turn");
+        let second_slice = observe_lifecycle_stage_a(&mut daemon, 14, Some(&resume), budget)
+            .expect("third owner turn");
         assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
         assert!(second_slice.complete);
         let _ = daemon.shutdown(Some(first), 20);
@@ -391,12 +403,7 @@ mod tests {
             .spawn(spawn_request(&session_id), 10)
             .expect("hub-shaped membership spawn");
         daemon
-            .attach(
-                client_id,
-                session_id.clone(),
-                subscription_id.clone(),
-                11,
-            )
+            .attach(client_id, session_id.clone(), subscription_id.clone(), 11)
             .expect("hub-shaped attach");
         let inventory = daemon
             .list_terminal_subscriptions(1024 * 1024)
@@ -424,7 +431,7 @@ mod tests {
         daemon
             .spawn(spawn_request(&session_id), 10)
             .expect("close-suppression spawn");
-        assert!(daemon.take_journal_advanced_wake());
+        assert!(take_journal_advanced(&mut daemon));
         let cursor = daemon
             .lifecycle_baseline()
             .expect("watermark after spawn")
@@ -437,7 +444,7 @@ mod tests {
             SessionRegistryStateLookup::Found(RegistrySessionState::Running)
         ));
         assert!(
-            !daemon.take_journal_advanced_wake(),
+            !take_journal_advanced(&mut daemon),
             "close-suppression query must leave the wake clear"
         );
         let page = daemon
@@ -493,10 +500,7 @@ mod tests {
     fn hub_shaped_consumer_matches_budget_error_with_wildcard() {
         let data_dir = temp_data_dir("hub-lifecycle-budget");
         let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-        let cursor = daemon
-            .lifecycle_baseline()
-            .expect("baseline")
-            .cursor;
+        let cursor = daemon.lifecycle_baseline().expect("baseline").cursor;
         let mapped = match daemon.lifecycle_changes_page(&cursor, 8, 0) {
             Ok(_) => panic!("zero budget must not return a successful page"),
             Err(error) => map_page_error(error),
@@ -582,10 +586,7 @@ mod tests {
         daemon
             .spawn(spawn_request(&first), 10)
             .expect("seed append");
-        let watermark = daemon
-            .lifecycle_baseline()
-            .expect("seed baseline")
-            .cursor;
+        let watermark = daemon.lifecycle_baseline().expect("seed baseline").cursor;
         let mut projection = HubLifecycleProjection {
             cursor: Some(SessionLifecycleCursor {
                 source_id: watermark.source_id,
@@ -602,19 +603,19 @@ mod tests {
                     .expect("safe loop");
             }
             InterleaveSeam::BetweenTakeAndPage => {
-                let _ = daemon.take_journal_advanced_wake();
+                let _ = take_journal_advanced(&mut daemon);
                 append_extra(&mut daemon, &extra, 11);
                 page_until_caught_up(&mut daemon, &mut projection, 8, 16 * 1024).expect("page");
-                if daemon.take_journal_advanced_wake() {
+                if take_journal_advanced(&mut daemon) {
                     page_until_caught_up(&mut daemon, &mut projection, 8, 16 * 1024)
                         .expect("second page");
                 }
             }
             InterleaveSeam::AfterPageBeforeSecondTake => {
-                let _ = daemon.take_journal_advanced_wake();
+                let _ = take_journal_advanced(&mut daemon);
                 page_until_caught_up(&mut daemon, &mut projection, 8, 16 * 1024).expect("page");
                 append_extra(&mut daemon, &extra, 11);
-                if daemon.take_journal_advanced_wake() {
+                if take_journal_advanced(&mut daemon) {
                     page_until_caught_up(&mut daemon, &mut projection, 8, 16 * 1024)
                         .expect("re-page");
                 }
@@ -629,7 +630,7 @@ mod tests {
         let applied = projection.sessions.contains_key(&extra.0);
         if !applied {
             assert!(
-                daemon.take_journal_advanced_wake(),
+                take_journal_advanced(&mut daemon),
                 "unapplied change must leave a pending wake at seam {seam:?}"
             );
         }
