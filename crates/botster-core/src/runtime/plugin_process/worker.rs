@@ -58,10 +58,14 @@ pub struct LoadedPlugin {
 
 /// Exit code for a failure that the worker reported to the parent.
 const EXIT_REPORTED_FAILURE: i32 = 1;
+/// Exit code when the parent process exited first.
+const EXIT_PARENT_GONE: i32 = 3;
 
 /// Run the worker. Never returns.
 pub fn run_worker(hooks: WorkerHooks) -> ! {
     close_inherited_descriptors();
+    // Before any hook runs: a worker whose parent dies must never outlive it.
+    start_parent_watch();
     install_fatal_panic_hook();
     let max_frame_bytes = max_frame_bytes_from_args().unwrap_or_else(|reason| {
         eprintln!("botster plugin worker: {reason}");
@@ -448,6 +452,157 @@ impl std::fmt::Write for FatalMessage {
         self.bytes[self.len..self.len + take].copy_from_slice(&text.as_bytes()[..take]);
         self.len += take;
         Ok(())
+    }
+}
+
+/// Exit as soon as the parent process exits, whatever the worker is doing.
+///
+/// Once serving, the channel's EOF already ends the worker. Before that, the
+/// main thread may run the Hub's sandbox or load hook for as long as it
+/// likes, and nothing reads the channel. A parent that dies without its
+/// group kill (a crash, SIGKILL, a killed test binary) would then leave the
+/// worker running forever. This watch runs from before the first hook, on
+/// its own thread, and ends the worker when the parent exits. It holds one
+/// descriptor, the first free one after the sweep (fd 5), close-on-exec.
+fn start_parent_watch() {
+    // SAFETY: getppid has no preconditions.
+    let parent = unsafe { libc::getppid() };
+    if parent <= 1 {
+        parent_gone();
+    }
+    let watch = match ParentExit::register(parent) {
+        Ok(Some(watch)) => watch,
+        Ok(None) => parent_gone(),
+        Err(error) => {
+            eprintln!("botster plugin worker: cannot watch the parent process: {error}");
+            std::process::exit(EXIT_PROTOCOL);
+        }
+    };
+    // The parent may have exited before the registration; the worker was
+    // then already reparented.
+    // SAFETY: getppid has no preconditions.
+    if unsafe { libc::getppid() } != parent {
+        parent_gone();
+    }
+    if std::thread::Builder::new()
+        .name("plugin-worker-parent-watch".to_string())
+        .spawn(move || {
+            watch.wait();
+            parent_gone();
+        })
+        .is_err()
+    {
+        std::process::exit(EXIT_PROTOCOL);
+    }
+}
+
+/// End the worker at once. `_exit` runs no exit handlers, so it cannot wait
+/// on a lock that plugin code holds.
+fn parent_gone() -> ! {
+    // SAFETY: _exit only ends the process.
+    unsafe { libc::_exit(EXIT_PARENT_GONE) }
+}
+
+/// An event that fires once when one process exits: kqueue `NOTE_EXIT` on
+/// macOS, a pidfd on Linux.
+pub(crate) struct ParentExit {
+    fd: std::os::fd::OwnedFd,
+}
+
+impl ParentExit {
+    /// Register for the exit of `pid`. `Ok(None)` means it is already gone.
+    pub(crate) fn register(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        use std::os::fd::FromRawFd as _;
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: kqueue has no preconditions.
+            let kq = unsafe { libc::kqueue() };
+            if kq < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: kq is a new descriptor that nothing else owns.
+            let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(kq) };
+            // SAFETY: fcntl on a descriptor this process owns.
+            unsafe { libc::fcntl(kq, libc::F_SETFD, libc::FD_CLOEXEC) };
+            let change = libc::kevent {
+                ident: pid as libc::uintptr_t,
+                filter: libc::EVFILT_PROC,
+                flags: libc::EV_ADD | libc::EV_ONESHOT,
+                fflags: libc::NOTE_EXIT,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            // SAFETY: one valid change record and no output buffer.
+            let added =
+                unsafe { libc::kevent(kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+            if added < 0 {
+                let error = io::Error::last_os_error();
+                return if error.raw_os_error() == Some(libc::ESRCH) {
+                    Ok(None)
+                } else {
+                    Err(error)
+                };
+            }
+            Ok(Some(Self { fd }))
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // SAFETY: pidfd_open takes a pid and flags; the result is a new
+            // close-on-exec descriptor or -1.
+            let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+            if raw < 0 {
+                let error = io::Error::last_os_error();
+                return if error.raw_os_error() == Some(libc::ESRCH) {
+                    Ok(None)
+                } else {
+                    Err(error)
+                };
+            }
+            // SAFETY: raw is a new descriptor that nothing else owns.
+            let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as libc::c_int) };
+            Ok(Some(Self { fd }))
+        }
+    }
+
+    /// Block until the process exits. There is no timer: the exit is the
+    /// event. An unexpected wait error also returns, so a broken watch ends
+    /// the worker rather than spinning or leaving it unwatched.
+    pub(crate) fn wait(&self) {
+        use std::os::fd::AsRawFd as _;
+        loop {
+            #[cfg(target_os = "macos")]
+            let fired = {
+                // SAFETY: a zeroed kevent is a valid output record.
+                let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+                // SAFETY: no changes and one output record; no timeout.
+                unsafe {
+                    libc::kevent(
+                        self.fd.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &mut event,
+                        1,
+                        std::ptr::null(),
+                    )
+                }
+            };
+            #[cfg(target_os = "linux")]
+            let fired = {
+                let mut poll_fd = libc::pollfd {
+                    fd: self.fd.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                // SAFETY: one valid pollfd; no timeout.
+                unsafe { libc::poll(&mut poll_fd, 1, -1) }
+            };
+            if fired > 0 {
+                return;
+            }
+            if fired < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                return;
+            }
+        }
     }
 }
 
