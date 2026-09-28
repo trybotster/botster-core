@@ -39,6 +39,21 @@ impl ExitWatch {
     pub(crate) fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
         self.inner.wait(timeout)
     }
+
+    /// The descriptor that becomes readable on a possible exit, for a
+    /// caller's own `poll`. `None` means the child was already gone at
+    /// registration: [`Self::poll_exited`] reports it at once.
+    pub(crate) fn raw_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.inner.raw_fd()
+    }
+
+    /// Without blocking: consume what made the descriptor readable, then
+    /// report whether the child can be reaped. After a `false`, the
+    /// descriptor is readable again only on a new event, so a poll loop
+    /// that calls this on each readable turn cannot spin.
+    pub(crate) fn poll_exited(&self) -> io::Result<bool> {
+        self.inner.poll_exited()
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -90,6 +105,20 @@ mod platform {
                 Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
                 Err(error) => return Err(error),
             }
+            // The watch starts readable. An exit (and its SIGCHLD) before
+            // this registration left no event on this kqueue, so an owner
+            // that polls the descriptor first would never be woken for it.
+            // One triggered user event makes the first poll return, and the
+            // check it leads to observes reapability as it is now.
+            let user = libc::kevent {
+                ident: 0,
+                filter: libc::EVFILT_USER,
+                flags: libc::EV_ADD | libc::EV_CLEAR,
+                fflags: libc::NOTE_TRIGGER,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            change(&kq, &user)?;
             Ok(Self { pid, kq })
         }
 
@@ -135,23 +164,68 @@ mod platform {
                 }
             }
         }
+
+        pub(super) fn raw_fd(&self) -> Option<std::os::fd::RawFd> {
+            Some(self.kq.as_raw_fd())
+        }
+
+        pub(super) fn poll_exited(&self) -> io::Result<bool> {
+            // Consume every pending event, so the kqueue is readable again
+            // only on a new one; then decide by reapability alone.
+            let zero = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            // SAFETY: a zeroed kevent is a valid output record.
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            loop {
+                // SAFETY: event is a valid output record and zero is a live
+                // timespec, so the call returns without waiting.
+                let count = unsafe {
+                    libc::kevent(
+                        self.kq.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &mut event,
+                        1,
+                        &zero,
+                    )
+                };
+                if count == 0 {
+                    break;
+                }
+                if count < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::EINTR) {
+                        return Err(error);
+                    }
+                }
+            }
+            reapable(self.pid)
+        }
     }
 
     fn add(kq: &OwnedFd, ident: libc::uintptr_t, filter: i16, fflags: u32) -> io::Result<()> {
-        let change = libc::kevent {
-            ident,
-            filter,
-            flags: libc::EV_ADD,
-            fflags,
-            data: 0,
-            udata: std::ptr::null_mut(),
-        };
+        change(
+            kq,
+            &libc::kevent {
+                ident,
+                filter,
+                flags: libc::EV_ADD,
+                fflags,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            },
+        )
+    }
+
+    fn change(kq: &OwnedFd, change: &libc::kevent) -> io::Result<()> {
         loop {
             // SAFETY: change is one valid kevent record; no events are read.
             let result = unsafe {
                 libc::kevent(
                     kq.as_raw_fd(),
-                    &change,
+                    change,
                     1,
                     std::ptr::null_mut(),
                     0,
@@ -262,6 +336,16 @@ mod platform {
                 return Ok(count > 0);
             }
         }
+
+        pub(super) fn raw_fd(&self) -> Option<std::os::fd::RawFd> {
+            self.pidfd.as_ref().map(AsRawFd::as_raw_fd)
+        }
+
+        pub(super) fn poll_exited(&self) -> io::Result<bool> {
+            // A pidfd is readable exactly when the child can be reaped; there
+            // is no other event to consume.
+            self.wait(Some(Duration::ZERO))
+        }
     }
 }
 
@@ -336,5 +420,109 @@ mod tests {
         drop(child.stdin.take());
         assert!(waiter.join().expect("waiter"));
         child.wait().expect("reap");
+    }
+
+    /// Whether `fd` is readable now, without waiting.
+    fn readable_now(fd: std::os::fd::RawFd) -> bool {
+        let mut poll_fd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll_fd points at one valid pollfd; a zero timeout never waits.
+        unsafe { libc::poll(&mut poll_fd, 1, 0) > 0 }
+    }
+
+    /// Wait for `fd` to become readable.
+    fn wait_readable(fd: std::os::fd::RawFd) {
+        let mut poll_fd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll_fd points at one valid pollfd for the call.
+        // timer: deadline — the watched event must arrive; expiry fails the test
+        let count = unsafe { libc::poll(&mut poll_fd, 1, 10_000) };
+        assert_eq!(count, 1, "the exit watch never became readable");
+    }
+
+    /// A caller's poll loop wakes on a stop (the kqueue's SIGCHLD). The check
+    /// must consume that event: a descriptor left readable would make every
+    /// later poll return at once, and the loop would spin.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[test]
+    fn a_polled_check_consumes_a_stop_event_so_a_poll_loop_cannot_spin() {
+        let mut child = Reaped(
+            Command::new("cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn cat"),
+        );
+        let pid = child.0.id();
+        let watch = ExitWatch::register(pid).expect("register");
+        let fd = watch.raw_fd().expect("a kqueue descriptor");
+        // The watch starts readable; its first check finds a live child.
+        wait_readable(fd);
+        assert!(!watch.poll_exited().expect("the first check"));
+        assert!(!readable_now(fd), "the first check consumed the start");
+        // SAFETY: kill only sends a signal to our own child.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGSTOP) };
+        wait_readable(fd);
+        assert!(
+            !watch.poll_exited().expect("check"),
+            "a stop is not an exit"
+        );
+        assert!(
+            !readable_now(fd),
+            "the checked stop event still makes the watch readable"
+        );
+
+        // SAFETY: kill only sends a signal to our own child.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGCONT) };
+        drop(child.0.stdin.take());
+        loop {
+            wait_readable(fd);
+            if watch.poll_exited().expect("check") {
+                break;
+            }
+        }
+        assert!(child.0.try_wait().expect("try_wait").is_some());
+    }
+
+    #[test]
+    fn a_polled_check_reports_an_exit_through_the_descriptor() {
+        let mut child = Command::new("true").spawn().expect("spawn true");
+        let watch = ExitWatch::register(child.id()).expect("register");
+        if let Some(fd) = watch.raw_fd() {
+            loop {
+                wait_readable(fd);
+                if watch.poll_exited().expect("check") {
+                    break;
+                }
+            }
+        } else {
+            assert!(watch.poll_exited().expect("check"));
+        }
+        // Not reaped by the check.
+        assert!(child.try_wait().expect("try_wait").is_some());
+    }
+
+    /// A child that is already reapable when the watch registers left no
+    /// event on it. The watch must still report the exit to an owner that
+    /// polls its descriptor before checking.
+    #[test]
+    fn a_child_reapable_before_registration_is_reported_through_the_descriptor() {
+        let mut child = Command::new("true").spawn().expect("spawn true");
+        // Event-driven and non-reaping: the child is reapable afterwards.
+        assert!(wait_for_pid_exit(child.id(), None).expect("wait"));
+        let watch = ExitWatch::register(child.id()).expect("register");
+        if let Some(fd) = watch.raw_fd() {
+            wait_readable(fd);
+        }
+        assert!(watch.poll_exited().expect("check"));
+        // Not reaped by the watch.
+        assert!(child.try_wait().expect("try_wait").is_some());
     }
 }
