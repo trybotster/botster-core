@@ -3205,6 +3205,18 @@ impl CoreDaemon {
         })
     }
 
+    /// Forget a routed envelope target that is gone (for example, an ended
+    /// session): drop its queue, delivery records, and route subscriptions.
+    /// When a target is gone is host policy.
+    pub fn forget_envelope_target(
+        &mut self,
+        target: &EnvelopeTarget,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.envelope_router.forget_target(target);
+        Ok(())
+    }
+
     /// Return one routed envelope delivery state without changing daemon state.
     pub fn routed_envelope_delivery_state(
         &self,
