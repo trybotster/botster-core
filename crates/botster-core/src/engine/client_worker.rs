@@ -280,6 +280,10 @@ struct SubscriptionOwner {
     /// exhausted attempt budget ends the route.
     stall_resynced: bool,
     in_flight: bool,
+    /// The adapter refused the head that `try_write` offered, and the head
+    /// is still queued. Recovery that drops that head, or a teardown, calls
+    /// [`TerminalAdapter::head_withdrawn`] once and clears it.
+    head_refused_offer: bool,
     /// A terminal frame (`PROCESS_EXIT` or `ATTACH_STATE failed`) is queued;
     /// nothing may follow it and the route hard-stops after delivery.
     terminal_enqueued: bool,
@@ -489,6 +493,7 @@ impl ClientWorker {
                 blocked_since: None,
                 stall_resynced: false,
                 in_flight: false,
+                head_refused_offer: false,
                 terminal_enqueued: false,
                 terminal_delivered: false,
                 stream_epoch: 0,
@@ -1537,6 +1542,19 @@ impl ClientWorker {
             let keep = usize::from(owner.in_flight);
             let mut kept: VecDeque<QueuedFrame> = VecDeque::new();
             let mut unsent_transition: Option<QueuedFrame> = None;
+            // Only an unsent head can be a refused offer; recovery keeps
+            // every kind except visual output.
+            let head_dropped = keep == 0
+                && owner
+                    .queue
+                    .front()
+                    .is_some_and(|head| head.kind == QueuedKind::Visual);
+            if head_dropped && owner.head_refused_offer {
+                owner.head_refused_offer = false;
+                if let Some(adapter) = owner.adapter.as_mut() {
+                    adapter.head_withdrawn();
+                }
+            }
             for queued in owner.queue.drain(keep..) {
                 match queued.kind {
                     QueuedKind::Visual => lost_visual = true,
@@ -1710,6 +1728,7 @@ impl ClientWorker {
             match adapter.try_write(&routed) {
                 Ok(()) => {
                     owner.in_flight = true;
+                    owner.head_refused_offer = false;
                     owner.unsuccessful_writes = 0;
                     owner.stall_resynced = false;
                     if adapter.pressure() == TerminalAdapterPressure::Ready {
@@ -1723,6 +1742,7 @@ impl ClientWorker {
                     return None;
                 }
                 Err(TerminalAdapterWriteError::WouldBlock | TerminalAdapterWriteError::Full) => {
+                    owner.head_refused_offer = true;
                     return self.head_refused(key, origin);
                 }
                 Err(TerminalAdapterWriteError::Closed) => {
@@ -2723,6 +2743,10 @@ impl TerminalAdapter for WakingAdapterHolder {
     fn try_read(&mut self) -> TerminalIngress {
         self.inner.try_read()
     }
+
+    fn head_withdrawn(&mut self) {
+        self.inner.head_withdrawn();
+    }
 }
 
 fn hard_stop(
@@ -2734,6 +2758,9 @@ fn hard_stop(
     owner.queue.clear();
     owner.input_queue.clear();
     if let Some(mut adapter) = owner.adapter.take() {
+        if owner.head_refused_offer {
+            adapter.head_withdrawn();
+        }
         adapter.close(reason);
         drop(adapter);
     }
@@ -4607,5 +4634,244 @@ mod tests {
         frame: &TerminalFrame,
     ) -> botster_terminal_protocol::RouteResyncBody {
         botster_terminal_protocol::decode_route_resync(frame).expect("resync body")
+    }
+
+    /// Records every adapter call Core makes, in order.
+    #[derive(Default)]
+    struct WithdrawState {
+        credits: usize,
+        calls: Vec<String>,
+    }
+
+    struct WithdrawProbe(std::sync::Arc<std::sync::Mutex<WithdrawState>>);
+
+    impl TerminalAdapter for WithdrawProbe {
+        fn try_write(
+            &mut self,
+            frame: &RoutedTerminalFrame,
+        ) -> Result<(), TerminalAdapterWriteError> {
+            let mut state = self.0.lock().expect("probe state");
+            let kind = frame.frame.kind();
+            if state.credits == 0 {
+                state.calls.push(format!("refuse {kind:?}"));
+                return Err(TerminalAdapterWriteError::Full);
+            }
+            state.credits -= 1;
+            state.calls.push(format!("write {kind:?}"));
+            Ok(())
+        }
+
+        fn close(&mut self, _reason: TerminalRouteCloseReason) {
+            self.0
+                .lock()
+                .expect("probe state")
+                .calls
+                .push("close".into());
+        }
+
+        fn pressure(&self) -> TerminalAdapterPressure {
+            if self.0.lock().expect("probe state").credits > 0 {
+                TerminalAdapterPressure::Ready
+            } else {
+                TerminalAdapterPressure::Full
+            }
+        }
+
+        fn try_read(&mut self) -> TerminalIngress {
+            TerminalIngress::Empty
+        }
+
+        fn head_withdrawn(&mut self) {
+            self.0
+                .lock()
+                .expect("probe state")
+                .calls
+                .push("withdrawn".into());
+        }
+    }
+
+    fn withdraw_route() -> (
+        ClientWorker,
+        OwnerKey,
+        std::sync::Arc<std::sync::Mutex<WithdrawState>>,
+    ) {
+        let (mut worker, key) = bound_route();
+        let state = std::sync::Arc::new(std::sync::Mutex::new(WithdrawState::default()));
+        let owner = worker.live.get_mut(&key).expect("route");
+        owner.adapter = Some(Box::new(WithdrawProbe(state.clone())));
+        (worker, key, state)
+    }
+
+    fn probe_calls(state: &std::sync::Arc<std::sync::Mutex<WithdrawState>>) -> Vec<String> {
+        state.lock().expect("probe state").calls.clone()
+    }
+
+    /// Grant one credit per pump until the queue is empty.
+    fn drain_probe(
+        worker: &mut ClientWorker,
+        key: &OwnerKey,
+        state: &std::sync::Arc<std::sync::Mutex<WithdrawState>>,
+    ) {
+        while !worker.live[key].queue.is_empty() {
+            state.lock().expect("probe state").credits = 1;
+            assert!(worker.pump_one(key, PumpOrigin::AdapterWake).is_none());
+        }
+    }
+
+    #[test]
+    fn a_refused_visual_head_dropped_by_overflow_is_withdrawn_once_before_the_resync() {
+        let (mut worker, key, state) = withdraw_route();
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        fill_route(&mut worker, &key);
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
+        assert_eq!(kinds(&worker, &key), vec!["resync"]);
+
+        // The resync is refused too; a second overflow keeps it, so the
+        // adapter hears of no further withdrawal.
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        for _ in 0..MAX_ROUTE_EGRESS_FRAMES {
+            let _ = worker.push_route_frame(
+                &key.session_id,
+                &key.subscription_id,
+                encode_modes(ModesBody::default()).expect("modes"),
+            );
+        }
+        drain_probe(&mut worker, &key, &state);
+
+        assert_eq!(
+            probe_calls(&state),
+            vec![
+                "refuse SnapshotReady",
+                "withdrawn",
+                "refuse RouteResync",
+                "write RouteResync",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_refused_visual_head_dropped_by_stall_recovery_is_withdrawn_before_the_resync() {
+        let (mut worker, key, state) = withdraw_route();
+        exhaust_all_but_one(&mut worker, &key);
+        assert!(
+            worker.pump_one(&key, PumpOrigin::AdapterWake).is_none(),
+            "the first stall resyncs"
+        );
+        assert_eq!(kinds(&worker, &key), vec!["resync"]);
+        drain_probe(&mut worker, &key, &state);
+
+        let calls = probe_calls(&state);
+        let withdrawn: Vec<_> = calls
+            .iter()
+            .enumerate()
+            .filter(|(_, call)| *call == "withdrawn")
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(
+            withdrawn,
+            vec![WRITE_ATTEMPT_BUDGET],
+            "once, after the last refusal"
+        );
+        assert_eq!(calls[WRITE_ATTEMPT_BUDGET + 1..], ["write RouteResync"]);
+    }
+
+    #[test]
+    fn a_refused_head_that_overflow_keeps_is_not_withdrawn() {
+        let (mut worker, key, state) = withdraw_route();
+        let owner = worker.live.get_mut(&key).expect("route");
+        owner.in_flight = true;
+        worker.complete_head(&key);
+        worker
+            .enqueue_result_with_reservation(
+                &key,
+                &InputResultBody {
+                    operation_id: 1,
+                    outcome: InputOutcome::Written,
+                    accepted_payload_bytes: Some(1),
+                    written_pty_bytes: Some(1),
+                    mode_bits: 0,
+                    detail: String::new(),
+                },
+                LaneUsage::default(),
+            )
+            .expect("queued");
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        fill_route(&mut worker, &key);
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
+        assert_eq!(kinds(&worker, &key), vec!["resync", "result"]);
+        drain_probe(&mut worker, &key, &state);
+
+        assert_eq!(
+            probe_calls(&state),
+            vec![
+                "refuse InputResult",
+                "write RouteResync",
+                "write InputResult"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_accepted_head_is_never_withdrawn() {
+        let (mut worker, key, state) = withdraw_route();
+        // Refused first, then accepted: the acceptance ends the refusal.
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        state.lock().expect("probe state").credits = 1;
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        assert!(worker.live[&key].in_flight);
+        fill_route(&mut worker, &key);
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
+        assert!(worker
+            .hard_stop_owner(&key, TerminalRouteCloseReason::Detached)
+            .is_some());
+
+        assert_eq!(
+            probe_calls(&state),
+            vec!["refuse SnapshotReady", "write SnapshotReady", "close"]
+        );
+    }
+
+    #[test]
+    fn a_head_never_offered_is_never_withdrawn() {
+        let (mut worker, key, state) = withdraw_route();
+        // A session-output pump skips a busy adapter without offering.
+        assert!(worker.pump_one(&key, PumpOrigin::SessionOutput).is_none());
+        fill_route(&mut worker, &key);
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
+        assert!(worker
+            .hard_stop_owner(&key, TerminalRouteCloseReason::Detached)
+            .is_some());
+
+        assert_eq!(probe_calls(&state), vec!["close"]);
+    }
+
+    #[test]
+    fn a_teardown_with_a_refused_head_withdraws_it_before_close() {
+        let (mut worker, key, state) = withdraw_route();
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        assert!(worker
+            .hard_stop_owner(&key, TerminalRouteCloseReason::Detached)
+            .is_some());
+
+        assert_eq!(
+            probe_calls(&state),
+            vec!["refuse SnapshotReady", "withdrawn", "close"]
+        );
+    }
+
+    #[test]
+    fn a_withdrawn_head_is_not_withdrawn_again_at_teardown() {
+        let (mut worker, key, state) = withdraw_route();
+        assert!(worker.pump_one(&key, PumpOrigin::AdapterWake).is_none());
+        fill_route(&mut worker, &key);
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
+        assert!(worker
+            .hard_stop_owner(&key, TerminalRouteCloseReason::Detached)
+            .is_some());
+
+        assert_eq!(
+            probe_calls(&state),
+            vec!["refuse SnapshotReady", "withdrawn", "close"]
+        );
     }
 }

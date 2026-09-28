@@ -85,6 +85,23 @@ pub trait TerminalAdapter {
 
     /// Take the next ingress event. Never blocks.
     fn try_read(&mut self) -> TerminalIngress;
+
+    /// Core dropped the head frame that this adapter last refused.
+    ///
+    /// Core calls this exactly once for each dropped refused head: after
+    /// [`Self::try_write`] refused the head with
+    /// [`TerminalAdapterWriteError::WouldBlock`] or
+    /// [`TerminalAdapterWriteError::Full`], and overflow or stall recovery
+    /// then dropped that head. The call comes before Core offers the
+    /// replacement head (the route's `ROUTE_RESYNC`). When the route ends
+    /// with a refused head still queued, the call comes before
+    /// [`Self::close`].
+    ///
+    /// Core never calls this for a head that recovery keeps (an input
+    /// result, a terminal frame, or an unsent `ROUTE_RESYNC`), for a head the
+    /// adapter accepted, or for a head that Core did not offer. The default
+    /// does nothing. It must not block.
+    fn head_withdrawn(&mut self) {}
 }
 
 /// Why Core closed a terminal adapter.
