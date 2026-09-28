@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
@@ -86,6 +86,9 @@ pub struct LocalProcessRuntime {
     registry: Arc<LocalProcessRegistry>,
     options: LocalProcessRuntimeOptions,
     wake_source: Option<TerminalWakeSource>,
+    /// Sessions start without a reader thread or an exit thread; the owner
+    /// polls their descriptors (see [`Self::with_polled_pty`]).
+    polled: bool,
 }
 
 impl Default for LocalProcessRuntime {
@@ -117,7 +120,175 @@ impl LocalProcessRuntime {
             registry: Arc::new(LocalProcessRegistry::default()),
             options,
             wake_source: None,
+            polled: false,
         }
+    }
+
+    /// Start each session without a PTY reader thread or a child-exit thread.
+    ///
+    /// The owner polls the descriptors from [`Self::poll_fds`] on its own
+    /// thread. It calls [`Self::read_ready`] when the PTY is readable and
+    /// [`Self::poll_exit`] when the exit descriptor is readable, then
+    /// [`SessionRuntime::drain_output`]. Nothing reads the PTY concurrently
+    /// with the owner, so a barrier or a drain never races a reader.
+    #[must_use]
+    pub fn with_polled_pty(mut self) -> Self {
+        self.polled = true;
+        self
+    }
+
+    /// The descriptors a polled session's owner waits on.
+    #[cfg(unix)]
+    pub fn poll_fds(&self, session_id: &SessionId) -> Result<PtyPollFds, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        let pty = session.write_readiness.raw_fd().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "local pty has no pollable descriptor",
+            )
+        })?;
+        let exit = session
+            .polled
+            .as_ref()
+            .and_then(|polled| polled.exit_watch.as_ref())
+            .and_then(super::process_exit::ExitWatch::raw_fd);
+        Ok(PtyPollFds { pty, exit })
+    }
+
+    /// One non-blocking PTY read into the session's output queue.
+    ///
+    /// For a session started with [`Self::with_polled_pty`], when its PTY
+    /// descriptor is readable. The read is at most one reader chunk. The bytes
+    /// reach the owner through the next [`SessionRuntime::drain_output`].
+    pub fn read_ready(&self, session_id: &SessionId) -> Result<PtyRead, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let mut session = lock_session(&session)?;
+        let session = &mut *session;
+        let Some(polled) = session.polled.as_mut() else {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "session was not started with a polled pty",
+            ));
+        };
+        let Some(reader) = polled.reader.as_mut() else {
+            return Ok(PtyRead::Closed);
+        };
+        let fence = &session.reader_fence;
+        if fence.pending_len() >= fence.pending_capacity {
+            return Ok(PtyRead::Full);
+        }
+        let mut buffer = [0; PTY_READER_BUFFER_BYTES];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(bytes_read) => {
+                    let event = ReaderEvent::Output(buffer[..bytes_read].to_vec());
+                    fence.enqueue_read(event, &session.output_pressure, session.output_capacity);
+                    return Ok(PtyRead::Output);
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(PtyRead::WouldBlock);
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) if is_terminal_closed(&error) => break,
+                Err(error) => {
+                    // The same latch the reader thread uses: retained output
+                    // first, then the sticky failure.
+                    let event = ReaderEvent::Failed(format!("read pty output failed: {error}"));
+                    fence.enqueue_read(event, &session.output_pressure, session.output_capacity);
+                    break;
+                }
+            }
+        }
+        polled.reader = None;
+        fence.mark_reader_finished();
+        Ok(PtyRead::Closed)
+    }
+
+    /// When a polled session's shutdown escalates next, while one runs and
+    /// the child has not exited. The owner wakes for it in its own poll.
+    pub fn shutdown_deadline(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<Instant>, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        if session.exit_payload.is_some() {
+            return Ok(None);
+        }
+        Ok(session
+            .polled
+            .as_ref()
+            .and_then(|polled| polled.shutdown.as_ref())
+            .map(|shutdown| shutdown.deadline))
+    }
+
+    /// Escalate a polled shutdown whose deadline has passed: the graceful
+    /// grace ends with the process-group kill; the forced grace ends with
+    /// `CleanupFailed`, as a threaded shutdown fails. Before the deadline, or
+    /// once the child has exited, this does nothing.
+    pub fn advance_shutdown(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let mut session = lock_session(&session)?;
+        let session = &mut *session;
+        harvest_session(session)?;
+        if session.exit_payload.is_some() {
+            return Ok(());
+        }
+        let Some((forced, deadline)) = session
+            .polled
+            .as_ref()
+            .and_then(|polled| polled.shutdown.as_ref())
+            .map(|shutdown| (shutdown.forced, shutdown.deadline))
+        else {
+            return Ok(());
+        };
+        if Instant::now() < deadline {
+            return Ok(());
+        }
+        if forced {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::CleanupFailed,
+                "local process did not exit after forced cleanup",
+            ));
+        }
+        request_process_group_cleanup(session)?;
+        if let Some(shutdown) = session
+            .polled
+            .as_mut()
+            .and_then(|polled| polled.shutdown.as_mut())
+        {
+            shutdown.forced = true;
+            shutdown.deadline = Instant::now() + self.options.shutdown_grace;
+        }
+        Ok(())
+    }
+
+    /// Whether a polled session's child can be reaped, without blocking.
+    ///
+    /// Call when the exit descriptor is readable; the call consumes what made
+    /// it readable. After `true`, the next [`SessionRuntime::drain_output`]
+    /// collects the exit, and the owner stops polling the descriptor.
+    pub fn poll_exit(&self, session_id: &SessionId) -> Result<bool, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        let Some(polled) = session.polled.as_ref() else {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                "session was not started with a polled pty",
+            ));
+        };
+        // No watch: the child was already gone when the session started.
+        let Some(watch) = polled.exit_watch.as_ref() else {
+            return Ok(true);
+        };
+        watch.poll_exited().map_err(|error| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::OutputFailed,
+                format!("check local process exit failed: {error}"),
+            )
+        })
     }
 
     /// Share the engine wake source with PTY reader threads.
@@ -298,9 +469,21 @@ impl LocalProcessRuntime {
         // The child may exit without PTY EOF when a descendant keeps the
         // slave open; its exit still wakes the session.
         #[cfg(unix)]
-        if let (Some(pid), Some(handle)) = (pid, pending_child.wake_handle.clone()) {
-            wake_on_child_exit(pid, handle)
-                .map_err(|error| spawn_error(&request.executable, error.to_string()))?;
+        let exit_watch = match pid {
+            Some(pid) if self.polled => Some(
+                super::process_exit::ExitWatch::register(pid)
+                    .map_err(|error| spawn_error(&request.executable, error.to_string()))?,
+            ),
+            _ => None,
+        };
+        #[cfg(not(unix))]
+        let exit_watch = None;
+        #[cfg(unix)]
+        if !self.polled {
+            if let (Some(pid), Some(handle)) = (pid, pending_child.wake_handle.clone()) {
+                wake_on_child_exit(pid, handle)
+                    .map_err(|error| spawn_error(&request.executable, error.to_string()))?;
+            }
         }
         let process = ProcessIdentity {
             pid,
@@ -354,13 +537,28 @@ impl LocalProcessRuntime {
             .map(|source| source.session_handle(request.session_id.clone()));
         let readiness = PtyReadiness::for_master(pty_pair.master.as_ref())?;
         let write_readiness = PtyReadiness::for_master(pty_pair.master.as_ref())?;
-        let (output_pressure, output_capacity) = spawn_reader(
-            reader,
-            readiness,
-            reader_capacity,
-            Arc::clone(&reader_fence),
-            wake_handle,
-        );
+        let (output_pressure, output_capacity, polled) = if self.polled {
+            drop(readiness);
+            let polled = PolledPty {
+                reader: Some(reader),
+                exit_watch,
+                shutdown: None,
+            };
+            (
+                Arc::new(ReaderPressure::default()),
+                reader_capacity,
+                Some(polled),
+            )
+        } else {
+            let (pressure, capacity) = spawn_reader(
+                reader,
+                readiness,
+                reader_capacity,
+                Arc::clone(&reader_fence),
+                wake_handle,
+            );
+            (pressure, capacity, None)
+        };
 
         reservation.runtime_installing();
         self.registry.insert(
@@ -385,6 +583,7 @@ impl LocalProcessRuntime {
                 write_readiness,
                 wake_handle: pending_child.wake_handle.clone(),
                 write_wake_armed: Arc::new(AtomicBool::new(false)),
+                polled,
             },
         )?;
         reservation.runtime_installed();
@@ -395,6 +594,31 @@ impl LocalProcessRuntime {
             process,
         })
     }
+}
+
+/// Descriptors a polled session's owner waits on.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PtyPollFds {
+    /// The PTY master: poll `POLLIN` to read, `POLLOUT` to write pending input.
+    pub pty: std::os::fd::RawFd,
+    /// Readable on a possible child exit; see [`LocalProcessRuntime::poll_exit`].
+    /// `None` when the child was already gone at start.
+    pub exit: Option<std::os::fd::RawFd>,
+}
+
+/// Result of one [`LocalProcessRuntime::read_ready`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyRead {
+    /// One chunk was queued for the next drain.
+    Output,
+    /// Nothing to read now; wait for the descriptor to be readable.
+    WouldBlock,
+    /// The output queue is full: nothing was read. Drain, then read again.
+    Full,
+    /// The PTY reached its end (or failed); no read follows. Stop polling
+    /// `POLLIN` for it.
+    Closed,
 }
 
 /// Exclusive PTY I/O handle available inside [`LocalProcessRuntime::with_pty_io_barrier`].
@@ -779,6 +1003,9 @@ impl LocalProcessRegistry {
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
+        if session.polled.is_some() {
+            return begin_polled_shutdown(&mut session, options);
+        }
         terminate_session(&mut session, options)
     }
 
@@ -949,6 +1176,27 @@ struct LocalSession {
     wake_handle: Option<SessionWakeHandle>,
     /// A thread is waiting to wake the session when the master is writable.
     write_wake_armed: Arc<AtomicBool>,
+    /// The owner-driven reader and exit watch, for a polled session.
+    polled: Option<PolledPty>,
+}
+
+/// What a polled session's owner reads through instead of threads.
+struct PolledPty {
+    /// `None` once the PTY reached its end.
+    reader: Option<Box<dyn Read + Send>>,
+    /// `None` when the child was already gone at start (no watch, or none needed).
+    exit_watch: Option<super::process_exit::ExitWatch>,
+    /// A shutdown in progress: the owner escalates at its deadline.
+    shutdown: Option<PolledShutdown>,
+}
+
+/// A polled session's shutdown. It runs the same steps as a threaded
+/// shutdown (a graceful signal, then after the grace the process-group kill,
+/// then after another grace a failure) without blocking: the owner waits for
+/// each deadline in its own poll.
+struct PolledShutdown {
+    forced: bool,
+    deadline: Instant,
 }
 
 struct ReaderFence {
@@ -1107,6 +1355,10 @@ impl ReaderFence {
         events
     }
 
+    fn pending_len(&self) -> usize {
+        self.pending.lock().map_or(0, |pending| pending.len())
+    }
+
     fn take_overflow_error(&self) -> Option<String> {
         self.overflow_error
             .lock()
@@ -1186,6 +1438,35 @@ fn terminate_session(
         SessionRuntimeErrorKind::CleanupFailed,
         "local process did not exit after forced cleanup",
     ))
+}
+
+/// Start a polled session's shutdown without waiting: the graceful signal,
+/// and the deadline at which [`LocalProcessRuntime::advance_shutdown`]
+/// escalates. A child that has already exited only gets the group cleanup.
+fn begin_polled_shutdown(
+    session: &mut LocalSession,
+    options: LocalProcessRuntimeOptions,
+) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
+    harvest_session(session)?;
+    if session.exit_payload.is_some() {
+        request_process_group_cleanup(session)?;
+        return Ok(session.exit_payload.clone());
+    }
+    if session
+        .polled
+        .as_ref()
+        .is_some_and(|polled| polled.shutdown.is_some())
+    {
+        return Ok(None);
+    }
+    send_graceful_signal(session)?;
+    if let Some(polled) = session.polled.as_mut() {
+        polled.shutdown = Some(PolledShutdown {
+            forced: false,
+            deadline: Instant::now() + options.shutdown_grace,
+        });
+    }
+    Ok(None)
 }
 
 fn request_process_group_cleanup(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {
@@ -1492,6 +1773,12 @@ impl PtyReadiness {
             let _ = master;
             Ok(Self {})
         }
+    }
+
+    /// The duplicate master descriptor, for an owner's own `poll`.
+    #[cfg(unix)]
+    fn raw_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.fd.as_ref().map(AsRawFd::as_raw_fd)
     }
 
     /// Block until the master is readable, hung up, or failed. No timeout.

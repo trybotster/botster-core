@@ -114,6 +114,8 @@ pub use package::{
 // Flat type re-exports (compatibility). Prefer prelude / modules for new code.
 // ---------------------------------------------------------------------------
 
+#[cfg(all(feature = "local-runtime", unix))]
+pub use runtime::PtyPollFds;
 pub use runtime::{
     apply_plugin_store_merge_patch, plugin_store_payload_bytes, CapabilityEventNotifier,
     CapabilityOperation, CapabilityOperationCompleted, CapabilityOperationFailure,
@@ -143,7 +145,7 @@ pub use runtime::{
 #[cfg(feature = "local-runtime")]
 pub use runtime::{
     ControlPlaneState, ControlWriterError, ControlWriterOutcome, LocalProcessRuntime,
-    LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier, PtyOutputRouting,
+    LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier, PtyOutputRouting, PtyRead,
     ResizeAckHold, RetainedWorkerFinalState, WorkerHealth, WorkerProcessRuntime,
     WorkerProcessRuntimeOptions, WorkerRouteProbe, WorkerRouteProbeEvent, WorkerSpawnPoll,
     DEFAULT_PTY_READER_CHUNK_CAPACITY, DEFAULT_WORKER_EGRESS_CAPACITY,

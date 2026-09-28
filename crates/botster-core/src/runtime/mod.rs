@@ -65,10 +65,12 @@ pub use file_watch::{
     FileWatchEventSource, FileWatchRegistration, FileWatchRuntime, FileWatchRuntimeConfig,
     FileWatchSourceError, FileWatchSourceEvent, DEFAULT_FILE_WATCH_DEBOUNCE_MS,
 };
+#[cfg(all(feature = "local-runtime", unix))]
+pub use local_process::PtyPollFds;
 #[cfg(feature = "local-runtime")]
 pub use local_process::{
     LocalProcessRuntime, LocalProcessRuntimeOptions, LocalProcessWorkerRuntime, PtyIoBarrier,
-    DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    PtyRead, DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 pub(crate) use session_admission::{EngineSessionAdmission, SessionAdmissionOwner};
 pub use session_admission::{
