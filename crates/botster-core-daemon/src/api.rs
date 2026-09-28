@@ -326,10 +326,11 @@ pub struct ObserveLifecycleSliceError {
 
 /// Why an observe slice stopped.
 ///
-/// Every stop except [`Self::Elapsed`] and [`Self::Resync`] visited at least
-/// one session in its call, so a host continues it at once. `Elapsed` is a
-/// time-slice yield that may have visited nothing: the host runs the next
-/// slice on a later turn.
+/// [`Self::SessionBudget`] and [`Self::ByteBudget`] visited at least one
+/// session in their call, so a host continues the pass at once. `Elapsed`
+/// is a time-slice yield that may have visited nothing: the host runs the
+/// next slice on a later turn. `Complete` ends the pass; on a pass with no
+/// live sessions it visited nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
@@ -369,10 +370,11 @@ pub struct ObserveLifecycleSlice {
 
 /// Why a lifecycle baseline page stopped.
 ///
-/// Every stop except [`Self::Elapsed`] and [`Self::Resync`] advanced the
-/// freeze in its call (it indexed a registry entry or passed a row), so a
-/// host continues at once. `Elapsed` is a time-slice yield that may have
-/// advanced nothing: the host requests the next page on a later turn.
+/// [`Self::RowBudget`] and [`Self::ByteBudget`] advanced the freeze in their
+/// call (it indexed a registry entry or passed a row), so a host continues
+/// at once. `Elapsed` is a time-slice yield that may have advanced nothing:
+/// the host requests the next page on a later turn. `Complete` ends the
+/// snapshot; on an empty snapshot it advanced nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]

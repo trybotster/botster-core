@@ -30,10 +30,11 @@ the production progress tick.
   not use `now_seconds` as the elapsed clock.
 - Each slice names why it stopped in `stop: ObserveLifecycleStop`:
   `Complete`, `Elapsed`, `SessionBudget`, `ByteBudget`, or
-  `Resync { reason }`. Every stop except `Elapsed` and `Resync` visited
-  at least one session in that call, so the host continues at once.
+  `Resync { reason }`. `SessionBudget` and `ByteBudget` visited at
+  least one session in that call, so the host continues at once.
   `Elapsed` is a time-slice yield that may have visited nothing; the
-  host runs the next slice on a later turn.
+  host runs the next slice on a later turn. `Complete` ends the pass;
+  on a pass with no live sessions it visited nothing.
 - `max_sessions = 0` returns `SessionBudgetZero`, and a zero
   `max_elapsed` returns `ElapsedBudgetZero`. Neither could ever advance
   a pass, so each is a typed error rather than an empty slice.
@@ -110,11 +111,12 @@ registry snapshot. `LifecycleBaselineBudget` supplies `max_rows`,
   decided freeze rows.
 - Each page names why it stopped in `stop: LifecycleBaselineStop`:
   `Complete`, `Elapsed`, `RowBudget`, `ByteBudget`, or
-  `Resync { reason }`. Every stop except `Elapsed` and `Resync`
-  advanced the freeze in that call (it indexed an entry or passed a
-  row), so the host continues at once. `Elapsed` is a time-slice yield
-  that may have advanced nothing; the host requests the next page on a
-  later turn.
+  `Resync { reason }`. `RowBudget` and `ByteBudget` advanced the
+  freeze in that call (it indexed an entry or passed a row), so the
+  host continues at once. `Elapsed` is a time-slice yield that may have
+  advanced nothing; the host requests the next page on a later turn.
+  `Complete` ends the snapshot; on an empty snapshot it advanced
+  nothing.
 - `max_rows = 0` returns `RowBudgetZero`, and a zero `max_elapsed`
   returns `ElapsedBudgetZero`, before any freeze is minted. Neither
   could ever advance a page.
