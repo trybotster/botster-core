@@ -251,16 +251,12 @@ fn multiplexer_invoke_plugin_exposes_timeout_and_backpressure_events() {
                 && failure.kind == PluginInvocationFailureKind::TimedOut
     ));
 
-    let cancellation_deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
-    while plugin_runtime.cancellations_observed() == 0
-        && std::time::Instant::now() < cancellation_deadline
-    {
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-    assert_eq!(plugin_runtime.cancellations_observed(), 1);
+    assert_eq!(
+        plugin_runtime.wait_for_cancellations(1, std::time::Duration::from_millis(250)),
+        1
+    );
 
-    let late_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
-        duration: std::time::Duration::from_millis(100),
+    let late_runtime = FakePluginRuntime::new(FakePluginBehavior::Held {
         payload: BoundaryJson(serde_json::json!({ "value": "late" })),
     });
     engine.load_plugin(plugin_registration(late_runtime, &plugin, &handler));

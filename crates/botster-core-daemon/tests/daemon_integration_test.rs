@@ -490,6 +490,7 @@ fn persistence_failure_rearms_and_later_commit_retires_the_wake() {
 
     assert!(failure.to_string().contains("Permission denied"));
     assert_eq!(daemon.wake_source().session_registry_len(), 1);
+    // timer: deadline — expiry fails the test
     let retry = daemon.wait_wakes(Duration::from_secs(1));
     assert_eq!(retry.ingress_sessions, vec![session_id.clone()]);
     let _ = daemon
@@ -1553,8 +1554,8 @@ fn worker_bound_adapter_receives_ready_finish_without_drain_snapshots() {
     let mut live_output = Vec::new();
     let mut seen_frames = 0;
     while started.elapsed() < REAL_WORKER_COMPLETION_TIMEOUT {
-        // timer: deadline — the loop's bound on the next wake
         let batch =
+            // timer: deadline — the loop's bound on the next wake
             daemon.wait_wakes(REAL_WORKER_COMPLETION_TIMEOUT.saturating_sub(started.elapsed()));
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
             let _ = daemon
@@ -1907,8 +1908,8 @@ fn bound_adapter_receives_live_bytes_when_process_exits_during_incremental_attac
     release.release(Duration::from_secs(10));
     let routing_deadline = Instant::now() + TICK_LOOP_BOUND;
     let full_queue_routing = loop {
-        // timer: deadline — the full-queue routing decision must arrive; expiry fails the test
         match probe_events
+            // timer: deadline — the full-queue routing decision must arrive; expiry fails the test
             .recv_timeout(routing_deadline.saturating_duration_since(Instant::now()))
             .expect("the parent reader routes the post-fence burst")
         {
@@ -2163,8 +2164,8 @@ fn a_capture_requested_after_the_worker_saw_the_exit_is_served_from_the_final_sc
     // Without pumping, wait until the parent reader has the worker's exit.
     let probe_deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
     loop {
-        // timer: deadline — the worker must report the exit; expiry fails the test
         match probe_events
+            // timer: deadline — the worker must report the exit; expiry fails the test
             .recv_timeout(probe_deadline.saturating_duration_since(Instant::now()))
             .expect("the worker reports the exit")
         {
@@ -2364,8 +2365,8 @@ fn the_default_shutdown_grace_kills_a_group_that_ignores_term() {
 fn wait_for_reader_end(events: &mpsc::Receiver<WorkerRouteProbeEvent>, session_id: &SessionId) {
     let probe_deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
     loop {
-        // timer: deadline — the reader must end; expiry fails the test
         match events
+            // timer: deadline — the reader must end; expiry fails the test
             .recv_timeout(probe_deadline.saturating_duration_since(Instant::now()))
             .expect("the parent reader reaches the worker's end of stream")
         {
@@ -2511,8 +2512,8 @@ fn a_capture_release_that_cannot_be_queued_never_fails_the_pump() {
     // the release is owed, and nothing has tried to queue it yet.
     let probe_deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
     loop {
-        // timer: deadline — the capture must finish at the worker; expiry fails the test
         match probe_events
+            // timer: deadline — the capture must finish at the worker; expiry fails the test
             .recv_timeout(probe_deadline.saturating_duration_since(Instant::now()))
             .expect("the worker finishes the capture")
         {
@@ -5186,8 +5187,8 @@ fn shutdown_delivers_process_exited_during_worker_hold_before_exit() {
     // reading that frame proves the hold has begun.
     let probe_deadline = Instant::now() + REAL_WORKER_COMPLETION_TIMEOUT;
     loop {
-        // timer: deadline — the parent must read the exit frame; expiry fails the test
         match probe_events
+            // timer: deadline — the parent must read the exit frame; expiry fails the test
             .recv_timeout(probe_deadline.saturating_duration_since(Instant::now()))
             .expect("the parent reads the worker's exit frame")
         {
@@ -7423,6 +7424,7 @@ fn pump_wakes_until(daemon: &mut CoreDaemon, mut done: impl FnMut() -> bool) -> 
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
         };
+        // timer: deadline — expiry fails the test
         let batch = daemon.wait_wakes(remaining);
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
             daemon.pump_woken(&batch, 30).expect("pump woken");

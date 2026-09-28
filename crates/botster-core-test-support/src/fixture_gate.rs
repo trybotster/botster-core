@@ -284,8 +284,8 @@ mod tests {
             });
             let _ = done_tx.send(result.is_err());
         });
-        // timer: deadline — a failed step must end the wait long before its bound
         let failed = done_rx
+            // timer: deadline — a failed step must end the wait long before its bound
             .recv_timeout(Duration::from_secs(10))
             .expect("the wait ended when its step failed");
         assert!(failed, "a failed step fails the wait");

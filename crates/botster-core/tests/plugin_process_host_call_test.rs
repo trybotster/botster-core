@@ -325,8 +325,8 @@ fn a_host_call_round_trips_and_its_unit_returns_when_its_result_drains() {
         matches!(admitted, PluginAdmissionResult::Queued { .. }),
         "{admitted:?}"
     );
-    // timer: deadline — the result completes; expiry fails the test
     completion_rx
+        // timer: deadline — the result completes; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the result completes");
     let drained = engine.drain_completions(16, 1024 * 1024);
@@ -455,9 +455,9 @@ impl Started {
     }
 
     fn wait(&self) {
-        // timer: deadline — the handler reports that it runs; expiry fails the test
         let line = self
             .rx
+            // timer: deadline — the handler reports that it runs; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("the handler started")
             .expect("read the started FIFO");
@@ -746,8 +746,8 @@ fn measure_host_call_round_trips() {
             ),
             &PluginCancellationToken::new(),
         );
-        // timer: deadline — the host call arrives; expiry fails the measurement
         let arrived = ingress_rx
+            // timer: deadline — the host call arrives; expiry fails the measurement
             .recv_timeout(EVENT_DEADLINE)
             .expect("the host call arrives");
         let call = match process.drain_ingress(1, 1024 * 1024).pop() {
@@ -764,8 +764,8 @@ fn measure_host_call_round_trips() {
             matches!(queued, PluginAdmissionResult::Queued { .. }),
             "{queued:?}"
         );
-        // timer: deadline — the result completes; expiry fails the measurement
         let completed_at = completion_rx
+            // timer: deadline — the result completes; expiry fails the measurement
             .recv_timeout(EVENT_DEADLINE)
             .expect("the result completes");
         assert_eq!(

@@ -71,6 +71,7 @@ fn complete_by_wakes(daemon: &mut CoreDaemon, id: PendingOperationId) -> CoreCom
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .unwrap_or_else(|| panic!("operation {id:?} stalled: no wake carried its progress"));
+        // timer: deadline — expiry fails the test
         let batch = daemon.wait_wakes(remaining);
         if batch.adapter_routes.is_empty() && batch.ingress_sessions.is_empty() {
             continue;

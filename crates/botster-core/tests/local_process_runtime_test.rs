@@ -428,6 +428,7 @@ fn local_process_runtime_wakes_the_session_when_the_child_exits_without_pty_eof(
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .expect("the child exit must wake the session before the deadline");
+        // timer: deadline — expiry fails the test
         let batch = wakes.wait_wakes(remaining);
         if batch.ingress_sessions.contains(&session) {
             output.extend(
@@ -925,6 +926,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
     });
 
     started_rx
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(1))
         .expect("shutdown thread should start");
     // The shutdown's TERM reached the stubborn leader: it is in its grace wait.
@@ -1288,6 +1290,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
     });
 
     started_rx
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(1))
         .expect("engine shutdown thread should start");
     // The shutdown's TERM reached the stubborn leader: it is in its grace wait.

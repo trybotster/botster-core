@@ -2096,6 +2096,7 @@ where
     /// Block until adapter or ingress wakes arrive, or `timeout` elapses.
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
+        // timer: deadline — forwards the caller's wait bound, clamped to the paste deadline
         let batch = self.wake_source.wait_wakes(self.clamp_paste_wait(timeout));
         self.merge_deadline_wakes(batch)
     }
@@ -3947,6 +3948,7 @@ mod tests {
         let mut peer = runtime
             .session_runtime_mut()
             .insert_test_socket_session(session_id.clone());
+        // timer: deadline — a read past the bound fails the test
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("bounded peer read");
         let request_id = runtime

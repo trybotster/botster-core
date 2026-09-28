@@ -898,6 +898,7 @@ impl PluginWorkerEngine {
         }
         worker.work_signal.notify();
 
+        // timer: deadline — the invocation's own timeout_ms
         match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
             Ok(result) => PluginInvocationOutcome::new(result),
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -4180,8 +4181,8 @@ mod tests {
     ) {
         let deadline = Instant::now() + bound;
         loop {
-            // timer: deadline — the caller's bound; expiry fails the test
             let event = events
+                // timer: deadline — the caller's bound; expiry fails the test
                 .recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .expect("the engine reports the awaited event");
             if wanted(&event) {
@@ -4462,8 +4463,8 @@ mod tests {
         }));
         let (holding, resume) = install_idle_pause(&engine, site);
         nudge(&engine, &plugin);
-        // timer: deadline — the idle thread must reach its wait; expiry fails the test
         holding
+            // timer: deadline — the idle thread must reach its wait; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("the idle thread holds its lock");
 
@@ -4476,8 +4477,8 @@ mod tests {
         assert!(wakes.try_recv().is_err(), "nothing released yet");
 
         resume.send(()).expect("resume the idle thread");
-        // timer: deadline — the armed wake must arrive; expiry fails the test
         wakes
+            // timer: deadline — the armed wake must arrive; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("the release into the idle wait wakes the parked host");
         assert!(matches!(
@@ -4531,8 +4532,8 @@ mod tests {
         let blocking = std::thread::spawn(move || {
             blocking_engine.invoke(request("blocking", blocking_handler, 60_000))
         });
-        // timer: deadline — the blocking job must start; expiry fails the test
         entered_rx
+            // timer: deadline — the blocking job must start; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("blocking job runs");
 
@@ -4565,8 +4566,8 @@ mod tests {
 
         *runtime.released.lock().expect("runtime gate") = true;
         runtime.wake.notify_all();
-        // timer: deadline — the armed wake must arrive; expiry fails the test
         wakes
+            // timer: deadline — the armed wake must arrive; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("the executor release wakes the parked host");
         blocking.join().expect("blocking caller");
@@ -4602,8 +4603,8 @@ mod tests {
             ),
             PluginAdmissionResult::Queued { .. }
         ));
-        // timer: deadline — the completion wake must arrive; expiry fails the test
         let in_flight = in_flight_at_wake
+            // timer: deadline — the completion wake must arrive; expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("completion wake");
         assert_eq!(
@@ -4651,6 +4652,7 @@ mod tests {
             PluginAdmissionResult::Queued { .. }
         ));
         entered_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("handler entered");
         {
@@ -4664,6 +4666,7 @@ mod tests {
         }
         engine.inner.shared.deadline_signal.notify();
         sealed_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("real deadline waiter sealed before publication");
         assert_eq!(
@@ -4674,6 +4677,7 @@ mod tests {
         if publish_before_retire {
             resume.send(()).expect("publish before retire");
             notified_rx
+                // timer: deadline — expiry fails the test
                 .recv_timeout(Duration::from_secs(5))
                 .expect("deadline published");
         }
@@ -4689,6 +4693,7 @@ mod tests {
         );
         publish_immediate_failure(&engine, &plugin, "same");
         notified_rx
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("replacement published");
         assert_eq!(completion_store_counts(&engine).2, 2);
@@ -4714,6 +4719,7 @@ mod tests {
             );
             resume.send(()).expect("publish into retired generation");
             notified_rx
+                // timer: deadline — expiry fails the test
                 .recv_timeout(Duration::from_secs(5))
                 .expect("late deadline published");
         }
@@ -5075,8 +5081,8 @@ mod tests {
                 let _ = locked_sender
                     .send(shared.metrics.undrained_completions.load(Ordering::SeqCst) > 0);
             });
-            // timer: deadline — both locks must be free of the notifying thread; expiry fails the test
             let published = locked
+                // timer: deadline — both locks must be free of the notifying thread; expiry fails the test
                 .recv_timeout(Duration::from_secs(5))
                 .expect("admission and store locks are released before the notification");
             assert!(published, "completion is published");
@@ -5098,6 +5104,7 @@ mod tests {
         ));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(100))
             .expect("completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");
@@ -5134,6 +5141,7 @@ mod tests {
         ));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(250))
             .expect("completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");
@@ -5165,6 +5173,7 @@ mod tests {
         }));
 
         receiver
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_millis(100))
             .expect("reconciled completion notification");
         assert!(receiver.try_recv().is_err(), "one notification");

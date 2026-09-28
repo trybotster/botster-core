@@ -78,8 +78,8 @@ fn start(config: PluginProcessConfig) -> Arc<PluginProcess> {
     thread::spawn(move || {
         let _ = tx.send(PluginProcess::spawn(&config, &load));
     });
-    // timer: deadline — the worker reaches Loaded; expiry fails the test
     let (process, _) = rx
+        // timer: deadline — the worker reaches Loaded; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("spawn resolves")
         .expect("loaded");
@@ -191,9 +191,9 @@ impl Started {
 
     /// Wait until the handler reports that it runs.
     fn wait(&self) {
-        // timer: deadline — the handler reports that it runs; expiry fails the test
         let line = self
             .rx
+            // timer: deadline — the handler reports that it runs; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("the handler started")
             .expect("read the started FIFO");
@@ -516,8 +516,8 @@ fn a_kill_ends_the_whole_process_group() {
         let mut sink = Vec::new();
         let _ = died.send(alive_read.read_to_end(&mut sink).is_ok());
     });
-    // timer: deadline — EOF on the alive FIFO means the descendant died; expiry means only the leader died
     assert!(descendant_died
+        // timer: deadline — EOF on the alive FIFO means the descendant died; expiry means only the leader died
         .recv_timeout(EVENT_DEADLINE)
         .expect("the kill ended the whole group"));
     let _ = std::fs::remove_dir_all(&dir);
