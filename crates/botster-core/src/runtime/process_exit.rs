@@ -475,8 +475,23 @@ mod tests {
             !watch.poll_exited().expect("check"),
             "a stop is not an exit"
         );
+        // SIGCHLD is process-wide: a sibling test's child can make the watch
+        // readable again right after the check. Each check consumes what is
+        // pending, so the watch soon reads idle; an unconsumed stop event
+        // would keep it readable for good. Bounded by checks, not time.
+        let consumed = (0..1000).any(|_| {
+            if readable_now(fd) {
+                assert!(
+                    !watch.poll_exited().expect("check"),
+                    "the child is only stopped"
+                );
+                false
+            } else {
+                true
+            }
+        });
         assert!(
-            !readable_now(fd),
+            consumed,
             "the checked stop event still makes the watch readable"
         );
 
