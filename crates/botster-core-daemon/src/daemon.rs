@@ -1924,6 +1924,11 @@ impl CoreDaemon {
                 self.completions
                     .push(CoreCompletion::RemoveSession { id, result });
             }
+            CoreOperation::ReleaseEndedSession(session_id) => {
+                let result = self.release_ended_session(&session_id);
+                self.completions
+                    .push(CoreCompletion::ReleaseEndedSession { id, result });
+            }
             CoreOperation::ReadScreen(request) => self.begin_read_screen(id, request)?,
             CoreOperation::ReadModeFlags(request) => self.begin_read_mode_flags(id, request)?,
             CoreOperation::CaptureSnapshot { request, owner } => {
@@ -3525,24 +3530,67 @@ impl CoreDaemon {
     /// stopping sessions and `true` after complete terminal cleanup.
     pub fn remove_session(&mut self, session_id: &SessionId) -> Result<bool, CoreDaemonError> {
         self.ensure_running()?;
-        let record = self
-            .registry
-            .load(session_id)?
-            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
-        if !matches!(
-            record.state,
-            RegistrySessionState::Exited | RegistrySessionState::Stale
-        ) || self.engine.session(session_id).is_some_and(|session| {
-            !matches!(
-                session.lifecycle,
-                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
-            )
-        }) {
+        if !self.session_has_ended(session_id)? {
             return Ok(false);
         }
 
         self.fence_baseline_before_remove(session_id)?;
         self.registry.remove(session_id)?;
+        self.forget_ended_engine_state(session_id);
+        // The session is gone, so its envelope targets are too.
+        self.envelope_router.forget_session_targets(session_id);
+        self.append_lifecycle_change(SessionLifecycleChangeKind::Removed {
+            session_id: session_id.clone(),
+        });
+        Ok(true)
+    }
+
+    /// Release an ended session's engine state so the same `SessionId` can
+    /// be reserved and spawned again in place.
+    ///
+    /// The preconditions match [`Self::remove_session`]: the registry row is
+    /// `Exited` or `Stale`, and the engine session is absent or terminal;
+    /// otherwise `Ok(false)` and nothing changes. It forgets what
+    /// `remove_session` forgets inside the engine (the session, its admission
+    /// entry, its retained final screen, commit bookkeeping, its observe
+    /// entry and pending drains), but it keeps the registry row, journals
+    /// nothing, and keeps the session's routed-envelope targets: the id is
+    /// the same identity, so unacknowledged envelopes reach the next spawn.
+    /// A later spawn under the id replaces the row with one `Upsert`; if it
+    /// fails, the row stays ended.
+    pub fn release_ended_session(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<bool, CoreDaemonError> {
+        self.ensure_running()?;
+        if !self.session_has_ended(session_id)? {
+            return Ok(false);
+        }
+        self.forget_ended_engine_state(session_id);
+        Ok(true)
+    }
+
+    /// The registry row is `Exited` or `Stale` and the engine session, if
+    /// any, is terminal. A missing row is [`CoreDaemonError::UnknownSession`].
+    fn session_has_ended(&self, session_id: &SessionId) -> Result<bool, CoreDaemonError> {
+        let record = self
+            .registry
+            .load(session_id)?
+            .ok_or_else(|| CoreDaemonError::UnknownSession(session_id.clone()))?;
+        Ok(matches!(
+            record.state,
+            RegistrySessionState::Exited | RegistrySessionState::Stale
+        ) && !self.engine.session(session_id).is_some_and(|session| {
+            !matches!(
+                session.lifecycle,
+                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
+            )
+        }))
+    }
+
+    /// Forget an ended session's engine-side state; the registry, the
+    /// journal and envelope targets are the caller's.
+    fn forget_ended_engine_state(&mut self, session_id: &SessionId) {
         if self.engine.session(session_id).is_some() {
             let forgotten = self.engine.forget_terminal_session(session_id);
             assert!(
@@ -3551,16 +3599,10 @@ impl CoreDaemon {
             );
         }
         self.forget_retained(session_id);
-        // The session is gone, so its envelope targets are too.
-        self.envelope_router.forget_session_targets(session_id);
         self.terminal_commit_obligations.remove(session_id);
         self.terminal_commit_failures.remove(session_id);
         self.observe_live_sessions.remove(&session_id.0);
         self.drop_pending_drain(session_id);
-        self.append_lifecycle_change(SessionLifecycleChangeKind::Removed {
-            session_id: session_id.clone(),
-        });
-        Ok(true)
     }
     /// Release worker processes for an intentional daemon restart without shutting them down.
     pub fn release_for_restart(&mut self) {

@@ -4864,6 +4864,235 @@ fn lifecycle_baseline_pages_reconstruct_the_full_snapshot() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// Begin one operation that completes synchronously on the in-process
+/// engine and return its completion.
+fn complete_now(
+    daemon: &mut CoreDaemon,
+    operation: botster_core_daemon::CoreOperation,
+) -> botster_core_daemon::CoreCompletion {
+    let id = daemon.begin(operation).expect("begin the operation");
+    let mut completions = daemon.take_completions();
+    let index = completions
+        .iter()
+        .position(|completion| completion.id() == id)
+        .expect("the operation completed synchronously");
+    completions.swap_remove(index)
+}
+
+/// Spawn a session that exits at once, attach a route while it runs, and
+/// wait until its registry row is Exited. Returns the route's generation.
+fn spawn_until_exited(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    client_id: &ClientId,
+    subscription_id: &SubscriptionId,
+) -> TerminalSubscriptionGeneration {
+    daemon
+        .spawn(immediate_exit_spawn_request(session_id), 10)
+        .expect("spawn the first run");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            11,
+        )
+        .expect("attach the first run");
+    let generation = daemon
+        .terminal_subscription_generation(session_id, subscription_id)
+        .expect("the first run's route generation");
+    on_wakes_until(
+        daemon,
+        "the first run's exit committed",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |daemon| {
+            let _ = daemon.observe_lifecycle(12).expect("observe");
+            matches!(
+                daemon.session_registry_state(session_id).expect("state"),
+                SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
+            )
+            .then_some(())
+        },
+    );
+    generation
+}
+
+/// An ended session is released and spawned again under the same id: the
+/// row goes from Exited to Running in one Upsert, nothing is Removed, the
+/// route gets a fresh generation, and an unacknowledged envelope reaches the
+/// new run.
+#[cfg(unix)]
+#[test]
+fn a_released_ended_session_respawns_in_place_under_the_same_id() {
+    use botster_core_daemon::operation::ReservedSpawnResult;
+    use botster_core_daemon::{CoreCompletion, CoreOperation};
+    let data_dir = temp_data_dir("release-ended-respawn");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("respawned-session".to_string());
+    let client_id = ClientId("respawn-client".to_string());
+    let subscription_id = SubscriptionId("respawn-route".to_string());
+    let first_generation =
+        spawn_until_exited(&mut daemon, &session_id, &client_id, &subscription_id);
+    daemon
+        .publish_routed_envelope(PublishRoutedEnvelopeRequest {
+            envelope: envelope("env-inbox", vec![session_target(&session_id)]),
+        })
+        .expect("queue a message for the ended session");
+    let cursor = daemon.lifecycle_baseline().expect("baseline").cursor;
+
+    match complete_now(
+        &mut daemon,
+        CoreOperation::ReleaseEndedSession(session_id.clone()),
+    ) {
+        CoreCompletion::ReleaseEndedSession { result, .. } => {
+            assert!(result.expect("release"), "an ended session is released");
+        }
+        other => panic!("unexpected completion {other:?}"),
+    }
+    let reservation = match complete_now(
+        &mut daemon,
+        CoreOperation::ReserveSession(session_id.clone()),
+    ) {
+        CoreCompletion::ReserveSession { result, .. } => {
+            result.expect("the released id can be reserved again")
+        }
+        other => panic!("unexpected completion {other:?}"),
+    };
+    match complete_now(
+        &mut daemon,
+        CoreOperation::SpawnReserved {
+            reservation,
+            request: spawn_request(&session_id),
+        },
+    ) {
+        CoreCompletion::SpawnReserved {
+            result: ReservedSpawnResult::Installed { .. },
+            ..
+        } => {}
+        other => panic!("the respawn must install: {other:?}"),
+    }
+
+    let changes = daemon.lifecycle_changes(&cursor);
+    assert!(changes.resync_required.is_none());
+    assert!(
+        changes
+            .changes
+            .iter()
+            .all(|change| !matches!(change.kind, SessionLifecycleChangeKind::Removed { .. })),
+        "a respawn journals no Removed: {:?}",
+        changes.changes
+    );
+    assert!(changes.changes.iter().any(|change| matches!(
+        &change.kind,
+        SessionLifecycleChangeKind::Upsert { record }
+            if record.session.session_id == session_id
+                && record.session.registry_state == RegistrySessionState::Running
+    )));
+    assert_eq!(
+        daemon.session_registry_state(&session_id).expect("state"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Running)
+    );
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            20,
+        )
+        .expect("attach the new run");
+    let second_generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("the new run's route generation");
+    assert!(second_generation > first_generation, "a fresh generation");
+    let inbox = daemon
+        .drain_routed_envelopes(DrainRoutedEnvelopesRequest {
+            target: session_target(&session_id),
+            after: None,
+            limit: 8,
+        })
+        .expect("drain the session inbox");
+    assert_eq!(
+        inbox
+            .envelopes
+            .iter()
+            .map(|e| e.id.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["env-inbox"],
+        "the unacknowledged envelope survives the restart"
+    );
+    daemon.shutdown(Some(session_id), 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Release refuses a live session, like remove_session. A respawn that
+/// fails after release leaves the row ended, and removal still works.
+#[cfg(unix)]
+#[test]
+fn a_failed_respawn_after_release_leaves_the_row_ended_and_removable() {
+    use botster_core_daemon::operation::ReservedSpawnResult;
+    use botster_core_daemon::{CoreCompletion, CoreOperation};
+    let data_dir = temp_data_dir("release-ended-failed-respawn");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let live = SessionId("still-live-session".to_string());
+    daemon
+        .spawn(spawn_request(&live), 5)
+        .expect("spawn a live session");
+    assert!(
+        !daemon
+            .release_ended_session(&live)
+            .expect("release a live session"),
+        "a live session is not released"
+    );
+
+    let session_id = SessionId("failed-respawn-session".to_string());
+    spawn_until_exited(
+        &mut daemon,
+        &session_id,
+        &ClientId("failed-client".to_string()),
+        &SubscriptionId("failed-route".to_string()),
+    );
+    assert!(daemon.release_ended_session(&session_id).expect("release"));
+    let reservation = match complete_now(
+        &mut daemon,
+        CoreOperation::ReserveSession(session_id.clone()),
+    ) {
+        CoreCompletion::ReserveSession { result, .. } => result.expect("reserve"),
+        other => panic!("unexpected completion {other:?}"),
+    };
+    let mut failing = spawn_request(&session_id);
+    failing.request.executable = "/nonexistent/botster-respawn-binary".to_string();
+    match complete_now(
+        &mut daemon,
+        CoreOperation::SpawnReserved {
+            reservation: reservation.clone(),
+            request: failing,
+        },
+    ) {
+        CoreCompletion::SpawnReserved {
+            result: ReservedSpawnResult::Installed { .. },
+            ..
+        } => panic!("a missing executable must not install"),
+        CoreCompletion::SpawnReserved { .. } => {}
+        other => panic!("unexpected completion {other:?}"),
+    }
+    let _ = complete_now(
+        &mut daemon,
+        CoreOperation::ReleaseSessionReservation(reservation),
+    );
+
+    assert_eq!(
+        daemon.session_registry_state(&session_id).expect("state"),
+        SessionRegistryStateLookup::Found(RegistrySessionState::Exited),
+        "the failed respawn leaves the row ended"
+    );
+    assert!(
+        daemon.remove_session(&session_id).expect("remove"),
+        "the ended row is still removable"
+    );
+    daemon.shutdown(Some(live), 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn lifecycle_baseline_pages_ignore_observe_mutations() {
