@@ -9,11 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use botster_core::{
     ClientId, CoreSessionMetadata, DefaultBotsterEngine, LocalProcessRuntime,
-    LocalProcessRuntimeOptions, MultiplexerEngine, ProcessExitedPayload, QueueSource, RequestId,
-    ResizePayload, SessionId, SessionLifecycleState, SessionRuntime, SessionRuntimeErrorKind,
-    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, SpawnEnvironment,
-    SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId, TerminalWakeSource,
-    TransportEgress, DEFAULT_PTY_READER_CHUNK_CAPACITY,
+    LocalProcessRuntimeOptions, MultiplexerEngine, ProcessExitedPayload, PtyRead, QueueSource,
+    RequestId, ResizePayload, SessionId, SessionLifecycleState, SessionRuntime,
+    SessionRuntimeErrorKind, SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest,
+    SpawnEnvironment, SpawnEnvironmentVariable, SpawnWorkingDirectory, SubscriptionId,
+    TerminalWakeSource, TransportEgress, DEFAULT_PTY_READER_CHUNK_CAPACITY,
 };
 use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 
@@ -1365,4 +1365,167 @@ fn local_runtime_docs_and_tests_do_not_embed_private_paths_or_pii() {
             );
         }
     }
+}
+
+/// Drive a polled session the way a single-thread owner does: wait in `poll`
+/// on its descriptors, read or check what is ready, then drain. No thread
+/// reads the PTY or waits for the exit. `barrier_after_first_output` takes
+/// one PTY I/O barrier drain after the first chunk, which must not wait for
+/// a reader that does not exist.
+fn drive_polled_session(
+    runtime: &mut LocalProcessRuntime,
+    session: &SessionId,
+    barrier_after_first_output: bool,
+) -> Vec<SessionRuntimeOutput> {
+    let fds = runtime.poll_fds(session).expect("poll fds");
+    let mut pty_open = true;
+    let mut exit_watch = fds.exit;
+    let mut barrier_pending = barrier_after_first_output;
+    let mut output = Vec::new();
+    while !has_exit(&output) {
+        let mut poll_fds = Vec::new();
+        if pty_open {
+            poll_fds.push(libc::pollfd {
+                fd: fds.pty,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+        if let Some(fd) = exit_watch {
+            poll_fds.push(libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+        assert!(
+            !poll_fds.is_empty(),
+            "the PTY ended and the exit was seen, yet no exit was drained"
+        );
+        let count = loop {
+            // timer: deadline — the next PTY chunk or exit must arrive; expiry fails the test
+            // SAFETY: poll_fds is a live array of valid pollfd records.
+            let count = unsafe {
+                libc::poll(
+                    poll_fds.as_mut_ptr(),
+                    libc::nfds_t::try_from(poll_fds.len()).expect("fd count"),
+                    10_000,
+                )
+            };
+            if count >= 0
+                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
+                break count;
+            }
+        };
+        assert!(count > 0, "no PTY or exit event within the deadline");
+        for poll_fd in &poll_fds {
+            if poll_fd.revents == 0 {
+                continue;
+            }
+            if poll_fd.fd == fds.pty {
+                if runtime.read_ready(session).expect("read ready") == PtyRead::Closed {
+                    pty_open = false;
+                }
+            } else if runtime.poll_exit(session).expect("poll exit") {
+                exit_watch = None;
+            }
+        }
+        output.extend(runtime.drain_output(session).expect("drain"));
+        if barrier_pending && !output_text(&output).is_empty() {
+            barrier_pending = false;
+            output.extend(
+                runtime
+                    .with_pty_io_barrier(session, |barrier| barrier.drain_output())
+                    .expect("barrier drain"),
+            );
+        }
+    }
+    output
+}
+
+#[test]
+fn a_polled_session_delivers_every_byte_then_its_exit() {
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(runtime_options()).with_polled_pty();
+    let session = session_id("local-runtime-polled-flood");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "stty -onlcr; seq 1 20000; exit 3",
+        ))
+        .expect("spawn polled session");
+
+    let output = drive_polled_session(&mut runtime, &session, true);
+
+    let want: String = (1..=20000).map(|line| format!("{line}\n")).collect();
+    assert_eq!(output_text(&output), want, "every byte, in order");
+    assert!(
+        matches!(
+            output.last(),
+            Some(SessionRuntimeOutput::ProcessExited { payload, .. }) if payload.exit_code == Some(3)
+        ),
+        "the exit is last: {:?}",
+        output.last()
+    );
+}
+
+#[test]
+fn a_polled_read_with_a_full_queue_reads_nothing_until_a_drain() {
+    let _guard = local_process_test_lock();
+    let mut runtime = LocalProcessRuntime::with_options(LocalProcessRuntimeOptions {
+        test_pending_capacity: Some(1),
+        ..runtime_options()
+    })
+    .with_polled_pty();
+    let session = session_id("local-runtime-polled-full");
+    let gate = Fifo::new("polled-full-gate");
+    runtime
+        .spawn_session(shell_request_with_env(
+            session.clone(),
+            "stty -onlcr; /bin/echo first; /bin/cat \"$GATE\" >/dev/null; /bin/echo second; exec /bin/cat >/dev/null",
+            SpawnEnvironment {
+                variables: vec![env_var("GATE", gate.path().display().to_string())],
+            },
+        ))
+        .expect("spawn polled session");
+    let fds = runtime.poll_fds(&session).expect("poll fds");
+    let wait_readable = || {
+        let mut poll_fd = libc::pollfd {
+            fd: fds.pty,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // timer: deadline — the child's line must arrive; expiry fails the test
+        // SAFETY: poll_fd points at one valid pollfd for the call.
+        assert_eq!(
+            unsafe { libc::poll(&mut poll_fd, 1, 10_000) },
+            1,
+            "no output"
+        );
+    };
+
+    wait_readable();
+    assert_eq!(runtime.read_ready(&session).expect("read"), PtyRead::Output);
+    // Let the second line reach the PTY, so a read now would find it.
+    // timer: deadline — the child must reach its gate; expiry fails the test
+    gate.release(Duration::from_secs(5));
+    wait_readable();
+    assert_eq!(
+        runtime.read_ready(&session).expect("read"),
+        PtyRead::Full,
+        "a full queue must not take another chunk"
+    );
+    let first = runtime.drain_output(&session).expect("drain");
+    assert_eq!(output_text(&first), "first\n");
+    assert_eq!(runtime.read_ready(&session).expect("read"), PtyRead::Output);
+    assert_eq!(
+        output_text(&runtime.drain_output(&session).expect("drain")),
+        "second\n"
+    );
+    runtime
+        .send_input(SessionRuntimeInput::Shutdown {
+            session_id: session.clone(),
+        })
+        .expect("shutdown");
 }
