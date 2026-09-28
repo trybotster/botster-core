@@ -313,6 +313,19 @@ pub enum CoreDaemonError {
     /// Session id was not found.
     #[error("unknown session: {0:?}")]
     UnknownSession(SessionId),
+    /// A session's lifecycle commit failed on every re-armed retry; Core
+    /// re-arms it no more. A fault for the host, not a retry: without it
+    /// the session, and a set journal bit, would wait on an unrelated wake.
+    #[error("session {session_id:?} lifecycle commit failed {attempts} times: {source}")]
+    LifecycleCommitExhausted {
+        /// The session whose commit Core stopped retrying.
+        session_id: SessionId,
+        /// Failed attempts, the re-arm limit.
+        attempts: u8,
+        /// The last failure.
+        #[source]
+        source: Box<CoreDaemonError>,
+    },
     /// Session exists but no longer accepts terminal readback.
     #[error("session is not readable: {0:?}")]
     SessionNotReadable(SessionId),
@@ -421,7 +434,14 @@ pub struct CoreDaemon {
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
+    /// The journal advanced since the last pump reported it. Only
+    /// [`CoreDaemon::pump_woken`] takes it, into its outcome.
     journal_advanced: bool,
+    /// A pump is running: an append now is reported by that pump itself.
+    pumping: bool,
+    /// An append during this pump raised the bit and posted no wake, because
+    /// the pump reports it. If the pump fails instead, it posts that wake.
+    journal_wake_withheld: bool,
     observe_pass: Option<ObservePassState>,
     observe_live_sessions: BTreeMap<String, u64>,
     observe_live_generation: u64,
@@ -609,6 +629,8 @@ impl CoreDaemon {
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
+            pumping: false,
+            journal_wake_withheld: false,
             observe_pass: None,
             observe_live_sessions: BTreeMap::new(),
             observe_live_generation: 0,
@@ -1024,17 +1046,6 @@ impl CoreDaemon {
         }
     }
 
-    /// Take the coalesced journal-advanced wake bit.
-    ///
-    /// The wake is one pending bit, not a queue. Page and baseline never clear
-    /// it. Append always sets it. Safe consumer order is take, page until
-    /// caught up or resync, take again, and re-page if that second take is
-    /// true.
-    #[must_use]
-    pub fn take_journal_advanced_wake(&mut self) -> bool {
-        std::mem::take(&mut self.journal_advanced)
-    }
-
     /// Record that the next attach for this identity will bind an adapter.
     ///
     /// After a matching [`Self::attach`], `AttachedSession.client_egress` holds
@@ -1366,13 +1377,86 @@ impl CoreDaemon {
     /// Targeted pump of woken routes. Does not scan unnamed sessions.
     ///
     /// Core commits lifecycle observations and retains unmatched output before
-    /// this method returns. Hosts can ignore the content-free outcome.
+    /// this method returns. The outcome's `journal_advanced` is the only
+    /// report of lifecycle journal appends: page the journal when it is set.
+    ///
+    /// # Errors
+    ///
+    /// After [`Self::ensure_running`], every failure re-arms the failing
+    /// session's wake, so another pump follows without a host timer: a
+    /// session's engine pump failed, or a registry write failed while
+    /// committing a size or lifecycle change (its drain result is retained).
+    /// Such an error is a retry, not a fault. Core re-arms a session a bounded
+    /// number of times; the pump in which one runs out returns
+    /// [`CoreDaemonError::LifecycleCommitExhausted`], a fault the host must
+    /// surface. A failed pump reports no journal bit; it posts one wake if an
+    /// append it made withheld one, and never more for the same bit, and the
+    /// next successful pump reports the bit.
     pub fn pump_woken(
         &mut self,
         batch: &TerminalWakeBatch,
         now_seconds: u64,
     ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         self.ensure_running()?;
+        self.pumping = true;
+        let result = self.pump_woken_batch(batch, now_seconds);
+        self.pumping = false;
+        self.finish_pump(result)
+    }
+
+    /// A pump failure is retryable while every failing session still has
+    /// a re-arm; once one has used them all, it is a typed fault.
+    fn classify_pump_failure(
+        &self,
+        pumped_sessions: &[SessionId],
+        error: CoreDaemonError,
+    ) -> CoreDaemonError {
+        let exhausted = pumped_sessions.iter().find(|session_id| {
+            self.terminal_commit_failures
+                .get(*session_id)
+                .is_some_and(|failures| *failures >= TERMINAL_COMMIT_REARM_LIMIT)
+        });
+        match exhausted {
+            Some(session_id) => CoreDaemonError::LifecycleCommitExhausted {
+                session_id: session_id.clone(),
+                attempts: TERMINAL_COMMIT_REARM_LIMIT,
+                source: Box::new(error),
+            },
+            None => error,
+        }
+    }
+
+    /// Report the journal bit on success; on failure post a withheld wake.
+    fn finish_pump(
+        &mut self,
+        result: Result<PumpWokenOutcome, CoreDaemonError>,
+    ) -> Result<PumpWokenOutcome, CoreDaemonError> {
+        match result {
+            Ok(mut outcome) => {
+                // The only reader of the journal bit.
+                self.journal_wake_withheld = false;
+                outcome.journal_advanced = std::mem::take(&mut self.journal_advanced);
+                Ok(outcome)
+            }
+            Err(error) => {
+                // This pump reports nothing. If it withheld the wake of an
+                // append it made, post that wake now, once. A bit whose wake
+                // was already posted gets no second one, so a failure that
+                // repeats cannot loop the host hot; Core's own bounded
+                // re-arm retries the failed session.
+                if std::mem::take(&mut self.journal_wake_withheld) {
+                    self.engine.wake_source().interrupt_handle().interrupt();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn pump_woken_batch(
+        &mut self,
+        batch: &TerminalWakeBatch,
+        now_seconds: u64,
+    ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         let terminal_inventory_revision_before = self.acknowledged_terminal_inventory_revision;
         let pumped_routes = batch.adapter_routes.len();
         let mut session_ids: Vec<_> = batch
@@ -1384,6 +1468,7 @@ impl CoreDaemon {
         session_ids.sort_by(|left, right| left.0.cmp(&right.0));
         session_ids.dedup();
 
+        let pumped_sessions = session_ids.clone();
         let mut first_error = None;
         let mut pumped_results = Vec::with_capacity(session_ids.len());
         for session_id in session_ids {
@@ -1449,7 +1534,7 @@ impl CoreDaemon {
         self.reconcile_pending(now_seconds);
 
         if let Some(error) = first_error {
-            Err(error)
+            Err(self.classify_pump_failure(&pumped_sessions, error))
         } else {
             let terminal_inventory_revision_after = self.engine.terminal_inventory_revision();
             self.acknowledged_terminal_inventory_revision = terminal_inventory_revision_after;
@@ -1457,6 +1542,7 @@ impl CoreDaemon {
                 pumped_routes,
                 terminal_inventory_changed: terminal_inventory_revision_before
                     != terminal_inventory_revision_after,
+                journal_advanced: false,
             })
         }
     }
@@ -4391,7 +4477,18 @@ impl CoreDaemon {
         while self.lifecycle_journal.len() > capacity {
             self.lifecycle_journal.pop_front();
         }
+        // The rising edge wakes the host once for a burst of appends; the
+        // interrupt is a stored permit, so a wait entered later still sees
+        // it. An append during a pump needs no wake: that pump reports it.
+        let rising = !self.journal_advanced;
         self.journal_advanced = true;
+        if rising {
+            if self.pumping {
+                self.journal_wake_withheld = true;
+            } else {
+                self.engine.wake_source().interrupt_handle().interrupt();
+            }
+        }
     }
 }
 
@@ -6722,6 +6819,137 @@ mod baseline_freeze_bound_tests {
         assert_eq!(page.changes.len(), 1);
         assert_ne!(page.next, after, "the named budget makes progress");
         assert_eq!(encoded_lifecycle_page_len(&page), needed);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    fn journal_record() -> RegistryRecord {
+        RegistryRecord::running(
+            SessionId("journal-wake".to_string()),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            1,
+        )
+    }
+
+    fn woke(daemon: &CoreDaemon) -> bool {
+        matches!(
+            daemon
+                .wake_source()
+                .wait_wakes_interruptible(Duration::ZERO),
+            botster_core::TerminalWakeWait::Interrupted
+        )
+    }
+
+    /// S10 (2.4.3): an append outside a pump wakes the host as a stored
+    /// permit, so a wait entered after it still returns; only the bit's
+    /// rising edge wakes, so appends before the next pump add no wake; and
+    /// the pump reports the bit exactly once.
+    #[test]
+    fn a_journal_append_wakes_the_host_once_per_edge_and_the_pump_reports_it() {
+        let data_dir = data_dir("journal-wake");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let record = journal_record();
+
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(woke(&daemon), "the append left a stored wake");
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(
+            !woke(&daemon),
+            "the bit is still set: a later append in the same edge adds no wake"
+        );
+
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 2)
+            .expect("pump");
+        assert!(outcome.journal_advanced, "the pump reports the append");
+        let again = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 3)
+            .expect("pump");
+        assert!(!again.journal_advanced, "the pump took the bit");
+
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(
+            woke(&daemon),
+            "after the pump took it, an append is a new edge"
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// An append during a pump posts no wake: that pump reports it.
+    #[test]
+    fn a_journal_append_during_a_pump_is_reported_by_that_pump_not_a_wake() {
+        let data_dir = data_dir("journal-in-pump");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        daemon.pumping = true;
+        daemon.append_lifecycle_upsert(&journal_record(), None);
+        daemon.pumping = false;
+        assert!(!woke(&daemon), "no wake for an append the pump reports");
+        assert!(daemon.journal_advanced);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    fn failed_pump() -> Result<PumpWokenOutcome, CoreDaemonError> {
+        Err(CoreDaemonError::UnknownSession(SessionId(
+            "failed".to_string(),
+        )))
+    }
+
+    /// A failed pump posts the wake it withheld, once; a bit whose wake was
+    /// already posted gets none, so a failure that repeats cannot loop the
+    /// host hot.
+    #[test]
+    fn a_failed_pump_posts_only_a_withheld_journal_wake_and_only_once() {
+        let data_dir = data_dir("journal-failed-pump");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+
+        // An append during the pump withheld its wake; the pump fails.
+        daemon.pumping = true;
+        daemon.append_lifecycle_upsert(&journal_record(), None);
+        daemon.pumping = false;
+        assert!(daemon.finish_pump(failed_pump()).is_err());
+        assert!(woke(&daemon), "the withheld wake is posted");
+        // The bit is still set; the same failure again posts nothing.
+        assert!(daemon.finish_pump(failed_pump()).is_err());
+        assert!(!woke(&daemon), "no second wake for the same bit");
+
+        // A bit whose wake was posted outside the pump: a failure adds none.
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 2)
+            .expect("pump");
+        assert!(outcome.journal_advanced);
+        daemon.append_lifecycle_upsert(&journal_record(), None);
+        assert!(woke(&daemon), "the append's own wake");
+        assert!(daemon.finish_pump(failed_pump()).is_err());
+        assert!(!woke(&daemon), "a failure does not repeat a posted wake");
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// A pump failure stays a retry while the session has re-arms left, and
+    /// becomes a typed fault once they are used up: never a silent stall.
+    #[test]
+    fn a_pump_failure_becomes_a_fault_once_the_session_is_out_of_rearms() {
+        let data_dir = data_dir("pump-exhausted");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session = SessionId("exhausted".to_string());
+        let failure = || CoreDaemonError::UnknownSession(SessionId("cause".to_string()));
+
+        daemon
+            .terminal_commit_failures
+            .insert(session.clone(), TERMINAL_COMMIT_REARM_LIMIT - 1);
+        assert!(matches!(
+            daemon.classify_pump_failure(std::slice::from_ref(&session), failure()),
+            CoreDaemonError::UnknownSession(_)
+        ));
+
+        daemon
+            .terminal_commit_failures
+            .insert(session.clone(), TERMINAL_COMMIT_REARM_LIMIT);
+        assert!(matches!(
+            daemon.classify_pump_failure(std::slice::from_ref(&session), failure()),
+            CoreDaemonError::LifecycleCommitExhausted { session_id, attempts, .. }
+                if session_id == session && attempts == TERMINAL_COMMIT_REARM_LIMIT
+        ));
         let _ = std::fs::remove_dir_all(data_dir);
     }
 }
