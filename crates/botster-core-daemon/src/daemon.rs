@@ -421,7 +421,11 @@ pub struct CoreDaemon {
     lifecycle_source_id: SessionLifecycleSourceId,
     lifecycle_sequence: u64,
     lifecycle_journal: VecDeque<SessionLifecycleChange>,
+    /// The journal advanced since the last pump reported it. Only
+    /// [`CoreDaemon::pump_woken`] takes it, into its outcome.
     journal_advanced: bool,
+    /// A pump is running: an append now is reported by that pump itself.
+    pumping: bool,
     observe_pass: Option<ObservePassState>,
     observe_live_sessions: BTreeMap<String, u64>,
     observe_live_generation: u64,
@@ -609,6 +613,7 @@ impl CoreDaemon {
             lifecycle_sequence: 0,
             lifecycle_journal: VecDeque::new(),
             journal_advanced: false,
+            pumping: false,
             observe_pass: None,
             observe_live_sessions: BTreeMap::new(),
             observe_live_generation: 0,
@@ -1024,17 +1029,6 @@ impl CoreDaemon {
         }
     }
 
-    /// Take the coalesced journal-advanced wake bit.
-    ///
-    /// The wake is one pending bit, not a queue. Page and baseline never clear
-    /// it. Append always sets it. Safe consumer order is take, page until
-    /// caught up or resync, take again, and re-page if that second take is
-    /// true.
-    #[must_use]
-    pub fn take_journal_advanced_wake(&mut self) -> bool {
-        std::mem::take(&mut self.journal_advanced)
-    }
-
     /// Record that the next attach for this identity will bind an adapter.
     ///
     /// After a matching [`Self::attach`], `AttachedSession.client_egress` holds
@@ -1373,6 +1367,31 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         self.ensure_running()?;
+        self.pumping = true;
+        let result = self.pump_woken_batch(batch, now_seconds);
+        self.pumping = false;
+        match result {
+            Ok(mut outcome) => {
+                // The only reader of the journal bit.
+                outcome.journal_advanced = std::mem::take(&mut self.journal_advanced);
+                Ok(outcome)
+            }
+            Err(error) => {
+                // This pump reports nothing: wake the host so a later pump
+                // reports an append it made.
+                if self.journal_advanced {
+                    self.engine.wake_source().interrupt_handle().interrupt();
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn pump_woken_batch(
+        &mut self,
+        batch: &TerminalWakeBatch,
+        now_seconds: u64,
+    ) -> Result<PumpWokenOutcome, CoreDaemonError> {
         let terminal_inventory_revision_before = self.acknowledged_terminal_inventory_revision;
         let pumped_routes = batch.adapter_routes.len();
         let mut session_ids: Vec<_> = batch
@@ -1457,6 +1476,7 @@ impl CoreDaemon {
                 pumped_routes,
                 terminal_inventory_changed: terminal_inventory_revision_before
                     != terminal_inventory_revision_after,
+                journal_advanced: false,
             })
         }
     }
@@ -4391,7 +4411,14 @@ impl CoreDaemon {
         while self.lifecycle_journal.len() > capacity {
             self.lifecycle_journal.pop_front();
         }
+        // The rising edge wakes the host once for a burst of appends; the
+        // interrupt is a stored permit, so a wait entered later still sees
+        // it. An append during a pump needs no wake: that pump reports it.
+        let rising = !self.journal_advanced;
         self.journal_advanced = true;
+        if rising && !self.pumping {
+            self.engine.wake_source().interrupt_handle().interrupt();
+        }
     }
 }
 
@@ -6722,6 +6749,73 @@ mod baseline_freeze_bound_tests {
         assert_eq!(page.changes.len(), 1);
         assert_ne!(page.next, after, "the named budget makes progress");
         assert_eq!(encoded_lifecycle_page_len(&page), needed);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    fn journal_record() -> RegistryRecord {
+        RegistryRecord::running(
+            SessionId("journal-wake".to_string()),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            1,
+        )
+    }
+
+    fn woke(daemon: &CoreDaemon) -> bool {
+        matches!(
+            daemon
+                .wake_source()
+                .wait_wakes_interruptible(Duration::ZERO),
+            botster_core::TerminalWakeWait::Interrupted
+        )
+    }
+
+    /// S10 (2.4.3): an append outside a pump wakes the host as a stored
+    /// permit, so a wait entered after it still returns; only the bit's
+    /// rising edge wakes, so appends before the next pump add no wake; and
+    /// the pump reports the bit exactly once.
+    #[test]
+    fn a_journal_append_wakes_the_host_once_per_edge_and_the_pump_reports_it() {
+        let data_dir = data_dir("journal-wake");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let record = journal_record();
+
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(woke(&daemon), "the append left a stored wake");
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(
+            !woke(&daemon),
+            "the bit is still set: a later append in the same edge adds no wake"
+        );
+
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 2)
+            .expect("pump");
+        assert!(outcome.journal_advanced, "the pump reports the append");
+        let again = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 3)
+            .expect("pump");
+        assert!(!again.journal_advanced, "the pump took the bit");
+
+        daemon.append_lifecycle_upsert(&record, None);
+        assert!(
+            woke(&daemon),
+            "after the pump took it, an append is a new edge"
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// An append during a pump posts no wake: that pump reports it.
+    #[test]
+    fn a_journal_append_during_a_pump_is_reported_by_that_pump_not_a_wake() {
+        let data_dir = data_dir("journal-in-pump");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        daemon.pumping = true;
+        daemon.append_lifecycle_upsert(&journal_record(), None);
+        daemon.pumping = false;
+        assert!(!woke(&daemon), "no wake for an append the pump reports");
+        assert!(daemon.journal_advanced);
         let _ = std::fs::remove_dir_all(data_dir);
     }
 }
