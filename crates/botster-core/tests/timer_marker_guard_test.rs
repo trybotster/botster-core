@@ -7,8 +7,9 @@
 //! // timer: deadline | backoff | rate-limit | ui-lifetime | os-no-event
 //! ```
 //!
-//! The marker is a `//` comment on the call's line, or in the block of
-//! comment-only lines directly above the call. The guard reads Rust
+//! The marker is a `//` comment on the call's line or on the line directly
+//! above it, never further up, and its category is exactly one of the
+//! allowed tokens. The guard reads Rust
 //! syntax well enough to skip comments and string, raw-string, and char
 //! literals, `fn` definitions of these names, and calls that set no timer:
 //! a zero duration, which does not wait, and `None` or `Duration::MAX`, which
@@ -316,8 +317,8 @@ fn last_top_level_arg(args: &str) -> &str {
     &args[last..]
 }
 
-/// A marker on the call's line, or in the block of comment-only lines
-/// directly above it. A code line or a blank line ends that block.
+/// A marker on the call's line, or on the line directly above it. A marker
+/// further up does not count, even above other comment lines.
 fn marked(line_comments: &[String], line: usize) -> bool {
     let has = |index: usize| {
         line_comments
