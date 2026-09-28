@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use botster_core::SessionLifecycleState;
 use botster_core_daemon::{
-    CoreDaemon, CoreDaemonError, LifecycleBaselineBudget, ObserveLifecycleBudget,
-    ObserveLifecycleCursor, ObserveLifecycleSlice, RegistrySessionState, SessionLifecycleCursor,
-    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason,
+    CoreDaemon, CoreDaemonError, LifecycleBaselineBudget, LifecycleBaselineStop,
+    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecycleSlice, ObserveLifecycleStop,
+    RegistrySessionState, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
 };
 
 /// In-memory Hub-shaped session projection rebuilt from Core pages.
@@ -127,8 +127,8 @@ fn install_baseline(
             Ok(page) => page,
             Err(error) => return Err(map_page_error(error)),
         };
-        if let Some(reason) = &page.resync_required {
-            match reason {
+        match &page.stop {
+            LifecycleBaselineStop::Resync { reason } => match reason {
                 SessionLifecycleResyncReason::SourceChanged
                 | SessionLifecycleResyncReason::CursorExpired { .. }
                 | SessionLifecycleResyncReason::CursorAhead
@@ -142,17 +142,20 @@ fn install_baseline(
                     continue;
                 }
                 _ => return Err(HubLifecycleConsumeError::UnknownPageError),
+            },
+            LifecycleBaselineStop::Complete => {
+                rows.extend(page.sessions.iter().cloned());
+                replace_projection(projection, &rows, page.snapshot_sequence);
+                return Ok(());
             }
+            // Every other stop continues the same snapshot. Setup-only and
+            // index-in-progress yields keep the freeze identity and set
+            // next = None.
+            _ => {}
         }
         rows.extend(page.sessions.iter().cloned());
-        if page.complete {
-            replace_projection(projection, &rows, page.snapshot_sequence);
-            return Ok(());
-        }
         snapshot = Some(page.snapshot_sequence);
         after = page.next;
-        // Setup-only and index-in-progress yields keep the freeze identity
-        // and set next = None. Retry the same snapshot.
     }
 }
 
@@ -216,7 +219,10 @@ pub fn classify_session_lifecycle(
 pub fn observe_lifecycle_resume_cursor(
     slice: &ObserveLifecycleSlice,
 ) -> Option<ObserveLifecycleCursor> {
-    if slice.complete || slice.resync_required.is_some() {
+    if matches!(
+        slice.stop,
+        ObserveLifecycleStop::Complete | ObserveLifecycleStop::Resync { .. }
+    ) {
         return None;
     }
     Some(ObserveLifecycleCursor {
@@ -309,7 +315,7 @@ mod tests {
             },
         )
         .expect("hub-shaped observe is the control-plane tick");
-        assert!(observed.complete);
+        assert_eq!(observed.stop, ObserveLifecycleStop::Complete);
         assert!(observed.session_errors.is_empty());
         let _ = take_journal_advanced(&mut daemon);
         let _ = daemon.shutdown(Some(session_id), 20);
@@ -320,7 +326,11 @@ mod tests {
     #[test]
     fn hub_shaped_stage_a_yields_between_owner_turns() {
         let data_dir = temp_data_dir("hub-lifecycle-owner-turns");
-        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        // Elapsed readings start at one minute: a one-minute budget yields at
+        // entry, and an unbounded one runs.
+        let expired = std::time::Duration::from_secs(60);
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_test_elapsed_at_entry(expired));
         let first = SessionId("a-hub-owner-turn".to_string());
         let second = SessionId("b-hub-owner-turn".to_string());
         daemon
@@ -332,7 +342,7 @@ mod tests {
         let budget = ObserveLifecycleBudget {
             max_sessions: 1,
             max_encoded_result_bytes: 16 * 1024,
-            max_elapsed: std::time::Duration::from_secs(1),
+            max_elapsed: std::time::Duration::MAX,
         };
         let setup_slice = observe_lifecycle_stage_a(
             &mut daemon,
@@ -341,18 +351,18 @@ mod tests {
             ObserveLifecycleBudget {
                 max_sessions: 1,
                 max_encoded_result_bytes: 16 * 1024,
-                max_elapsed: std::time::Duration::ZERO,
+                max_elapsed: expired,
             },
         )
         .expect("first owner turn can yield during setup");
         assert!(setup_slice.last_visited.is_none());
-        assert!(!setup_slice.complete);
+        assert_eq!(setup_slice.stop, ObserveLifecycleStop::Elapsed);
         let setup_resume =
             observe_lifecycle_resume_cursor(&setup_slice).expect("setup yield has a resume cursor");
         let first_slice = observe_lifecycle_stage_a(&mut daemon, 13, Some(&setup_resume), budget)
             .expect("second owner turn visits first session");
         assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
-        assert!(!first_slice.complete);
+        assert_eq!(first_slice.stop, ObserveLifecycleStop::SessionBudget);
         let resume =
             observe_lifecycle_resume_cursor(&first_slice).expect("caller owns the resume cursor");
         let _ = take_journal_advanced(&mut daemon);
@@ -363,7 +373,7 @@ mod tests {
         let second_slice = observe_lifecycle_stage_a(&mut daemon, 14, Some(&resume), budget)
             .expect("third owner turn");
         assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
-        assert!(second_slice.complete);
+        assert_eq!(second_slice.stop, ObserveLifecycleStop::Complete);
         let _ = daemon.shutdown(Some(first), 20);
         let _ = daemon.shutdown(Some(second), 21);
         let _ = fs::remove_dir_all(data_dir);

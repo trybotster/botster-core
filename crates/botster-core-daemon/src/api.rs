@@ -196,6 +196,17 @@ pub enum SessionLifecyclePageError {
         /// [`botster_core::MAX_SESSION_ID_BYTES`].
         max_bytes: usize,
     },
+    /// A baseline budget allows no rows, so no page could ever advance.
+    #[error("lifecycle baseline row budget is zero")]
+    RowBudgetZero,
+    /// An observe budget allows no session visits, so no slice could ever
+    /// advance.
+    #[error("observe session budget is zero")]
+    SessionBudgetZero,
+    /// A zero elapsed budget expires at entry, so no page or slice could
+    /// ever advance.
+    #[error("lifecycle elapsed budget is zero")]
+    ElapsedBudgetZero,
 }
 
 /// The largest encoded [`SessionLifecycleRecord`] this daemon produces.
@@ -313,32 +324,83 @@ pub struct ObserveLifecycleSliceError {
     pub message: String,
 }
 
+/// Why an observe slice stopped.
+///
+/// Every stop except [`Self::Elapsed`] and [`Self::Resync`] visited at least
+/// one session in its call, so a host continues it at once. `Elapsed` is a
+/// time-slice yield that may have visited nothing: the host runs the next
+/// slice on a later turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ObserveLifecycleStop {
+    /// The pass has attempted every remaining live session.
+    Complete,
+    /// The elapsed budget ran out.
+    Elapsed,
+    /// The slice used its `max_sessions` visits.
+    SessionBudget,
+    /// The next visit's reserved result did not fit
+    /// `max_encoded_result_bytes`.
+    ByteBudget,
+    /// The pass was dropped or is foreign: start a new pass. A resync is a
+    /// control result and need not fit the byte budget.
+    Resync {
+        /// Why the pass cannot continue.
+        reason: SessionLifecycleResyncReason,
+    },
+}
+
 /// Bounded control-plane result of one observe slice.
 ///
-/// Successful slices have [`Self::resync_required`] unset. Their complete
-/// `serde_json` encoding is at most the caller-supplied
-/// `max_encoded_result_bytes`. Resync outcomes are control results and are
-/// not required to satisfy the byte budget.
+/// A slice that is not a [`ObserveLifecycleStop::Resync`] encodes, whole, in
+/// at most the caller-supplied `max_encoded_result_bytes`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObserveLifecycleSlice {
     /// Pass this slice belongs to.
     pub pass_id: ObserveLifecyclePassId,
     /// Last session this slice or earlier slices in the pass attempted.
     pub last_visited: Option<SessionId>,
-    /// True only when this pass has attempted every remaining live session.
-    pub complete: bool,
     /// Sanitized errors from sessions visited in this call.
     pub session_errors: Vec<ObserveLifecycleSliceError>,
-    /// Explicit dropped or foreign pass, when a new pass is required.
-    pub resync_required: Option<SessionLifecycleResyncReason>,
+    /// Why this slice stopped.
+    pub stop: ObserveLifecycleStop,
+}
+
+/// Why a lifecycle baseline page stopped.
+///
+/// Every stop except [`Self::Elapsed`] and [`Self::Resync`] advanced the
+/// freeze in its call (it indexed a registry entry or passed a row), so a
+/// host continues at once. `Elapsed` is a time-slice yield that may have
+/// advanced nothing: the host requests the next page on a later turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LifecycleBaselineStop {
+    /// The page includes the last frozen row, or the snapshot is empty. The
+    /// freeze is dropped.
+    Complete,
+    /// The elapsed budget ran out.
+    Elapsed,
+    /// The page used its `max_rows` index entries and rows.
+    RowBudget,
+    /// The next row did not fit `max_bytes`; the page carries at least one
+    /// row.
+    ByteBudget,
+    /// The snapshot was dropped or is foreign: mint a fresh one. A resync is
+    /// a control result and need not fit the byte budget.
+    Resync {
+        /// Why the snapshot cannot continue.
+        reason: SessionLifecycleResyncReason,
+    },
 }
 
 /// One page of a frozen lifecycle baseline snapshot.
 ///
-/// Successful pages have [`Self::resync_required`] unset. Their complete
-/// `serde_json` encoding is at most the caller-supplied `max_bytes`.
-/// An incomplete page has [`Self::complete`] false and is not finished
-/// ended evidence.
+/// A page that is not a [`LifecycleBaselineStop::Resync`] encodes, whole, in
+/// at most the caller-supplied `max_bytes`. Only a
+/// [`LifecycleBaselineStop::Complete`] page ends the snapshot; an earlier
+/// page is not finished ended evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionLifecycleBaselinePage {
     /// Journal watermark captured when this snapshot was minted.
@@ -348,11 +410,8 @@ pub struct SessionLifecycleBaselinePage {
     /// Next [`SessionId`] to request. `None` when complete, or when a
     /// setup-only or index-in-progress yield keeps the freeze identity.
     pub next: Option<SessionId>,
-    /// True only on the page that includes the last frozen row, or on an
-    /// empty snapshot.
-    pub complete: bool,
-    /// Explicit dropped or foreign snapshot, when a fresh mint is required.
-    pub resync_required: Option<SessionLifecycleResyncReason>,
+    /// Why this page stopped.
+    pub stop: LifecycleBaselineStop,
 }
 
 /// Bytes allowed in a public observe-slice error message.

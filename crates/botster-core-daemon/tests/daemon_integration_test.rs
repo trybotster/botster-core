@@ -30,14 +30,14 @@ use botster_core_daemon::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, CoreDaemon, CoreDaemonConfig,
     CoreDaemonError, DaemonSession, DrainNotificationsRequest, DrainRoutedEnvelopesRequest,
     GuardedWriteDecision, GuardedWriteDeliveryState, GuardedWriteRequest, LifecycleBaselineBudget,
-    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
-    PostNotificationRequest, PublishRoutedEnvelopeRequest, ReadinessEvidence, RegistryRecord,
-    RegistrySessionState, SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline,
-    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
-    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
-    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
-    SessionRegistryStateLookup, SpawnSessionRequest, TerminalSubscriptionGeneration,
-    OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
+    LifecycleBaselineStop, ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId,
+    ObserveLifecycleSlice, ObserveLifecycleStop, PostNotificationRequest,
+    PublishRoutedEnvelopeRequest, ReadinessEvidence, RegistryRecord, RegistrySessionState,
+    SafeWriteIndicator, SessionAdoptionState, SessionLifecycleBaseline, SessionLifecycleChangeKind,
+    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
+    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
+    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
+    TerminalSubscriptionGeneration, OBSERVE_LIFECYCLE_SLICE_MAX_ERROR_MESSAGE_BYTES,
 };
 use botster_core_daemon::{
     DEFAULT_GHOSTTY_MAX_SCROLLBACK_BYTES, DEFAULT_LIFECYCLE_JOURNAL_CAPACITY,
@@ -4301,7 +4301,7 @@ fn observe_slice_resumes_after_item_budget_without_revisiting() {
         .observe_lifecycle_slice(11, None, observe_item_budget(1))
         .expect("first slice");
     assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
-    assert!(!first_slice.complete);
+    assert_eq!(first_slice.stop, ObserveLifecycleStop::SessionBudget);
     let second_slice = daemon
         .observe_lifecycle_slice(
             12,
@@ -4311,7 +4311,7 @@ fn observe_slice_resumes_after_item_budget_without_revisiting() {
         .expect("resume slice");
     assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
     assert_eq!(second_slice.pass_id, first_slice.pass_id);
-    assert!(!second_slice.complete);
+    assert_eq!(second_slice.stop, ObserveLifecycleStop::SessionBudget);
     let third_slice = daemon
         .observe_lifecycle_slice(
             13,
@@ -4320,7 +4320,7 @@ fn observe_slice_resumes_after_item_budget_without_revisiting() {
         )
         .expect("final slice");
     assert_eq!(third_slice.last_visited.as_ref(), Some(&third));
-    assert!(third_slice.complete);
+    assert_eq!(third_slice.stop, ObserveLifecycleStop::Complete);
 
     for session_id in [first, second, third] {
         daemon.shutdown(Some(session_id), 20).expect("shutdown");
@@ -4334,7 +4334,7 @@ fn observe_slice_each_budget_stops_remaining_visits() {
     let data_dir = temp_data_dir("lifecycle-observe-slice-budgets");
     let first = SessionId("a-slice-budget".to_string());
     let second = SessionId("b-slice-budget".to_string());
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     daemon
         .spawn(spawn_request(&first), 10)
         .expect("budget first");
@@ -4367,7 +4367,7 @@ fn observe_slice_each_budget_stops_remaining_visits() {
         .observe_lifecycle_slice(13, None, observe_item_budget(1))
         .expect("item budget visits one");
     assert_eq!(one.last_visited.as_ref(), Some(&first));
-    assert!(!one.complete);
+    assert_eq!(one.stop, ObserveLifecycleStop::SessionBudget);
 
     let timed_out = daemon
         .observe_lifecycle_slice(
@@ -4376,12 +4376,12 @@ fn observe_slice_each_budget_stops_remaining_visits() {
             ObserveLifecycleBudget {
                 max_sessions: 8,
                 max_encoded_result_bytes: 16 * 1024,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
-        .expect("zero elapsed visits none remaining");
+        .expect("an expired elapsed budget visits none remaining");
     assert_eq!(timed_out.last_visited.as_ref(), Some(&first));
-    assert!(!timed_out.complete);
+    assert_eq!(timed_out.stop, ObserveLifecycleStop::Elapsed);
 
     daemon.shutdown(Some(first), 20).expect("shutdown first");
     daemon.shutdown(Some(second), 21).expect("shutdown second");
@@ -4416,7 +4416,7 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
             },
         )
         .expect("exact empty budget");
-    assert!(empty.complete);
+    assert_eq!(empty.stop, ObserveLifecycleStop::Complete);
     assert_eq!(
         serde_json::to_vec(&empty).expect("encode").len(),
         empty_minimum
@@ -4425,7 +4425,7 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
     let data_dir = temp_data_dir("lifecycle-observe-no-visit-result-budget");
     let first = SessionId("a-no-visit-budget".to_string());
     let second = SessionId("b-no-visit-budget".to_string());
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     daemon
         .spawn(spawn_request(&first), 10)
         .expect("first spawn");
@@ -4433,34 +4433,33 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
         .spawn(spawn_request(&second), 11)
         .expect("second spawn");
 
-    let zero_items_minimum = match daemon.observe_lifecycle_slice(
-        12,
-        None,
-        ObserveLifecycleBudget {
-            max_sessions: 0,
-            max_encoded_result_bytes: 0,
-            max_elapsed: Duration::MAX,
-        },
-    ) {
-        Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
-        other => panic!("zero-item slice must enforce its byte budget: {other:?}"),
-    };
-    let zero_items = daemon
-        .observe_lifecycle_slice(
+    // A slice that may visit no session could never advance: it is a typed
+    // error whatever its byte budget.
+    for max_encoded_result_bytes in [0, 16 * 1024] {
+        assert_eq!(
+            daemon.observe_lifecycle_slice(
+                12,
+                None,
+                ObserveLifecycleBudget {
+                    max_sessions: 0,
+                    max_encoded_result_bytes,
+                    max_elapsed: Duration::MAX,
+                },
+            ),
+            Err(SessionLifecyclePageError::SessionBudgetZero)
+        );
+    }
+    assert_eq!(
+        daemon.observe_lifecycle_slice(
             13,
             None,
             ObserveLifecycleBudget {
-                max_sessions: 0,
-                max_encoded_result_bytes: zero_items_minimum,
-                max_elapsed: Duration::MAX,
+                max_sessions: 1,
+                max_encoded_result_bytes: 16 * 1024,
+                max_elapsed: Duration::ZERO,
             },
-        )
-        .expect("exact zero-item budget");
-    assert!(!zero_items.complete);
-    assert!(zero_items.last_visited.is_none());
-    assert_eq!(
-        serde_json::to_vec(&zero_items).expect("encode").len(),
-        zero_items_minimum
+        ),
+        Err(SessionLifecyclePageError::ElapsedBudgetZero)
     );
 
     let first_elapsed_minimum = match daemon.observe_lifecycle_slice(
@@ -4469,7 +4468,7 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
         ObserveLifecycleBudget {
             max_sessions: usize::MAX,
             max_encoded_result_bytes: 0,
-            max_elapsed: Duration::ZERO,
+            max_elapsed: EXPIRED,
         },
     ) {
         Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
@@ -4482,11 +4481,11 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
             ObserveLifecycleBudget {
                 max_sessions: usize::MAX,
                 max_encoded_result_bytes: first_elapsed_minimum,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("exact first elapsed budget");
-    assert!(!first_elapsed.complete);
+    assert_eq!(first_elapsed.stop, ObserveLifecycleStop::Elapsed);
     assert!(first_elapsed.last_visited.is_none());
     assert_eq!(
         serde_json::to_vec(&first_elapsed).expect("encode").len(),
@@ -4503,7 +4502,7 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
         ObserveLifecycleBudget {
             max_sessions: usize::MAX,
             max_encoded_result_bytes: 0,
-            max_elapsed: Duration::ZERO,
+            max_elapsed: EXPIRED,
         },
     ) {
         Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
@@ -4516,13 +4515,13 @@ fn observe_slice_enforces_bytes_on_empty_and_no_visit_results() {
             ObserveLifecycleBudget {
                 max_sessions: usize::MAX,
                 max_encoded_result_bytes: resumed_minimum,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("exact resumed elapsed budget preserves the pass");
     assert_eq!(resumed.pass_id, progressed.pass_id);
     assert_eq!(resumed.last_visited, progressed.last_visited);
-    assert!(!resumed.complete);
+    assert_eq!(resumed.stop, ObserveLifecycleStop::Elapsed);
     assert_eq!(
         serde_json::to_vec(&resumed).expect("encode").len(),
         resumed_minimum
@@ -4553,17 +4552,18 @@ fn observe_slice_dropped_cursor_is_resync_not_a_complete_suffix() {
     let dropped = daemon
         .observe_lifecycle_slice(13, Some(&foreign), observe_item_budget(8))
         .expect("foreign pass");
-    assert!(!dropped.complete);
     assert!(dropped.last_visited.is_none());
-    assert!(matches!(
-        dropped.resync_required,
-        Some(SessionLifecycleResyncReason::ObservePassUnavailable)
-    ));
+    assert_eq!(
+        dropped.stop,
+        ObserveLifecycleStop::Resync {
+            reason: SessionLifecycleResyncReason::ObservePassUnavailable
+        }
+    );
 
     let restarted = daemon
         .observe_lifecycle_slice(14, None, observe_item_budget(8))
         .expect("new pass restarts");
-    assert!(restarted.complete);
+    assert_eq!(restarted.stop, ObserveLifecycleStop::Complete);
     assert_eq!(restarted.last_visited.as_ref(), Some(&second));
     assert_ne!(restarted.pass_id, partial.pass_id);
 
@@ -4604,12 +4604,13 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
     let earlier = daemon
         .observe_lifecycle_slice(13, Some(&stale_earlier), observe_item_budget(8))
         .expect("stale earlier");
-    assert!(!earlier.complete);
     assert!(earlier.last_visited.is_none());
-    assert!(matches!(
-        earlier.resync_required,
-        Some(SessionLifecycleResyncReason::ObservePassUnavailable)
-    ));
+    assert_eq!(
+        earlier.stop,
+        ObserveLifecycleStop::Resync {
+            reason: SessionLifecycleResyncReason::ObservePassUnavailable
+        }
+    );
 
     let forged_later = ObserveLifecycleCursor {
         pass_id: second_slice.pass_id.clone(),
@@ -4618,12 +4619,13 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
     let later = daemon
         .observe_lifecycle_slice(14, Some(&forged_later), observe_item_budget(8))
         .expect("forged later");
-    assert!(!later.complete);
     assert!(later.last_visited.is_none());
-    assert!(matches!(
-        later.resync_required,
-        Some(SessionLifecycleResyncReason::ObservePassUnavailable)
-    ));
+    assert_eq!(
+        later.stop,
+        ObserveLifecycleStop::Resync {
+            reason: SessionLifecycleResyncReason::ObservePassUnavailable
+        }
+    );
 
     let resumed = daemon
         .observe_lifecycle_slice(
@@ -4632,7 +4634,7 @@ fn observe_slice_same_pass_cursor_must_match_last_visited() {
             observe_item_budget(8),
         )
         .expect("honest resume still works");
-    assert!(resumed.complete);
+    assert_eq!(resumed.stop, ObserveLifecycleStop::Complete);
     assert_eq!(resumed.last_visited.as_ref(), Some(&third));
 
     for session_id in [first, second, third] {
@@ -4662,14 +4664,13 @@ fn lifecycle_baseline_pages_reconstruct_the_full_snapshot() {
         let page = daemon
             .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
             .expect("baseline page");
-        assert!(page.resync_required.is_none());
         rows.extend(page.sessions.iter().cloned());
-        if page.complete {
+        if page.stop == LifecycleBaselineStop::Complete {
             assert!(page.next.is_none());
             assert_eq!(rows, full.sessions);
             break;
         }
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::RowBudget);
         snapshot = Some(page.snapshot_sequence);
         after = page.next;
     }
@@ -4697,14 +4698,14 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
         let page = daemon
             .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
             .expect("mint");
-        assert!(page.resync_required.is_none());
+        assert!(!matches!(page.stop, LifecycleBaselineStop::Resync { .. }));
         snapshot = Some(page.snapshot_sequence.clone());
-        if !page.sessions.is_empty() || page.complete {
+        if !page.sessions.is_empty() || page.stop == LifecycleBaselineStop::Complete {
             break page;
         }
         after = page.next;
     };
-    assert!(!first_page.complete);
+    assert_eq!(first_page.stop, LifecycleBaselineStop::RowBudget);
     let snapshot = first_page.snapshot_sequence.clone();
     // Observe after the mint until it commits the second session's exit, so
     // the frozen page below must ignore a real mutation.
@@ -4730,7 +4731,7 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
             baseline_item_budget(8),
         )
         .expect("frozen second page");
-    assert!(second_page.complete);
+    assert_eq!(second_page.stop, LifecycleBaselineStop::Complete);
     assert_eq!(second_page.sessions.len(), 1);
     assert_eq!(second_page.sessions[0].session.session_id, second);
     assert_eq!(
@@ -4742,12 +4743,13 @@ fn lifecycle_baseline_pages_ignore_observe_mutations() {
     let unknown = daemon
         .lifecycle_baseline_page(Some(&snapshot), None, baseline_item_budget(8))
         .expect("dropped freeze");
-    assert!(!unknown.complete);
     assert!(unknown.sessions.is_empty());
-    assert!(matches!(
-        unknown.resync_required,
-        Some(SessionLifecycleResyncReason::SnapshotUnavailable)
-    ));
+    assert_eq!(
+        unknown.stop,
+        LifecycleBaselineStop::Resync {
+            reason: SessionLifecycleResyncReason::SnapshotUnavailable
+        }
+    );
 
     daemon.shutdown(Some(first), 30).ok();
     daemon.shutdown(Some(second), 31).ok();
@@ -4793,10 +4795,10 @@ fn assemble_baseline_pages(
         let page = daemon
             .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), budget)
             .expect("baseline page");
-        assert!(page.resync_required.is_none());
+        assert!(!matches!(page.stop, LifecycleBaselineStop::Resync { .. }));
         snapshot = Some(page.snapshot_sequence.clone());
         rows.extend(page.sessions.iter().cloned());
-        if page.complete {
+        if page.stop == LifecycleBaselineStop::Complete {
             return (page.snapshot_sequence, rows);
         }
         after = page.next;
@@ -4820,7 +4822,7 @@ fn lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenam
         let page = daemon
             .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), baseline_item_budget(1))
             .expect("one-item baseline page");
-        assert!(page.resync_required.is_none());
+        assert!(!matches!(page.stop, LifecycleBaselineStop::Resync { .. }));
         assert!(
             page.sessions.len() <= 1,
             "one-item budget must remain bounded"
@@ -4829,8 +4831,9 @@ fn lifecycle_baseline_pages_preserve_colliding_sanitizer_ids_with_digest_filenam
             assert_eq!(&page.snapshot_sequence, expected);
         }
         snapshot = Some(page.snapshot_sequence);
+        let stop = page.stop.clone();
         rows.extend(page.sessions);
-        if page.complete {
+        if stop == LifecycleBaselineStop::Complete {
             complete = true;
             break;
         }
@@ -4866,10 +4869,12 @@ fn lifecycle_baseline_rejects_foreign_registry_identity_as_source_changed() {
     let page = daemon
         .lifecycle_baseline_page(None, None, baseline_item_budget(8))
         .expect("baseline reports resync");
-    assert!(matches!(
-        page.resync_required,
-        Some(SessionLifecycleResyncReason::SourceChanged)
-    ));
+    assert_eq!(
+        page.stop,
+        LifecycleBaselineStop::Resync {
+            reason: SessionLifecycleResyncReason::SourceChanged
+        }
+    );
     assert!(page.sessions.is_empty());
     assert_eq!(fs::read(path).expect("foreign bytes remain"), foreign);
     drop(daemon);
@@ -4879,7 +4884,7 @@ fn lifecycle_baseline_rejects_foreign_registry_identity_as_source_changed() {
 #[test]
 fn lifecycle_baseline_page_setup_only_elapsed_keeps_freeze_identity() {
     let data_dir = temp_data_dir("lifecycle-baseline-setup-only");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     let first = SessionId("a-setup-only".to_string());
     let second = SessionId("b-setup-only".to_string());
     seed_registry_records(&daemon, &[&first, &second], 1);
@@ -4890,12 +4895,11 @@ fn lifecycle_baseline_page_setup_only_elapsed_keeps_freeze_identity() {
             LifecycleBaselineBudget {
                 max_rows: usize::MAX,
                 max_bytes: 64 * 1024,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("setup-only mint");
-    assert!(page.resync_required.is_none());
-    assert!(!page.complete);
+    assert_eq!(page.stop, LifecycleBaselineStop::Elapsed);
     assert!(page.sessions.is_empty());
     assert!(page.next.is_none());
     let (snapshot, rows) = assemble_baseline_pages(
@@ -4916,7 +4920,7 @@ fn lifecycle_baseline_page_setup_only_elapsed_keeps_freeze_identity() {
 #[test]
 fn lifecycle_baseline_page_spawn_after_open_is_excluded() {
     let data_dir = temp_data_dir("lifecycle-baseline-spawn-fence");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     let first = SessionId("a-spawn-fence".to_string());
     let second = SessionId("b-spawn-fence".to_string());
     seed_registry_records(&daemon, &[&first, &second], 1);
@@ -4927,7 +4931,7 @@ fn lifecycle_baseline_page_spawn_after_open_is_excluded() {
             LifecycleBaselineBudget {
                 max_rows: usize::MAX,
                 max_bytes: 64 * 1024,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("mint before spawn");
@@ -4954,7 +4958,7 @@ fn lifecycle_baseline_page_spawn_after_open_is_excluded() {
 #[test]
 fn lifecycle_baseline_page_remove_before_visit_keeps_pre_change_row() {
     let data_dir = temp_data_dir("lifecycle-baseline-remove-fence");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     let first = SessionId("a-remove-fence".to_string());
     let second = SessionId("b-remove-fence".to_string());
     for session_id in [&first, &second] {
@@ -4975,7 +4979,7 @@ fn lifecycle_baseline_page_remove_before_visit_keeps_pre_change_row() {
             LifecycleBaselineBudget {
                 max_rows: usize::MAX,
                 max_bytes: 64 * 1024,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("mint before remove");
@@ -5011,7 +5015,7 @@ fn lifecycle_baseline_page_skips_malformed_records_without_blocking_good_rows() 
 #[test]
 fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
     let data_dir = temp_data_dir("lifecycle-baseline-bytes");
-    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let mut daemon = CoreDaemon::new(expired_elapsed_config(&data_dir));
     let first = SessionId("a-byte-budget".to_string());
     let second = SessionId("b-byte-budget".to_string());
     seed_registry_records(&daemon, &[&first, &second], 1);
@@ -5022,7 +5026,7 @@ fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
             LifecycleBaselineBudget {
                 max_rows: usize::MAX,
                 max_bytes: 64 * 1024,
-                max_elapsed: Duration::ZERO,
+                max_elapsed: EXPIRED,
             },
         )
         .expect("setup mint");
@@ -5067,7 +5071,7 @@ fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
             },
         )
         .expect("the named budget");
-    assert!(!indexed.complete);
+    assert_eq!(indexed.stop, LifecycleBaselineStop::ByteBudget);
     assert_eq!(indexed.sessions.len(), 1);
     assert_eq!(indexed.sessions[0].session.session_id, first);
     let encoded = serde_json::to_vec(&indexed)
@@ -5110,8 +5114,8 @@ fn observe_slice_publishes_zero_client_exit_without_drain() {
                 let slice = daemon
                     .observe_lifecycle_slice(20 + tick, resume.as_ref(), observe_item_budget(1))
                     .expect("slice");
-                assert!(slice.resync_required.is_none());
-                complete = slice.complete;
+                assert!(!matches!(slice.stop, ObserveLifecycleStop::Resync { .. }));
+                complete = slice.stop == ObserveLifecycleStop::Complete;
                 resume = slice
                     .last_visited
                     .as_ref()
@@ -6597,6 +6601,15 @@ fn pump_until_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId, n
             .pump_woken(&batch, now_seconds)
             .expect("targeted pump");
     }
+}
+
+/// Daemons built with [`expired_elapsed_config`] start every lifecycle
+/// elapsed reading at this, so a page or slice given this budget yields at
+/// entry, while one given `Duration::MAX` runs.
+const EXPIRED: Duration = Duration::from_secs(60);
+
+fn expired_elapsed_config(data_dir: &std::path::Path) -> CoreDaemonConfig {
+    CoreDaemonConfig::new(data_dir).with_test_elapsed_at_entry(EXPIRED)
 }
 
 fn observe_item_budget(max_sessions: usize) -> ObserveLifecycleBudget {

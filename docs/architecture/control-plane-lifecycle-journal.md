@@ -17,8 +17,8 @@ the production progress tick.
   The pass records a generation watermark and a final `SessionId`.
 - `resume = Some(cursor)` continues only when `cursor.pass_id` and
   `cursor.last_visited` both match that open snapshot. Otherwise the
-  result is `resync_required = ObservePassUnavailable`, `complete =
-  false`, and no suffix.
+  result has `stop = Resync { reason: ObservePassUnavailable }` and no
+  suffix.
 - Later slices walk only the unvisited ordered suffix. They do not list
   or sort the full live set. Generation tags exclude sessions that
   appear after mint. Those sessions wait for a new pass.
@@ -28,12 +28,21 @@ the production progress tick.
   bound, not session policy. A setup-only yield returns
   `last_visited = None`. The caller resumes with that exact cursor. Do
   not use `now_seconds` as the elapsed clock.
+- Each slice names why it stopped in `stop: ObserveLifecycleStop`:
+  `Complete`, `Elapsed`, `SessionBudget`, `ByteBudget`, or
+  `Resync { reason }`. Every stop except `Elapsed` and `Resync` visited
+  at least one session in that call, so the host continues at once.
+  `Elapsed` is a time-slice yield that may have visited nothing; the
+  host runs the next slice on a later turn.
+- `max_sessions = 0` returns `SessionBudgetZero`, and a zero
+  `max_elapsed` returns `ElapsedBudgetZero`. Neither could ever advance
+  a pass, so each is a typed error rather than an empty slice.
 - Byte admission uses a reserved 256-`x` public error before each
   visit. `observe_session` mutates the journal and pending drain and
   cannot be rolled back. Public slice messages are sanitized to
   `A-Za-z0-9` space `. : _ / + - ?` and truncated to 256 bytes.
 - Core checks the exact encoded size of every successful slice. This
-  check includes empty, zero-item, and elapsed-yield slices. An
+  check includes empty and elapsed-yield slices. An
   undersized resumed call keeps the pass open for a later retry.
 - Per-session drain errors stay on the typed internal outcome and on
   the sanitized slice DTO. A later id in the same slice still runs.
@@ -99,15 +108,25 @@ registry snapshot. `LifecycleBaselineBudget` supplies `max_rows`,
   and then walk only the next frozen suffix. They do not re-read a
   mutated registry. Observe between pages does not change already
   decided freeze rows.
+- Each page names why it stopped in `stop: LifecycleBaselineStop`:
+  `Complete`, `Elapsed`, `RowBudget`, `ByteBudget`, or
+  `Resync { reason }`. Every stop except `Elapsed` and `Resync`
+  advanced the freeze in that call (it indexed an entry or passed a
+  row), so the host continues at once. `Elapsed` is a time-slice yield
+  that may have advanced nothing; the host requests the next page on a
+  later turn.
+- `max_rows = 0` returns `RowBudgetZero`, and a zero `max_elapsed`
+  returns `ElapsedBudgetZero`, before any freeze is minted. Neither
+  could ever advance a page.
 - Setup-only and index-in-progress yields keep the freeze identity,
-  return no rows, set `next = None`, and have `complete = false`.
-- `after` is inclusive of `next` after the index is complete.
-  `complete` is true only on the page that includes the last frozen
-  row, or on an empty sealed snapshot. An incomplete page is not
-  finished ended evidence.
-- A dropped or foreign freeze returns `SnapshotUnavailable` or
-  `SourceChanged` with `complete = false` and no rows.
-- A complete page drops the freeze.
+  return no rows, and set `next = None`.
+- `after` is inclusive of `next` after the index is complete. Only a
+  `Complete` page includes the last frozen row, or ends an empty
+  sealed snapshot. An earlier page is not finished ended evidence.
+- A dropped or foreign freeze returns
+  `Resync { reason: SnapshotUnavailable }` or
+  `Resync { reason: SourceChanged }` with no rows.
+- A `Complete` page drops the freeze.
 
 `lifecycle_baseline()` remains the unbounded one-shot reader. Hub
 Stage A must not call it.
