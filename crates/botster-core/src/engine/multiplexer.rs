@@ -363,6 +363,7 @@ where
         self.session_handles.remove(session_id);
         self.session_workers.remove(session_id);
         self.subscriptions.forget_session(session_id);
+        self.routed_envelopes.forget_session_targets(session_id);
         let admission = self.session_admissions.remove(session_id);
         let reservation = admission.as_ref().map(EngineSessionAdmission::reservation);
         drop(admission);

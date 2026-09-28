@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::SessionId;
+
 use crate::contract::routed_envelope::{
     EnvelopeCursor, EnvelopeDeliveryState, EnvelopeDeliveryStatus, EnvelopeId, EnvelopeTarget,
     RoutedEnvelope, RoutedEnvelopeDrainOutcome, RoutedEnvelopeObservation,
@@ -211,11 +213,26 @@ impl RoutedEnvelopeRouter {
     /// and its subscriptions to every route. When a target is gone is host
     /// policy.
     pub fn forget_target(&mut self, target: &EnvelopeTarget) {
-        self.queues.remove(target);
+        self.forget_matching(|candidate| candidate == target);
+    }
+
+    /// Forget every target of one session: [`EnvelopeTarget::Session`] and
+    /// each [`EnvelopeTarget::Subscription`] on it, as
+    /// [`Self::forget_target`] forgets one target.
+    pub fn forget_session_targets(&mut self, session_id: &SessionId) {
+        self.forget_matching(|candidate| match candidate {
+            EnvelopeTarget::Session { session_id: id }
+            | EnvelopeTarget::Subscription { session_id: id, .. } => id == session_id,
+            _ => false,
+        });
+    }
+
+    fn forget_matching(&mut self, gone: impl Fn(&EnvelopeTarget) -> bool) {
+        self.queues.retain(|target, _| !gone(target));
         self.deliveries
-            .retain(|(delivery_target, _), _| delivery_target != target);
+            .retain(|(delivery_target, _), _| !gone(delivery_target));
         self.subscriptions.retain(|_, subscribers| {
-            subscribers.retain(|subscriber| subscriber != target);
+            subscribers.retain(|subscriber| !gone(subscriber));
             !subscribers.is_empty()
         });
     }

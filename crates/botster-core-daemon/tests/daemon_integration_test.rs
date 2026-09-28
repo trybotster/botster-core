@@ -1317,6 +1317,139 @@ fn daemon_notification_expiry_matches_core_inbox() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+fn session_target(session_id: &SessionId) -> EnvelopeTarget {
+    EnvelopeTarget::Session {
+        session_id: session_id.clone(),
+    }
+}
+
+fn subscription_target(session_id: &SessionId, subscription_id: &str) -> EnvelopeTarget {
+    EnvelopeTarget::Subscription {
+        session_id: session_id.clone(),
+        subscription_id: SubscriptionId(subscription_id.to_string()),
+    }
+}
+
+/// Publish one envelope to `targets`, then drain each once so every copy is
+/// both queued and delivered-but-unacknowledged.
+fn publish_and_deliver(daemon: &mut CoreDaemon, id: &str, targets: &[EnvelopeTarget]) {
+    daemon
+        .publish_routed_envelope(PublishRoutedEnvelopeRequest {
+            envelope: envelope(id, targets.to_vec()),
+        })
+        .expect("publish to the session targets");
+    for target in targets {
+        let drained = daemon
+            .drain_routed_envelopes(DrainRoutedEnvelopesRequest {
+                target: target.clone(),
+                after: None,
+                limit: 8,
+            })
+            .expect("drain one target");
+        assert_eq!(drained.envelopes.len(), 1, "{target:?} holds the copy");
+    }
+}
+
+fn holds_nothing(daemon: &mut CoreDaemon, target: &EnvelopeTarget, id: &str) -> bool {
+    let drained = daemon
+        .drain_routed_envelopes(DrainRoutedEnvelopesRequest {
+            target: target.clone(),
+            after: None,
+            limit: 8,
+        })
+        .expect("drain a forgotten target");
+    drained.envelopes.is_empty()
+        && daemon
+            .routed_envelope_delivery_state(target, &EnvelopeId(id.to_string()))
+            .state
+            .is_none()
+}
+
+/// Removing a session forgets every envelope target of it, the session
+/// target and each subscription on it, and leaves other sessions' targets.
+#[test]
+fn removing_a_session_forgets_its_session_and_subscription_envelope_targets() {
+    let data_dir = temp_data_dir("remove-session-envelope-targets");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let gone = SessionId("gone-envelope-session".to_string());
+    let other = SessionId("other-envelope-session".to_string());
+    for session_id in [&gone, &other] {
+        let mut record = RegistryRecord::running(
+            session_id.clone(),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            1,
+        );
+        record.mark(RegistrySessionState::Exited, 1);
+        daemon.registry().save(&record).expect("seed exited record");
+    }
+    let gone_targets = [
+        session_target(&gone),
+        subscription_target(&gone, "a"),
+        subscription_target(&gone, "b"),
+    ];
+    let kept = subscription_target(&other, "a");
+    let mut targets = gone_targets.to_vec();
+    targets.push(kept.clone());
+    publish_and_deliver(&mut daemon, "env-remove", &targets);
+
+    assert!(daemon
+        .remove_session(&gone)
+        .expect("remove the exited session"));
+
+    for target in &gone_targets {
+        assert!(
+            holds_nothing(&mut daemon, target, "env-remove"),
+            "{target:?} still holds envelope state after its session was removed"
+        );
+    }
+    assert!(
+        daemon
+            .routed_envelope_delivery_state(&kept, &EnvelopeId("env-remove".to_string()))
+            .state
+            .is_some(),
+        "another session's target keeps its delivery"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The same cleanup is public, for a host that retires a session's targets
+/// before the session is removed.
+#[test]
+fn forget_session_envelope_targets_forgets_only_that_sessions_targets() {
+    let data_dir = temp_data_dir("forget-session-envelope-targets");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let ended = SessionId("ended-envelope-session".to_string());
+    let other = SessionId("live-envelope-session".to_string());
+    let ended_targets = [session_target(&ended), subscription_target(&ended, "a")];
+    let kept = [session_target(&other), subscription_target(&other, "a")];
+    let mut targets = ended_targets.to_vec();
+    targets.extend(kept.iter().cloned());
+    publish_and_deliver(&mut daemon, "env-forget", &targets);
+
+    daemon
+        .forget_session_envelope_targets(&ended)
+        .expect("forget the ended session's targets");
+
+    for target in &ended_targets {
+        assert!(
+            holds_nothing(&mut daemon, target, "env-forget"),
+            "{target:?}"
+        );
+    }
+    for target in &kept {
+        assert!(
+            daemon
+                .routed_envelope_delivery_state(target, &EnvelopeId("env-forget".to_string()))
+                .state
+                .is_some(),
+            "{target:?} keeps its delivery"
+        );
+    }
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn daemon_routed_envelope_cursor_ack_and_backpressure_are_exposed_when_needed() {
     let data_dir = temp_data_dir("daemon-routed-envelope");

@@ -3258,6 +3258,21 @@ impl CoreDaemon {
         Ok(())
     }
 
+    /// Forget every routed envelope target of one session: its
+    /// [`EnvelopeTarget::Session`] target and each
+    /// [`EnvelopeTarget::Subscription`] on it, with their queues, delivery
+    /// records, and route subscriptions. [`Self::remove_session`] does this
+    /// itself; a host calls it earlier when its own policy retires the
+    /// session's targets.
+    pub fn forget_session_envelope_targets(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.envelope_router.forget_session_targets(session_id);
+        Ok(())
+    }
+
     /// Return one routed envelope delivery state without changing daemon state.
     pub fn routed_envelope_delivery_state(
         &self,
@@ -3507,6 +3522,8 @@ impl CoreDaemon {
             );
         }
         self.forget_retained(session_id);
+        // The session is gone, so its envelope targets are too.
+        self.envelope_router.forget_session_targets(session_id);
         self.terminal_commit_obligations.remove(session_id);
         self.terminal_commit_failures.remove(session_id);
         self.observe_live_sessions.remove(&session_id.0);
