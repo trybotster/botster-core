@@ -272,6 +272,9 @@ struct WakeInner {
     reverse_clear: AtomicBool,
     #[cfg(test)]
     race_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Test seam: signalled just before a wait blocks on the channel.
+    #[cfg(test)]
+    blocking_recv_entered: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 /// Host-facing wait source for adapter and ingress wakes.
@@ -332,6 +335,8 @@ impl TerminalWakeSource {
                 reverse_clear: AtomicBool::new(false),
                 #[cfg(test)]
                 race_hook: Mutex::new(None),
+                #[cfg(test)]
+                blocking_recv_entered: Mutex::new(None),
             }),
         }
     }
@@ -614,6 +619,15 @@ impl TerminalWakeSource {
             && timeout.is_none_or(|timeout| !timeout.is_zero())
             && !self.inner.overflow.load(Ordering::Acquire)
         {
+            #[cfg(test)]
+            if let Some(entered) = &*self
+                .inner
+                .blocking_recv_entered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+            {
+                let _ = entered.send(());
+            }
             let received = match timeout {
                 // timer: deadline — the caller's wake wait bound; expiry returns an empty batch
                 Some(timeout) => rx.recv_timeout(timeout),
@@ -876,6 +890,7 @@ mod tests {
         interrupt.interrupt();
         assert_eq!(source.occupancy(), 1);
         assert_eq!(
+            // timer: deadline — expiry fails the test
             source.wait_wakes_interruptible(Duration::from_secs(1)),
             TerminalWakeWait::Interrupted
         );
@@ -895,6 +910,7 @@ mod tests {
         assert!(sink.wake(TerminalWakeKind::Writable));
 
         let TerminalWakeWait::Wakes(batch) =
+            // timer: deadline — expiry fails the test
             source.wait_wakes_interruptible(Duration::from_secs(1))
         else {
             panic!("real wake must win over interrupt");
@@ -945,8 +961,14 @@ mod tests {
         let source = TerminalWakeSource::new();
         let waiter = source.clone();
         let started = Instant::now();
+        let (entered_sender, entered) = mpsc::channel();
+        *source.inner.blocking_recv_entered.lock().expect("seam") = Some(entered_sender);
+        // timer: deadline — expiry fails the test
         let thread = thread::spawn(move || waiter.wait_wakes_interruptible(Duration::from_secs(5)));
-        thread::sleep(Duration::from_millis(20));
+        entered
+            // timer: deadline — the waiter must reach its blocking receive; expiry fails the test
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the waiter blocks on the wake channel");
         source.interrupt_handle().interrupt();
         assert_eq!(
             thread.join().expect("waiter"),
@@ -1154,16 +1176,9 @@ mod tests {
         let stop = std::sync::Arc::new(AtomicBool::new(false));
         let drain_source = source.clone();
         let drain_stop = std::sync::Arc::clone(&stop);
+        let stop_drainer = source.interrupt_handle();
         let drainer = thread::spawn(move || {
-            let mut worst = 0usize;
-            while !drain_stop.load(Ordering::Relaxed) {
-                let _ = drain_source.wait_wakes(Duration::from_millis(1));
-                let seen = drain_source.occupancy();
-                if seen > worst {
-                    worst = seen;
-                }
-            }
-            worst
+            drain_until_interrupted(&drain_source, &drain_stop, Duration::from_secs(5))
         });
         let deadline = Instant::now() + Duration::from_millis(400);
         let mut producer_worst = 0usize;
@@ -1174,8 +1189,13 @@ mod tests {
                 producer_worst = seen;
             }
         }
-        stop.store(true, Ordering::Relaxed);
-        let drain_worst = drainer.join().expect("drain thread");
+        stop.store(true, Ordering::Release);
+        // An interrupt sent before the drainer waits is kept as pending.
+        stop_drainer.interrupt();
+        let drain_worst = drainer
+            .join()
+            .expect("drain thread")
+            .expect("the stop interrupt ends the drainer");
         assert!(
             producer_worst <= WAKE_QUEUE_CAPACITY && drain_worst <= WAKE_QUEUE_CAPACITY,
             "occupancy wrapped or exceeded the channel: producer_worst={producer_worst} drain_worst={drain_worst}"
@@ -1197,6 +1217,44 @@ mod tests {
             "live allocation bound must equal registry size when occupancy is zero"
         );
         drop(idle);
+    }
+
+    /// Drain wakes, recording the worst occupancy, until the stop interrupt.
+    /// Expiry of the hang guard is a failure, never an exit: a lost stop
+    /// interrupt cannot pass through the deadline.
+    fn drain_until_interrupted(
+        source: &TerminalWakeSource,
+        stop: &AtomicBool,
+        guard: Duration,
+    ) -> Result<usize, &'static str> {
+        let mut worst = 0usize;
+        loop {
+            // timer: deadline — a hang guard only; expiry fails the test
+            match source.wait_wakes_interruptible(guard) {
+                TerminalWakeWait::Wakes(_) => {}
+                TerminalWakeWait::Interrupted if stop.load(Ordering::Acquire) => {
+                    return Ok(worst.max(source.occupancy()));
+                }
+                TerminalWakeWait::Interrupted => {}
+                TerminalWakeWait::TimedOut => {
+                    return Err("the hang guard expired: the stop interrupt was lost");
+                }
+            }
+            worst = worst.max(source.occupancy());
+        }
+    }
+
+    /// The drainer's stop is its interrupt. With the stop flag set and no
+    /// interrupt sent, the drainer reports its hang guard's expiry; it does
+    /// not treat the expiry as a stop.
+    #[test]
+    fn a_lost_stop_interrupt_fails_the_drainer_instead_of_passing() {
+        let source = TerminalWakeSource::new();
+        let stop = AtomicBool::new(true);
+        assert_eq!(
+            drain_until_interrupted(&source, &stop, Duration::ZERO),
+            Err("the hang guard expired: the stop interrupt was lost")
+        );
     }
 
     #[test]
@@ -1275,6 +1333,7 @@ mod tests {
         source.arm_queued_overflow_for_test(&session);
         assert_eq!(source.ingress_overflow_len(), 1);
         let started = Instant::now();
+        // timer: deadline — the bound the early wake must beat; the assertion below checks it
         let batch = source.wait_wakes(Duration::from_secs(5));
         assert!(
             started.elapsed() < Duration::from_millis(500),

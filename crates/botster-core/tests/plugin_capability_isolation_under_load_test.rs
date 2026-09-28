@@ -1,8 +1,7 @@
 //! Cross-primitive plugin capability isolation tests.
 
 use std::collections::{BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use botster_core::{
@@ -304,8 +303,22 @@ fn timer_schedule(
 
 #[derive(Clone, Default)]
 struct BlockingHttpTransport {
-    started: Arc<AtomicUsize>,
-    cancelled: Arc<AtomicUsize>,
+    /// Requests that observed cancellation, and its change signal.
+    cancelled: Arc<(Mutex<usize>, Condvar)>,
+}
+
+impl BlockingHttpTransport {
+    /// Wait until `count` requests observed cancellation, or `timeout`
+    /// passes. Returns the number observed.
+    fn wait_cancelled(&self, count: usize, timeout: Duration) -> usize {
+        let (cancelled, changed) = &*self.cancelled;
+        let cancelled = cancelled.lock().expect("cancelled lock");
+        let (cancelled, _) = changed
+            // timer: deadline — the caller's bound; a recorded cancellation ends the wait
+            .wait_timeout_while(cancelled, timeout, |cancelled| *cancelled < count)
+            .expect("cancelled wait");
+        *cancelled
+    }
 }
 
 impl HttpCapabilityTransport for BlockingHttpTransport {
@@ -314,11 +327,22 @@ impl HttpCapabilityTransport for BlockingHttpTransport {
         _request: HttpTransportRequest,
         cancellation: botster_core::PluginCancellationToken,
     ) -> Result<HttpCapabilityResponse, CapabilityRuntimeError> {
-        self.started.fetch_add(1, Ordering::SeqCst);
-        while !cancellation.is_cancelled() {
-            std::thread::sleep(Duration::from_millis(1));
+        let woken = Arc::new((Mutex::new(false), Condvar::new()));
+        let signal = Arc::clone(&woken);
+        cancellation.on_cancel(move || {
+            let (flag, changed) = &*signal;
+            *flag.lock().expect("cancel flag lock") = true;
+            changed.notify_all();
+        });
+        let (flag, changed) = &*woken;
+        let mut flag = flag.lock().expect("cancel flag lock");
+        while !*flag && !cancellation.is_cancelled() {
+            flag = changed.wait(flag).expect("cancel flag wait");
         }
-        self.cancelled.fetch_add(1, Ordering::SeqCst);
+        drop(flag);
+        let (cancelled, changed) = &*self.cancelled;
+        *cancelled.lock().expect("cancelled lock") += 1;
+        changed.notify_all();
         Err(CapabilityRuntimeError::new(
             CapabilityRuntimeErrorKind::Cancelled,
             "cancelled by blocking test transport",
@@ -541,12 +565,8 @@ fn saturated_capability_primitives_do_not_starve_engine_client_paths_or_unrelate
     let http_handle = http
         .submit(http_request(&saturated_plugin, "http-slow"))
         .expect("first slow HTTP request accepted");
-    for _ in 0..50 {
-        if blocking_transport.started.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    // submit reserves the in-flight slot before it returns, so the second
+    // submit meets a full runtime whether or not the transport has started.
     let http_pressure = http
         .submit(http_request(&saturated_plugin, "http-rejected"))
         .expect_err("HTTP capacity rejects instead of waiting");
@@ -864,13 +884,10 @@ fn saturated_capability_primitives_do_not_starve_engine_client_paths_or_unrelate
 
     http.release_resource(http_handle.resource.expect("HTTP resource"))
         .expect("cleanup slow HTTP resource");
-    for _ in 0..50 {
-        if blocking_transport.cancelled.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(blocking_transport.cancelled.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        blocking_transport.wait_cancelled(1, Duration::from_millis(50)),
+        1
+    );
 }
 
 #[test]

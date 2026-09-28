@@ -259,8 +259,8 @@ fn run(book: &(Mutex<Book>, Condvar), killer: &ProcessKiller) {
         }
         let next = guard.entries.iter().map(|(_, at, _)| *at).min();
         guard = match next {
-            // timer: deadline — the earliest armed plugin-process deadline; expiry kills the process group
             Some(at) => {
+                // timer: deadline — the earliest armed plugin-process deadline; expiry kills the process group
                 cvar.wait_timeout(guard, at.saturating_duration_since(now))
                     .unwrap_or_else(PoisonError::into_inner)
                     .0

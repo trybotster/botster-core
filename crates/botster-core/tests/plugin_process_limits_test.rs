@@ -63,8 +63,8 @@ fn start(config: PluginProcessConfig) -> Arc<PluginProcess> {
     thread::spawn(move || {
         let _ = tx.send(PluginProcess::spawn(&config, &load));
     });
-    // timer: deadline — the worker reaches Loaded; expiry fails the test
     let (process, _) = rx
+        // timer: deadline — the worker reaches Loaded; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("spawn resolves")
         .expect("loaded");
