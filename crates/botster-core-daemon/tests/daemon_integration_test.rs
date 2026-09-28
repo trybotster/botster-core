@@ -3660,6 +3660,65 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// A successor daemon that adopts a live worker, and only adopts it, must
+/// end that worker and its child at shutdown. The child blocks reading its
+/// PTY and never exits alone: only the shutdown can end it.
+#[cfg(unix)]
+#[test]
+fn a_successor_shutdown_ends_an_adopted_worker_and_its_child() {
+    let data_dir = temp_data_dir("successor-shutdown-ends-adopted-worker");
+    let session_id = SessionId("successor-shutdown-session".to_string());
+    let request = spawn_request(&session_id);
+    let (worker_pid, child_pid) = {
+        let mut daemon =
+            CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+        daemon.spawn(request, 10).expect("first daemon spawns");
+        let (worker_pid, child_pid, _) = worker_process_evidence(&daemon, &session_id);
+        daemon.release_for_restart();
+        (worker_pid, child_pid)
+    };
+
+    let mut successor =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    // Run the successor as Hub does: a wake pump that observes its stop,
+    // then a whole-daemon shutdown.
+    let control = successor.wake_pump_control();
+    let reports = successor.adoption_scan().expect("successor scans");
+    assert_eq!(reports[0].state, SessionAdoptionState::Adoptable);
+    successor
+        .adopt_session(&session_id, 11)
+        .expect("successor adopts the live worker");
+    control.request_stop();
+    // After a stop the pump returns at most one final collision batch, and
+    // every later call returns Stopped.
+    match successor.wait_pump(Duration::ZERO) {
+        botster_core_daemon::WakePumpWait::Stopped => {}
+        botster_core_daemon::WakePumpWait::Wakes(_) => assert_eq!(
+            successor.wait_pump(Duration::ZERO),
+            botster_core_daemon::WakePumpWait::Stopped,
+            "the call after the collision batch observes the stop"
+        ),
+        other => panic!("a stopped pump returns its collision batch or Stopped: {other:?}"),
+    }
+    successor
+        .shutdown(None, 12)
+        .expect("successor shuts every session down");
+
+    let live: Vec<u32> = [worker_pid, child_pid]
+        .into_iter()
+        .filter(|pid| !wait_pid_exit(*pid, REAL_WORKER_COMPLETION_TIMEOUT))
+        .collect();
+    // This test started these processes; end any survivor before failing.
+    for pid in &live {
+        signal_process(*pid, "KILL");
+    }
+    let _ = fs::remove_dir_all(data_dir);
+    assert!(
+        live.is_empty(),
+        "adopted worker {worker_pid} and child {child_pid} end at the successor's shutdown; still live: {live:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn production_worker_root_handles_canonical_and_long_session_ids() {
