@@ -196,6 +196,8 @@ struct CaptureRequest {
     /// Identity captured when the request was created. Host captures carry
     /// `None`; route captures carry the attachment generation and fence.
     identity: Option<CaptureIdentity>,
+    /// Keeps an exited session for this capture while the request lives.
+    _exit_hold: Option<crate::runtime::ExitHold>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -218,6 +220,8 @@ struct RouteCapture {
     /// Snapshot frames already polled whose preceding output is still held
     /// for a full route: processed once that output has routed.
     stashed_frames: Option<crate::runtime::WorkerSnapshotBoundaryPoll>,
+    /// Keeps an exited session for this capture while the capture lives.
+    _exit_hold: Option<crate::runtime::ExitHold>,
 }
 
 #[cfg(feature = "local-runtime")]
@@ -1153,6 +1157,7 @@ impl WorkerBackedBotsterEngine {
         self.enqueue_capture(
             &session_id,
             CaptureRequest {
+                _exit_hold: None,
                 client_id,
                 subscription_id,
                 kind: CaptureKind::Attach,
@@ -1567,11 +1572,9 @@ impl WorkerBackedBotsterEngine {
         last_output_at: u64,
     ) -> Result<BotsterEngineOutput, WorkerBackedBotsterEngineError> {
         // An exited session stays held while a capture on it is active or
-        // queued, so its worker can still serve the capture.
-        self.sync_exit_hold(session_id);
-        let output = self.drain_capture_once(session_id, last_output_at);
-        self.sync_exit_hold(session_id);
-        output
+        // queued: each capture owns an exit hold, so its worker can still
+        // serve it.
+        self.drain_capture_once(session_id, last_output_at)
     }
 
     fn drain_capture_once(
@@ -1590,7 +1593,6 @@ impl WorkerBackedBotsterEngine {
             }
             self.end_dropped_route_captures(session_id, None);
             self.capture_queue.remove(session_id);
-            self.sync_exit_hold(session_id);
             return self.runtime.drain_runtime_once(session_id, last_output_at);
         }
         let Some(mut capture) = self.captures.remove(session_id) else {
@@ -1857,8 +1859,8 @@ impl WorkerBackedBotsterEngine {
             append_engine_output(&mut output, attached);
         }
         self.sync_worker_consumers(session_id)?;
-        // This capture is done; the session stays held only for queued ones.
-        self.sync_exit_hold(session_id);
+        // This capture is done; its exit hold went with it, so the session
+        // stays held only for queued ones.
         let mut leftover = self
             .runtime
             .drain_runtime_once(session_id, last_output_at)?;
@@ -1943,6 +1945,7 @@ impl WorkerBackedBotsterEngine {
         self.enqueue_capture(
             session_id,
             CaptureRequest {
+                _exit_hold: None,
                 client_id: ClientId(format!("host-capture-{id}")),
                 subscription_id: SubscriptionId(format!("host-capture-{id}")),
                 kind: CaptureKind::Host(id),
@@ -1967,7 +1970,9 @@ impl WorkerBackedBotsterEngine {
         let _ = self.start_next_capture(session_id);
     }
 
-    fn enqueue_capture(&mut self, session_id: &SessionId, request: CaptureRequest) {
+    fn enqueue_capture(&mut self, session_id: &SessionId, mut request: CaptureRequest) {
+        // The capture holds an exited session from here until it ends.
+        request._exit_hold = self.runtime.session_runtime().exit_hold(session_id);
         if !matches!(request.kind, CaptureKind::Host(_)) {
             self.runtime
                 .client_worker_mut()
@@ -1976,20 +1981,7 @@ impl WorkerBackedBotsterEngine {
         let queue = self.capture_queue.entry(session_id.clone()).or_default();
         queue.retain(|queued| queued.subscription_id != request.subscription_id);
         queue.push_back(request);
-        self.sync_exit_hold(session_id);
         let _ = self.start_next_capture(session_id);
-    }
-
-    /// Hold an exited session while a capture on it is active or queued.
-    fn sync_exit_hold(&mut self, session_id: &SessionId) {
-        let hold = self.captures.contains_key(session_id)
-            || self
-                .capture_queue
-                .get(session_id)
-                .is_some_and(|queue| !queue.is_empty());
-        self.runtime
-            .session_runtime_mut()
-            .set_exit_hold(session_id, hold);
     }
 
     /// End the route captures of a session whose worker can no longer serve
@@ -2084,6 +2076,7 @@ impl WorkerBackedBotsterEngine {
                     self.captures.insert(
                         session_id.clone(),
                         RouteCapture {
+                            _exit_hold: next._exit_hold,
                             client_id: next.client_id,
                             subscription_id: next.subscription_id,
                             kind: next.kind,
@@ -2170,6 +2163,7 @@ impl WorkerBackedBotsterEngine {
             self.enqueue_capture(
                 &request.session_id,
                 CaptureRequest {
+                    _exit_hold: None,
                     client_id: request.client_id,
                     subscription_id: request.subscription_id,
                     kind: CaptureKind::Resync,
@@ -2201,7 +2195,6 @@ impl WorkerBackedBotsterEngine {
                 self.cancel_capture_boundary(session_id, capture.request_id);
             }
         }
-        self.sync_exit_hold(session_id);
     }
 
     /// Ask the worker to release the barrier of one capture.
@@ -2297,7 +2290,6 @@ impl WorkerBackedBotsterEngine {
         );
         self.end_dropped_route_captures(session_id, None);
         self.capture_queue.remove(session_id);
-        self.sync_exit_hold(session_id);
     }
 
     /// Whether a barrier cancel is still owed for the session, retrying the
@@ -2482,7 +2474,6 @@ impl WorkerBackedBotsterEngine {
         // what it already received.
         self.end_dropped_route_captures(&session_id, active.as_ref());
         self.capture_queue.remove(&session_id);
-        self.sync_exit_hold(&session_id);
         self.runtime
             .shutdown_session(session_id, reason, now_seconds)
     }
@@ -3393,6 +3384,7 @@ mod capture_identity_tests {
         engine.enqueue_capture(
             &session,
             CaptureRequest {
+                _exit_hold: None,
                 client_id: other.clone(),
                 subscription_id: subscription.clone(),
                 kind: CaptureKind::Resync,
@@ -3420,6 +3412,7 @@ mod capture_identity_tests {
         identity: Option<CaptureIdentity>,
     ) -> RouteCapture {
         RouteCapture {
+            _exit_hold: None,
             client_id: client_id.clone(),
             subscription_id: subscription_id.clone(),
             kind: CaptureKind::Attach,
@@ -3509,6 +3502,7 @@ mod capture_identity_tests {
             .entry(session.clone())
             .or_default()
             .push_back(CaptureRequest {
+                _exit_hold: None,
                 client_id: other,
                 subscription_id: subscription.clone(),
                 kind: CaptureKind::Attach,
@@ -3817,6 +3811,7 @@ mod capture_identity_tests {
         engine.captures.insert(
             session.clone(),
             RouteCapture {
+                _exit_hold: None,
                 client_id: ClientId("host-capture-9".into()),
                 subscription_id: SubscriptionId("host-capture-9".into()),
                 kind: CaptureKind::Host(9),
