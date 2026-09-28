@@ -54,6 +54,13 @@ impl ExitWatch {
     pub(crate) fn poll_exited(&self) -> io::Result<bool> {
         self.inner.poll_exited()
     }
+
+    /// Test seam: [`Self::poll_exited`], and how many pending events it
+    /// consumed from the kqueue.
+    #[cfg(all(test, any(target_os = "macos", target_os = "ios")))]
+    fn poll_exited_consuming(&self) -> io::Result<(bool, usize)> {
+        self.inner.poll_exited_consuming()
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -170,8 +177,14 @@ mod platform {
         }
 
         pub(super) fn poll_exited(&self) -> io::Result<bool> {
+            self.poll_exited_consuming().map(|(exited, _)| exited)
+        }
+
+        /// [`Self::poll_exited`], and how many pending events it consumed.
+        pub(super) fn poll_exited_consuming(&self) -> io::Result<(bool, usize)> {
             // Consume every pending event, so the kqueue is readable again
             // only on a new one; then decide by reapability alone.
+            let mut consumed = 0;
             let zero = libc::timespec {
                 tv_sec: 0,
                 tv_nsec: 0,
@@ -194,6 +207,9 @@ mod platform {
                 if count == 0 {
                     break;
                 }
+                if count > 0 {
+                    consumed += 1;
+                }
                 if count < 0 {
                     let error = io::Error::last_os_error();
                     if error.raw_os_error() != Some(libc::EINTR) {
@@ -201,7 +217,7 @@ mod platform {
                     }
                 }
             }
-            reapable(self.pid)
+            Ok((reapable(self.pid)?, consumed))
         }
     }
 
@@ -423,17 +439,6 @@ mod tests {
         child.wait().expect("reap");
     }
 
-    /// Whether `fd` is readable now, without waiting.
-    fn readable_now(fd: std::os::fd::RawFd) -> bool {
-        let mut poll_fd = libc::pollfd {
-            fd,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        // SAFETY: poll_fd points at one valid pollfd; a zero timeout never waits.
-        unsafe { libc::poll(&mut poll_fd, 1, 0) > 0 }
-    }
-
     /// Wait for `fd` to become readable.
     fn wait_readable(fd: std::os::fd::RawFd) {
         let mut poll_fd = libc::pollfd {
@@ -464,20 +469,22 @@ mod tests {
         let pid = child.0.id();
         let watch = ExitWatch::register(pid).expect("register");
         let fd = watch.raw_fd().expect("a kqueue descriptor");
-        // The watch starts readable; its first check finds a live child.
+        // The watch starts readable; its first check finds a live child and
+        // consumes the start event. Each check consumes what made the watch
+        // readable, so a poll loop cannot spin on it. A sibling test's
+        // SIGCHLD (process-wide) can only add to what a check consumes.
         wait_readable(fd);
-        assert!(!watch.poll_exited().expect("the first check"));
-        assert!(!readable_now(fd), "the first check consumed the start");
+        let (exited, consumed) = watch.poll_exited_consuming().expect("the first check");
+        assert!(!exited);
+        assert!(consumed >= 1, "the first check consumed the start event");
         // SAFETY: kill only sends a signal to our own child.
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGSTOP) };
         wait_readable(fd);
+        let (exited, consumed) = watch.poll_exited_consuming().expect("check");
+        assert!(!exited, "a stop is not an exit");
         assert!(
-            !watch.poll_exited().expect("check"),
-            "a stop is not an exit"
-        );
-        assert!(
-            !readable_now(fd),
-            "the checked stop event still makes the watch readable"
+            consumed >= 1,
+            "the check consumed the event that made the watch readable"
         );
 
         // SAFETY: kill only sends a signal to our own child.
