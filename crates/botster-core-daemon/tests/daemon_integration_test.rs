@@ -1450,6 +1450,56 @@ fn forget_session_envelope_targets_forgets_only_that_sessions_targets() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// session_metadata reads one registry row and changes nothing: an unknown
+/// id is None, and the lifecycle journal gains no change.
+#[test]
+fn session_metadata_reads_the_registry_row_without_side_effects() {
+    let data_dir = temp_data_dir("session-metadata-read");
+    let daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let known = SessionId("metadata-session".to_string());
+    let metadata = CoreSessionMetadata::from_entries(
+        [
+            ("session_type".to_string(), "agent".to_string()),
+            ("token_digest".to_string(), "sha256:abc".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let mut record = RegistryRecord::running(
+        known.clone(),
+        None,
+        ResizePayload { rows: 24, cols: 80 },
+        "seed".to_string(),
+        1,
+    );
+    record.metadata = metadata.clone();
+    daemon
+        .registry()
+        .save(&record)
+        .expect("seed the registry row");
+    let cursor = daemon.lifecycle_baseline().expect("baseline").cursor;
+
+    assert_eq!(
+        daemon.session_metadata(&known).expect("read metadata"),
+        Some(metadata)
+    );
+    assert_eq!(
+        daemon
+            .session_metadata(&SessionId("never-seen".to_string()))
+            .expect("read an unknown id"),
+        None
+    );
+
+    let after = daemon.lifecycle_changes(&cursor);
+    assert!(after.resync_required.is_none());
+    assert!(
+        after.changes.is_empty(),
+        "the read appended no lifecycle change"
+    );
+    assert_eq!(after.cursor, cursor, "the journal did not advance");
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn daemon_routed_envelope_cursor_ack_and_backpressure_are_exposed_when_needed() {
     let data_dir = temp_data_dir("daemon-routed-envelope");
