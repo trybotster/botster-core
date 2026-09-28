@@ -378,8 +378,17 @@ impl TerminalWakeSource {
     /// This method drains at most [`WAKE_QUEUE_CAPACITY`] channel nodes per
     /// call. Real wakes win over a concurrent interrupt. The interrupt stays
     /// pending for the next call when this call returns real wakes.
+    ///
+    /// A pending interrupt never blocks: its channel node may already have
+    /// been drained by an earlier wait, and a new interrupt coalesces into
+    /// the pending flag without sending another node.
     #[must_use]
     pub fn wait_wakes_interruptible(&self, timeout: Duration) -> TerminalWakeWait {
+        let timeout = if self.inner.interrupt_pending.load(Ordering::Acquire) {
+            Duration::ZERO
+        } else {
+            timeout
+        };
         let nodes = self.recv_nodes_limited(Some(timeout), WAKE_QUEUE_CAPACITY);
         let batch = self.assemble_batch(nodes);
         if !batch.adapter_routes.is_empty() || !batch.ingress_sessions.is_empty() {
@@ -925,6 +934,37 @@ mod tests {
         assert_eq!(
             source.wait_wakes_interruptible(Duration::ZERO),
             TerminalWakeWait::Interrupted
+        );
+    }
+
+    /// Real wakes drained the interrupt's channel node and left the flag
+    /// set. A later interrupt coalesces into that flag and sends no node, so
+    /// a wait that blocked on the channel would miss both until its timeout.
+    #[test]
+    fn a_pending_interrupt_whose_node_was_drained_ends_the_next_wait_without_blocking() {
+        let source = TerminalWakeSource::new();
+        let (session, sub) = ids(0);
+        let sink = source.bind_route(session, sub, TerminalSubscriptionGeneration(1));
+        source.interrupt_handle().interrupt();
+        assert!(sink.wake(TerminalWakeKind::Writable));
+        assert!(matches!(
+            // timer: deadline — expiry fails the test
+            source.wait_wakes_interruptible(Duration::from_secs(1)),
+            TerminalWakeWait::Wakes(_)
+        ));
+        // A stop's interrupt now finds the flag already set.
+        source.interrupt_handle().interrupt();
+        let (entered_sender, entered) = mpsc::channel();
+        *source.inner.blocking_recv_entered.lock().expect("seam") = Some(entered_sender);
+
+        assert_eq!(
+            // timer: deadline — a blocking receive would wait this long, then the seam fails the test
+            source.wait_wakes_interruptible(Duration::from_secs(5)),
+            TerminalWakeWait::Interrupted
+        );
+        assert!(
+            entered.try_recv().is_err(),
+            "a pending interrupt must end the wait without blocking on the channel"
         );
     }
 
