@@ -376,6 +376,106 @@ fn forget_target_drops_the_queue_records_and_subscriptions() {
     );
 }
 
+/// forget_session_targets drops the queue, the delivery records, and the
+/// route subscriptions of the session target and of every subscription on
+/// that session, and nothing of another session.
+#[test]
+fn forget_session_targets_drops_every_target_of_that_session_only() {
+    let mut router = RoutedEnvelopeRouter::new();
+    router.subscribe(topic("room"), subscription("gone", "a"));
+    router.subscribe(topic("room"), subscription("stays", "a"));
+    let gone = [
+        session("gone"),
+        subscription("gone", "a"),
+        subscription("gone", "b"),
+    ];
+    let kept = [session("stays"), subscription("stays", "a")];
+    let mut direct = gone.to_vec();
+    direct.push(session("stays"));
+    router.publish(envelope("env-1", direct));
+    router.publish(envelope("env-2", vec![topic("room")]));
+
+    router.forget_session_targets(&botster_core::SessionId("gone".to_string()));
+
+    for target in &gone {
+        assert!(
+            router.drain(target, None, 10).envelopes.is_empty(),
+            "{target:?}"
+        );
+        for id in ["env-1", "env-2"] {
+            assert!(
+                router
+                    .delivery_state(target, &EnvelopeId(id.to_string()))
+                    .is_none(),
+                "{target:?} keeps {id}"
+            );
+        }
+    }
+    let later = router.publish(envelope("env-3", vec![topic("room")]));
+    assert_eq!(
+        later
+            .deliveries
+            .iter()
+            .map(|delivery| delivery.target.clone())
+            .collect::<Vec<_>>(),
+        vec![subscription("stays", "a")],
+        "only the other session's subscriber still receives the route"
+    );
+    assert_eq!(ids(&router.drain(&kept[0], None, 10)), vec!["env-1"]);
+    assert_eq!(
+        ids(&router.drain(&kept[1], None, 10)),
+        vec!["env-2", "env-3"]
+    );
+}
+
+/// Forgetting an exited terminal session also forgets its envelope targets.
+#[test]
+fn forgetting_a_terminal_session_forgets_its_envelope_targets() {
+    let session_id = botster_core::SessionId("ended".to_string());
+    let mut engine: MultiplexerEngine<FakeSessionRuntime, FakeSessionWorkerRuntime> =
+        MultiplexerEngine::new(FakeSessionRuntime::new());
+    engine
+        .spawn_session(
+            botster_core::SessionSpawnRequest {
+                request_id: botster_core::RequestId("spawn-ended".to_string()),
+                session_id: session_id.clone(),
+                executable: "fake-shell".to_string(),
+                arguments: Vec::new(),
+                working_directory: botster_core::SpawnWorkingDirectory {
+                    path: "/workspace".to_string(),
+                },
+                environment: botster_core::SpawnEnvironment::default(),
+                initial_pty_size: None,
+            },
+            botster_core::CoreSessionMetadata::new(),
+            FakeSessionWorkerRuntime::new(),
+        )
+        .expect("spawn");
+    engine
+        .handle_runtime_event(botster_core::SessionWorkerRuntimeEvent::ProcessExited {
+            session_id: session_id.clone(),
+            payload: botster_core::ProcessExitedPayload {
+                exit_code: Some(0),
+                signal: None,
+            },
+        })
+        .expect("exit");
+    let targets = [session("ended"), subscription("ended", "a")];
+    engine.publish_envelope(envelope("env-1", targets.to_vec()));
+
+    assert!(engine.forget_terminal_session(&session_id));
+
+    for target in &targets {
+        assert!(
+            engine
+                .drain_envelopes(target, None, 10)
+                .envelopes
+                .is_empty(),
+            "{target:?}"
+        );
+    }
+}
+
 /// A repeated publish of an outstanding id is idempotent: one queued copy,
 /// one record, removed by one acknowledgement, and the capacity recovers.
 /// Two copies with one record would leave a slot no ack can free.
