@@ -828,7 +828,8 @@ impl CoreDaemon {
     /// Resync outcomes return empty `changes` and the exact reason even when
     /// `max_bytes` is undersized. They are control outcomes, not successful
     /// pages. A valid cursor whose empty successful page encodes larger than
-    /// `max_bytes` returns [`SessionLifecyclePageError::BudgetTooSmall`].
+    /// `max_bytes`, or whose first change does not fit, returns
+    /// [`SessionLifecyclePageError::BudgetTooSmall`] with the size it needs.
     pub fn lifecycle_changes_page(
         &self,
         after: &SessionLifecycleCursor,
@@ -868,7 +869,16 @@ impl CoreDaemon {
             let mut candidate = page.clone();
             candidate.next = change.cursor.clone();
             candidate.changes.push(change.clone());
-            if encoded_lifecycle_page_len(&candidate) > max_bytes {
+            let encoded = encoded_lifecycle_page_len(&candidate);
+            if encoded > max_bytes {
+                // A first change that cannot fit would return an empty page
+                // at the same cursor, and the caller would ask again for
+                // ever: name the budget it needs instead.
+                if page.changes.is_empty() {
+                    return Err(SessionLifecyclePageError::BudgetTooSmall {
+                        minimum_bytes: encoded,
+                    });
+                }
                 break;
             }
             page = candidate;
@@ -4134,6 +4144,15 @@ impl CoreDaemon {
             let encoded = encoded_lifecycle_baseline_page_len(&page);
             *ops = ops.saturating_add(1);
             if encoded > budget.max_bytes {
+                // A first row that cannot fit would return an empty page
+                // naming the same row, and the caller would ask again for
+                // ever: name the budget it needs instead. The freeze and the
+                // materialized row stay, so a larger budget resumes here.
+                if page.sessions.len() == 1 {
+                    return Err(SessionLifecyclePageError::BudgetTooSmall {
+                        minimum_bytes: encoded,
+                    });
+                }
                 page.sessions.pop();
                 page.next = Some(SessionId(next_id));
                 page.complete = false;
@@ -6488,16 +6507,19 @@ mod baseline_freeze_bound_tests {
                     max_elapsed: Duration::MAX,
                 },
             )
-            .expect("smallest accepted continuation budget");
+            .expect("the budget BudgetTooSmall named");
+        // The named budget is the smallest that makes progress: exactly the
+        // first row, and no row after it.
         assert!(!page.complete);
-        assert!(page.sessions.is_empty());
+        assert_eq!(page.sessions.len(), 1);
         assert!(page.next.is_some());
         assert_page_within_budget(&page, continuation_minimum);
         assert_eq!(
             encoded_lifecycle_baseline_page_len(&page),
             continuation_minimum
         );
-        assert_eq!(materialized_rows(&daemon), 1);
+        // The first row, and the next one it tried and did not fit.
+        assert_eq!(materialized_rows(&daemon), 2);
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
@@ -6533,16 +6555,23 @@ mod baseline_freeze_bound_tests {
                     max_elapsed: Duration::MAX,
                 },
             )
-            .expect("smallest accepted later continuation budget");
+            .expect("the budget BudgetTooSmall named");
+        // The named budget is the smallest that makes progress: exactly the
+        // row at the resume position, and no row after it.
         assert!(!page.complete);
-        assert!(page.sessions.is_empty());
-        assert_eq!(page.next, first.next);
+        assert_eq!(page.sessions.len(), 1);
+        assert_eq!(
+            Some(&page.sessions[0].session.session_id),
+            first.next.as_ref()
+        );
+        assert_ne!(page.next, first.next);
         assert_page_within_budget(&page, continuation_minimum);
         assert_eq!(
             encoded_lifecycle_baseline_page_len(&page),
             continuation_minimum
         );
-        assert_eq!(materialized_rows(&daemon), 2);
+        // The rows so far, and the next one it tried and did not fit.
+        assert_eq!(materialized_rows(&daemon), 3);
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
@@ -6654,5 +6683,39 @@ mod baseline_freeze_bound_tests {
         .max()
         .expect("states");
         assert_eq!(widest, crate::api::max_session_lifecycle_record_bytes());
+    }
+
+    /// A first change larger than the budget is named with the budget it
+    /// needs, never returned as an empty page at the same cursor.
+    #[test]
+    fn a_change_that_cannot_fit_names_the_budget_it_needs() {
+        let data_dir = data_dir("change-too-small");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let after = daemon.lifecycle_cursor();
+        let record = RegistryRecord::running(
+            SessionId("sess-big".to_string()),
+            None,
+            ResizePayload { rows: 24, cols: 80 },
+            "seed".to_string(),
+            1,
+        );
+        daemon.append_lifecycle_upsert(&record, None);
+        let empty_minimum = match daemon.lifecycle_changes_page(&after, usize::MAX, 0) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("expected BudgetTooSmall, got {other:?}"),
+        };
+        // The empty page fits; the one change does not.
+        let needed = match daemon.lifecycle_changes_page(&after, usize::MAX, empty_minimum) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("a first change that cannot fit must be named, got {other:?}"),
+        };
+        assert!(needed > empty_minimum);
+        let page = daemon
+            .lifecycle_changes_page(&after, usize::MAX, needed)
+            .expect("the named budget");
+        assert_eq!(page.changes.len(), 1);
+        assert_ne!(page.next, after, "the named budget makes progress");
+        assert_eq!(encoded_lifecycle_page_len(&page), needed);
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }

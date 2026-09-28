@@ -4969,7 +4969,10 @@ fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
         Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
         other => panic!("expected BudgetTooSmall, got {other:?}"),
     };
-    let indexed = match daemon.lifecycle_baseline_page(
+    // The empty page fits `minimum`; the first row does not. The call names
+    // the budget of the page with that row, never an empty page at the same
+    // position, and that budget returns exactly that row.
+    let one_row = match daemon.lifecycle_baseline_page(
         Some(&setup.snapshot_sequence),
         None,
         LifecycleBaselineBudget {
@@ -4978,34 +4981,30 @@ fn lifecycle_baseline_page_byte_budget_stops_before_remaining_rows() {
             max_elapsed: Duration::MAX,
         },
     ) {
-        Ok(page) => {
-            assert!(!page.complete);
-            assert!(page.sessions.is_empty());
-            page
-        }
         Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => {
             assert!(minimum_bytes > minimum);
-            let page = daemon
-                .lifecycle_baseline_page(
-                    Some(&setup.snapshot_sequence),
-                    None,
-                    LifecycleBaselineBudget {
-                        max_rows: usize::MAX,
-                        max_bytes: minimum_bytes,
-                        max_elapsed: Duration::MAX,
-                    },
-                )
-                .expect("exact continuation budget");
-            assert!(!page.complete);
-            assert!(page.sessions.is_empty());
-            page
+            minimum_bytes
         }
-        other => panic!("expected incomplete page or BudgetTooSmall, got {other:?}"),
+        other => panic!("a first row that cannot fit must be named, got {other:?}"),
     };
+    let indexed = daemon
+        .lifecycle_baseline_page(
+            Some(&setup.snapshot_sequence),
+            None,
+            LifecycleBaselineBudget {
+                max_rows: usize::MAX,
+                max_bytes: one_row,
+                max_elapsed: Duration::MAX,
+            },
+        )
+        .expect("the named budget");
+    assert!(!indexed.complete);
+    assert_eq!(indexed.sessions.len(), 1);
+    assert_eq!(indexed.sessions[0].session.session_id, first);
     let encoded = serde_json::to_vec(&indexed)
-        .expect("continuation page must serialize")
+        .expect("one-row page must serialize")
         .len();
-    assert!(encoded <= 64 * 1024);
+    assert_eq!(encoded, one_row);
     let (snapshot, rows) = assemble_baseline_pages(
         &mut daemon,
         Some(setup.snapshot_sequence.clone()),
