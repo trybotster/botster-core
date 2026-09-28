@@ -84,6 +84,7 @@ fn returned_spawn_failure_releases_only_unstarted_resources() {
     }))
     .is_err());
     completion
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("receive completion after spawn failure");
     assert_eq!(started.load(Ordering::SeqCst), 0);
@@ -121,6 +122,7 @@ fn join_unwind_retains_resource_after_handle_is_taken() {
         .send(record)
         .unwrap_or_else(|_| panic!("worker receiver closed"));
     assert!(completion
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("receive the self-join outcome"));
     assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -266,6 +268,7 @@ fn registration_failure_retains_unjoined_resources() {
         .stopping = true;
     wake.notify();
     completion
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("receive the detached worker completion");
     assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -312,6 +315,7 @@ fn cleanup_without_join_and_stop_unwind_retain_resources() {
             .stopping = true;
         wake.notify();
         completion
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("receive completion after cleanup");
         assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -548,6 +552,7 @@ fn partial_spawn_failure_releases_metadata_after_unused_resources() {
     }))
     .is_err());
     completion
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("receive completion after partial spawn failure");
     assert_eq!(workers.load(Ordering::SeqCst), 2);
@@ -647,6 +652,7 @@ fn failed_registration_and_cleanup_keep_metadata_until_final_handle() {
         drop(survivor);
         assert_eq!(metadata.load(Ordering::SeqCst), 1);
         completion
+            // timer: deadline — expiry fails the test
             .recv_timeout(Duration::from_secs(5))
             .expect("receive completion after final survivor drop");
         assert_eq!(workers.load(Ordering::SeqCst), 0);
@@ -727,6 +733,7 @@ fn poisoned_executor_mutex_still_releases_metadata_on_final_drop() {
     .is_err());
     drop(handle);
     completion
+        // timer: deadline — expiry fails the test
         .recv_timeout(Duration::from_secs(5))
         .expect("receive completion after executor poison cleanup");
     assert_eq!(metadata.load(Ordering::SeqCst), 1);

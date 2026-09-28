@@ -137,8 +137,8 @@ fn deadline_cancel_runs_targets_outside_the_admission_lock() {
 
     admit(&engine, &plugin, "deadline", 20);
 
-    // timer: deadline — the probe reports from the deadline waiter; expiry means it deadlocked
     let (thread, jobs) = done_rx
+        // timer: deadline — the probe reports from the deadline waiter; expiry means it deadlocked
         .recv_timeout(EVENT_DEADLINE)
         .expect("a cancel target must run without the admission lock held");
     assert_eq!(thread.as_deref(), Some(DEADLINE_WAITER));
@@ -166,8 +166,8 @@ fn a_panicking_target_does_not_stop_later_deadlines() {
 
     let mut timed_out = Vec::new();
     while timed_out.len() < 2 {
-        // timer: deadline — each fired deadline publishes a completion; expiry means the waiter died
         notify_rx
+            // timer: deadline — each fired deadline publishes a completion; expiry means the waiter died
             .recv_timeout(EVENT_DEADLINE)
             .expect("the deadline waiter must survive a panicking target");
         for item in engine.drain_completions(usize::MAX, usize::MAX).completions {
@@ -223,12 +223,12 @@ fn unloading_seals_worker_stopped_before_a_prompt_runtime_answers() {
             })
         })
     };
-    // timer: deadline — shutdown reaches its post-cancel pause; expiry fails the test
     reached_rx
+        // timer: deadline — shutdown reaches its post-cancel pause; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("shutdown cancelled its tokens");
-    // timer: deadline — a completion was published; expiry fails the test
     returned_rx
+        // timer: deadline — a completion was published; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("a completion is published");
     let _ = release_tx.send(());

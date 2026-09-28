@@ -1,7 +1,6 @@
 //! Fake plugin worker runtime helpers.
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex};
 
 use botster_core::{
     BoundaryJson, PluginCancellationToken, PluginInvocationFailure, PluginInvocationFailureKind,
@@ -16,11 +15,11 @@ pub enum FakePluginBehavior {
     Success(BoundaryJson),
     /// Fail the invocation with a handler error.
     Failure(String),
-    /// Sleep before completing the invocation.
-    Delay {
-        /// Delay duration.
-        duration: Duration,
-        /// Payload returned after the delay.
+    /// A slow handler that ignores cancellation: hold the invocation until
+    /// the runtime is stopped or [`FakePluginRuntime::release`] is called,
+    /// then complete with `payload`.
+    Held {
+        /// Payload returned when the hold ends.
         payload: BoundaryJson,
     },
     /// Wait until core signals cancellation, then fail as cancelled.
@@ -33,7 +32,9 @@ pub struct FakePluginRuntime {
     behavior: Arc<Mutex<FakePluginBehavior>>,
     invocations: Arc<Mutex<Vec<PluginInvocationRequest>>>,
     stopped: Arc<Mutex<Vec<PluginKey>>>,
-    cancellations_observed: Arc<Mutex<usize>>,
+    cancellations_observed: Arc<(Mutex<usize>, Condvar)>,
+    /// Set when held invocations may finish: by `stop` or `release`.
+    released: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl FakePluginRuntime {
@@ -51,13 +52,21 @@ impl FakePluginRuntime {
         Self::new(FakePluginBehavior::Failure(reason.to_string()))
     }
 
-    /// Build a fake runtime that delays before returning `{"value": "late"}`.
+    /// Build a fake runtime whose invocations are held (ignoring
+    /// cancellation) until the runtime is stopped or released, then return
+    /// `{"value": "late"}`.
     #[must_use]
-    pub fn delayed(duration: Duration) -> Self {
-        Self::new(FakePluginBehavior::Delay {
-            duration,
+    pub fn held() -> Self {
+        Self::new(FakePluginBehavior::Held {
             payload: BoundaryJson(serde_json::json!({ "value": "late" })),
         })
+    }
+
+    /// Let held invocations finish.
+    pub fn release(&self) {
+        let (released, changed) = &*self.released;
+        *released.lock().expect("fake plugin runtime release lock") = true;
+        changed.notify_all();
     }
 
     /// Build a fake runtime with explicit behavior.
@@ -67,7 +76,8 @@ impl FakePluginRuntime {
             behavior: Arc::new(Mutex::new(behavior)),
             invocations: Arc::new(Mutex::new(Vec::new())),
             stopped: Arc::new(Mutex::new(Vec::new())),
-            cancellations_observed: Arc::new(Mutex::new(0)),
+            cancellations_observed: Arc::new((Mutex::new(0), Condvar::new())),
+            released: Arc::new((Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -94,8 +104,24 @@ impl FakePluginRuntime {
     pub fn cancellations_observed(&self) -> usize {
         *self
             .cancellations_observed
+            .0
             .lock()
             .expect("fake plugin runtime cancellations lock")
+    }
+
+    /// Wait until the fake has observed at least `count` cancellations, or
+    /// `timeout` passes. Returns the number observed.
+    #[must_use]
+    pub fn wait_for_cancellations(&self, count: usize, timeout: std::time::Duration) -> usize {
+        let (observed, changed) = &*self.cancellations_observed;
+        let observed = observed
+            .lock()
+            .expect("fake plugin runtime cancellations lock");
+        let (observed, _) = changed
+            // timer: deadline — the caller's bound; a recorded cancellation ends the wait
+            .wait_timeout_while(observed, timeout, |observed| *observed < count)
+            .expect("fake plugin runtime cancellations wait");
+        *observed
     }
 }
 
@@ -132,8 +158,14 @@ impl PluginRuntime for FakePluginRuntime {
                     reason,
                 })
             }
-            FakePluginBehavior::Delay { duration, payload } => {
-                std::thread::sleep(duration);
+            FakePluginBehavior::Held { payload } => {
+                let (released, changed) = &*self.released;
+                let mut released = released.lock().expect("fake plugin runtime release lock");
+                while !*released {
+                    released = changed
+                        .wait(released)
+                        .expect("fake plugin runtime release wait");
+                }
                 PluginInvocationResult::Completed(PluginInvocationSuccess {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -141,13 +173,24 @@ impl PluginRuntime for FakePluginRuntime {
                 })
             }
             FakePluginBehavior::WaitForCancellation => {
-                while !cancellation.is_cancelled() {
-                    std::thread::sleep(Duration::from_millis(1));
+                let cancelled = Arc::new((Mutex::new(false), Condvar::new()));
+                let signal = Arc::clone(&cancelled);
+                cancellation.on_cancel(move || {
+                    let (flag, changed) = &*signal;
+                    *flag.lock().expect("fake plugin runtime cancel lock") = true;
+                    changed.notify_all();
+                });
+                let (flag, changed) = &*cancelled;
+                let mut flag = flag.lock().expect("fake plugin runtime cancel lock");
+                while !*flag && !cancellation.is_cancelled() {
+                    flag = changed.wait(flag).expect("fake plugin runtime cancel wait");
                 }
-                *self
-                    .cancellations_observed
+                drop(flag);
+                let (observed, changed) = &*self.cancellations_observed;
+                *observed
                     .lock()
                     .expect("fake plugin runtime cancellations lock") += 1;
+                changed.notify_all();
                 PluginInvocationResult::Failed(PluginInvocationFailure {
                     request_id: request.request_id,
                     handler: request.handler,
@@ -164,5 +207,6 @@ impl PluginRuntime for FakePluginRuntime {
             .lock()
             .expect("fake plugin runtime stopped lock")
             .push(plugin_key.clone());
+        self.release();
     }
 }

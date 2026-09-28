@@ -546,8 +546,8 @@ fn wait_until_fails_at_its_deadline_under_unrelated_changes() {
         });
         let _ = done_tx.send(result.is_err());
     });
-    // timer: deadline — the wait must fail near its 50 ms bound, not run on
     let failed = done_rx
+        // timer: deadline — the wait must fail near its 50 ms bound, not run on
         .recv_timeout(HANG_GUARD)
         .expect("the wait ended despite continuing changes");
     assert!(failed, "a predicate that never holds fails the wait");
@@ -700,8 +700,8 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
         if index < 2 {
             // Both executors take their job before the next caller arrives,
             // so the four later callers fill the queue exactly.
-            // timer: deadline — the slow job must start; expiry fails the test
             slow_starts
+                // timer: deadline — the slow job must start; expiry fails the test
                 .recv_timeout(HANG_GUARD)
                 .expect("a slow job starts on each executor");
         }
@@ -710,8 +710,8 @@ fn bounded_waiting_queue_reports_attributed_backpressure_and_neighbor_isolation(
     let deadline = Instant::now() + HANG_GUARD;
     let mut slow_queued = 0;
     while slow_queued < 6 {
-        // timer: deadline — the engine must queue every slow job within the bound
         match queued
+            // timer: deadline — the engine must queue every slow job within the bound
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("the engine queues every slow job")
         {
@@ -1998,8 +1998,8 @@ fn try_admit_never_waits_on_slow_in_flight_work() {
                 assert!(call_started.elapsed() < Duration::from_millis(50));
                 // LockBusy leaves the retry wake armed (or fired): retry
                 // only on that notification, as the contract requires.
-                // timer: deadline — the busy lock must clear in the budget; expiry fails the test
                 wakes
+                    // timer: deadline — the busy lock must clear in the budget; expiry fails the test
                     .recv_timeout(retry_deadline.saturating_duration_since(Instant::now()))
                     .expect("typed admission lock busy persisted");
             }

@@ -241,7 +241,7 @@ pub fn run_plugin_admission_proof() -> Result<PluginAdmissionProof, EngineSmokeE
             configuration: None,
             runnable_entrypoints: Vec::new(),
         },
-        runtime: Arc::new(FakePluginRuntime::delayed(Duration::from_millis(200))),
+        runtime: Arc::new(FakePluginRuntime::held()),
         handlers: vec![PluginHandlerRegistration {
             handler: handler.clone(),
             required_capability: None,

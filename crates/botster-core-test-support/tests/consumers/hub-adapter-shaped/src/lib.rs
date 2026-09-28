@@ -323,6 +323,7 @@ mod tests {
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                     return false;
                 };
+                // timer: deadline — the loop's bound; expiry returns false to the caller's assertion
                 let batch = self.engine.wait_wakes(remaining);
                 self.engine.pump_woken(&batch, 3).expect("targeted pump");
             }

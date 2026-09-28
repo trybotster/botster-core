@@ -178,8 +178,8 @@ fn assert_rolled_back(point: FaultPoint, name: &str) {
         let mut sink = Vec::new();
         let _ = died.send(alive.read_to_end(&mut sink).is_ok());
     });
-    // timer: deadline — EOF on the alive FIFO means the descendant died; expiry means only the leader was killed
     let died = descendant_died
+        // timer: deadline — EOF on the alive FIFO means the descendant died; expiry means only the leader was killed
         .recv_timeout(EVENT_DEADLINE)
         .expect("the rollback killed the whole group");
     assert!(died);
@@ -801,8 +801,8 @@ fn a_memory_cap_hit_with_a_full_socket_reports_its_cause_and_kills_the_group() {
         let mut sink = Vec::new();
         let _ = died.send(alive_read.read_to_end(&mut sink).is_ok());
     });
-    // timer: deadline — EOF on the alive FIFO means the descendant died; expiry fails the test
     assert!(descendant_died
+        // timer: deadline — EOF on the alive FIFO means the descendant died; expiry fails the test
         .recv_timeout(WAIT)
         .expect("the whole group died"));
     let _ = std::fs::remove_dir_all(&dir);
