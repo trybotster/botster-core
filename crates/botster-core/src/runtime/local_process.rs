@@ -1827,6 +1827,7 @@ impl PtyReadiness {
                 revents: 0,
             };
             // SAFETY: poll_fd points at one valid pollfd for the call.
+            // timer: deadline — a PTY write's deadline; reads pass -1 and wait only for the event
             let _ = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
         }
     }
