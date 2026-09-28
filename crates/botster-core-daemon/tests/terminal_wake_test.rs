@@ -17,7 +17,7 @@ use botster_core_daemon::{
     SpawnSessionRequest, WakePumpControl, WakePumpError, WakePumpWait,
 };
 use botster_core_test_support::bounded_wait::{wait_for, HANG_GUARD};
-use botster_core_test_support::fixture_gate::Fifo;
+use botster_core_test_support::fixture_gate::{wait_pid_exit, Fifo};
 use botster_core_test_support::terminal_adapter::{
     DeliveredFrame, SharedFakeTerminalAdapter, TerminalAdapterHarnessDriver,
 };
@@ -942,6 +942,7 @@ fn client_input_moves_the_input_edges_and_host_writes_do_not() {
     );
     daemon.shutdown(Some(session_id.clone()), 20).ok();
     observe_until_exited_without_pump(&mut daemon, &session_id, 21);
+    wait_pty_child_gone(&daemon, &session_id);
     assert!(daemon.release_ended_session(&session_id).expect("release"));
     assert_eq!(
         (edges(&daemon).input_seq, edges(&daemon).composing),
@@ -2584,6 +2585,24 @@ fn observe_until_exited_without_pump(daemon: &mut CoreDaemon, session_id: &Sessi
                 SessionRegistryStateLookup::Found(RegistrySessionState::Exited)
             )
         },
+    );
+}
+
+/// Wait for the ended session's PTY child to be gone. The row reads Exited
+/// when the exit commits, but the child's process group can still probe as
+/// present for a moment, and `release_ended_session` then keeps the entry.
+fn wait_pty_child_gone(daemon: &CoreDaemon, session_id: &SessionId) {
+    let pid = daemon
+        .registry()
+        .load(session_id)
+        .expect("load the ended record")
+        .expect("the ended record")
+        .process
+        .and_then(|process| process.pid)
+        .expect("the ended record keeps the PTY child pid");
+    assert!(
+        wait_pid_exit(pid, HANG_GUARD),
+        "the PTY child {pid} is gone"
     );
 }
 
