@@ -1847,11 +1847,18 @@ where
                 .client_worker
                 .session_exit_has_room(session_id, exit_len);
         }
-        self.bound_room_need(session_id, output)
-            .is_none_or(|(frames, bytes)| {
+        match (output, self.bound_room_need(session_id, output)) {
+            // A chunk that is exactly one OUTPUT frame may coalesce on a
+            // full route. Nothing else does (MODES, or a chunk that can
+            // publish MODES ahead of its OUTPUT).
+            (SessionRuntimeOutput::PtyOutput { data, .. }, Some((1, _))) => self
+                .client_worker
+                .session_output_chunk_has_room(session_id, data.len()),
+            (_, need) => need.is_none_or(|(frames, bytes)| {
                 self.client_worker
                     .session_output_has_room(session_id, frames, bytes)
-            })
+            }),
+        }
     }
 
     /// Route runtime outputs in stream order. With `backpressure`, an output
@@ -3283,6 +3290,159 @@ mod tests {
         fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
     }
 
+    /// A reader that takes a frame per granted credit and records each one.
+    #[derive(Default)]
+    struct GatedState {
+        credits: usize,
+        written: Vec<(botster_terminal_protocol::TerminalKind, Vec<u8>)>,
+    }
+
+    struct GatedReader(std::sync::Arc<std::sync::Mutex<GatedState>>);
+
+    impl crate::contract::terminal_adapter::TerminalAdapter for GatedReader {
+        fn try_write(
+            &mut self,
+            frame: &botster_terminal_protocol::RoutedTerminalFrame,
+        ) -> Result<(), crate::contract::terminal_adapter::TerminalAdapterWriteError> {
+            let mut state = self.0.lock().expect("reader state");
+            if state.credits == 0 {
+                return Err(crate::contract::terminal_adapter::TerminalAdapterWriteError::Full);
+            }
+            state.credits -= 1;
+            state
+                .written
+                .push((frame.frame.kind(), frame.frame.body().to_vec()));
+            Ok(())
+        }
+
+        fn close(&mut self, _reason: TerminalRouteCloseReason) {}
+
+        fn pressure(&self) -> crate::contract::terminal_adapter::TerminalAdapterPressure {
+            if self.0.lock().expect("reader state").credits > 0 {
+                crate::contract::terminal_adapter::TerminalAdapterPressure::Ready
+            } else {
+                crate::contract::terminal_adapter::TerminalAdapterPressure::Full
+            }
+        }
+
+        fn try_read(&mut self) -> crate::contract::terminal_adapter::TerminalIngress {
+            crate::contract::terminal_adapter::TerminalIngress::Empty
+        }
+    }
+
+    impl crate::contract::terminal_wake::WakingTerminalAdapter for GatedReader {
+        fn set_wake_sink(&mut self, _sink: crate::contract::terminal_wake::TerminalWakeSink) {}
+    }
+
+    /// A full route coalesces OUTPUT, never MODES: a mode change on a route
+    /// full by frame count waits with the session held. It must not pass the
+    /// room check as if it coalesced, overflow the route, and resync. After
+    /// the reader drains, every byte arrives with MODES in its place.
+    #[test]
+    fn a_mode_change_on_a_full_route_waits_instead_of_overflowing_it() {
+        use botster_terminal_protocol::TerminalKind;
+        let session_id = SessionId("modes-held".to_string());
+        let subscription_id = SubscriptionId("modes-held-sub".to_string());
+        let mut runtime = ManagedSessionRuntime::new(FailingInputRuntime::default());
+        runtime
+            .spawn_session(test_spawn_request("modes-held"), CoreSessionMetadata::new())
+            .expect("spawn");
+        let reader = std::sync::Arc::new(std::sync::Mutex::new(GatedState::default()));
+        runtime
+            .test_bind_owner(
+                ClientId("modes-held-client".to_string()),
+                session_id.clone(),
+                subscription_id.clone(),
+                Box::new(GatedReader(reader.clone())),
+            )
+            .expect("bind");
+        runtime.test_complete_route_capture(&session_id, &subscription_id);
+
+        // Small chunks fill the route by frame count; later ones coalesce.
+        let mut expected = Vec::new();
+        let chunks: Vec<_> = (0..100)
+            .map(|index| {
+                let data = format!("{index};").into_bytes();
+                expected.extend_from_slice(&data);
+                SessionRuntimeOutput::PtyOutput {
+                    session_id: session_id.clone(),
+                    data,
+                }
+            })
+            .collect();
+        runtime
+            .route_worker_boundary_outputs(&session_id, chunks, 1)
+            .expect("route the chunks");
+        assert!(
+            !runtime.session_output_held(&session_id),
+            "OUTPUT coalesced"
+        );
+
+        let modes = botster_terminal_protocol::ModesBody {
+            mode_bits: 1,
+            rows: 24,
+            cols: 80,
+        };
+        runtime
+            .route_worker_boundary_outputs(
+                &session_id,
+                vec![
+                    SessionRuntimeOutput::ModesChanged {
+                        session_id: session_id.clone(),
+                        modes,
+                    },
+                    SessionRuntimeOutput::PtyOutput {
+                        session_id: session_id.clone(),
+                        data: b"after".to_vec(),
+                    },
+                ],
+                1,
+            )
+            .expect("route the mode change");
+        assert!(
+            runtime.session_output_held(&session_id),
+            "the mode change waits for a free frame"
+        );
+        assert!(
+            runtime.client_worker.take_resync_requests().is_empty(),
+            "the full route did not overflow into a resync"
+        );
+
+        // The reader drains; each pump also routes what was held.
+        reader.lock().expect("reader state").credits = usize::MAX;
+        let batch = crate::contract::terminal_wake::TerminalWakeBatch {
+            adapter_routes: vec![crate::contract::terminal_wake::TerminalWakeRoute {
+                session_id: session_id.clone(),
+                subscription_id: subscription_id.clone(),
+            }],
+            ingress_sessions: vec![session_id.clone()],
+        };
+        for _ in 0..16 {
+            runtime.pump_woken(&batch, 2).expect("pump");
+        }
+        assert!(!runtime.session_output_held(&session_id));
+        let written = reader.lock().expect("reader state").written.clone();
+        assert!(written
+            .iter()
+            .all(|(kind, _)| *kind != TerminalKind::RouteResync));
+        let modes_at = written
+            .iter()
+            .position(|(kind, _)| *kind == TerminalKind::Modes)
+            .expect("MODES was written");
+        let before: Vec<u8> = written[..modes_at]
+            .iter()
+            .filter(|(kind, _)| *kind == TerminalKind::Output)
+            .flat_map(|(_, body)| body.clone())
+            .collect();
+        let after: Vec<u8> = written[modes_at + 1..]
+            .iter()
+            .filter(|(kind, _)| *kind == TerminalKind::Output)
+            .flat_map(|(_, body)| body.clone())
+            .collect();
+        assert_eq!(before, expected, "every chunk before MODES, in order");
+        assert_eq!(after, b"after");
+    }
+
     #[test]
     fn capture_boundary_output_waits_for_a_full_route_instead_of_overflowing_it() {
         let session_id = SessionId("boundary-held".to_string());
@@ -3305,11 +3465,12 @@ mod tests {
         runtime.test_complete_route_capture(&session_id, &subscription_id);
 
         // Output that precedes another route's capture boundary: more than
-        // the route's 64-frame bound, and its reader takes nothing.
+        // the route's byte bound (a full route coalesces small chunks, so the
+        // bytes bind, not the frame count), and its reader takes nothing.
         let outputs: Vec<_> = (0..100)
             .map(|_| SessionRuntimeOutput::PtyOutput {
                 session_id: session_id.clone(),
-                data: vec![b'x'; 100],
+                data: vec![b'x'; 64 * 1024],
             })
             .collect();
         runtime
