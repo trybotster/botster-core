@@ -168,7 +168,7 @@ pub use actor::{
     SessionIoOrderedEvent, SessionIoRequest, SessionLifecycleState, SnapshotReady,
     TerminalAttachState, TransportConnectionMode, TransportDisconnectReason, TransportPeerState,
     TransportSignal, PUBLIC_QUEUE_SOURCES, SESSION_IO_MAX_COALESCED_BYTES,
-    SESSION_IO_MAX_COALESCED_FRAMES, SESSION_IO_MAX_COALESCED_WINDOW,
+    SESSION_IO_MAX_COALESCED_FRAMES, SESSION_IO_MAX_COALESCED_WINDOW, SESSION_WORKER_LOST_REASON,
 };
 pub use boundary::{BoundaryJson, Layer, LayerResponsibility};
 pub use capability::{Capability, CapabilitySet, CapabilitySurface};
@@ -275,6 +275,7 @@ pub use routed_envelope::{
 pub use session::{
     CoreSession, CoreSessionMetadata, RequestId, SessionActivity, SessionActivityEvent,
     SessionActivityStatus, SessionId, SubscriptionId, MAX_CORE_SESSION_METADATA_LEN,
+    MAX_SESSION_ID_BYTES,
 };
 pub use session_protocol::{
     decode_final_state, decode_hello, decode_welcome, decode_worker_input_operation, encode_empty,

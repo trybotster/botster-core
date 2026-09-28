@@ -192,6 +192,10 @@ pub enum HubControlOrigin {
     Runtime,
 }
 
+/// The [`SessionLifecycleState::Failed`] reason Core records when a
+/// session's worker is lost. It is the only failure reason Core records.
+pub const SESSION_WORKER_LOST_REASON: &str = "worker_lost";
+
 /// Session lifecycle summary visible to hub control.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

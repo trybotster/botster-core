@@ -1350,7 +1350,13 @@ fn attached_capacity_one_close_reaps_stalled_worker_and_pty_child() {
 fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
     let control_dir = temp_control_dir("bwid");
     let canonical = session_id("123e4567-e89b-12d3-a456-426614174000");
-    let long = session_id(&format!("sess-long-{}", "identifier-".repeat(100)));
+    // The longest id Core accepts: still far longer than a socket path allows.
+    let long_prefix = "sess-long-";
+    let long = session_id(&format!(
+        "{long_prefix}{}",
+        "i".repeat(botster_core::MAX_SESSION_ID_BYTES - long_prefix.len())
+    ));
+    assert_eq!(long.0.len(), botster_core::MAX_SESSION_ID_BYTES);
     let mut options = worker_options();
     options.control_socket_dir = Some(control_dir.clone());
     let wakes = TerminalWakeSource::new();
@@ -1364,6 +1370,14 @@ fn worker_control_endpoints_are_bounded_for_canonical_and_long_session_ids() {
         .expect("spawn deliberately long session id");
     assert_eq!(canonical_handle.session_id, canonical);
     assert_eq!(long_handle.session_id, long);
+    let over_cap = session_id(&format!("{}x", long.0));
+    assert!(
+        runtime
+            .spawn_session(shell_request(over_cap.clone(), "cat"))
+            .is_err(),
+        "an id over MAX_SESSION_ID_BYTES never becomes a session"
+    );
+    assert!(runtime.metadata(&over_cap).is_none());
     assert_eq!(
         std::fs::metadata(&control_dir)
             .expect("worker-created control root")

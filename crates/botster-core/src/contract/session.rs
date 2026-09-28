@@ -12,9 +12,24 @@ use crate::actor::SessionLifecycleState;
 /// durable classification values, not arbitrary runtime state blobs.
 pub const MAX_CORE_SESSION_METADATA_LEN: usize = 64 * 1024;
 
+/// Maximum length of a [`SessionId`], in bytes of its string.
+///
+/// Core refuses a longer id wherever one enters: at session reservation (every
+/// spawn), at adoption, and in lifecycle page resume positions. A host mints
+/// ids within it and can size its lifecycle page budgets from it.
+pub const MAX_SESSION_ID_BYTES: usize = 128;
+
 /// Stable identifier for a Botster session.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
+
+impl SessionId {
+    /// Whether the id is within [`MAX_SESSION_ID_BYTES`].
+    #[must_use]
+    pub fn is_within_len_limit(&self) -> bool {
+        self.0.len() <= MAX_SESSION_ID_BYTES
+    }
+}
 
 /// Stable identifier for a client subscription to a session or stream.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

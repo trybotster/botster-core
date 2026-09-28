@@ -180,6 +180,75 @@ pub enum SessionLifecyclePageError {
         /// Exact encoded size of the empty successful page for this metadata.
         minimum_bytes: usize,
     },
+    /// A resume position names a session id longer than
+    /// [`botster_core::MAX_SESSION_ID_BYTES`]. No session can have it.
+    #[error("session id is longer than {max_bytes} bytes")]
+    SessionIdTooLong {
+        /// [`botster_core::MAX_SESSION_ID_BYTES`].
+        max_bytes: usize,
+    },
+}
+
+/// The largest encoded [`SessionLifecycleRecord`] this daemon produces.
+///
+/// A host sizes its lifecycle page budgets at or above this plus the page
+/// envelope, so that every single row or change fits. It is exact for the
+/// record Core writes: host metadata at
+/// [`botster_core::MAX_CORE_SESSION_METADATA_LEN`], both id strings (the
+/// session id and the process runtime id) at
+/// [`botster_core::MAX_SESSION_ID_BYTES`] of characters that JSON escapes to
+/// six bytes each, the widest registry state, size, pid and timestamp, and
+/// the widest lifecycle state Core records.
+#[must_use]
+pub fn max_session_lifecycle_record_bytes() -> usize {
+    let id = "\u{1}".repeat(botster_core::MAX_SESSION_ID_BYTES);
+    let registry_states = [
+        RegistrySessionState::Running,
+        RegistrySessionState::Stopping,
+        RegistrySessionState::Exited,
+        RegistrySessionState::Stale,
+    ];
+    let lifecycle_states = [
+        None,
+        Some(SessionLifecycleState::Starting),
+        Some(SessionLifecycleState::Running),
+        Some(SessionLifecycleState::Stopping),
+        Some(SessionLifecycleState::Exited {
+            code: Some(i32::MIN),
+        }),
+        // The only failure reason Core records.
+        Some(SessionLifecycleState::Failed {
+            reason: botster_core::SESSION_WORKER_LOST_REASON.to_string(),
+        }),
+    ];
+    let empty_metadata =
+        serde_json::to_vec(&CoreSessionMetadata::new()).map_or(0, |encoded| encoded.len());
+    let mut widest = 0;
+    for registry_state in &registry_states {
+        for lifecycle in &lifecycle_states {
+            let record = SessionLifecycleRecord {
+                session: DaemonSession {
+                    session_id: SessionId(id.clone()),
+                    registry_state: registry_state.clone(),
+                    size: ResizePayload {
+                        rows: u16::MAX,
+                        cols: u16::MAX,
+                    },
+                    process: Some(ProcessIdentity {
+                        pid: Some(u32::MAX),
+                        runtime_id: Some(id.clone()),
+                    }),
+                    updated_at: u64::MAX,
+                },
+                metadata: CoreSessionMetadata::new(),
+                lifecycle: lifecycle.clone(),
+            };
+            let encoded = serde_json::to_vec(&record).map_or(0, |encoded| encoded.len());
+            widest = widest.max(encoded);
+        }
+    }
+    // The record embeds the metadata's own encoding, which is capped.
+    widest - empty_metadata + botster_core::MAX_CORE_SESSION_METADATA_LEN
 }
 
 /// Maximum public observe-slice error message length after sanitization.

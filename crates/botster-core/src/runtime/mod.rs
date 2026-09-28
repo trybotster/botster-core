@@ -178,6 +178,9 @@ impl From<SessionReservationRefusal> for SessionRuntimeError {
                 SessionReservationRefusal::Unavailable => "session admission is unavailable",
                 SessionReservationRefusal::InvalidToken => "session reservation token is invalid",
                 SessionReservationRefusal::Capacity => "session reservation capacity is full",
+                SessionReservationRefusal::SessionIdTooLong => {
+                    "session id is longer than MAX_SESSION_ID_BYTES"
+                }
             },
         )
     }
