@@ -1343,6 +1343,13 @@ fn daemon_routed_envelope_cursor_ack_and_backpressure_are_exposed_when_needed() 
         .expect("fast target should drain first envelope");
     assert_eq!(fast_first.envelopes[0].id, EnvelopeId("env-1".to_string()));
     assert_eq!(fast_first.next_cursor, Some(EnvelopeCursor(2)));
+    // At-least-once: a drained envelope holds its slot until the ack.
+    daemon
+        .acknowledge_routed_envelope(AcknowledgeRoutedEnvelopeRequest {
+            target: fast.clone(),
+            envelope_id: EnvelopeId("env-1".to_string()),
+        })
+        .expect("fast target acks the first envelope");
 
     let second = daemon
         .publish_routed_envelope(PublishRoutedEnvelopeRequest {
@@ -1390,14 +1397,16 @@ fn daemon_routed_envelope_cursor_ack_and_backpressure_are_exposed_when_needed() 
             .status,
         EnvelopeDeliveryStatus::Acknowledged
     );
-    assert_eq!(
-        daemon
-            .routed_envelope_delivery_state(&slow, &EnvelopeId("env-2".to_string()))
-            .state
-            .expect("slow delivery state should exist")
-            .status,
-        EnvelopeDeliveryStatus::Backpressured
-    );
+    // A backpressured copy is reported by publish only; nothing of it is
+    // kept, and the acknowledged copy's record is gone with its ack.
+    assert!(daemon
+        .routed_envelope_delivery_state(&slow, &EnvelopeId("env-2".to_string()))
+        .state
+        .is_none());
+    assert!(daemon
+        .routed_envelope_delivery_state(&fast, &EnvelopeId("env-2".to_string()))
+        .state
+        .is_none());
 
     let _ = fs::remove_dir_all(data_dir);
 }

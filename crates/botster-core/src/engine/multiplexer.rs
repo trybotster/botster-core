@@ -956,6 +956,12 @@ where
         self.routed_envelopes.drain(target, after, limit)
     }
 
+    /// Forget a routed envelope target that is gone: its queue, delivery
+    /// records, and route subscriptions.
+    pub fn forget_envelope_target(&mut self, target: &EnvelopeTarget) {
+        self.routed_envelopes.forget_target(target);
+    }
+
     /// Acknowledge one routed envelope for one target.
     pub fn acknowledge_envelope(
         &mut self,
