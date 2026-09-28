@@ -339,6 +339,39 @@ struct QueuedFrame {
     kind: QueuedKind,
     /// Epoch current when this frame was queued. Never restamped.
     stream_epoch: u32,
+    /// Output body coalesced onto `frame` and not yet encoded into it. Only
+    /// an unsent `OUTPUT` frame behind the head grows; the head is encoded
+    /// whole before it is written.
+    appended: Vec<u8>,
+}
+
+impl QueuedFrame {
+    fn new(frame: TerminalFrame, kind: QueuedKind, stream_epoch: u32) -> Self {
+        Self {
+            frame,
+            kind,
+            stream_epoch,
+            appended: Vec::new(),
+        }
+    }
+
+    /// Encoded length, coalesced output included.
+    fn len(&self) -> usize {
+        self.frame.len() + self.appended.len()
+    }
+
+    /// Encode coalesced output into the frame, once, before it is written.
+    fn materialize(&mut self) -> Result<(), botster_terminal_protocol::TerminalFrameError> {
+        if self.appended.is_empty() {
+            return Ok(());
+        }
+        let mut body = Vec::with_capacity(self.frame.body().len() + self.appended.len());
+        body.extend_from_slice(self.frame.body());
+        body.extend_from_slice(&self.appended);
+        self.frame = encode_output(&body)?;
+        self.appended = Vec::new();
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -353,6 +386,34 @@ enum QueuedKind {
     Resync,
     /// Output, modes, snapshot pages, attach state: dropped on overflow.
     Visual,
+}
+
+/// Whether an `OUTPUT` body of `body_len` bytes joins the route's last
+/// queued frame instead of adding one.
+///
+/// Coalescing answers frame pressure: it applies only when the route
+/// already holds [`MAX_ROUTE_EGRESS_FRAMES`], where a line-buffered flood's
+/// small frames would otherwise bind on the frame count long before the
+/// byte bound. Below that, each chunk stays its own frame.
+///
+/// Only an unsent `OUTPUT` frame behind the head grows: the head may be in
+/// flight, or refused while the adapter waits for room sized to it. Any
+/// other frame at the tail (modes, a result, a transition, a snapshot page)
+/// ends the run, so frame order and result order are unchanged. The joined
+/// body stays within one frame's body limit, and the route's byte bound
+/// still holds.
+fn coalesces_output(owner: &SubscriptionOwner, body_len: usize) -> bool {
+    if owner.queue.len() < MAX_ROUTE_EGRESS_FRAMES || owner.terminal_enqueued {
+        return false;
+    }
+    owner.queue.back().is_some_and(|tail| {
+        tail.kind == QueuedKind::Visual
+            && tail.frame.kind() == TerminalKind::Output
+            && tail.stream_epoch == owner.stream_epoch
+            && tail.len() - botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + body_len
+                <= botster_terminal_protocol::MAX_TERMINAL_BODY_BYTES
+            && owner.queued_bytes.saturating_add(body_len) <= MAX_ROUTE_EGRESS_BYTES
+    })
 }
 
 impl ClientWorker {
@@ -670,7 +731,15 @@ impl ClientWorker {
                 && owner.adapter.is_some()
                 && !owner.awaiting_capture
                 && !owner.terminal_enqueued;
+            // One OUTPUT chunk that coalesces needs no new frame.
+            let coalesces = frames == 1
+                && owner.queue.len().saturating_add(1) > MAX_ROUTE_EGRESS_FRAMES
+                && coalesces_output(
+                    owner,
+                    bytes.saturating_sub(botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES),
+                );
             !governs
+                || coalesces
                 || (owner.queue.len().saturating_add(frames) <= MAX_ROUTE_EGRESS_FRAMES
                     && owner.queued_bytes.saturating_add(bytes) <= MAX_ROUTE_EGRESS_BYTES)
         })
@@ -1363,6 +1432,25 @@ impl ClientWorker {
             if owner.terminal_enqueued {
                 return None;
             }
+            if kind == QueuedKind::Visual
+                && frame.kind() == TerminalKind::Output
+                && coalesces_output(owner, frame.body().len())
+            {
+                let ready = Self::owner_ready_for_bound_queue_wake(owner);
+                let body = frame.body();
+                owner.queued_bytes += body.len();
+                owner
+                    .queue
+                    .back_mut()
+                    .expect("a coalescing tail")
+                    .appended
+                    .extend_from_slice(body);
+                if ready {
+                    self.bound_queue_wake_sessions
+                        .insert(key.session_id.clone());
+                }
+                return None;
+            }
             if matches!(kind, QueuedKind::InputResult(usage) if usage.operations == 0) {
                 let queued_rejections = owner
                     .queue
@@ -1391,11 +1479,9 @@ impl ClientWorker {
                 owner.terminal_enqueued = true;
             }
             let stream_epoch = owner.stream_epoch;
-            owner.queue.push_back(QueuedFrame {
-                frame,
-                kind,
-                stream_epoch,
-            });
+            owner
+                .queue
+                .push_back(QueuedFrame::new(frame, kind, stream_epoch));
             ready
         };
         if ready {
@@ -1446,11 +1532,7 @@ impl ClientWorker {
             let terminal_incoming = matches!(overflowing, Some((_, QueuedKind::Terminal)));
             if let Some((frame, kind)) = overflowing.filter(|(_, kind)| *kind != QueuedKind::Visual)
             {
-                kept.push_back(QueuedFrame {
-                    frame,
-                    kind,
-                    stream_epoch: owner.stream_epoch,
-                });
+                kept.push_back(QueuedFrame::new(frame, kind, owner.stream_epoch));
                 if terminal_incoming {
                     owner.terminal_enqueued = true;
                 }
@@ -1466,11 +1548,7 @@ impl ClientWorker {
                     Some(to_epoch) => match encode_route_resync(owner.stream_epoch, to_epoch) {
                         Ok(frame) => {
                             owner.stream_epoch = to_epoch;
-                            kept.push_front(QueuedFrame {
-                                frame,
-                                kind: QueuedKind::Resync,
-                                stream_epoch: to_epoch,
-                            });
+                            kept.push_front(QueuedFrame::new(frame, QueuedKind::Resync, to_epoch));
                         }
                         Err(_) => epoch_exhausted = true,
                     },
@@ -1483,7 +1561,7 @@ impl ClientWorker {
                 }
             }
             owner.queue.append(&mut kept);
-            owner.queued_bytes = owner.queue.iter().map(|queued| queued.frame.len()).sum();
+            owner.queued_bytes = owner.queue.iter().map(QueuedFrame::len).sum();
             if needs_transition {
                 owner.awaiting_capture = true;
                 owner.capture_fence = owner.capture_fence.wrapping_add(1);
@@ -1590,11 +1668,17 @@ impl ClientWorker {
             if owner.terminal_delivered {
                 return self.hard_stop_key(key, TerminalRouteCloseReason::TerminalDelivered);
             }
-            let Some(head) = owner.queue.front() else {
+            let Some(head) = owner.queue.front_mut() else {
                 // Nothing is pending, so the reader is not blocked.
                 owner.blocked_since = None;
                 return None;
             };
+            // The head is written whole: encode its coalesced output now.
+            // The body is within one frame's limit, so this cannot fail.
+            if head.materialize().is_err() {
+                return self.hard_stop_key(key, TerminalRouteCloseReason::Failed);
+            }
+            let head = owner.queue.front().expect("the head");
             let routed = RoutedTerminalFrame {
                 route: owner.route.clone(),
                 generation: owner.generation.0,
@@ -1680,7 +1764,7 @@ impl ClientWorker {
         };
         let mut released = None;
         if let Some(completed) = owner.queue.pop_front() {
-            owner.queued_bytes = owner.queued_bytes.saturating_sub(completed.frame.len());
+            owner.queued_bytes = owner.queued_bytes.saturating_sub(completed.len());
             match completed.kind {
                 QueuedKind::Terminal => owner.terminal_delivered = true,
                 QueuedKind::InputResult(usage) if usage.operations > 0 => {
@@ -2799,6 +2883,22 @@ mod tests {
         )
     }
 
+    /// One more visual frame on a full route: MODES, since a further OUTPUT
+    /// chunk would coalesce into the tail instead of overflowing.
+    fn overflow_route_with_visual(
+        worker: &mut ClientWorker,
+        key: &OwnerKey,
+    ) -> Vec<ClientWorkerTeardown> {
+        worker.push_session_modes(
+            &key.session_id,
+            ModesBody {
+                mode_bits: 1,
+                rows: 24,
+                cols: 80,
+            },
+        )
+    }
+
     fn fill_route(worker: &mut ClientWorker, key: &OwnerKey) {
         while worker.live[key].queue.len() < MAX_ROUTE_EGRESS_FRAMES {
             let teardowns = worker.push_session_output(&key.session_id, b"x");
@@ -3036,9 +3136,7 @@ mod tests {
     fn second_overflow_keeps_the_unsent_transition_from_the_receiver_epoch() {
         let (mut worker, key) = bound_route();
         fill_route(&mut worker, &key);
-        assert!(worker
-            .push_session_output(&key.session_id, b"overflow")
-            .is_empty());
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
         assert_eq!(kinds(&worker, &key), vec!["resync"]);
         assert_eq!(worker.live[&key].stream_epoch, 1);
         // The route awaits its capture, so live output is suppressed; a
@@ -3158,7 +3256,7 @@ mod tests {
         fill_route(&mut worker, &key);
         // One more frame overflows: visual frames drop, and the route enters
         // the next epoch with a new capture fence.
-        let _ = worker.push_session_output(&key.session_id, b"x");
+        let _ = overflow_route_with_visual(&mut worker, &key);
         assert_ne!(
             worker.live[&key].capture_fence, identity.capture_fence,
             "the overflow superseded the capture"
@@ -3348,9 +3446,7 @@ mod tests {
     fn a_route_that_ends_takes_its_pending_resync_request_with_it() {
         let (mut worker, key) = bound_route();
         fill_route(&mut worker, &key);
-        assert!(worker
-            .push_session_output(&key.session_id, b"overflow")
-            .is_empty());
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
         assert_eq!(worker.resync_requests.len(), 1);
 
         let teardown = worker.detach_live(&key.session_id, &key.subscription_id);
@@ -3404,9 +3500,7 @@ mod tests {
     fn a_page_from_a_superseded_capture_is_refused() {
         let (mut worker, key) = bound_route();
         fill_route(&mut worker, &key);
-        assert!(worker
-            .push_session_output(&key.session_id, b"overflow")
-            .is_empty());
+        assert!(overflow_route_with_visual(&mut worker, &key).is_empty());
 
         let refused = worker.push_capture_frame(
             &key.session_id,
@@ -3536,6 +3630,8 @@ mod tests {
     struct MeteredState {
         credits: usize,
         written: Vec<TerminalKind>,
+        /// Every accepted frame's kind and body, in write order.
+        bodies: Vec<(TerminalKind, Vec<u8>)>,
     }
 
     struct MeteredAdapter(std::sync::Arc<std::sync::Mutex<MeteredState>>);
@@ -3551,6 +3647,9 @@ mod tests {
             }
             state.credits -= 1;
             state.written.push(frame.frame.kind());
+            state
+                .bodies
+                .push((frame.frame.kind(), frame.frame.body().to_vec()));
             Ok(())
         }
 
@@ -3583,6 +3682,128 @@ mod tests {
         let owner = worker.live.get_mut(&key).expect("route");
         owner.adapter = Some(Box::new(MeteredAdapter(state.clone())));
         (worker, key, state)
+    }
+
+    /// Grant `credits` and pump until they are spent or the queue is empty.
+    fn drain_metered(
+        worker: &mut ClientWorker,
+        key: &OwnerKey,
+        state: &std::sync::Arc<std::sync::Mutex<MeteredState>>,
+        credits: usize,
+    ) {
+        state.lock().expect("adapter state").credits = credits;
+        while !worker.live[key].queue.is_empty() && state.lock().expect("adapter state").credits > 0
+        {
+            assert!(worker.pump_one(key, PumpOrigin::AdapterWake).is_none());
+        }
+    }
+
+    /// Let the reader take frames one credit at a time until the queue is
+    /// `slots` shorter. An accepted head completes once the adapter is ready
+    /// again, so the last written frame may still be in flight.
+    fn free_slots(
+        worker: &mut ClientWorker,
+        key: &OwnerKey,
+        state: &std::sync::Arc<std::sync::Mutex<MeteredState>>,
+        slots: usize,
+    ) {
+        let target = worker.live[key].queue.len() - slots;
+        while worker.live[key].queue.len() > target {
+            state.lock().expect("adapter state").credits = 1;
+            assert!(worker.pump_one(key, PumpOrigin::AdapterWake).is_none());
+        }
+    }
+
+    fn written_output(state: &std::sync::Arc<std::sync::Mutex<MeteredState>>) -> Vec<u8> {
+        state
+            .lock()
+            .expect("adapter state")
+            .bodies
+            .iter()
+            .filter(|(kind, _)| *kind == TerminalKind::Output)
+            .flat_map(|(_, body)| body.clone())
+            .collect()
+    }
+
+    /// S12: a line-buffered flood fills a route by bytes, not by its frame
+    /// count. Its small frames coalesce once the route holds the frame
+    /// bound, so the byte bound governs; nothing overflows, and the reader
+    /// gets every byte in order.
+    #[test]
+    fn a_line_flood_fills_the_route_by_bytes_not_frames() {
+        let (mut worker, key, state) = metered_route();
+        let mut line = vec![b'7'; 63];
+        line.push(b'\n');
+        let need = botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + line.len();
+        let mut pushed = Vec::new();
+        while worker.session_output_has_room(&key.session_id, 1, need) {
+            assert!(worker
+                .push_session_output(&key.session_id, &line)
+                .is_empty());
+            pushed.extend_from_slice(&line);
+        }
+        let owner = &worker.live[&key];
+        assert_eq!(owner.stream_epoch, 0, "no overflow, no resync");
+        assert_eq!(owner.queue.len(), MAX_ROUTE_EGRESS_FRAMES);
+        assert!(
+            owner.queued_bytes + line.len() > MAX_ROUTE_EGRESS_BYTES,
+            "the byte bound governs; queued {} bytes",
+            owner.queued_bytes
+        );
+
+        drain_metered(&mut worker, &key, &state, usize::MAX);
+        assert_eq!(written_output(&state), pushed, "every byte, in order");
+    }
+
+    /// S12: coalescing never crosses another frame. A result queued between
+    /// output keeps its place, and output after it starts a new frame.
+    #[test]
+    fn coalescing_keeps_frame_and_result_order() {
+        let (mut worker, key, state) = metered_route();
+        fill_route(&mut worker, &key);
+        // Full by frame count: this chunk joins the last OUTPUT frame.
+        assert!(worker.push_session_output(&key.session_id, b"b").is_empty());
+        assert_eq!(worker.live[&key].queue.len(), MAX_ROUTE_EGRESS_FRAMES);
+        free_slots(&mut worker, &key, &state, 1);
+        worker
+            .reject(&key, 99, InputOutcome::RejectedProtocol, "")
+            .expect("the result fits the slot the reader freed");
+        // The tail is now the result: output behind it cannot join it.
+        assert!(!worker.session_output_has_room(
+            &key.session_id,
+            1,
+            botster_terminal_protocol::TERMINAL_BODY_HEADER_BYTES + 1
+        ));
+        free_slots(&mut worker, &key, &state, 1);
+        assert!(worker.push_session_output(&key.session_id, b"c").is_empty());
+        assert!(worker.push_session_output(&key.session_id, b"d").is_empty());
+        assert_eq!(worker.live[&key].queue.len(), MAX_ROUTE_EGRESS_FRAMES);
+
+        drain_metered(&mut worker, &key, &state, usize::MAX);
+        let bodies = state.lock().expect("adapter state").bodies.clone();
+        let result_at = bodies
+            .iter()
+            .position(|(kind, _)| *kind == TerminalKind::InputResult)
+            .expect("the result was written");
+        let before: Vec<u8> = bodies[..result_at]
+            .iter()
+            .filter(|(kind, _)| *kind == TerminalKind::Output)
+            .flat_map(|(_, body)| body.clone())
+            .collect();
+        let after: Vec<u8> = bodies[result_at + 1..]
+            .iter()
+            .flat_map(|(_, body)| body.clone())
+            .collect();
+        let mut want_before = vec![b'x'; MAX_ROUTE_EGRESS_FRAMES - 1];
+        want_before.push(b'b');
+        assert_eq!(before, want_before);
+        assert_eq!(after, b"cd");
+        assert_eq!(
+            bodies.last().map(|(kind, _)| *kind),
+            Some(TerminalKind::Output),
+            "c and d are one frame after the result"
+        );
+        assert_eq!(bodies.len() - result_at - 1, 1);
     }
 
     /// Pump one route until one attempt short of the write budget.
@@ -3980,6 +4201,7 @@ mod tests {
                 ("pump_one", "AdapterClosed"),
                 ("pump_one", "AdapterClosed"),
                 ("pump_one", "AdapterClosed"),
+                ("pump_one", "Failed"),
                 ("pump_one", "TerminalDelivered"),
                 ("push_session_modes", "Failed"),
                 ("push_session_output", "Failed"),
