@@ -559,6 +559,7 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
         hold.path().display()
     );
     request.request.environment = SpawnEnvironment {
+        unset: Vec::new(),
         variables: vec![
             SpawnEnvironmentVariable {
                 name: "TERMINATED".into(),

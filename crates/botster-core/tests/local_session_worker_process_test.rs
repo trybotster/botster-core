@@ -2184,6 +2184,7 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
     let cwd = "botster-sensitive-working-directory";
     let request = SessionSpawnRequest {
         environment: SpawnEnvironment {
+            unset: Vec::new(),
             variables: vec![botster_core::SpawnEnvironmentVariable {
                 name: "BOTSTER_SECRET_TEST".to_string(),
                 value: secret.to_string(),
@@ -2949,4 +2950,34 @@ fn input_results_are_replies_and_stop_control_intake() {
     }
     assert_eq!(results, accepted);
     let _ = runtime.detach_consumer(&session);
+}
+
+/// `unset` removes a name the worker itself inherited: the session worker
+/// starts its child from its own environment, minus `unset`.
+#[test]
+fn a_worker_child_does_not_inherit_an_unset_name() {
+    assert!(
+        std::env::var_os("HOME").is_some(),
+        "the test needs an inherited HOME"
+    );
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        WorkerProcessRuntime::with_options(worker_options()).with_wake_source(wakes.clone());
+    let session = session_id("worker-env-unset");
+    let mut request = shell_request(
+        session.clone(),
+        "printf 'env:%s\\n' \"${HOME-absent}\"; exec cat",
+    );
+    request.environment.unset = vec!["HOME".to_string()];
+    runtime
+        .spawn_session(request)
+        .expect("spawn with unset HOME");
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
+        output_text(output).contains("env:")
+    });
+    assert!(
+        output_text(&output).contains("env:absent"),
+        "the worker's child must not inherit an unset name: {:?}",
+        output_text(&output)
+    );
 }
