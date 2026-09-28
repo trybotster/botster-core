@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -1189,17 +1189,18 @@ impl WorkerProcessRuntime {
         self.sessions.contains_key(session_id)
     }
 
-    /// Hold an exited session, and its worker, while the engine still owes a
-    /// capture on it. Releasing the hold of an exited session wakes it, so
-    /// the next drain removes it and shuts its worker down.
-    pub fn set_exit_hold(&mut self, session_id: &SessionId, hold: bool) {
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            let released = session.exit_hold && !hold;
-            session.exit_hold = hold;
-            if released && session.exit_reported {
-                notify_session_wake(&session.wake_handle);
-            }
-        }
+    /// Hold the session, and its worker, past its exit for as long as the
+    /// returned guard lives: an owed capture is served from the worker's
+    /// final terminal model. The engine gives each capture it owes one guard,
+    /// so the hold follows the captures themselves and nothing mirrors it.
+    /// Dropping the last guard of an exited session wakes it, so the next
+    /// drain removes it and shuts its worker down. `None` for a session the
+    /// runtime no longer holds.
+    #[must_use]
+    pub(crate) fn exit_hold(&self, session_id: &SessionId) -> Option<ExitHold> {
+        self.sessions
+            .get(session_id)
+            .map(|session| ExitHold::new(Arc::clone(&session.exit_holds)))
     }
 
     /// Current durable control-plane state.
@@ -1377,7 +1378,7 @@ impl WorkerProcessRuntime {
             applied_resizes: VecDeque::new(),
             snapshot_boundary: VecDeque::new(),
             outstanding_snapshot_request: None,
-            exit_hold: false,
+            exit_holds: Arc::new(ExitHolds::new(None)),
             exit_reported: false,
             supports_snapshot_boundary: true,
             egress_capacity: 1,
@@ -1667,6 +1668,7 @@ impl WorkerProcessRuntime {
             self.options.test_resize_ack_hold.clone(),
             self.options.test_route_probe.clone(),
         );
+        let exit_holds = Arc::new(ExitHolds::new(wake_handle.clone()));
         let mut session = WorkerProcessSession {
             admission,
             child,
@@ -1691,7 +1693,7 @@ impl WorkerProcessRuntime {
             applied_resizes: VecDeque::new(),
             snapshot_boundary: VecDeque::new(),
             outstanding_snapshot_request: None,
-            exit_hold: false,
+            exit_holds: Arc::clone(&exit_holds),
             exit_reported: false,
             supports_snapshot_boundary,
             egress_capacity: self.options.egress_capacity.max(1),
@@ -2082,9 +2084,13 @@ impl SessionRuntime for WorkerProcessRuntime {
             session.take_reader_output(session_id, &mut output);
             let first_report = !session.exit_reported;
             session.exit_reported = true;
+            session
+                .exit_holds
+                .exit_reported
+                .store(true, Ordering::Release);
             // A capture the engine still owes a route is served from the
             // worker's final terminal model; removal shuts that worker down.
-            let held = session.exit_hold || session.outstanding_snapshot_request.is_some();
+            let held = session.exit_holds.held() || session.outstanding_snapshot_request.is_some();
             if !held {
                 self.remove_ended_session(session_id);
             }
@@ -2328,15 +2334,81 @@ struct WorkerProcessSession {
     applied_resizes: VecDeque<crate::ResizePayload>,
     snapshot_boundary: VecDeque<(WorkerSnapshotResult, usize)>,
     outstanding_snapshot_request: Option<String>,
-    /// The engine still has a capture for this session, active or queued.
-    /// After the exit the worker keeps serving captures from its final
-    /// terminal model, so the session is removed only once no hold remains.
-    exit_hold: bool,
+    /// The engine's captures owed on this session, active or queued. After
+    /// the exit the worker keeps serving them from its final terminal model,
+    /// so the session is removed only once no hold remains.
+    exit_holds: Arc<ExitHolds>,
     /// `ProcessExited` was reported; it is reported once.
     exit_reported: bool,
     supports_snapshot_boundary: bool,
     egress_capacity: usize,
     stall: Arc<EgressStall>,
+}
+
+/// The count of a session's exit holds, and what their release needs.
+struct ExitHolds {
+    count: AtomicUsize,
+    exit_reported: AtomicBool,
+    wake: Option<SessionWakeHandle>,
+}
+
+impl ExitHolds {
+    fn new(wake: Option<SessionWakeHandle>) -> Self {
+        Self {
+            count: AtomicUsize::new(0),
+            exit_reported: AtomicBool::new(false),
+            wake,
+        }
+    }
+
+    fn held(&self) -> bool {
+        self.count.load(Ordering::Acquire) > 0
+    }
+}
+
+/// One owed capture's hold on a session: see
+/// [`WorkerProcessRuntime::exit_hold`].
+pub(crate) struct ExitHold(Arc<ExitHolds>);
+
+impl ExitHold {
+    fn new(holds: Arc<ExitHolds>) -> Self {
+        holds.count.fetch_add(1, Ordering::AcqRel);
+        Self(holds)
+    }
+}
+
+/// Another hold on the same session: a copy of a capture is owed too.
+impl Clone for ExitHold {
+    fn clone(&self) -> Self {
+        Self::new(Arc::clone(&self.0))
+    }
+}
+
+/// Holds carry no identity: two captures compare by their own data.
+impl PartialEq for ExitHold {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for ExitHold {}
+
+impl std::fmt::Debug for ExitHold {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ExitHold")
+            .field(&self.0.count.load(Ordering::Acquire))
+            .finish()
+    }
+}
+
+impl Drop for ExitHold {
+    fn drop(&mut self) {
+        let last = self.0.count.fetch_sub(1, Ordering::AcqRel) == 1;
+        if last && self.0.exit_reported.load(Ordering::Acquire) {
+            notify_session_wake(&self.0.wake);
+        }
+    }
 }
 
 impl WorkerProcessSession {
@@ -4186,6 +4258,99 @@ mod tests {
         assert!(output
             .iter()
             .any(|event| matches!(event, super::SessionRuntimeOutput::ProcessExited { .. })));
+
+        close_sender.send(()).expect("close worker server");
+        server.join().expect("worker server");
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// An owed capture's exit hold keeps an exited session, and its worker,
+    /// past the drain that reports the exit. Dropping the last hold wakes
+    /// the session, and the next drain removes it. The hold follows the
+    /// guard itself, so no engine call site mirrors it.
+    #[test]
+    fn an_exit_hold_keeps_an_exited_session_until_its_last_guard_drops() {
+        use crate::runtime::SessionRuntime;
+
+        let path = Path::new("/tmp").join(format!(
+            "botster-exit-hold-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).expect("bind worker socket");
+        let (close_sender, close_receiver) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept parent");
+            crate::read_hello(&mut stream).expect("read parent hello");
+            let metadata = crate::SessionMetadata {
+                session_uuid: "exit-hold".to_string(),
+                pid: std::process::id(),
+                rows: 24,
+                cols: 80,
+                last_output_at: 0,
+                title: None,
+                cwd: None,
+                port: None,
+                mode_flags: Default::default(),
+                recovery_identity: None,
+            };
+            let bytes = crate::encode_welcome(crate::PROTOCOL_VERSION, &metadata)
+                .expect("encode worker welcome");
+            stream.write_all(&bytes).expect("write worker welcome");
+            close_receiver.recv().expect("receive close signal");
+        });
+
+        let session_id = SessionId("exit-hold".to_string());
+        let wakes = TerminalWakeSource::new();
+        let mut runtime =
+            WorkerProcessRuntime::new("/missing/worker").with_wake_source(wakes.clone());
+        runtime
+            .adopt_session(
+                session_id.clone(),
+                ProcessIdentity {
+                    pid: Some(std::process::id()),
+                    runtime_id: Some("exit-hold".to_string()),
+                },
+                &path,
+                false,
+            )
+            .expect("adopt the fake worker");
+
+        let hold = runtime.exit_hold(&session_id).expect("a held session");
+        runtime.sessions[&session_id]
+            .completion
+            .lock()
+            .expect("completion")
+            .process_exited = Some(crate::ProcessExitedPayload {
+            exit_code: Some(0),
+            signal: None,
+        });
+        let output = runtime.drain_output(&session_id).expect("drain");
+        assert!(output
+            .iter()
+            .any(|event| matches!(event, super::SessionRuntimeOutput::ProcessExited { .. })));
+        assert!(
+            runtime.holds_session(&session_id),
+            "the hold keeps the exited session for its capture"
+        );
+
+        // Take any wake the exit itself posted, then release the hold.
+        let _ = wakes.wait_wakes(Duration::ZERO);
+        drop(hold);
+        let batch = wakes.wait_wakes(Duration::ZERO);
+        assert_eq!(
+            batch.ingress_sessions,
+            vec![session_id.clone()],
+            "releasing the last hold wakes the exited session"
+        );
+        let _ = runtime.drain_output(&session_id).expect("drain");
+        assert!(
+            !runtime.holds_session(&session_id),
+            "with no hold left, the next drain removes it"
+        );
 
         close_sender.send(()).expect("close worker server");
         server.join().expect("worker server");
