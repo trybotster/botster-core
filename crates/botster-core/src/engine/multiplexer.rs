@@ -1125,7 +1125,7 @@ where
             SessionIoEvent::WorkerLost { session_id } => self.apply_lifecycle(
                 session_id.clone(),
                 SessionLifecycleState::Failed {
-                    reason: "worker_lost".to_string(),
+                    reason: crate::SESSION_WORKER_LOST_REASON.to_string(),
                 },
             ),
             SessionIoEvent::Shutdown { session_id, .. } => {

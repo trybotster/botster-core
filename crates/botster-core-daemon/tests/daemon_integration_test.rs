@@ -3655,7 +3655,12 @@ fn daemon_restart_adopts_live_worker_and_reattaches() {
 fn production_worker_root_handles_canonical_and_long_session_ids() {
     let data_dir = temp_data_dir("production-worker-id-length");
     let canonical = SessionId("123e4567-e89b-12d3-a456-426614174000".to_string());
-    let long = SessionId(format!("sess-long-{}", "x".repeat(180)));
+    // The longest id Core accepts: far longer than a socket path allows.
+    let long = SessionId(format!(
+        "sess-long-{}",
+        "x".repeat(botster_core::MAX_SESSION_ID_BYTES - "sess-long-".len())
+    ));
+    assert_eq!(long.0.len(), botster_core::MAX_SESSION_ID_BYTES);
     let canonical_client = ClientId("canonical-client".to_string());
     let long_client = ClientId("long-client".to_string());
     let mut daemon =
@@ -3667,6 +3672,13 @@ fn production_worker_root_handles_canonical_and_long_session_ids() {
     daemon
         .spawn(spawn_request(&long), 11)
         .expect("spawn long-id worker-backed session");
+    let over_cap = SessionId(format!("{}x", long.0));
+    assert!(matches!(
+        daemon.spawn(spawn_request(&over_cap), 12),
+        Err(CoreDaemonError::SessionReservation(
+            botster_core::SessionReservationRefusal::SessionIdTooLong
+        ))
+    ));
     let listed = daemon.list().expect("list both worker-backed sessions");
     assert!(listed.iter().any(|session| session.session_id == canonical));
     assert!(listed.iter().any(|session| session.session_id == long));

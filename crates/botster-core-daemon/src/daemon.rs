@@ -647,6 +647,13 @@ impl CoreDaemon {
     ) -> Result<CoreSession, CoreDaemonError> {
         self.ensure_running()?;
         let session_id = request.request.session_id.clone();
+        // The engine's reservation refuses it too, but only as a runtime
+        // error message; the caller gets the typed refusal here.
+        if !session_id.is_within_len_limit() {
+            return Err(CoreDaemonError::SessionReservation(
+                SessionReservationRefusal::SessionIdTooLong,
+            ));
+        }
         let size = request
             .request
             .initial_pty_size
@@ -716,6 +723,11 @@ impl CoreDaemon {
         after: Option<&SessionId>,
         budget: LifecycleBaselineBudget,
     ) -> Result<SessionLifecycleBaselinePage, SessionLifecyclePageError> {
+        if after.is_some_and(|id| !id.is_within_len_limit()) {
+            return Err(SessionLifecyclePageError::SessionIdTooLong {
+                max_bytes: botster_core::MAX_SESSION_ID_BYTES,
+            });
+        }
         let started = Instant::now();
         let mut ops = 0_u64;
 
@@ -918,6 +930,14 @@ impl CoreDaemon {
         resume: Option<&ObserveLifecycleCursor>,
         budget: ObserveLifecycleBudget,
     ) -> Result<ObserveLifecycleSlice, SessionLifecyclePageError> {
+        if resume
+            .and_then(|cursor| cursor.last_visited.as_ref())
+            .is_some_and(|id| !id.is_within_len_limit())
+        {
+            return Err(SessionLifecyclePageError::SessionIdTooLong {
+                max_bytes: botster_core::MAX_SESSION_ID_BYTES,
+            });
+        }
         if !self.running {
             return Ok(ObserveLifecycleSlice {
                 pass_id: resume
@@ -3255,6 +3275,12 @@ impl CoreDaemon {
         now_seconds: u64,
     ) -> Result<CoreSession, CoreDaemonError> {
         self.ensure_running()?;
+        // Adoption does not reserve through admission: refuse here.
+        if !session_id.is_within_len_limit() {
+            return Err(CoreDaemonError::SessionReservation(
+                SessionReservationRefusal::SessionIdTooLong,
+            ));
+        }
         if self.config.worker_path.is_none() {
             return Err(CoreDaemonError::MissingWorkerPath);
         }
@@ -4531,7 +4557,7 @@ fn drain_result_from_engine_output(output: BotsterEngineOutput) -> DrainResult {
                     Some(BotsterEngineObservation::SessionLifecycle {
                         session_id: session_id.clone(),
                         state: SessionLifecycleState::Failed {
-                            reason: "worker_lost".to_string(),
+                            reason: botster_core::SESSION_WORKER_LOST_REASON.to_string(),
                         },
                     })
                 }
@@ -6030,7 +6056,7 @@ mod observe_pass_snapshot_tests {
 #[cfg(test)]
 mod baseline_freeze_bound_tests {
     use super::*;
-    use botster_core::SessionId;
+    use botster_core::{CoreSessionMetadata, ProcessIdentity, SessionId};
 
     /// One counted op expires a matching `max_elapsed` even if wall time is
     /// zero. The value is larger than workspace-load scheduling jitter so
@@ -6518,5 +6544,115 @@ mod baseline_freeze_bound_tests {
         );
         assert_eq!(materialized_rows(&daemon), 2);
         let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    fn over_cap_id() -> SessionId {
+        SessionId("a".repeat(botster_core::MAX_SESSION_ID_BYTES + 1))
+    }
+
+    #[test]
+    fn adoption_refuses_an_id_over_the_cap() {
+        let data_dir = data_dir("adopt-id-cap");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        assert!(matches!(
+            daemon.adopt_session(&over_cap_id(), 1),
+            Err(CoreDaemonError::SessionReservation(
+                SessionReservationRefusal::SessionIdTooLong
+            ))
+        ));
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn page_resume_positions_refuse_an_id_over_the_cap() {
+        let data_dir = data_dir("page-id-cap");
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let too_long = SessionLifecyclePageError::SessionIdTooLong {
+            max_bytes: botster_core::MAX_SESSION_ID_BYTES,
+        };
+        assert_eq!(
+            daemon.lifecycle_baseline_page(
+                None,
+                Some(&over_cap_id()),
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: usize::MAX,
+                    max_elapsed: Duration::MAX,
+                },
+            ),
+            Err(too_long.clone())
+        );
+        let resume = ObserveLifecycleCursor {
+            pass_id: ObserveLifecyclePassId("pass".to_string()),
+            last_visited: Some(over_cap_id()),
+        };
+        assert_eq!(
+            daemon.observe_lifecycle_slice(
+                1,
+                Some(&resume),
+                ObserveLifecycleBudget {
+                    max_sessions: usize::MAX,
+                    max_encoded_result_bytes: usize::MAX,
+                    max_elapsed: Duration::MAX,
+                },
+            ),
+            Err(too_long)
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// The bound is exact: the widest record Core writes, with metadata at
+    /// its cap, encodes to exactly this many bytes.
+    #[test]
+    fn the_record_bound_is_the_widest_record_core_writes() {
+        let id = "\u{1}".repeat(botster_core::MAX_SESSION_ID_BYTES);
+        let mut record = SessionLifecycleRecord {
+            session: DaemonSession {
+                session_id: SessionId(id.clone()),
+                registry_state: RegistrySessionState::Stopping,
+                size: ResizePayload {
+                    rows: u16::MAX,
+                    cols: u16::MAX,
+                },
+                process: Some(ProcessIdentity {
+                    pid: Some(u32::MAX),
+                    runtime_id: Some(id),
+                }),
+                updated_at: u64::MAX,
+            },
+            metadata: CoreSessionMetadata::new(),
+            lifecycle: Some(SessionLifecycleState::Exited {
+                code: Some(i32::MIN),
+            }),
+        };
+        // Metadata that encodes to exactly its cap.
+        let padding = |fill: usize| {
+            CoreSessionMetadata::from_entries(
+                [("k".to_string(), "x".repeat(fill))].into_iter().collect(),
+            )
+        };
+        let overhead = serde_json::to_vec(&padding(0)).expect("encode").len();
+        record.metadata = padding(botster_core::MAX_CORE_SESSION_METADATA_LEN - overhead);
+        assert!(record.metadata.is_within_encoded_len_limit());
+        assert_eq!(
+            serde_json::to_vec(&record.metadata).expect("encode").len(),
+            botster_core::MAX_CORE_SESSION_METADATA_LEN
+        );
+        let widest = [
+            SessionLifecycleState::Exited {
+                code: Some(i32::MIN),
+            },
+            SessionLifecycleState::Failed {
+                reason: botster_core::SESSION_WORKER_LOST_REASON.to_string(),
+            },
+        ]
+        .into_iter()
+        .map(|state| {
+            record.lifecycle = Some(state);
+            serde_json::to_vec(&record).expect("encode").len()
+        })
+        .max()
+        .expect("states");
+        assert_eq!(widest, crate::api::max_session_lifecycle_record_bytes());
     }
 }

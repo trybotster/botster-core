@@ -33,6 +33,8 @@ pub enum SessionReservationRefusal {
     InvalidToken,
     /// The existing pending-spawn allowance is full.
     Capacity,
+    /// The session id is longer than [`crate::MAX_SESSION_ID_BYTES`].
+    SessionIdTooLong,
 }
 
 /// Current execution ownership for a reservation.
@@ -571,6 +573,10 @@ impl SessionAdmission {
         request_id: Option<u64>,
         limit: Option<usize>,
     ) -> Result<SessionReservation, SessionReservationRefusal> {
+        // Every spawn reserves here first, so no longer id becomes a session.
+        if !session_id.is_within_len_limit() {
+            return Err(SessionReservationRefusal::SessionIdTooLong);
+        }
         if let Some(existing) = table.entries.get(&session_id).cloned() {
             existing.refresh_cleanup_allowing_startup_created();
             self.retire_implicit_locked(table, &existing);
@@ -1307,6 +1313,26 @@ mod tests {
                 .reserve_implicit(session("live-group"))
                 .expect_err("exclusion"),
             SessionReservationRefusal::Occupied
+        );
+    }
+
+    #[test]
+    fn an_id_over_the_cap_is_refused_before_it_becomes_a_session() {
+        let admission = SessionAdmission::default();
+        let at_cap = session(&"a".repeat(crate::MAX_SESSION_ID_BYTES));
+        let over_cap = session(&"a".repeat(crate::MAX_SESSION_ID_BYTES + 1));
+        assert!(admission.reserve(at_cap).is_ok());
+        assert_eq!(
+            admission.reserve(over_cap.clone()).err(),
+            Some(SessionReservationRefusal::SessionIdTooLong)
+        );
+        assert_eq!(
+            admission.reserve_implicit(over_cap.clone()).err(),
+            Some(SessionReservationRefusal::SessionIdTooLong)
+        );
+        assert_eq!(
+            admission.reserve_synchronous(over_cap).err(),
+            Some(SessionReservationRefusal::SessionIdTooLong)
         );
     }
 }

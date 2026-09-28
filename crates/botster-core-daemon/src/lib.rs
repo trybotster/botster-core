@@ -20,13 +20,13 @@ pub use operation::{
 };
 
 pub use api::{
-    is_observe_slice_error_message_byte, reserved_observe_slice_error,
-    sanitize_observe_slice_error_message, AcknowledgeNotificationRequest,
-    AcknowledgeRoutedEnvelopeRequest, AttachedSession, CaptureSnapshotRequest, DaemonHealth,
-    DaemonSession, DaemonStatus, DrainNotificationsRequest, DrainNotificationsResult, DrainResult,
-    DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult, GuardedWriteRequest,
-    GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult, ObserveLifecycleBudget,
-    ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
+    is_observe_slice_error_message_byte, max_session_lifecycle_record_bytes,
+    reserved_observe_slice_error, sanitize_observe_slice_error_message,
+    AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
+    CaptureSnapshotRequest, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
+    DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
+    GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult,
+    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
     ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
     ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
