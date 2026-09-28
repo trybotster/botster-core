@@ -456,6 +456,10 @@ pub struct CoreDaemon {
     /// An append during this pump raised the bit and posted no wake, because
     /// the pump reports it. If the pump fails instead, it posts that wake.
     journal_wake_withheld: bool,
+    /// Test seam: sessions added to the next bound-queue wake take, as if
+    /// the engine had queued frames for them.
+    #[cfg(test)]
+    test_bound_queue_wakes: Vec<SessionId>,
     observe_pass: Option<ObservePassState>,
     observe_live_sessions: BTreeMap<String, u64>,
     observe_live_generation: u64,
@@ -645,6 +649,8 @@ impl CoreDaemon {
             journal_advanced: false,
             pumping: false,
             journal_wake_withheld: false,
+            #[cfg(test)]
+            test_bound_queue_wakes: Vec::new(),
             observe_pass: None,
             observe_live_sessions: BTreeMap::new(),
             observe_live_generation: 0,
@@ -1562,7 +1568,6 @@ impl CoreDaemon {
                     continue;
                 }
             }
-            self.discard_bound_queue_wakes();
             if let Err(error) =
                 self.commit_terminal_lifecycle(&session_id, &result.observations, now_seconds)
             {
@@ -1572,6 +1577,11 @@ impl CoreDaemon {
             }
             self.retain_pending_drain_result(&session_id, result);
         }
+        // A taken wake is consumed by progress or posted again, never
+        // dropped: this pump's route phase may have run before a later
+        // session's pump queued frames onto its routes, and the take names
+        // sessions outside the batch too.
+        self.notify_bound_queue_wakes();
         self.reconcile_pending(now_seconds);
 
         if let Some(error) = first_error {
@@ -3927,13 +3937,18 @@ impl CoreDaemon {
     }
 
     fn notify_bound_queue_wakes(&mut self) {
-        for session_id in self.engine.take_bound_queue_wake_sessions() {
+        for session_id in self.take_bound_queue_wakes() {
             self.engine.wake_source().notify_session(&session_id);
         }
     }
 
-    fn discard_bound_queue_wakes(&mut self) {
-        let _ = self.engine.take_bound_queue_wake_sessions();
+    /// Sessions whose bound Ready queues grew since the last take.
+    fn take_bound_queue_wakes(&mut self) -> HashSet<SessionId> {
+        #[allow(unused_mut)]
+        let mut sessions = self.engine.take_bound_queue_wake_sessions();
+        #[cfg(test)]
+        sessions.extend(self.test_bound_queue_wakes.drain(..));
+        sessions
     }
 
     fn retain_pending_drain_result(&mut self, session_id: &SessionId, pending: DrainResult) {
@@ -6315,6 +6330,46 @@ mod observe_pass_snapshot_tests {
             "SessionRegistry::load_all must count a direct collection scan"
         );
         daemon.shutdown(Some(live), 40).ok();
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// A pump takes every session's bound-queue wake, including sessions
+    /// outside its batch. It posts each one again, never drops it.
+    #[test]
+    fn a_pump_leaves_no_taken_bound_queue_wake_unposted() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-bound-queue-wake-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let pumped = SessionId("pumped-session".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&pumped), 10)
+            .expect("spawn the pumped session");
+        // Another session known to the wake source, outside the batch.
+        let outside = SessionId("outside-session".to_string());
+        let _outside_handle = daemon.wake_source().session_handle(outside.clone());
+        daemon.test_bound_queue_wakes.push(outside.clone());
+
+        daemon
+            .pump_woken(
+                &TerminalWakeBatch {
+                    adapter_routes: Vec::new(),
+                    ingress_sessions: vec![pumped.clone()],
+                },
+                11,
+            )
+            .expect("pump the batch");
+
+        let posted = daemon.wake_source().wait_wakes(Duration::ZERO);
+        assert!(
+            posted.ingress_sessions.contains(&outside),
+            "the taken wake of a session outside the batch was dropped: {posted:?}"
+        );
+        daemon.shutdown(Some(pumped), 20).ok();
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
