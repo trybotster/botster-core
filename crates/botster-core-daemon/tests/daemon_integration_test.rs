@@ -4006,7 +4006,7 @@ fn worker_backed_observe_advances_exit_without_attach_or_drain() {
 
     let exited = observe_until_exited(&mut daemon, &session_id, &running.next, 20);
     assert_successful_page_within_budget(&exited, 16 * 1024);
-    assert!(daemon.take_journal_advanced_wake());
+    assert!(journal_advanced(&mut daemon));
     assert!(matches!(
         daemon
             .list()
@@ -4035,9 +4035,9 @@ fn worker_backed_dropped_wake_still_converges_by_page() {
     daemon
         .spawn(immediate_exit_spawn_request(&session_id), 10)
         .expect("dropped-wake spawn");
-    let _ = daemon.take_journal_advanced_wake();
+    let _ = journal_advanced(&mut daemon);
     let exited = observe_until_exited(&mut daemon, &session_id, &baseline, 20);
-    let _discarded = daemon.take_journal_advanced_wake();
+    let _discarded = journal_advanced(&mut daemon);
     let later = daemon
         .lifecycle_changes_page(&baseline, 8, 16 * 1024)
         .expect("later page after discarded wake");
@@ -4056,7 +4056,7 @@ fn lifecycle_wakes_coalesce_and_page_does_not_clear_them() {
     let data_dir = temp_data_dir("lifecycle-wake-coalesce");
     let session_id = SessionId("lifecycle-wake-coalesce".to_string());
     let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
-    assert!(!daemon.take_journal_advanced_wake());
+    assert!(!journal_advanced(&mut daemon));
     daemon
         .spawn(spawn_request(&session_id), 10)
         .expect("first append sets the wake");
@@ -4083,8 +4083,8 @@ fn lifecycle_wakes_coalesce_and_page_does_not_clear_them() {
     let _ = daemon
         .lifecycle_changes_page(&cursor, 8, 16 * 1024)
         .expect("page must not clear the wake");
-    assert!(daemon.take_journal_advanced_wake());
-    assert!(!daemon.take_journal_advanced_wake());
+    assert!(journal_advanced(&mut daemon));
+    assert!(!journal_advanced(&mut daemon));
     daemon
         .shutdown(Some(session_id), 20)
         .expect("wake fixture shutdown");
@@ -5486,7 +5486,7 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         .process
         .and_then(|process| process.pid)
         .expect("PTY child pid");
-    assert!(daemon.take_journal_advanced_wake(), "spawn sets the wake");
+    assert!(journal_advanced(&mut daemon), "spawn sets the wake");
     let cursor = daemon
         .lifecycle_baseline()
         .expect("watermark after spawn")
@@ -5506,7 +5506,7 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         "parked exit must stay Found(Running): {looked_up:?}"
     );
     assert!(
-        !daemon.take_journal_advanced_wake(),
+        !journal_advanced(&mut daemon),
         "registry-state query must not raise the journal-advanced wake"
     );
     let page = daemon
@@ -5549,7 +5549,7 @@ fn session_registry_state_does_not_reconcile_parked_exit() {
         other => panic!("expected Found Exited after observe, got {other:?}"),
     }
     assert!(
-        daemon.take_journal_advanced_wake(),
+        journal_advanced(&mut daemon),
         "observe_session_lifecycle must raise the journal-advanced wake"
     );
     let after_observe = daemon
@@ -8542,4 +8542,12 @@ fn foreign_route_drains_while_another_route_holds() {
         "holding route must stay empty on drain_subscription"
     );
     let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The journal bit, as a host learns it: from its next pump's outcome.
+fn journal_advanced(daemon: &mut CoreDaemon) -> bool {
+    daemon
+        .pump_woken(&TerminalWakeBatch::default(), 1)
+        .expect("an empty pump")
+        .journal_advanced
 }

@@ -77,8 +77,8 @@ fn isolated_hub_shaped_lifecycle_consumer_uses_observe_wake_and_page() {
         "consumer must page through the bounded API"
     );
     assert!(
-        source.contains("take_journal_advanced_wake"),
-        "consumer must own the coalesced wake take"
+        source.contains(".journal_advanced"),
+        "consumer must take the coalesced wake from its pump"
     );
     assert!(
         source.contains("BudgetTooSmall"),

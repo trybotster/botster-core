@@ -1508,11 +1508,13 @@ fn incomplete_paste_times_out_through_targeted_wait_without_later_input() {
             started.elapsed() < Duration::from_secs(30),
             "the paste deadline's wake did not arrive"
         );
-        let WakePumpWait::Wakes(batch) =
-            // timer: deadline — a hang guard; Core ends the wait at its paste deadline
-            daemon.wait_pump(Duration::from_secs(30))
-        else {
-            panic!("paste deadline must return a wake batch");
+        // timer: deadline — a hang guard; Core ends the wait at its paste deadline
+        let batch = match daemon.wait_pump(Duration::from_secs(30)) {
+            WakePumpWait::Wakes(batch) => batch,
+            // The setup's journal appends interrupt the wait (a stored
+            // permit); the host answers with a pump, which reports them.
+            WakePumpWait::Interrupted => TerminalWakeBatch::default(),
+            other => panic!("paste deadline must return a wake batch: {other:?}"),
         };
         daemon
             .pump_woken(&batch, 4)

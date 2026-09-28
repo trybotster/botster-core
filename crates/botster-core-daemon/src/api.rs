@@ -22,6 +22,11 @@ pub struct PumpWokenOutcome {
     pub pumped_routes: usize,
     /// Whether authoritative terminal inventory changed since the last successful pump.
     pub terminal_inventory_changed: bool,
+    /// Whether the lifecycle journal advanced since the last successful pump
+    /// reported it: page the journal. An append outside a pump also
+    /// interrupts the host's wait (a stored permit, once per rising edge), so
+    /// the next pump reports it; no host polls for it.
+    pub journal_advanced: bool,
 }
 
 /// Host request to spawn a daemon-owned session.
