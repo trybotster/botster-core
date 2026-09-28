@@ -803,6 +803,154 @@ fn sustained_worker_and_adapter_producers_still_reach_shutdown_bound() {
     producer.join().expect("adapter producer");
 }
 
+/// Inject one client frame and pump the wake that names the adapter route.
+fn pump_client_frame(
+    daemon: &mut CoreDaemon,
+    adapter: &SharedFakeTerminalAdapter,
+    session_id: &SessionId,
+    subscription_id: &SubscriptionId,
+    frame: Vec<u8>,
+) -> botster_core_daemon::PumpWokenOutcome {
+    adapter.inject_ingress_frame(frame);
+    wait_for(
+        "the adapter wake for the client frame",
+        HANG_GUARD,
+        |remaining| {
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            let named = batch.adapter_routes.iter().any(|route| {
+                &route.session_id == session_id && &route.subscription_id == subscription_id
+            });
+            let outcome = daemon.pump_woken(&batch, 3).expect("pump the client frame");
+            named.then_some(outcome)
+        },
+    )
+}
+
+/// Client input moves input_seq and composing by the doorbell rules; a
+/// host write moves neither.
+#[cfg(unix)]
+#[test]
+fn client_input_moves_the_input_edges_and_host_writes_do_not() {
+    let data_dir = temp_data_dir("input-edges");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("input-edges-session".into());
+    let client_id = ClientId("input-edges-client".into());
+    let subscription_id = SubscriptionId("input-edges-sub".into());
+    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+    let edges = |daemon: &CoreDaemon| {
+        daemon
+            .session_edges(&session_id)
+            .expect("read the edges")
+            .expect("a spawned session")
+    };
+
+    let typed = pump_client_frame(
+        &mut daemon,
+        &adapter,
+        &session_id,
+        &subscription_id,
+        compact_input_frame(1, b"ab"),
+    );
+    assert_eq!(typed.input_advanced, vec![session_id.clone()]);
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (1, true)
+    );
+
+    let submitted = pump_client_frame(
+        &mut daemon,
+        &adapter,
+        &session_id,
+        &subscription_id,
+        compact_input_frame(2, b"\r"),
+    );
+    assert_eq!(submitted.input_advanced, vec![session_id.clone()]);
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (2, false)
+    );
+
+    let motion = encode_terminal_input(&TerminalInputCommand::Mouse {
+        operation_id: 3,
+        action: botster_terminal_protocol::TerminalMouseAction::Motion,
+        button: None,
+        mods: 0,
+        col: 1,
+        row: 1,
+        x_px: 0,
+        y_px: 0,
+    })
+    .expect("encode mouse motion")
+    .into_bytes();
+    let moved = pump_client_frame(&mut daemon, &adapter, &session_id, &subscription_id, motion);
+    assert!(moved.input_advanced.is_empty(), "motion is not human input");
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (2, false)
+    );
+
+    daemon
+        .input(client_id, session_id.clone(), b"host-probe".to_vec(), 4)
+        .expect("a host write");
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (2, false),
+        "a host write never looks like human input"
+    );
+
+    // A line in progress when the session ends: the respawn starts empty.
+    pump_client_frame(
+        &mut daemon,
+        &adapter,
+        &session_id,
+        &subscription_id,
+        compact_input_frame(5, b"x"),
+    );
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (3, true)
+    );
+    daemon.shutdown(Some(session_id.clone()), 20).ok();
+    observe_until_exited_without_pump(&mut daemon, &session_id, 21);
+    assert!(daemon.release_ended_session(&session_id).expect("release"));
+    assert_eq!(
+        (edges(&daemon).input_seq, edges(&daemon).composing),
+        (3, false),
+        "release keeps the count and empties the line"
+    );
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn pump_woken_applies_named_duplex_input_through_the_pty_once() {

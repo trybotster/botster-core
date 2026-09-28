@@ -717,6 +717,37 @@ impl DefaultBotsterEngine {
         self.runtime.take_bound_queue_wake_sessions()
     }
 
+    /// The session's host edge counters, or `None` when Core keeps no record.
+    #[must_use]
+    pub fn session_edge_counters(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<crate::SessionEdgeCounters> {
+        self.runtime.session_edge_counters(session_id)
+    }
+
+    /// Mode bits of the session's last mode report, if any.
+    #[must_use]
+    pub fn session_edge_mode_bits(&self, session_id: &SessionId) -> Option<u32> {
+        self.runtime.session_edge_mode_bits(session_id)
+    }
+
+    /// Take the sessions whose edge counters moved since the last take.
+    pub fn take_edge_advances(&mut self) -> crate::SessionEdgeAdvances {
+        self.runtime.take_edge_advances()
+    }
+
+    /// Put back advances that a consumer did not report.
+    pub fn restore_edge_advances(&mut self, advances: crate::SessionEdgeAdvances) {
+        self.runtime.restore_edge_advances(advances);
+    }
+
+    /// Whether any edge counter moved since the last take.
+    #[must_use]
+    pub fn has_edge_advances(&self) -> bool {
+        self.runtime.has_edge_advances()
+    }
+
     /// Whether any live owner still holds undelivered frames for this session.
     #[must_use]
     pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
@@ -1412,6 +1443,37 @@ impl WorkerBackedBotsterEngine {
     #[must_use]
     pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
         self.runtime.take_bound_queue_wake_sessions()
+    }
+
+    /// The session's host edge counters, or `None` when Core keeps no record.
+    #[must_use]
+    pub fn session_edge_counters(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<crate::SessionEdgeCounters> {
+        self.runtime.session_edge_counters(session_id)
+    }
+
+    /// Mode bits of the session's last mode report, if any.
+    #[must_use]
+    pub fn session_edge_mode_bits(&self, session_id: &SessionId) -> Option<u32> {
+        self.runtime.session_edge_mode_bits(session_id)
+    }
+
+    /// Take the sessions whose edge counters moved since the last take.
+    pub fn take_edge_advances(&mut self) -> crate::SessionEdgeAdvances {
+        self.runtime.take_edge_advances()
+    }
+
+    /// Put back advances that a consumer did not report.
+    pub fn restore_edge_advances(&mut self, advances: crate::SessionEdgeAdvances) {
+        self.runtime.restore_edge_advances(advances);
+    }
+
+    /// Whether any edge counter moved since the last take.
+    #[must_use]
+    pub fn has_edge_advances(&self) -> bool {
+        self.runtime.has_edge_advances()
     }
 
     /// Whether any live owner still holds undelivered frames for this session.
