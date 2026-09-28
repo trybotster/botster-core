@@ -325,6 +325,7 @@ mod platform {
                         .unwrap_or(libc::c_int::MAX)
                 });
                 // SAFETY: poll_fd points at one valid pollfd for the call.
+                // timer: deadline — the caller's bound; None passes -1 and waits only for the exit
                 let count = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
                 if count < 0 {
                     let error = io::Error::last_os_error();

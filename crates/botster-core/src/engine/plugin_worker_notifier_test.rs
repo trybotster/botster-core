@@ -119,6 +119,7 @@ fn wait_quiet(events: &mpsc::Receiver<PluginQueueProbeEvent>, executors: usize) 
     while idle_executors < executors || !waiter_idle {
         // timer: deadline — the engine's threads reach their idle waits; expiry fails the test
         match events
+            // timer: deadline — the event must arrive; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("the engine's threads reach their idle waits")
         {
@@ -235,6 +236,7 @@ fn fill_class_queue(
     for _ in 0..2 {
         // timer: deadline — each blocking invocation starts; expiry fails the test
         entered
+            // timer: deadline — the event must arrive; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("a blocking invocation holds an executor");
     }
@@ -275,6 +277,7 @@ fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
     engine.inner.shared.deadline_signal.notify();
     // timer: deadline — the deadline waiter reaches its hold; expiry fails the test
     waiter_held
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the deadline waiter holds before its wake");
     assert_eq!(cause(&parked(&engine, &plugin)), PluginBackpressureCause::ClassQueue);
@@ -286,10 +289,12 @@ fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
     runtime.open("hold-a");
     // timer: deadline — the executor release fires the armed wake; expiry fails the test
     wakes
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the executor release fires the armed wake");
     // timer: deadline — the executor reaches its dispatch hold; expiry fails the test
     dispatch_held
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the executor holds before its pop");
     // The queue is still full: the retry is refused and re-arms.
@@ -301,10 +306,12 @@ fn a_worker_dequeue_wakes_an_admission_refused_for_its_class_queue() {
     dispatch_resume.send(()).expect("release the dispatch");
     // timer: deadline — the pop fires the armed wake; expiry fails the test
     wakes
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the dequeue fires the armed wake");
     // timer: deadline — the queued job runs on the freed executor; expiry fails the test
     assert_eq!(
+        // timer: deadline — the event must arrive; expiry fails the test
         entered.recv_timeout(EVENT_DEADLINE).expect("dequeued"),
         "queued"
     );
@@ -357,6 +364,7 @@ fn a_deadline_unqueue_fires_the_armed_class_wake() {
     loop {
         // timer: deadline — the deadline waiter finishes the delivery; expiry fails the test
         if events
+            // timer: deadline — the event must arrive; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("the deadline waiter goes idle")
             == PluginQueueProbeEvent::DeadlineWaiterIdle
@@ -405,6 +413,7 @@ fn unload_held(
     });
     // timer: deadline — the unload reaches its hold; expiry fails the test
     reached
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the unload holds before its executors stop");
     (release, handle)
@@ -445,6 +454,7 @@ fn closing_an_unloaded_plugins_unused_funds_wakes_another_plugins_admission() {
     let (release, unload) = unload_held(&engine, &holder);
     // timer: deadline — the deadline waiter reaches its hold; expiry fails the test
     waiter_held
+        // timer: deadline — the event must arrive; expiry fails the test
         .recv_timeout(EVENT_DEADLINE)
         .expect("the deadline waiter holds before its wake");
     assert!(
@@ -487,6 +497,7 @@ fn a_retired_completion_returns_its_reservation_when_drained() {
     loop {
         // timer: deadline — the deadline waiter ends the unload's pass; expiry fails the test
         if events
+            // timer: deadline — the event must arrive; expiry fails the test
             .recv_timeout(EVENT_DEADLINE)
             .expect("the deadline waiter goes idle")
             == PluginQueueProbeEvent::DeadlineWaiterIdle
