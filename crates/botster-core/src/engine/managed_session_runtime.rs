@@ -3305,11 +3305,12 @@ mod tests {
         runtime.test_complete_route_capture(&session_id, &subscription_id);
 
         // Output that precedes another route's capture boundary: more than
-        // the route's 64-frame bound, and its reader takes nothing.
+        // the route's byte bound (a full route coalesces small chunks, so the
+        // bytes bind, not the frame count), and its reader takes nothing.
         let outputs: Vec<_> = (0..100)
             .map(|_| SessionRuntimeOutput::PtyOutput {
                 session_id: session_id.clone(),
-                data: vec![b'x'; 100],
+                data: vec![b'x'; 64 * 1024],
             })
             .collect();
         runtime
