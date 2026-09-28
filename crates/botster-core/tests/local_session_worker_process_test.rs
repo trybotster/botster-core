@@ -981,23 +981,6 @@ fn overflow_decision(
     }
 }
 
-/// Write `data`, then wait until the parent reader routes the session's
-/// output as `routing` (`None`: any decision): the output reached the
-/// one-slot channel.
-fn write_and_route(
-    engine: &mut WorkerBackedBotsterEngine,
-    routed: &mpsc::Receiver<WorkerRouteProbeEvent>,
-    client: &botster_core::ClientId,
-    session: &SessionId,
-    data: &[u8],
-    routing: Option<PtyOutputRouting>,
-) {
-    engine
-        .write_bytes(client.clone(), session.clone(), data.to_vec(), 30)
-        .expect("write bytes");
-    wait_routed(routed, session, routing);
-}
-
 #[test]
 fn takeover_then_full_detach_restores_overflow_progress() {
     let (mut engine, routed) = capacity_one_engine();
@@ -1129,22 +1112,18 @@ fn stale_detach_keeps_sibling_process_echo() {
     // The sibling is a consumer and nothing drains: once the slot is full,
     // the parent reader stalls on the next output.
     forget_routed(&routed);
-    write_and_route(
-        &mut engine,
-        &routed,
-        &sibling,
-        &session,
-        b"FILL-SLOT\n",
-        None,
-    );
-    write_and_route(
-        &mut engine,
-        &routed,
-        &sibling,
-        &session,
-        b"POST-BARRIER-MARKER\n",
-        Some(PtyOutputRouting::Stalled),
-    );
+    for (data, now) in [
+        (&b"FILL-SLOT\n"[..], 30),
+        (&b"POST-BARRIER-MARKER\n"[..], 31),
+    ] {
+        engine
+            .write_bytes(sibling.clone(), session.clone(), data.to_vec(), now)
+            .expect("write into the one-slot session");
+    }
+    // Either write's output can be the one that stalls: the slot may already
+    // hold the script's "ready" line. So no decision is awaited between the
+    // writes; a wait there could consume the only Stalled decision.
+    wait_routed(&routed, &session, Some(PtyOutputRouting::Stalled));
     let text = drain_engine_text_for(
         &mut engine,
         &session,
