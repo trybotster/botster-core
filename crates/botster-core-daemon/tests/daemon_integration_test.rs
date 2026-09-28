@@ -5100,6 +5100,150 @@ fn an_explicitly_reserved_session_restarts_in_place_repeatedly() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// Pump every wake until a pump outcome satisfies `done`.
+fn pump_until_outcome(
+    daemon: &mut CoreDaemon,
+    label: &str,
+    mut done: impl FnMut(&botster_core_daemon::PumpWokenOutcome) -> bool,
+) {
+    wait_for(label, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+        // timer: deadline — wait_for's bound limits this wait
+        let batch = daemon.wait_wakes(remaining);
+        let outcome = daemon.pump_woken(&batch, 11).expect("pump");
+        done(&outcome).then_some(())
+    });
+}
+
+/// Output of a session with no attached route advances its edges; the
+/// host learns it from the pump outcome and reads the counters exactly.
+#[cfg(unix)]
+#[test]
+fn output_of_an_unattached_session_advances_its_edges() {
+    let data_dir = temp_data_dir("edges-unattached-output");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("edges-output-session".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+
+    pump_until_outcome(&mut daemon, "the session's output advanced", |outcome| {
+        outcome.output_advanced.contains(&session_id)
+    });
+
+    let edges = daemon
+        .session_edges(&session_id)
+        .expect("read the edges")
+        .expect("a spawned session has a record");
+    assert!(edges.output_seq >= 1, "{edges:?}");
+    assert_eq!(
+        (edges.input_seq, edges.composing),
+        (0, false),
+        "no client input yet"
+    );
+    assert_eq!(
+        daemon
+            .session_edges(&SessionId("never-spawned".to_string()))
+            .expect("read an unknown id"),
+        None
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A mode change advances modes_epoch, and the query carries the flags.
+#[cfg(unix)]
+#[test]
+fn a_mode_change_advances_modes_epoch_with_its_flags() {
+    let data_dir = temp_data_dir("edges-mode-change");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("edges-modes-session".to_string());
+    let mut request = spawn_request(&session_id);
+    // Hide the cursor, then wait on input.
+    request.request.arguments[1] =
+        "printf '\\033[?25l'; while IFS= read -r line; do :; done".to_string();
+    daemon.spawn(request, 10).expect("spawn");
+
+    pump_until_outcome(&mut daemon, "the session's modes advanced", |outcome| {
+        outcome.modes_advanced.contains(&session_id)
+    });
+
+    let edges = daemon
+        .session_edges(&session_id)
+        .expect("read the edges")
+        .expect("a record");
+    assert!(edges.modes_epoch >= 1);
+    assert_eq!(
+        edges.mode_flags.map(|flags| flags.cursor_visible),
+        Some(false),
+        "the query carries the changed flags"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The counters follow the id: a release keeps them for the respawn, and
+/// removal drops them.
+#[cfg(unix)]
+#[test]
+fn session_edges_continue_across_a_respawn_and_end_at_removal() {
+    let data_dir = temp_data_dir("edges-lifetime");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("edges-lifetime-session".to_string());
+    spawn_until_exited(
+        &mut daemon,
+        &session_id,
+        &ClientId("edges-client".to_string()),
+        &SubscriptionId("edges-route".to_string()),
+    );
+    let before = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("an ended session keeps its record");
+
+    assert!(daemon.release_ended_session(&session_id).expect("release"));
+    assert_eq!(
+        daemon.session_edges(&session_id).expect("read"),
+        Some(before.clone()),
+        "a release keeps the counters for the next run"
+    );
+    daemon
+        .spawn(spawn_request(&session_id), 20)
+        .expect("respawn");
+    pump_until_outcome(&mut daemon, "the new run's output advanced", |outcome| {
+        outcome.output_advanced.contains(&session_id)
+    });
+    let after = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+    assert!(
+        after.output_seq > before.output_seq,
+        "the respawn continues the output sequence: {before:?} then {after:?}"
+    );
+
+    daemon.shutdown(Some(session_id.clone()), 30).ok();
+    wait_registry_exited(&mut daemon, &session_id);
+    assert!(daemon.remove_session(&session_id).expect("remove"));
+    assert_eq!(
+        daemon.session_edges(&session_id).expect("read"),
+        None,
+        "removal drops the record"
+    );
+    // After a removal the id is a new entity: a fresh spawn starts at 0.
+    daemon
+        .spawn(spawn_request(&session_id), 40)
+        .expect("spawn again");
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .output_seq,
+        0,
+        "the removed run's counters do not carry over"
+    );
+    daemon.shutdown(Some(session_id), 50).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// Release refuses a live session, like remove_session. A respawn that
 /// fails after release leaves the row ended, and removal still works.
 #[cfg(unix)]

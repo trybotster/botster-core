@@ -456,6 +456,9 @@ pub struct CoreDaemon {
     /// An append during this pump raised the bit and posted no wake, because
     /// the pump reports it. If the pump fails instead, it posts that wake.
     journal_wake_withheld: bool,
+    /// Edge advances are pending and a wake for them is already posted:
+    /// one stored interrupt per rising edge, like the journal's.
+    edge_wake_posted: bool,
     /// Test seam: sessions added to the next bound-queue wake take, as if
     /// the engine had queued frames for them.
     #[cfg(test)]
@@ -649,6 +652,7 @@ impl CoreDaemon {
             journal_advanced: false,
             pumping: false,
             journal_wake_withheld: false,
+            edge_wake_posted: false,
             #[cfg(test)]
             test_bound_queue_wakes: Vec::new(),
             observe_pass: None,
@@ -1502,6 +1506,12 @@ impl CoreDaemon {
                 // The only reader of the journal bit.
                 self.journal_wake_withheld = false;
                 outcome.journal_advanced = std::mem::take(&mut self.journal_advanced);
+                // The only reader of the edge advances.
+                let advances = self.engine.take_edge_advances();
+                self.edge_wake_posted = false;
+                outcome.modes_advanced = sorted_sessions(advances.modes);
+                outcome.output_advanced = sorted_sessions(advances.output);
+                outcome.input_advanced = sorted_sessions(advances.input);
                 Ok(outcome)
             }
             Err(error) => {
@@ -1513,6 +1523,9 @@ impl CoreDaemon {
                 if std::mem::take(&mut self.journal_wake_withheld) {
                     self.engine.wake_source().interrupt_handle().interrupt();
                 }
+                // Edge advances stay for the next successful pump; post
+                // their wake once if none is posted yet.
+                self.post_edge_wake();
                 Err(error)
             }
         }
@@ -1613,6 +1626,9 @@ impl CoreDaemon {
                 terminal_inventory_changed: terminal_inventory_revision_before
                     != terminal_inventory_revision_after,
                 journal_advanced: false,
+                modes_advanced: Vec::new(),
+                output_advanced: Vec::new(),
+                input_advanced: Vec::new(),
             })
         }
     }
@@ -2031,6 +2047,9 @@ impl CoreDaemon {
 
     /// Take every finished operation since the last call.
     pub fn take_completions(&mut self) -> Vec<CoreCompletion> {
+        // An operation that drained output records its edge advances; the
+        // host's next pump reports them.
+        self.post_edge_wake();
         std::mem::take(&mut self.completions)
     }
 
@@ -3676,7 +3695,10 @@ impl CoreDaemon {
             // timer: deadline — the shutdown deadline; the session's next wake ends the wait early
             let batch = self.engine.wake_source().wait_wakes_bounded(remaining);
             match self.pump_woken(&batch, now_seconds) {
-                Ok(_) => {
+                Ok(outcome) => {
+                    // The host sees none of this pump's outcome: keep its edge
+                    // advances for the host's next pump.
+                    self.restore_edge_advances(&outcome);
                     final_output_drained = self.engine_session_exited(&session_id);
                 }
                 Err(CoreDaemonError::Engine(error)) if is_session_not_found(&error) => {
@@ -4015,6 +4037,57 @@ impl CoreDaemon {
         for session_id in self.take_bound_queue_wakes() {
             self.engine.wake_source().notify_session(&session_id);
         }
+        self.post_edge_wake();
+    }
+
+    /// Edge advances recorded outside a pump wake the host once, a stored
+    /// permit on the rising edge, so its next pump reports them. A pump
+    /// reports its own advances and posts nothing.
+    fn post_edge_wake(&mut self) {
+        if self.pumping || self.edge_wake_posted || !self.engine.has_edge_advances() {
+            return;
+        }
+        self.edge_wake_posted = true;
+        self.engine.wake_source().interrupt_handle().interrupt();
+    }
+
+    /// Put a pump outcome's edge advances back, when the host never sees it.
+    fn restore_edge_advances(&mut self, outcome: &PumpWokenOutcome) {
+        self.engine
+            .restore_edge_advances(botster_core::SessionEdgeAdvances {
+                modes: outcome.modes_advanced.iter().cloned().collect(),
+                output: outcome.output_advanced.iter().cloned().collect(),
+                input: outcome.input_advanced.iter().cloned().collect(),
+            });
+    }
+
+    /// One session's host edge counters: an exact, non-mutating read, safe
+    /// inside any request. It loads one registry record, like
+    /// [`Self::session_metadata`]: `Ok(None)` when the registry has no row
+    /// for the id (never spawned, or removed). A session that has not
+    /// advanced yet reads as zero counters.
+    pub fn session_edges(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<crate::api::SessionEdges>, CoreDaemonError> {
+        self.ensure_running()?;
+        if self.registry.load(session_id)?.is_none() {
+            return Ok(None);
+        }
+        let counters = self
+            .engine
+            .session_edge_counters(session_id)
+            .unwrap_or_default();
+        Ok(Some(crate::api::SessionEdges {
+            modes_epoch: counters.modes_epoch,
+            mode_flags: self
+                .engine
+                .session_edge_mode_bits(session_id)
+                .map(botster_core::ModeFlags::from_mode_bits),
+            output_seq: counters.output_seq,
+            input_seq: counters.input_seq,
+            composing: counters.composing,
+        }))
     }
 
     /// Sessions whose bound Ready queues grew since the last take.
@@ -5211,6 +5284,44 @@ impl DaemonEngine {
         match self {
             Self::Local(engine) => engine.take_bound_queue_wake_sessions(),
             Self::Worker(engine) => engine.take_bound_queue_wake_sessions(),
+        }
+    }
+
+    fn session_edge_counters(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<botster_core::SessionEdgeCounters> {
+        match self {
+            Self::Local(engine) => engine.session_edge_counters(session_id),
+            Self::Worker(engine) => engine.session_edge_counters(session_id),
+        }
+    }
+
+    fn session_edge_mode_bits(&self, session_id: &SessionId) -> Option<u32> {
+        match self {
+            Self::Local(engine) => engine.session_edge_mode_bits(session_id),
+            Self::Worker(engine) => engine.session_edge_mode_bits(session_id),
+        }
+    }
+
+    fn take_edge_advances(&mut self) -> botster_core::SessionEdgeAdvances {
+        match self {
+            Self::Local(engine) => engine.take_edge_advances(),
+            Self::Worker(engine) => engine.take_edge_advances(),
+        }
+    }
+
+    fn restore_edge_advances(&mut self, advances: botster_core::SessionEdgeAdvances) {
+        match self {
+            Self::Local(engine) => engine.restore_edge_advances(advances),
+            Self::Worker(engine) => engine.restore_edge_advances(advances),
+        }
+    }
+
+    fn has_edge_advances(&self) -> bool {
+        match self {
+            Self::Local(engine) => engine.has_edge_advances(),
+            Self::Worker(engine) => engine.has_edge_advances(),
         }
     }
 
@@ -6415,6 +6526,88 @@ mod observe_pass_snapshot_tests {
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
+    fn advance_output_of(daemon: &mut CoreDaemon, session_id: &SessionId) {
+        daemon
+            .engine
+            .restore_edge_advances(botster_core::SessionEdgeAdvances {
+                output: [session_id.clone()].into_iter().collect(),
+                ..Default::default()
+            });
+    }
+
+    /// An edge advance recorded outside a pump posts one stored interrupt
+    /// per rising edge, and the next pump reports it.
+    #[test]
+    fn an_edge_advance_outside_a_pump_wakes_the_host_once_and_the_pump_reports_it() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-edge-wake-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let session = SessionId("edge-wake-session".to_string());
+        let interrupted = |daemon: &CoreDaemon| {
+            matches!(
+                daemon
+                    .wake_source()
+                    .wait_wakes_interruptible(Duration::ZERO),
+                botster_core::TerminalWakeWait::Interrupted
+            )
+        };
+
+        advance_output_of(&mut daemon, &session);
+        let _ = daemon.take_completions();
+        assert!(interrupted(&daemon), "the advance woke the host");
+        let _ = daemon.take_completions();
+        assert!(!interrupted(&daemon), "one wake per rising edge");
+
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 1)
+            .expect("pump");
+        assert_eq!(outcome.output_advanced, vec![session.clone()]);
+
+        advance_output_of(&mut daemon, &session);
+        let _ = daemon.take_completions();
+        assert!(
+            interrupted(&daemon),
+            "a new edge after the pump wakes again"
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// shutdown_session pumps internally and discards the outcome; the
+    /// advances that pump took stay for the host's next pump.
+    #[test]
+    fn a_shutdown_internal_pump_keeps_edge_advances_for_the_host() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-edge-shutdown-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let stopped = SessionId("edge-shutdown-session".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&stopped), 10)
+            .expect("spawn");
+        let other = SessionId("edge-other-session".to_string());
+        advance_output_of(&mut daemon, &other);
+
+        daemon.shutdown(Some(stopped), 11).expect("shutdown");
+
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 12)
+            .expect("the host's pump");
+        assert!(
+            outcome.output_advanced.contains(&other),
+            "the internal pump dropped another session's advance: {outcome:?}"
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
     /// A pump takes every session's bound-queue wake, including sessions
     /// outside its batch. It posts each one again, never drops it.
     #[test]
@@ -7321,4 +7514,11 @@ mod baseline_freeze_bound_tests {
         ));
         let _ = std::fs::remove_dir_all(data_dir);
     }
+}
+
+/// Session ids in a stable order for a host-facing list.
+fn sorted_sessions(sessions: HashSet<SessionId>) -> Vec<SessionId> {
+    let mut sessions: Vec<_> = sessions.into_iter().collect();
+    sessions.sort_by(|left, right| left.0.cmp(&right.0));
+    sessions
 }

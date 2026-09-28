@@ -23,6 +23,9 @@ use botster_terminal_protocol::{
     MAX_RETAINED_INPUT_BYTES_PER_CLIENT, MAX_RETAINED_INPUT_BYTES_PER_SESSION,
     MAX_ROUTE_EGRESS_BYTES, MAX_ROUTE_EGRESS_FRAMES,
 };
+use botster_terminal_protocol::{
+    terminal_mods, TerminalKey, TerminalKeyAction, TerminalMouseAction,
+};
 use botster_terminal_protocol_client::{decode_terminal_input, TerminalInputCommand};
 
 use crate::client::ClientId;
@@ -166,6 +169,133 @@ pub enum EnqueueRouteFrameError {
     EpochSuperseded,
 }
 
+/// Per-session counters a host watches for edges: mode flags, drained
+/// output, and client input. All counters are monotonic for the session id
+/// while Core keeps its record.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionEdgeCounters {
+    /// Bumped when the session's mode flags change.
+    pub modes_epoch: u64,
+    /// Bumped per drained output chunk, whether or not a route is attached.
+    pub output_seq: u64,
+    /// Bumped per accepted client input command that is human activity.
+    pub input_seq: u64,
+    /// Client input sits in the line since the last submit.
+    pub composing: bool,
+}
+
+/// Sessions whose [`SessionEdgeCounters`] moved since the last take.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionEdgeAdvances {
+    /// `modes_epoch` moved.
+    pub modes: HashSet<SessionId>,
+    /// `output_seq` moved.
+    pub output: HashSet<SessionId>,
+    /// `input_seq` moved.
+    pub input: HashSet<SessionId>,
+}
+
+impl SessionEdgeAdvances {
+    /// No counter moved.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.modes.is_empty() && self.output.is_empty() && self.input.is_empty()
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.modes.extend(other.modes);
+        self.output.extend(other.output);
+        self.input.extend(other.input);
+    }
+}
+
+#[derive(Debug, Default)]
+struct SessionEdgeState {
+    counters: SessionEdgeCounters,
+    /// Mode bits of the last report, so an identical report moves nothing.
+    mode_bits: Option<u32>,
+}
+
+/// How one accepted client command moves the input counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClientInputEdge {
+    /// The command is human activity: `input_seq` moves.
+    counts: bool,
+    /// The composing state it leaves; `None` keeps the current one.
+    composing: Option<bool>,
+}
+
+impl ClientInputEdge {
+    const NONE: Self = Self {
+        counts: false,
+        composing: None,
+    };
+}
+
+/// The input rules the host doorbell relies on (Core doorbell v3, agreed
+/// with the Hub): which client commands count as human input, and whether
+/// they leave a line being composed. Host writes never pass here.
+fn client_input_edge(command: &TerminalInputCommand) -> ClientInputEdge {
+    const CHORD: u16 =
+        terminal_mods::SHIFT | terminal_mods::CTRL | terminal_mods::ALT | terminal_mods::SUPER;
+    let counts = |composing| ClientInputEdge {
+        counts: true,
+        composing,
+    };
+    match command {
+        TerminalInputCommand::RawBytes { data, .. } => match data.last() {
+            // A CR submits; anything else, an LF included, stays in the line.
+            Some(last) => counts(Some(*last != b'\r')),
+            None => ClientInputEdge::NONE,
+        },
+        TerminalInputCommand::Key {
+            action,
+            key,
+            mods,
+            composing,
+            text,
+            ..
+        } => {
+            if *action == TerminalKeyAction::Release {
+                return ClientInputEdge::NONE;
+            }
+            if *composing {
+                return counts(Some(true));
+            }
+            let chord = mods & CHORD;
+            match key {
+                TerminalKey::Enter | TerminalKey::NumpadEnter => counts(if chord == 0 {
+                    Some(false)
+                } else if chord & (terminal_mods::SHIFT | terminal_mods::ALT) != 0 {
+                    Some(true)
+                } else {
+                    None
+                }),
+                TerminalKey::Backspace | TerminalKey::NumpadBackspace | TerminalKey::Delete => {
+                    counts(Some(true))
+                }
+                _ if !text.is_empty()
+                    && chord
+                        & (terminal_mods::CTRL | terminal_mods::ALT | terminal_mods::SUPER)
+                        == 0 =>
+                {
+                    counts(Some(true))
+                }
+                _ => counts(None),
+            }
+        }
+        TerminalInputCommand::Mouse { action, .. } => {
+            if *action == TerminalMouseAction::Motion {
+                ClientInputEdge::NONE
+            } else {
+                counts(None)
+            }
+        }
+        TerminalInputCommand::PasteCommit { .. } => counts(Some(true)),
+        _ => ClientInputEdge::NONE,
+    }
+}
+
 /// Monotonic generation source shared by attach generations and resync epochs.
 ///
 /// Values never wrap. The seed puts one daemon incarnation above earlier ones
@@ -225,6 +355,8 @@ pub struct ClientWorker {
     client_lanes: HashMap<ClientId, LaneUsage>,
     next_operation_key: u64,
     in_flight: HashMap<u64, InFlightOperation>,
+    session_edges: HashMap<SessionId, SessionEdgeState>,
+    edge_advances: SessionEdgeAdvances,
 }
 
 impl Default for ClientWorker {
@@ -245,6 +377,8 @@ impl Default for ClientWorker {
             client_lanes: HashMap::new(),
             next_operation_key: 1,
             in_flight: HashMap::new(),
+            session_edges: HashMap::new(),
+            edge_advances: SessionEdgeAdvances::default(),
         }
     }
 }
@@ -690,6 +824,84 @@ impl ClientWorker {
         std::mem::take(&mut self.bound_queue_wake_sessions)
     }
 
+    /// The session's edge counters, or `None` when Core keeps no record.
+    #[must_use]
+    pub fn session_edge_counters(&self, session_id: &SessionId) -> Option<SessionEdgeCounters> {
+        self.session_edges
+            .get(session_id)
+            .map(|state| state.counters)
+    }
+
+    /// Mode bits of the session's last mode report, if any.
+    #[must_use]
+    pub fn session_edge_mode_bits(&self, session_id: &SessionId) -> Option<u32> {
+        self.session_edges
+            .get(session_id)
+            .and_then(|state| state.mode_bits)
+    }
+
+    /// Take the sessions whose edge counters moved since the last take.
+    pub fn take_edge_advances(&mut self) -> SessionEdgeAdvances {
+        std::mem::take(&mut self.edge_advances)
+    }
+
+    /// Put advances back that a failed consumer did not report.
+    pub fn restore_edge_advances(&mut self, advances: SessionEdgeAdvances) {
+        self.edge_advances.merge(advances);
+    }
+
+    /// Whether any edge counter moved since the last take.
+    #[must_use]
+    pub fn has_edge_advances(&self) -> bool {
+        !self.edge_advances.is_empty()
+    }
+
+    /// Drop the session's edge record: a later spawn of the id starts at 0.
+    pub fn forget_session_edges(&mut self, session_id: &SessionId) {
+        self.session_edges.remove(session_id);
+        self.edge_advances.modes.remove(session_id);
+        self.edge_advances.output.remove(session_id);
+        self.edge_advances.input.remove(session_id);
+    }
+
+    /// Keep the session's counters for the next run of the same id; its
+    /// input line starts empty.
+    pub fn reset_session_composing(&mut self, session_id: &SessionId) {
+        if let Some(state) = self.session_edges.get_mut(session_id) {
+            state.counters.composing = false;
+        }
+    }
+
+    fn note_session_output(&mut self, session_id: &SessionId) {
+        let state = self.session_edges.entry(session_id.clone()).or_default();
+        state.counters.output_seq = state.counters.output_seq.wrapping_add(1);
+        self.edge_advances.output.insert(session_id.clone());
+    }
+
+    fn note_session_modes(&mut self, session_id: &SessionId, mode_bits: u32) {
+        let state = self.session_edges.entry(session_id.clone()).or_default();
+        if state.mode_bits == Some(mode_bits) {
+            return;
+        }
+        state.mode_bits = Some(mode_bits);
+        state.counters.modes_epoch = state.counters.modes_epoch.wrapping_add(1);
+        self.edge_advances.modes.insert(session_id.clone());
+    }
+
+    fn note_client_input(&mut self, session_id: &SessionId, edge: ClientInputEdge) {
+        if !edge.counts && edge.composing.is_none() {
+            return;
+        }
+        let state = self.session_edges.entry(session_id.clone()).or_default();
+        if let Some(composing) = edge.composing {
+            state.counters.composing = composing;
+        }
+        if edge.counts {
+            state.counters.input_seq = state.counters.input_seq.wrapping_add(1);
+            self.edge_advances.input.insert(session_id.clone());
+        }
+    }
+
     /// Whether any live owner for `session_id` still holds undelivered frames.
     #[must_use]
     pub fn session_has_undelivered_frames(&self, session_id: &SessionId) -> bool {
@@ -1041,6 +1253,8 @@ impl ClientWorker {
         session_id: &SessionId,
         data: &[u8],
     ) -> Vec<ClientWorkerTeardown> {
+        // Every drained chunk advances the session, attached or not.
+        self.note_session_output(session_id);
         if !self.session_has_receivers(session_id, false) {
             return Vec::new();
         }
@@ -1056,6 +1270,7 @@ impl ClientWorker {
         session_id: &SessionId,
         modes: ModesBody,
     ) -> Vec<ClientWorkerTeardown> {
+        self.note_session_modes(session_id, modes.mode_bits);
         self.session_modes.insert(session_id.clone(), modes);
         if !self.session_has_receivers(session_id, false) {
             return Vec::new();
@@ -1969,6 +2184,7 @@ impl ClientWorker {
         body: Vec<u8>,
     ) -> Result<(), RouteEnded> {
         let operation_id = command_operation_id(&command);
+        let edge = client_input_edge(&command);
         let continues_paste = matches!(
             command,
             TerminalInputCommand::PasteChunk { .. }
@@ -2010,20 +2226,27 @@ impl ClientWorker {
         match command {
             TerminalInputCommand::RawBytes { data, .. } => {
                 let payload = data.len() as u64;
-                self.admit(key, operation_id, WorkerInputKind::RawBytes, body, payload)
+                self.admit(
+                    key,
+                    operation_id,
+                    WorkerInputKind::RawBytes,
+                    body,
+                    payload,
+                    edge,
+                )
             }
             TerminalInputCommand::Key { text, .. } => {
                 let payload = text.len() as u64;
-                self.admit(key, operation_id, WorkerInputKind::Key, body, payload)
+                self.admit(key, operation_id, WorkerInputKind::Key, body, payload, edge)
             }
             TerminalInputCommand::Mouse { .. } => {
-                self.admit(key, operation_id, WorkerInputKind::Mouse, body, 0)
+                self.admit(key, operation_id, WorkerInputKind::Mouse, body, 0, edge)
             }
             TerminalInputCommand::Focus { .. } => {
-                self.admit(key, operation_id, WorkerInputKind::Focus, body, 0)
+                self.admit(key, operation_id, WorkerInputKind::Focus, body, 0, edge)
             }
             TerminalInputCommand::Resize { .. } => {
-                self.admit(key, operation_id, WorkerInputKind::Resize, body, 0)
+                self.admit(key, operation_id, WorkerInputKind::Resize, body, 0, edge)
             }
             TerminalInputCommand::PasteBegin {
                 total_len,
@@ -2112,6 +2335,7 @@ impl ClientWorker {
                     WorkerInputKind::Paste,
                     worker_body,
                     payload,
+                    edge,
                 )
             }
             TerminalInputCommand::PasteAbort { .. } => {
@@ -2162,6 +2386,8 @@ impl ClientWorker {
         }
     }
 
+    /// Admit one client input operation. On success the command's input
+    /// edge moves the session's input counters; a rejection moves nothing.
     fn admit(
         &mut self,
         key: &OwnerKey,
@@ -2169,6 +2395,7 @@ impl ClientWorker {
         kind: WorkerInputKind,
         body: Vec<u8>,
         accepted_payload_bytes: u64,
+        edge: ClientInputEdge,
     ) -> Result<(), RouteEnded> {
         let client_id = self.live.get(key).ok_or(None)?.client_id.clone();
         let session_lane = self
@@ -2212,6 +2439,7 @@ impl ClientWorker {
             body,
             accepted_payload_bytes,
         });
+        self.note_client_input(&key.session_id, edge);
         Ok(())
     }
 
@@ -4872,6 +5100,271 @@ mod tests {
         assert_eq!(
             probe_calls(&state),
             vec!["refuse SnapshotReady", "withdrawn", "close"]
+        );
+    }
+
+    fn key(
+        key: TerminalKey,
+        action: TerminalKeyAction,
+        mods: u16,
+        text: &str,
+    ) -> TerminalInputCommand {
+        TerminalInputCommand::Key {
+            operation_id: 1,
+            action,
+            key,
+            mods,
+            consumed_mods: 0,
+            composing: false,
+            unshifted_codepoint: 0,
+            text: text.to_string(),
+        }
+    }
+
+    fn mouse(action: TerminalMouseAction) -> TerminalInputCommand {
+        TerminalInputCommand::Mouse {
+            operation_id: 1,
+            action,
+            button: Some(botster_terminal_protocol::TerminalMouseButton::Left),
+            mods: 0,
+            col: 0,
+            row: 0,
+            x_px: 0,
+            y_px: 0,
+        }
+    }
+
+    fn raw(data: &[u8]) -> TerminalInputCommand {
+        TerminalInputCommand::RawBytes {
+            operation_id: 1,
+            data: data.to_vec(),
+        }
+    }
+
+    /// The doorbell's input rules, one row each (Core doorbell v3, agreed
+    /// with the Hub): what counts as human input, and what submits a line.
+    #[test]
+    fn client_input_edges_follow_the_doorbell_rules() {
+        use terminal_mods::{ALT, CAPS_LOCK, CTRL, SHIFT, SUPER};
+        use TerminalKeyAction::{Press, Release, Repeat};
+        let counts = |composing| ClientInputEdge {
+            counts: true,
+            composing,
+        };
+        let cases: Vec<(&str, TerminalInputCommand, ClientInputEdge)> = vec![
+            (
+                "raw ending in CR submits",
+                raw(b"ls\r"),
+                counts(Some(false)),
+            ),
+            ("raw text composes", raw(b"ls"), counts(Some(true))),
+            (
+                "raw ending in LF is not a submit",
+                raw(b"ls\n"),
+                counts(Some(true)),
+            ),
+            ("empty raw moves nothing", raw(b""), ClientInputEdge::NONE),
+            (
+                "Enter submits",
+                key(TerminalKey::Enter, Press, 0, "\r"),
+                counts(Some(false)),
+            ),
+            (
+                "numpad Enter submits",
+                key(TerminalKey::NumpadEnter, Press, 0, ""),
+                counts(Some(false)),
+            ),
+            (
+                "lock bits do not modify Enter",
+                key(TerminalKey::Enter, Press, CAPS_LOCK, ""),
+                counts(Some(false)),
+            ),
+            (
+                "Shift+Enter is a newline",
+                key(TerminalKey::Enter, Press, SHIFT, ""),
+                counts(Some(true)),
+            ),
+            (
+                "Alt+Enter is a newline",
+                key(TerminalKey::Enter, Press, ALT, ""),
+                counts(Some(true)),
+            ),
+            (
+                "Ctrl+Enter changes nothing",
+                key(TerminalKey::Enter, Press, CTRL, ""),
+                counts(None),
+            ),
+            (
+                "Super+Enter changes nothing",
+                key(TerminalKey::Enter, Press, SUPER, ""),
+                counts(None),
+            ),
+            (
+                "a printable key composes",
+                key(TerminalKey::KeyA, Press, 0, "a"),
+                counts(Some(true)),
+            ),
+            (
+                "a repeated key composes",
+                key(TerminalKey::KeyA, Repeat, 0, "a"),
+                counts(Some(true)),
+            ),
+            (
+                "a shifted key composes",
+                key(TerminalKey::KeyA, Press, SHIFT, "A"),
+                counts(Some(true)),
+            ),
+            (
+                "a Ctrl chord changes nothing",
+                key(TerminalKey::KeyC, Press, CTRL, "c"),
+                counts(None),
+            ),
+            (
+                "Backspace composes",
+                key(TerminalKey::Backspace, Press, 0, ""),
+                counts(Some(true)),
+            ),
+            (
+                "Delete composes",
+                key(TerminalKey::Delete, Press, 0, ""),
+                counts(Some(true)),
+            ),
+            (
+                "an arrow changes nothing",
+                key(TerminalKey::ArrowUp, Press, 0, ""),
+                counts(None),
+            ),
+            (
+                "Escape changes nothing",
+                key(TerminalKey::Escape, Press, 0, ""),
+                counts(None),
+            ),
+            (
+                "a release moves nothing",
+                key(TerminalKey::Enter, Release, 0, ""),
+                ClientInputEdge::NONE,
+            ),
+            (
+                "a mouse press counts",
+                mouse(TerminalMouseAction::Press),
+                counts(None),
+            ),
+            (
+                "a mouse release counts",
+                mouse(TerminalMouseAction::Release),
+                counts(None),
+            ),
+            (
+                "mouse motion moves nothing",
+                mouse(TerminalMouseAction::Motion),
+                ClientInputEdge::NONE,
+            ),
+            (
+                "focus moves nothing",
+                TerminalInputCommand::Focus {
+                    operation_id: 1,
+                    focused: true,
+                },
+                ClientInputEdge::NONE,
+            ),
+            (
+                "resize moves nothing",
+                TerminalInputCommand::Resize {
+                    operation_id: 1,
+                    rows: 24,
+                    cols: 80,
+                    width_px: 0,
+                    height_px: 0,
+                },
+                ClientInputEdge::NONE,
+            ),
+            (
+                "a committed paste composes",
+                TerminalInputCommand::PasteCommit { operation_id: 1 },
+                counts(Some(true)),
+            ),
+            (
+                "a paste begin moves nothing",
+                TerminalInputCommand::PasteBegin {
+                    operation_id: 1,
+                    total_len: 4,
+                    allow_unsafe: false,
+                },
+                ClientInputEdge::NONE,
+            ),
+        ];
+        let mut ime = key(TerminalKey::KeyA, Press, CTRL, "");
+        if let TerminalInputCommand::Key { composing, .. } = &mut ime {
+            *composing = true;
+        }
+        assert_eq!(
+            client_input_edge(&ime),
+            counts(Some(true)),
+            "an IME composition composes"
+        );
+        for (name, command, expected) in cases {
+            assert_eq!(client_input_edge(&command), expected, "{name}");
+        }
+    }
+
+    /// Output advances a session with no route; a mode report advances it
+    /// only when its bits change; the record's lifetime follows the id.
+    #[test]
+    fn output_and_changed_modes_advance_a_session_without_a_route() {
+        let mut worker = ClientWorker::new();
+        let session = SessionId("edges".into());
+        assert_eq!(worker.session_edge_counters(&session), None);
+
+        assert!(worker.push_session_output(&session, b"a").is_empty());
+        assert!(worker.push_session_output(&session, b"b").is_empty());
+        let modes = |mode_bits| ModesBody {
+            mode_bits,
+            rows: 24,
+            cols: 80,
+        };
+        assert!(worker.push_session_modes(&session, modes(1)).is_empty());
+        assert!(worker.push_session_modes(&session, modes(1)).is_empty());
+        let counters = worker.session_edge_counters(&session).expect("a record");
+        assert_eq!((counters.output_seq, counters.modes_epoch), (2, 1));
+        assert_eq!(worker.session_edge_mode_bits(&session), Some(1));
+        let advances = worker.take_edge_advances();
+        assert!(advances.output.contains(&session) && advances.modes.contains(&session));
+        assert!(advances.input.is_empty());
+        assert!(!worker.has_edge_advances(), "the take clears the advances");
+
+        // Same bits again: no epoch, no advance. New bits: both.
+        assert!(worker.push_session_modes(&session, modes(1)).is_empty());
+        assert!(!worker.has_edge_advances());
+        assert!(worker.push_session_modes(&session, modes(3)).is_empty());
+        assert_eq!(
+            worker
+                .session_edge_counters(&session)
+                .expect("a record")
+                .modes_epoch,
+            2
+        );
+
+        worker.note_client_input(
+            &session,
+            ClientInputEdge {
+                counts: true,
+                composing: Some(true),
+            },
+        );
+        worker.reset_session_composing(&session);
+        let kept = worker.session_edge_counters(&session).expect("a record");
+        assert!(!kept.composing, "a respawn starts with an empty line");
+        assert_eq!(
+            (kept.output_seq, kept.input_seq),
+            (2, 1),
+            "counters continue"
+        );
+
+        worker.forget_session_edges(&session);
+        assert_eq!(worker.session_edge_counters(&session), None);
+        assert!(
+            !worker.has_edge_advances(),
+            "a forgotten session reports nothing"
         );
     }
 }
