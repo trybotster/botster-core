@@ -52,9 +52,10 @@ use crate::api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
     CaptureSnapshotRequest, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
     DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
-    GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, NotificationStatusResult,
-    ObserveLifecycleBudget, ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
-    ObserveLifecycleSliceError, PostNotificationRequest, PostNotificationResult,
+    GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, LifecycleBaselineStop,
+    NotificationStatusResult, ObserveLifecycleBudget, ObserveLifecycleCursor,
+    ObserveLifecyclePassId, ObserveLifecycleSlice, ObserveLifecycleSliceError,
+    ObserveLifecycleStop, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
     ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
     SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
@@ -149,6 +150,10 @@ pub struct CoreDaemonConfig {
     /// Test-only: add this duration after each counted baseline step.
     #[cfg(test)]
     pub test_baseline_elapsed_per_op: Option<Duration>,
+    /// Test-only: add this duration to every baseline and observe elapsed
+    /// reading, so a budget no larger than it has expired at entry.
+    /// `Duration::ZERO` keeps production timing.
+    pub test_elapsed_at_entry: Duration,
 }
 
 impl CoreDaemonConfig {
@@ -176,6 +181,7 @@ impl CoreDaemonConfig {
             test_exit_code: None,
             #[cfg(test)]
             test_baseline_elapsed_per_op: None,
+            test_elapsed_at_entry: Duration::ZERO,
         }
     }
 
@@ -248,6 +254,14 @@ impl CoreDaemonConfig {
     #[must_use]
     pub const fn with_test_baseline_elapsed_per_op(mut self, per_op: Duration) -> Self {
         self.test_baseline_elapsed_per_op = Some(per_op);
+        self
+    }
+
+    /// Test-only: start every baseline and observe elapsed reading at
+    /// `elapsed`.
+    #[must_use]
+    pub const fn with_test_elapsed_at_entry(mut self, elapsed: Duration) -> Self {
+        self.test_elapsed_at_entry = elapsed;
         self
     }
 
@@ -750,6 +764,12 @@ impl CoreDaemon {
                 max_bytes: botster_core::MAX_SESSION_ID_BYTES,
             });
         }
+        if budget.max_rows == 0 {
+            return Err(SessionLifecyclePageError::RowBudgetZero);
+        }
+        if budget.max_elapsed.is_zero() {
+            return Err(SessionLifecyclePageError::ElapsedBudgetZero);
+        }
         let started = Instant::now();
         let mut ops = 0_u64;
 
@@ -785,39 +805,53 @@ impl CoreDaemon {
             .expect("freeze exists after mint or match")
             .snapshot_sequence
             .clone();
-        let empty = SessionLifecycleBaselinePage {
+        let empty = |stop| SessionLifecycleBaselinePage {
             snapshot_sequence: snapshot_sequence.clone(),
             sessions: Vec::new(),
             next: None,
-            complete: false,
-            resync_required: None,
+            stop,
         };
-        let minimum_bytes = encoded_lifecycle_baseline_page_len(&empty);
+        // Every page without rows must fit, whichever stop it carries.
+        let minimum_bytes = [
+            LifecycleBaselineStop::Complete,
+            LifecycleBaselineStop::Elapsed,
+            LifecycleBaselineStop::RowBudget,
+        ]
+        .into_iter()
+        .map(|stop| encoded_lifecycle_baseline_page_len(&empty(stop)))
+        .max()
+        .expect("three stops");
         if budget.max_bytes < minimum_bytes {
             return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
         }
         if self.baseline_elapsed(started, ops) >= budget.max_elapsed {
-            return Ok(empty);
+            return Ok(empty(LifecycleBaselineStop::Elapsed));
         }
 
         let mut items_used = 0_usize;
-        if let Err(()) = self.advance_baseline_index(started, &mut ops, &mut items_used, &budget) {
-            self.baseline_freeze = None;
-            return Ok(baseline_resync_page(
-                snapshot_sequence,
-                SessionLifecycleResyncReason::SourceChanged,
-            ));
+        let index_stop =
+            match self.advance_baseline_index(started, &mut ops, &mut items_used, &budget) {
+                Ok(stop) => stop,
+                Err(()) => {
+                    self.baseline_freeze = None;
+                    return Ok(baseline_resync_page(
+                        snapshot_sequence,
+                        SessionLifecycleResyncReason::SourceChanged,
+                    ));
+                }
+            };
+        if let Some(stop) = index_stop {
+            return Ok(empty(stop));
         }
 
-        let index_complete = self
-            .baseline_freeze
-            .as_ref()
-            .is_some_and(|freeze| freeze.index_complete);
-        if !index_complete {
-            return Ok(empty);
-        }
-
-        self.emit_baseline_suffix(after, started, &mut ops, &mut items_used, budget, empty)
+        self.emit_baseline_suffix(
+            after,
+            started,
+            &mut ops,
+            &mut items_used,
+            budget,
+            empty(LifecycleBaselineStop::Elapsed),
+        )
     }
 
     /// Return ordered lifecycle changes after a source cursor.
@@ -970,15 +1004,22 @@ impl CoreDaemon {
                 max_bytes: botster_core::MAX_SESSION_ID_BYTES,
             });
         }
+        if budget.max_sessions == 0 {
+            return Err(SessionLifecyclePageError::SessionBudgetZero);
+        }
+        if budget.max_elapsed.is_zero() {
+            return Err(SessionLifecyclePageError::ElapsedBudgetZero);
+        }
         if !self.running {
             return Ok(ObserveLifecycleSlice {
                 pass_id: resume
                     .map(|cursor| cursor.pass_id.clone())
                     .unwrap_or_else(new_observe_pass_id),
                 last_visited: None,
-                complete: false,
                 session_errors: Vec::new(),
-                resync_required: Some(SessionLifecycleResyncReason::SourceChanged),
+                stop: ObserveLifecycleStop::Resync {
+                    reason: SessionLifecycleResyncReason::SourceChanged,
+                },
             });
         }
         self.observe_lifecycle_walk(now_seconds, resume, budget)
@@ -3964,23 +4005,18 @@ impl CoreDaemon {
         let mut typed_errors = Vec::new();
         let mut remaining_visits = budget.max_sessions;
         let mut visited_this_call = false;
-        let mut complete = false;
 
-        loop {
+        let stop = loop {
             if pass.final_session_id.is_none() {
-                complete = true;
-                break;
+                break ObserveLifecycleStop::Complete;
             }
             if remaining_visits == 0 {
-                break;
+                break ObserveLifecycleStop::SessionBudget;
             }
             let next = match self.next_observe_session(&pass, started, budget.max_elapsed) {
                 NextObserveSession::Session(next) => next,
-                NextObserveSession::Complete => {
-                    complete = true;
-                    break;
-                }
-                NextObserveSession::Elapsed => break,
+                NextObserveSession::Complete => break ObserveLifecycleStop::Complete,
+                NextObserveSession::Elapsed => break ObserveLifecycleStop::Elapsed,
             };
             let candidate_completes = pass.final_session_id.as_deref() == Some(next.0.as_str());
             let candidate = reserved_observe_slice(
@@ -4003,10 +4039,10 @@ impl CoreDaemon {
                     }
                     return Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes });
                 }
-                break;
+                break ObserveLifecycleStop::ByteBudget;
             }
-            if started.elapsed() >= budget.max_elapsed {
-                break;
+            if self.lifecycle_elapsed(started) >= budget.max_elapsed {
+                break ObserveLifecycleStop::Elapsed;
             }
             remaining_visits = remaining_visits.saturating_sub(1);
             visited_this_call = true;
@@ -4022,19 +4058,17 @@ impl CoreDaemon {
             }
             pass.last_visited = Some(next);
             if candidate_completes {
-                complete = true;
-                break;
+                break ObserveLifecycleStop::Complete;
             }
-        }
+        };
 
         let pass_id = pass.pass_id.clone();
         let last_visited = pass.last_visited.clone();
         let slice = ObserveLifecycleSlice {
             pass_id,
             last_visited,
-            complete,
             session_errors: committed_errors,
-            resync_required: None,
+            stop,
         };
         let minimum_bytes = encoded_observe_slice_len(&slice);
         self.observe_pass = Some(pass);
@@ -4075,7 +4109,7 @@ impl CoreDaemon {
                 .observe_live_sessions
                 .range((start, Included(final_session_id.clone())))
             {
-                if started.elapsed() >= max_elapsed {
+                if self.lifecycle_elapsed(started) >= max_elapsed {
                     next = NextObserveSession::Elapsed;
                     break;
                 }
@@ -4096,19 +4130,21 @@ impl CoreDaemon {
         next
     }
 
+    /// Index registry entries into the freeze. `Ok(None)` once the index
+    /// is complete; `Ok(Some(stop))` when a budget stopped it first.
     fn advance_baseline_index(
         &mut self,
         started: Instant,
         ops: &mut u64,
         items_used: &mut usize,
         budget: &LifecycleBaselineBudget,
-    ) -> Result<(), ()> {
+    ) -> Result<Option<LifecycleBaselineStop>, ()> {
         if self
             .baseline_freeze
             .as_ref()
             .is_some_and(|freeze| freeze.index_complete)
         {
-            return Ok(());
+            return Ok(None);
         }
         if self
             .baseline_freeze
@@ -4125,7 +4161,7 @@ impl CoreDaemon {
                     if let Some(freeze) = self.baseline_freeze.as_mut() {
                         freeze.index_complete = true;
                     }
-                    return Ok(());
+                    return Ok(None);
                 }
                 Err(_) => return Err(()),
             }
@@ -4133,10 +4169,10 @@ impl CoreDaemon {
 
         loop {
             if *items_used >= budget.max_rows {
-                break;
+                return Ok(Some(LifecycleBaselineStop::RowBudget));
             }
             if self.baseline_elapsed(started, *ops) >= budget.max_elapsed {
-                break;
+                return Ok(Some(LifecycleBaselineStop::Elapsed));
             }
             let next = self
                 .baseline_freeze
@@ -4152,7 +4188,7 @@ impl CoreDaemon {
                         freeze.dir = None;
                         freeze.index_complete = true;
                     }
-                    break;
+                    return Ok(None);
                 }
                 Some(Err(_)) => return Err(()),
                 Some(Ok(entry)) => {
@@ -4172,7 +4208,6 @@ impl CoreDaemon {
                 }
             }
         }
-        Ok(())
     }
 
     fn emit_baseline_suffix(
@@ -4191,7 +4226,7 @@ impl CoreDaemon {
         if membership_empty {
             self.baseline_freeze = None;
             return Ok(SessionLifecycleBaselinePage {
-                complete: true,
+                stop: LifecycleBaselineStop::Complete,
                 ..empty
             });
         }
@@ -4205,15 +4240,18 @@ impl CoreDaemon {
                 inclusive && page.sessions.is_empty(),
             );
             let Some(next_id) = next_id else {
-                page.complete = true;
+                page.stop = LifecycleBaselineStop::Complete;
                 page.next = None;
                 break;
             };
-            if *items_used >= budget.max_rows
-                || self.baseline_elapsed(started, *ops) >= budget.max_elapsed
-            {
+            if *items_used >= budget.max_rows {
                 page.next = Some(SessionId(next_id));
-                page.complete = false;
+                page.stop = LifecycleBaselineStop::RowBudget;
+                break;
+            }
+            if self.baseline_elapsed(started, *ops) >= budget.max_elapsed {
+                page.next = Some(SessionId(next_id));
+                page.stop = LifecycleBaselineStop::Elapsed;
                 break;
             }
             *items_used = items_used.saturating_add(1);
@@ -4234,13 +4272,19 @@ impl CoreDaemon {
             *ops = ops.saturating_add(1);
             if self.baseline_elapsed(started, *ops) >= budget.max_elapsed {
                 page.next = Some(SessionId(next_id));
-                page.complete = false;
+                page.stop = LifecycleBaselineStop::Elapsed;
                 break;
             }
             page.sessions.push(record);
             let following =
                 self.next_baseline_membership_id(Some(&SessionId(next_id.clone())), false);
-            page.complete = following.is_none();
+            // Size the page with the widest stop it can still end with, so
+            // it fits whichever stop it returns.
+            page.stop = if following.is_none() {
+                LifecycleBaselineStop::Complete
+            } else {
+                LifecycleBaselineStop::ByteBudget
+            };
             page.next = following.map(SessionId);
             self.record_baseline_page_encode();
             let encoded = encoded_lifecycle_baseline_page_len(&page);
@@ -4257,11 +4301,14 @@ impl CoreDaemon {
                 }
                 page.sessions.pop();
                 page.next = Some(SessionId(next_id));
-                page.complete = false;
+                page.stop = LifecycleBaselineStop::ByteBudget;
                 break;
             }
             cursor = Some(SessionId(next_id));
-            if self.baseline_elapsed(started, *ops) >= budget.max_elapsed && !page.complete {
+            if page.stop != LifecycleBaselineStop::Complete
+                && self.baseline_elapsed(started, *ops) >= budget.max_elapsed
+            {
+                page.stop = LifecycleBaselineStop::Elapsed;
                 break;
             }
         }
@@ -4281,7 +4328,7 @@ impl CoreDaemon {
                 minimum_bytes: encoded,
             });
         }
-        if page.complete {
+        if page.stop == LifecycleBaselineStop::Complete {
             self.baseline_freeze = None;
         }
         Ok(page)
@@ -4396,7 +4443,7 @@ impl CoreDaemon {
     }
 
     fn baseline_elapsed(&self, started: Instant, ops: u64) -> Duration {
-        let wall = started.elapsed();
+        let wall = self.lifecycle_elapsed(started);
         #[cfg(test)]
         {
             if let Some(per_op) = self.config.test_baseline_elapsed_per_op {
@@ -4407,6 +4454,13 @@ impl CoreDaemon {
         #[cfg(not(test))]
         let _ = ops;
         wall
+    }
+
+    /// Wall time since `started` for a lifecycle page or slice budget.
+    fn lifecycle_elapsed(&self, started: Instant) -> Duration {
+        started
+            .elapsed()
+            .saturating_add(self.config.test_elapsed_at_entry)
     }
 
     fn record_baseline_index_scan(&mut self) {
@@ -4518,14 +4572,13 @@ fn encoded_lifecycle_baseline_page_len(page: &SessionLifecycleBaselinePage) -> u
 
 fn baseline_resync_page(
     snapshot_sequence: SessionLifecycleCursor,
-    resync_required: SessionLifecycleResyncReason,
+    reason: SessionLifecycleResyncReason,
 ) -> SessionLifecycleBaselinePage {
     SessionLifecycleBaselinePage {
         snapshot_sequence,
         sessions: Vec::new(),
         next: None,
-        complete: false,
-        resync_required: Some(resync_required),
+        stop: LifecycleBaselineStop::Resync { reason },
     }
 }
 
@@ -4535,6 +4588,8 @@ fn encoded_observe_slice_len(slice: &ObserveLifecycleSlice) -> usize {
         .len()
 }
 
+/// The widest slice a visit to `next` can produce: its reserved error, and
+/// the widest stop the slice can still end with.
 fn reserved_observe_slice(
     pass_id: &ObserveLifecyclePassId,
     next: &SessionId,
@@ -4546,9 +4601,12 @@ fn reserved_observe_slice(
     ObserveLifecycleSlice {
         pass_id: pass_id.clone(),
         last_visited: Some(next.clone()),
-        complete,
         session_errors,
-        resync_required: None,
+        stop: if complete {
+            ObserveLifecycleStop::Complete
+        } else {
+            ObserveLifecycleStop::SessionBudget
+        },
     }
 }
 
@@ -4557,9 +4615,10 @@ fn observe_pass_unavailable(pass_id: ObserveLifecyclePassId) -> ObserveLifecycle
         slice: ObserveLifecycleSlice {
             pass_id,
             last_visited: None,
-            complete: false,
             session_errors: Vec::new(),
-            resync_required: Some(SessionLifecycleResyncReason::ObservePassUnavailable),
+            stop: ObserveLifecycleStop::Resync {
+                reason: SessionLifecycleResyncReason::ObservePassUnavailable,
+            },
         },
         session_errors: Vec::new(),
     }
@@ -5950,7 +6009,10 @@ mod observe_pass_snapshot_tests {
                 .unwrap_or_default()
                 .as_nanos()
         ));
-        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        // Every elapsed reading starts expired: each slice yields at entry.
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir).with_test_elapsed_at_entry(Duration::MAX),
+        );
         for index in 0..100_000_u64 {
             daemon.observe_live_generation = index + 1;
             daemon
@@ -5965,13 +6027,12 @@ mod observe_pass_snapshot_tests {
                 ObserveLifecycleBudget {
                     max_sessions: usize::MAX,
                     max_encoded_result_bytes: usize::MAX,
-                    max_elapsed: Duration::ZERO,
+                    max_elapsed: Duration::MAX,
                 },
             )
             .expect("first elapsed yield");
-        assert!(!first_slice.complete);
+        assert_eq!(first_slice.stop, ObserveLifecycleStop::Elapsed);
         assert!(first_slice.last_visited.is_none());
-        assert!(first_slice.resync_required.is_none());
         assert_eq!(daemon.observe_index_scans, 0);
         let resume = ObserveLifecycleCursor {
             pass_id: first_slice.pass_id,
@@ -5984,13 +6045,88 @@ mod observe_pass_snapshot_tests {
                 ObserveLifecycleBudget {
                     max_sessions: usize::MAX,
                     max_encoded_result_bytes: usize::MAX,
-                    max_elapsed: Duration::ZERO,
+                    max_elapsed: Duration::MAX,
                 },
             )
             .expect("resumed elapsed yield");
-        assert!(!resumed.complete);
+        assert_eq!(resumed.stop, ObserveLifecycleStop::Elapsed);
         assert!(resumed.last_visited.is_none());
         assert_eq!(daemon.observe_index_scans, 0);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// Every slice that is not Complete, Resync or Elapsed visited a session
+    /// in its own call, so a host can continue it at once.
+    #[test]
+    fn every_session_or_byte_budget_slice_visits_a_session() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-observe-progress-guarantee-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        // Absent sessions: each visit records an error, and it is a visit.
+        for index in 0..5_u64 {
+            daemon.observe_live_generation = index + 1;
+            daemon
+                .observe_live_sessions
+                .insert(format!("session-{index}"), index + 1);
+        }
+        let one_visit = match daemon.observe_lifecycle_slice(
+            1,
+            None,
+            ObserveLifecycleBudget {
+                max_sessions: 1,
+                max_encoded_result_bytes: 0,
+                max_elapsed: Duration::MAX,
+            },
+        ) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("expected BudgetTooSmall, got {other:?}"),
+        };
+        for max_sessions in 1..=3 {
+            for max_encoded_result_bytes in [one_visit, one_visit + one_visit / 2, 64 * 1024] {
+                let budget = ObserveLifecycleBudget {
+                    max_sessions,
+                    max_encoded_result_bytes,
+                    max_elapsed: Duration::MAX,
+                };
+                let mut resume: Option<ObserveLifecycleCursor> = None;
+                let mut visits = 0;
+                loop {
+                    let slice = daemon
+                        .observe_lifecycle_slice(2, resume.as_ref(), budget)
+                        .expect("a slice within the budget");
+                    visits += slice.session_errors.len();
+                    let before = resume
+                        .as_ref()
+                        .and_then(|cursor| cursor.last_visited.clone());
+                    match slice.stop {
+                        ObserveLifecycleStop::Complete => break,
+                        ObserveLifecycleStop::SessionBudget | ObserveLifecycleStop::ByteBudget => {
+                            // At the one-visit byte budget, a second reserved
+                            // visit never fits: bytes stop the slice first.
+                            if max_encoded_result_bytes == one_visit && max_sessions > 1 {
+                                assert_eq!(slice.stop, ObserveLifecycleStop::ByteBudget);
+                            }
+                            assert!(
+                                !slice.session_errors.is_empty() && slice.last_visited != before,
+                                "{:?} slice visited nothing (max_sessions {max_sessions}, bytes {max_encoded_result_bytes})",
+                                slice.stop
+                            );
+                        }
+                        ref other => panic!("unexpected stop {other:?}"),
+                    }
+                    resume = Some(ObserveLifecycleCursor {
+                        pass_id: slice.pass_id,
+                        last_visited: slice.last_visited,
+                    });
+                }
+                assert_eq!(visits, 5, "the pass visits every session once");
+            }
+        }
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
@@ -6017,17 +6153,12 @@ mod observe_pass_snapshot_tests {
             max_encoded_result_bytes: 16 * 1024,
             max_elapsed: Duration::MAX,
         };
+        daemon.config.test_elapsed_at_entry = Duration::MAX;
         let yielded = daemon
-            .observe_lifecycle_slice(
-                12,
-                None,
-                ObserveLifecycleBudget {
-                    max_sessions: 1,
-                    max_encoded_result_bytes: 16 * 1024,
-                    max_elapsed: Duration::ZERO,
-                },
-            )
+            .observe_lifecycle_slice(12, None, budget)
             .expect("yield before first visit");
+        daemon.config.test_elapsed_at_entry = Duration::ZERO;
+        assert_eq!(yielded.stop, ObserveLifecycleStop::Elapsed);
         assert_eq!(daemon.observe_index_scans, 0);
         let resume = ObserveLifecycleCursor {
             pass_id: yielded.pass_id,
@@ -6038,6 +6169,7 @@ mod observe_pass_snapshot_tests {
             .expect("resume");
         assert_eq!(daemon.observe_index_scans, 1);
         assert_eq!(first_slice.last_visited.as_ref(), Some(&first));
+        assert_eq!(first_slice.stop, ObserveLifecycleStop::SessionBudget);
         let resume = ObserveLifecycleCursor {
             pass_id: first_slice.pass_id.clone(),
             last_visited: first_slice.last_visited.clone(),
@@ -6047,7 +6179,7 @@ mod observe_pass_snapshot_tests {
             .expect("second resume");
         assert_eq!(daemon.observe_index_scans, 2);
         assert_eq!(second_slice.last_visited.as_ref(), Some(&second));
-        assert!(second_slice.complete);
+        assert_eq!(second_slice.stop, ObserveLifecycleStop::Complete);
         daemon.shutdown(Some(first), 20).ok();
         daemon.shutdown(Some(second), 21).ok();
         let _ = std::fs::remove_dir_all(data_dir);
@@ -6234,7 +6366,9 @@ mod baseline_freeze_bound_tests {
                     },
                 )
                 .expect("finish index");
-            assert!(!page.complete);
+            // Each call indexes one entry; the last one ends the index and
+            // leaves the suffix for the next page.
+            assert_eq!(page.stop, LifecycleBaselineStop::RowBudget);
             assert!(page.sessions.is_empty());
             snapshot = Some(page.snapshot_sequence.clone());
             if daemon
@@ -6310,7 +6444,9 @@ mod baseline_freeze_bound_tests {
     #[test]
     fn setup_only_elapsed_does_not_scan_or_copy() {
         let data_dir = data_dir("setup-only");
-        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let mut daemon = CoreDaemon::new(
+            CoreDaemonConfig::new(&data_dir).with_test_elapsed_at_entry(Duration::MAX),
+        );
         seed_records(&daemon, 8);
         let page = daemon
             .lifecycle_baseline_page(
@@ -6319,11 +6455,11 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::ZERO,
+                    max_elapsed: Duration::MAX,
                 },
             )
             .expect("setup-only");
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::Elapsed);
         assert!(page.sessions.is_empty());
         assert!(page.next.is_none());
         assert_eq!(daemon.baseline_index_scans, 0);
@@ -6347,7 +6483,7 @@ mod baseline_freeze_bound_tests {
                 },
             )
             .expect("index item");
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::RowBudget);
         assert!(page.sessions.is_empty());
         assert_page_within_budget(&page, 64 * 1024);
         assert_eq!(daemon.baseline_index_scans, 1);
@@ -6355,45 +6491,109 @@ mod baseline_freeze_bound_tests {
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
+    /// A budget that allows no rows or no time could never advance a page:
+    /// it is a typed error, and it leaves the freeze as it was.
     #[test]
-    fn first_suffix_item_zero_uses_continuation_minimum() {
-        let data_dir = data_dir("first-suffix-item-zero");
+    fn zero_row_or_elapsed_budgets_are_typed_errors_that_keep_the_freeze() {
+        let data_dir = data_dir("zero-budgets");
         let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
         seed_records(&daemon, 8);
         let snapshot = finish_index(&mut daemon, 8);
-        let empty_minimum = empty_page_minimum(&mut daemon, &snapshot);
-        let continuation_minimum = match daemon.lifecycle_baseline_page(
-            Some(&snapshot),
-            None,
-            LifecycleBaselineBudget {
-                max_rows: 0,
-                max_bytes: empty_minimum,
-                max_elapsed: Duration::MAX,
-            },
-        ) {
-            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
-            other => panic!("expected BudgetTooSmall, got {other:?}"),
-        };
+        for (budget, expected) in [
+            (
+                LifecycleBaselineBudget {
+                    max_rows: 0,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::MAX,
+                },
+                SessionLifecyclePageError::RowBudgetZero,
+            ),
+            (
+                LifecycleBaselineBudget {
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
+                    max_elapsed: Duration::ZERO,
+                },
+                SessionLifecyclePageError::ElapsedBudgetZero,
+            ),
+        ] {
+            assert_eq!(
+                daemon.lifecycle_baseline_page(Some(&snapshot), None, budget),
+                Err(expected.clone())
+            );
+            assert_eq!(
+                daemon.lifecycle_baseline_page(None, None, budget),
+                Err(expected),
+                "a zero budget mints no new freeze"
+            );
+        }
         let page = daemon
             .lifecycle_baseline_page(
                 Some(&snapshot),
                 None,
                 LifecycleBaselineBudget {
-                    max_rows: 0,
-                    max_bytes: continuation_minimum,
+                    max_rows: usize::MAX,
+                    max_bytes: 64 * 1024,
                     max_elapsed: Duration::MAX,
                 },
             )
-            .expect("smallest item-yield continuation");
-        assert!(!page.complete);
-        assert!(page.sessions.is_empty());
-        assert!(page.next.is_some());
-        assert_page_within_budget(&page, continuation_minimum);
-        assert_eq!(
-            encoded_lifecycle_baseline_page_len(&page),
-            continuation_minimum
-        );
+            .expect("the freeze survives the refused calls");
+        assert_eq!(page.stop, LifecycleBaselineStop::Complete);
+        assert_eq!(page.sessions.len(), 8);
         let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// Every page that is not Complete, Resync or Elapsed advanced the
+    /// freeze in its own call: it indexed an entry, passed a row, or moved
+    /// its position. A host can continue such a page at once.
+    #[test]
+    fn every_row_or_byte_budget_page_advances_the_freeze() {
+        for max_rows in 1..=3 {
+            let data_dir = data_dir(&format!("progress-guarantee-{max_rows}"));
+            let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+            seed_records(&daemon, 5);
+            let one_row = {
+                let snapshot = finish_index(&mut daemon, 5);
+                let empty = empty_page_minimum(&mut daemon, &snapshot);
+                continuation_too_small(&mut daemon, &snapshot, None, empty)
+            };
+            for max_bytes in [one_row, one_row + one_row / 2, 64 * 1024] {
+                let budget = LifecycleBaselineBudget {
+                    max_rows,
+                    max_bytes,
+                    max_elapsed: Duration::MAX,
+                };
+                let mut snapshot = None;
+                let mut after = None;
+                let mut rows = 0;
+                loop {
+                    let scans = daemon.baseline_index_scans;
+                    let copies = daemon.baseline_row_copies;
+                    let page = daemon
+                        .lifecycle_baseline_page(snapshot.as_ref(), after.as_ref(), budget)
+                        .expect("a page within the budget");
+                    rows += page.sessions.len();
+                    match page.stop {
+                        LifecycleBaselineStop::Complete => break,
+                        LifecycleBaselineStop::RowBudget | LifecycleBaselineStop::ByteBudget => {
+                            assert!(
+                                daemon.baseline_index_scans > scans
+                                    || daemon.baseline_row_copies > copies
+                                    || !page.sessions.is_empty()
+                                    || page.next != after,
+                                "{:?} page made no progress (max_rows {max_rows}, max_bytes {max_bytes})",
+                                page.stop
+                            );
+                        }
+                        other => panic!("unexpected stop {other:?}"),
+                    }
+                    snapshot = Some(page.snapshot_sequence);
+                    after = page.next;
+                }
+                assert_eq!(rows, 5, "the walk returns every row once");
+            }
+            let _ = std::fs::remove_dir_all(data_dir);
+        }
     }
 
     #[test]
@@ -6403,6 +6603,7 @@ mod baseline_freeze_bound_tests {
             CoreDaemonConfig::new(&data_dir).with_test_baseline_elapsed_per_op(TEST_ELAPSED_STEP),
         );
         seed_records(&daemon, 8);
+        daemon.config.test_elapsed_at_entry = Duration::MAX;
         let minted = daemon
             .lifecycle_baseline_page(
                 None,
@@ -6410,10 +6611,12 @@ mod baseline_freeze_bound_tests {
                 LifecycleBaselineBudget {
                     max_rows: usize::MAX,
                     max_bytes: 64 * 1024,
-                    max_elapsed: Duration::ZERO,
+                    max_elapsed: Duration::MAX,
                 },
             )
             .expect("setup mint");
+        daemon.config.test_elapsed_at_entry = Duration::ZERO;
+        assert_eq!(minted.stop, LifecycleBaselineStop::Elapsed);
         assert_eq!(daemon.baseline_index_scans, 0);
         let page = daemon
             .lifecycle_baseline_page(
@@ -6426,7 +6629,7 @@ mod baseline_freeze_bound_tests {
                 },
             )
             .expect("one counted op");
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::Elapsed);
         assert!(page.sessions.is_empty());
         assert_eq!(daemon.baseline_index_scans, 1);
         assert_eq!(daemon.baseline_row_copies, 0);
@@ -6441,7 +6644,7 @@ mod baseline_freeze_bound_tests {
                 },
             )
             .expect("later suffix");
-        assert!(!later.complete);
+        assert_eq!(later.stop, LifecycleBaselineStop::Elapsed);
         assert_eq!(daemon.baseline_index_scans, 2);
         let _ = std::fs::remove_dir_all(data_dir);
     }
@@ -6466,7 +6669,7 @@ mod baseline_freeze_bound_tests {
             )
             .expect("first suffix row");
         assert_eq!(first.sessions.len(), 1);
-        assert!(!first.complete);
+        assert_eq!(first.stop, LifecycleBaselineStop::RowBudget);
         assert_page_within_budget(&first, 64 * 1024);
         assert_eq!(daemon.baseline_row_copies, 1);
         assert_eq!(daemon.baseline_page_encodes, encodes_after_index + 2);
@@ -6520,7 +6723,7 @@ mod baseline_freeze_bound_tests {
                 },
             )
             .expect("elapsed after materialize");
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::Elapsed);
         assert!(page.sessions.is_empty());
         assert!(page.next.is_some());
         assert_page_within_budget(&page, 64 * 1024);
@@ -6593,7 +6796,7 @@ mod baseline_freeze_bound_tests {
                 },
             )
             .expect("later elapsed after materialize");
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::Elapsed);
         assert!(page.sessions.is_empty());
         assert_eq!(page.next, first.next);
         assert_page_within_budget(&page, 64 * 1024);
@@ -6625,7 +6828,7 @@ mod baseline_freeze_bound_tests {
             .expect("the budget BudgetTooSmall named");
         // The named budget is the smallest that makes progress: exactly the
         // first row, and no row after it.
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::ByteBudget);
         assert_eq!(page.sessions.len(), 1);
         assert!(page.next.is_some());
         assert_page_within_budget(&page, continuation_minimum);
@@ -6673,7 +6876,7 @@ mod baseline_freeze_bound_tests {
             .expect("the budget BudgetTooSmall named");
         // The named budget is the smallest that makes progress: exactly the
         // row at the resume position, and no row after it.
-        assert!(!page.complete);
+        assert_eq!(page.stop, LifecycleBaselineStop::ByteBudget);
         assert_eq!(page.sessions.len(), 1);
         assert_eq!(
             Some(&page.sessions[0].session.session_id),
