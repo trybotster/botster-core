@@ -1403,9 +1403,9 @@ fn drive_polled_session(
             "the PTY ended and the exit was seen, yet no exit was drained"
         );
         let count = loop {
-            // timer: deadline — the next PTY chunk or exit must arrive; expiry fails the test
             // SAFETY: poll_fds is a live array of valid pollfd records.
             let count = unsafe {
+                // timer: deadline — the next PTY chunk or exit must arrive; expiry fails the test
                 libc::poll(
                     poll_fds.as_mut_ptr(),
                     libc::nfds_t::try_from(poll_fds.len()).expect("fd count"),
@@ -1496,13 +1496,10 @@ fn a_polled_read_with_a_full_queue_reads_nothing_until_a_drain() {
             events: libc::POLLIN,
             revents: 0,
         };
-        // timer: deadline — the child's line must arrive; expiry fails the test
         // SAFETY: poll_fd points at one valid pollfd for the call.
-        assert_eq!(
-            unsafe { libc::poll(&mut poll_fd, 1, 10_000) },
-            1,
-            "no output"
-        );
+        // timer: deadline — the child's line must arrive; expiry fails the test
+        let count = unsafe { libc::poll(&mut poll_fd, 1, 10_000) };
+        assert_eq!(count, 1, "no output");
     };
 
     wait_readable();

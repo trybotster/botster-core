@@ -420,8 +420,8 @@ mod tests {
             events: libc::POLLIN,
             revents: 0,
         };
-        // timer: deadline — the watched event must arrive; expiry fails the test
         // SAFETY: poll_fd points at one valid pollfd for the call.
+        // timer: deadline — the watched event must arrive; expiry fails the test
         let count = unsafe { libc::poll(&mut poll_fd, 1, 10_000) };
         assert_eq!(count, 1, "the exit watch never became readable");
     }

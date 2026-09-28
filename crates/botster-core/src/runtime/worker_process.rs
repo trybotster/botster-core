@@ -292,6 +292,9 @@ pub struct WorkerProcessRuntimeOptions {
     /// pipe with stdout still open, until the test writes it or ends the
     /// worker.
     pub test_hold_before_exit_gate: Option<PathBuf>,
+    /// Test-only: the worker writes this pipe once its output egress is
+    /// full after a flush, that is, once its egress descriptor refused more.
+    pub test_egress_full_signal: Option<PathBuf>,
     /// Test-only: worker process exit code after the payload is flushed.
     pub test_exit_code: Option<i32>,
     /// Ghostty scrollback byte budget used by the worker snapshot authority.
@@ -315,6 +318,7 @@ impl WorkerProcessRuntimeOptions {
             test_resize_ack_hold: None,
             test_route_probe: None,
             test_hold_before_exit_gate: None,
+            test_egress_full_signal: None,
             test_exit_code: None,
             ghostty_max_scrollback_bytes: 10_000_000,
             terminal_color_profile: None,
@@ -1776,6 +1780,9 @@ fn launch_worker_inner(
     }
     if let Some(gate) = options.test_hold_before_exit_gate.as_ref() {
         command.arg("--test-hold-before-exit-gate").arg(gate);
+    }
+    if let Some(signal) = options.test_egress_full_signal.as_ref() {
+        command.arg("--test-egress-full-signal").arg(signal);
     }
     if let Some(exit_code) = options.test_exit_code {
         command.arg("--test-exit-code").arg(exit_code.to_string());
