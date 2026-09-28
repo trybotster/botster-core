@@ -194,6 +194,7 @@ fn the_open_files_rlimit_bounds_the_worker() {
     };
     let report = &success.payload.as_ref().expect("a report").0;
     assert_eq!(report["errno"], json!(libc::EMFILE));
-    // Descriptors 0-4 are the worker's own; the rest of the limit is open.
-    assert_eq!(report["opened"], json!(16 - 5));
+    // Descriptors 0-4 come from the parent and 5 is the worker's parent-exit
+    // watch; the rest of the limit is open.
+    assert_eq!(report["opened"], json!(16 - 6));
 }

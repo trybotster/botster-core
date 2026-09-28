@@ -819,3 +819,164 @@ fn a_cap_without_the_capped_allocator_is_refused() {
         "{refused:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A worker never outlives its parent (orphan fix, 2026-09-28).
+
+/// A FIFO whose one line the test reads on a helper thread.
+fn line_fifo(name: &str) -> (PathBuf, PathBuf, mpsc::Receiver<String>) {
+    let dir = std::env::temp_dir().join(format!("botster-plugin-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let path = dir.join("fifo");
+    mkfifo(&path);
+    let (tx, rx) = mpsc::channel();
+    let reader = path.clone();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        if File::open(&reader)
+            .and_then(|mut fifo| fifo.read_to_string(&mut line))
+            .is_ok()
+        {
+            let _ = tx.send(line);
+        }
+    });
+    (dir, path, rx)
+}
+
+/// Kills a process group on drop unless the test saw its leader exit, so a
+/// failing run leaves no orphan behind.
+struct KillGroupUnlessExited {
+    pgid: libc::pid_t,
+    exited: bool,
+}
+
+impl Drop for KillGroupUnlessExited {
+    fn drop(&mut self) {
+        if !self.exited {
+            // SAFETY: killpg only sends a signal to the test's own worker
+            // group, which the test observed alive.
+            unsafe { libc::killpg(self.pgid, libc::SIGKILL) };
+        }
+    }
+}
+
+/// The parent dies while its worker runs the load hook, where nothing reads
+/// the channel. The worker's parent-exit watch ends it.
+#[test]
+fn a_worker_exits_when_its_parent_dies_during_the_load() {
+    use super::super::worker::ParentExit;
+
+    let (dir, fifo, reported) = line_fifo("parent-death");
+    let mut parent = std::process::Command::new(worker())
+        .env("PLUGIN_TEST_ACT_AS_PARENT", "1")
+        .env("PLUGIN_TEST_STARTED_FIFO", &fifo)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("start the helper parent");
+    let pid: libc::pid_t = reported
+        // timer: deadline — the grandchild worker reports its pid from its load; expiry fails the test
+        .recv_timeout(WAIT)
+        .expect("the worker reports from its load")
+        .trim()
+        .parse()
+        .expect("a pid");
+    // The launcher makes the worker a process group leader.
+    let mut guard = KillGroupUnlessExited {
+        pgid: pid,
+        exited: false,
+    };
+    let exit = ParentExit::register(pid)
+        .expect("watch the worker")
+        .expect("the worker is alive");
+
+    parent.kill().expect("kill the helper parent");
+    parent.wait().expect("reap the helper parent");
+    let (tx, exited) = mpsc::channel();
+    std::thread::spawn(move || {
+        exit.wait();
+        let _ = tx.send(());
+    });
+    exited
+        // timer: deadline — the orphaned worker exits on its parent's exit; expiry fails the test
+        .recv_timeout(WAIT)
+        .expect("the worker exits when its parent dies");
+    guard.exited = true;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A live parent closes the channel while the worker waits in its load. The
+/// worker sees the EOF and exits by itself, without a kill.
+#[test]
+fn a_worker_waiting_in_its_load_exits_when_the_parent_closes_the_channel() {
+    use super::super::launch::{launch, Launched};
+    use super::super::protocol::{
+        encode_json_bounded, send_all, BootstrapFrame, CreditGrants, LoadEnvelope, FRAME_BOOTSTRAP,
+        FRAME_LOAD, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    };
+    use std::os::fd::AsFd;
+
+    let (dir, fifo, started) = line_fifo("channel-close");
+    let mut config = plain_config();
+    config.env = vec![(
+        OsString::from("PLUGIN_TEST_STARTED_FIFO"),
+        fifo.clone().into_os_string(),
+    )];
+    let Launched { mut child, ipc, .. } = launch(&config).expect("launch the worker");
+    let mut guard = KillGroupUnlessExited {
+        pgid: child.id() as libc::pid_t,
+        exited: false,
+    };
+    let bootstrap = encode_json_bounded(
+        FRAME_BOOTSTRAP,
+        &BootstrapFrame {
+            magic: PROTOCOL_MAGIC.to_string(),
+            version: PROTOCOL_VERSION,
+            sandbox: opaque(json!({})),
+            memory_cap_bytes: None,
+        },
+        config.max_frame_bytes,
+    )
+    .expect("bootstrap frame");
+    let mut frame = load();
+    frame.config = opaque(json!({ "mode": "wait_in_load" }));
+    let load_frame = encode_json_bounded(
+        FRAME_LOAD,
+        &LoadEnvelope {
+            load: &frame,
+            grants: CreditGrants {
+                ingress_bytes: 1,
+                reply_count: 0,
+                reply_bytes: 0,
+                log_count: 0,
+                log_bytes: 0,
+                max_in_flight_invokes: 1,
+            },
+        },
+        config.max_frame_bytes,
+    )
+    .expect("load frame");
+    send_all(ipc.as_fd(), &bootstrap).expect("send Bootstrap");
+    send_all(ipc.as_fd(), &load_frame).expect("send Load");
+    started
+        // timer: deadline — the worker reaches its load wait; expiry fails the test
+        .recv_timeout(WAIT)
+        .expect("the worker waits in its load");
+
+    // The parent stays alive and closes the channel without any kill.
+    drop(ipc);
+    let (tx, exited) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait());
+    });
+    let status = exited
+        // timer: deadline — the worker exits on the channel's EOF; expiry fails the test
+        .recv_timeout(WAIT)
+        .expect("the worker exits on the channel's EOF")
+        .expect("reap the worker");
+    guard.exited = true;
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

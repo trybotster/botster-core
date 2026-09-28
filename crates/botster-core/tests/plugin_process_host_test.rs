@@ -138,7 +138,8 @@ fn a_worker_starts_with_only_the_allowlisted_environment_and_descriptors() {
         env,
         BTreeMap::from([("PLUGIN_ENV_PROBE".to_string(), "present".to_string())])
     );
-    assert_eq!(report["fds"], json!([0, 1, 2, 3, 4]));
+    // 0-4 come from the parent; 5 is the worker's own parent-exit watch.
+    assert_eq!(report["fds"], json!([0, 1, 2, 3, 4, 5]));
     assert_eq!(report["cwd"], json!(cwd()));
     assert_eq!(report["nofile"], json!(OPEN_FILES));
     assert_eq!(report["sandbox_applied_before_load"], json!(true));

@@ -9,6 +9,10 @@
 //! - `{"mode": "host_call_before_loaded"}`: send a host call frame during the
 //!   load, around the host port.
 //! - `{"mode": "spin"}`: never finish the load.
+//! - `{"mode": "spin_reporting"}`: write this pid to `PLUGIN_TEST_STARTED_FIFO`,
+//!   then never finish the load.
+//! - `{"mode": "wait_in_load"}`: write to `PLUGIN_TEST_STARTED_FIFO`, then
+//!   wait in the load until the channel's EOF.
 //! - `{"mode": "close_ipc_then_wait"}`: close the IPC channel and stay alive
 //!   until killed.
 //! - `{"mode": "panic"}` / `{"mode": "abort"}`: die during the load.
@@ -17,7 +21,10 @@
 //!
 //! A sandbox profile `{"fail": "<reason>"}` makes the sandbox hook fail.
 //!
-//! Before the worker library starts, two opt-in environment switches apply:
+//! Before the worker library starts, opt-in environment switches apply:
+//! - `PLUGIN_TEST_ACT_AS_PARENT`: act as a parent instead: spawn one worker
+//!   of this binary in `spin_reporting` mode through the process host, then
+//!   park until killed.
 //! - `PLUGIN_TEST_DESCENDANT_FIFO`, `PLUGIN_TEST_ALIVE_FIFO`, and
 //!   `PLUGIN_TEST_REPORT_FIFO`: start a descendant in this process group
 //!   (`/bin/cat` reading the first FIFO, which the test holds open, with its
@@ -55,6 +62,9 @@ static SANDBOX_APPLIED: AtomicBool = AtomicBool::new(false);
 static PORT: OnceLock<HostPort> = OnceLock::new();
 
 fn main() {
+    if std::env::var_os("PLUGIN_TEST_ACT_AS_PARENT").is_some() {
+        act_as_parent();
+    }
     if let (Some(descendant), Some(alive), Some(report)) = (
         std::env::var_os("PLUGIN_TEST_DESCENDANT_FIFO"),
         std::env::var_os("PLUGIN_TEST_ALIVE_FIFO"),
@@ -123,6 +133,71 @@ fn fill_stderr() {
     }
 }
 
+/// Parent role: spawn one worker of this binary in `spin_reporting` mode
+/// through the process host and park. The test kills this process to prove
+/// that the worker does not outlive its parent. The worker inherits
+/// `PLUGIN_TEST_STARTED_FIFO`, to which it reports its pid.
+fn act_as_parent() -> ! {
+    use botster_core::runtime::plugin_process::{
+        PluginConfig, PluginLogCredits, PluginProcess, PluginProcessConfig, PluginProcessRlimits,
+        PluginReplyCredits, PluginSources,
+    };
+    let started = std::env::var_os("PLUGIN_TEST_STARTED_FIFO").expect("PLUGIN_TEST_STARTED_FIFO");
+    let config = PluginProcessConfig {
+        worker_path: std::env::current_exe().expect("this binary"),
+        cwd: std::env::temp_dir(),
+        env: vec![("PLUGIN_TEST_STARTED_FIFO".into(), started)],
+        rlimits: PluginProcessRlimits::default(),
+        sandbox: SandboxProfile(BoundaryJson(json!({}))),
+        memory_cap_bytes: None,
+        max_frame_bytes: 1024 * 1024,
+        // Never reached: the test kills this parent while the worker loads.
+        startup_deadline: std::time::Duration::from_secs(3600),
+        shutdown_deadline: std::time::Duration::from_secs(3600),
+        cancel_grace: std::time::Duration::from_secs(3600),
+        max_in_flight_invokes: 1,
+        stderr_tail_bytes: 4096,
+        ingress_bytes: 64 * 1024,
+        reply_credits: PluginReplyCredits {
+            count: 1,
+            bytes: 64 * 1024,
+        },
+        log_credits: PluginLogCredits {
+            count: 1,
+            bytes: 1024,
+        },
+    };
+    let load = LoadFrame {
+        sources: PluginSources(BoundaryJson(json!({}))),
+        config: PluginConfig(BoundaryJson(json!({ "mode": "spin_reporting" }))),
+    };
+    // Blocks for as long as the worker loads, which is until this process dies.
+    let _ = PluginProcess::spawn(&config, &load);
+    wait_for_kill()
+}
+
+/// A load-phase wait: while the IPC channel is open, wait for its EOF and
+/// exit, because a parent that closed it will never send more. With the
+/// channel already closed (by the worker itself), wait to be killed.
+fn wait_for_eof_or_kill() -> ! {
+    // SAFETY: F_GETFD only queries the descriptor table.
+    if unsafe { libc::fcntl(3, libc::F_GETFD) } < 0 {
+        wait_for_kill();
+    }
+    let mut buf = [0u8; 4096];
+    loop {
+        // SAFETY: a bounded read into a live local from the IPC descriptor.
+        // Nothing else reads it during the load.
+        let read = unsafe { libc::read(3, buf.as_mut_ptr().cast(), buf.len()) };
+        if read == 0 {
+            std::process::exit(0);
+        }
+        if read < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            std::process::exit(0);
+        }
+    }
+}
+
 fn wait_for_kill() -> ! {
     loop {
         // SAFETY: pause only waits for a signal. Its lifetime ends at the
@@ -164,7 +239,24 @@ fn load(frame: LoadFrame, port: HostPort) -> Result<LoadedPlugin, String> {
                 "body": null,
             });
             write_raw_frame(0x86, &serde_json::to_vec(&frame).expect("encode"));
-            wait_for_kill()
+            wait_for_eof_or_kill()
+        }
+        Some("wait_in_load") => {
+            signal_started();
+            wait_for_eof_or_kill()
+        }
+        Some("spin_reporting") => {
+            let started =
+                std::env::var_os("PLUGIN_TEST_STARTED_FIFO").expect("PLUGIN_TEST_STARTED_FIFO");
+            let mut started = OpenOptions::new()
+                .write(true)
+                .open(started)
+                .expect("open the started FIFO");
+            writeln!(started, "{}", std::process::id()).expect("report the pid");
+            drop(started);
+            loop {
+                std::hint::spin_loop();
+            }
         }
         Some("fail") => Err("scripted load failure".to_string()),
         Some("spin") => loop {
