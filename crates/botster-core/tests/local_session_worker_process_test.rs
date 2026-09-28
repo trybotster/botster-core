@@ -100,6 +100,8 @@ fn worker_options() -> WorkerProcessRuntimeOptions {
         test_resize_ack_hold: None,
         test_route_probe: None,
         test_hold_before_exit_gate: None,
+        test_egress_full_signal: None,
+        test_control_held_signal: None,
         test_exit_code: None,
         ghostty_max_scrollback_bytes: 10_000_000,
         terminal_color_profile: None,
@@ -2653,4 +2655,298 @@ fn an_exited_socket_worker_exits_when_its_parent_connection_closes() {
         exited,
         "an exited worker must exit when its parent's connection closes"
     );
+}
+
+/// S9: input reaches the child while the worker's egress is full.
+///
+/// The parent attaches a consumer and never drains, so its reader stalls on
+/// its full channel; the worker's egress then fills with flood output and
+/// the worker stops reading the PTY. Control input is still read and written
+/// to the PTY: a line sent now reaches the child. A worker whose main loop
+/// blocks on a full egress leaves the line queued, and it never arrives.
+#[test]
+fn input_reaches_the_child_while_the_worker_egress_is_full() {
+    let received = Fifo::new("s9-input-received");
+    let egress_full = Fifo::new("s9-egress-full");
+    let mut options = worker_options();
+    options.egress_capacity = 1;
+    options.test_egress_full_signal = Some(egress_full.path().to_path_buf());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
+    let session = session_id("s9-input-under-flood");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            &format!(
+                "stty -echo; yes flood-flood-flood & IFS= read -r line; /bin/echo \"$line\" > '{}'; kill $!; exec cat >/dev/null",
+                received.path().display()
+            ),
+        ))
+        .expect("spawn the flood");
+    runtime
+        .attach_consumer(&session)
+        .expect("attach a consumer that never drains");
+    // The parent reader stalls on its full channel and stops reading the
+    // worker. The worker reports once its egress descriptor refuses more:
+    // from then on its output stays held and it reads no more PTY output.
+    // timer: deadline — the worker's egress must fill; expiry fails the test
+    assert_eq!(egress_full.read_signal(HANG_GUARD), b"full\n");
+
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"input-under-flood\n".to_vec(),
+        })
+        .expect("send input");
+    // timer: deadline — the input must reach the child; expiry fails the test
+    let got = received.read_signal(HANG_GUARD);
+    assert_eq!(got, b"input-under-flood\n");
+    let _ = runtime.detach_consumer(&session);
+}
+
+/// The worker's OS thread count, read from the kernel.
+fn thread_count(pid: u32) -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: a zeroed proc_taskinfo is a valid output record.
+        let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+        let size =
+            libc::c_int::try_from(std::mem::size_of::<libc::proc_taskinfo>()).expect("record size");
+        // SAFETY: info is a live output record of `size` bytes.
+        let read = unsafe {
+            libc::proc_pidinfo(
+                libc::c_int::try_from(pid).expect("pid"),
+                libc::PROC_PIDTASKINFO,
+                0,
+                std::ptr::addr_of_mut!(info).cast(),
+                size,
+            )
+        };
+        assert_eq!(read, size, "read the worker's task info");
+        usize::try_from(info.pti_threadnum).expect("thread count")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).expect("worker status");
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix("Threads:"))
+            .and_then(|count| count.trim().parse().ok())
+            .expect("thread count in status")
+    }
+}
+
+/// S9: the session worker is one thread. Its PTY, child exit, control
+/// connection and egress are descriptors in one poll, after startup and
+/// through an input and echo round trip.
+#[test]
+fn the_session_worker_runs_on_one_thread() {
+    let wakes = TerminalWakeSource::new();
+    let mut runtime =
+        WorkerProcessRuntime::with_options(worker_options()).with_wake_source(wakes.clone());
+    let session = session_id("s9-one-thread");
+    runtime
+        .spawn_session(shell_request(session.clone(), echo_script()))
+        .expect("spawn");
+    let ready = collect_until(&mut runtime, &wakes, &session, |output| {
+        output_text(output).contains("ready")
+    });
+    assert!(output_text(&ready).contains("ready"));
+    runtime
+        .send_input(SessionRuntimeInput::PtyInput {
+            session_id: session.clone(),
+            data: b"round-trip\n".to_vec(),
+        })
+        .expect("send input");
+    let echoed = collect_until(&mut runtime, &wakes, &session, |output| {
+        output_text(output).contains("echo:round-trip")
+    });
+    assert!(output_text(&echoed).contains("echo:round-trip"));
+
+    let pid = worker_pid(runtime.metadata(&session).expect("worker metadata"));
+    assert_eq!(
+        thread_count(pid),
+        1,
+        "the session worker must be one thread"
+    );
+}
+
+/// S9: input results are bounded replies, and control intake stops at the
+/// bound.
+///
+/// A background flood fills the worker's egress while the parent does not
+/// drain. The child reads no input until a gate opens, so large keyed
+/// operations stay pending in the worker; then it reads everything, and
+/// each completes with a result the worker cannot flush. Each admitted
+/// operation reserves a reply
+/// slot until its result is queued: control intake stops once queued
+/// replies plus reserved results reach the egress capacity, and the stored
+/// results never exceed it. After the parent drains, every accepted
+/// operation has exactly one result.
+#[test]
+fn pending_operations_reserve_reply_room_before_their_results() {
+    let held = Fifo::new("s9-control-held");
+    let gate = Fifo::new("s9-results-gate");
+    let egress_full = Fifo::new("s9-results-egress-full");
+    let capacity = 4;
+    let mut options = worker_options();
+    options.egress_capacity = capacity;
+    options.test_control_held_signal = Some(held.path().to_path_buf());
+    options.test_egress_full_signal = Some(egress_full.path().to_path_buf());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
+    let session = session_id("s9-results-bounded");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            &format!(
+                "stty raw -echo; (head -c 300000 /dev/zero | tr '\\0' x) & /bin/cat '{}' >/dev/null; exec cat >/dev/null",
+                gate.path().display()
+            ),
+        ))
+        .expect("spawn a flood and a reader of all input");
+    runtime
+        .attach_consumer(&session)
+        .expect("attach a consumer that does not drain yet");
+
+    // timer: deadline — the flood must fill the worker's egress; expiry fails the test
+    assert_eq!(egress_full.read_signal(HANG_GUARD), b"full\n");
+    // Fewer operations than the parent's control queue holds, more than
+    // the reply bound, each larger than the tty input buffer: their writes
+    // stay pending until the child reads.
+    let body = vec![b'x'; 16 * 1024];
+    let accepted: std::collections::BTreeSet<u64> = (0..16).collect();
+    for &key in &accepted {
+        runtime
+            .submit_input_operation(
+                &session,
+                key,
+                key,
+                botster_core::WorkerInputKind::RawBytes,
+                &body,
+            )
+            .expect("the control queue has room");
+    }
+    // timer: deadline — control intake must stop at the bound; expiry fails the test
+    let report = String::from_utf8(held.read_signal(HANG_GUARD)).expect("utf-8 report");
+    let mut fields = report.split_whitespace();
+    assert_eq!(fields.next(), Some("held"));
+    let replies: usize = fields.next().and_then(|v| v.parse().ok()).expect("replies");
+    let reserved: usize = fields
+        .next()
+        .and_then(|v| v.parse().ok())
+        .expect("reserved");
+    // One control frame at the last room check adds at most one result.
+    assert!(
+        replies + reserved <= capacity + 1,
+        "stored results stay bounded: {replies} queued + {reserved} reserved"
+    );
+    // The child reads everything from here on.
+    // timer: deadline — the child must reach its gate; expiry fails the test
+    gate.release(HANG_GUARD);
+
+    // The parent drains: every accepted operation gets exactly one result.
+    let mut results = std::collections::BTreeMap::new();
+    // timer: deadline — every result must arrive; expiry fails the test
+    let deadline = Instant::now() + HANG_GUARD;
+    while results.len() < accepted.len() {
+        let _ = runtime.drain_output(&session);
+        for (key, _) in runtime.take_input_results(&session).expect("results") {
+            assert!(results.insert(key, ()).is_none(), "one result per key");
+        }
+        if results.len() == accepted.len() {
+            break;
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("every accepted operation must get a result");
+        // timer: deadline — wait for the next worker wake
+        let _ = wakes.wait_wakes(remaining);
+    }
+    assert_eq!(
+        results
+            .keys()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        accepted
+    );
+    let _ = runtime.detach_consumer(&session);
+}
+
+/// S9: an input result is a reply, whenever its write completes.
+///
+/// A background flood fills the worker's egress while the parent does not
+/// drain. The child reads input at once, so each keyed operation completes
+/// in the turn that admits it, and its result cannot be flushed. Results
+/// fill the reply class and control intake stops. Charged as output, they
+/// would leave the reply class empty and intake would never stop.
+#[test]
+fn input_results_are_replies_and_stop_control_intake() {
+    let held = Fifo::new("s9-results-held");
+    let egress_full = Fifo::new("s9-replies-egress-full");
+    let capacity = 4;
+    let mut options = worker_options();
+    options.egress_capacity = capacity;
+    options.test_control_held_signal = Some(held.path().to_path_buf());
+    options.test_egress_full_signal = Some(egress_full.path().to_path_buf());
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = WorkerProcessRuntime::with_options(options).with_wake_source(wakes.clone());
+    let session = session_id("s9-results-are-replies");
+    runtime
+        .spawn_session(shell_request(
+            session.clone(),
+            "stty -echo; (head -c 300000 /dev/zero | tr '\\0' x) & exec cat >/dev/null",
+        ))
+        .expect("spawn a flood and a reader of all input");
+    runtime
+        .attach_consumer(&session)
+        .expect("attach a consumer that does not drain yet");
+    // timer: deadline — the flood must fill the worker's egress; expiry fails the test
+    assert_eq!(egress_full.read_signal(HANG_GUARD), b"full\n");
+    let accepted: std::collections::BTreeSet<u64> = (0..16).collect();
+    for &key in &accepted {
+        runtime
+            .submit_input_operation(
+                &session,
+                key,
+                key,
+                botster_core::WorkerInputKind::RawBytes,
+                b"x\n",
+            )
+            .expect("the control queue has room");
+    }
+    // timer: deadline — control intake must stop on queued results; expiry fails the test
+    let report = String::from_utf8(held.read_signal(HANG_GUARD)).expect("utf-8 report");
+    let mut fields = report.split_whitespace();
+    assert_eq!(fields.next(), Some("held"));
+    let replies: usize = fields.next().and_then(|v| v.parse().ok()).expect("replies");
+    let reserved: usize = fields
+        .next()
+        .and_then(|v| v.parse().ok())
+        .expect("reserved");
+    assert!(replies > 0, "results are counted as replies");
+    assert!(
+        replies + reserved <= capacity + 1,
+        "stored results stay bounded: {replies} queued + {reserved} reserved"
+    );
+
+    let mut results = std::collections::BTreeSet::new();
+    // timer: deadline — every result must arrive; expiry fails the test
+    let deadline = Instant::now() + HANG_GUARD;
+    while results.len() < accepted.len() {
+        let _ = runtime.drain_output(&session);
+        for (key, _) in runtime.take_input_results(&session).expect("results") {
+            assert!(results.insert(key), "one result per key");
+        }
+        if results.len() == accepted.len() {
+            break;
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("every accepted operation must get a result");
+        // timer: deadline — wait for the next worker wake
+        let _ = wakes.wait_wakes(remaining);
+    }
+    assert_eq!(results, accepted);
+    let _ = runtime.detach_consumer(&session);
 }
