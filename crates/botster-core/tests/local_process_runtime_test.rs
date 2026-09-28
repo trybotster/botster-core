@@ -416,6 +416,7 @@ fn local_process_runtime_wakes_the_session_when_the_child_exits_without_pty_eof(
             session.clone(),
             "(trap '' HUP; exec /bin/cat \"$HOLD_FIFO\") & exit 0",
             SpawnEnvironment {
+                unset: Vec::new(),
                 variables: vec![env_var("HOLD_FIFO", hold.display().to_string())],
             },
         ))
@@ -461,6 +462,7 @@ fn local_process_runtime_drains_final_output_before_exit_and_removal() {
         assert!(made.success(), "mkfifo");
     }
     let environment = SpawnEnvironment {
+        unset: Vec::new(),
         variables: vec![
             env_var("READY_FIFO", ready_fifo.display().to_string()),
             env_var("HOLD_FIFO", hold_fifo.display().to_string()),
@@ -712,6 +714,7 @@ fn local_process_runtime_graceful_leader_exit_still_kills_ignoring_child_group()
             session.clone(),
             "trap 'exit 0' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
+                unset: Vec::new(),
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
                     child_pid_file.path().display().to_string(),
@@ -754,6 +757,7 @@ fn local_process_runtime_forced_shutdown_kills_ignoring_child_group() {
             session.clone(),
             "trap '' TERM; sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
             SpawnEnvironment {
+                unset: Vec::new(),
                 variables: vec![env_var(
                     "CHILD_PID_FILE",
                     child_pid_file.path().display().to_string(),
@@ -896,6 +900,7 @@ fn local_process_runtime_shutdown_does_not_block_unrelated_session_io() {
             stubborn.clone(),
             term_reporting_process_group_script(),
             SpawnEnvironment {
+                unset: Vec::new(),
                 variables: vec![
                     env_var(
                         "CHILD_PID_FILE",
@@ -996,6 +1001,7 @@ fn local_process_runtime_drop_cleans_live_child_group() {
                 session_id("local-drop"),
                 "sh -c 'trap \"\" TERM; exec cat </dev/tty >/dev/null' & /bin/echo $! > \"$CHILD_PID_FILE\"; wait $!",
                 SpawnEnvironment {
+                    unset: Vec::new(),
                     variables: vec![env_var(
                         "CHILD_PID_FILE",
                         child_pid_file.path().display().to_string(),
@@ -1254,6 +1260,7 @@ fn botster_engine_shutdown_does_not_hold_registry_lock_for_unrelated_session() {
                 stubborn.clone(),
                 term_reporting_process_group_script(),
                 SpawnEnvironment {
+                    unset: Vec::new(),
                     variables: vec![
                         env_var(
                             "CHILD_PID_FILE",
@@ -1488,6 +1495,7 @@ fn a_polled_read_with_a_full_queue_reads_nothing_until_a_drain() {
             session.clone(),
             "stty -onlcr; /bin/echo first; /bin/cat \"$GATE\" >/dev/null; /bin/echo second; exec /bin/cat >/dev/null",
             SpawnEnvironment {
+                unset: Vec::new(),
                 variables: vec![env_var("GATE", gate.path().display().to_string())],
             },
         ))
@@ -1528,4 +1536,37 @@ fn a_polled_read_with_a_full_queue_reads_nothing_until_a_drain() {
             session_id: session.clone(),
         })
         .expect("shutdown");
+}
+
+/// The child starts from the inherited environment, minus `unset`, then
+/// `variables` apply. HOME is inherited by every test process; it must be
+/// absent in the child. A name both unset and set ends up set.
+#[test]
+fn unset_names_are_removed_from_the_inherited_environment_before_variables_apply() {
+    let _guard = local_process_test_lock();
+    assert!(
+        std::env::var_os("HOME").is_some(),
+        "the test needs an inherited HOME"
+    );
+    let wakes = TerminalWakeSource::new();
+    let mut runtime = LocalProcessRuntime::new().with_wake_source(wakes.clone());
+    let session = session_id("local-runtime-env-unset");
+    runtime
+        .spawn_session(shell_request_with_env(
+            session.clone(),
+            "printf 'env:%s|%s\\n' \"${HOME-absent}\" \"${BOTSTER_UNSET_BOTH-absent}\"",
+            SpawnEnvironment {
+                variables: vec![env_var("BOTSTER_UNSET_BOTH", "kept")],
+                unset: vec!["HOME".to_string(), "BOTSTER_UNSET_BOTH".to_string()],
+            },
+        ))
+        .expect("spawn with unset names");
+    let output = collect_until(&mut runtime, &wakes, &session, |output| {
+        output_text(output).contains("env:") && has_exit(output)
+    });
+    assert!(
+        output_text(&output).contains("env:absent|kept"),
+        "unset HOME is absent; unset-then-set is set: {:?}",
+        output_text(&output)
+    );
 }

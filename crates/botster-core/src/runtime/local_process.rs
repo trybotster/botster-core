@@ -440,6 +440,10 @@ impl LocalProcessRuntime {
         let mut command = CommandBuilder::new(&request.executable);
         command.args(&request.arguments);
         command.cwd(PathBuf::from(&request.working_directory.path));
+        // Inherited, then removed, then set: a name both unset and set is set.
+        for name in &request.environment.unset {
+            command.env_remove(name);
+        }
         for variable in &request.environment.variables {
             command.env(&variable.name, &variable.value);
         }

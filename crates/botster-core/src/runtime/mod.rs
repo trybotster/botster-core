@@ -217,15 +217,21 @@ pub struct SpawnWorkingDirectory {
     pub path: String,
 }
 
-/// Deterministic set-vars environment contract for a session spawn.
+/// Deterministic environment contract for a session spawn.
 ///
-/// This collection does not model ambient inheritance or variable removal. A
-/// host that needs those policies resolves them before building the request.
+/// The child starts from the runtime's inherited environment. Every name in
+/// [`Self::unset`] is removed from it, then [`Self::variables`] are set, so a
+/// name that is both unset and set ends up set. Which names to remove is host
+/// policy; Core only applies the list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpawnEnvironment {
     /// Environment variables to set, in deterministic order.
     #[serde(default)]
     pub variables: Vec<SpawnEnvironmentVariable>,
+    /// Inherited names to remove before `variables` apply. An absent name is
+    /// a no-op.
+    #[serde(default)]
+    pub unset: Vec<String>,
 }
 
 /// One explicit environment variable assignment.

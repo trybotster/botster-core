@@ -30,6 +30,7 @@ fn spawn_request() -> SessionSpawnRequest {
             path: "/work/repo".to_string(),
         },
         environment: SpawnEnvironment {
+            unset: Vec::new(),
             variables: vec![SpawnEnvironmentVariable {
                 name: "BOTSTER_ENV".to_string(),
                 value: "test".to_string(),
