@@ -85,8 +85,9 @@ fn page_until_caught_up(
             return Ok(());
         }
         if page.changes.is_empty() {
-            // First change cannot fit a valid budget, or max_changes is 0.
-            // This is not catch-up. Recovery is a fresh baseline, not sleep.
+            // Only max_changes of 0 gets here: a first change that cannot
+            // fit returns BudgetTooSmall. This is not catch-up. Recovery is
+            // a fresh baseline, not sleep.
             install_baseline(daemon, projection)?;
             return Ok(());
         }
@@ -509,7 +510,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn hub_shaped_consumer_baselines_when_first_change_does_not_fit() {
+    fn hub_shaped_consumer_is_told_the_budget_a_first_change_needs() {
         let data_dir = temp_data_dir("hub-lifecycle-no-progress");
         let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
         let session_id = SessionId("hub-life-no-progress".to_string());
@@ -524,32 +525,38 @@ mod tests {
             source_id: source.source_id.clone(),
             sequence: 0,
         };
-        let minimum_bytes = match daemon.lifecycle_changes_page(&after, 8, 0) {
+        let empty_minimum = match daemon.lifecycle_changes_page(&after, 8, 0) {
             Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
             other => panic!("expected BudgetTooSmall, got {other:?}"),
         };
-        let empty = daemon
-            .lifecycle_changes_page(&after, 8, minimum_bytes)
-            .expect("exact minimum is an empty successful page");
-        assert!(empty.resync_required.is_none());
-        assert!(empty.changes.is_empty());
-        assert_ne!(empty.next, empty.source_watermark);
+        // The empty page fits; the first change does not. Core names the
+        // budget that change needs instead of an empty page at `after`.
+        let needed = match daemon.lifecycle_changes_page(&after, 8, empty_minimum) {
+            Err(SessionLifecyclePageError::BudgetTooSmall { minimum_bytes }) => minimum_bytes,
+            other => panic!("a first change that cannot fit must be named, got {other:?}"),
+        };
+        assert!(needed > empty_minimum);
 
         let mut projection = HubLifecycleProjection {
-            cursor: Some(after),
+            cursor: Some(after.clone()),
             sessions: BTreeMap::new(),
         };
-        consume_lifecycle_until_caught_up(&mut daemon, &mut projection, 8, minimum_bytes)
-            .expect("no-progress page must recover, not report catch-up");
-        assert_eq!(
-            projection.cursor.as_ref(),
-            Some(&empty.source_watermark),
-            "baseline recovery must reach the source watermark"
-        );
-        assert!(
-            projection.sessions.contains_key(&session_id.0),
-            "baseline recovery must apply the oversized first change"
-        );
+        // An undersized budget is a typed fault, never a silent catch-up.
+        assert!(matches!(
+            consume_lifecycle_until_caught_up(&mut daemon, &mut projection, 8, empty_minimum),
+            Err(HubLifecycleConsumeError::BudgetTooSmall { minimum_bytes }) if minimum_bytes == needed
+        ));
+        assert_eq!(projection.cursor.as_ref(), Some(&after), "nothing applied");
+
+        // The named budget makes progress.
+        let page = daemon
+            .lifecycle_changes_page(&after, 8, needed)
+            .expect("the named budget");
+        assert!(!page.changes.is_empty());
+        consume_lifecycle_until_caught_up(&mut daemon, &mut projection, 8, 64 * 1024)
+            .expect("a budget that fits every change catches up");
+        assert_eq!(projection.cursor.as_ref(), Some(&source));
+        assert!(projection.sessions.contains_key(&session_id.0));
 
         let _ = daemon.shutdown(Some(session_id), 20);
         let _ = fs::remove_dir_all(data_dir);

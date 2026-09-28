@@ -174,10 +174,14 @@ pub struct SessionLifecyclePage {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SessionLifecyclePageError {
-    /// `max_bytes` is smaller than the encoded empty successful page.
+    /// `max_bytes` is smaller than the smallest page that makes progress:
+    /// the encoded empty successful page, or, when the first row or change
+    /// after the position does not fit, the page with that one item. A page
+    /// call never answers an undersized budget with an empty page at the
+    /// same position.
     #[error("lifecycle page budget too small; need at least {minimum_bytes} bytes")]
     BudgetTooSmall {
-        /// Exact encoded size of the empty successful page for this metadata.
+        /// Exact encoded size of that smallest page.
         minimum_bytes: usize,
     },
     /// A resume position names a session id longer than
