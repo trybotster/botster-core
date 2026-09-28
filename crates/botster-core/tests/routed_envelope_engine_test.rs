@@ -191,11 +191,27 @@ fn cursoring_resumes_after_last_seen_envelope() {
     );
 }
 
+/// Drain `target` and acknowledge what it received, as a consumer that
+/// keeps up does; return the drained ids.
+fn drain_and_ack(router: &mut RoutedEnvelopeRouter, target: &EnvelopeTarget) -> Vec<String> {
+    let drained = router.drain(target, None, 10);
+    drained
+        .envelopes
+        .iter()
+        .map(|envelope| {
+            router
+                .acknowledge(target, &envelope.id)
+                .expect("ack a drained envelope");
+            envelope.id.0.clone()
+        })
+        .collect()
+}
+
 #[test]
 fn bounded_queue_reports_pressure_without_blocking_other_targets() {
     let mut router = RoutedEnvelopeRouter::with_config(RoutedEnvelopeQueueConfig::new(1));
     router.publish(envelope("env-1", vec![endpoint("slow"), endpoint("fast")]));
-    assert_eq!(router.drain(&endpoint("fast"), None, 10).envelopes.len(), 1);
+    assert_eq!(drain_and_ack(&mut router, &endpoint("fast")), vec!["env-1"]);
     let pressured = router.publish(envelope("env-2", vec![endpoint("slow"), endpoint("fast")]));
 
     assert!(pressured.observations.iter().any(|observation| {
@@ -209,33 +225,20 @@ fn bounded_queue_reports_pressure_without_blocking_other_targets() {
             } if target == &endpoint("slow")
         )
     }));
-    assert_eq!(
-        router
-            .drain(&endpoint("fast"), None, 10)
-            .envelopes
-            .iter()
-            .map(|envelope| envelope.id.0.as_str())
-            .collect::<Vec<_>>(),
-        vec!["env-2"]
-    );
+    assert_eq!(drain_and_ack(&mut router, &endpoint("fast")), vec!["env-2"]);
 }
 
 #[test]
 fn slow_consumer_isolation_preserves_fast_consumer_delivery() {
     let mut router = RoutedEnvelopeRouter::with_config(RoutedEnvelopeQueueConfig::new(2));
     router.publish(envelope("env-1", vec![endpoint("slow"), endpoint("fast")]));
-    assert_eq!(router.drain(&endpoint("fast"), None, 10).envelopes.len(), 1);
+    assert_eq!(drain_and_ack(&mut router, &endpoint("fast")), vec!["env-1"]);
 
     router.publish(envelope("env-2", vec![endpoint("slow"), endpoint("fast")]));
     router.publish(envelope("env-3", vec![endpoint("slow"), endpoint("fast")]));
 
     assert_eq!(
-        router
-            .drain(&endpoint("fast"), None, 10)
-            .envelopes
-            .iter()
-            .map(|envelope| envelope.id.0.as_str())
-            .collect::<Vec<_>>(),
+        drain_and_ack(&mut router, &endpoint("fast")),
         vec!["env-2", "env-3"]
     );
     assert_eq!(router.drain(&endpoint("slow"), None, 10).envelopes.len(), 2);
@@ -261,4 +264,114 @@ fn boundary_json_is_limited_to_extension_payloads() {
     assert!(!format!("{:?}", routed.id).contains("BoundaryJson"));
     assert!(!format!("{:?}", routed.source).contains("BoundaryJson"));
     assert!(!format!("{:?}", routed.targets).contains("BoundaryJson"));
+}
+
+fn ids(outcome: &botster_core::RoutedEnvelopeDrainOutcome) -> Vec<&str> {
+    outcome
+        .envelopes
+        .iter()
+        .map(|envelope| envelope.id.0.as_str())
+        .collect()
+}
+
+/// At-least-once: a target that drains and does not ack gets the envelope
+/// again on its next drain from the start.
+#[test]
+fn an_unacknowledged_envelope_is_delivered_again_on_the_next_drain() {
+    let mut router = RoutedEnvelopeRouter::new();
+    router.publish(envelope("env-1", vec![endpoint("reader")]));
+    assert_eq!(
+        ids(&router.drain(&endpoint("reader"), None, 10)),
+        vec!["env-1"]
+    );
+    // The reader failed before acknowledging.
+    assert_eq!(
+        ids(&router.drain(&endpoint("reader"), None, 10)),
+        vec!["env-1"]
+    );
+    assert_eq!(
+        router
+            .delivery_state(&endpoint("reader"), &EnvelopeId("env-1".to_string()))
+            .expect("still tracked until acknowledged")
+            .status,
+        EnvelopeDeliveryStatus::Delivered
+    );
+}
+
+/// An ack removes the envelope and its record: the next drain has nothing,
+/// and a second ack is unknown.
+#[test]
+fn an_acknowledged_envelope_is_gone_with_its_record() {
+    let mut router = RoutedEnvelopeRouter::new();
+    router.publish(envelope("env-1", vec![endpoint("reader")]));
+    let _ = router.drain(&endpoint("reader"), None, 10);
+    let id = EnvelopeId("env-1".to_string());
+    assert_eq!(
+        router
+            .acknowledge(&endpoint("reader"), &id)
+            .expect("first ack")
+            .status,
+        EnvelopeDeliveryStatus::Acknowledged
+    );
+    assert!(router
+        .drain(&endpoint("reader"), None, 10)
+        .envelopes
+        .is_empty());
+    assert!(router.delivery_state(&endpoint("reader"), &id).is_none());
+    assert!(router.acknowledge(&endpoint("reader"), &id).is_none());
+}
+
+/// The capacity counts delivered-but-unacknowledged envelopes: a reader
+/// that never acks fills its queue, and the sender sees Backpressured.
+#[test]
+fn capacity_counts_delivered_unacknowledged_envelopes() {
+    let mut router = RoutedEnvelopeRouter::with_config(RoutedEnvelopeQueueConfig::new(1));
+    router.publish(envelope("env-1", vec![endpoint("reader")]));
+    let _ = router.drain(&endpoint("reader"), None, 10);
+    let refused = router.publish(envelope("env-2", vec![endpoint("reader")]));
+    assert_eq!(
+        refused.deliveries[0].status,
+        EnvelopeDeliveryStatus::Backpressured,
+        "a delivered but unacknowledged envelope still holds the slot"
+    );
+    router
+        .acknowledge(&endpoint("reader"), &EnvelopeId("env-1".to_string()))
+        .expect("ack");
+    let accepted = router.publish(envelope("env-3", vec![endpoint("reader")]));
+    assert_eq!(
+        accepted.deliveries[0].status,
+        EnvelopeDeliveryStatus::Queued
+    );
+}
+
+/// forget_target drops the queue, the delivery records, and the target's
+/// route subscriptions.
+#[test]
+fn forget_target_drops_the_queue_records_and_subscriptions() {
+    let mut router = RoutedEnvelopeRouter::new();
+    router.subscribe(topic("room"), session("gone"));
+    router.subscribe(topic("room"), session("stays"));
+    router.publish(envelope("env-1", vec![topic("room")]));
+
+    router.forget_target(&session("gone"));
+
+    assert!(router
+        .drain(&session("gone"), None, 10)
+        .envelopes
+        .is_empty());
+    assert!(router
+        .delivery_state(&session("gone"), &EnvelopeId("env-1".to_string()))
+        .is_none());
+    let later = router.publish(envelope("env-2", vec![topic("room")]));
+    assert!(
+        later
+            .deliveries
+            .iter()
+            .all(|delivery| delivery.target != session("gone")),
+        "the forgotten target no longer receives the route"
+    );
+    assert_eq!(
+        ids(&router.drain(&session("stays"), None, 10)),
+        vec!["env-1", "env-2"]
+    );
 }
