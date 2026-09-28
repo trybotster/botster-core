@@ -1093,6 +1093,25 @@ impl CoreDaemon {
         }
     }
 
+    /// Exact non-mutating host metadata for one `session_id`.
+    ///
+    /// This query loads one registry record, like
+    /// [`Self::session_registry_state`]. It does not drain a runtime, save the
+    /// registry, append the lifecycle journal, or raise a wake, so a host may
+    /// call it inside any request. `Ok(None)` means the registry has no row
+    /// for the session, including a session id Core has never seen. Registry
+    /// I/O and shutdown return `Err`.
+    pub fn session_metadata(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<botster_core::CoreSessionMetadata>, CoreDaemonError> {
+        self.ensure_running()?;
+        Ok(self
+            .registry
+            .load(session_id)?
+            .map(|record| record.metadata))
+    }
+
     /// Record that the next attach for this identity will bind an adapter.
     ///
     /// After a matching [`Self::attach`], `AttachedSession.client_egress` holds
