@@ -175,7 +175,10 @@ fn seq_output(last: u32) -> Vec<u8> {
 
 /// Far above one route's egress bound, so a paced reader must hold the
 /// session.
-const LAST_LINE: u32 = 200_000;
+/// About 6.9 MB of `seq` output: beyond a route's 4 MiB byte bound, which
+/// is what holds a full route once it coalesces its small OUTPUT frames.
+/// Below 1,000,000, which macOS `seq` prints as `1e+06`.
+const LAST_LINE: u32 = 999_999;
 
 struct Flood {
     daemon: CoreDaemon,
@@ -327,19 +330,19 @@ fn a_progressing_reader_receives_every_byte_in_order_without_resync() {
     let (_, reader) = flood.attach("backpressure-one");
     flood.settle(&[&reader]);
     flood.release();
-    let mut backpressured = false;
     let session_id = flood.session_id.clone();
+    // The reader takes nothing until its full route holds the session: a
+    // full route coalesces small frames, so a reader that took a frame per
+    // pump could keep ahead of the flood in bytes and never engage it.
+    flood.pump_until(
+        "the paced reader's full route holding the session",
+        || {},
+        |daemon| daemon.session_output_held(&session_id) && reader.has_active(),
+    );
     flood.pump_until(
         "every line through one paced reader",
         || reader.complete(),
-        |daemon| {
-            backpressured |= daemon.session_output_held(&session_id);
-            reader.output().len() >= expected.len()
-        },
-    );
-    assert!(
-        backpressured,
-        "the paced reader must have held the session at least once"
+        |_| reader.output().len() >= expected.len(),
     );
     assert_eq!(reader.resyncs(), 0, "a progressing reader never resyncs");
     assert!(
@@ -454,7 +457,12 @@ fn an_attach_while_the_session_is_held_completes_and_keeps_order() {
             first.complete();
             second.complete();
         },
-        |_| first.output().len() >= expected.len() && second.output().ends_with(b"200000\n"),
+        |_| {
+            first.output().len() >= expected.len()
+                && second
+                    .output()
+                    .ends_with(format!("{LAST_LINE}\n").as_bytes())
+        },
     );
     assert_eq!(first.resyncs(), 0);
     assert!(
