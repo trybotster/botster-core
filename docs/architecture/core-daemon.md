@@ -38,6 +38,7 @@ for completion in daemon.take_completions() { /* match on id */ }
 | `Adopt` | Immediately (socket connect and handshake are bounded) | `CoreSession` |
 | `ShutdownSession` | Session exited, or the shutdown deadline passed | `()` |
 | `RemoveSession` | Immediately | `bool` removed |
+| `ReleaseEndedSession` | Immediately | `bool` released |
 | `ReadScreen` | Worker `FRAME_SCREEN` reply for the probe id, or retained state | `ScreenReadback` |
 | `ReadModeFlags` | Worker `FRAME_MODE_FLAGS` reply, or retained state | `ModeFlagsReadback` |
 | `CaptureSnapshot` | Worker capture finished, or retained state | `SnapshotCapture` |
@@ -92,6 +93,21 @@ host-supplied (`with_retention_policy`). The default is 16 MiB per object,
 
 `retention_accounting()` reports totals, evictions, and oversize refusals.
 `remove_session` forgets the retained object.
+
+`release_ended_session` restarts an ended session in place. Its
+preconditions match `remove_session`: the registry row is `Exited` or
+`Stale`, and the engine session is absent or terminal; otherwise it returns
+`false`. It forgets the engine side (the session, the retained object,
+commit bookkeeping, pending drains) and releases the admission entry the id
+holds, including an explicit reservation from an earlier `ReserveSession`,
+through the engine that issued it. It keeps the registry row and the
+session's routed-envelope targets, and journals nothing. `true` means the id
+can be reserved now; `false` after the preconditions held means the entry is
+retained while the previous launch's cleanup is unconfirmed, and a later call
+retries. The host then reserves and spawns the same id as usual: the row goes
+from ended to `Running` in one `Upsert`, with no `Removed`. Attach and
+admission generations are engine-wide, so the new run's are fresh. A failed
+spawn leaves the row ended. The sequence repeats for every later run.
 
 ## Attach, bind, and pump
 

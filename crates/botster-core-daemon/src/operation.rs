@@ -72,6 +72,9 @@ pub enum CoreOperation {
     ShutdownSession(SessionId),
     /// Forget one already-terminal session.
     RemoveSession(SessionId),
+    /// Release an ended session's engine state so the same id can be
+    /// reserved and spawned again in place; the registry row stays.
+    ReleaseEndedSession(SessionId),
     /// Read the plain text screen.
     ReadScreen(ReadScreenRequest),
     /// Read authoritative mode flags.
@@ -251,6 +254,14 @@ pub enum CoreCompletion {
         /// `true` when the session was removed, `false` when it was still live.
         result: Result<bool, CoreDaemonError>,
     },
+    /// `ReleaseEndedSession` finished.
+    ReleaseEndedSession {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// `true` when the session was released, `false` when it was still
+        /// live or its row was not ended.
+        result: Result<bool, CoreDaemonError>,
+    },
     /// `ReadScreen` finished.
     ReadScreen {
         /// Operation identity.
@@ -294,6 +305,7 @@ impl CoreCompletion {
             | Self::Adopt { id, .. }
             | Self::ShutdownSession { id, .. }
             | Self::RemoveSession { id, .. }
+            | Self::ReleaseEndedSession { id, .. }
             | Self::ReadScreen { id, .. }
             | Self::ReadModeFlags { id, .. }
             | Self::CaptureSnapshot { id, .. }

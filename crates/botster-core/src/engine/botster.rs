@@ -332,6 +332,11 @@ impl DefaultBotsterEngine {
         self.runtime.forget_terminal_session(session_id)
     }
 
+    /// Forget an ended session and release its id's admission entry.
+    pub fn release_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.runtime.release_terminal_session(session_id)
+    }
+
     /// Return the local process runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &LocalProcessRuntime {
@@ -1004,6 +1009,13 @@ impl WorkerBackedBotsterEngine {
         self.captures.remove(session_id);
         self.capture_queue.remove(session_id);
         self.runtime.forget_terminal_session(session_id)
+    }
+
+    /// Forget an ended session and release its id's admission entry.
+    pub fn release_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.captures.remove(session_id);
+        self.capture_queue.remove(session_id);
+        self.runtime.release_terminal_session(session_id)
     }
 
     /// Return the worker process runtime adapter.
