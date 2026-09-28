@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
@@ -204,6 +204,65 @@ impl LocalProcessRuntime {
         polled.reader = None;
         fence.mark_reader_finished();
         Ok(PtyRead::Closed)
+    }
+
+    /// When a polled session's shutdown escalates next, while one runs and
+    /// the child has not exited. The owner wakes for it in its own poll.
+    pub fn shutdown_deadline(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<Instant>, SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let session = lock_session(&session)?;
+        if session.exit_payload.is_some() {
+            return Ok(None);
+        }
+        Ok(session
+            .polled
+            .as_ref()
+            .and_then(|polled| polled.shutdown.as_ref())
+            .map(|shutdown| shutdown.deadline))
+    }
+
+    /// Escalate a polled shutdown whose deadline has passed: the graceful
+    /// grace ends with the process-group kill; the forced grace ends with
+    /// `CleanupFailed`, as a threaded shutdown fails. Before the deadline, or
+    /// once the child has exited, this does nothing.
+    pub fn advance_shutdown(&self, session_id: &SessionId) -> Result<(), SessionRuntimeError> {
+        let session = self.registry.session(session_id)?;
+        let mut session = lock_session(&session)?;
+        let session = &mut *session;
+        harvest_session(session)?;
+        if session.exit_payload.is_some() {
+            return Ok(());
+        }
+        let Some((forced, deadline)) = session
+            .polled
+            .as_ref()
+            .and_then(|polled| polled.shutdown.as_ref())
+            .map(|shutdown| (shutdown.forced, shutdown.deadline))
+        else {
+            return Ok(());
+        };
+        if Instant::now() < deadline {
+            return Ok(());
+        }
+        if forced {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::CleanupFailed,
+                "local process did not exit after forced cleanup",
+            ));
+        }
+        request_process_group_cleanup(session)?;
+        if let Some(shutdown) = session
+            .polled
+            .as_mut()
+            .and_then(|polled| polled.shutdown.as_mut())
+        {
+            shutdown.forced = true;
+            shutdown.deadline = Instant::now() + self.options.shutdown_grace;
+        }
+        Ok(())
     }
 
     /// Whether a polled session's child can be reaped, without blocking.
@@ -483,6 +542,7 @@ impl LocalProcessRuntime {
             let polled = PolledPty {
                 reader: Some(reader),
                 exit_watch,
+                shutdown: None,
             };
             (
                 Arc::new(ReaderPressure::default()),
@@ -943,6 +1003,9 @@ impl LocalProcessRegistry {
     ) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
         let session = self.session(session_id)?;
         let mut session = lock_session(&session)?;
+        if session.polled.is_some() {
+            return begin_polled_shutdown(&mut session, options);
+        }
         terminate_session(&mut session, options)
     }
 
@@ -1123,6 +1186,17 @@ struct PolledPty {
     reader: Option<Box<dyn Read + Send>>,
     /// `None` when the child was already gone at start (no watch, or none needed).
     exit_watch: Option<super::process_exit::ExitWatch>,
+    /// A shutdown in progress: the owner escalates at its deadline.
+    shutdown: Option<PolledShutdown>,
+}
+
+/// A polled session's shutdown. It runs the same steps as a threaded
+/// shutdown (a graceful signal, then after the grace the process-group kill,
+/// then after another grace a failure) without blocking: the owner waits for
+/// each deadline in its own poll.
+struct PolledShutdown {
+    forced: bool,
+    deadline: Instant,
 }
 
 struct ReaderFence {
@@ -1364,6 +1438,35 @@ fn terminate_session(
         SessionRuntimeErrorKind::CleanupFailed,
         "local process did not exit after forced cleanup",
     ))
+}
+
+/// Start a polled session's shutdown without waiting: the graceful signal,
+/// and the deadline at which [`LocalProcessRuntime::advance_shutdown`]
+/// escalates. A child that has already exited only gets the group cleanup.
+fn begin_polled_shutdown(
+    session: &mut LocalSession,
+    options: LocalProcessRuntimeOptions,
+) -> Result<Option<ProcessExitedPayload>, SessionRuntimeError> {
+    harvest_session(session)?;
+    if session.exit_payload.is_some() {
+        request_process_group_cleanup(session)?;
+        return Ok(session.exit_payload.clone());
+    }
+    if session
+        .polled
+        .as_ref()
+        .is_some_and(|polled| polled.shutdown.is_some())
+    {
+        return Ok(None);
+    }
+    send_graceful_signal(session)?;
+    if let Some(polled) = session.polled.as_mut() {
+        polled.shutdown = Some(PolledShutdown {
+            forced: false,
+            deadline: Instant::now() + options.shutdown_grace,
+        });
+    }
+    Ok(None)
 }
 
 fn request_process_group_cleanup(session: &mut LocalSession) -> Result<(), SessionRuntimeError> {

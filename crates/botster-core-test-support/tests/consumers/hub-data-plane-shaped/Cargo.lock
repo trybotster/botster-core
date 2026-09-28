@@ -97,6 +97,7 @@ dependencies = [
  "botster-terminal-ghostty",
  "botster-terminal-protocol",
  "botster-terminal-protocol-client",
+ "libc",
  "serde",
  "serde_json",
  "sha2",
