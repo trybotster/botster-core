@@ -1543,6 +1543,7 @@ impl WorkerProcessRuntime {
         write_hello(&mut control)
             .map_err(|error| runtime_error(SessionRuntimeErrorKind::SpawnFailed, error))?;
         control
+            // timer: deadline — the worker reply deadline
             .set_read_timeout(Some(self.options.worker_reply_timeout))
             .map_err(|error| {
                 SessionRuntimeError::new(
@@ -1830,6 +1831,7 @@ fn launch_worker_inner(
             pending_worker.wait_for_socket_readiness()?;
             let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
             stream
+                // timer: deadline — the worker startup reply deadline
                 .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
                 .map_err(|error| {
                     SessionRuntimeError::new(
@@ -3562,6 +3564,7 @@ impl WorkerWriteHalf {
         match self {
             Self::Stdio(_) => Ok(()),
             #[cfg(unix)]
+            // timer: deadline — forwards the caller's write slice
             Self::Socket(stream) => stream.set_write_timeout(timeout),
         }
     }
@@ -3685,6 +3688,7 @@ fn write_control_bytes(
             return Err(ControlWriterError::DeadlineExpired);
         };
         write
+            // timer: deadline — one write slice, bounded by the control write deadline
             .set_write_timeout(Some(slice))
             .map_err(|error| ControlWriterError::WriteError(error.to_string()))?;
         match write.write(&bytes[written..]) {
@@ -3860,16 +3864,16 @@ mod tests {
 
         /// The reply behind the fill, once the fill is taken.
         fn reply_after_fill(receiver: &mpsc::Receiver<WorkerChannelEvent>) -> WorkerChannelEvent {
-            // timer: deadline — the filled slot is already queued
             let fill = receiver
+                // timer: deadline — the filled slot is already queued
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("the fill");
             assert!(matches!(
                 fill,
                 WorkerChannelEvent::Output(WorkerOutputEvent::PtyOutput(_))
             ));
-            // timer: deadline — the correlated reply must follow; a drop never sends it
             receiver
+                // timer: deadline — the correlated reply must follow; a drop never sends it
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("a correlated reply is never dropped")
         }
@@ -3949,8 +3953,8 @@ mod tests {
             });
             let mut bells = 0;
             while bells < 5 {
-                // timer: deadline — the stalled reader must deliver every bell
                 let event = receiver
+                    // timer: deadline — the stalled reader must deliver every bell
                     .recv_timeout(std::time::Duration::from_secs(5))
                     .expect("the stalled reader delivers the next event");
                 stall.note_space();
@@ -4021,8 +4025,8 @@ mod tests {
                     send_worker_event(&sender, &overflow, &stall, &None, title("new"));
                 })
             };
-            // timer: deadline — the reader must reach its paused publication
             reached_rx
+                // timer: deadline — the reader must reach its paused publication
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("the reader queued the newer title");
 
@@ -4430,6 +4434,7 @@ mod tests {
         let mut runtime = WorkerProcessRuntime::new("/missing/botster-session-worker");
         let session = SessionId("socket-plane".to_string());
         let mut peer = runtime.insert_test_socket_session(session.clone());
+        // timer: deadline — a read past the bound fails the test
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("bounded read");
         let request_id = runtime
@@ -4473,6 +4478,7 @@ mod tests {
         queue.admit(class, frame).expect("admit");
         let (writer, mut peer) = UnixStream::pair().expect("socket pair");
         // Bound the peer read before the writer can touch the socket.
+        // timer: deadline — a read past the bound fails the test
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("bounded read");
         let slot = ControlWriterSlot::running();

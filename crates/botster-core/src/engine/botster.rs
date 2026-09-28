@@ -567,6 +567,7 @@ impl DefaultBotsterEngine {
     /// Block until adapter or ingress wakes arrive.
     #[must_use]
     pub fn wait_wakes(&self, timeout: std::time::Duration) -> TerminalWakeBatch {
+        // timer: deadline — forwards the caller's wait bound
         self.runtime.wait_wakes(timeout)
     }
 
@@ -1225,6 +1226,7 @@ impl WorkerBackedBotsterEngine {
     pub fn wait_wakes(&self, timeout: std::time::Duration) -> TerminalWakeBatch {
         let batch = self
             .runtime
+            // timer: deadline — forwards the caller's wait bound
             .wait_wakes(self.clamp_barrier_cancel_wait(timeout));
         self.merge_barrier_cancel_wakes(batch, Instant::now())
     }

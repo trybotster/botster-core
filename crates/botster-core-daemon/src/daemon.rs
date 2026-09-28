@@ -1189,6 +1189,7 @@ impl CoreDaemon {
     #[must_use]
     pub fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         self.engine
+            // timer: deadline — forwards the caller's wait bound
             .wait_wakes(self.clamp_pending_operation_wait(timeout))
     }
 
@@ -1279,6 +1280,7 @@ impl CoreDaemon {
     #[must_use]
     pub fn wait_pump(&self, timeout: Duration) -> WakePumpWait {
         let Some(state) = &self.wake_pump else {
+            // timer: deadline — forwards the caller's wait bound
             return WakePumpWait::Wakes(self.wait_wakes(timeout));
         };
 
@@ -1292,6 +1294,7 @@ impl CoreDaemon {
         let waited = self
             .engine
             .wake_source()
+            // timer: deadline — forwards the caller's wait bound
             .wait_wakes_interruptible(self.clamp_wait(timeout));
         if state
             .stop_requested
@@ -3429,6 +3432,7 @@ impl CoreDaemon {
         let mut final_output_drained = self.engine_session_exited(&session_id);
         while !final_output_drained && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
+            // timer: deadline — the shutdown deadline; the session's next wake ends the wait early
             let batch = self.engine.wake_source().wait_wakes_bounded(remaining);
             match self.pump_woken(&batch, now_seconds) {
                 Ok(_) => {
@@ -4841,7 +4845,9 @@ impl DaemonEngine {
 
     fn wait_wakes(&self, timeout: Duration) -> TerminalWakeBatch {
         match self {
+            // timer: deadline — forwards the caller's wait bound
             Self::Local(engine) => engine.wait_wakes(timeout),
+            // timer: deadline — forwards the caller's wait bound
             Self::Worker(engine) => engine.wait_wakes(timeout),
         }
     }

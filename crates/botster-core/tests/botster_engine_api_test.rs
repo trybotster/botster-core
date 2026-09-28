@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 #[cfg(feature = "local-runtime")]
-use std::thread;
 use std::time::Duration;
 #[cfg(feature = "local-runtime")]
 use std::time::Instant;
@@ -435,8 +434,7 @@ fn engine_command_plugin_timeout_and_backpressure_events_surface() {
         );
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
-    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
-        duration: Duration::from_millis(100),
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Held {
         payload: BoundaryJson(serde_json::json!({ "value": "late" })),
     });
     engine
@@ -586,8 +584,7 @@ fn botster_engine_invoke_plugin_exposes_timeout_events() {
         );
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
-    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Delay {
-        duration: Duration::from_millis(100),
+    let plugin_runtime = FakePluginRuntime::new(FakePluginBehavior::Held {
         payload: BoundaryJson(serde_json::json!({ "value": "late" })),
     });
     engine.load_plugin(plugin_registration(plugin_runtime, &plugin, &handler));
@@ -617,26 +614,39 @@ fn botster_engine_try_admit_plugin_drains_typed_background_timeout() {
     let plugin = plugin_key();
     let handler = plugin_handler(&plugin);
     engine.load_plugin(plugin_registration(
-        FakePluginRuntime::delayed(Duration::from_millis(200)),
+        FakePluginRuntime::held(),
         &plugin,
         &handler,
     ));
 
+    // Published completions notify this channel.
+    let (notified_sender, notified) = std::sync::mpsc::channel();
+    engine
+        .plugin_workers()
+        .install_completion_notifier(Arc::new(move || {
+            let _ = notified_sender.send(());
+        }));
     let admitted = engine.admit_plugin(
         PluginInvocationClass::Background,
         plugin_invocation_with_timeout("facade-timeout", handler.clone(), 10),
         1,
     );
     assert!(matches!(admitted, PluginAdmissionResult::Queued { .. }));
-    let started = std::time::Instant::now();
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
     let mut completion = None;
-    while started.elapsed() < Duration::from_secs(1) {
+    loop {
         let drain = engine.drain_plugin_completions(8, usize::MAX);
         if let Some(item) = drain.completions.into_iter().next() {
             completion = Some(item.completion);
             break;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        if notified
+            // timer: deadline — the loop's bound; a published completion ends the wait early
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .is_err()
+        {
+            break;
+        }
     }
     let snapshot = engine.plugin_workers().debug_snapshot();
     assert_eq!(snapshot.configured_reserved_request_response_executors, 1);
@@ -705,7 +715,8 @@ fn drain_default_until(
             return observed;
         }
 
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the loop's bound; the next session wake ends the wait early
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     panic!(
@@ -743,7 +754,8 @@ fn drain_default_all_until(
             return observed;
         }
 
-        thread::sleep(Duration::from_millis(20));
+        // timer: deadline — the loop's bound; the next session wake ends the wait early
+        let _ = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
     }
 
     panic!(
@@ -930,7 +942,8 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
     let mut clock = 1u64;
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline && !saw_final {
-        let batch = engine.wait_wakes(Duration::from_millis(50));
+        // timer: deadline — the loop's remaining bound; the next wake ends the wait early
+        let batch = engine.wait_wakes(deadline.saturating_duration_since(Instant::now()));
         let outcome = engine.pump_woken(&batch, clock).expect("pump");
         clock += 1;
         saw_final = outcome.session_events.iter().any(|event| match event {
@@ -955,7 +968,8 @@ fn shutdown_process_exit_arrives_through_wait_wakes() {
     assert_eq!(source.session_registry_len(), 1);
     let wait_deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < wait_deadline && !saw_exit {
-        let batch = engine.wait_wakes(Duration::from_millis(50));
+        // timer: deadline — the loop's remaining bound; the next wake ends the wait early
+        let batch = engine.wait_wakes(wait_deadline.saturating_duration_since(Instant::now()));
         let outcome = engine.pump_woken(&batch, clock).expect("pump exit");
         clock += 1;
         saw_exit = outcome.session_events.iter().any(|event| {
