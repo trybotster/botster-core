@@ -4256,7 +4256,7 @@ mod tests {
                 ("apply_woken_terminal_input", "WorkerLinkFailed"),
                 ("apply_woken_terminal_input", "WorkerLinkFailed"),
                 ("fail_expired_pending_resize", "WorkerLinkFailed"),
-                ("forget_terminal_session", "SessionEnded"),
+                ("forget_managed_session_state", "SessionEnded"),
                 ("route_runtime_outputs", "WorkerLinkFailed"),
                 ("shutdown_session", "SessionEnded"),
                 ("submit_staged_input", "WorkerLinkFailed"),

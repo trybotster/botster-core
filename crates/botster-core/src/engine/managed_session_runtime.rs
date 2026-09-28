@@ -960,6 +960,31 @@ where
 
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        self.forget_managed_session_state(session_id);
+        self.engine.forget_terminal_session(session_id)
+    }
+
+    /// Forget an ended session, as [`Self::forget_terminal_session`] does,
+    /// and release the admission entry its id still holds, so the same id
+    /// can be reserved again. `true` when the id is free.
+    pub fn release_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        if !self.engine_session_is_terminal_or_absent(session_id) {
+            return false;
+        }
+        self.forget_managed_session_state(session_id);
+        self.engine.release_terminal_session(session_id)
+    }
+
+    fn engine_session_is_terminal_or_absent(&self, session_id: &SessionId) -> bool {
+        self.engine.session(session_id).is_none_or(|session| {
+            matches!(
+                session.lifecycle,
+                SessionLifecycleState::Exited { .. } | SessionLifecycleState::Failed { .. }
+            )
+        })
+    }
+
+    fn forget_managed_session_state(&mut self, session_id: &SessionId) {
         self.wake_source.forget_session(session_id);
         self.held_runtime_output.remove(session_id);
         self.applied_terminal_resizes.remove(session_id);
@@ -970,7 +995,6 @@ where
         self.pending_input_teardowns.extend(teardowns);
         let mut outcome = MultiplexerEngineOutcome::empty();
         let _ = self.apply_client_worker(&mut outcome);
-        self.engine.forget_terminal_session(session_id)
     }
 
     /// Take the latest resize applied from targeted terminal input for one session.

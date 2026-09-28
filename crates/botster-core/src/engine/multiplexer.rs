@@ -373,6 +373,32 @@ where
         }
     }
 
+    /// Forget an ended terminal session, as [`Self::forget_terminal_session`]
+    /// does, and release the admission entry its id still holds, explicit or
+    /// implicit, so the same id can be reserved again.
+    ///
+    /// The release goes through this engine's own admission owner, which
+    /// issued the reservation, and succeeds only for an ended execution.
+    /// `true` when the id is free. `false` when the session is still live,
+    /// or when its entry must be retained (for example while cleanup of the
+    /// previous launch is unconfirmed); a later call can retry.
+    pub fn release_terminal_session(&mut self, session_id: &SessionId) -> bool {
+        if self.sessions.contains_key(session_id) && !self.forget_terminal_session(session_id) {
+            return false;
+        }
+        let Some(table) = self.session_runtime.session_admission() else {
+            return true;
+        };
+        match table.current(session_id) {
+            Ok(None) => true,
+            Ok(Some(reservation)) => matches!(
+                table.release_for(&reservation, &self.admission_owner),
+                Ok(SessionReservationRelease::Released)
+            ),
+            Err(_) => false,
+        }
+    }
+
     /// Return the host runtime adapter.
     #[must_use]
     pub const fn session_runtime(&self) -> &R {
