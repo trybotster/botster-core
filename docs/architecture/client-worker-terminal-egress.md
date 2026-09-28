@@ -135,6 +135,8 @@ A teardown reports `in_flight_keys` so the host cancels them at the worker.
 
 `take_bound_queue_wake_sessions` returns sessions whose Ready-owner queue
 grew since the last take. Hosts turn that into one coalesced session wake so
-the next pump writes without a scan. Paste deadlines and pending resize
+the next pump writes without a scan. Every take posts those wakes, the
+daemon's pump included: a taken wake is never dropped, even for a session the
+pump just served. Paste deadlines and pending resize
 deadlines clamp the host wait through `next_paste_deadline` and
 `expired_paste_routes`.
