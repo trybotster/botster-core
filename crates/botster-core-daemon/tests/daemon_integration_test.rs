@@ -4879,16 +4879,41 @@ fn complete_now(
     completions.swap_remove(index)
 }
 
-/// Spawn a session that exits at once, attach a route while it runs, and
-/// wait until its registry row is Exited. Returns the route's generation.
+/// Wait for the session's PTY child to be gone. The registry row reads
+/// Exited when the exit commits; the child's process group can still probe
+/// as present for a moment after that, and `release_ended_session` then
+/// keeps the admission entry (`false`). The exit event of the child is the
+/// point after which a release can succeed.
+fn wait_pty_child_gone(daemon: &CoreDaemon, session_id: &SessionId) {
+    let pid = daemon
+        .registry()
+        .load(session_id)
+        .expect("load the ended record")
+        .expect("the ended record")
+        .process
+        .and_then(|process| process.pid)
+        .expect("the ended record keeps the PTY child pid");
+    assert!(
+        wait_pid_exit(pid, REAL_WORKER_COMPLETION_TIMEOUT),
+        "the PTY child {pid} is gone"
+    );
+}
+
+/// Spawn a session that waits on a gate and prints nothing, attach a route
+/// while it runs, release the gate so it exits, and wait until its registry row is Exited
+/// and the child is gone. Returns the route's generation.
 fn spawn_until_exited(
     daemon: &mut CoreDaemon,
     session_id: &SessionId,
     client_id: &ClientId,
     subscription_id: &SubscriptionId,
 ) -> TerminalSubscriptionGeneration {
+    let fixture = GatedOutputExit::new();
     daemon
-        .spawn(immediate_exit_spawn_request(session_id), 10)
+        .spawn(
+            gated_output_exit_spawn_request(session_id, &fixture, "''"),
+            10,
+        )
         .expect("spawn the first run");
     daemon
         .attach(
@@ -4901,6 +4926,7 @@ fn spawn_until_exited(
     let generation = daemon
         .terminal_subscription_generation(session_id, subscription_id)
         .expect("the first run's route generation");
+    fixture.release();
     on_wakes_until(
         daemon,
         "the first run's exit committed",
@@ -4914,6 +4940,7 @@ fn spawn_until_exited(
             .then_some(())
         },
     );
+    wait_pty_child_gone(daemon, session_id);
     generation
 }
 
@@ -5066,6 +5093,7 @@ fn wait_registry_exited(daemon: &mut CoreDaemon, session_id: &SessionId) {
             .then_some(())
         },
     );
+    wait_pty_child_gone(daemon, session_id);
 }
 
 /// A session whose runs all start through ReserveSession and SpawnReserved
