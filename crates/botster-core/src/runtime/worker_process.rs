@@ -3595,6 +3595,7 @@ fn wait_fd_writable(fd: std::os::unix::io::RawFd, timeout: Duration) -> io::Resu
         revents: 0,
     };
     let millis = libc::c_int::try_from(timeout.as_millis().max(1)).unwrap_or(libc::c_int::MAX);
+    // timer: deadline — one slice of the control writer's write deadline; the caller retries and keeps its own deadline
     let result = unsafe { libc::poll(&mut poll_fd, 1, millis) };
     if result < 0 {
         let error = io::Error::last_os_error();
