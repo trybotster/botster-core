@@ -50,18 +50,19 @@ use crate::runtime::control_queue::{
 use crate::{
     decode_final_state, encode_worker_input_operation, read_startup_reply, read_welcome,
     split_worker_operation_key, write_hello, BackpressureRoute, BackpressureSummary, ClientId,
-    Frame, ModeFlagsPayload, NotificationPayload, ProcessExitedPayload, ProcessIdentity,
-    PromptMarkPayload, QueueSource, ScreenPayload, SessionId, SessionMetadata, SessionRuntime,
-    SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle, SessionRuntimeInput,
-    SessionRuntimeOutput, SessionSpawnRequest, StartupFailureOutcome, StartupFailureReport,
-    StartupReply, SubscriptionId, TerminalMetadataShapingObservation, TimeoutPayload,
-    WorkerFinalState, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotRequest,
-    WorkerSnapshotResult, FRAME_BELL, FRAME_CWD_CHANGED, FRAME_FINAL_STATE, FRAME_GET_MODE_FLAGS,
-    FRAME_GET_SCREEN, FRAME_INPUT_CANCEL, FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT,
-    FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED, FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING,
-    FRAME_PONG, FRAME_PROCESS_EXITED, FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT,
-    FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
-    FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
+    CursorPayload, Frame, ModeFlagsPayload, NotificationPayload, ProcessExitedPayload,
+    ProcessIdentity, PromptMarkPayload, QueueSource, ScreenPayload, SessionId, SessionMetadata,
+    SessionRuntime, SessionRuntimeError, SessionRuntimeErrorKind, SessionRuntimeHandle,
+    SessionRuntimeInput, SessionRuntimeOutput, SessionSpawnRequest, StartupFailureOutcome,
+    StartupFailureReport, StartupReply, SubscriptionId, TerminalMetadataShapingObservation,
+    TimeoutPayload, WorkerFinalState, WorkerInputKind, WorkerProbeRequest, WorkerSnapshotRequest,
+    WorkerSnapshotResult, FRAME_BELL, FRAME_CURSOR, FRAME_CWD_CHANGED, FRAME_FINAL_STATE,
+    FRAME_GET_CURSOR, FRAME_GET_MODE_FLAGS, FRAME_GET_SCREEN, FRAME_INPUT_CANCEL,
+    FRAME_INPUT_OPERATION, FRAME_INPUT_RESULT, FRAME_METADATA_SHAPING, FRAME_MODES_CHANGED,
+    FRAME_MODE_FLAGS, FRAME_NOTIFICATION, FRAME_PING, FRAME_PONG, FRAME_PROCESS_EXITED,
+    FRAME_PROMPT_MARK, FRAME_PTY_INPUT, FRAME_PTY_OUTPUT, FRAME_RESIZE, FRAME_RESIZE_APPLIED,
+    FRAME_SCREEN, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN, FRAME_SNAPSHOT, FRAME_SPAWN_SESSION,
+    FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
 
 /// Default retained worker egress frames per session in the parent process.
@@ -790,6 +791,36 @@ impl WorkerProcessRuntime {
             .collect())
     }
 
+    /// Start one correlated cursor probe. The reply arrives through
+    /// [`Self::take_cursor_replies`].
+    pub fn begin_cursor_probe(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, SessionRuntimeError> {
+        let request_id = next_request_id("cursor");
+        self.session_mut(session_id)?.enqueue_json(
+            ControlFrameClass::Ordinary,
+            FRAME_GET_CURSOR,
+            &WorkerProbeRequest {
+                request_id: request_id.clone(),
+            },
+        )?;
+        Ok(request_id)
+    }
+
+    /// Take correlated cursor replies in worker FIFO order.
+    pub fn take_cursor_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<CursorPayload>, SessionRuntimeError> {
+        self.pump_session_output(session_id)?;
+        Ok(self
+            .session_mut(session_id)?
+            .cursor_replies
+            .drain(..)
+            .collect())
+    }
+
     /// Start one correlated plain-text screen probe. The reply arrives
     /// through [`Self::take_screen_replies`].
     pub fn begin_screen_probe(
@@ -1373,6 +1404,7 @@ impl WorkerProcessRuntime {
             latest_modes: None,
             input_results: VecDeque::new(),
             mode_flags_replies: VecDeque::new(),
+            cursor_replies: VecDeque::new(),
             screen_replies: VecDeque::new(),
             pending_output: VecDeque::new(),
             applied_resizes: VecDeque::new(),
@@ -1404,6 +1436,7 @@ impl WorkerProcessRuntime {
                     }
                     session.mode_flags_replies.push_back(payload);
                 }
+                WorkerChannelEvent::Cursor(payload) => session.cursor_replies.push_back(payload),
                 WorkerChannelEvent::Screen(payload) => session.screen_replies.push_back(payload),
                 WorkerChannelEvent::InputResult(key, result) => {
                     session.input_results.push_back((key, result));
@@ -1688,6 +1721,7 @@ impl WorkerProcessRuntime {
             latest_modes,
             input_results: VecDeque::new(),
             mode_flags_replies: VecDeque::new(),
+            cursor_replies: VecDeque::new(),
             screen_replies: VecDeque::new(),
             pending_output: VecDeque::new(),
             applied_resizes: VecDeque::new(),
@@ -2329,6 +2363,7 @@ struct WorkerProcessSession {
     latest_modes: Option<ModesBody>,
     input_results: VecDeque<(u64, InputResultBody)>,
     mode_flags_replies: VecDeque<ModeFlagsPayload>,
+    cursor_replies: VecDeque<CursorPayload>,
     screen_replies: VecDeque<ScreenPayload>,
     pending_output: VecDeque<WorkerOutputEvent>,
     applied_resizes: VecDeque<crate::ResizePayload>,
@@ -2986,6 +3021,7 @@ enum WorkerOutputEvent {
 enum WorkerChannelEvent {
     Output(WorkerOutputEvent),
     ModeFlags(ModeFlagsPayload),
+    Cursor(CursorPayload),
     Screen(ScreenPayload),
     InputResult(u64, InputResultBody),
     ModesChanged(ModesBody),
@@ -3180,6 +3216,11 @@ fn spawn_stdout_reader(
                             &wake_handle,
                             WorkerChannelEvent::ModeFlags(payload),
                         );
+                    }
+                }
+                FRAME_CURSOR => {
+                    if let Ok(payload) = serde_json::from_slice::<CursorPayload>(&frame.payload) {
+                        send_correlated(&sender, &wake_handle, WorkerChannelEvent::Cursor(payload));
                     }
                 }
                 FRAME_SCREEN => {

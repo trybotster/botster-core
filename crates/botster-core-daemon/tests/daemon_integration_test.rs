@@ -4879,6 +4879,39 @@ fn complete_now(
     completions.swap_remove(index)
 }
 
+/// The local engine keeps no cursor probe: a cursor read completes at once
+/// with a typed unsupported error.
+#[cfg(unix)]
+#[test]
+fn read_cursor_on_the_local_engine_is_unsupported() {
+    use botster_core_daemon::{CoreCompletion, CoreOperation, ReadCursorRequest};
+    let data_dir = temp_data_dir("read-cursor-local");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("read-cursor-local-session".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+
+    let completion = complete_now(
+        &mut daemon,
+        CoreOperation::ReadCursor(ReadCursorRequest {
+            request_id: RequestId("read-cursor-local".into()),
+            session_id,
+            now_seconds: 11,
+        }),
+    );
+    assert!(
+        matches!(
+            completion,
+            CoreCompletion::ReadCursor {
+                result: Err(CoreDaemonError::CursorReadUnsupported),
+                ..
+            }
+        ),
+        "read cursor on the local engine: {completion:?}"
+    );
+    daemon.shutdown(None, 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// Wait for the session's PTY child to be gone. The registry row reads
 /// Exited when the exit commits; the child's process group can still probe
 /// as present for a moment after that, and `release_ended_session` then

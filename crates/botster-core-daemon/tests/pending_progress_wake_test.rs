@@ -13,8 +13,8 @@ use botster_core::{
 };
 use botster_core_daemon::{
     CaptureOwner, CaptureSnapshotRequest, CoreCompletion, CoreDaemon, CoreDaemonConfig,
-    CoreOperation, PendingOperationId, ReadModeFlagsRequest, ReadScreenRequest,
-    SpawnSessionRequest,
+    CoreDaemonError, CoreOperation, PendingOperationId, ReadCursorRequest, ReadModeFlagsRequest,
+    ReadScreenRequest, SpawnSessionRequest,
 };
 
 fn worker_path() -> std::path::PathBuf {
@@ -192,6 +192,101 @@ fn shutdown_completes_through_wakes_alone() {
             CoreCompletion::ShutdownSession { result: Ok(_), .. }
         ),
         "shutdown: {completion:?}"
+    );
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+/// Pump only on real wakes until a pump outcome satisfies `done`.
+fn pump_until_outcome(
+    daemon: &mut CoreDaemon,
+    what: &str,
+    mut done: impl FnMut(&botster_core_daemon::PumpWokenOutcome) -> bool,
+) {
+    // timer: deadline — the pump must be woken by the session; expiry fails the test
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .unwrap_or_else(|| panic!("{what}: no wake carried it"));
+        // timer: deadline — expiry fails the test
+        let batch = daemon.wait_wakes(remaining);
+        let outcome = daemon.pump_woken(&batch, 150).expect("pump");
+        if done(&outcome) {
+            return;
+        }
+    }
+}
+
+/// The cursor read returns the cursor and its row from the worker's model,
+/// after the session's output reached it.
+#[test]
+fn read_cursor_returns_the_cursor_row_the_output_left() {
+    let (mut daemon, data_dir) = worker_daemon("read-cursor");
+    let session_id = spawned_session(&mut daemon, "read-cursor");
+    // The session prints "ready" and waits. Its output advance is the event
+    // that the text reached the model.
+    pump_until_outcome(&mut daemon, "the session's output advanced", |outcome| {
+        outcome.output_advanced.contains(&session_id)
+    });
+    let id = daemon
+        .begin(CoreOperation::ReadCursor(ReadCursorRequest {
+            request_id: RequestId("read-cursor".into()),
+            session_id: session_id.clone(),
+            now_seconds: 200,
+        }))
+        .expect("begin read cursor");
+    let completion = complete_by_wakes(&mut daemon, id);
+    let CoreCompletion::ReadCursor {
+        result: Ok(read), ..
+    } = completion
+    else {
+        panic!("read cursor: {completion:?}");
+    };
+    assert_eq!((read.cursor.row, read.cursor.col), (0, 5));
+    assert!(read.cursor.cursor_visible);
+    assert_eq!(read.cursor.row_text, "ready");
+    assert_eq!(read.cursor.text_before_cursor, "ready");
+    assert!(
+        read.output_seq >= 1,
+        "the read reflects the output counted before it was issued: {read:?}"
+    );
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+/// An ended session answers a cursor read with a typed session-ended error.
+#[test]
+fn read_cursor_of_an_ended_session_is_session_ended() {
+    let (mut daemon, data_dir) = worker_daemon("read-cursor-ended");
+    let session_id = spawned_session(&mut daemon, "read-cursor-ended");
+    let id = daemon
+        .begin(CoreOperation::ShutdownSession(session_id.clone()))
+        .expect("begin shutdown");
+    let completion = complete_by_wakes(&mut daemon, id);
+    assert!(
+        matches!(
+            completion,
+            CoreCompletion::ShutdownSession { result: Ok(_), .. }
+        ),
+        "shutdown: {completion:?}"
+    );
+
+    let id = daemon
+        .begin(CoreOperation::ReadCursor(ReadCursorRequest {
+            request_id: RequestId("read-cursor-ended".into()),
+            session_id: session_id.clone(),
+            now_seconds: 300,
+        }))
+        .expect("begin read cursor");
+    let completion = complete_by_wakes(&mut daemon, id);
+    assert!(
+        matches!(
+            &completion,
+            CoreCompletion::ReadCursor {
+                result: Err(CoreDaemonError::SessionEnded(ended)),
+                ..
+            } if *ended == session_id
+        ),
+        "read cursor of an ended session: {completion:?}"
     );
     let _ = std::fs::remove_dir_all(data_dir);
 }

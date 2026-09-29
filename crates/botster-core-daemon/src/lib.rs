@@ -13,10 +13,11 @@ pub mod registry;
 mod wake_pump;
 
 pub use operation::{
-    CaptureId, CaptureOwner, CoreCompletion, CoreOperation, ModeFlagsReadback, PendingLimitKind,
-    PendingOperationId, RetainedTerminal, RetentionAccounting, RetentionPolicy, ScreenReadback,
-    SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS, MAX_OPEN_CAPTURES_PER_CLIENT,
-    MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
+    CaptureId, CaptureOwner, CoreCompletion, CoreOperation, CursorReadback, ModeFlagsReadback,
+    PendingLimitKind, PendingOperationId, RetainedTerminal, RetentionAccounting, RetentionPolicy,
+    ScreenReadback, SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS,
+    MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS,
+    SNAPSHOT_PAGE_BYTES,
 };
 
 pub use api::{
@@ -29,7 +30,7 @@ pub use api::{
     NotificationStatusResult, ObserveLifecycleBudget, ObserveLifecycleCursor,
     ObserveLifecyclePassId, ObserveLifecycleSlice, ObserveLifecycleSliceError,
     ObserveLifecycleStop, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome, ReadCursorRequest,
     ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
     SessionAdoptionReport, SessionAdoptionState, SessionEdges, SessionLifecycleBaseline,
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,

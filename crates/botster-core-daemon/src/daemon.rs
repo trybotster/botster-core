@@ -40,8 +40,8 @@ use botster_terminal_protocol::HistoryUnavailableReason;
 use thiserror::Error;
 
 use crate::operation::{
-    CaptureId, CaptureOwner, ModeFlagsReadback, ReservedSpawnResult, RetainedTerminal,
-    ScreenReadback, SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS,
+    CaptureId, CaptureOwner, CursorReadback, ModeFlagsReadback, ReservedSpawnResult,
+    RetainedTerminal, ScreenReadback, SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS,
     MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS,
     SNAPSHOT_PAGE_BYTES,
 };
@@ -56,7 +56,7 @@ use crate::api::{
     NotificationStatusResult, ObserveLifecycleBudget, ObserveLifecycleCursor,
     ObserveLifecyclePassId, ObserveLifecycleSlice, ObserveLifecycleSliceError,
     ObserveLifecycleStop, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
+    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome, ReadCursorRequest,
     ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
     SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
@@ -343,6 +343,13 @@ pub enum CoreDaemonError {
     /// Session exists but no longer accepts terminal readback.
     #[error("session is not readable: {0:?}")]
     SessionNotReadable(SessionId),
+    /// The session ended: its cursor can no longer be read.
+    #[error("session has ended: {0:?}")]
+    SessionEnded(SessionId),
+    /// The local engine keeps no cursor probe; only a worker-backed session
+    /// answers `ReadCursor`.
+    #[error("cursor read needs a worker-backed session")]
+    CursorReadUnsupported,
     /// Adoption requires a configured session-worker executable.
     #[error(
         "missing worker path: restart-durable adoption requires CoreDaemonConfig::with_worker_path(...) pointing at botster-session-worker"
@@ -514,6 +521,12 @@ enum PendingKind {
     ReadModeFlags {
         session_id: SessionId,
         probe_id: String,
+    },
+    ReadCursor {
+        session_id: SessionId,
+        probe_id: String,
+        /// The output counter when the probe was issued.
+        output_seq: u64,
     },
     CaptureSnapshot {
         session_id: SessionId,
@@ -1947,6 +1960,7 @@ impl CoreDaemon {
             }
             CoreOperation::ReadScreen(request) => self.begin_read_screen(id, request)?,
             CoreOperation::ReadModeFlags(request) => self.begin_read_mode_flags(id, request)?,
+            CoreOperation::ReadCursor(request) => self.begin_read_cursor(id, request)?,
             CoreOperation::CaptureSnapshot { request, owner } => {
                 self.begin_capture_snapshot(id, request, owner)?;
             }
@@ -2024,6 +2038,10 @@ impl CoreDaemon {
                 result: Err(CoreDaemonError::Cancelled),
             },
             PendingKind::ReadModeFlags { .. } => CoreCompletion::ReadModeFlags {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            PendingKind::ReadCursor { .. } => CoreCompletion::ReadCursor {
                 id,
                 result: Err(CoreDaemonError::Cancelled),
             },
@@ -2133,6 +2151,7 @@ impl CoreDaemon {
             .filter(|state| match &state.kind {
                 PendingKind::ReadScreen { session_id: id, .. }
                 | PendingKind::ReadModeFlags { session_id: id, .. }
+                | PendingKind::ReadCursor { session_id: id, .. }
                 | PendingKind::CaptureSnapshot { session_id: id, .. } => id == session_id,
                 _ => false,
             })
@@ -2504,6 +2523,61 @@ impl CoreDaemon {
         }
     }
 
+    fn begin_read_cursor(
+        &mut self,
+        id: PendingOperationId,
+        request: ReadCursorRequest,
+    ) -> Result<(), CoreDaemonError> {
+        let session_id = request.session_id.clone();
+        match self.readback_source(&session_id, request.now_seconds)? {
+            // The cursor is not retained past the exit.
+            ReadbackSource::Retained(_) | ReadbackSource::Unavailable(_) => {
+                self.completions.push(CoreCompletion::ReadCursor {
+                    id,
+                    result: Err(CoreDaemonError::SessionEnded(session_id)),
+                });
+                return Ok(());
+            }
+            ReadbackSource::Live => {}
+        }
+        if self.pending_readbacks(&session_id) >= MAX_PENDING_READBACKS_PER_SESSION {
+            return Err(CoreDaemonError::PendingLimit(
+                crate::operation::PendingLimitKind::ReadbacksPerSession,
+            ));
+        }
+        // Everything counted now was sent by the worker before it reads the
+        // request, so the read reflects it.
+        let output_seq = self
+            .engine
+            .session_edge_counters(&session_id)
+            .map_or(0, |counters| counters.output_seq);
+        match &mut self.engine {
+            DaemonEngine::Local(_) => {
+                self.completions.push(CoreCompletion::ReadCursor {
+                    id,
+                    result: Err(CoreDaemonError::CursorReadUnsupported),
+                });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                let probe_id = engine.begin_cursor_probe(&session_id)?;
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::ReadCursor {
+                            session_id,
+                            probe_id,
+                            output_seq,
+                        },
+                        deadline: Some(Instant::now() + self.config.worker_reply_timeout),
+                        cancelled: false,
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
     fn begin_capture_snapshot(
         &mut self,
         id: PendingOperationId,
@@ -2634,7 +2708,9 @@ impl CoreDaemon {
         // readbacks never consume each other's replies.
         let mut screen_replies: HashMap<String, botster_core::ScreenPayload> = HashMap::new();
         let mut mode_replies: HashMap<String, botster_core::ModeFlagsPayload> = HashMap::new();
+        let mut cursor_replies: HashMap<String, botster_core::CursorPayload> = HashMap::new();
         if let DaemonEngine::Worker(engine) = &mut self.engine {
+            let mut cursor_sessions = HashSet::new();
             let mut screen_sessions = HashSet::new();
             let mut mode_sessions = HashSet::new();
             for state in self.pending.values() {
@@ -2644,6 +2720,9 @@ impl CoreDaemon {
                     }
                     PendingKind::ReadModeFlags { session_id, .. } => {
                         mode_sessions.insert(session_id.clone());
+                    }
+                    PendingKind::ReadCursor { session_id, .. } => {
+                        cursor_sessions.insert(session_id.clone());
                     }
                     _ => {}
                 }
@@ -2659,6 +2738,11 @@ impl CoreDaemon {
                     .unwrap_or_default()
                 {
                     mode_replies.insert(reply.request_id.clone(), reply);
+                }
+            }
+            for session_id in cursor_sessions {
+                for reply in engine.take_cursor_replies(&session_id).unwrap_or_default() {
+                    cursor_replies.insert(reply.request_id.clone(), reply);
                 }
             }
         }
@@ -2836,6 +2920,60 @@ impl CoreDaemon {
                             }
                         }
                         None if expired => CoreCompletion::ReadModeFlags {
+                            id,
+                            result: Err(CoreDaemonError::DeadlineExpired),
+                        },
+                        None => continue,
+                    }
+                }
+                PendingKind::ReadCursor {
+                    session_id,
+                    probe_id,
+                    output_seq,
+                } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    let session_id = session_id.clone();
+                    let output_seq = *output_seq;
+                    match cursor_replies.remove(probe_id) {
+                        Some(reply) => CoreCompletion::ReadCursor {
+                            id,
+                            result: match reply.error_kind {
+                                Some(error) => Err(CoreDaemonError::Engine(
+                                    DefaultBotsterEngineError::TerminalBackendOperation {
+                                        operation: "read_cursor",
+                                        message: error,
+                                    },
+                                )),
+                                None => Ok(CursorReadback {
+                                    output_seq,
+                                    cursor: reply.cursor,
+                                }),
+                            },
+                        },
+                        None if engine.session(&session_id).is_some_and(|session| {
+                            matches!(
+                                session.lifecycle,
+                                SessionLifecycleState::Exited { .. }
+                                    | SessionLifecycleState::Failed { .. }
+                            )
+                        }) =>
+                        {
+                            CoreCompletion::ReadCursor {
+                                id,
+                                result: Err(CoreDaemonError::SessionEnded(session_id)),
+                            }
+                        }
+                        None if engine.session(&session_id).is_none()
+                            || engine.worker_link_ended(&session_id) =>
+                        {
+                            CoreCompletion::ReadCursor {
+                                id,
+                                result: Err(CoreDaemonError::WorkerLinkFailed(session_id)),
+                            }
+                        }
+                        None if expired => CoreCompletion::ReadCursor {
                             id,
                             result: Err(CoreDaemonError::DeadlineExpired),
                         },
