@@ -830,11 +830,128 @@ fn process_group_absent(process_group: i32) -> bool {
         }
         // SAFETY: Signal zero only observes a positive, captured process group.
         let result = unsafe { kill(-process_group, 0) };
-        result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        if result != -1 {
+            return false;
+        }
+        match std::io::Error::last_os_error().raw_os_error() {
+            Some(libc::ESRCH) => true,
+            // macOS answers EPERM for a group whose members it may not
+            // signal: a group of zombies (exited, not yet reaped), or a live
+            // process of another user. Only the members' states tell which.
+            #[cfg(target_os = "macos")]
+            Some(libc::EPERM) => group_members_all_zombies(process_group),
+            _ => false,
+        }
     }
     #[cfg(not(all(unix, feature = "local-runtime")))]
     {
         false
+    }
+}
+
+/// What the process table says about one member of a process group.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GroupMember {
+    Zombie,
+    /// The member left the table between the listing and the lookup.
+    Gone,
+    Live,
+    /// The table did not answer: the member counts as live.
+    Unknown,
+}
+
+/// A group holds nothing that runs when every member is a zombie or gone.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+fn only_zombies_remain(members: impl IntoIterator<Item = GroupMember>) -> bool {
+    members
+        .into_iter()
+        .all(|member| matches!(member, GroupMember::Zombie | GroupMember::Gone))
+}
+
+/// What listing a process group's members returned.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Listing {
+    Members(Vec<i32>),
+    /// The buffer filled: the listing may be cut short.
+    Truncated,
+    /// No member came back. libproc reports a failed listing as an empty one,
+    /// so this is not proof that the group is empty.
+    Nothing,
+}
+
+/// Decide that a group is absent after `kill(-pgid, 0)` answered EPERM. Only
+/// a listing of members that are all zombies, or a fresh probe that finds no
+/// group at all, is proof.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+fn absent_after_eperm(
+    listing: Listing,
+    member_state: impl Fn(i32) -> GroupMember,
+    probe_finds_no_group: impl FnOnce() -> bool,
+) -> bool {
+    match listing {
+        Listing::Truncated => false,
+        Listing::Nothing => probe_finds_no_group(),
+        Listing::Members(pids) => only_zombies_remain(pids.into_iter().map(member_state)),
+    }
+}
+
+/// Read the group's members and their states from the macOS process table.
+#[cfg(all(target_os = "macos", feature = "local-runtime"))]
+fn group_members_all_zombies(process_group: i32) -> bool {
+    const CAPACITY: usize = 256;
+    let mut pids = [0 as libc::pid_t; CAPACITY];
+    // SAFETY: the buffer and its byte size describe `pids`; the call fills at
+    // most that many bytes and returns the number of pids it wrote.
+    let listed = unsafe {
+        libc::proc_listpgrppids(
+            process_group,
+            pids.as_mut_ptr().cast(),
+            std::mem::size_of_val(&pids) as libc::c_int,
+        )
+    };
+    let listing = match usize::try_from(listed) {
+        Ok(0) | Err(_) => Listing::Nothing,
+        Ok(count) if count >= CAPACITY => Listing::Truncated,
+        Ok(count) => Listing::Members(pids[..count].to_vec()),
+    };
+    absent_after_eperm(listing, member_state, || {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        // SAFETY: Signal zero only observes the captured process group.
+        let result = unsafe { kill(-process_group, 0) };
+        result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    })
+}
+
+#[cfg(all(target_os = "macos", feature = "local-runtime"))]
+fn member_state(pid: libc::pid_t) -> GroupMember {
+    // SAFETY: a zeroed proc_bsdinfo is a valid output record.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is a writable record of `size` bytes.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            std::ptr::addr_of_mut!(info).cast(),
+            size,
+        )
+    };
+    if written == size {
+        return if info.pbi_status == libc::SZOMB {
+            GroupMember::Zombie
+        } else {
+            GroupMember::Live
+        };
+    }
+    if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        GroupMember::Gone
+    } else {
+        GroupMember::Unknown
     }
 }
 
@@ -1286,6 +1403,98 @@ mod tests {
         first.runtime_ended();
         assert_eq!(second.state(), SessionReservationState::Reserved);
         assert_eq!(first.execution_state(), SessionReservationState::Released);
+    }
+
+    /// A group whose only member has exited but is not reaped probes as
+    /// EPERM on macOS. It counts as absent, so a release right after the
+    /// exit does not lose to the reap.
+    #[cfg(all(target_os = "macos", feature = "local-runtime"))]
+    #[test]
+    fn a_group_holding_only_an_unreaped_zombie_is_absent() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .process_group(0)
+            .spawn()
+            .expect("spawn the group leader");
+        let pid = child.id();
+        assert!(
+            botster_core_test_support::fixture_gate::wait_pid_exit(
+                pid,
+                botster_core_test_support::bounded_wait::HANG_GUARD
+            ),
+            "the leader exited"
+        );
+        // The exit event does not reap: the leader is still a zombie.
+        assert!(process_group_absent(i32::try_from(pid).expect("pid")));
+        child.wait().expect("reap the leader");
+    }
+
+    /// The process-table read: a live member keeps the group, its zombie does
+    /// not, and an empty group does not either.
+    #[cfg(all(target_os = "macos", feature = "local-runtime"))]
+    #[test]
+    fn the_process_table_read_tells_a_live_member_from_a_zombie() {
+        use std::os::unix::process::CommandExt;
+        // A leader that blocks on its stdin until the test closes it.
+        let mut leader = std::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("spawn the group leader");
+        let group = i32::try_from(leader.id()).expect("pid");
+        assert!(!super::group_members_all_zombies(group), "a live member");
+        drop(leader.stdin.take());
+        assert!(
+            botster_core_test_support::fixture_gate::wait_pid_exit(
+                leader.id(),
+                botster_core_test_support::bounded_wait::HANG_GUARD
+            ),
+            "the leader exited"
+        );
+        assert!(super::group_members_all_zombies(group), "only a zombie");
+        leader.wait().expect("reap the leader");
+        assert!(super::group_members_all_zombies(group), "an empty group");
+    }
+
+    /// The decision over the group's members, for tables a test cannot
+    /// build without another user's process.
+    #[test]
+    fn a_group_is_absent_only_when_every_member_is_a_zombie_or_gone() {
+        use super::GroupMember::{Gone, Live, Unknown, Zombie};
+        assert!(super::only_zombies_remain([]));
+        assert!(super::only_zombies_remain([Zombie]));
+        assert!(super::only_zombies_remain([Zombie, Gone, Zombie]));
+        // A live member, such as another user's process the caller may not
+        // signal, keeps the group present.
+        assert!(!super::only_zombies_remain([Zombie, Live]));
+        assert!(!super::only_zombies_remain([Live]));
+        assert!(!super::only_zombies_remain([Gone, Unknown]));
+    }
+
+    /// libproc reports a failed listing as an empty one. After EPERM, which
+    /// says a member exists, an empty listing is no proof: only a fresh probe
+    /// that finds no group frees the entry.
+    #[test]
+    fn an_empty_or_failed_listing_needs_a_second_probe_to_confirm_absence() {
+        use super::{absent_after_eperm, GroupMember, Listing};
+        let live = |_pid: i32| GroupMember::Live;
+        // The listing failed and the group still answers: present.
+        assert!(!absent_after_eperm(Listing::Nothing, live, || false));
+        // The members left between the probe and the listing: absent.
+        assert!(absent_after_eperm(Listing::Nothing, live, || true));
+        // A cut-short listing is never proof, whatever a probe says.
+        assert!(!absent_after_eperm(Listing::Truncated, live, || true));
+        // A listing of members decides by their states and never probes.
+        assert!(!absent_after_eperm(Listing::Members(vec![7]), live, || {
+            panic!("no probe after a listing")
+        }));
+        assert!(absent_after_eperm(
+            Listing::Members(vec![7, 8]),
+            |_| GroupMember::Zombie,
+            || panic!("no probe after a listing")
+        ));
     }
 
     #[cfg(all(unix, feature = "local-runtime"))]
