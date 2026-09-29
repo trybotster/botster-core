@@ -85,7 +85,7 @@ fn run() -> Result<(), String> {
         .and_then(|_| io::stdout().flush())
         .map_err(|error| format!("publish worker readiness failed: {error}"))?;
     }
-    let initial = control.accept_initial()?;
+    let initial = control.accept_initial(args.parent_pid)?;
     let mut initial_control = initial.handshake_stream()?;
 
     let peer_version = read_hello(&mut initial_control).map_err(|error| error.to_string())?;
@@ -2495,11 +2495,27 @@ impl WorkerControl {
         }
     }
 
-    fn accept_initial(&self) -> Result<InitialControl, String> {
+    /// Wait for the first control connection. With a `parent`, the launcher's
+    /// pid, the wait ends with an error when that process exits first: no
+    /// connection can come, and the worker must not idle for one. Once a
+    /// connection is accepted the parent is no longer watched: a connected
+    /// worker outlives its parent on purpose.
+    fn accept_initial(&self, parent: Option<u32>) -> Result<InitialControl, String> {
         match self {
             Self::Stdio => Ok(InitialControl::Stdio),
             #[cfg(unix)]
             Self::Socket { listener, .. } => {
+                match initial_accept::wait_ready(listener, parent)
+                    .map_err(|error| format!("wait for the first control connection: {error}"))?
+                {
+                    initial_accept::Ready::Connection => {}
+                    initial_accept::Ready::ParentExited => {
+                        return Err(
+                            "the launching process exited before the first control connection"
+                                .to_string(),
+                        );
+                    }
+                }
                 let stream = listener.accept().map_err(|error| error.to_string())?.0;
                 Ok(InitialControl::Socket(stream))
             }
@@ -2508,6 +2524,151 @@ impl WorkerControl {
 
     fn shutdown_on_disconnect(&self) -> bool {
         matches!(self, Self::Stdio)
+    }
+}
+
+/// Wait until the control listener has a connection or the launcher exits.
+/// One blocking OS wait on both events: no thread, no timer.
+#[cfg(unix)]
+mod initial_accept {
+    use std::io;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixListener;
+
+    pub(super) enum Ready {
+        Connection,
+        ParentExited,
+    }
+
+    /// A connection that is already waiting wins over an exited parent: the
+    /// launcher connected, then died, and the handshake reports what it can.
+    #[cfg(target_os = "macos")]
+    pub(super) fn wait_ready(listener: &UnixListener, parent: Option<u32>) -> io::Result<Ready> {
+        // SAFETY: kqueue takes no arguments and returns a descriptor.
+        let kq = unsafe { libc::kqueue() };
+        if kq < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: kq is a descriptor this function owns.
+        let kq: std::os::fd::OwnedFd = unsafe { std::os::fd::FromRawFd::from_raw_fd(kq) };
+        let register = |ident: usize, filter: i16, fflags: u32| -> io::Result<()> {
+            let change = libc::kevent {
+                ident,
+                filter,
+                flags: libc::EV_ADD,
+                fflags,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            // SAFETY: one valid change record and no output records.
+            let result = unsafe {
+                libc::kevent(
+                    kq.as_raw_fd(),
+                    &change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if result < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        };
+        register(listener.as_raw_fd() as usize, libc::EVFILT_READ, 0)?;
+        if let Some(parent) = parent {
+            match register(parent as usize, libc::EVFILT_PROC, libc::NOTE_EXIT) {
+                Ok(()) => {}
+                // The launcher is already gone.
+                Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                    return Ok(Ready::ParentExited);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let mut events: [libc::kevent; 2] = unsafe { std::mem::zeroed() };
+        loop {
+            // SAFETY: the output array holds two records; no timeout waits for an event.
+            let count = unsafe {
+                libc::kevent(
+                    kq.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    2,
+                    std::ptr::null(),
+                )
+            };
+            if count < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            let ready = &events[..count as usize];
+            if ready.iter().any(|event| event.filter == libc::EVFILT_READ) {
+                return Ok(Ready::Connection);
+            }
+            if ready.iter().any(|event| event.filter == libc::EVFILT_PROC) {
+                return Ok(Ready::ParentExited);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn wait_ready(listener: &UnixListener, parent: Option<u32>) -> io::Result<Ready> {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let mut pidfd: Option<OwnedFd> = None;
+        if let Some(parent) = parent {
+            // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
+            let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, parent as libc::pid_t, 0) };
+            if fd < 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    return Ok(Ready::ParentExited);
+                }
+                return Err(error);
+            }
+            // SAFETY: fd was just returned by pidfd_open and nothing else owns it.
+            pidfd = Some(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) });
+        }
+        let mut fds = [
+            libc::pollfd {
+                fd: listener.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: pidfd.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        loop {
+            // SAFETY: the array holds two valid pollfd records; -1 waits for an event.
+            let count = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+            if count < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if fds[0].revents != 0 {
+                return Ok(Ready::Connection);
+            }
+            if fds[1].revents != 0 {
+                return Ok(Ready::ParentExited);
+            }
+        }
+    }
+
+    /// No exit event source here: wait for the connection alone.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    pub(super) fn wait_ready(_listener: &UnixListener, _parent: Option<u32>) -> io::Result<Ready> {
+        Ok(Ready::Connection)
     }
 }
 
@@ -2773,6 +2934,9 @@ struct WorkerArgs {
     pty_reader_chunk_capacity: usize,
     shutdown_grace_ms: u64,
     control_socket: Option<PathBuf>,
+    /// The launcher's pid. The worker watches it until the first control
+    /// connection is accepted.
+    parent_pid: Option<u32>,
     test_fail_after_spawn: bool,
     test_pending_capacity: Option<usize>,
     test_hold_before_exit_gate: Option<PathBuf>,
@@ -2789,6 +2953,7 @@ impl WorkerArgs {
         let mut pty_reader_chunk_capacity = botster_core::DEFAULT_PTY_READER_CHUNK_CAPACITY;
         let mut shutdown_grace_ms = 500;
         let mut control_socket = None;
+        let mut parent_pid = None;
         let mut test_fail_after_spawn = false;
         let mut test_pending_capacity = None;
         let mut test_hold_before_exit_gate = None;
@@ -2820,6 +2985,10 @@ impl WorkerArgs {
                         index,
                         "--control-socket",
                     )?));
+                }
+                "--parent-pid" => {
+                    index += 1;
+                    parent_pid = Some(parse_arg(&args, index, "--parent-pid")?);
                 }
                 "--test-fail-after-spawn" => {
                     test_fail_after_spawn = true;
@@ -2883,6 +3052,7 @@ impl WorkerArgs {
             pty_reader_chunk_capacity,
             shutdown_grace_ms,
             control_socket,
+            parent_pid,
             test_fail_after_spawn,
             test_pending_capacity,
             test_hold_before_exit_gate,
