@@ -73,8 +73,13 @@ pub const DEFAULT_WORKER_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const PING_WAIT: Duration = Duration::from_secs(2);
 const WORKER_REAP_GRACE: Duration = Duration::from_secs(2);
+/// Bound for a worker's startup: the readiness line on its stdout and the
+/// reply on its control stream. Sized for a loaded host (2 s was too short:
+/// nine lib tests failed "worker readiness timed out" when two shared test
+/// phases ran at once). A worker that exits, or a stream that ends, fails the
+/// spawn at once, not at this bound.
 #[cfg(unix)]
-const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
+const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(any(
     target_os = "macos",
@@ -1833,7 +1838,7 @@ fn launch_worker_inner(
             pending_worker.wait_for_socket_readiness()?;
             let stream = connect_spawned_worker_socket(&path, &mut pending_worker)?;
             stream
-                // timer: deadline — the worker startup reply deadline
+                // timer: deadline — the worker startup reply bound, sized for a loaded host; a closed stream fails at once
                 .set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))
                 .map_err(|error| {
                     SessionRuntimeError::new(
@@ -2840,7 +2845,7 @@ impl PendingWorker {
             let _ = sender.send(read_worker_readiness(stdout));
         });
         let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
-        // timer: deadline — worker startup; expiry fails the spawn with "worker readiness timed out"
+        // timer: deadline — worker startup, sized for a loaded host; expiry fails the spawn with "worker readiness timed out", and a worker exit or EOF fails it at once
         let readiness = receiver.recv_timeout(WORKER_STARTUP_TIMEOUT);
         match readiness {
             Ok(Ok(readiness)) => {

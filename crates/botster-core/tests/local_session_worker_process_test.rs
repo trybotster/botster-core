@@ -2212,7 +2212,7 @@ fn worker_process_argv_does_not_expose_spawn_environment_or_working_directory() 
 /// Run a freshly written fake worker once with `--warm`, which exits at
 /// once. macOS assesses a new executable on its first exec, which can take
 /// seconds under load; warming moves that cost out of the runtime's
-/// production 2 s worker-readiness deadline.
+/// production worker-readiness deadline.
 fn warm_fake_worker(script: &std::path::Path) {
     let status = Command::new(script)
         .arg("--warm")
@@ -2310,7 +2310,7 @@ fn real_worker_missing_executable_is_not_created_and_releases() {
 }
 
 /// A worker that exits before it reports readiness fails the spawn through
-/// its exit (the readiness pipe ends), not by waiting out the 2 s
+/// its exit (the readiness pipe ends), not by waiting out the 10 s
 /// startup deadline, and names its exit.
 #[test]
 fn a_worker_that_exits_before_ready_fails_the_spawn_at_its_exit() {
@@ -2346,13 +2346,65 @@ fn a_worker_that_exits_before_ready_fails_the_spawn_at_its_exit() {
         "the failure names the worker's exit: {}",
         error.message
     );
-    // The runtime's startup deadline (WORKER_STARTUP_TIMEOUT) is 2 s.
+    // The runtime's startup deadline (WORKER_STARTUP_TIMEOUT) is 10 s: half of
+    // it separates the exit ending the wait from the deadline ending it.
     assert!(
-        elapsed < Duration::from_secs(2),
-        "the exit ends the wait, not the 2 s startup deadline: {elapsed:?}"
+        elapsed < Duration::from_secs(5),
+        "the exit ends the wait, not the 10 s startup deadline: {elapsed:?}"
     );
     assert!(!reservation.startup_created_child());
     let _ = std::fs::remove_dir_all(control_dir);
+}
+
+/// A control stream that ends before the worker's startup reply fails the
+/// spawn through the EOF, not by waiting out the 10 s startup deadline.
+#[test]
+fn a_control_stream_that_ends_before_the_startup_reply_fails_the_spawn_at_the_eof() {
+    let control_dir = temp_control_dir("eof-before-reply");
+    create_private_control_dir(&control_dir);
+    let session = session_id("eof-before-reply");
+    let socket_path = derived_worker_socket(&control_dir, &session);
+    let (worker_script, worker_pid_path, started, bound, _hold) =
+        write_signaling_worker(&control_dir, "eof-worker");
+    let server_socket = socket_path.clone();
+    let server = thread::spawn(move || {
+        let _ = started.read_signal(Duration::from_secs(5));
+        let listener = UnixListener::bind(&server_socket).expect("bind fake worker endpoint");
+        bound.release(Duration::from_secs(5));
+        let (mut stream, _) = listener.accept().expect("accept startup connection");
+        botster_core::read_hello(&mut stream).expect("read hello");
+        let mut frame_len = [0_u8; 4];
+        stream
+            .read_exact(&mut frame_len)
+            .expect("read spawn frame length");
+        let mut frame = vec![0_u8; u32::from_le_bytes(frame_len) as usize];
+        stream
+            .read_exact(&mut frame)
+            .expect("read complete spawn frame");
+        assert_eq!(frame[0], botster_core::FRAME_SPAWN_SESSION);
+        // The spawn frame arrived and no reply comes: the stream ends here.
+        drop(stream);
+    });
+
+    let mut options = worker_options();
+    options.worker_path = worker_script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+    let started_at = Instant::now();
+    let (_reservation, result) = reserved_spawn(&mut runtime, shell_request(session, "cat"));
+    let elapsed = started_at.elapsed();
+    result.expect_err("a stream that ends before the reply fails the spawn");
+    server.join().expect("fake worker server");
+    // The runtime's startup deadline (WORKER_STARTUP_TIMEOUT) is 10 s: half of
+    // it separates the EOF ending the wait from the deadline ending it.
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the EOF ends the wait, not the 10 s startup deadline: {elapsed:?}"
+    );
+    end_fake_worker(&worker_pid_path);
+    let _ = std::fs::remove_file(worker_pid_path);
+    let _ = std::fs::remove_file(worker_script);
+    let _ = std::fs::remove_dir(control_dir);
 }
 
 #[test]
