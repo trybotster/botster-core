@@ -68,7 +68,7 @@ use crate::terminal_screen::TerminalScreenSize;
 use crate::terminal_screen::TerminalSnapshotPayload;
 use crate::{ClientId, SubscriptionId};
 #[cfg(feature = "local-runtime")]
-use crate::{ModeFlagsPayload, ScreenPayload, SessionMetadata};
+use crate::{CursorPayload, ModeFlagsPayload, ScreenPayload, SessionMetadata};
 
 /// Facade-level error for ergonomic Botster engine operations.
 pub type BotsterEngineError = MultiplexerEngineError;
@@ -1584,6 +1584,28 @@ impl WorkerBackedBotsterEngine {
             .runtime
             .session_runtime_mut()
             .begin_mode_flags_probe(session_id)?)
+    }
+
+    /// Start one correlated cursor probe at the worker.
+    pub fn begin_cursor_probe(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<String, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .begin_cursor_probe(session_id)?)
+    }
+
+    /// Take correlated cursor replies.
+    pub fn take_cursor_replies(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<Vec<CursorPayload>, WorkerBackedBotsterEngineError> {
+        Ok(self
+            .runtime
+            .session_runtime_mut()
+            .take_cursor_replies(session_id)?)
     }
 
     /// Take correlated mode-flags replies.

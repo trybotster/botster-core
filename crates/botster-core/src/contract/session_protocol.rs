@@ -112,6 +112,10 @@ pub const FRAME_MODES_CHANGED: u8 = 0x20;
 /// Payload: `[u32 LE header_len][WorkerFinalState JSON][raw GHOSTSNP bytes]`.
 /// The snapshot is present when the header reports `has_snapshot`.
 pub const FRAME_FINAL_STATE: u8 = 0x21;
+/// Parent to worker: request the cursor position and its row's text.
+pub const FRAME_GET_CURSOR: u8 = 0x22;
+/// Worker to parent: cursor read response, one Ghostty model read.
+pub const FRAME_CURSOR: u8 = 0x23;
 
 /// Length of the worker operation key prefix on input frames.
 pub const WORKER_OPERATION_KEY_BYTES: usize = 8;
@@ -226,6 +230,38 @@ pub struct ScreenPayload {
     /// Plain text of the visible screen.
     pub text: String,
     /// Optional read failure. When set, `text` is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+}
+
+/// The cursor and its row, read from one Ghostty model state.
+///
+/// Coordinates are 0-based in the active area, which is the visible screen:
+/// Core never scrolls a session's view back. `cursor_col` is a cell column.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorRow {
+    /// Cursor row.
+    pub row: u16,
+    /// Cursor column, in cells.
+    pub col: u16,
+    /// Whether the cursor is shown.
+    pub cursor_visible: bool,
+    /// Plain text of the cursor row, trailing blanks trimmed.
+    pub row_text: String,
+    /// Plain text of the cells strictly left of the cursor on its row,
+    /// untrimmed: blanks before the cursor are kept, and each wide character
+    /// appears once.
+    pub text_before_cursor: String,
+}
+
+/// Worker cursor reply for the correlated `FRAME_GET_CURSOR` RPC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorPayload {
+    /// Echo of the probe correlation id.
+    pub request_id: String,
+    /// The cursor read. Not authoritative when `error_kind` is set.
+    pub cursor: CursorRow,
+    /// Optional read failure kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
 }
