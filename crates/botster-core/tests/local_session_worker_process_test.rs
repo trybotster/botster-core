@@ -2409,8 +2409,9 @@ fn a_control_stream_that_ends_before_the_startup_reply_fails_the_spawn_at_the_eo
 
 /// A worker that closes its stdout without a readiness line and stays alive
 /// fails the spawn at once and is ended, not left to hold the spawn until the
-/// startup deadline. A descendant that holds the worker's stderr open must
-/// not hold the failure's reading either.
+/// startup deadline. Descendants that hold the worker's stderr open, one idle
+/// and one that writes without end, must not hold the failure's reading
+/// either.
 #[test]
 fn a_worker_that_closes_stdout_and_stays_alive_fails_the_spawn_at_once_and_is_ended() {
     let control_dir = temp_control_dir("eof-live-worker");
@@ -2419,12 +2420,13 @@ fn a_worker_that_closes_stdout_and_stays_alive_fails_the_spawn_at_once_and_is_en
     let pid_path = control_dir.join("closes-stdout.pid");
     let worker_hold = Fifo::new("live-eof-worker-hold");
     let descendant_hold = Fifo::new("live-eof-descendant-hold");
-    // The descendant keeps the inherited stderr open until the test releases
-    // it. The worker reports its reason on stderr, closes stdout, and blocks.
+    // One descendant keeps the inherited stderr open until the test releases
+    // it, and another writes to it without end (it ends when the pipe closes).
+    // The worker reports its reason on stderr, closes stdout, and blocks.
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\necho $$ > '{pid}'\n/bin/cat '{descendant}' >/dev/null <&- &\necho stuck-worker-reason >&2\nexec 1>&-\nexec /bin/cat '{worker}' >/dev/null\n",
+            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\necho $$ > '{pid}'\n/bin/cat '{descendant}' >/dev/null <&- &\necho stuck-worker-reason >&2\n/usr/bin/yes stuck-worker-noise <&- >&2 &\nexec 1>&-\nexec /bin/cat '{worker}' >/dev/null\n",
             pid = pid_path.display(),
             descendant = descendant_hold.path().display(),
             worker = worker_hold.path().display(),
