@@ -171,16 +171,17 @@ pub(crate) mod native {
         GHOSTTY_MODE_ALT_SCREEN, GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE,
         GHOSTTY_MODE_BRACKETED_PASTE, GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE,
         GHOSTTY_MODE_DECCKM, GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE,
-        GHOSTTY_MODE_SGR_MOUSE, GHOSTTY_NO_VALUE, GHOSTTY_POINT_TAG_ACTIVE, GHOSTTY_SUCCESS,
-        GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND, GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
-        GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND, GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
-        GHOSTTY_TERMINAL_DATA_COLS, GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
-        GHOSTTY_TERMINAL_DATA_CURSOR_X, GHOSTTY_TERMINAL_DATA_CURSOR_Y,
-        GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, GHOSTTY_TERMINAL_DATA_MODE,
-        GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
-        GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
-        GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
-        GHOSTTY_TERMINAL_OPT_USERDATA, GHOSTTY_TERMINAL_OPT_WRITE_PTY,
+        GHOSTTY_MODE_SGR_MOUSE, GHOSTTY_NO_VALUE, GHOSTTY_OUT_OF_SPACE, GHOSTTY_POINT_TAG_ACTIVE,
+        GHOSTTY_SUCCESS, GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_CURSOR, GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+        GHOSTTY_TERMINAL_DATA_COLOR_PALETTE, GHOSTTY_TERMINAL_DATA_COLS,
+        GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE, GHOSTTY_TERMINAL_DATA_CURSOR_X,
+        GHOSTTY_TERMINAL_DATA_CURSOR_Y, GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS,
+        GHOSTTY_TERMINAL_DATA_MODE, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+        GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+        GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
+        GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, GHOSTTY_TERMINAL_OPT_USERDATA,
+        GHOSTTY_TERMINAL_OPT_WRITE_PTY,
     };
     use crate::{GhosttyAdapterConfig, GHOSTTY_SNAPSHOT_FORMAT};
     use botster_core::{Rgb, TerminalColorProfile};
@@ -715,7 +716,6 @@ pub(crate) mod native {
 
             let mut row_text = String::new();
             let mut text_before_cursor = String::new();
-            let mut codepoints = [0u32; 32];
             for x in 0..cols {
                 let point = GhosttyPoint {
                     tag: GHOSTTY_POINT_TAG_ACTIVE,
@@ -757,16 +757,19 @@ pub(crate) mod native {
                 ) {
                     String::new()
                 } else {
+                    // Ask Ghostty for the cluster's length, then read exactly
+                    // that many codepoints: no cluster is cut and no size is
+                    // chosen here.
                     let mut len = 0usize;
                     let result = unsafe {
                         ghostty_grid_ref_graphemes(
                             &raw const grid_ref,
-                            codepoints.as_mut_ptr(),
-                            codepoints.len(),
+                            ptr::null_mut(),
+                            0,
                             &raw mut len,
                         )
                     };
-                    if result != GHOSTTY_SUCCESS {
+                    if result != GHOSTTY_SUCCESS && result != GHOSTTY_OUT_OF_SPACE {
                         return Err(GhosttyTerminalError::operation(
                             "grid_ref_graphemes",
                             result,
@@ -775,7 +778,23 @@ pub(crate) mod native {
                     if len == 0 {
                         " ".to_string()
                     } else {
-                        codepoints[..len.min(codepoints.len())]
+                        let mut codepoints = vec![0u32; len];
+                        let mut written = 0usize;
+                        let result = unsafe {
+                            ghostty_grid_ref_graphemes(
+                                &raw const grid_ref,
+                                codepoints.as_mut_ptr(),
+                                codepoints.len(),
+                                &raw mut written,
+                            )
+                        };
+                        if result != GHOSTTY_SUCCESS {
+                            return Err(GhosttyTerminalError::operation(
+                                "grid_ref_graphemes",
+                                result,
+                            ));
+                        }
+                        codepoints[..written.min(codepoints.len())]
                             .iter()
                             .filter_map(|codepoint| char::from_u32(*codepoint))
                             .collect()
@@ -1587,6 +1606,18 @@ pub(crate) mod native {
 
             runtime.write_output(b"\x1b[?25l");
             assert!(!runtime.read_cursor_row().expect("hidden").cursor_visible);
+
+            // A cluster of a base and more than 32 combining marks is one cell,
+            // and it is read whole.
+            let cluster: String = std::iter::once('e')
+                .chain(std::iter::repeat_n('\u{301}', 40))
+                .collect();
+            runtime.write_output(b"\x1b[?25h\x1b[6;1H");
+            runtime.write_output(format!("{cluster}z").as_bytes());
+            let read = runtime.read_cursor_row().expect("a long cluster");
+            assert_eq!((read.row, read.col), (5, 2));
+            assert_eq!(read.text_before_cursor, format!("{cluster}z"));
+            assert_eq!(read.row_text, format!("{cluster}z"));
         }
 
         #[test]
