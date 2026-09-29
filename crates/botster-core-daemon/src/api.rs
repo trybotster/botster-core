@@ -587,6 +587,17 @@ pub struct ReadModeFlagsRequest {
     pub now_seconds: u64,
 }
 
+/// Host request to read the cursor and its row, from one model state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadCursorRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to read.
+    pub session_id: SessionId,
+    /// Logical timestamp used for the readback source lookup.
+    pub now_seconds: u64,
+}
+
 /// Host request to capture the current terminal snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureSnapshotRequest {

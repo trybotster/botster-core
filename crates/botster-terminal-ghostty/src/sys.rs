@@ -141,8 +141,50 @@ pub(crate) const GHOSTTY_TERMINAL_DATA_COLS: GhosttyTerminalData = 1;
 /// Terminal rows (`uint16_t*`).
 pub(crate) const GHOSTTY_TERMINAL_DATA_ROWS: GhosttyTerminalData = 2;
 
+/// Cursor column in the active area, 0-based (`uint16_t*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_CURSOR_X: GhosttyTerminalData = 3;
+
+/// Cursor row in the active area, 0-based (`uint16_t*`).
+pub(crate) const GHOSTTY_TERMINAL_DATA_CURSOR_Y: GhosttyTerminalData = 4;
+
 /// Cursor visibility (`bool*`).
 pub(crate) const GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE: GhosttyTerminalData = 7;
+
+/// Point tag for the active area, where the cursor can move.
+pub(crate) const GHOSTTY_POINT_TAG_ACTIVE: c_int = 0;
+
+/// Column and row of a point (`uint16_t x`, `uint32_t y`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct GhosttyPointCoordinate {
+    pub(crate) x: u16,
+    pub(crate) y: u32,
+}
+
+/// The value of a point; the padding fixes the union's ABI size.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) union GhosttyPointValue {
+    pub(crate) coordinate: GhosttyPointCoordinate,
+    pub(crate) padding: [u64; 2],
+}
+
+/// A point in one of the terminal's coordinate spaces.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct GhosttyPoint {
+    pub(crate) tag: c_int,
+    pub(crate) value: GhosttyPointValue,
+}
+
+/// A reference to one grid cell. `size` is `sizeof` of the struct.
+#[repr(C)]
+pub(crate) struct GhosttyGridRef {
+    pub(crate) size: usize,
+    pub(crate) node: *mut c_void,
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+}
 
 /// Kitty keyboard protocol flags (`GhosttyKittyKeyFlags*`).
 pub(crate) const GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS: GhosttyTerminalData = 8;
@@ -433,6 +475,27 @@ unsafe extern "C" {
         terminal: GhosttyTerminal,
         data: GhosttyTerminalData,
         out: *mut c_void,
+    ) -> GhosttyResult;
+
+    /// Resolve a point to a grid reference.
+    pub(crate) fn ghostty_terminal_grid_ref(
+        terminal: GhosttyTerminal,
+        point: GhosttyPoint,
+        out_ref: *mut GhosttyGridRef,
+    ) -> GhosttyResult;
+
+    /// Read the packed cell a grid reference names.
+    pub(crate) fn ghostty_grid_ref_cell(
+        grid_ref: *const GhosttyGridRef,
+        out_cell: *mut GhosttyCell,
+    ) -> GhosttyResult;
+
+    /// Read the grapheme cluster codepoints of a referenced cell.
+    pub(crate) fn ghostty_grid_ref_graphemes(
+        grid_ref: *const GhosttyGridRef,
+        buf: *mut u32,
+        buf_len: usize,
+        out_len: *mut usize,
     ) -> GhosttyResult;
 
     /// Free a libghostty-vt terminal.
