@@ -2966,24 +2966,32 @@ impl PendingWorker {
     }
 }
 
-/// Read what a pipe holds now and stop where it would block. A pipe whose
-/// writer is gone ends at once; one a descendant still holds open must not
-/// hold the reader.
+/// Read the bytes a pipe holds now, as one snapshot, and stop there. A pipe
+/// whose writer is gone ends at once, and one a descendant still holds open
+/// must not hold the reader: bytes that arrive after the snapshot are not
+/// read, so a descendant that keeps writing cannot extend it. Nothing is read
+/// when the descriptor cannot be made non-blocking or its size cannot be read.
 #[cfg(unix)]
 fn read_available(pipe: &mut std::process::ChildStderr, out: &mut String) {
     use std::os::fd::AsRawFd;
-    // SAFETY: the descriptor is owned by `pipe`, which outlives both calls.
-    unsafe {
-        let fd = pipe.as_raw_fd();
+    let fd = pipe.as_raw_fd();
+    // SAFETY: the descriptor is owned by `pipe`, which outlives these calls.
+    let snapshot = unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+            return;
         }
-    }
-    let mut bytes = Vec::new();
+        let mut ready: libc::c_int = 0;
+        if libc::ioctl(fd, libc::FIONREAD, &mut ready) < 0 {
+            return;
+        }
+        usize::try_from(ready).unwrap_or(0)
+    };
+    let mut bytes = Vec::with_capacity(snapshot);
     let mut buffer = [0_u8; 4096];
-    loop {
-        match pipe.read(&mut buffer) {
+    while bytes.len() < snapshot {
+        let want = buffer.len().min(snapshot - bytes.len());
+        match pipe.read(&mut buffer[..want]) {
             Ok(0) => break,
             Ok(count) => bytes.extend_from_slice(&buffer[..count]),
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
