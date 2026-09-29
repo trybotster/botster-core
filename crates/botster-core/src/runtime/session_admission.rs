@@ -876,54 +876,119 @@ enum Listing {
     Members(Vec<i32>),
     /// The buffer filled: the listing may be cut short.
     Truncated,
-    /// No member came back. libproc reports a failed listing as an empty one,
-    /// so this is not proof that the group is empty.
-    Nothing,
+    /// The call succeeded and no process is in the group. A group whose last
+    /// member is in its final teardown can list this while the group still
+    /// answers a signal probe.
+    Empty,
+    /// The call failed. libproc returns 0 for a failed call, as for an empty
+    /// group; only `errno` tells them apart.
+    Failed,
 }
 
-/// Decide that a group is absent after `kill(-pgid, 0)` answered EPERM. Only
-/// a listing of members that are all zombies, or a fresh probe that finds no
-/// group at all, is proof.
+/// Read what a `proc_listpgrppids` call returned. `errno` was cleared before
+/// the call: a 0 with `errno` still clear is a real empty group, and a 0 with
+/// `errno` set is a failure.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+fn classify_listing(returned: i32, errno: i32, capacity: usize, pids: &[i32]) -> Listing {
+    let Ok(count) = usize::try_from(returned) else {
+        return Listing::Failed;
+    };
+    if errno != 0 {
+        return Listing::Failed;
+    }
+    if count == 0 {
+        return Listing::Empty;
+    }
+    if count >= capacity {
+        return Listing::Truncated;
+    }
+    Listing::Members(pids[..count.min(pids.len())].to_vec())
+}
+
+/// Decide that a group is absent after `kill(-pgid, 0)` answered EPERM.
+///
+/// Every member state is read after a listing, so a process that forked and
+/// left in between could hide a live child. A group holding only zombies
+/// gains no member, so absence needs two listings that agree: the first
+/// lists members that are all zombies or gone (or lists none), and `relist`,
+/// taken after the state reads, lists the same set or none. Any other second
+/// listing proves nothing; only a fresh probe that finds no group at all
+/// (`probe_finds_no_group`, an ESRCH) does.
 #[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
 fn absent_after_eperm(
-    listing: Listing,
+    first: Listing,
     member_state: impl Fn(i32) -> GroupMember,
+    relist: impl FnOnce() -> Listing,
     probe_finds_no_group: impl FnOnce() -> bool,
 ) -> bool {
-    match listing {
-        Listing::Truncated => false,
-        Listing::Nothing => probe_finds_no_group(),
-        Listing::Members(pids) => only_zombies_remain(pids.into_iter().map(member_state)),
+    match first {
+        Listing::Truncated | Listing::Failed => probe_finds_no_group(),
+        Listing::Empty => match relist() {
+            Listing::Empty => true,
+            _ => probe_finds_no_group(),
+        },
+        Listing::Members(before) => {
+            if !only_zombies_remain(before.iter().map(|pid| member_state(*pid))) {
+                return false;
+            }
+            match relist() {
+                Listing::Empty => true,
+                Listing::Members(after) if same_pids(&before, &after) => true,
+                _ => probe_finds_no_group(),
+            }
+        }
     }
 }
 
-/// Read the group's members and their states from the macOS process table.
+/// Whether two listings name the same processes, whatever their order.
+#[cfg(any(test, all(target_os = "macos", feature = "local-runtime")))]
+fn same_pids(left: &[i32], right: &[i32]) -> bool {
+    let mut left = left.to_vec();
+    let mut right = right.to_vec();
+    left.sort_unstable();
+    left.dedup();
+    right.sort_unstable();
+    right.dedup();
+    left == right
+}
+
+/// List the group's members from the macOS process table.
 #[cfg(all(target_os = "macos", feature = "local-runtime"))]
-fn group_members_all_zombies(process_group: i32) -> bool {
+fn list_group_members(process_group: i32) -> Listing {
     const CAPACITY: usize = 256;
     let mut pids = [0 as libc::pid_t; CAPACITY];
+    // SAFETY: errno is this thread's; clearing it lets the call's own failure
+    // show up in it afterwards.
+    unsafe { *libc::__error() = 0 };
     // SAFETY: the buffer and its byte size describe `pids`; the call fills at
     // most that many bytes and returns the number of pids it wrote.
-    let listed = unsafe {
+    let returned = unsafe {
         libc::proc_listpgrppids(
             process_group,
             pids.as_mut_ptr().cast(),
             std::mem::size_of_val(&pids) as libc::c_int,
         )
     };
-    let listing = match usize::try_from(listed) {
-        Ok(0) | Err(_) => Listing::Nothing,
-        Ok(count) if count >= CAPACITY => Listing::Truncated,
-        Ok(count) => Listing::Members(pids[..count].to_vec()),
-    };
-    absent_after_eperm(listing, member_state, || {
-        unsafe extern "C" {
-            fn kill(pid: i32, signal: i32) -> i32;
-        }
-        // SAFETY: Signal zero only observes the captured process group.
-        let result = unsafe { kill(-process_group, 0) };
-        result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-    })
+    let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+    classify_listing(returned, errno, CAPACITY, &pids)
+}
+
+/// Read the group's members and their states from the macOS process table.
+#[cfg(all(target_os = "macos", feature = "local-runtime"))]
+fn group_members_all_zombies(process_group: i32) -> bool {
+    absent_after_eperm(
+        list_group_members(process_group),
+        member_state,
+        || list_group_members(process_group),
+        || {
+            unsafe extern "C" {
+                fn kill(pid: i32, signal: i32) -> i32;
+            }
+            // SAFETY: Signal zero only observes the captured process group.
+            let result = unsafe { kill(-process_group, 0) };
+            result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        },
+    )
 }
 
 #[cfg(all(target_os = "macos", feature = "local-runtime"))]
@@ -1473,27 +1538,126 @@ mod tests {
         assert!(!super::only_zombies_remain([Gone, Unknown]));
     }
 
-    /// libproc reports a failed listing as an empty one. After EPERM, which
-    /// says a member exists, an empty listing is no proof: only a fresh probe
-    /// that finds no group frees the entry.
+    /// `errno`, cleared before the call, tells an empty group from a failed
+    /// call: libproc returns 0 for both.
     #[test]
-    fn an_empty_or_failed_listing_needs_a_second_probe_to_confirm_absence() {
+    fn a_listing_is_classified_by_its_return_and_errno() {
+        use super::{classify_listing, Listing};
+        assert_eq!(classify_listing(0, 0, 256, &[]), Listing::Empty);
+        assert_eq!(classify_listing(0, 12, 256, &[]), Listing::Failed);
+        assert_eq!(classify_listing(-1, 0, 256, &[]), Listing::Failed);
+        assert_eq!(classify_listing(2, 1, 256, &[7, 8]), Listing::Failed);
+        assert_eq!(classify_listing(256, 0, 256, &[0; 256]), Listing::Truncated);
+        assert_eq!(
+            classify_listing(2, 0, 256, &[7, 8, 0]),
+            Listing::Members(vec![7, 8])
+        );
+    }
+
+    /// Absence after EPERM needs two agreeing listings, or an ESRCH probe.
+    #[test]
+    fn absence_after_eperm_needs_two_agreeing_listings_or_an_esrch_probe() {
         use super::{absent_after_eperm, GroupMember, Listing};
+        let zombie = |_pid: i32| GroupMember::Zombie;
         let live = |_pid: i32| GroupMember::Live;
-        // The listing failed and the group still answers: present.
-        assert!(!absent_after_eperm(Listing::Nothing, live, || false));
-        // The members left between the probe and the listing: absent.
-        assert!(absent_after_eperm(Listing::Nothing, live, || true));
-        // A cut-short listing is never proof, whatever a probe says.
-        assert!(!absent_after_eperm(Listing::Truncated, live, || true));
-        // A listing of members decides by their states and never probes.
-        assert!(!absent_after_eperm(Listing::Members(vec![7]), live, || {
-            panic!("no probe after a listing")
-        }));
+        let no_relist = || -> Listing { panic!("no second listing") };
+        let no_probe = || -> bool { panic!("no probe") };
+        let members = |pids: &[i32]| Listing::Members(pids.to_vec());
+
+        // Zombies, listed twice as the same set in any order.
         assert!(absent_after_eperm(
-            Listing::Members(vec![7, 8]),
-            |_| GroupMember::Zombie,
-            || panic!("no probe after a listing")
+            members(&[7, 8]),
+            zombie,
+            || members(&[8, 7]),
+            no_probe
+        ));
+        // The zombies were reaped between the listings.
+        assert!(absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || Listing::Empty,
+            no_probe
+        ));
+        // A live member decides at once: no second listing.
+        assert!(!absent_after_eperm(
+            members(&[7]),
+            live,
+            no_relist,
+            no_probe
+        ));
+        // A child appeared between the listings: the set changed, so only an
+        // ESRCH probe can prove absence.
+        assert!(!absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || members(&[7, 9]),
+            || false
+        ));
+        assert!(absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || members(&[7, 9]),
+            || true
+        ));
+        // A failed or cut-short second listing proves nothing by itself.
+        assert!(!absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || Listing::Failed,
+            || false
+        ));
+        assert!(!absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || Listing::Truncated,
+            || false
+        ));
+        assert!(absent_after_eperm(
+            members(&[7]),
+            zombie,
+            || Listing::Failed,
+            || true
+        ));
+        // An empty first listing needs an empty second one, or the probe.
+        assert!(absent_after_eperm(
+            Listing::Empty,
+            live,
+            || Listing::Empty,
+            no_probe
+        ));
+        assert!(!absent_after_eperm(
+            Listing::Empty,
+            live,
+            || members(&[9]),
+            || false
+        ));
+        assert!(!absent_after_eperm(
+            Listing::Empty,
+            live,
+            || Listing::Failed,
+            || false
+        ));
+        assert!(absent_after_eperm(
+            Listing::Empty,
+            live,
+            || Listing::Failed,
+            || true
+        ));
+        // A failed or cut-short first listing is settled by the probe alone.
+        assert!(!absent_after_eperm(
+            Listing::Failed,
+            live,
+            no_relist,
+            || false
+        ));
+        assert!(absent_after_eperm(Listing::Failed, live, no_relist, || {
+            true
+        }));
+        assert!(!absent_after_eperm(
+            Listing::Truncated,
+            live,
+            no_relist,
+            || false
         ));
     }
 
