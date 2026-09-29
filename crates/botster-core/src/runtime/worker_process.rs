@@ -1842,9 +1842,14 @@ fn launch_worker_inner(
     let socket_path: Option<PathBuf> = None;
     let _socket_mode = socket_path.is_some();
     if let Some(path) = &socket_path {
+        // The worker outlives this process once it has connected. Until then
+        // it watches this pid, so an owner that dies first does not leave it
+        // waiting for a connection that cannot come.
         command
             .arg("--control-socket")
             .arg(path)
+            .arg("--parent-pid")
+            .arg(std::process::id().to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::piped());
     } else {
