@@ -13,7 +13,8 @@ use botster_terminal_protocol::{HistoryUnavailableReason, RouteId};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{
-    CaptureSnapshotRequest, ReadModeFlagsRequest, ReadScreenRequest, SpawnSessionRequest,
+    CaptureSnapshotRequest, ReadCursorRequest, ReadModeFlagsRequest, ReadScreenRequest,
+    SpawnSessionRequest,
 };
 use crate::daemon::CoreDaemonError;
 
@@ -24,7 +25,7 @@ pub use botster_core::runtime::{
 
 /// Maximum pending `Spawn` operations per daemon.
 pub const MAX_PENDING_SPAWNS: usize = 4;
-/// Maximum pending readbacks (`ReadScreen`, `ReadModeFlags`, `CaptureSnapshot`) per session.
+/// Maximum pending readbacks (`ReadScreen`, `ReadModeFlags`, `ReadCursor`, `CaptureSnapshot`) per session.
 pub const MAX_PENDING_READBACKS_PER_SESSION: usize = 8;
 /// Maximum open snapshot captures per client.
 pub const MAX_OPEN_CAPTURES_PER_CLIENT: usize = 4;
@@ -79,6 +80,8 @@ pub enum CoreOperation {
     ReadScreen(ReadScreenRequest),
     /// Read authoritative mode flags.
     ReadModeFlags(ReadModeFlagsRequest),
+    /// Read the cursor and its row in one model read.
+    ReadCursor(ReadCursorRequest),
     /// Capture a GHOSTSNP snapshot for paging by `read_snapshot_page`.
     CaptureSnapshot {
         /// Capture request.
@@ -104,6 +107,19 @@ pub struct ScreenReadback {
     pub text: Arc<str>,
     /// Set when history is unavailable; `text` is then empty.
     pub unavailable: Option<HistoryUnavailableReason>,
+}
+
+/// Cursor readback: the cursor and its row from one Ghostty model read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CursorReadback {
+    /// The session's output counter (the one `session_edges` returns) when
+    /// the read was issued. The read reflects at least every output chunk
+    /// counted by then: the worker had sent each one before it read the
+    /// request. It may also reflect later chunks.
+    pub output_seq: u64,
+    /// Cursor row and column (0-based, in cells), visibility, the row's
+    /// trimmed text, and the untrimmed text left of the cursor.
+    pub cursor: botster_core::CursorRow,
 }
 
 /// Mode flags readback.
@@ -276,6 +292,14 @@ pub enum CoreCompletion {
         /// Mode flags or failure.
         result: Result<ModeFlagsReadback, CoreDaemonError>,
     },
+    /// `ReadCursor` finished.
+    ReadCursor {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// Cursor read or failure. An ended session is
+        /// [`CoreDaemonError::SessionEnded`].
+        result: Result<CursorReadback, CoreDaemonError>,
+    },
     /// `CaptureSnapshot` finished.
     CaptureSnapshot {
         /// Operation identity.
@@ -308,6 +332,7 @@ impl CoreCompletion {
             | Self::ReleaseEndedSession { id, .. }
             | Self::ReadScreen { id, .. }
             | Self::ReadModeFlags { id, .. }
+            | Self::ReadCursor { id, .. }
             | Self::CaptureSnapshot { id, .. }
             | Self::CancelInput { id, .. } => *id,
         }

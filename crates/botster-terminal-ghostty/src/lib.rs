@@ -157,20 +157,25 @@ pub(crate) mod native {
     use botster_core::ModeFlags;
 
     use crate::sys::{
-        ghostty_formatter_format_alloc, ghostty_formatter_free, ghostty_formatter_terminal_new,
-        ghostty_free, ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free,
+        ghostty_cell_get, ghostty_formatter_format_alloc, ghostty_formatter_free,
+        ghostty_formatter_terminal_new, ghostty_free, ghostty_grid_ref_cell,
+        ghostty_grid_ref_graphemes, ghostty_snapshot_decoder_decode, ghostty_snapshot_decoder_free,
         ghostty_snapshot_decoder_new_buf, ghostty_snapshot_encode_alloc, ghostty_terminal_free,
-        ghostty_terminal_get, ghostty_terminal_new, ghostty_terminal_resize, ghostty_terminal_set,
-        ghostty_terminal_vt_write, GhosttyColorRgb, GhosttyFormatter, GhosttyFormatterFormat,
+        ghostty_terminal_get, ghostty_terminal_grid_ref, ghostty_terminal_new,
+        ghostty_terminal_resize, ghostty_terminal_set, ghostty_terminal_vt_write, GhosttyCell,
+        GhosttyCellWide, GhosttyColorRgb, GhosttyFormatter, GhosttyFormatterFormat,
         GhosttyFormatterScreenExtra, GhosttyFormatterTerminalExtra,
-        GhosttyFormatterTerminalOptions, GhosttyKittyKeyFlags, GhosttyMode, GhosttyResult,
-        GhosttySnapshotDecoder, GhosttyTerminalModeConfig, GhosttyWriter, GHOSTTY_MODE_ALT_SCREEN,
-        GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE, GHOSTTY_MODE_BRACKETED_PASTE,
-        GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE, GHOSTTY_MODE_DECCKM,
-        GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE, GHOSTTY_MODE_SGR_MOUSE,
-        GHOSTTY_NO_VALUE, GHOSTTY_SUCCESS, GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
-        GHOSTTY_TERMINAL_DATA_COLOR_CURSOR, GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
-        GHOSTTY_TERMINAL_DATA_COLOR_PALETTE, GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
+        GhosttyFormatterTerminalOptions, GhosttyGridRef, GhosttyKittyKeyFlags, GhosttyMode,
+        GhosttyPoint, GhosttyPointCoordinate, GhosttyPointValue, GhosttyResult,
+        GhosttySnapshotDecoder, GhosttyTerminalModeConfig, GhosttyWriter, GHOSTTY_CELL_DATA_WIDE,
+        GHOSTTY_MODE_ALT_SCREEN, GHOSTTY_MODE_ALT_SCREEN_SAVE, GHOSTTY_MODE_ANY_MOUSE,
+        GHOSTTY_MODE_BRACKETED_PASTE, GHOSTTY_MODE_BUTTON_MOUSE, GHOSTTY_MODE_CURSOR_VISIBLE,
+        GHOSTTY_MODE_DECCKM, GHOSTTY_MODE_FOCUS_EVENT, GHOSTTY_MODE_NORMAL_MOUSE,
+        GHOSTTY_MODE_SGR_MOUSE, GHOSTTY_NO_VALUE, GHOSTTY_POINT_TAG_ACTIVE, GHOSTTY_SUCCESS,
+        GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND, GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+        GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND, GHOSTTY_TERMINAL_DATA_COLOR_PALETTE,
+        GHOSTTY_TERMINAL_DATA_COLS, GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
+        GHOSTTY_TERMINAL_DATA_CURSOR_X, GHOSTTY_TERMINAL_DATA_CURSOR_Y,
         GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, GHOSTTY_TERMINAL_DATA_MODE,
         GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
         GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
@@ -675,6 +680,121 @@ pub(crate) mod native {
                 alt_screen,
                 focus_reporting: self.mode_is_set(GHOSTTY_MODE_FOCUS_EVENT)?,
                 application_cursor: self.mode_is_set(GHOSTTY_MODE_DECCKM)?,
+            })
+        }
+
+        /// Read the cursor and its row from one model state: position,
+        /// visibility, the row's trimmed text, and the untrimmed text left of
+        /// the cursor. Rows and columns are 0-based in the active area. A
+        /// wide character appears once; its trailing cell adds nothing.
+        pub fn read_cursor_row(&self) -> Result<botster_core::CursorRow, GhosttyTerminalError> {
+            let terminal = self.handle.as_ptr();
+            let get_u16 = |data, name: &'static str| -> Result<u16, GhosttyTerminalError> {
+                let mut value: u16 = 0;
+                let result =
+                    unsafe { ghostty_terminal_get(terminal, data, (&raw mut value).cast()) };
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation(name, result));
+                }
+                Ok(value)
+            };
+            let col = get_u16(GHOSTTY_TERMINAL_DATA_CURSOR_X, "cursor_x")?;
+            let row = get_u16(GHOSTTY_TERMINAL_DATA_CURSOR_Y, "cursor_y")?;
+            let cols = get_u16(GHOSTTY_TERMINAL_DATA_COLS, "cols")?;
+            let mut cursor_visible = true;
+            let visible = unsafe {
+                ghostty_terminal_get(
+                    terminal,
+                    GHOSTTY_TERMINAL_DATA_CURSOR_VISIBLE,
+                    (&raw mut cursor_visible).cast(),
+                )
+            };
+            if visible != GHOSTTY_SUCCESS {
+                cursor_visible = self.mode_is_set(GHOSTTY_MODE_CURSOR_VISIBLE)?;
+            }
+
+            let mut row_text = String::new();
+            let mut text_before_cursor = String::new();
+            let mut codepoints = [0u32; 32];
+            for x in 0..cols {
+                let point = GhosttyPoint {
+                    tag: GHOSTTY_POINT_TAG_ACTIVE,
+                    value: GhosttyPointValue {
+                        coordinate: GhosttyPointCoordinate {
+                            x,
+                            y: u32::from(row),
+                        },
+                    },
+                };
+                let mut grid_ref = GhosttyGridRef {
+                    size: std::mem::size_of::<GhosttyGridRef>(),
+                    node: ptr::null_mut(),
+                    x: 0,
+                    y: 0,
+                };
+                let result =
+                    unsafe { ghostty_terminal_grid_ref(terminal, point, &raw mut grid_ref) };
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation("grid_ref", result));
+                }
+                let mut cell: GhosttyCell = 0;
+                let result = unsafe { ghostty_grid_ref_cell(&raw const grid_ref, &raw mut cell) };
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation("grid_ref_cell", result));
+                }
+                let mut wide = GhosttyCellWide::Narrow;
+                let result = unsafe {
+                    ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, (&raw mut wide).cast())
+                };
+                if result != GHOSTTY_SUCCESS {
+                    return Err(GhosttyTerminalError::operation("cell_wide", result));
+                }
+                // The second cell of a wide character, and the blank that
+                // ends a row where one wrapped, hold no character of their own.
+                let text = if matches!(
+                    wide,
+                    GhosttyCellWide::SpacerTail | GhosttyCellWide::SpacerHead
+                ) {
+                    String::new()
+                } else {
+                    let mut len = 0usize;
+                    let result = unsafe {
+                        ghostty_grid_ref_graphemes(
+                            &raw const grid_ref,
+                            codepoints.as_mut_ptr(),
+                            codepoints.len(),
+                            &raw mut len,
+                        )
+                    };
+                    if result != GHOSTTY_SUCCESS {
+                        return Err(GhosttyTerminalError::operation(
+                            "grid_ref_graphemes",
+                            result,
+                        ));
+                    }
+                    if len == 0 {
+                        " ".to_string()
+                    } else {
+                        codepoints[..len.min(codepoints.len())]
+                            .iter()
+                            .filter_map(|codepoint| char::from_u32(*codepoint))
+                            .collect()
+                    }
+                };
+                if x < col {
+                    text_before_cursor.push_str(&text);
+                }
+                row_text.push_str(&text);
+            }
+            let trimmed = row_text.trim_end_matches(' ').len();
+            row_text.truncate(trimmed);
+            self.clear_last_error();
+            Ok(botster_core::CursorRow {
+                row,
+                col,
+                cursor_visible,
+                row_text,
+                text_before_cursor,
             })
         }
 
@@ -1426,6 +1546,47 @@ pub(crate) mod native {
                     .mouse_mode,
                 0
             );
+        }
+
+        #[test]
+        fn cursor_row_reads_position_and_text_from_one_model_state() {
+            let mut runtime = GhosttyTerminal::new(TerminalScreenSize::new(24, 80))
+                .expect("create Ghostty terminal");
+
+            let fresh = runtime.read_cursor_row().expect("fresh terminal");
+            assert_eq!((fresh.row, fresh.col), (0, 0));
+            assert!(fresh.cursor_visible);
+            assert_eq!(
+                (fresh.row_text.as_str(), fresh.text_before_cursor.as_str()),
+                ("", "")
+            );
+
+            // Row 1 holds a prompt, ASCII, two wide characters and one more
+            // ASCII character: nine cells, and the cursor ends after them.
+            runtime.write_output("\x1b[2;1H> ab\u{4f60}\u{597d}x".as_bytes());
+            let read = runtime.read_cursor_row().expect("after the row");
+            assert_eq!((read.row, read.col), (1, 9));
+            assert_eq!(read.row_text, "> ab\u{4f60}\u{597d}x");
+            assert_eq!(read.text_before_cursor, "> ab\u{4f60}\u{597d}x");
+
+            // The cursor moves back onto the row's fifth cell: the text left
+            // of it is the prompt and "ab", the row keeps all of its text.
+            runtime.write_output(b"\x1b[2;5H");
+            let read = runtime.read_cursor_row().expect("cursor moved left");
+            assert_eq!((read.row, read.col), (1, 4));
+            assert_eq!(read.text_before_cursor, "> ab");
+            assert_eq!(read.row_text, "> ab\u{4f60}\u{597d}x");
+
+            // Blanks left of the cursor are real and stay; blanks right of the
+            // text are trimmed from the row.
+            runtime.write_output(b"\x1b[4;3Hz  ");
+            let read = runtime.read_cursor_row().expect("blank prefix");
+            assert_eq!((read.row, read.col), (3, 5));
+            assert_eq!(read.text_before_cursor, "  z  ");
+            assert_eq!(read.row_text, "  z");
+
+            runtime.write_output(b"\x1b[?25l");
+            assert!(!runtime.read_cursor_row().expect("hidden").cursor_visible);
         }
 
         #[test]

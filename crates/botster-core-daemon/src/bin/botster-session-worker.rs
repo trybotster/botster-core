@@ -38,6 +38,7 @@ use botster_core::{
     FRAME_RESIZE, FRAME_RESIZE_APPLIED, FRAME_SCREEN, FRAME_SET_TIMEOUT, FRAME_SHUTDOWN,
     FRAME_SNAPSHOT, FRAME_SPAWN_SESSION, FRAME_TITLE_CHANGED, PROTOCOL_VERSION,
 };
+use botster_core::{CursorPayload, CursorRow, FRAME_CURSOR, FRAME_GET_CURSOR};
 use botster_terminal_ghostty::{
     GhosttyAdapterConfig, GhosttySnapshotFrameKind, GhosttyTerminal, GHOSTTY_SNAPSHOT_FORMAT,
 };
@@ -460,6 +461,23 @@ impl WorkerLoop {
                     },
                 };
                 state.egress.send_protected_json(FRAME_MODE_FLAGS, &payload);
+            }
+            FRAME_GET_CURSOR => {
+                let request_id = probe_request_id(&frame.payload);
+                state.drain_and_apply_pty_output(runtime)?;
+                let payload = match state.ghostty.read_cursor_row() {
+                    Ok(cursor) => CursorPayload {
+                        request_id,
+                        cursor,
+                        error_kind: None,
+                    },
+                    Err(error) => CursorPayload {
+                        request_id,
+                        cursor: CursorRow::default(),
+                        error_kind: Some(error.to_string()),
+                    },
+                };
+                state.egress.send_protected_json(FRAME_CURSOR, &payload);
             }
             FRAME_GET_SCREEN => {
                 let request_id = probe_request_id(&frame.payload);
