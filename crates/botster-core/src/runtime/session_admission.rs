@@ -830,7 +830,13 @@ fn process_group_absent(process_group: i32) -> bool {
         }
         // SAFETY: Signal zero only observes a positive, captured process group.
         let result = unsafe { kill(-process_group, 0) };
-        result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        let error = std::io::Error::last_os_error().raw_os_error();
+        // macOS answers EPERM for a group whose only members are zombies
+        // (exited, not yet reaped). A zombie holds nothing: the group is gone
+        // for admission, and the reaper needs no further event from us.
+        result == -1
+            && (error == Some(libc::ESRCH)
+                || (cfg!(target_os = "macos") && error == Some(libc::EPERM)))
     }
     #[cfg(not(all(unix, feature = "local-runtime")))]
     {
@@ -1286,6 +1292,31 @@ mod tests {
         first.runtime_ended();
         assert_eq!(second.state(), SessionReservationState::Reserved);
         assert_eq!(first.execution_state(), SessionReservationState::Released);
+    }
+
+    /// A group whose only member has exited but is not reaped probes as
+    /// EPERM on macOS. It counts as absent, so a release right after the
+    /// exit does not lose to the reap.
+    #[cfg(all(target_os = "macos", feature = "local-runtime"))]
+    #[test]
+    fn a_group_holding_only_an_unreaped_zombie_is_absent() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .process_group(0)
+            .spawn()
+            .expect("spawn the group leader");
+        let pid = child.id();
+        assert!(
+            botster_core_test_support::fixture_gate::wait_pid_exit(
+                pid,
+                botster_core_test_support::bounded_wait::HANG_GUARD
+            ),
+            "the leader exited"
+        );
+        // The exit event does not reap: the leader is still a zombie.
+        assert!(process_group_absent(i32::try_from(pid).expect("pid")));
+        child.wait().expect("reap the leader");
     }
 
     #[cfg(all(unix, feature = "local-runtime"))]
