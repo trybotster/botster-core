@@ -225,10 +225,11 @@ pub use engine::{
     PluginInvocationOutcome, PluginQueueProbe, PluginQueueProbeEvent, PluginTimerDrainOutcome,
     PluginTimerScheduleOutcome, PluginTimerScheduler, PluginWorkerDebugSnapshot,
     PluginWorkerEngine, PluginWorkerEngineConfig, PluginWorkerPluginDebugSnapshot,
-    PluginWorkerRegistration, PoolOverdraw, RoutedEnvelopeRouter, SessionWorkerEngine,
-    SessionWorkerOutcome, SessionWorkerRuntime, SessionWorkerRuntimeEvent, SubscriptionMultiplexer,
-    SubscriptionMultiplexerObservation, SubscriptionMultiplexerOutcome, TerminalScreenEngine,
-    TerminalScreenOutcome, TerminalScreenRuntime, UnitReturnedNotifier, ENGINE_COMMAND_KINDS,
+    PluginWorkerRegistration, PoolOverdraw, RoutedEnvelopeRouter, SessionEdgeAdvances,
+    SessionEdgeCounters, SessionWorkerEngine, SessionWorkerOutcome, SessionWorkerRuntime,
+    SessionWorkerRuntimeEvent, SubscriptionMultiplexer, SubscriptionMultiplexerObservation,
+    SubscriptionMultiplexerOutcome, TerminalScreenEngine, TerminalScreenOutcome,
+    TerminalScreenRuntime, UnitReturnedNotifier, ENGINE_COMMAND_KINDS,
 };
 #[cfg(feature = "local-runtime")]
 pub use engine::{

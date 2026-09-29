@@ -31,7 +31,7 @@ pub use api::{
     ObserveLifecycleStop, PostNotificationRequest, PostNotificationResult,
     PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome,
     ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
+    SessionAdoptionReport, SessionAdoptionState, SessionEdges, SessionLifecycleBaseline,
     SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
     SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
     SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
