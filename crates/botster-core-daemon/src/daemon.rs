@@ -3818,6 +3818,25 @@ impl CoreDaemon {
         session_id: SessionId,
         now_seconds: u64,
     ) -> Result<(), CoreDaemonError> {
+        let mut journal_taken = false;
+        let result = self.shutdown_session_pumping(session_id, now_seconds, &mut journal_taken);
+        // The host saw none of the internal pumps' outcomes. What they took
+        // is back in the daemon; the host gets one wake for it, so its next
+        // pump reports it. Posting it here, not in the loop, keeps the
+        // loop's own wait from returning at once.
+        if journal_taken {
+            self.engine.wake_source().interrupt_handle().interrupt();
+        }
+        self.post_edge_wake();
+        result
+    }
+
+    fn shutdown_session_pumping(
+        &mut self,
+        session_id: SessionId,
+        now_seconds: u64,
+        journal_taken: &mut bool,
+    ) -> Result<(), CoreDaemonError> {
         self.ensure_session(&session_id)?;
         let (shutdown_drain, shutdown_error) =
             match self
@@ -3839,8 +3858,12 @@ impl CoreDaemon {
             match self.pump_woken(&batch, now_seconds) {
                 Ok(outcome) => {
                     // The host sees none of this pump's outcome: keep its edge
-                    // advances for the host's next pump.
+                    // advances and its journal bit for the host's next pump.
                     self.restore_edge_advances(&outcome);
+                    if outcome.journal_advanced {
+                        self.journal_advanced = true;
+                        *journal_taken = true;
+                    }
                     final_output_drained = self.engine_session_exited(&session_id);
                 }
                 Err(CoreDaemonError::Engine(error)) if is_session_not_found(&error) => {
@@ -6746,6 +6769,52 @@ mod observe_pass_snapshot_tests {
         assert!(
             outcome.output_advanced.contains(&other),
             "the internal pump dropped another session's advance: {outcome:?}"
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// shutdown_session pumps internally and discards the outcome. The
+    /// journal bit that pump took, an append the host has not seen, stays for
+    /// the host's next pump, and the host gets a wake for it.
+    #[test]
+    fn a_shutdown_internal_pump_keeps_the_journal_bit_for_the_host() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "botster-journal-shutdown-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+        let woke = |daemon: &CoreDaemon| {
+            matches!(
+                daemon
+                    .wake_source()
+                    .wait_wakes_interruptible(Duration::ZERO),
+                botster_core::TerminalWakeWait::Interrupted
+            )
+        };
+        let stopped = SessionId("journal-shutdown-session".to_string());
+        daemon
+            .spawn(snapshot_spawn_request(&stopped), 10)
+            .expect("spawn");
+        // The spawn's append raised the bit and posted its wake. The host
+        // consumes that wake without pumping, so the bit stays unreported.
+        assert!(woke(&daemon), "the spawn append posted a wake");
+        assert!(daemon.journal_advanced);
+
+        daemon.shutdown(Some(stopped), 11).expect("shutdown");
+
+        assert!(
+            woke(&daemon),
+            "the host has a wake for the journal bit the internal pump took"
+        );
+        let outcome = daemon
+            .pump_woken(&TerminalWakeBatch::default(), 12)
+            .expect("the host's pump");
+        assert!(
+            outcome.journal_advanced,
+            "the internal pump dropped the journal bit: {outcome:?}"
         );
         let _ = std::fs::remove_dir_all(data_dir);
     }
