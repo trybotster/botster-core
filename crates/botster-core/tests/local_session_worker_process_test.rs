@@ -2407,6 +2407,73 @@ fn a_control_stream_that_ends_before_the_startup_reply_fails_the_spawn_at_the_eo
     let _ = std::fs::remove_dir(control_dir);
 }
 
+/// A worker that closes its stdout without a readiness line and stays alive
+/// fails the spawn at once and is ended, not left to hold the spawn until the
+/// startup deadline. A descendant that holds the worker's stderr open must
+/// not hold the failure's reading either.
+#[test]
+fn a_worker_that_closes_stdout_and_stays_alive_fails_the_spawn_at_once_and_is_ended() {
+    let control_dir = temp_control_dir("eof-live-worker");
+    create_private_control_dir(&control_dir);
+    let script = control_dir.join("closes-stdout");
+    let pid_path = control_dir.join("closes-stdout.pid");
+    let worker_hold = Fifo::new("live-eof-worker-hold");
+    let descendant_hold = Fifo::new("live-eof-descendant-hold");
+    // The descendant keeps the inherited stderr open until the test releases
+    // it. The worker reports its reason on stderr, closes stdout, and blocks.
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\necho $$ > '{pid}'\n/bin/cat '{descendant}' >/dev/null <&- &\necho stuck-worker-reason >&2\nexec 1>&-\nexec /bin/cat '{worker}' >/dev/null\n",
+            pid = pid_path.display(),
+            descendant = descendant_hold.path().display(),
+            worker = worker_hold.path().display(),
+        ),
+    )
+    .expect("write the live-EOF worker");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
+        .expect("make the live-EOF worker executable");
+    warm_fake_worker(&script);
+    let mut options = worker_options();
+    options.worker_path = script.clone();
+    options.control_socket_dir = Some(control_dir.clone());
+    let mut runtime = WorkerProcessRuntime::with_options(options);
+
+    let started = Instant::now();
+    let (_reservation, result) = reserved_spawn(
+        &mut runtime,
+        shell_request(session_id("eof-live-worker"), "cat"),
+    );
+    let elapsed = started.elapsed();
+    let error = match result.expect_err("a worker that closes stdout fails the spawn") {
+        ReservedSessionSpawnError::Admitted(error) => error,
+        other => panic!("the spawn fails after admission: {other:?}"),
+    };
+    // The startup deadline (WORKER_STARTUP_TIMEOUT) is 10 s: half of it
+    // separates the EOF ending the wait from the deadline ending it.
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the EOF ends the wait, not the 10 s startup deadline: {elapsed:?}"
+    );
+    assert!(
+        error.message.contains("stuck-worker-reason"),
+        "the failure carries the worker's stderr: {}",
+        error.message
+    );
+    // The worker was killed: it does not stay blocked on its FIFO.
+    let pid: u32 = std::fs::read_to_string(&pid_path)
+        .expect("the worker wrote its pid")
+        .trim()
+        .parse()
+        .expect("pid");
+    assert!(
+        wait_pid_exit(pid, HANG_GUARD),
+        "the spawn ended the worker it owned"
+    );
+    descendant_hold.release(Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(control_dir);
+}
+
 #[test]
 fn spf1_wrong_worker_pid_is_unknown() {
     let control_dir = temp_control_dir("spf1-pid");

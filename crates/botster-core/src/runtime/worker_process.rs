@@ -2879,7 +2879,6 @@ impl PendingWorker {
         thread::spawn(move || {
             let _ = sender.send(read_worker_readiness(stdout));
         });
-        let deadline = Instant::now() + WORKER_STARTUP_TIMEOUT;
         // timer: deadline — worker startup, sized for a loaded host; expiry fails the spawn with "worker readiness timed out", and a worker exit or EOF fails it at once
         let readiness = receiver.recv_timeout(WORKER_STARTUP_TIMEOUT);
         match readiness {
@@ -2894,10 +2893,19 @@ impl PendingWorker {
                 ))
             }
             Ok(Err(error)) => {
-                // Stdout ended without a readiness line: the worker is exiting.
-                // timer: deadline — rest of worker startup; expiry reports the readiness read failure
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let _ = super::process_exit::wait_for_pid_exit(self.child_id(), Some(remaining));
+                // Stdout ended without a readiness line. A worker that is
+                // exiting is gone in a moment, but one that closed stdout and
+                // stays alive would hold this spawn until the startup bound.
+                // No readiness line will come, so the owned child is killed
+                // through its handle and its exit awaited.
+                if let Some(child) = self.child.as_mut() {
+                    let _ = child.kill();
+                }
+                // timer: deadline — the killed worker's exit; expiry reports the readiness read failure
+                let _ = super::process_exit::wait_for_pid_exit(
+                    self.child_id(),
+                    Some(WORKER_REAP_GRACE),
+                );
                 if let Some(diagnostic) = self.exited_diagnostic() {
                     return Err(SessionRuntimeError::new(
                         SessionRuntimeErrorKind::SpawnFailed,
@@ -2945,7 +2953,9 @@ impl PendingWorker {
         let status = child.try_wait().ok().flatten()?;
         let mut stderr = String::new();
         if let Some(mut pipe) = child.stderr.take() {
-            let _ = pipe.read_to_string(&mut stderr);
+            // A descendant of the worker can hold the pipe open after the
+            // worker is gone, so read only what is there.
+            read_available(&mut pipe, &mut stderr);
         }
         let stderr = stderr.trim();
         Some(if stderr.is_empty() {
@@ -2954,6 +2964,33 @@ impl PendingWorker {
             stderr.to_string()
         })
     }
+}
+
+/// Read what a pipe holds now and stop where it would block. A pipe whose
+/// writer is gone ends at once; one a descendant still holds open must not
+/// hold the reader.
+#[cfg(unix)]
+fn read_available(pipe: &mut std::process::ChildStderr, out: &mut String) {
+    use std::os::fd::AsRawFd;
+    // SAFETY: the descriptor is owned by `pipe`, which outlives both calls.
+    unsafe {
+        let fd = pipe.as_raw_fd();
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
+    }
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match pipe.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => bytes.extend_from_slice(&buffer[..count]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    out.push_str(&String::from_utf8_lossy(&bytes));
 }
 
 #[cfg(unix)]
