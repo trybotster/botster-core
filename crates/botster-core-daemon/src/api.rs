@@ -27,6 +27,36 @@ pub struct PumpWokenOutcome {
     /// interrupts the host's wait (a stored permit, once per rising edge), so
     /// the next pump reports it; no host polls for it.
     pub journal_advanced: bool,
+    /// Sessions whose mode flags changed since the last successful pump,
+    /// sorted by id. Read [`crate::CoreDaemon::session_edges`] for the flags.
+    pub modes_advanced: Vec<SessionId>,
+    /// Sessions whose output advanced (a drained chunk) since the last
+    /// successful pump, sorted by id; attached or not.
+    pub output_advanced: Vec<SessionId>,
+    /// Sessions with accepted client input that counts as human activity
+    /// since the last successful pump, sorted by id. Host writes never count.
+    pub input_advanced: Vec<SessionId>,
+}
+
+/// One session's host edge counters, read by
+/// [`crate::CoreDaemon::session_edges`].
+///
+/// Every counter is monotonic for the session id while its registry row
+/// exists: a respawn after `release_ended_session` continues them (and
+/// resets `composing`); `remove_session` drops them, and a later spawn of
+/// the id starts at 0. A session that has not advanced yet reads as zero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionEdges {
+    /// Moves when the session's mode flags change.
+    pub modes_epoch: u64,
+    /// The flags of the last mode report; `None` before the first.
+    pub mode_flags: Option<botster_core::ModeFlags>,
+    /// Moves per drained output chunk.
+    pub output_seq: u64,
+    /// Moves per accepted client input command that is human activity.
+    pub input_seq: u64,
+    /// Client input sits in the line since its last submit.
+    pub composing: bool,
 }
 
 /// Host request to spawn a daemon-owned session.

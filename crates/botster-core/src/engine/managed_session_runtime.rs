@@ -961,7 +961,14 @@ where
     /// Forget all managed engine state for one terminal session.
     pub fn forget_terminal_session(&mut self, session_id: &SessionId) -> bool {
         self.forget_managed_session_state(session_id);
-        self.engine.forget_terminal_session(session_id)
+        let forgotten = self.engine.forget_terminal_session(session_id);
+        if forgotten || self.engine.session(session_id).is_none() {
+            // A later spawn of the id is a new entity: its counters start at 0.
+            // An id released earlier has no engine session, but its counters
+            // were kept for a respawn; its removal drops them here.
+            self.client_worker.forget_session_edges(session_id);
+        }
+        forgotten
     }
 
     /// Forget an ended session, as [`Self::forget_terminal_session`] does,
@@ -972,6 +979,8 @@ where
             return false;
         }
         self.forget_managed_session_state(session_id);
+        // The same id runs again: its counters continue, its line is empty.
+        self.client_worker.reset_session_composing(session_id);
         self.engine.release_terminal_session(session_id)
     }
 
@@ -1609,6 +1618,37 @@ where
     #[must_use]
     pub fn take_bound_queue_wake_sessions(&mut self) -> HashSet<SessionId> {
         self.client_worker.take_bound_queue_wake_sessions()
+    }
+
+    /// The session's host edge counters, or `None` when Core keeps no record.
+    #[must_use]
+    pub fn session_edge_counters(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<crate::SessionEdgeCounters> {
+        self.client_worker.session_edge_counters(session_id)
+    }
+
+    /// Mode bits of the session's last mode report, if any.
+    #[must_use]
+    pub fn session_edge_mode_bits(&self, session_id: &SessionId) -> Option<u32> {
+        self.client_worker.session_edge_mode_bits(session_id)
+    }
+
+    /// Take the sessions whose edge counters moved since the last take.
+    pub fn take_edge_advances(&mut self) -> crate::SessionEdgeAdvances {
+        self.client_worker.take_edge_advances()
+    }
+
+    /// Put back advances that a consumer did not report.
+    pub fn restore_edge_advances(&mut self, advances: crate::SessionEdgeAdvances) {
+        self.client_worker.restore_edge_advances(advances);
+    }
+
+    /// Whether any edge counter moved since the last take.
+    #[must_use]
+    pub fn has_edge_advances(&self) -> bool {
+        self.client_worker.has_edge_advances()
     }
 
     /// Whether any live owner still holds undelivered frames for this session.
